@@ -1,0 +1,142 @@
+/* Storage Panel Styles — mirrors settings-panel.css pattern */
+
+/* Backdrop */
+.storage-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-base);
+  z-index: 94;
+}
+
+.storage-panel-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Panel */
+.storage-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  background: var(--color-bg-surface);
+  border-left: 1px solid var(--color-border-subtle);
+  transform: translateX(100%);
+  transition: transform var(--transition-slow);
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.storage-panel.open {
+  transform: translateX(0);
+}
+
+/* Header */
+.storage-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+  flex-shrink: 0;
+}
+
+.storage-panel-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.storage-panel-close-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.storage-panel-close-button:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-text-primary);
+}
+
+/* Content */
+.storage-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.storage-panel-content .storage-browser {
+  flex: 1;
+  min-height: 0;
+}
+
+.storage-panel-content .file-preview {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+/* Scrollbar styling */
+.storage-panel-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.storage-panel-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.storage-panel-content::-webkit-scrollbar-thumb {
+  background: var(--color-border-subtle);
+  border-radius: var(--radius-full);
+}
+
+.storage-panel-content::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-default);
+}
+
+/* ======================================
+   Mobile: bottom sheet
+   ====================================== */
+@media (max-width: 640px) {
+  .storage-panel {
+    width: 100vw;
+    top: auto;
+    bottom: 0;
+    max-height: 70vh;
+    border-left: none;
+    border-top: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    transform: translateY(100%);
+  }
+
+  .storage-panel.open {
+    transform: translateY(0);
+  }
+
+  .storage-panel-close-button {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .storage-panel {
+    transition: none;
+  }
+
+  .storage-panel-backdrop {
+    transition: none;
+  }
+}

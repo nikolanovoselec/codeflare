@@ -1,0 +1,195 @@
+name: Deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: production
+    timeout-minutes: 20
+    env:
+      WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Cache root node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: cache-root
+        with:
+          path: node_modules
+          key: root-${{ hashFiles('package-lock.json') }}
+
+      - name: Cache web-ui node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: cache-webui
+        with:
+          path: web-ui/node_modules
+          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
+
+      - name: Install root dependencies
+        if: steps.cache-root.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Install web-ui dependencies
+        if: steps.cache-webui.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: web-ui
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: web-ui
+
+      - name: Run backend tests
+        run: npm test
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: web-ui
+
+      - name: Type check backend
+        run: npm run typecheck
+
+      - name: Type check frontend
+        run: npm run typecheck
+        working-directory: web-ui
+
+      - name: Resolve KV namespace
+        run: |
+          KV_TITLE="${WORKER_NAME}-kv"
+
+          # Check if namespace already exists
+          KV_ID=$(npx wrangler kv namespace list 2>/dev/null \
+            | sed -n '/^\[/,/^\]/p' \
+            | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
+            | head -1)
+
+          if [ -z "$KV_ID" ]; then
+            echo "Creating KV namespace: $KV_TITLE"
+            KV_ID=$(npx wrangler kv namespace create "$KV_TITLE" 2>&1 \
+              | grep -oP '"[a-f0-9]{32}"' | tr -d '"' | head -1)
+          fi
+
+          if [ -z "$KV_ID" ]; then
+            echo "::error::Failed to resolve KV namespace ID"
+            exit 1
+          fi
+
+          echo "KV namespace ID: $KV_ID"
+          sed -i "s/id = \"placeholder\"/id = \"$KV_ID\"/" wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Apply worker name to wrangler config
+        run: |
+          sed -i "0,/^name = \".*\"/{s/^name = \".*\"/name = \"${WORKER_NAME}\"/}" wrangler.toml
+          echo "Using worker name: ${WORKER_NAME}"
+          sed -n '1,8p' wrangler.toml
+          echo "--- Verifying DO binding intact ---"
+          grep 'name = "CONTAINER"' wrangler.toml || { echo "FATAL: DO binding name corrupted!"; exit 1; }
+
+      - name: Apply container resource tier
+        run: |
+          TIER="${{ vars.RESSOURCE_TIER || 'default' }}"
+
+          case "$TIER" in
+            low)
+              # 0.25 vCPU / 1 GiB RAM / 4 GB disk (Cloudflare basic preset)
+              INSTANCE_BLOCK='instance_type = "basic"'
+              MAX_INSTANCES=3
+              ;;
+            high)
+              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 2\nmemory_mib = 6144\ndisk_mb = 8000'
+              MAX_INSTANCES=5
+              ;;
+            default)
+              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 4000'
+              MAX_INSTANCES=4
+              ;;
+            *)
+              echo "::error::Invalid RESSOURCE_TIER=\"$TIER\". Allowed values: low, high. Leave unset for default."
+              exit 1
+              ;;
+          esac
+
+          awk -v block="$INSTANCE_BLOCK" -v max_instances="$MAX_INSTANCES" '
+            BEGIN {
+              skip_old = 0;
+            }
+            {
+              if ($0 ~ /^max_instances = /) {
+                print "max_instances = " max_instances;
+                print "";
+                n = split(block, lines, "\n");
+                for (i = 1; i <= n; i++) {
+                  print lines[i];
+                }
+                skip_old = 1;
+                next;
+              }
+
+              if (skip_old == 1) {
+                if ($0 ~ /^\[containers\.instance_type\]/) next;
+                if ($0 ~ /^vcpu = /) next;
+                if ($0 ~ /^memory_mib = /) next;
+                if ($0 ~ /^disk_mb = /) next;
+                if ($0 ~ /^instance_type = /) next;
+                if ($0 ~ /^$/) next;
+                skip_old = 0;
+              }
+
+              print $0;
+            }
+          ' wrangler.toml > wrangler.toml.tmp
+
+          mv wrangler.toml.tmp wrangler.toml
+
+          echo "Using RESSOURCE_TIER=${TIER}"
+          echo "Resolved max_instances=${MAX_INSTANCES}"
+          echo "Resolved container config:"
+          sed -n '30,52p' wrangler.toml
+
+      - name: Generate claude-unleashed cache buster (optional)
+        if: ${{ vars.CLAUDE_UNLEASHED_CACHE_BUSTER == 'active' }}
+        run: echo "${{ github.sha }}" > .cache-bust
+
+      - name: Use default Docker builder
+        run: docker buildx use default
+
+      - name: Deploy to Cloudflare
+        run: npx wrangler deploy --name "${WORKER_NAME}" --var ONBOARDING_LANDING_PAGE:${{ vars.ONBOARDING_LANDING_PAGE || 'inactive' }} --var CLOUDFLARE_WORKER_NAME:${WORKER_NAME}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set API token as worker secret
+        run: printf '%s' "${{ secrets.CLOUDFLARE_API_TOKEN }}" | npx wrangler secret put CLOUDFLARE_API_TOKEN --name "${WORKER_NAME}" 2>/dev/null
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set Resend API key as worker secret (optional onboarding mode)
+        if: ${{ vars.ONBOARDING_LANDING_PAGE == 'active' }}
+        run: |
+          if [ -z "${RESEND_API_KEY}" ]; then
+            echo "::error::ONBOARDING_LANDING_PAGE=active requires RESEND_API_KEY repository secret"
+            exit 1
+          fi
+          printf '%s' "${RESEND_API_KEY}" | npx wrangler secret put RESEND_API_KEY --name "${WORKER_NAME}" 2>/dev/null
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

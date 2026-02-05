@@ -1,0 +1,69 @@
+name: E2E Tests
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    env:
+      ACCOUNT_SUBDOMAIN: ${{ vars.ACCOUNT_SUBDOMAIN }}
+      CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
+    steps:
+      - name: Validate required variables
+        run: |
+          if [ -z "$ACCOUNT_SUBDOMAIN" ]; then
+            echo "::error::ACCOUNT_SUBDOMAIN is not set. Configure it in repository variables."
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Verify DEV_MODE prerequisite
+        # E2E tests require DEV_MODE=true to bypass Cloudflare Access auth.
+        # Without it, all API calls return 401 and tests fail silently.
+        # Set DEV_MODE="true" in wrangler.toml [vars] and deploy before running.
+        # See gotcha #47: DEV_MODE lifecycle can break production if not handled correctly.
+        run: |
+          if [ -z "${DEV_MODE:-}" ]; then
+            echo "::warning::DEV_MODE is not set in the workflow environment. E2E tests require DEV_MODE=true in the deployed worker (wrangler.toml [vars]) to bypass Cloudflare Access auth. Ensure the worker was deployed with DEV_MODE=true before running these tests."
+          fi
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Cache root node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: cache-root
+        with:
+          path: node_modules
+          key: root-${{ hashFiles('package-lock.json') }}
+
+      - name: Cache web-ui node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: cache-webui
+        with:
+          path: web-ui/node_modules
+          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
+
+      - name: Install root dependencies
+        if: steps.cache-root.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Install web-ui dependencies
+        if: steps.cache-webui.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: web-ui
+
+      - name: Install Puppeteer Chrome
+        run: npx puppeteer browsers install chrome
+
+      - name: Run E2E API tests
+        run: npm run test:e2e
+
+      - name: Run E2E UI tests
+        run: npm run test:e2e:ui

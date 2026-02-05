@@ -1,0 +1,75 @@
+/* Session Dropdown — popover (desktop) / bottom sheet (mobile) */
+
+.session-dropdown__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+
+/* Desktop popover — background matches .dashboard-panel-left exactly
+   so SessionStatCard renders identically in both contexts.
+   No backdrop-filter: it creates a new stacking context that shifts
+   semi-transparent card backgrounds and breaks fixed-positioned children. */
+.session-dropdown--popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: calc(var(--dashboard-left-width, 280px) + 1px);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  background: rgba(31, 31, 34, 1);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-4);
+  z-index: 80;
+  animation: fadeInUp 200ms ease-out;
+}
+
+/* Mobile bottom sheet */
+.session-dropdown--bottom-sheet {
+  position: fixed;
+  top: auto;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  min-width: auto;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: rgba(31, 31, 34, 1);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-3);
+  z-index: 200;
+  animation: fadeInUp 200ms ease-out;
+}
+
+.session-dropdown__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.session-dropdown__new-session {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: var(--space-2);
+  margin-top: 0;
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.session-dropdown__new-session:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}

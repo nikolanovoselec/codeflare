@@ -1,0 +1,12 @@
+# Local development overrides (copy to .dev.vars)
+# These are set automatically by the Setup Wizard on first deployment.
+# For local dev without running the wizard, set them here.
+
+# CLOUDFLARE_API_TOKEN=your-api-token
+# R2_ACCESS_KEY_ID=your-r2-access-key
+# R2_SECRET_ACCESS_KEY=your-r2-secret-key
+
+# Optional: Override dynamic resolution (normally resolved from KV)
+# R2_ACCOUNT_ID=your-account-id
+# R2_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
+# SERVICE_TOKEN_EMAIL=your@email.com

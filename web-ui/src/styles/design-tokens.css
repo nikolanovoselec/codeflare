@@ -1,0 +1,209 @@
+/* ==========================================================================
+   Design Tokens - Codeflare Design System
+   ========================================================================== */
+
+:root {
+  /* ==========================================================================
+     Colors - Backgrounds
+     ========================================================================== */
+
+  /* Backgrounds - deeper, more sophisticated */
+  --color-bg-base: #09090b;        /* Zinc 950 - true black base */
+  --color-bg-surface: #18181b;     /* Zinc 900 - cards, sidebars */
+  --color-bg-tertiary: #1f1f23;    /* Between surface and elevated */
+  --color-bg-elevated: #27272a;    /* Zinc 800 - modals, dropdowns */
+  --color-bg-muted: #3f3f46;       /* Zinc 700 - hover states */
+
+  /* ==========================================================================
+     Colors - Borders
+     ========================================================================== */
+
+  --color-border-subtle: #27272a;  /* Subtle borders */
+  --color-border-default: #3f3f46; /* Default borders */
+  --color-border-strong: #52525b;  /* Strong borders, focus rings */
+
+  /* ==========================================================================
+     Colors - Text
+     ========================================================================== */
+
+  --color-text-primary: #fafafa;   /* Zinc 50 - headings, important */
+  --color-text-secondary: #a1a1aa; /* Zinc 400 - body text */
+  --color-text-muted: #71717a;     /* Zinc 500 - labels, hints */
+  --color-text-dimmed: #52525b;    /* Zinc 600 - disabled */
+
+  /* ==========================================================================
+     Colors - Accent (HSL-based — change --accent-hue to retheme)
+     ========================================================================== */
+
+  --accent-hue: 217;
+  --accent-s: 91%;
+  --accent-l: 60%;
+
+  --color-accent: hsl(var(--accent-hue), var(--accent-s), var(--accent-l));
+  --color-accent-hover: hsl(var(--accent-hue), var(--accent-s), 53%);
+  --color-accent-muted: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
+
+  /* ==========================================================================
+     Colors - Semantic
+     ========================================================================== */
+
+  /* Success */
+  --color-success: #22c55e;        /* Green 500 */
+  --color-success-muted: rgba(34, 197, 94, 0.15);
+  --color-success-bg: rgba(34, 197, 94, 0.1);
+
+  /* Warning */
+  --color-warning: #f59e0b;        /* Amber 500 */
+  --color-warning-muted: rgba(245, 158, 11, 0.15);
+
+  /* Error */
+  --color-error: #ef4444;          /* Red 500 */
+  --color-error-hover: #dc2626;    /* Red 600 */
+  --color-error-muted: rgba(239, 68, 68, 0.15);
+  --color-error-bg: rgba(239, 68, 68, 0.1);
+  --color-error-border: rgba(239, 68, 68, 0.3);
+
+  /* Info */
+  --color-info: #3b82f6;           /* Blue 500 */
+
+  /* ==========================================================================
+     Colors - Special
+     ========================================================================== */
+
+  --color-terminal-bg: #0a0a0c;    /* Even darker for terminal */
+  --color-glow-accent: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.4);
+  --color-bg-overlay: rgba(24, 24, 27, 0.8);
+  --color-bg-elevated-hover: rgba(39, 39, 42, 0.9);
+  --color-bg-gradient: linear-gradient(135deg,
+    hsl(var(--accent-hue), 20%, 4%) 0%,
+    hsl(var(--accent-hue), 40%, 9%) 35%,
+    hsl(var(--accent-hue), 44%, 13%) 65%,
+    hsl(var(--accent-hue), 38%, 8%) 100%);
+
+  /* ==========================================================================
+     Colors - Glass Effects
+     ========================================================================== */
+
+  /* Glass effects for modern UI */
+  --color-glass-border: rgba(255, 255, 255, 0.08);
+
+  /* Terminal theme (xterm.js) */
+  --color-terminal-theme-bg: hsl(var(--accent-hue), 27%, 14%);
+  --color-terminal-theme-black: hsl(var(--accent-hue), 27%, 14%);
+  --color-terminal-theme-bright-black: hsl(var(--accent-hue), 15%, 47%);
+
+  /* ==========================================================================
+     Colors - Tab Types
+     ========================================================================== */
+
+  /* Terminal tab type colors */
+  --color-tab-claude: hsl(var(--accent-hue), var(--accent-s), var(--accent-l));
+  --color-tab-htop: #22c55e;      /* Green - htop */
+  --color-tab-yazi: #3b82f6;      /* Blue - yazi */
+  --color-tab-terminal: #f59e0b;  /* Amber - generic terminal */
+
+  /* ==========================================================================
+     Typography - Font Families
+     ========================================================================== */
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+
+  /* ==========================================================================
+     Typography - Font Sizes
+     ========================================================================== */
+
+  --text-xs: 0.75rem;    /* 12px - labels, badges */
+  --text-sm: 0.8125rem;  /* 13px - secondary text */
+  --text-base: 0.875rem; /* 14px - body */
+  --text-lg: 1rem;       /* 16px - section headers */
+  --text-xl: 1.125rem;   /* 18px - page headers */
+
+  /* ==========================================================================
+     Typography - Line Heights
+     ========================================================================== */
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+
+  /* ==========================================================================
+     Typography - Font Weights
+     ========================================================================== */
+
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* ==========================================================================
+     Spacing Scale
+     ========================================================================== */
+
+  --space-1: 0.25rem;  /* 4px */
+  --space-2: 0.5rem;   /* 8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-6: 1.5rem;   /* 24px */
+  --space-8: 2rem;     /* 32px */
+  --space-10: 2.5rem;  /* 40px */
+
+  /* ==========================================================================
+     Border Radius
+     ========================================================================== */
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* ==========================================================================
+     Shadows (Minimal/Flat)
+     ========================================================================== */
+
+  /* Very subtle shadows - keep it flat */
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+
+  /* Glow effects for focus/accent */
+  --glow-accent: 0 0 0 2px var(--color-glow-accent);
+
+  /* ==========================================================================
+     Transitions
+     ========================================================================== */
+
+  --transition-fast: 100ms ease-out;
+  --transition-base: 150ms ease-out;
+  --transition-slow: 250ms ease-out;
+  --transition-slower: 350ms ease-out;
+
+  /* ==========================================================================
+     Layout
+     ========================================================================== */
+
+  --header-height: 48px;
+  --tab-bar-height: 36px;
+
+  /* ==========================================================================
+     Dashboard Layout
+     ========================================================================== */
+
+  --dashboard-max-width: 960px;
+  --dashboard-hero-padding-top: var(--space-10);
+  --dashboard-hero-padding-bottom: var(--space-6);
+  --dashboard-section-gap: var(--space-6);
+
+  /* ==========================================================================
+     Glassmorphism
+     ========================================================================== */
+
+  --glass-bg: rgba(24, 24, 27, 0.9);
+  --glass-blur: blur(16px);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-hover: rgba(255, 255, 255, 0.12);
+  --dashboard-fade-duration: 200ms;
+  --dashboard-left-width: 280px;
+  --dashboard-panel-margin: 48px;
+  --dashboard-expand-duration: 300ms;
+  --dashboard-expand-easing: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+

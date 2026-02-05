@@ -1,0 +1,33 @@
+{
+  "name": "codeflare-web-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@mdi/js": "^7.4.47",
+    "@solidjs/router": "^0.15.4",
+    "@thisbeyond/solid-dnd": "^0.7.5",
+    "@xterm/addon-fit": "^0.10.0",
+
+    "@xterm/xterm": "^5.5.0",
+    "solid-js": "^1.9.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@solidjs/testing-library": "^0.8.0",
+    "@testing-library/jest-dom": "^6.0.0",
+    "jsdom": "^24.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.1.0",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^1.0.0"
+  }
+}

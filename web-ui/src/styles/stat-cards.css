@@ -1,0 +1,111 @@
+/* ==========================================================================
+   Stat Cards — single R2 storage card (session-card metric style)
+   ========================================================================== */
+
+.stat-cards {
+  width: 100%;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  padding: 12px;
+  background: linear-gradient(135deg,
+    var(--color-bg-elevated) 0%,
+    #18181b 100%);
+  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.06));
+  border-radius: 8px;
+  transition: all 150ms ease;
+}
+
+.stat-card:hover {
+  background: var(--color-bg-muted);
+  border-color: var(--color-border-default);
+}
+
+/* Card header: icon + title */
+.stat-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  min-height: 24px;
+}
+
+.stat-card__icon {
+  color: var(--color-accent, #8b5cf6);
+}
+
+.stat-card__title {
+  font-size: var(--text-xs, 0.75rem);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #6b7280);
+}
+
+/* Metric rows — matches session card metric style */
+.stat-card__metrics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.stat-card__metric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat-card__metric-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.stat-card__metric-label svg {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.stat-card__metric-value {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-surface);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+}
+
+/* Skeleton loading state */
+.stat-card--skeleton .stat-card__skeleton-icon,
+.stat-card--skeleton .stat-card__skeleton-value,
+.stat-card--skeleton .stat-card__skeleton-label {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: stat-shimmer 1.5s infinite;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.stat-card__skeleton-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.stat-card__skeleton-label {
+  width: 80px;
+  height: 12px;
+}
+
+.stat-card__skeleton-value {
+  width: 100%;
+  height: 20px;
+}
+
+@keyframes stat-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

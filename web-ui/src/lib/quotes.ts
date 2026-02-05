@@ -1,0 +1,17 @@
+export const DEV_QUOTES: Array<{ text: string; author: string }> = [
+  { text: "TALK IS CHEAP. SHOW ME THE CODE.", author: "LINUS TORVALDS, 2000" },
+  { text: "MAKE IT WORK, MAKE IT RIGHT, MAKE IT FAST.", author: "KENT BECK, 1999" },
+  { text: "MOVE FAST AND BREAK THINGS.", author: "MARK ZUCKERBERG, 2009" },
+  { text: "STAY HUNGRY. STAY FOOLISH.", author: "STEVE JOBS, 2005" },
+  { text: "DELETED CODE IS DEBUGGED CODE.", author: "JEFF SICKEL" },
+  { text: "COMPLEXITY KILLS.", author: "RAY OZZIE, 2005" },
+  { text: "DONE IS BETTER THAN PERFECT.", author: "SHERYL SANDBERG, 2013" },
+  { text: "THE ONLY WAY TO GO FAST IS TO GO WELL.", author: "ROBERT C. MARTIN, 2008" },
+  { text: "REAL ARTISTS SHIP.", author: "STEVE JOBS, 1983" },
+  { text: "DON'T REPEAT YOURSELF.", author: "ANDY HUNT, 1999" },
+  { text: "KEEP IT SIMPLE, STUPID.", author: "KELLY JOHNSON, 1960" },
+  { text: "GOOD CODE IS ITS OWN BEST DOCUMENTATION.", author: "STEVE MCCONNELL, 2004" },
+  { text: "PROGRAMS MUST BE WRITTEN FOR PEOPLE TO READ.", author: "HAROLD ABELSON, 1985" },
+  { text: "FIRST DO IT, THEN DO IT RIGHT, THEN DO IT BETTER.", author: "ADDY OSMANI, 2015" },
+  { text: "SIMPLICITY IS PREREQUISITE FOR RELIABILITY.", author: "EDSGER DIJKSTRA, 1975" },
+];

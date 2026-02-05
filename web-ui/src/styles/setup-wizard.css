@@ -1,0 +1,158 @@
+        .setup-wizard {
+          position: fixed;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          padding: var(--dashboard-panel-margin);
+          background: var(--color-bg-gradient);
+          overflow-y: auto;
+        }
+
+        .setup-container {
+          width: 100%;
+          max-width: 760px;
+          margin: auto;
+          display: flex;
+          flex-direction: column;
+          background: var(--glass-bg);
+          border: 1px solid var(--glass-border);
+          border-radius: var(--radius-lg);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+          backdrop-filter: var(--glass-blur);
+          overflow: hidden;
+          position: relative;
+          z-index: 2;
+        }
+
+        .setup-header {
+          display: flex;
+          align-items: center;
+          gap: var(--space-3);
+          padding: var(--space-3) var(--space-4);
+          background: rgba(31, 31, 34, 0.9);
+          border-bottom: 1px solid var(--glass-border);
+          flex-shrink: 0;
+        }
+
+        .setup-logo-icon {
+          display: block;
+          color: var(--color-accent);
+          flex-shrink: 0;
+        }
+
+        .setup-logo-icon--error {
+          color: var(--color-error);
+        }
+
+        .setup-title {
+          margin: 0;
+          font-size: var(--text-xl);
+          font-weight: var(--font-semibold);
+          color: var(--color-text-primary);
+          letter-spacing: 0.01em;
+        }
+
+        .setup-header-status {
+          margin-left: auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: var(--text-xs);
+          color: var(--color-text-secondary);
+          background: rgba(39, 39, 42, 0.75);
+          border: 1px solid var(--glass-border);
+          border-radius: var(--radius-full);
+          padding: 3px 10px;
+          white-space: nowrap;
+        }
+
+        .setup-header-status--error {
+          color: #fca5a5;
+          border-color: var(--color-error-border);
+          background: var(--color-error-bg);
+        }
+
+        .setup-header-status-icon--spin {
+          animation: spin 1s linear infinite;
+        }
+
+        .setup-progress {
+          border-radius: 0;
+          height: 3px;
+          background: rgba(255, 255, 255, 0.06);
+        }
+
+        .setup-progress .progress-bar-fill {
+          height: 100%;
+          box-shadow: 0 0 12px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.5);
+        }
+
+        .setup-content {
+          flex: 1;
+          overflow-y: auto;
+          padding: var(--space-8);
+          background: rgba(31, 31, 34, 0.66);
+        }
+
+        .denied-message {
+          margin: 0 0 24px;
+          font-size: var(--text-base);
+          color: var(--color-text-secondary);
+          text-align: center;
+          line-height: var(--leading-normal);
+        }
+
+        .denied-button {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 180px;
+          margin-left: auto;
+          padding: 10px 16px;
+          font-size: var(--text-sm);
+          font-weight: var(--font-medium);
+          color: var(--color-text-primary);
+          background: var(--color-accent);
+          border: none;
+          border-radius: var(--radius-md);
+          cursor: pointer;
+          transition: background var(--transition-fast);
+        }
+
+        .denied-button:hover {
+          background: var(--color-accent-hover);
+        }
+
+        @media (max-width: 900px) {
+          .setup-wizard {
+            padding: var(--space-4);
+          }
+        }
+
+        @media (max-width: 640px) {
+          .setup-wizard {
+            padding: var(--space-3);
+          }
+
+          .setup-container {
+            width: min(760px, calc(100vw - 24px));
+            min-height: auto;
+          }
+
+          .setup-header {
+            padding: var(--space-3);
+          }
+
+          .setup-title {
+            font-size: var(--text-lg);
+          }
+
+          .setup-content {
+            flex: none;
+            padding: var(--space-4);
+          }
+
+          .setup-header-status {
+            display: none;
+          }
+        }

@@ -1,0 +1,91 @@
+/* ==========================================================================
+   SessionStatCard — thin overrides on top of stat-card base
+   Base styling (background, gradient, border, metrics) comes from stat-cards.css
+   ========================================================================== */
+
+.session-stat-card {
+  cursor: pointer;
+  position: relative;
+}
+
+.session-stat-card--active {
+  box-shadow: inset 2px 0 0 var(--color-success);
+}
+
+/* Name truncation (font/color inherited from .stat-card__title) */
+.session-stat-card__name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status dot */
+.session-stat-card__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.session-stat-card__dot--success {
+  background: var(--color-success);
+}
+
+.session-stat-card__dot--warning {
+  background: var(--color-warning);
+}
+
+.session-stat-card__dot--error {
+  background: var(--color-error);
+}
+
+.session-stat-card__dot--default {
+  background: var(--color-text-dimmed);
+}
+
+.session-stat-card__dot--pulse {
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+/* Menu trigger */
+.session-stat-card__menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.session-stat-card:hover .session-stat-card__menu-trigger {
+  opacity: 1;
+}
+
+.session-stat-card__menu-trigger:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+/* Progress bar for initializing */
+.session-stat-card__progress {
+  margin-top: 4px;
+}
+
+/* Mobile: menu trigger always visible */
+@media (max-width: 640px) {
+  .session-stat-card__menu-trigger {
+    opacity: 1;
+    width: 36px;
+    height: 36px;
+  }
+}

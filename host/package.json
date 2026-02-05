@@ -1,0 +1,17 @@
+{
+  "name": "codeflare-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Terminal server for codeflare container",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@xterm/headless": "^5.5.0",
+    "@xterm/addon-serialize": "^0.13.0",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,62 @@
+# Codeflare - Browser-based cloud IDE on Cloudflare
+name = "codeflare"
+workers_dev = true
+main = "src/index.ts"
+compatibility_date = "2026-02-05"
+compatibility_flags = ["nodejs_compat"]
+
+# Enable container logs in Cloudflare dashboard
+[observability]
+enabled = true
+
+# Environment variables
+[vars]
+DEV_MODE = "false"
+ONBOARDING_LANDING_PAGE = "inactive"
+# Allowed CORS origins (comma-separated domain patterns)
+# Additional origins are managed dynamically via KV (setup:custom_domain, setup:allowed_origins)
+ALLOWED_ORIGINS = ".workers.dev"
+LOG_LEVEL = "info"
+
+# KV namespace for session metadata
+# The id "placeholder" is for local dev/tests (vitest-pool-workers creates in-memory KV).
+# deploy.yml resolves the real namespace ID at deploy time via wrangler kv namespace commands.
+[[kv_namespaces]]
+binding = "KV"
+id = "placeholder"
+
+# Container configuration (default tier)
+# Default: 1 vCPU, 3 GiB memory, 4 GB disk
+# GitHub Actions deploy can override this via repo variable RESSOURCE_TIER.
+# Required baseline for node-pty + agent CLIs + npm operations.
+[[containers]]
+class_name = "container"
+image = "./Dockerfile"
+# This is the repo-level ceiling. GitHub Actions deploy.yml patches this value
+# per RESSOURCE_TIER (default=4, low=3, high=5). See README for tier details.
+max_instances = 4
+
+[containers.instance_type]
+vcpu = 1
+memory_mib = 3072
+disk_mb = 4000
+
+# Durable Objects binding for the container
+[[durable_objects.bindings]]
+name = "CONTAINER"
+class_name = "container"
+
+# Migrations
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["container"]
+
+# Static assets (frontend) with SPA routing
+[assets]
+directory = "./web-ui/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+# Ensure control-plane routes pass through Worker logic first.
+# - "/" is needed for mode-aware redirect/landing logic
+# - "/api/*" and "/health" must never be swallowed by SPA asset fallback
+run_worker_first = ["/", "/api/*", "/public/*", "/health"]

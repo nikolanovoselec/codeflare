@@ -1,0 +1,35 @@
+{
+  "name": "codeflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "cd web-ui && npm install && npm run build",
+    "deploy": "npm run build && wrangler deploy",
+    "generate:tutorial-seed": "node scripts/generate-tutorial-seed.mjs",
+    "prebuild": "npm run generate:tutorial-seed",
+    "pretest": "npm run generate:tutorial-seed",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:ui": "vitest run --config vitest.e2e.config.ts e2e/ui/",
+    "postinstall": "node scripts/fix-broken-sourcemaps.js"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.1.0",
+    "aws4fetch": "^1.0.20",
+    "hono": "^4.7.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.12.10",
+    "@cloudflare/workers-types": "^4.20250124.0",
+    "puppeteer": "^24.36.1",
+    "typescript": "^5.7.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.0.0"
+  }
+}

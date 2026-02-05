@@ -1,0 +1,42 @@
+/* ==========================================================================
+   Dashboard Card — Tips & Welcome card overrides on .stat-card base
+   ========================================================================== */
+
+.tips-card,
+.welcome-card {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.dashboard-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dashboard-card__text {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: var(--color-text-muted, #6b7280);
+  font-family: var(--font-mono);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dashboard-card__text--static {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

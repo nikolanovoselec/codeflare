@@ -1,0 +1,63 @@
+.floating-terminal-buttons {
+  position: fixed;
+  right: var(--space-3);
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: 50;
+}
+
+.floating-terminal-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
+  background: rgba(15, 15, 15, 0.75);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  color: var(--color-accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.floating-terminal-btn:active {
+  transform: scale(0.92);
+  background: rgba(50, 50, 50, 0.9);
+  border-color: var(--color-accent);
+}
+
+.floating-terminal-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.floating-btn-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.floating-btn-label {
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.floating-btn-label.visible {
+  opacity: 1;
+}

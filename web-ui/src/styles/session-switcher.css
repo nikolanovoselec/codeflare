@@ -1,0 +1,80 @@
+/* Session Switcher — header trigger element */
+
+.session-switcher-wrapper {
+  position: relative;
+}
+
+.session-switcher {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  user-select: none;
+}
+
+.session-switcher:hover {
+  background: var(--color-bg-muted);
+}
+
+.session-switcher__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.session-switcher__dot--success {
+  background: var(--color-success);
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+.session-switcher__dot--warning {
+  background: var(--color-warning);
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+.session-switcher__dot--error {
+  background: var(--color-error);
+}
+
+.session-switcher__dot--default {
+  background: var(--color-text-dimmed);
+}
+
+.session-switcher__name {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-switcher__chevron {
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.session-switcher__chevron--open {
+  transform: rotate(180deg);
+}
+
+/* Mobile: icon-only trigger with larger touch target */
+.session-switcher--mobile {
+  width: 44px;
+  height: 44px;
+  justify-content: center;
+  padding: 0;
+}
+
+.session-switcher--mobile .session-switcher__name,
+.session-switcher--mobile .session-switcher__chevron,
+.session-switcher--mobile .session-switcher__dot {
+  display: none;
+}

@@ -1,0 +1,450 @@
+/* Session List Styles */
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.session-list-header {
+  padding: 16px;
+  padding-top: calc(var(--tab-bar-height) + 16px);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.session-list-header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+}
+
+
+.session-list-items {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Session Card */
+.session-card-wrapper {
+  position: relative;
+  animation: stagger-fade-in 150ms ease-out forwards;
+  animation-delay: calc(var(--stagger-index) * 50ms);
+  opacity: 0;
+}
+
+@keyframes stagger-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.session-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 150ms ease;
+  position: relative;
+}
+
+/* Gradient card background */
+.session-card-gradient {
+  background: linear-gradient(135deg,
+    var(--color-bg-elevated) 0%,
+    #18181b 100%);
+  border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.06));
+}
+
+.session-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 8px 0 0 8px;
+  background: transparent;
+  transition: background 150ms ease;
+}
+
+/* Inactive + Live = blue accent (softened) */
+.session-card[data-status="running"]::before {
+  background: rgba(59, 130, 246, 0.5);
+}
+
+.session-card[data-status="initializing"]::before {
+  background: rgba(234, 179, 8, 0.5);
+}
+
+.session-card:hover {
+  background: var(--color-bg-muted);
+  border-color: var(--color-border-default);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Active + Live = green accent */
+.session-card--active[data-status="running"] {
+  background: var(--color-bg-muted);
+}
+
+.session-card--active[data-status="running"]::before {
+  background: rgba(34, 197, 94, 0.6) !important;
+}
+
+/* Active + Stopped = muted */
+.session-card--active[data-status="stopped"] {
+  background: var(--color-bg-muted);
+}
+
+/* Active + Initializing */
+.session-card--active[data-status="initializing"] {
+  background: var(--color-bg-muted);
+}
+
+/* Active card glow effect for running sessions */
+.session-card-glow {
+  box-shadow: none;
+}
+
+.session-card-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-header-agent-icon {
+  flex-shrink: 0;
+  color: var(--color-accent, #8b5cf6);
+  display: flex;
+  align-items: center;
+}
+
+.session-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs, 0.75rem);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Info section - shown for all sessions */
+.session-card-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.session-card-info-icon {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.session-card-info-separator {
+  color: var(--color-border-subtle);
+}
+
+.session-status-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-muted);
+}
+
+.session-status-badge[data-status="success"] {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-success);
+}
+
+/* Animated LIVE badge with shimmer */
+.session-badge-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.session-badge-shimmer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+/* Status dot with pulse animation */
+.session-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 4px;
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.2); }
+}
+
+.session-status-badge[data-status="warning"] {
+  background: rgba(234, 179, 8, 0.15);
+  color: var(--color-warning);
+}
+
+.session-status-badge[data-status="error"] {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-error);
+}
+
+.session-status-badge.animate-pulse {
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Rename Button - visible on hover */
+.session-rename-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease;
+  flex-shrink: 0;
+}
+
+.session-card-wrapper:hover .session-rename-btn {
+  opacity: 1;
+}
+
+.session-rename-btn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+/* Rename Input - inline edit mode */
+.session-rename-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+/* Drop Target highlight */
+.session-card--drop-target {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 2px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.3),
+    0 0 20px hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.1);
+}
+
+/* Session card metrics — reuses stat-card__* classes from stat-cards.css */
+.session-card-content > .stat-card__metrics {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.session-card-metric .stat-card__metric-value {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Progress Bar override - uses shared .progress-bar classes */
+.session-init-progress {
+  margin-top: 4px;
+}
+
+/* Session Actions Overlay - slides in from right on hover */
+.session-card-actions-overlay {
+  position: absolute;
+  right: -4px;
+  top: 50%;
+  transform: translateY(-50%) translateX(100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: var(--color-bg-elevated);
+  border-radius: 8px;
+  border: 1px solid var(--color-border-default);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transition: transform 200ms ease, opacity 150ms ease;
+}
+
+.session-card-wrapper:hover .session-card-actions-overlay {
+  transform: translateY(-50%) translateX(0);
+  opacity: 1;
+}
+
+/* Styled action buttons */
+.session-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.session-action-btn--stop {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.session-action-btn--stop:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  transform: scale(1.05);
+}
+
+.session-action-btn--delete {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.session-action-btn--delete:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  transform: scale(1.05);
+}
+
+.session-list-footer {
+  position: relative;
+  padding: 12px;
+  padding-bottom: 12px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.session-create-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  background: var(--color-accent);
+  border: none;
+  border-radius: 8px;
+  transition: all var(--transition-fast);
+}
+
+.session-create-btn:hover {
+  background: var(--color-accent-hover);
+}
+
+/* ======================================
+   Mobile: always-visible session actions
+   ====================================== */
+@media (max-width: 640px) {
+  /* Show actions inline instead of hover overlay */
+  .session-card-actions-overlay {
+    position: static;
+    transform: none;
+    opacity: 1;
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    padding: 8px 12px 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+    justify-content: flex-end;
+  }
+
+  .session-card-wrapper {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.06));
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .session-card-wrapper .session-card {
+    border: none;
+    border-radius: 0;
+  }
+
+  .session-action-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Rename button always visible */
+  .session-rename-btn {
+    opacity: 1;
+    width: 28px;
+    height: 28px;
+  }
+}

@@ -1,0 +1,4 @@
+*
+!host/
+!entrypoint.sh
+!.cache-bust

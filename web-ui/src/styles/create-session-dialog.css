@@ -1,0 +1,142 @@
+/* CreateSessionDialog Styles */
+
+.create-session-dialog {
+  position: fixed;
+  z-index: 100;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-2);
+  animation: csd-slide-in 150ms ease-out;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+@keyframes csd-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Section */
+.csd-section {
+  padding: var(--space-1) 0;
+}
+
+.csd-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+/* Agent buttons */
+.csd-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.csd-agent-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+}
+
+.csd-agent-btn:hover {
+  background: var(--color-bg-muted);
+}
+
+.csd-agent-btn--last-used {
+  background: var(--color-accent-muted);
+  border: 1px solid hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.3);
+}
+
+.csd-agent-btn--last-used:hover {
+  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.2);
+}
+
+.csd-agent-icon {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.csd-agent-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.csd-agent-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.csd-agent-desc {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* Backdrop — click-outside dismiss overlay */
+.csd-backdrop {
+  display: none;
+}
+
+/* ======================================
+   Mobile: full-width bottom sheet dialog
+   ====================================== */
+@media (max-width: 640px) {
+  .create-session-dialog {
+    position: fixed !important;
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 70vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: csd-slide-up 200ms ease-out;
+    z-index: 210;
+    overflow-y: auto;
+  }
+
+  @keyframes csd-slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .csd-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 209;
+  }
+}

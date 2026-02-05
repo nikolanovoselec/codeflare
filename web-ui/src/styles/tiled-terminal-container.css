@@ -1,0 +1,57 @@
+.tiled-terminal-container {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  gap: 2px;
+}
+
+.tiled--2-split {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+}
+
+.tiled--3-split {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.tiled--3-split > :first-child {
+  grid-row: span 2;
+}
+
+.tiled--4-grid {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.tiled-terminal-slot {
+  position: relative;
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--color-bg-secondary, #18181b);
+  min-height: 0;
+}
+
+.tiled-terminal-slot--active {
+  border-color: var(--color-accent, #8b5cf6);
+}
+
+.tiled-terminal-slot--empty {
+  background: var(--color-bg-tertiary, #27272a);
+  cursor: default;
+}
+
+.tiled-terminal-slot--empty::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 10px,
+    rgba(255, 255, 255, 0.02) 10px,
+    rgba(255, 255, 255, 0.02) 20px
+  );
+}
