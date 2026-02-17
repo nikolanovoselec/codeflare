@@ -141,136 +141,6 @@ describe('Users Routes', () => {
     });
   });
 
-  describe('POST /users', () => {
-    it('creates KV entry with addedBy and addedAt', async () => {
-      const app = createTestApp('admin@example.com');
-
-      const res = await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'newuser@example.com' }),
-      });
-
-      expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean; email: string; role: string };
-      expect(body.success).toBe(true);
-      expect(body.email).toBe('newuser@example.com');
-      expect(body.role).toBe('user');
-
-      // Verify KV put was called with correct key and data
-      expect(mockKV.put).toHaveBeenCalledWith(
-        'user:newuser@example.com',
-        expect.stringContaining('"addedBy":"admin@example.com"'),
-      );
-      const putCall = mockKV.put.mock.calls.find(
-        (call: string[]) => call[0] === 'user:newuser@example.com',
-      );
-      const stored = JSON.parse(putCall![1]);
-      expect(stored.addedBy).toBe('admin@example.com');
-      expect(stored.addedAt).toBe('2024-01-15T10:00:00.000Z');
-      expect(stored.role).toBe('user');
-    });
-
-    it('returns 400 for missing email', async () => {
-      const app = createTestApp();
-
-      const res = await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string };
-      expect(body.error).toMatch(/email/i);
-    });
-
-    it('returns 400 for invalid email (no @)', async () => {
-      const app = createTestApp();
-
-      const res = await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'notanemail' }),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string };
-      expect(body.error).toMatch(/email/i);
-    });
-
-    it('returns 400 for email with double @@ (regex validation)', async () => {
-      const app = createTestApp();
-
-      for (const badEmail of ['@@', '@b', 'a@', 'a @b.com', ' @b.c']) {
-        const res = await app.request('/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: badEmail }),
-        });
-
-        expect(res.status).toBe(400);
-        const body = await res.json() as { error: string };
-        expect(body.error).toMatch(/email/i);
-      }
-    });
-
-    it('returns 400 for duplicate email', async () => {
-      const app = createTestApp();
-
-      // Pre-populate KV with existing user
-      mockKV._set('user:existing@example.com', { addedBy: 'admin@example.com', addedAt: '2024-01-01T00:00:00.000Z' });
-
-      const res = await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'existing@example.com' }),
-      });
-
-      expect(res.status).toBe(409);
-      const body = await res.json() as { error: string };
-      expect(body.error).toMatch(/already in allowlist/i);
-    });
-
-    it('returns 409 with USER_EXISTS code for duplicate user (AppError.toJSON contract)', async () => {
-      const app = createTestApp();
-
-      mockKV._set('user:dupe@example.com', { addedBy: 'admin@example.com', addedAt: '2024-01-01T00:00:00.000Z' });
-
-      const res = await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'dupe@example.com' }),
-      });
-
-      expect(res.status).toBe(409);
-      const body = await res.json() as { error: string; code: string };
-      expect(body).toHaveProperty('error');
-      expect(body).toHaveProperty('code', 'USER_EXISTS');
-    });
-
-    it('attempts to sync CF Access policy after adding', async () => {
-      const app = createTestApp();
-
-      // Set up KV with account_id and domain for sync
-      mockKV._store.set('setup:account_id', 'test-account-id');
-      mockKV._store.set('setup:custom_domain', 'app.example.com');
-
-      await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'newuser@example.com' }),
-      });
-
-      expect(mockSyncAccessPolicy).toHaveBeenCalledWith(
-        'test-api-token',
-        'test-account-id',
-        'app.example.com',
-        expect.anything(),
-      );
-    });
-  });
-
   describe('DELETE /users/:email', () => {
     it('removes KV entry for user', async () => {
       const app = createTestApp('admin@example.com');
@@ -401,18 +271,6 @@ describe('Users Routes', () => {
       return app;
     }
 
-    it('non-admin POST /users returns 403', async () => {
-      const app = createTestAppWithRole('viewer@example.com', 'user');
-
-      const res = await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'new@example.com' }),
-      });
-
-      expect(res.status).toBe(403);
-    });
-
     it('non-admin GET /users returns 403', async () => {
       const app = createTestAppWithRole('viewer@example.com', 'user');
 
@@ -430,43 +288,6 @@ describe('Users Routes', () => {
       });
 
       expect(res.status).toBe(403);
-    });
-
-    it('admin POST /users with role: admin stores admin role in KV', async () => {
-      const app = createTestAppWithRole('admin@example.com', 'admin');
-
-      const res = await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'newadmin@example.com', role: 'admin' }),
-      });
-
-      expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean; email: string; role: string };
-      expect(body.role).toBe('admin');
-
-      const putCall = mockKV.put.mock.calls.find(
-        (call: string[]) => call[0] === 'user:newadmin@example.com',
-      );
-      expect(putCall).toBeDefined();
-      const stored = JSON.parse(putCall![1]);
-      expect(stored.role).toBe('admin');
-    });
-
-    it('error responses follow AppError.toJSON() shape', async () => {
-      const app = createTestAppWithRole('admin@example.com', 'admin');
-
-      // Validation error (missing email)
-      const res = await app.request('/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body).toHaveProperty('error');
-      expect(body).toHaveProperty('code', 'VALIDATION_ERROR');
     });
 
     it('not-found error follows AppError.toJSON() shape', async () => {

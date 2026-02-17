@@ -1,6 +1,5 @@
-// users.ts = admin user management (GET/POST/DELETE /api/users). See user.ts for current user identity.
+// users.ts = admin user management (GET/DELETE /api/users). See user.ts for current user identity.
 import { Hono } from 'hono';
-import { z } from 'zod';
 import type { Env, Session } from '../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
@@ -10,14 +9,9 @@ import { getSessionPrefix, listAllKvKeys } from '../lib/kv-keys';
 import { getContainerId } from '../lib/container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createLogger } from '../lib/logger';
-import { AppError, ValidationError, NotFoundError, toError } from '../lib/error-types';
+import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { CF_API_BASE } from '../lib/constants';
 import { r2AdminCB } from '../lib/circuit-breakers';
-
-const AddUserSchema = z.object({
-  email: z.string({ error: 'Valid email is required' }).email('Valid email is required'),
-  role: z.enum(['admin', 'user']).optional(),
-});
 
 const logger = createLogger('users');
 
@@ -41,7 +35,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
 
 /**
- * Rate limiter for user mutations (POST/DELETE)
+ * Rate limiter for user mutations (DELETE)
  * Limits to 20 mutations per minute per user
  */
 const userMutationRateLimiter = createRateLimiter({
@@ -54,34 +48,6 @@ const userMutationRateLimiter = createRateLimiter({
 app.get('/', requireAdmin, async (c) => {
   const users = await getAllUsers(c.env.KV);
   return c.json({ users });
-});
-
-// POST /api/users - Add a user (admin only)
-app.post('/', requireAdmin, userMutationRateLimiter, async (c) => {
-  const body = await c.req.json();
-  const parsed = AddUserSchema.safeParse(body);
-  if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
-  }
-  const email = parsed.data.email.trim().toLowerCase();
-
-  // Check for duplicate
-  const existing = await c.env.KV.get(`user:${email}`);
-  if (existing) {
-    throw new AppError('USER_EXISTS', 409, 'User already in allowlist');
-  }
-
-  const currentUser = c.get('user');
-  const role = parsed.data.role || 'user';
-  await c.env.KV.put(`user:${email}`, JSON.stringify({
-    addedBy: currentUser.email,
-    addedAt: new Date().toISOString(),
-    role,
-  }));
-
-  await trySyncAccessPolicy(c.env);
-
-  return c.json({ success: true, email, role });
 });
 
 // DELETE /api/users/:email - Remove a user (admin only)

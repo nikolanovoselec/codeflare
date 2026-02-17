@@ -2,8 +2,7 @@ import { Component, createSignal, createEffect, Show, For } from 'solid-js';
 import { mdiAccountGroupOutline } from '@mdi/js';
 import Icon from './Icon';
 import Button from './ui/Button';
-import Input from './ui/Input';
-import { getUsers, addUser, removeUser } from '../api/client';
+import { getUsers, removeUser } from '../api/client';
 import type { UserEntry } from '../api/client';
 
 interface UserManagementProps {
@@ -15,8 +14,6 @@ interface UserManagementProps {
 const UserManagement: Component<UserManagementProps> = (props) => {
   const [users, setUsers] = createSignal<UserEntry[]>([]);
   const [usersLoading, setUsersLoading] = createSignal(false);
-  const [userEmail, setUserEmail] = createSignal('');
-  const [newUserRole, setNewUserRole] = createSignal<'admin' | 'user'>('user');
   const [userError, setUserError] = createSignal('');
 
   const isAdmin = () => props.currentUserRole === 'admin';
@@ -45,20 +42,6 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     }
   });
 
-  const handleAddUser = async () => {
-    const email = userEmail().trim().toLowerCase();
-    if (!email || !/.+@.+\..+/.test(email)) return;
-    try {
-      setUserError('');
-      await addUser(email, newUserRole());
-      setUserEmail('');
-      setNewUserRole('user');
-      await loadUsers();
-    } catch (err) {
-      setUserError(err instanceof Error ? err.message : 'Failed to add user');
-    }
-  };
-
   const handleRemoveUser = async (email: string) => {
     try {
       setUserError('');
@@ -69,41 +52,12 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     }
   };
 
-  const handleUserEmailKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleAddUser();
-    }
-  };
-
   return (
     <Show when={isAdmin()}>
       <section class="settings-section settings-section-3" data-testid="settings-user-management">
         <div class="settings-section-header">
           <Icon path={mdiAccountGroupOutline} size={16} />
           <h3 class="settings-section-title">User Management</h3>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-row__actions settings-add-user-fields" data-testid="settings-add-user-fields-row">
-            <div class="setting-row__input-wrapper" onKeyDown={handleUserEmailKeyDown}>
-              <Input
-                value={userEmail()}
-                onInput={(value) => { setUserEmail(value); setUserError(''); }}
-                placeholder="user@example.com"
-              />
-            </div>
-            <select
-              value={newUserRole()}
-              onChange={(e) => setNewUserRole(e.currentTarget.value as 'admin' | 'user')}
-              class="settings-role-select settings-role-select--compact"
-              data-testid="settings-new-user-role-select"
-              autocomplete="off"
-            >
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
-            <Button onClick={handleAddUser} variant="primary" size="sm">Add</Button>
-          </div>
         </div>
 
         {/* Error */}

@@ -4,12 +4,10 @@ import UserManagement from '../../components/UserManagement';
 
 // Mock the API client
 const mockGetUsers = vi.fn();
-const mockAddUser = vi.fn();
 const mockRemoveUser = vi.fn();
 
 vi.mock('../../api/client', () => ({
   getUsers: (...args: unknown[]) => mockGetUsers(...args),
-  addUser: (...args: unknown[]) => mockAddUser(...args),
   removeUser: (...args: unknown[]) => mockRemoveUser(...args),
 }));
 
@@ -134,8 +132,8 @@ describe('UserManagement', () => {
     });
   });
 
-  describe('Add user', () => {
-    it('renders add user form', () => {
+  describe('Add user form removed', () => {
+    it('does not render add-user form', () => {
       render(() => (
         <UserManagement
           isOpen={true}
@@ -144,64 +142,9 @@ describe('UserManagement', () => {
         />
       ));
 
-      expect(screen.getByPlaceholderText('user@example.com')).toBeInTheDocument();
-      expect(screen.getByText('Add')).toBeInTheDocument();
-    });
-
-    it('has role select dropdown', () => {
-      render(() => (
-        <UserManagement
-          isOpen={true}
-          currentUserEmail="admin@example.com"
-          currentUserRole="admin"
-        />
-      ));
-
-      const select = screen.getByTestId('settings-new-user-role-select') as HTMLSelectElement;
-      expect(select).toBeInTheDocument();
-      expect(select.value).toBe('user'); // default
-    });
-
-    it('calls addUser API on form submission', async () => {
-      mockAddUser.mockResolvedValue(undefined);
-      mockGetUsers.mockResolvedValue([]);
-
-      render(() => (
-        <UserManagement
-          isOpen={true}
-          currentUserEmail="admin@example.com"
-          currentUserRole="admin"
-        />
-      ));
-
-      const input = screen.getByPlaceholderText('user@example.com');
-      fireEvent.input(input, { target: { value: 'new@example.com' } });
-      fireEvent.click(screen.getByText('Add'));
-
-      await waitFor(() => {
-        expect(mockAddUser).toHaveBeenCalledWith('new@example.com', 'user');
-      });
-    });
-
-    it('shows error on add failure', async () => {
-      mockAddUser.mockRejectedValue(new Error('User already exists'));
-
-      render(() => (
-        <UserManagement
-          isOpen={true}
-          currentUserEmail="admin@example.com"
-          currentUserRole="admin"
-        />
-      ));
-
-      const input = screen.getByPlaceholderText('user@example.com');
-      fireEvent.input(input, { target: { value: 'existing@example.com' } });
-      fireEvent.click(screen.getByText('Add'));
-
-      await waitFor(() => {
-        expect(screen.getByTestId('settings-user-error')).toBeInTheDocument();
-        expect(screen.getByText('User already exists')).toBeInTheDocument();
-      });
+      expect(screen.queryByPlaceholderText('user@example.com')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('settings-new-user-role-select')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('settings-add-user-fields-row')).not.toBeInTheDocument();
     });
   });
 
