@@ -20,7 +20,7 @@ interface StorageToolbarProps {
   selectionModeEnabled: Accessor<boolean>;
   toggleSelectionMode: () => void;
   selectedCount: Accessor<number>;
-  fileInputRef: HTMLInputElement | undefined;
+  onUploadClick: () => void;
   onDeleteSelected: () => void;
   onDownloadSelected: () => Promise<void>;
 }
@@ -73,7 +73,7 @@ const StorageToolbar: Component<StorageToolbarProps> = (props) => {
         type="button"
         class="storage-icon-btn"
         title="Upload"
-        onClick={() => props.fileInputRef?.click()}
+        onClick={() => props.onUploadClick()}
       >
         <Icon path={mdiUpload} size={16} />
       </button>
