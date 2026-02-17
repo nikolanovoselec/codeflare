@@ -21,7 +21,6 @@ vi.mock('../../lib/mobile', () => ({
 
 vi.mock('../../api/client', () => ({
   getUsers: vi.fn(async () => []),
-  addUser: vi.fn(async () => undefined),
   removeUser: vi.fn(async () => undefined),
 }));
 
@@ -348,7 +347,7 @@ describe('SettingsPanel Component', () => {
   });
 
   describe('Admin-gated User Management', () => {
-    it('should show add user form when currentUserRole is admin', async () => {
+    it('should show user management section when currentUserRole is admin', async () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -358,9 +357,23 @@ describe('SettingsPanel Component', () => {
         />
       ));
 
-      // Admin should see the role selector for new users
-      const roleSelect = screen.queryByTestId('settings-new-user-role-select');
-      expect(roleSelect).toBeInTheDocument();
+      const section = screen.queryByTestId('settings-user-management');
+      expect(section).toBeInTheDocument();
+    });
+
+    it('should not show add-user form for admin users', () => {
+      render(() => (
+        <SettingsPanel
+          isOpen={true}
+          onClose={() => {}}
+          currentUserRole="admin"
+          currentUserEmail="admin@example.com"
+        />
+      ));
+
+      expect(screen.queryByTestId('settings-new-user-role-select')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('settings-add-user-fields-row')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('user@example.com')).not.toBeInTheDocument();
     });
 
     it('should hide user management section when currentUserRole is user', () => {
@@ -400,26 +413,6 @@ describe('SettingsPanel Component', () => {
 
       const section = screen.getByTestId('settings-user-management');
       expect(section).toBeInTheDocument();
-    });
-
-    it('uses a compact role select and a separate add-button row', () => {
-      render(() => (
-        <SettingsPanel
-          isOpen={true}
-          onClose={() => {}}
-          currentUserRole="admin"
-          currentUserEmail="admin@example.com"
-        />
-      ));
-
-      const roleSelect = screen.getByTestId('settings-new-user-role-select');
-      expect(roleSelect).toHaveClass('settings-role-select--compact');
-
-      const fieldsRow = screen.getByTestId('settings-add-user-fields-row');
-      expect(fieldsRow).toBeInTheDocument();
-
-      const addButton = within(fieldsRow).getByRole('button', { name: 'Add' });
-      expect(addButton).toHaveAttribute('data-variant', 'primary');
     });
 
     it('should not request users when currentUserRole is user', () => {

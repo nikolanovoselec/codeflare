@@ -219,13 +219,6 @@ export async function getUsers(): Promise<UserEntry[]> {
   return data.users;
 }
 
-export async function addUser(email: string, role: 'admin' | 'user' = 'user'): Promise<void> {
-  await fetchApi('/users', {
-    method: 'POST',
-    body: JSON.stringify({ email, role }),
-  }, UserMutationResponseSchema);
-}
-
 export async function removeUser(email: string): Promise<void> {
   await fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'DELETE',

@@ -381,7 +381,7 @@ describe('Storage Upload Routes', () => {
   describe('POST /upload/abort (multipart abort)', () => {
     it('succeeds and returns { success: true }', async () => {
       const app = createApp();
-      mockFetch.mockResolvedValueOnce(new Response('', { status: 204 }));
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
       const res = await app.request('/upload/abort', {
         method: 'POST',
@@ -414,7 +414,7 @@ describe('Storage Upload Routes', () => {
 
     it('sends DELETE to R2 with uploadId', async () => {
       const app = createApp();
-      mockFetch.mockResolvedValueOnce(new Response('', { status: 204 }));
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
       await app.request('/upload/abort', {
         method: 'POST',

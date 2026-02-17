@@ -569,7 +569,7 @@ describe('DELETE /sessions/:id', () => {
     });
   }
 
-  it('does NOT call prepareShutdown — destroy() is immediate, SIGTERM handler syncs', async () => {
+  it('does NOT call prepareShutdown - destroy() is immediate, SIGTERM handler syncs', async () => {
     const app = createDeleteApp();
     const session: Session = {
       id: 'sessiontodelete123',

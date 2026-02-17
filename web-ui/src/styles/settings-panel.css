@@ -137,7 +137,7 @@
   padding: var(--space-2) 0;
 }
 
-/* Column layout for add-user form and admin section */
+/* Column layout for admin section */
 .setting-row--column {
   flex-direction: column;
   align-items: stretch;
@@ -175,11 +175,6 @@
   width: 100%;
   align-items: flex-start;
 }
-
-.settings-add-user-fields {
-  align-items: center;
-}
-
 
 /* Flex-1 wrapper for input */
 .setting-row__input-wrapper {
@@ -271,41 +266,6 @@
   background: rgba(161, 161, 170, 0.1);
   color: var(--color-text-muted);
   border: 1px solid rgba(161, 161, 170, 0.2);
-}
-
-/* Role select in add-user form */
-.settings-role-select {
-  padding: var(--space-1) var(--space-3);
-  padding-right: var(--space-6);
-  background: var(--color-bg-base);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  font-size: var(--text-sm);
-  font-family: inherit;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%23a1a1aa' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  min-width: 80px;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
-}
-
-.settings-role-select--compact {
-  min-width: 74px;
-  width: 86px;
-}
-
-.settings-role-select:hover {
-  border-color: var(--color-border-default);
-  background-color: var(--color-bg-elevated);
-}
-
-.settings-role-select:focus {
-  outline: none;
-  border-color: var(--color-accent);
-  box-shadow: var(--glow-accent);
 }
 
 /* Scrollbar styling */
@@ -402,22 +362,6 @@
   .settings-close-button {
     width: 44px;
     height: 44px;
-  }
-
-  /* Add-user form: keep inline, allow wrapping */
-  .settings-add-user-fields {
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  .settings-add-user-fields .settings-role-select {
-    width: auto;
-    min-width: 74px;
-  }
-
-  .settings-role-select--compact {
-    width: auto;
-    min-width: 74px;
   }
 
   .setting-row select {
