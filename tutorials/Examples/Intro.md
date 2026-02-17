@@ -28,9 +28,8 @@ TDD turns your spec into a live guardrail. The agent can't cheat. If it says it'
 | [Simple](Simple.md) | ~15 min | Hello World Worker. The agent does all of it. You take the credit. |
 | [Intermediate](Intermediate.md) | ~30-45 min | CV website with Turnstile-protected contact form. Tell your recruiter you built it yourself. |
 | [Advanced](Advanced.md) | ~1-2 hours | Full blog with Durable Objects, R2 storage, and a CMS. The agent will complain less than an intern. |
-| [Expert](Expert.md) | ~1 day | You're rebuilding Codeflare itself. Bring coffee. |
 
-Start with Simple if this is your first session. Start with Expert if you have something to prove.
+Start with Simple if this is your first session.
 
 ## Writing Your Own Specs
 
