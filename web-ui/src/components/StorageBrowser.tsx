@@ -243,7 +243,7 @@ const StorageBrowser: Component = () => {
           selectionModeEnabled={selectionModeEnabled}
           toggleSelectionMode={toggleSelectionMode}
           selectedCount={selectedCount}
-          fileInputRef={fileInputRef}
+          onUploadClick={() => fileInputRef?.click()}
           onDeleteSelected={() => {
             storageStore.deleteSelected();
             setSelectionModeEnabled(false);
