@@ -140,3 +140,13 @@ npm run dev
 PolyForm Noncommercial 1.0.0 - free for personal use, tinkering, and showing off.
 
 Commercial use, resale, or paid hosted offerings require a separate written license. You know who you are.
+
+## Common Gotchas
+
+### Cloudflare WAF blocking API requests
+
+If you're on a Cloudflare Pro plan (or higher) with Managed Rulesets enabled on your zone, Cloudflare's WAF may decide your perfectly legitimate API calls look like an attack. Congratulations - your own security product is protecting you from yourself.
+
+Symptoms: a wall of HTML appearing in your terminal where a simple "session deleted" confirmation should be. The HTML helpfully informs you that you have been blocked, as if you didn't notice.
+
+Fix: go to **Security** > **Analytics** > **Events** in your Domain configuration, find the blocked request (you will see "Action taken: Block"), click the rule that triggered it, disable it. Three clicks. Fewer clicks than it took Cloudflare to block you.
