@@ -196,7 +196,7 @@ describe('Storage Delete Route', () => {
   });
 
   it('single delete succeeds and returns key in deleted array', async () => {
-    mockFetch.mockResolvedValueOnce(new Response('', { status: 204 }));
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     const res = await app.request('/delete', {
       method: 'POST',
@@ -306,8 +306,8 @@ describe('Storage Delete Route', () => {
     // Batch request fails
     mockFetch.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
     // Individual deletes succeed
-    mockFetch.mockResolvedValueOnce(new Response('', { status: 204 }));
-    mockFetch.mockResolvedValueOnce(new Response('', { status: 204 }));
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     const res = await app.request('/delete', {
       method: 'POST',

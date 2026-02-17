@@ -298,7 +298,7 @@ describe('Storage Move Routes', () => {
       // Copy succeeds with 200, delete returns 204 (No Content - standard for DELETE)
       mockFetch
         .mockResolvedValueOnce(new Response('', { status: 200 }))
-        .mockResolvedValueOnce(new Response('', { status: 204 }));
+        .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
       const app = createApp();
 
