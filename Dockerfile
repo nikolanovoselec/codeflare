@@ -101,6 +101,15 @@ RUN claude --version 2>&1 || true && \
     codex --version 2>&1 || true && \
     gemini --version 2>&1 || true
 
+# Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
+# OpenCode creates .opencode/opencode.db relative to the working directory and runs
+# schema migrations via Goose on every startup. By triggering this at build time with
+# a dummy API key, the DB is created and migrations applied before any LLM call.
+# The workspace dir matches where agents run in entrypoint.sh ($HOME/workspace).
+RUN mkdir -p /root/workspace && \
+    cd /root/workspace && \
+    ANTHROPIC_API_KEY=sk-dummy timeout 15 opencode run --prompt "hello" 2>&1 || true
+
 # Verify critical tools are installed
 RUN git --version && gh --version && rclone --version && node --version && \
     which yazi && which lazygit

@@ -599,6 +599,10 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 Node.js CLIs (claude, codex, gemini) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need this optimization.
 
+### OpenCode Database Pre-Initialization
+
+OpenCode uses SQLite with Goose migrations (`internal/db/migrations/`) that run on every startup via `db.Connect()`. On first launch, this creates `.opencode/opencode.db` in the working directory and applies schema migrations (sessions, files, messages tables). To avoid this overhead at container start, the Dockerfile runs `opencode run --prompt "hello"` with a dummy API key at build time — the database connection and migrations execute before any LLM call, so the DB is pre-initialized in `/root/workspace/.opencode/`.
+
 Port: 8080 (single port architecture).
 
 ---
