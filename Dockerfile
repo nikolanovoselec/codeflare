@@ -105,7 +105,10 @@ RUN claude --version 2>&1 || true && \
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs
 # schema migrations on every startup. Running `opencode run` at build time triggers the
 # migration ("Performing one time database migration") so first interactive launch is fast.
-RUN timeout 30 opencode run "hello" 2>&1 || true
+# Unset all provider keys so the migration runs without making an actual LLM call.
+# GitHub Actions injects GITHUB_TOKEN which OpenCode would use for GitHub Models.
+RUN ANTHROPIC_API_KEY="" OPENAI_API_KEY="" GEMINI_API_KEY="" GITHUB_TOKEN="" \
+    timeout 30 opencode run "hello" 2>&1 || true
 
 # Verify critical tools are installed
 RUN git --version && gh --version && rclone --version && node --version && \
