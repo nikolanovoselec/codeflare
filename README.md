@@ -103,8 +103,8 @@ flowchart LR
     isolated per session, pre-warmed PTY"]
     D --> E["R2
     per-user storage, bisync every 60s"]
-    D -. "idle 5 min
-    (no connections + no PTY output)" .-> F["Hibernated
+    D -. "idle 30 min
+    (no terminal output, no user input)" .-> F["Hibernated
     zero cost"]
 ```
 

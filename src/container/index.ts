@@ -529,9 +529,11 @@ export class container extends Container<Env> {
 
     this.logger.info('Activity check', { hasActiveConnections, lastPtyOutputMs, lastWsActivityMs });
 
-    // Container can sleep when: no connections AND idle for IDLE_TIMEOUT_MS
-    if (!hasActiveConnections && shortestIdleMs > IDLE_TIMEOUT_MS) {
-      this.logger.info('Container idle with no connections, destroying', { idleMs: shortestIdleMs });
+    // Container is destroyed when idle for IDLE_TIMEOUT_MS regardless of WebSocket connections.
+    // Activity = PTY output or WS messages. An open browser tab with no work is still idle.
+    // A headless agent producing output stays alive even without a browser.
+    if (shortestIdleMs > IDLE_TIMEOUT_MS) {
+      this.logger.info('Container idle, destroying', { idleMs: shortestIdleMs, hasActiveConnections });
       await this.cleanupAndDestroy('idle_timeout', {
         idleMs: shortestIdleMs,
         lastPtyOutputMs,
