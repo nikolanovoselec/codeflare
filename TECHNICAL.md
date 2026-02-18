@@ -601,7 +601,7 @@ Node.js CLIs (claude, codex, gemini) are warmed at Docker build time by running 
 
 ### OpenCode Database Pre-Initialization
 
-OpenCode uses SQLite with Goose migrations (`internal/db/migrations/`) that run on every startup via `db.Connect()`. On first launch, this creates `.opencode/opencode.db` in the working directory and applies schema migrations (sessions, files, messages tables). To avoid this overhead at container start, the Dockerfile runs `opencode run --prompt "hello"` with a dummy API key at build time — the database connection and migrations execute before any LLM call, so the DB is pre-initialized in `/root/workspace/.opencode/`.
+OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory). To avoid this overhead at container start, the Dockerfile runs `opencode run "hello"` at build time which triggers the migration, creating the sessions/files/messages schema so the first interactive launch is fast.
 
 Port: 8080 (single port architecture).
 
