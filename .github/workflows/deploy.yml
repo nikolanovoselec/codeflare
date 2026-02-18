@@ -3,9 +3,17 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy target'
+        type: choice
+        options:
+          - production
+          - integration
+        default: integration
 
 concurrency:
-  group: deploy-production
+  group: deploy-${{ inputs.environment || 'production' }}
   cancel-in-progress: true
 
 permissions:
@@ -14,7 +22,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 20
     env:
       WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
