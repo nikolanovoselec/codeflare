@@ -299,6 +299,116 @@ describe('container DO class', () => {
     });
   });
 
+  describe('alarm — bounded activity failure counter', () => {
+    /**
+     * The alarm() method polls the terminal server's /activity endpoint.
+     * When the endpoint is unreachable (container process dead), it should
+     * tolerate a bounded number of failures before force-destroying the DO.
+     *
+     * With the mock Container base class, this.fetch() returns non-JSON
+     * ('base fetch'), so getActivityInfo() always returns null — simulating
+     * an unreachable activity endpoint.
+     */
+    function createAlarmInstance() {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_last_shutdown_info') return null;
+        return null;
+      });
+      return new ContainerClass(mockCtx as any, mockEnv);
+    }
+
+    it('increments consecutive failure counter on each unreachable poll', async () => {
+      const instance = createAlarmInstance();
+      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
+      // Bypass retry delays — return null immediately (activity unreachable)
+      vi.spyOn(instance as any, 'getActivityInfoWithRetry').mockResolvedValue(null);
+
+      await instance.alarm();
+
+      // Should have scheduled next poll (not destroyed)
+      expect(mockStorage.setAlarm).toHaveBeenCalled();
+      // _destroyed flag should NOT be set yet (only 1 failure)
+      expect(mockStorage.put).not.toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('force-destroys after MAX_CONSECUTIVE_ACTIVITY_FAILURES', async () => {
+      const instance = createAlarmInstance();
+      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
+      vi.spyOn(instance as any, 'getActivityInfoWithRetry').mockResolvedValue(null);
+
+      // Simulate 6 consecutive failures (MAX_CONSECUTIVE_ACTIVITY_FAILURES = 6)
+      for (let i = 0; i < 6; i++) {
+        mockStorage.setAlarm.mockClear();
+        mockStorage.put.mockClear();
+        (instance as any)._activityPollAlarm = false;
+        await instance.alarm();
+      }
+
+      // After 6 failures, should have called cleanupAndDestroy
+      expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+      expect(mockStorage.deleteAlarm).toHaveBeenCalled();
+    });
+
+    it('resets failure counter when activity endpoint becomes reachable', async () => {
+      const instance = createAlarmInstance();
+      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
+      const retryMock = vi.spyOn(instance as any, 'getActivityInfoWithRetry');
+
+      // Simulate 3 failures
+      retryMock.mockResolvedValue(null);
+      for (let i = 0; i < 3; i++) {
+        (instance as any)._activityPollAlarm = false;
+        await instance.alarm();
+      }
+
+      // Now make activity endpoint reachable (active container, not idle)
+      retryMock.mockResolvedValue({
+        hasActiveConnections: true,
+        lastPtyOutputMs: 1000,
+        lastWsActivityMs: 1000,
+      });
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // Counter should be reset — running 3 more failures shouldn't destroy
+      retryMock.mockResolvedValue(null);
+      for (let i = 0; i < 3; i++) {
+        mockStorage.put.mockClear();
+        (instance as any)._activityPollAlarm = false;
+        await instance.alarm();
+      }
+
+      // Should NOT have been destroyed (only 3 failures after reset, threshold is 6)
+      expect(mockStorage.put).not.toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('does not destroy on normal idle timeout path when activity is reachable', async () => {
+      const instance = createAlarmInstance();
+      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
+
+      // Activity endpoint reachable but container is idle (high idle times)
+      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/activity') {
+          return new Response(JSON.stringify({
+            hasActiveConnections: false,
+            lastPtyOutputMs: 60 * 60 * 1000, // 1 hour idle
+            lastWsActivityMs: 60 * 60 * 1000,
+          }), { status: 200 });
+        }
+        return new Response('base fetch', { status: 200 });
+      });
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // Should have destroyed via idle_timeout (not activity_unreachable)
+      expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+    });
+  });
+
   describe('mock contract verification (FIX-53)', () => {
     /**
      * Verify that the mock Container base class used in these tests has the

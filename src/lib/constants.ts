@@ -42,6 +42,12 @@ export const ACTIVITY_FETCH_MAX_RETRIES = 3;
 /** Delay between activity endpoint retry attempts */
 export const ACTIVITY_FETCH_RETRY_DELAY_MS = 2000;
 
+/** Max consecutive activity poll failures before forced destruction.
+ * At 5-minute poll intervals, 6 failures = 30 minutes of unreachable activity endpoint.
+ * After this threshold, the container is destroyed regardless — a "headless DO"
+ * (DO alarm running but container process dead) should not live forever. */
+export const MAX_CONSECUTIVE_ACTIVITY_FAILURES = 6;
+
 /** Cloudflare API base URL */
 export const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 

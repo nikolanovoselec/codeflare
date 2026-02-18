@@ -7,6 +7,7 @@ import {
   ACTIVITY_POLL_INTERVAL_MS,
   ACTIVITY_FETCH_MAX_RETRIES,
   ACTIVITY_FETCH_RETRY_DELAY_MS,
+  MAX_CONSECUTIVE_ACTIVITY_FAILURES,
 } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
@@ -55,6 +56,9 @@ export class container extends Container<Env> {
 
   // Bug 3 fix: Activity polling timer
   private _activityPollAlarm: boolean = false;
+
+  // Consecutive activity endpoint failures — forces destruction after threshold
+  private _consecutiveActivityFailures = 0;
 
   // Map-based dispatch for internal routes (AR9)
   private readonly internalRoutes: Map<string, (request: Request) => Promise<Response> | Response>;
@@ -518,11 +522,31 @@ export class container extends Container<Env> {
     const activityInfo = await this.getActivityInfoWithRetry();
 
     if (!activityInfo) {
-      this.logger.warn('Activity endpoint unavailable after retries, skipping idle destroy this cycle', {
+      this._consecutiveActivityFailures++;
+      this.logger.warn('Activity endpoint unavailable after retries', {
         maxRetries: ACTIVITY_FETCH_MAX_RETRIES,
+        consecutiveFailures: this._consecutiveActivityFailures,
+        threshold: MAX_CONSECUTIVE_ACTIVITY_FAILURES,
       });
+
+      // After N consecutive failures (~30 min at 5-min intervals), the container
+      // process is presumed dead. Destroy to prevent "headless DO" zombies that
+      // run their alarm loop forever with an unreachable terminal server.
+      if (this._consecutiveActivityFailures >= MAX_CONSECUTIVE_ACTIVITY_FAILURES) {
+        this.logger.warn('Max consecutive activity failures reached, force-destroying container', {
+          consecutiveFailures: this._consecutiveActivityFailures,
+        });
+        await this.cleanupAndDestroy('activity_unreachable', {
+          consecutiveFailures: this._consecutiveActivityFailures,
+        });
+        return true;
+      }
+
       return false;
     }
+
+    // Activity endpoint reachable — reset failure counter
+    this._consecutiveActivityFailures = 0;
 
     const { hasActiveConnections, lastPtyOutputMs, lastWsActivityMs } = activityInfo;
     const shortestIdleMs = Math.min(lastPtyOutputMs, lastWsActivityMs);
