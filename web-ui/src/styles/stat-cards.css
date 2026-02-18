@@ -77,6 +77,8 @@
 .stat-card__metric-value {
   font-size: 11px;
   font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
   color: var(--color-text-secondary);
   background: var(--color-bg-surface);
   padding: 2px 6px;
