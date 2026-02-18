@@ -1,7 +1,7 @@
 import { SetupError, toErrorMessage } from '../../lib/error-types';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
-import { CF_API_BASE, logger, addStep } from './shared';
+import { CF_API_BASE, logger, addStep, withSetupRetry } from './shared';
 import type { SetupStep } from './shared';
 
 interface AccessApp {
@@ -58,6 +58,13 @@ function getLegacyManagedDomains(customDomain: string): Set<string> {
   ]);
 }
 
+/**
+ * Resolve an existing managed Access app using a 4-tier fallback:
+ * 1. Exact domain match (most specific)
+ * 2. Stored app ID from KV
+ * 3. Name match + domain validation (prevents cross-environment collision)
+ * 4. /app/* suffix + domain validation (prevents cross-environment collision)
+ */
 async function resolveManagedAccessApp(
   kv: KVNamespace,
   customDomain: string,
@@ -79,7 +86,7 @@ async function resolveManagedAccessApp(
   }
 
   // Fallback for fresh KV + pre-existing Access app: prefer a uniquely named managed app.
-  const byManagedName = existingApps.filter((app) => app.name === managedAppName);
+  const byManagedName = existingApps.filter((app) => app.name === managedAppName && app.domain.includes(customDomain));
   if (byManagedName.length === 1) {
     return byManagedName[0];
   }
@@ -91,7 +98,7 @@ async function resolveManagedAccessApp(
     return byManagedName[0];
   }
 
-  const byAppSuffix = existingApps.filter((app) => app.domain.endsWith('/app/*'));
+  const byAppSuffix = existingApps.filter((app) => app.domain.endsWith('/app/*') && app.domain.includes(customDomain));
   if (byAppSuffix.length === 1) {
     return byAppSuffix[0];
   }
@@ -107,24 +114,19 @@ async function resolveManagedAccessApp(
 }
 
 async function listAccessApps(token: string, accountId: string): Promise<AccessApp[]> {
-  try {
-    const response = await cfApiCB.execute(() => fetch(
+  const response = await withSetupRetry(
+    () => cfApiCB.execute(() => fetch(
       `${CF_API_BASE}/accounts/${accountId}/access/apps`,
       { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
-    ));
+    )),
+    'listAccessApps'
+  );
 
-    const data = await parseCfResponse<AccessApp[]>(response);
-    if (!data.success || !Array.isArray(data.result)) {
-      logger.warn('Failed to list Access apps', { errors: data.errors });
-      return [];
-    }
-    return data.result;
-  } catch (error) {
-    logger.warn('Access app lookup failed, creating fresh apps', {
-      error: toErrorMessage(error),
-    });
-    return [];
+  const data = await parseCfResponse<AccessApp[]>(response);
+  if (!data.success || !Array.isArray(data.result)) {
+    throw new Error(`Failed to list Access apps: ${data.errors?.map(e => e.message).join(', ') ?? 'unknown'}`);
   }
+  return data.result;
 }
 
 async function upsertAccessApp(
@@ -142,7 +144,8 @@ async function upsertAccessApp(
     ? `${CF_API_BASE}/accounts/${accountId}/access/apps/${existingAppId}`
     : `${CF_API_BASE}/accounts/${accountId}/access/apps`;
 
-  const response = await cfApiCB.execute(() => fetch(url, {
+  const response = await withSetupRetry(
+    () => cfApiCB.execute(() => fetch(url, {
     method,
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -158,7 +161,7 @@ async function upsertAccessApp(
       skip_interstitial: true,
     }),
     signal: AbortSignal.timeout(10000),
-  }));
+  })), 'upsertAccessApp');
 
   const data = await parseCfResponse<AccessAppResult>(response);
   if (!data.success || !data.result?.id) {
@@ -173,7 +176,9 @@ async function upsertAccessApp(
       if (existingByDomain) {
         return { id: existingByDomain.id, aud: existingByDomain.aud };
       }
-      return null;
+      steps[stepIndex].status = 'error';
+      steps[stepIndex].error = `Failed to resolve Access application after already-exists retry for ${appDomain}`;
+      throw new SetupError(`Failed to resolve Access application after already-exists retry`, steps);
     }
 
     const rawError = data.errors?.[0]?.message || 'unknown';
@@ -190,24 +195,19 @@ async function upsertAccessApp(
 }
 
 async function listAccessGroups(token: string, accountId: string): Promise<AccessGroup[]> {
-  try {
-    const response = await cfApiCB.execute(() => fetch(
+  const response = await withSetupRetry(
+    () => cfApiCB.execute(() => fetch(
       `${CF_API_BASE}/accounts/${accountId}/access/groups`,
       { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
-    ));
+    )),
+    'listAccessGroups'
+  );
 
-    const data = await parseCfResponse<AccessGroup[]>(response);
-    if (!data.success || !Array.isArray(data.result)) {
-      logger.warn('Failed to list Access groups', { errors: data.errors });
-      return [];
-    }
-    return data.result;
-  } catch (error) {
-    logger.warn('Access group lookup failed, creating fresh groups', {
-      error: toErrorMessage(error),
-    });
-    return [];
+  const data = await parseCfResponse<AccessGroup[]>(response);
+  if (!data.success || !Array.isArray(data.result)) {
+    throw new Error(`Failed to list Access groups: ${data.errors?.map(e => e.message).join(', ') ?? 'unknown'}`);
   }
+  return data.result;
 }
 
 function isAlreadyExistsError(errors: Array<{ message?: string }> | undefined): boolean {
@@ -234,7 +234,8 @@ async function upsertAccessGroup(
 
   const include = members.map((email) => ({ email: { email } }));
 
-  const response = await cfApiCB.execute(() => fetch(url, {
+  const response = await withSetupRetry(
+    () => cfApiCB.execute(() => fetch(url, {
     method,
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -245,7 +246,7 @@ async function upsertAccessGroup(
       include,
     }),
     signal: AbortSignal.timeout(10000),
-  }));
+  })), 'upsertAccessGroup');
 
   const data = await parseCfResponse<AccessGroupResult>(response);
   if (!data.success || !data.result?.id) {
@@ -256,7 +257,9 @@ async function upsertAccessGroup(
       if (retried) {
         return { id: retried.id, name: retried.name };
       }
-      return null;
+      steps[stepIndex].status = 'error';
+      steps[stepIndex].error = `Failed to resolve Access group ${groupName} after already-exists retry`;
+      throw new SetupError(`Failed to resolve Access group ${groupName} after already-exists retry`, steps);
     }
 
     const rawError = data.errors?.[0]?.message || 'unknown';
@@ -529,18 +532,19 @@ export async function handleCreateAccessApp(
       steps,
       stepIndex
     );
-
-    if (appResult) {
-      if (appResult.aud) {
-        audienceTags.push(appResult.aud);
-      }
-      await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup.id);
+    if (!appResult) {
+      throw new SetupError('Failed to create or update Access application', steps);
     }
+
+    if (appResult.aud) {
+      audienceTags.push(appResult.aud);
+    }
+    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup.id);
 
     await storeAccessConfig(token, accountId, kv, audienceTags, groupNames, {
       admin: adminGroup.id,
       user: userGroup.id,
-    }, appResult?.id);
+    }, appResult.id);
     steps[stepIndex].status = 'success';
   } catch (error) {
     steps[stepIndex].status = 'error';

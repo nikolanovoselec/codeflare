@@ -4,6 +4,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import setupRoutes from '../../routes/setup';
 import type { Env } from '../../types';
 import { ValidationError, AuthError, SetupError } from '../../lib/error-types';
+import { cfApiCB } from '../../lib/circuit-breakers';
 import { createMockKV } from '../helpers/mock-kv';
 
 // URL-based mock fetch factory — routes requests by URL pattern (and optionally method)
@@ -113,6 +114,7 @@ describe('Setup Routes', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.clearAllMocks();
+    cfApiCB.reset();
   });
 
   function createTestApp(envOverrides: Partial<Env> = {}) {
@@ -1289,6 +1291,11 @@ describe('Setup Routes', () => {
 
     it('updates existing managed Access app when custom domain changes', async () => {
       const app = createTestApp();
+      // Simulate previously stored app ID so resolveManagedAccessApp finds it by stored ID
+      mockKV.get.mockImplementation((key: string) => {
+        if (key === 'setup:access_app_id') return Promise.resolve('old-app-999');
+        return Promise.resolve(null);
+      });
 
       globalThis.fetch = createUrlMockFetch({
         ...baseFlowMocks(),
@@ -1396,8 +1403,11 @@ describe('Setup Routes', () => {
         '~/dns_records': (_url: string, init?: RequestInit) => {
           if (!init?.method || init.method === 'GET') {
             dnsLookupCalled = true;
-            // Simulate network error for lookup
-            throw new Error('Network error');
+            // Return an API error response (not a throw) so circuit breaker doesn't trip
+            return new Response(
+              JSON.stringify({ success: false, errors: [{ message: 'lookup failed' }] }),
+              { status: 500 }
+            );
           }
           // POST create — success
           return new Response('', { status: 200 });
@@ -1429,21 +1439,20 @@ describe('Setup Routes', () => {
       expect(dnsCreateCall).toBeDefined();
     });
 
-    it('falls back to create when Access app lookup fails', async () => {
+    it('propagates error when Access app lookup fails', async () => {
       const app = createTestApp();
-
-      let accessLookupCalled = false;
 
       globalThis.fetch = createUrlMockFetch({
         ...baseFlowMocks(),
         ...customDomainFlowMocks(),
         '~/access/apps': (_url: string, init?: RequestInit) => {
           if (!init?.method || init.method === 'GET') {
-            accessLookupCalled = true;
-            // Simulate network error for lookup
-            throw new Error('Network error');
+            // Return an error response — listAccessApps now throws on failure
+            return new Response(
+              JSON.stringify({ success: false, errors: [{ message: 'lookup failed' }] }),
+              { status: 500 }
+            );
           }
-          // POST create — success
           return new Response(
             JSON.stringify({ success: true, result: { id: 'app123' } }),
             { status: 200 }
@@ -1467,21 +1476,16 @@ describe('Setup Routes', () => {
         body: JSON.stringify(standardBody),
       });
 
-      expect(res.status).toBe(200);
+      // listAccessApps now throws on error instead of silently returning []
+      // SetupError returns 400
+      expect(res.status).toBe(400);
       const body = await res.json() as {
-        success: boolean;
+        error: string;
         steps: Array<{ step: string; status: string }>;
       };
-      expect(body.success).toBe(true);
-
-      // Verify Access app was created with POST (fallback behavior)
-      const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
-      const accessCreateCall = mockFetch.mock.calls.find(
-        call => typeof call[0] === 'string' &&
-          call[0].endsWith('/access/apps') &&
-          (call[1] as RequestInit)?.method === 'POST'
+      expect(body.steps).toContainEqual(
+        expect.objectContaining({ step: 'create_access_app', status: 'error' })
       );
-      expect(accessCreateCall).toBeDefined();
     });
 
     it('stores combined allowedOrigins in KV including custom domain and .workers.dev', async () => {

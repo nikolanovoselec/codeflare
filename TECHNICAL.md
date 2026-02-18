@@ -107,25 +107,35 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 `/api/container/debug/*` restricted to `DEV_MODE = "true"`. Admin routes use CF Access `authMiddleware` + `requireAdmin` for production access.
 
-### 2.13 Session Route Architecture
+### 2.13 Setup Wizard Resilience
+
+**Directory:** `src/routes/setup/`
+
+All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (defined in `shared.ts`) for transient failure resilience. The wrapper retries up to 2 times (3 total attempts) with exponential backoff (1s, 2s), skipping retry for `CircuitBreakerOpenError`.
+
+**Cross-environment safety:** `resolveManagedAccessApp()` in `access.ts` uses a 4-tier fallback to find existing Access apps: (1) exact domain match, (2) stored app ID from KV, (3) name match + domain validation, (4) `/app/*` suffix + domain validation. Tiers 3 and 4 validate domain to prevent cross-environment collision when multiple environments share a CF account.
+
+**Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
+
+### 2.14 Session Route Architecture
 
 **Directory:** `src/routes/session/` - Split into `index.ts` (aggregator), `crud.ts` (CRUD), `lifecycle.ts` (start/stop/status/batch-status).
 
 **Session Stop Flow:** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
 
-### 2.14 Frontend Zod Validation
+### 2.15 Frontend Zod Validation
 
 **File:** `web-ui/src/lib/schemas.ts` - Zod schemas validate API responses at runtime. Types derived from schemas via `z.infer`.
 
-### 2.15 Frontend Constants
+### 2.16 Frontend Constants
 
 **File:** `web-ui/src/lib/constants.ts` - 16 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths.
 
-### 2.16 Terminal Tab Configuration
+### 2.17 Terminal Tab Configuration
 
 **File:** `web-ui/src/lib/terminal-config.ts` - Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, codex, gemini, opencode, htop, yazi, lazygit to MDI icons).
 
-### 2.17 Container DO (CodeflareContainer)
+### 2.18 Container DO (CodeflareContainer)
 
 **File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '24h'`.
 
@@ -137,7 +147,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 **Internal Endpoints:** `/_internal/setBucketName`, `/_internal/getBucketName`, `/_internal/debugEnvVars`
 
-### 2.18 Terminal Server (node-pty)
+### 2.19 Terminal Server (node-pty)
 
 **File:** `host/server.js` - Node.js server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
@@ -147,7 +157,7 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **PTY:** Spawns `bash -l` (login shell for .bashrc) with `xterm-256color`, truecolor support.
 
-### 2.19 Frontend (SolidJS + xterm.js)
+### 2.20 Frontend (SolidJS + xterm.js)
 
 **Directory:** `web-ui/`
 

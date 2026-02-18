@@ -1,7 +1,7 @@
 import { SetupError, toError } from '../../lib/error-types';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
-import { CF_API_BASE, logger, addStep } from './shared';
+import { CF_API_BASE, logger, addStep, withSetupRetry } from './shared';
 import type { SetupStep } from './shared';
 
 /**
@@ -14,9 +14,13 @@ export async function handleGetAccount(
   const stepIndex = addStep(steps, 'get_account');
 
   try {
-    const accountsRes = await cfApiCB.execute(() => fetch(`${CF_API_BASE}/accounts`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }));
+    const accountsRes = await withSetupRetry(
+      () => cfApiCB.execute(() => fetch(`${CF_API_BASE}/accounts`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(10000),
+      })),
+      'getAccount'
+    );
     const accountsData = await parseCfResponse<Array<{ id: string }>>(accountsRes);
 
     if (!accountsData.success || !accountsData.result?.length) {

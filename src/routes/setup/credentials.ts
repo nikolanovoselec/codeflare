@@ -1,7 +1,7 @@
 import { SetupError, toError } from '../../lib/error-types';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
-import { CF_API_BASE, logger, addStep } from './shared';
+import { CF_API_BASE, logger, addStep, withSetupRetry } from './shared';
 import type { SetupStep } from './shared';
 
 /**
@@ -21,10 +21,13 @@ export async function handleDeriveR2Credentials(
 
   try {
     // Get the token ID from the verify endpoint
-    const verifyRes = await cfApiCB.execute(() => fetch(`${CF_API_BASE}/user/tokens/verify`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-      signal: AbortSignal.timeout(10000),
-    }));
+    const verifyRes = await withSetupRetry(
+      () => cfApiCB.execute(() => fetch(`${CF_API_BASE}/user/tokens/verify`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(10000),
+      })),
+      'tokenVerify'
+    );
     const verifyData = await parseCfResponse<{ id: string; status: string }>(verifyRes);
 
     if (!verifyData.success || !verifyData.result?.id) {
