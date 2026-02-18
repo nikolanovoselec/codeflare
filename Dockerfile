@@ -108,7 +108,7 @@ RUN claude --version 2>&1 || true && \
 # The workspace dir matches where agents run in entrypoint.sh ($HOME/workspace).
 RUN mkdir -p /root/workspace && \
     cd /root/workspace && \
-    ANTHROPIC_API_KEY=sk-dummy timeout 15 opencode run --prompt "hello" 2>&1 || true
+    ANTHROPIC_API_KEY=sk-dummy timeout 15 opencode run "hello" 2>&1 || true
 
 # Verify critical tools are installed
 RUN git --version && gh --version && rclone --version && node --version && \
