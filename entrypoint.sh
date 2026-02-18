@@ -546,7 +546,7 @@ CASE_EOF
             ;;
 CASE_EOF
                     ;;
-                codex|claude)
+                codex|claude|opencode)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (direct exec)

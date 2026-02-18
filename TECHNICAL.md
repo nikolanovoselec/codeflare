@@ -123,7 +123,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### 2.16 Terminal Tab Configuration
 
-**File:** `web-ui/src/lib/terminal-config.ts` - Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, htop, yazi, lazygit to MDI icons).
+**File:** `web-ui/src/lib/terminal-config.ts` - Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, codex, gemini, opencode, htop, yazi, lazygit to MDI icons).
 
 ### 2.17 Container DO (CodeflareContainer)
 
@@ -593,7 +593,11 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 ### Global NPM Packages
 
-`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code`, `@openai/codex`, `@google/gemini-cli`
+`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code`, `@openai/codex`, `@google/gemini-cli`, `opencode-ai`
+
+### V8 Compile Cache Warm-Up
+
+Node.js CLIs (claude, codex, gemini) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need this optimization.
 
 Port: 8080 (single port architecture).
 

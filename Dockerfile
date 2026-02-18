@@ -82,13 +82,24 @@ ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
     claude-unleashed --silent --no-consent 2>&1 || true
 
-# Install vanilla Claude Code + Codex + Gemini CLIs for multi-agent support
+# Install vanilla Claude Code + Codex + Gemini + OpenCode CLIs for multi-agent support
 # claude-unleashed bundles claude-code as a dependency but doesn't expose a global
 # `claude` binary — this separate install provides `claude` for direct use in tabs.
+# OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
 # These fail gracefully (|| echo "WARN: ...") since they are optional agent backends.
 RUN npm install -g @anthropic-ai/claude-code@stable || echo "WARN: claude-code install failed"
 RUN npm install -g @openai/codex || echo "WARN: codex install failed"
 RUN npm install -g @google/gemini-cli || echo "WARN: gemini install failed"
+RUN npm install -g opencode-ai@latest || echo "WARN: opencode install failed"
+
+# V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
+# Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
+# This speeds up first-launch of Node.js CLIs (claude, codex, gemini) inside containers
+# by avoiding the compilation overhead on every container start.
+# Note: Go binaries (like opencode) don't need this — they're already natively compiled.
+RUN claude --version 2>&1 || true && \
+    codex --version 2>&1 || true && \
+    gemini --version 2>&1 || true
 
 # Verify critical tools are installed
 RUN git --version && gh --version && rclone --version && node --version && \

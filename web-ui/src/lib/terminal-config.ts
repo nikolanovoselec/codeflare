@@ -7,6 +7,7 @@ import {
   mdiDiamond,
   mdiSourceBranch,
   mdiFire,
+  mdiRobotIndustrial,
 } from '@mdi/js';
 
 // Tab configuration: generic defaults, overridden by live process detection
@@ -26,6 +27,7 @@ const PROCESS_ICON_MAP: Record<string, string> = {
   'claude-code': mdiRobotOutline,
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
+  'opencode': mdiRobotIndustrial,
   'htop': mdiChartLine,
   'yazi': mdiFolderOutline,
   'lazygit': mdiSourceBranch,
@@ -45,5 +47,6 @@ export const AGENT_ICON_MAP: Record<string, string> = {
   'claude-code': mdiRobotOutline,
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
+  'opencode': mdiRobotIndustrial,
   'bash': mdiConsole,
 };

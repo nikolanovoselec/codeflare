@@ -1,10 +1,60 @@
 import { describe, it, expect } from 'vitest';
 import {
+  AgentTypeSchema,
   StorageStatsResponseSchema,
   StoragePreviewTextResponseSchema,
   StoragePreviewImageResponseSchema,
   StoragePreviewBinaryResponseSchema,
 } from '../../lib/schemas';
+
+describe('AgentTypeSchema', () => {
+  const validAgentTypes = ['claude-unleashed', 'claude-code', 'codex', 'gemini', 'opencode', 'bash'];
+
+  it('contains exactly the expected 6 agent types', () => {
+    expect([...AgentTypeSchema.options].sort()).toEqual([...validAgentTypes].sort());
+  });
+
+  it('has exactly 6 options', () => {
+    expect(AgentTypeSchema.options).toHaveLength(6);
+  });
+
+  it.each(validAgentTypes)('accepts "%s" as a valid agent type', (agentType) => {
+    expect(AgentTypeSchema.safeParse(agentType).success).toBe(true);
+  });
+
+  it('accepts "opencode" via parse', () => {
+    expect(AgentTypeSchema.parse('opencode')).toBe('opencode');
+  });
+
+  it('rejects invalid agent type strings', () => {
+    expect(AgentTypeSchema.safeParse('invalid').success).toBe(false);
+    expect(AgentTypeSchema.safeParse('cursor').success).toBe(false);
+    expect(AgentTypeSchema.safeParse('').success).toBe(false);
+  });
+
+  it('rejects non-string values', () => {
+    expect(AgentTypeSchema.safeParse(123).success).toBe(false);
+    expect(AgentTypeSchema.safeParse(null).success).toBe(false);
+    expect(AgentTypeSchema.safeParse(undefined).success).toBe(false);
+    expect(AgentTypeSchema.safeParse(true).success).toBe(false);
+  });
+
+  it('safeParse returns data on success', () => {
+    const result = AgentTypeSchema.safeParse('opencode');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe('opencode');
+    }
+  });
+
+  it('safeParse returns error on failure', () => {
+    const result = AgentTypeSchema.safeParse('not-an-agent');
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toBeDefined();
+    }
+  });
+});
 
 describe('Storage Stats Schema', () => {
   it('validates a complete stats response', () => {
