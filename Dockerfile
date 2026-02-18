@@ -134,6 +134,8 @@ RUN mkdir -p /app/host
 COPY --from=builder /app/host/node_modules /app/host/node_modules
 COPY host/package.json /app/host/
 COPY host/server.js /app/host/
+COPY host/activity-tracker.js /app/host/
+COPY host/agent-file-activity.js /app/host/
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
