@@ -9,8 +9,8 @@ export const SESSION_ID_PATTERN = /^[a-z0-9]{8,24}$/;
 // These are used if ALLOWED_ORIGINS environment variable is not set
 export const DEFAULT_ALLOWED_ORIGINS = ['.workers.dev'];
 
-/** Idle timeout before container sleeps (5 minutes) */
-export const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+/** Idle timeout before container is destroyed (30 minutes of no PTY output / WS activity) */
+export const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Delay after setting bucket name before proceeding */
 export const BUCKET_NAME_SETTLE_DELAY_MS = 100;
