@@ -548,20 +548,20 @@ export class container extends Container<Env> {
     // Activity endpoint reachable — reset failure counter
     this._consecutiveActivityFailures = 0;
 
-    const { hasActiveConnections, lastPtyOutputMs, lastWsActivityMs } = activityInfo;
-    const shortestIdleMs = Math.min(lastPtyOutputMs, lastWsActivityMs);
+    const { hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs } = activityInfo;
+    const shortestIdleMs = Math.min(lastUserInputMs, lastAgentFileActivityMs);
 
-    this.logger.info('Activity check', { hasActiveConnections, lastPtyOutputMs, lastWsActivityMs });
+    this.logger.info('Activity check', { hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs });
 
     // Container is destroyed when idle for IDLE_TIMEOUT_MS regardless of WebSocket connections.
-    // Activity = PTY output or WS messages. An open browser tab with no work is still idle.
+    // Activity = user input (keystrokes) or agent file activity. An open browser tab with no work is still idle.
     // A headless agent producing output stays alive even without a browser.
     if (shortestIdleMs > IDLE_TIMEOUT_MS) {
       this.logger.info('Container idle, destroying', { idleMs: shortestIdleMs, hasActiveConnections });
       await this.cleanupAndDestroy('idle_timeout', {
         idleMs: shortestIdleMs,
-        lastPtyOutputMs,
-        lastWsActivityMs,
+        lastUserInputMs,
+        lastAgentFileActivityMs,
       });
       return true;
     }
@@ -637,8 +637,8 @@ export class container extends Container<Env> {
    */
   private async getActivityInfo(): Promise<{
     hasActiveConnections: boolean;
-    lastPtyOutputMs: number;
-    lastWsActivityMs: number;
+    lastUserInputMs: number;
+    lastAgentFileActivityMs: number;
   } | null> {
     try {
       const headers: HeadersInit = {};
@@ -652,8 +652,8 @@ export class container extends Container<Env> {
       if (response.ok) {
         const data = await response.json() as {
           hasActiveConnections: boolean;
-          lastPtyOutputMs: number;
-          lastWsActivityMs: number;
+          lastUserInputMs: number;
+          lastAgentFileActivityMs: number;
         };
         return data;
       }
@@ -669,8 +669,8 @@ export class container extends Container<Env> {
    */
   private async getActivityInfoWithRetry(): Promise<{
     hasActiveConnections: boolean;
-    lastPtyOutputMs: number;
-    lastWsActivityMs: number;
+    lastUserInputMs: number;
+    lastAgentFileActivityMs: number;
   } | null> {
     for (let attempt = 1; attempt <= ACTIVITY_FETCH_MAX_RETRIES; attempt++) {
       const info = await this.getActivityInfo();

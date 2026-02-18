@@ -139,7 +139,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '24h'`.
 
-**Activity-Based Hibernation:** DO alarm fires every 5 minutes, checks `/activity` endpoint (hasActiveConnections, lastPtyOutputMs, lastWsActivityMs). Hibernates when no connections AND no PTY output for 5 minutes. `destroy()` override MUST call `this.ctx.storage.deleteAlarm()` to prevent zombie containers.
+**Activity-Based Hibernation:** DO alarm fires every 5 minutes, checks `/activity` endpoint (hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs). Hibernates when no user input (keystrokes to PTY) and no agent file activity for 5 minutes. `destroy()` override MUST call `this.ctx.storage.deleteAlarm()` to prevent zombie containers.
 
 **Environment Variables Injection:** R2 credentials flow via two paths: (1) `_internal/setBucketName` request body (primary, from Worker), (2) `this.env` fallback (DO restart). Fallback chain: Worker-provided > `this.env` > empty string.
 
@@ -151,7 +151,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **File:** `host/server.js` - Node.js server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
-Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (`lastPtyOutputTimestamp`, `lastWsActivityTimestamp`) for hibernation decisions via `GET /activity`.
+Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (`lastUserInputMs`, `lastAgentFileActivityMs`) for hibernation decisions via `GET /activity`.
 
 **WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, ping) as JSON. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
@@ -856,7 +856,7 @@ curl .../api/container/debug?sessionId=abc12345  # Returns masked env vars
 | `default` | 1 vCPU, 3 GiB, 4 GB | ~$56 (reference) |
 | `high` | 2 vCPU, 6 GiB, 8 GB | Higher; check CF pricing |
 
-Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate (no connections + no PTY output for 5 min). Hibernated containers = zero cost.
+Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate (no user input + no agent file activity for 5 min). Hibernated containers = zero cost.
 
 **R2:** First 10GB free, $0.015/GB/month after. User config typically <100MB.
 
@@ -872,7 +872,7 @@ Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate
 6. **Login shell for .bashrc** - PTY must spawn `bash -l` for auto-start.
 7. **Two-step sync prevents data loss** - Empty local + bisync resync = deleted R2 data. Always restore first.
 8. **DO alarm cleanup in destroy()** - Alarms persist across hibernation. Clear before `super.destroy()`.
-9. **Activity-based hibernation** - Poll actual usage (connections + PTY output), don't rely on `sleepAfter` alone.
+9. **Activity-based hibernation** - Poll actual usage (user input + agent file activity), don't rely on `sleepAfter` alone.
 10. **Don't getState() after destroy()** - Wakes the DO, undoing hibernation.
 11. **inputDisposable scope matters** - Dispose on reconnect to prevent character doubling.
 12. **No fallback container IDs** - `getContainerId()` must NEVER fallback to just `bucketName`. Root cause of zombies.

@@ -366,8 +366,8 @@ describe('container DO class', () => {
       // Now make activity endpoint reachable (active container, not idle)
       retryMock.mockResolvedValue({
         hasActiveConnections: true,
-        lastPtyOutputMs: 1000,
-        lastWsActivityMs: 1000,
+        lastUserInputMs: 1000,
+        lastAgentFileActivityMs: 1000,
       });
 
       (instance as any)._activityPollAlarm = false;
@@ -394,8 +394,8 @@ describe('container DO class', () => {
         if (new URL(request.url).pathname === '/activity') {
           return new Response(JSON.stringify({
             hasActiveConnections: false,
-            lastPtyOutputMs: 60 * 60 * 1000, // 1 hour idle
-            lastWsActivityMs: 60 * 60 * 1000,
+            lastUserInputMs: 60 * 60 * 1000, // 1 hour idle
+            lastAgentFileActivityMs: 60 * 60 * 1000,
           }), { status: 200 });
         }
         return new Response('base fetch', { status: 200 });
@@ -405,6 +405,74 @@ describe('container DO class', () => {
       await instance.alarm();
 
       // Should have destroyed via idle_timeout (not activity_unreachable)
+      expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('stays alive when user input recent but agent files idle', async () => {
+      const instance = createAlarmInstance();
+      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
+
+      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/activity') {
+          return new Response(JSON.stringify({
+            hasActiveConnections: false,
+            lastUserInputMs: 1000,              // 1 second ago
+            lastAgentFileActivityMs: 3600000,   // 1 hour ago
+          }), { status: 200 });
+        }
+        return new Response('base fetch', { status: 200 });
+      });
+
+      (instance as any)._activityPollAlarm = false;
+      mockStorage.put.mockClear();
+      await instance.alarm();
+
+      // min(1s, 1h) = 1s < 30min idle timeout — should NOT destroy
+      expect(mockStorage.put).not.toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('stays alive when agent files active but no user input', async () => {
+      const instance = createAlarmInstance();
+      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
+
+      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/activity') {
+          return new Response(JSON.stringify({
+            hasActiveConnections: false,
+            lastUserInputMs: 3600000,           // 1 hour ago
+            lastAgentFileActivityMs: 1000,      // 1 second ago
+          }), { status: 200 });
+        }
+        return new Response('base fetch', { status: 200 });
+      });
+
+      (instance as any)._activityPollAlarm = false;
+      mockStorage.put.mockClear();
+      await instance.alarm();
+
+      // min(1h, 1s) = 1s < 30min idle timeout — should NOT destroy
+      expect(mockStorage.put).not.toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('destroyed when BOTH exceed idle timeout', async () => {
+      const instance = createAlarmInstance();
+      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
+
+      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/activity') {
+          return new Response(JSON.stringify({
+            hasActiveConnections: false,
+            lastUserInputMs: 1860001,           // 31 minutes
+            lastAgentFileActivityMs: 1860001,   // 31 minutes
+          }), { status: 200 });
+        }
+        return new Response('base fetch', { status: 200 });
+      });
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // min(31m, 31m) = 31m > 30min idle timeout — should destroy
       expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
     });
   });

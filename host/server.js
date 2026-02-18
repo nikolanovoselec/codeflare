@@ -18,6 +18,8 @@ import pty from 'node-pty';
 import { parse as parseUrl } from 'url';
 import { parse as parseQuery } from 'querystring';
 import fs from 'fs';
+import { createActivityTracker, AGENT_DIRS } from './activity-tracker.js';
+import { createAgentFileChecker, checkAgentFileActivity } from './agent-file-activity.js';
 
 const PROCESS_NAME_POLL_MS = 2000;
 const WS_KEEPALIVE_PING_MS = 30000;
@@ -166,38 +168,9 @@ function logWsEvent(sessionId, type, details) {
   }
 }
 
-// Bug 3 fix: Global activity tracking for smart hibernation
-const activityTracker = {
-  lastPtyOutputTimestamp: Date.now(),
-  lastWsActivityTimestamp: Date.now(),
-
-  // Call this whenever PTY produces output
-  recordPtyOutput() {
-    this.lastPtyOutputTimestamp = Date.now();
-  },
-
-  // Call this whenever WebSocket activity occurs
-  recordWsActivity() {
-    this.lastWsActivityTimestamp = Date.now();
-  },
-
-  // Get activity info for the /activity endpoint
-  getActivityInfo(sessionManager) {
-    const now = Date.now();
-    const totalConnectedClients = Array.from(sessionManager.sessions.values())
-      .reduce((sum, session) => sum + session.clients.size, 0);
-
-    return {
-      hasActiveConnections: totalConnectedClients > 0,
-      connectedClients: totalConnectedClients,
-      activeSessions: sessionManager.size,
-      lastPtyOutputMs: now - this.lastPtyOutputTimestamp,
-      lastWsActivityMs: now - this.lastWsActivityTimestamp,
-      lastPtyOutputAt: new Date(this.lastPtyOutputTimestamp).toISOString(),
-      lastWsActivityAt: new Date(this.lastWsActivityTimestamp).toISOString(),
-    };
-  },
-};
+// Activity tracking for smart hibernation (user input + agent file activity)
+const activityTracker = createActivityTracker();
+const agentFileChecker = createAgentFileChecker(AGENT_DIRS);
 
 /**
  * Session represents a PTY terminal instance
@@ -290,9 +263,6 @@ class Session {
 
     this.ptyProcess.onData((data) => {
       this.lastDataTime = Date.now();
-
-      // Bug 3 fix: Record PTY activity for smart hibernation
-      activityTracker.recordPtyOutput();
 
       // Feed data into headless terminal for state tracking
       this.headlessTerminal.write(data);
@@ -619,6 +589,21 @@ class SessionManager {
   }
 
   /**
+   * Get a Map of all connected WebSocket clients across all sessions.
+   * Used by activityTracker.getActivityInfo() to determine hasActiveConnections.
+   */
+  get clients() {
+    const allClients = new Map();
+    let idx = 0;
+    for (const session of this.sessions.values()) {
+      for (const ws of session.clients) {
+        allClients.set(`${session.id}-${idx++}`, ws);
+      }
+    }
+    return allClients;
+  }
+
+  /**
    * Get session count
    */
   get size() {
@@ -676,8 +661,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Bug 3 fix: Activity endpoint for smart hibernation
+  // Activity endpoint for smart hibernation (user input + agent file activity)
   if (pathname === '/activity' && method === 'GET') {
+    const agentChanged = await checkAgentFileActivity(agentFileChecker);
+    if (agentChanged) {
+      activityTracker.updateAgentFileActivity();
+    }
     const activityInfo = activityTracker.getActivityInfo(sessionManager);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(activityInfo));
@@ -824,9 +813,6 @@ wss.on('connection', (ws, req) => {
   // Handle incoming messages
   // RAW data goes directly to PTY, JSON only for control messages (resize, ping)
   ws.on('message', (message) => {
-    // Bug 3 fix: Record WebSocket activity for smart hibernation
-    activityTracker.recordWsActivity();
-
     const str = message.toString();
 
     // Try to parse as JSON for known control messages only
@@ -850,6 +836,7 @@ wss.on('connection', (ws, req) => {
 
         if (msg.type === 'data' && typeof msg.data === 'string') {
           session.write(msg.data);
+          activityTracker.recordUserInput();
           return;
         }
 
@@ -861,6 +848,7 @@ wss.on('connection', (ws, req) => {
 
     // Raw terminal input - write directly to PTY
     session.write(str);
+    activityTracker.recordUserInput();
   });
 
   // Handle client disconnect

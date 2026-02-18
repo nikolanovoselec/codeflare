@@ -6,7 +6,8 @@
   "description": "Terminal server for codeflare container",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test __tests__/*.test.js"
   },
   "dependencies": {
     "@xterm/headless": "^5.5.0",
