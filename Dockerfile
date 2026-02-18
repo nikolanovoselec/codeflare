@@ -77,10 +77,12 @@ RUN npm install -g github:nikolanovoselec/claude-unleashed && rm -f /tmp/.cache-
 # This does at build-time what cu normally does on first run:
 #   1. npm view + npm install → latest @anthropic-ai/claude-code
 #   2. applyPatches() → cli-patched.js + .hash written
-#   3. V8 compile cache seeded by importing the patched CLI (exits immediately)
+#   3. V8 compile cache seeded by importing the patched CLI
+# Pass --help so the CLI loads all JS (seeding V8 cache) then exits cleanly.
+# Without it, non-interactive Docker build has no TTY/stdin and the CLI errors.
 ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
-    claude-unleashed --silent --no-consent 2>&1 || true
+    claude-unleashed --silent --no-consent --help 2>&1 || true
 
 # Install vanilla Claude Code + Codex + Gemini + OpenCode CLIs for multi-agent support
 # claude-unleashed bundles claude-code as a dependency but doesn't expose a global
