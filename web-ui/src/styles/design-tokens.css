@@ -9,7 +9,7 @@
 
   /* Backgrounds - deeper, more sophisticated */
   --color-bg-base: #09090b;        /* Zinc 950 - true black base */
-  --color-bg-surface: #18181b;     /* Zinc 900 - cards, sidebars */
+  --color-bg-surface: #18181b;     /* Zinc 900 - cards, panels */
   --color-bg-tertiary: #1f1f23;    /* Between surface and elevated */
   --color-bg-elevated: #27272a;    /* Zinc 800 - modals, dropdowns */
   --color-bg-muted: #3f3f46;       /* Zinc 700 - hover states */

@@ -6,8 +6,8 @@
   z-index: 49;
 }
 
-/* Desktop popover — background matches .dashboard-panel-left exactly
-   so SessionStatCard renders identically in both contexts.
+/* Desktop popover — background matches the dashboard panel so
+   SessionStatCard renders identically in both contexts.
    No backdrop-filter: it creates a new stacking context that shifts
    semi-transparent card backgrounds and breaks fixed-positioned children. */
 .session-dropdown--popover {
