@@ -35,6 +35,8 @@
 
 .stat-card__icon {
   color: var(--color-accent, #8b5cf6);
+  display: flex;
+  align-items: center;
 }
 
 .stat-card__title {
