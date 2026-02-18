@@ -114,12 +114,17 @@ RUN ANTHROPIC_API_KEY="" OPENAI_API_KEY="" GEMINI_API_KEY="" GITHUB_TOKEN="" \
 RUN git --version && gh --version && rclone --version && node --version && \
     which yazi && which lazygit
 
-# Browser shim: exit 1 so Claude Code falls back to displaying the auth URL
-# as text in its TUI. The WebLinksAddon in xterm.js makes plain-text URLs clickable.
-# (OSC 8 hyperlinks don't work here because Claude Code spawns BROWSER as a child
-# process and captures stdout -- the output never reaches the PTY.)
+# Browser shims: force CLI tools to fall back to displaying auth URLs as text.
+# Claude Code checks BROWSER env var; OpenCode/Bun use xdg-open directly.
+# When these shims exit 1, the CLIs print the URL as plain text in the PTY,
+# where the xterm.js link provider detects and makes it clickable.
+# (OSC 8 hyperlinks don't work here because CLIs spawn BROWSER/xdg-open as a
+# child process and capture stdout -- the output never reaches the PTY.)
 RUN printf '#!/bin/bash\nexit 1\n' > /usr/local/bin/open-url && \
-    chmod +x /usr/local/bin/open-url
+    chmod +x /usr/local/bin/open-url && \
+    printf '#!/bin/bash\nexit 1\n' > /usr/local/bin/xdg-open-shim && \
+    chmod +x /usr/local/bin/xdg-open-shim && \
+    ln -sf /usr/local/bin/xdg-open-shim /usr/bin/xdg-open
 ENV BROWSER=/usr/local/bin/open-url
 
 # Create workspace directory structure
