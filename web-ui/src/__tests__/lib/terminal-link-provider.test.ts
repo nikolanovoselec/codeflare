@@ -386,4 +386,214 @@ describe('terminal-link-provider', () => {
       });
     });
   });
+
+  describe('Box-drawing bordered TUI dialog (Bubble Tea / lipgloss)', () => {
+    it('detects URL split across bordered lines in a narrow dialog', () => {
+      // OpenCode renders auth URLs inside a Bubble Tea dialog with │ borders.
+      // Each line has │ at start and end with padding spaces between content and border.
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('│ Paste the authorization code here:              │', false),
+          createMockLine('│                                                 │', false),
+          createMockLine('│ https://claude.ai/oauth/authorize?              │', false),
+          createMockLine('│ code=true&client_id=9d1c250a-e61b-44d9-88ed-   │', false),
+          createMockLine('│ 5944d1962f5e&response_type=code                │', false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      const expectedUrl = 'https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code';
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(3, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe(expectedUrl);
+          resolve();
+        });
+      });
+    });
+
+    it('detects full OAuth URL with many query params across bordered lines', () => {
+      // Full realistic OpenCode auth URL spanning many bordered lines
+      const cols = 60;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('│ https://claude.ai/oauth/authorize?          │', false),
+          createMockLine('│ code=true&client_id=9d1c250a-e61b-44d9-    │', false),
+          createMockLine('│ 88ed-5944d1962f5e&response_type=code&      │', false),
+          createMockLine('│ redirect_uri=https%3A%2F%2Fconsole.anthro  │', false),
+          createMockLine('│ pic.com%2Foauth%2Fcode%2Fcallback&scope=   │', false),
+          createMockLine('│ org%3Acreate_api_key+user%3Aprofile        │', false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          const url = links[0].text;
+          expect(url).toContain('https://claude.ai/oauth/authorize?');
+          expect(url).toContain('code=true');
+          expect(url).toContain('client_id=9d1c250a');
+          expect(url).toContain('redirect_uri=https%3A%2F%2Fconsole.anthro');
+          resolve();
+        });
+      });
+    });
+
+    it('still detects single-line URL inside borders', () => {
+      // Short URL that fits on one bordered line — no continuation needed
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('│ https://github.com/login/device                           │', false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe('https://github.com/login/device');
+          resolve();
+        });
+      });
+    });
+
+    it('does not join bordered non-URL lines after a URL', () => {
+      // A URL on one line followed by plain text — should NOT join the text
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('│ https://example.com/login                                 │', false),
+          createMockLine('│ Press ENTER to continue                                   │', false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe('https://example.com/login');
+          resolve();
+        });
+      });
+    });
+
+    it('handles double-line box-drawing borders (┃ instead of │)', () => {
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('┃ https://accounts.google.com/o/oauth2/auth?              ┃', false),
+          createMockLine('┃ client_id=abc123&scope=email                            ┃', false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toContain('https://accounts.google.com/o/oauth2/auth?');
+          expect(links[0].text).toContain('client_id=abc123&scope=email');
+          resolve();
+        });
+      });
+    });
+  });
+
+  describe('Non-bordered agents still work (regression)', () => {
+    it('Claude Code ink-style: URL with whitespace padding, no borders', () => {
+      // Claude Code uses ink (React-based TUI) with whitespace padding, no borders
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('  To authenticate, visit:'),
+          createMockLine('  https://console.anthropic.com/oauth/authorize?'),
+          createMockLine('  client_id=abc&response_type=code&state=xyz'),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      const expectedUrl = 'https://console.anthropic.com/oauth/authorize?client_id=abc&response_type=code&state=xyz';
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(2, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe(expectedUrl);
+          resolve();
+        });
+      });
+    });
+
+    it('plain terminal output: URL on a single full-width line', () => {
+      // Codex/Gemini might print URLs as plain full-width lines
+      const url = 'https://github.com/login/device?code=ABCD-1234';
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [createMockLine(url)],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe(url);
+          resolve();
+        });
+      });
+    });
+
+    it('shell prompt after URL does not get joined', () => {
+      // URL followed by a shell prompt — must NOT join
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('https://example.com/oauth/authorize?code=abc'),
+          createMockLine('$ '),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe('https://example.com/oauth/authorize?code=abc');
+          resolve();
+        });
+      });
+    });
+  });
 });
