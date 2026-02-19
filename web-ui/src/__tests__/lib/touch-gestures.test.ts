@@ -22,7 +22,7 @@ function makeTouchEvent(
   clientY: number,
   options?: { cancelable?: boolean },
 ): TouchEvent {
-  const touch = { clientX, clientY, identifier: 0, target: document.body } as Touch;
+  const touch = { clientX, clientY, identifier: 0, target: document.body } as unknown as Touch;
   const event = new TouchEvent(type, {
     touches: type === 'touchend' ? [] : [touch],
     cancelable: options?.cancelable ?? true,
@@ -328,8 +328,8 @@ describe('touch-gestures', () => {
         // Simulate multi-touch (2 fingers)
         const multiTouchEvent = new TouchEvent('touchstart', {
           touches: [
-            { clientX: 100, clientY: 100, identifier: 0, target: document.body } as Touch,
-            { clientX: 200, clientY: 200, identifier: 1, target: document.body } as Touch,
+            { clientX: 100, clientY: 100, identifier: 0, target: document.body } as unknown as Touch,
+            { clientX: 200, clientY: 200, identifier: 1, target: document.body } as unknown as Touch,
           ],
           bubbles: true,
         });
