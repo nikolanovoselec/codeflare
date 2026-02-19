@@ -299,7 +299,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </div>
             <div class="setting-row setting-row--column-gap">
               <span class="settings-hint">
-                Allow right-click and button paste from clipboard. When enabled, your browser may prompt for clipboard permission.
+                Allow right-click and button paste from clipboard. Works best in Chrome; unreliable in other browsers. When enabled, your browser may prompt for clipboard permission.
               </span>
             </div>
           </section>

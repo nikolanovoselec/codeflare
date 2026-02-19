@@ -519,6 +519,20 @@ export class container extends Container<Env> {
    * @returns true if container was destroyed due to being idle
    */
   private async handleIdleContainer(): Promise<boolean> {
+    // Don't probe containers that aren't running — prevents zombie resurrection
+    // via this.fetch() -> super.fetch() -> containerFetch() auto-start path
+    try {
+      const state = await this.getState();
+      if (state.status !== 'running' && state.status !== 'healthy') {
+        await this.ctx.storage.deleteAlarm();
+        this._activityPollAlarm = false;
+        return true;
+      }
+    } catch {
+      // getState() failed — don't proceed with fetch that could auto-start
+      return false;
+    }
+
     const activityInfo = await this.getActivityInfoWithRetry();
 
     if (!activityInfo) {

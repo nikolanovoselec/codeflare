@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import type { Env } from '../../types';
-import { getContainerContext, checkContainerHealth, type HealthData } from '../../lib/container-helpers';
+import { getContainerContext, safeCheckContainerHealth, type HealthData } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
 import {
@@ -108,7 +108,7 @@ app.get('/health', async (c) => {
   try {
     const { containerId, container } = getContainerContext(c);
 
-    const healthResult = await checkContainerHealth(container);
+    const healthResult = await safeCheckContainerHealth(container);
 
     if (!healthResult.healthy) {
       reqLogger.error('Container health check failed', new Error(healthResult.error || 'Unknown error'), { containerId });
