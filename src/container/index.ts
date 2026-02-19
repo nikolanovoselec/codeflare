@@ -544,18 +544,12 @@ export class container extends Container<Env> {
    * @returns true if container was destroyed due to being idle
    */
   private async handleIdleContainer(): Promise<boolean> {
-    // Don't probe containers that aren't running — prevents zombie resurrection
-    // via this.fetch() -> super.fetch() -> containerFetch() auto-start path
-    try {
-      const state = await this.getState();
-      if (state.status !== 'running' && state.status !== 'healthy') {
-        await this.ctx.storage.deleteAlarm();
-        this._activityPollAlarm = false;
-        return true;
-      }
-    } catch {
-      // getState() failed — don't proceed with fetch that could auto-start
-      return false;
+    // Guard: if container isn't running, clean up immediately — prevents zombie auto-start
+    // via this.fetch() -> containerFetch() -> startAndWaitForPorts() path
+    if (!this.ctx.container?.running) {
+      this.logger.info('Container not running, cleaning up');
+      await this.cleanupAndDestroy('container_not_running');
+      return true;
     }
 
     const activityInfo = await this.getActivityInfoWithRetry();
@@ -692,9 +686,8 @@ export class container extends Container<Env> {
     }
 
     // Step 3: Handle activity polling and idle detection
-    // Note: no separate checkContainerStopped() — handleIdleContainer() already
-    // calls getState() and handles non-running containers by deleting the alarm.
-    // Removing the extra getState() call reduces SDK interaction surface area.
+    // handleIdleContainer() checks ctx.container.running for liveness (no SDK auto-start)
+    // and uses getTcpPort().fetch() for activity data (no containerFetch() auto-start).
     try {
       if (await this.handleIdleContainer()) {
         return;
@@ -720,14 +713,19 @@ export class container extends Container<Env> {
     hasActiveConnections: boolean;
     disconnectedForMs: number | null;
   } | null> {
+    // Guard: don't fetch from a stopped container — prevents zombie auto-start
+    if (!this.ctx.container?.running) return null;
+
     try {
       const headers: HeadersInit = {};
       if (this._containerAuthToken) {
         headers['Authorization'] = `Bearer ${this._containerAuthToken}`;
       }
-      const response = await this.fetch(
-        new Request(this.getTerminalActivityUrl(), { method: 'GET', headers })
-      );
+      const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
+      const response = await tcpPort.fetch(this.getTerminalActivityUrl(), {
+        method: 'GET',
+        headers,
+      });
 
       if (response.ok) {
         const data = await response.json() as {
