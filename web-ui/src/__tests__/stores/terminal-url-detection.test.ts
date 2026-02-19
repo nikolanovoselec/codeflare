@@ -28,13 +28,15 @@ function createMockLine(text: string, isWrapped = false): MockLine {
   };
 }
 
-function createMockTerminal(lines: MockLine[], cols = 80) {
+function createMockTerminal(lines: MockLine[], cols = 80, opts?: { rows?: number; viewportY?: number }) {
+  const rows = opts?.rows ?? 24;
   return {
     cols,
-    rows: 24,
+    rows,
     buffer: {
       active: {
         length: lines.length,
+        viewportY: opts?.viewportY ?? 0,
         getLine: (y: number) => lines[y],
       },
     },
@@ -224,6 +226,62 @@ describe('getLastUrlFromBuffer', () => {
       ]);
       const url = terminalStore.getLastUrlFromBuffer(term as any);
       expect(url).toBe('https://example.com/second');
+    });
+  });
+
+  describe('viewport-scoped scanning', () => {
+    it('finds URL within visible viewport', () => {
+      const lines = [
+        createMockLine('some old output'),
+        createMockLine('https://example.com/visible'),
+        createMockLine('more text'),
+      ];
+      const term = createMockTerminal(lines, 80, { rows: 3, viewportY: 0 });
+      const url = terminalStore.getLastUrlFromBuffer(term as any);
+      expect(url).toBe('https://example.com/visible');
+    });
+
+    it('does NOT find URL scrolled off screen', () => {
+      const lines = [
+        createMockLine('https://example.com/old-url'),
+        ...Array.from({ length: 10 }, () => createMockLine('filler text')),
+      ];
+      // Viewport starts at line 5, rows=4 → visible lines 5-8, ±3 margin → lines 2-11
+      // URL is at line 0, outside the margin
+      const term = createMockTerminal(lines, 80, { rows: 4, viewportY: 5 });
+      const url = terminalStore.getLastUrlFromBuffer(term as any);
+      expect(url).toBeNull();
+    });
+
+    it('finds URL within ±3 line margin of viewport', () => {
+      const lines = [
+        createMockLine('https://example.com/near-top'),
+        createMockLine('filler 1'),
+        createMockLine('filler 2'),
+        createMockLine('visible line 1'),
+        createMockLine('visible line 2'),
+      ];
+      // Viewport starts at line 3, rows=2 → visible lines 3-4, -3 margin → includes line 0
+      const term = createMockTerminal(lines, 80, { rows: 2, viewportY: 3 });
+      const url = terminalStore.getLastUrlFromBuffer(term as any);
+      expect(url).toBe('https://example.com/near-top');
+    });
+
+    it('URL just outside ±3 margin is not found', () => {
+      const lines = [
+        createMockLine('https://example.com/too-far'),
+        createMockLine('filler 1'),
+        createMockLine('filler 2'),
+        createMockLine('filler 3'),
+        createMockLine('filler 4'),
+        createMockLine('visible line 1'),
+        createMockLine('visible line 2'),
+      ];
+      // Viewport starts at line 5, rows=2 → visible lines 5-6, -3 margin → starts at line 2
+      // URL at line 0 is outside margin
+      const term = createMockTerminal(lines, 80, { rows: 2, viewportY: 5 });
+      const url = terminalStore.getLastUrlFromBuffer(term as any);
+      expect(url).toBeNull();
     });
   });
 });

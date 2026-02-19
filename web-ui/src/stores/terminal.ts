@@ -664,19 +664,23 @@ function getLastUrlFromBuffer(term: Terminal): string | null {
   if (!buffer) return null;
 
   const cols: number = term.cols || 80;
+  const rows: number = term.rows || 24;
   const urlRegex = /https?:\/\/[^\s"'<>]+/g;
   let lastUrl: string | null = null;
-  const startLine = Math.max(0, buffer.length - 200);
+  // Only scan visible viewport ±3 lines
+  const viewportY: number = buffer.viewportY ?? Math.max(0, buffer.length - rows);
+  const startLine = Math.max(0, viewportY - 3);
+  const endLine = Math.min(buffer.length, viewportY + rows + 3);
 
   let i = startLine;
-  while (i < buffer.length) {
+  while (i < endLine) {
     const line = buffer.getLine(i);
     if (!line) { i++; continue; }
     if (line.isWrapped) { i++; continue; }
 
     let fullText = line.translateToString(true);
     let j = i + 1;
-    while (j < buffer.length) {
+    while (j < endLine) {
       const nextLine = buffer.getLine(j);
       if (!nextLine?.isWrapped) break;
       fullText += nextLine.translateToString(true);
@@ -684,7 +688,7 @@ function getLastUrlFromBuffer(term: Terminal): string | null {
     }
 
     let heuristicCount = 0;
-    while (j < buffer.length && heuristicCount < 10) {
+    while (j < endLine && heuristicCount < 10) {
       const nextLine = buffer.getLine(j);
       if (!nextLine) break;
       const nextText = nextLine.translateToString(true);
@@ -702,7 +706,7 @@ function getLastUrlFromBuffer(term: Terminal): string | null {
       }
       j++;
       heuristicCount++;
-      while (j < buffer.length) {
+      while (j < endLine) {
         const wrapped = buffer.getLine(j);
         if (!wrapped?.isWrapped) break;
         fullText += wrapped.translateToString(true);
