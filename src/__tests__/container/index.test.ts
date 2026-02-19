@@ -114,7 +114,7 @@ describe('container DO class', () => {
 
     it('initializes with sleepAfter 24h', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.sleepAfter).toBe('8h');
     });
 
     it('calls blockConcurrencyWhile in constructor', () => {
@@ -735,7 +735,7 @@ describe('container DO class', () => {
 
       // Properties set by the class
       expect(instance.defaultPort).toBe(8080);
-      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.sleepAfter).toBe('8h');
     });
   });
 });

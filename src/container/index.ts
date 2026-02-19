@@ -43,8 +43,11 @@ export class container extends Container<Env> {
   // Terminal server handles all endpoints: WebSocket, health check, metrics
   defaultPort = 8080;
 
-  // Bug 3 fix: Extend sleepAfter to 24h - our activity polling handles hibernation
-  sleepAfter = '24h';
+  // Safety backstop: SDK kills container after 8h of no HTTP fetch() activity.
+  // Our alarm-based polling (5-min interval, 30-min idle) handles real idle detection
+  // via WebSocket connection tracking. sleepAfter only tracks HTTP activity, so it
+  // must be long enough to never kill a container with active WebSocket sessions.
+  sleepAfter = '8h';
 
   // Environment variables - dynamically generated via getter
   private _bucketName: string | null = null;
@@ -537,27 +540,6 @@ export class container extends Container<Env> {
   }
 
   /**
-   * Check if container is stopped and clean it up if so.
-   * @returns true if container was stopped and cleaned up
-   */
-  private async checkContainerStopped(): Promise<boolean> {
-    try {
-      const state = await this.getState();
-      if (state.status === 'stopped' || state.status === 'stopped_with_code') {
-        this.logger.info('Container stopped, destroying to prevent zombie resurrection', { status: state.status });
-        await this.cleanupAndDestroy('container_stopped_state', { status: state.status });
-        return true;
-      }
-      return false;
-    } catch (err) {
-      this.logger.warn('Could not get state in alarm, skipping stopped-state check this cycle', {
-        error: toErrorMessage(err),
-      });
-      return false;
-    }
-  }
-
-  /**
    * Handle idle container by checking activity and destroying if idle too long.
    * @returns true if container was destroyed due to being idle
    */
@@ -709,12 +691,10 @@ export class container extends Container<Env> {
       return;
     }
 
-    // Step 3: Check if container is stopped
-    if (await this.checkContainerStopped()) {
-      return;
-    }
-
-    // Step 4: Handle activity polling and idle detection
+    // Step 3: Handle activity polling and idle detection
+    // Note: no separate checkContainerStopped() — handleIdleContainer() already
+    // calls getState() and handles non-running containers by deleting the alarm.
+    // Removing the extra getState() call reduces SDK interaction surface area.
     try {
       if (await this.handleIdleContainer()) {
         return;
