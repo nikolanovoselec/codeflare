@@ -301,6 +301,50 @@ describe('Session Lifecycle Routes', () => {
       expect(body.statuses).toEqual({});
     });
 
+    it('reconciles KV to stopped when container returns stopped but KV says running', async () => {
+      // Create a mock container that reports stopped (unhealthy)
+      testState.container = createMockContainer(false);
+      const app = createLifecycleApp(mockKV);
+      const session: Session = {
+        id: 'reconcilesession1234',
+        name: 'Stale Running',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        status: 'running', // KV says running, but container says stopped
+      };
+      mockKV._set('session:test-bucket:reconcilesession1234', session);
+
+      // Track waitUntil promises to await reconciliation
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const mockExecutionCtx = {
+        waitUntil: (p: Promise<unknown>) => { waitUntilPromises.push(p); },
+        passThroughOnException: () => {},
+      };
+      const res = await app.request(
+        '/sessions/batch-status',
+        {},
+        undefined, // Env (already set via middleware)
+        mockExecutionCtx as unknown as ExecutionContext
+      );
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { statuses: Record<string, { status: string }> };
+      expect(body.statuses['reconcilesession1234'].status).toBe('stopped');
+
+      // Wait for reconciliation promises to settle
+      await Promise.allSettled(waitUntilPromises);
+
+      // Verify KV was updated to stopped
+      const putCalls = mockKV.put.mock.calls;
+      const reconcileCall = putCalls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('reconcilesession1234')
+      );
+      expect(reconcileCall).toBeDefined();
+      const updatedSession = JSON.parse(reconcileCall![1] as string) as Session;
+      expect(updatedSession.status).toBe('stopped');
+    });
+
     it('skips container probe for stopped sessions with fresh timestamps', async () => {
       const app = createLifecycleApp(mockKV);
       const session: Session = {

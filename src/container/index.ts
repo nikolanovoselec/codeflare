@@ -1,6 +1,6 @@
 import { Container } from '@cloudflare/containers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
-import type { Env, TabConfig } from '../types';
+import type { Env, Session, TabConfig } from '../types';
 import {
   TERMINAL_SERVER_PORT,
   IDLE_TIMEOUT_MS,
@@ -11,12 +11,14 @@ import {
 } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
+import { getSessionKey } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 
 /**
  * Storage key to mark a DO as destroyed - prevents zombie resurrection
  */
 const DESTROYED_FLAG_KEY = '_destroyed';
+const SESSION_ID_KEY = '_sessionId';
 const LAST_SHUTDOWN_INFO_KEY = '_last_shutdown_info';
 
 interface ShutdownInfo {
@@ -57,6 +59,9 @@ export class container extends Container<Env> {
   // Bug 3 fix: Activity polling timer
   private _activityPollAlarm: boolean = false;
 
+  // Zombie prevention: in-memory flag loaded from storage in constructor
+  private _destroyed = false;
+
   // Consecutive activity endpoint failures — forces destruction after threshold
   private _consecutiveActivityFailures = 0;
 
@@ -74,11 +79,12 @@ export class container extends Container<Env> {
     ]);
     // Load bucket name from storage on startup and update envVars
     this.ctx.blockConcurrencyWhile(async () => {
-      // Check if this DO was already destroyed - if so, self-destruct immediately
+      // Check if this DO was already destroyed - if so, keep tombstone but clear alarm
       const wasDestroyed = await this.ctx.storage.get<boolean>(DESTROYED_FLAG_KEY);
       if (wasDestroyed) {
-        this.logger.warn('Zombie detected in constructor, clearing storage');
-        await this.ctx.storage.deleteAll();
+        this.logger.warn('Zombie detected in constructor, keeping tombstone, clearing alarm');
+        this._destroyed = true;
+        await this.ctx.storage.deleteAlarm();
         return; // Don't initialize anything else
       }
 
@@ -89,10 +95,12 @@ export class container extends Container<Env> {
       }
       this._tabConfig = await this.ctx.storage.get<TabConfig[]>('tabConfig') || null;
 
-      // If no bucket name stored, this is an orphan/zombie DO - self-destruct
+      // If no bucket name stored, this is an orphan/zombie DO - set tombstone and clear alarm
       if (!this._bucketName) {
-        this.logger.warn('Orphan DO detected, no bucketName, clearing storage');
-        await this.ctx.storage.deleteAll();
+        this.logger.warn('Orphan DO detected, no bucketName, setting tombstone');
+        this._destroyed = true;
+        await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
+        await this.ctx.storage.deleteAlarm();
         return; // Don't initialize anything else
       }
 
@@ -246,9 +254,10 @@ export class container extends Container<Env> {
         });
       }
 
-      const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, tabConfig } =
+      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, tabConfig } =
         await request.json() as {
           bucketName: string;
+          sessionId?: string;
           r2AccessKeyId?: string;
           r2SecretAccessKey?: string;
           r2AccountId?: string;
@@ -313,6 +322,12 @@ export class container extends Container<Env> {
         workspaceSyncEnabled,
         tabConfig,
       });
+
+      // Store sessionId for KV reconciliation on self-destruct
+      if (sessionId) {
+        await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+      }
+
       return new Response(JSON.stringify({ success: true, bucketName }), {
         headers: { 'Content-Type': 'application/json' },
       });
@@ -376,9 +391,32 @@ export class container extends Container<Env> {
   }
 
   /**
-   * Called when the container starts successfully
+   * Called when the container starts successfully.
+   * Acts as a kill switch: if the DO was marked destroyed or has no bucket,
+   * immediately tear down to prevent zombie resurrection.
    */
   override onStart(): void {
+    // Kill switch: destroyed DO should not run
+    if (this._destroyed) {
+      this.logger.warn('onStart kill switch: DO is destroyed, tearing down');
+      void (async () => {
+        await this.ctx.storage.deleteAlarm();
+        await this.destroy();
+      })();
+      return;
+    }
+
+    // Kill switch: orphan DO with no bucket should not run
+    if (!this._bucketName) {
+      this.logger.warn('onStart kill switch: no bucketName, setting tombstone and tearing down');
+      void (async () => {
+        await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
+        await this.ctx.storage.deleteAlarm();
+        await this.destroy();
+      })();
+      return;
+    }
+
     void this.logStartContext();
 
     // Bug 3 fix: Start activity polling
@@ -467,9 +505,8 @@ export class container extends Container<Env> {
   private async checkDestroyedState(): Promise<boolean> {
     const wasDestroyed = await this.ctx.storage.get<boolean>(DESTROYED_FLAG_KEY);
     if (wasDestroyed) {
-      this.logger.warn('Zombie prevented: DO was destroyed, clearing alarm and storage');
+      this.logger.warn('Zombie prevented: DO was destroyed, clearing alarm (keeping tombstone)');
       await this.ctx.storage.deleteAlarm();
-      await this.ctx.storage.deleteAll();
       return true;
     }
     return false;
@@ -481,10 +518,10 @@ export class container extends Container<Env> {
    */
   private async checkOrphanState(): Promise<boolean> {
     if (!this._bucketName) {
-      this.logger.warn('Zombie detected: no bucketName stored', { doId: this.ctx.id.toString() });
+      this.logger.warn('Zombie detected: no bucketName stored, setting tombstone', { doId: this.ctx.id.toString() });
       try {
+        await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
         await this.ctx.storage.deleteAlarm();
-        await this.ctx.storage.deleteAll();
       } catch (err) {
         this.logger.error('Failed to cleanup zombie', err instanceof Error ? err : new Error(toErrorMessage(err)));
       }
@@ -562,25 +599,54 @@ export class container extends Container<Env> {
     // Activity endpoint reachable — reset failure counter
     this._consecutiveActivityFailures = 0;
 
-    const { hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs } = activityInfo;
-    const shortestIdleMs = Math.min(lastUserInputMs, lastAgentFileActivityMs);
+    const { hasActiveConnections, disconnectedForMs } = activityInfo;
 
-    this.logger.info('Activity check', { hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs });
+    this.logger.info('Activity check', { hasActiveConnections, disconnectedForMs });
 
-    // Container is destroyed when idle for IDLE_TIMEOUT_MS regardless of WebSocket connections.
-    // Activity = user input (keystrokes) or agent file activity. An open browser tab with no work is still idle.
-    // A headless agent producing output stays alive even without a browser.
-    if (shortestIdleMs > IDLE_TIMEOUT_MS) {
-      this.logger.info('Container idle, destroying', { idleMs: shortestIdleMs, hasActiveConnections });
-      await this.cleanupAndDestroy('idle_timeout', {
-        idleMs: shortestIdleMs,
-        lastUserInputMs,
-        lastAgentFileActivityMs,
+    // Active connections = alive
+    if (hasActiveConnections) {
+      return false;
+    }
+
+    // No connections for longer than idle timeout = kill
+    if (disconnectedForMs !== null && disconnectedForMs > IDLE_TIMEOUT_MS) {
+      this.logger.info('Container idle (no WebSocket connections), destroying', {
+        disconnectedForMs,
+        thresholdMs: IDLE_TIMEOUT_MS,
       });
+      await this.cleanupAndDestroy('ws_idle_timeout', { disconnectedForMs });
       return true;
     }
 
+    // Not yet timed out
     return false;
+  }
+
+  /**
+   * Best-effort update of KV session status to 'stopped' when the DO self-destructs.
+   * Reads sessionId + bucketName from DO storage, constructs the KV key, and patches
+   * the session record. Failures are logged but never propagated.
+   */
+  private async updateKvSessionStopped(): Promise<void> {
+    try {
+      const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
+      const bucketName = await this.ctx.storage.get<string>('bucketName');
+      if (!sessionId || !bucketName) {
+        this.logger.info('Skipping KV update: missing sessionId or bucketName', { sessionId, bucketName });
+        return;
+      }
+      const key = getSessionKey(bucketName, sessionId);
+      const session = await this.env.KV.get<Session>(key, 'json');
+      if (session && session.status !== 'stopped') {
+        session.status = 'stopped';
+        await this.env.KV.put(key, JSON.stringify(session));
+        this.logger.info('Updated KV session status to stopped', { sessionId, bucketName });
+      }
+    } catch (err) {
+      this.logger.warn('Failed to update KV session status (best-effort)', {
+        error: toErrorMessage(err),
+      });
+    }
   }
 
   /**
@@ -589,6 +655,7 @@ export class container extends Container<Env> {
    */
   private async cleanupAndDestroy(reason: string, details?: Record<string, unknown>): Promise<void> {
     await this.recordShutdownInfo(reason, details, { overwrite: true });
+    await this.updateKvSessionStopped();
     await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
     await this.ctx.storage.deleteAlarm();
     await this.destroy();
@@ -651,8 +718,7 @@ export class container extends Container<Env> {
    */
   private async getActivityInfo(): Promise<{
     hasActiveConnections: boolean;
-    lastUserInputMs: number;
-    lastAgentFileActivityMs: number;
+    disconnectedForMs: number | null;
   } | null> {
     try {
       const headers: HeadersInit = {};
@@ -666,8 +732,7 @@ export class container extends Container<Env> {
       if (response.ok) {
         const data = await response.json() as {
           hasActiveConnections: boolean;
-          lastUserInputMs: number;
-          lastAgentFileActivityMs: number;
+          disconnectedForMs: number | null;
         };
         return data;
       }
@@ -683,8 +748,7 @@ export class container extends Container<Env> {
    */
   private async getActivityInfoWithRetry(): Promise<{
     hasActiveConnections: boolean;
-    lastUserInputMs: number;
-    lastAgentFileActivityMs: number;
+    disconnectedForMs: number | null;
   } | null> {
     for (let attempt = 1; attempt <= ACTIVITY_FETCH_MAX_RETRIES; attempt++) {
       const info = await this.getActivityInfo();
@@ -730,8 +794,9 @@ export class container extends Container<Env> {
       await this.ctx.storage.deleteAlarm();
       this._activityPollAlarm = false;
 
-      // Delete operational data but KEEP _destroyed flag
-      // If cleanupAndDestroy() set it, a stale alarm can still detect zombie state
+      // Delete operational data but KEEP _destroyed flag and _sessionId
+      // _destroyed: a stale alarm can still detect zombie state
+      // _sessionId: needed for KV reconciliation on future resurrection attempts
       await this.ctx.storage.delete('bucketName');
       await this.ctx.storage.delete('workspaceSyncEnabled');
       await this.ctx.storage.delete('tabConfig');

@@ -100,12 +100,35 @@ app.get('/batch-status', async (c) => {
     })
   );
 
+  // Collect KV reconciliation updates for sessions whose container is stopped
+  // but KV still says 'running' (stale state from DO self-destruct race)
+  const kvReconciliationPromises: Promise<void>[] = [];
+
   for (let i = 0; i < results.length; i++) {
     const sessionId = sessions[i].id;
     const result = results[i];
     if (result.status === 'fulfilled') {
       const { sessionId: _id, ...entry } = result.value;
       statuses[sessionId] = entry;
+
+      // Reconcile: container says stopped but KV still says running
+      if (entry.status === 'stopped' && sessions[i].status === 'running') {
+        const key = getSessionKey(bucketName, sessionId);
+        kvReconciliationPromises.push(
+          (async () => {
+            try {
+              const freshSession = await c.env.KV.get<Session>(key, 'json');
+              if (freshSession && freshSession.status !== 'stopped') {
+                freshSession.status = 'stopped';
+                await c.env.KV.put(key, JSON.stringify(freshSession));
+                reqLogger.info('Reconciled stale KV session status to stopped', { sessionId });
+              }
+            } catch (err) {
+              reqLogger.warn('KV reconciliation failed for session', { sessionId, error: String(err) });
+            }
+          })()
+        );
+      }
     } else {
       reqLogger.warn('Batch status check failed for session', {
         sessionId,
@@ -113,6 +136,11 @@ app.get('/batch-status', async (c) => {
       });
       statuses[sessionId] = { status: 'stopped', ptyActive: false };
     }
+  }
+
+  // Fire reconciliation updates in background (best-effort, don't block response)
+  if (kvReconciliationPromises.length > 0) {
+    c.executionCtx.waitUntil(Promise.allSettled(kvReconciliationPromises));
   }
 
   return c.json({ statuses });

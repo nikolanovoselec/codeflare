@@ -351,6 +351,57 @@
   text-decoration: underline;
 }
 
+/* Settings Input (monospace, for IDs/hashes) */
+.settings-input {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  transition: border-color var(--transition-fast);
+}
+
+.settings-input:hover {
+  border-color: var(--color-border-default);
+}
+
+.settings-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--glow-accent);
+}
+
+.settings-input::placeholder {
+  color: var(--color-text-dimmed);
+}
+
+/* Danger Button */
+.settings-button--danger {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-error);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.settings-button--danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.settings-button--danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ======================================
    Mobile: fullscreen settings panel
    ====================================== */

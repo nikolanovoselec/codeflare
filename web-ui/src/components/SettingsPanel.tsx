@@ -7,6 +7,7 @@ import {
   mdiContentPaste,
   mdiGestureTapButton,
   mdiLightbulbOnOutline,
+  mdiDeleteOutline,
 } from '@mdi/js';
 import Icon from './Icon';
 import Button from './ui/Button';
@@ -16,6 +17,7 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { isTouchDevice, isSamsungBrowser } from '../lib/mobile';
 import { recreateGettingStartedDocs } from '../api/storage';
+import { adminDestroyContainer } from '../api/client';
 import '../styles/settings-panel.css';
 
 interface SettingsPanelProps {
@@ -33,6 +35,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateDocsLoading, setRecreateDocsLoading] = createSignal(false);
   const [recreateDocsMessage, setRecreateDocsMessage] = createSignal<string | null>(null);
   const [recreateDocsError, setRecreateDocsError] = createSignal<string | null>(null);
+  const [containerDoId, setContainerDoId] = createSignal('');
+  const [killResult, setKillResult] = createSignal<{ success: boolean; message: string } | null>(null);
+  const [killLoading, setKillLoading] = createSignal(false);
+  const isValidDoId = () => /^[a-f0-9]{64}$/.test(containerDoId());
 
   const isAdmin = () => props.currentUserRole === 'admin';
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled !== false;
@@ -92,6 +98,24 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
       );
     } finally {
       setRecreateDocsLoading(false);
+    }
+  };
+
+  const handleKillContainer = async () => {
+    if (!isValidDoId() || killLoading()) return;
+    setKillLoading(true);
+    setKillResult(null);
+    try {
+      const result = await adminDestroyContainer(containerDoId());
+      setKillResult(result);
+      if (result.success) setContainerDoId('');
+    } catch (error) {
+      setKillResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to destroy container',
+      });
+    } finally {
+      setKillLoading(false);
     }
   };
 
@@ -391,6 +415,51 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     Open Setup
                   </Button>
                 </div>
+              </div>
+
+              {/* Kill Container subsection */}
+              <div class="setting-row setting-row--column-gap" style={{ "margin-top": "var(--space-4)", "padding-top": "var(--space-4)", "border-top": "1px solid var(--color-border-subtle)" }}>
+                <div class="settings-section-header" style={{ "margin-bottom": "0" }}>
+                  <Icon path={mdiDeleteOutline} size={16} />
+                  <h3 class="settings-section-title">Kill Container</h3>
+                </div>
+                <span class="settings-hint">
+                  Destroy a container by its Durable Object ID. Find this in the Cloudflare dashboard under Workers &amp; Pages &gt; Durable Objects.
+                </span>
+                <div style={{ display: "flex", gap: "var(--space-2)", "align-items": "center" }}>
+                  <input
+                    type="text"
+                    class="settings-input"
+                    value={containerDoId()}
+                    placeholder="64-char hex DO ID"
+                    maxLength={64}
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck={false}
+                    onInput={(e) => {
+                      setContainerDoId(e.currentTarget.value.toLowerCase());
+                      setKillResult(null);
+                    }}
+                    data-testid="kill-container-input"
+                  />
+                  <button
+                    type="button"
+                    class="settings-button--danger"
+                    disabled={!isValidDoId() || killLoading()}
+                    onClick={() => { void handleKillContainer(); }}
+                    data-testid="kill-container-button"
+                  >
+                    {killLoading() ? 'Destroying...' : 'Destroy Container'}
+                  </button>
+                </div>
+                <Show when={killResult()}>
+                  {(result) => (
+                    <span class={result().success ? 'settings-hint' : 'settings-error'} data-testid="kill-container-result">
+                      {result().message}
+                    </span>
+                  )}
+                </Show>
               </div>
             </section>
           </Show>
