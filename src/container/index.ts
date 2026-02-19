@@ -314,6 +314,13 @@ export class container extends Container<Env> {
         }
       }
 
+      // Clear orphan tombstone if set — this DO is being actively configured
+      if (this._destroyed) {
+        this.logger.info('Clearing orphan tombstone: DO is being configured with bucketName');
+        this._destroyed = false;
+        await this.ctx.storage.delete(DESTROYED_FLAG_KEY);
+      }
+
       await this.setBucketName(bucketName, {
         r2AccessKeyId,
         r2SecretAccessKey,
