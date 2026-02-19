@@ -16,6 +16,19 @@ vi.mock('../../components/SessionSwitcher', () => ({
   ),
 }));
 
+// Mock terminal store with authUrl signal
+const terminalStoreMock = vi.hoisted(() => ({
+  authUrl: null as string | null,
+}));
+
+vi.mock('../../stores/terminal', () => ({
+  terminalStore: {
+    get authUrl() {
+      return terminalStoreMock.authUrl;
+    },
+  },
+}));
+
 const sessionStoreState = vi.hoisted(() => ({
   activeSessionId: 'session-1' as string | null,
   presets: [] as Array<{ id: string; name: string; tabs: Array<{ id: string; command: string; label: string }>; createdAt: string }>,
@@ -67,6 +80,7 @@ describe('Header Component', () => {
     sessionStoreState.presets = [];
     sessionStoreState.error = null;
     isMobileMock.value = false;
+    terminalStoreMock.authUrl = null;
   });
 
   afterEach(() => {
@@ -463,6 +477,50 @@ describe('Header Component', () => {
       const logo = screen.getByTestId('header-logo');
       const svgPath = logo.querySelector('svg path');
       expect(svgPath?.getAttribute('d')).toBe(mdiXml);
+    });
+  });
+
+  describe('Auth URL Button', () => {
+    it('renders auth URL button when terminalStore.authUrl is set', () => {
+      terminalStoreMock.authUrl = 'https://console.anthropic.com/oauth/authorize?client_id=abc';
+      render(() => <Header {...defaultSessionProps} />);
+
+      const authBtn = document.querySelector('.header-auth-url-btn');
+      expect(authBtn).toBeInTheDocument();
+      expect(authBtn?.textContent).toContain('Open URL');
+    });
+
+    it('does NOT render auth URL button when terminalStore.authUrl is null', () => {
+      terminalStoreMock.authUrl = null;
+      render(() => <Header {...defaultSessionProps} />);
+
+      const authBtn = document.querySelector('.header-auth-url-btn');
+      expect(authBtn).not.toBeInTheDocument();
+    });
+
+    it('auth URL button has bounce animation class', () => {
+      terminalStoreMock.authUrl = 'https://console.anthropic.com/oauth/authorize?client_id=abc';
+      render(() => <Header {...defaultSessionProps} />);
+
+      const authBtn = document.querySelector('.header-auth-url-btn');
+      expect(authBtn).toBeInTheDocument();
+      // The button or its container should have the bounce-in animation class
+      expect(authBtn?.className).toContain('header-auth-url-bounce-in');
+    });
+
+    it('clicking auth URL button calls window.open with the URL', () => {
+      const testUrl = 'https://console.anthropic.com/oauth/authorize?client_id=abc';
+      terminalStoreMock.authUrl = testUrl;
+
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+      render(() => <Header {...defaultSessionProps} />);
+
+      const authBtn = document.querySelector('.header-auth-url-btn') as HTMLElement;
+      expect(authBtn).toBeInTheDocument();
+      fireEvent.click(authBtn);
+
+      expect(openSpy).toHaveBeenCalledWith(testUrl, '_blank', 'noopener');
+      openSpy.mockRestore();
     });
   });
 });

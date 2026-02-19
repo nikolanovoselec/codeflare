@@ -14,6 +14,8 @@ import {
   WS_CLOSE_ABNORMAL,
   WS_PING_INTERVAL_MS,
   WS_WATCHDOG_TIMEOUT_MS,
+  URL_CHECK_INTERVAL_MS,
+  ACTIONABLE_URL_PATTERNS,
 } from '../lib/constants';
 
 // Callback for process-name messages (avoids circular import with session store)
@@ -613,6 +615,124 @@ export function sendInputToTerminal(sessionId: string, terminalId: string, text:
   return false;
 }
 
+// ─── URL Detection ───────────────────────────────────────────────────────────
+
+/**
+ * Checks whether the next buffer line is likely a URL continuation from
+ * an application-inserted newline (e.g. ink-based TUIs like Claude Code).
+ */
+function isLikelyUrlContinuation(
+  currentLineText: string,
+  nextLineText: string,
+  terminalCols: number,
+  insideUrl = false,
+): boolean {
+  if (!insideUrl && currentLineText.length < terminalCols - 1) return false;
+  const urlChars = /[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/;
+  if (!urlChars.test(currentLineText.slice(-1))) return false;
+  const checkText = insideUrl ? nextLineText.trimStart() : nextLineText;
+  if (!checkText || /^\s/.test(checkText)) return false;
+  if (/^[$>#]/.test(checkText)) return false;
+  if (!urlChars.test(checkText[0])) return false;
+  if (/^https?:\/\//i.test(checkText)) return false;
+  return true;
+}
+
+function getLastUrlFromBuffer(term: Terminal): string | null {
+  const buffer = (term as any).buffer?.active;
+  if (!buffer) return null;
+
+  const cols: number = term.cols || 80;
+  const urlRegex = /https?:\/\/[^\s"'<>]+/g;
+  let lastUrl: string | null = null;
+  const startLine = Math.max(0, buffer.length - 200);
+
+  let i = startLine;
+  while (i < buffer.length) {
+    const line = buffer.getLine(i);
+    if (!line) { i++; continue; }
+    if (line.isWrapped) { i++; continue; }
+
+    let fullText = line.translateToString(true);
+    let j = i + 1;
+    while (j < buffer.length) {
+      const nextLine = buffer.getLine(j);
+      if (!nextLine?.isWrapped) break;
+      fullText += nextLine.translateToString(true);
+      j++;
+    }
+
+    let heuristicCount = 0;
+    while (j < buffer.length && heuristicCount < 10) {
+      const nextLine = buffer.getLine(j);
+      if (!nextLine) break;
+      const nextText = nextLine.translateToString(true);
+      const lastPhysicalLine = buffer.getLine(j - 1)!.translateToString(true);
+      const midUrl = /https?:\/\/[^\s]*$/.test(fullText);
+      if (!isLikelyUrlContinuation(lastPhysicalLine, nextText, cols, midUrl)) break;
+      fullText += midUrl ? nextText.trimStart() : nextText;
+      j++;
+      heuristicCount++;
+      while (j < buffer.length) {
+        const wrapped = buffer.getLine(j);
+        if (!wrapped?.isWrapped) break;
+        fullText += wrapped.translateToString(true);
+        j++;
+      }
+    }
+
+    const matches = fullText.match(urlRegex);
+    if (matches) {
+      lastUrl = matches[matches.length - 1];
+    }
+    i = j;
+  }
+
+  return lastUrl;
+}
+
+/** Returns true if the URL matches any pattern in ACTIONABLE_URL_PATTERNS */
+function isActionableUrl(url: string): boolean {
+  return ACTIONABLE_URL_PATTERNS.some((pattern) => pattern.test(url));
+}
+
+// Reactive signals for detected URLs
+const [authUrl, setAuthUrl] = createSignal<string | null>(null);
+const [normalUrl, setNormalUrl] = createSignal<string | null>(null);
+
+/** Classify a detected URL into auth vs normal and update signals */
+function setDetectedUrl(url: string | null): void {
+  if (url && isActionableUrl(url)) {
+    setAuthUrl(url);
+    setNormalUrl(null);
+  } else if (url) {
+    setAuthUrl(null);
+    setNormalUrl(url);
+  } else {
+    setAuthUrl(null);
+    setNormalUrl(null);
+  }
+}
+
+let urlDetectionInterval: ReturnType<typeof setInterval> | null = null;
+
+function startUrlDetection(sessionId: string, terminalId: string): void {
+  stopUrlDetection();
+  urlDetectionInterval = setInterval(() => {
+    const term = getTerminal(sessionId, terminalId);
+    const url = term ? getLastUrlFromBuffer(term) : null;
+    setDetectedUrl(url);
+  }, URL_CHECK_INTERVAL_MS);
+}
+
+function stopUrlDetection(): void {
+  if (urlDetectionInterval) {
+    clearInterval(urlDetectionInterval);
+    urlDetectionInterval = null;
+  }
+  setDetectedUrl(null);
+}
+
 // Export store and actions
 export const terminalStore = {
   // State accessors
@@ -620,6 +740,14 @@ export const terminalStore = {
   getRetryMessage,
   getTerminal,
   isConnected,
+
+  // URL detection signals
+  get authUrl() {
+    return authUrl();
+  },
+  get normalUrl() {
+    return normalUrl();
+  },
 
   // Layout change signal (for reactive resize in tiled mode)
   get layoutChangeCounter() {
@@ -640,4 +768,11 @@ export const terminalStore = {
   registerFitAddon,
   unregisterFitAddon,
   triggerLayoutResize,
+
+  // URL detection
+  setDetectedUrl,
+  startUrlDetection,
+  stopUrlDetection,
+  getLastUrlFromBuffer,
+  isActionableUrl,
 };

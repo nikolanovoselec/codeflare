@@ -20,6 +20,7 @@ import { parse as parseQuery } from 'querystring';
 import fs from 'fs';
 import { createActivityTracker, AGENT_DIRS } from './activity-tracker.js';
 import { createAgentFileChecker, checkAgentFileActivity } from './agent-file-activity.js';
+import { getPrewarmConfig } from './prewarm-config.js';
 
 const PROCESS_NAME_POLL_MS = 2000;
 const WS_KEEPALIVE_PING_MS = 30000;
@@ -878,7 +879,14 @@ wss.on('connection', (ws, req) => {
 let prewarmReady = false;
 let prewarmStartTime = 0;
 
-const PREWARM_QUIESCENCE_MS = 2000;  // 2s of silence = shell prompt is ready
+// Agent-aware quiescence: TUI agents (OpenCode, Gemini, Codex) get 500ms instead of 2000ms
+// because their busy startup spinners keep resetting the default 2s quiescence timer.
+const parsedTabConfig = (() => {
+  try { return JSON.parse(process.env.TAB_CONFIG || '[]'); } catch { return []; }
+})();
+const prewarmConfig = getPrewarmConfig(parsedTabConfig);
+const PREWARM_QUIESCENCE_MS = prewarmConfig.quiescenceMs;
+const PREWARM_READY_PATTERN = prewarmConfig.readyPattern;
 const PREWARM_TIMEOUT_MS = 20000;     // Hard cap: consider ready after 20s regardless
 const PREWARM_ORPHAN_MS = 120000;     // Kill pre-warmed session if not adopted within 2min
 
@@ -895,10 +903,26 @@ server.listen(PORT, '0.0.0.0', () => {
   sessionManager.sessions.set('prewarm-1', prewarmSession);
   prewarmSession.start();
   prewarmStartTime = Date.now();
-  log('info', 'Pre-warming tab 1 PTY');
+  log('info', 'Pre-warming tab 1 PTY', { quiescenceMs: PREWARM_QUIESCENCE_MS, hasReadyPattern: !!PREWARM_READY_PATTERN });
+
+  // If a ready-pattern is configured, listen for it on PTY output
+  let prewarmDataListener = null;
+  if (PREWARM_READY_PATTERN && prewarmSession.ptyProcess) {
+    prewarmDataListener = prewarmSession.ptyProcess.onData((data) => {
+      if (!prewarmReady && PREWARM_READY_PATTERN.test(data)) {
+        prewarmReady = true;
+        const elapsed = Date.now() - prewarmStartTime;
+        log('info', 'Pre-warm ready (pattern match)', { elapsedSec: (elapsed / 1000).toFixed(1) });
+      }
+    });
+  }
 
   const readinessCheck = setInterval(() => {
-    if (prewarmReady) { clearInterval(readinessCheck); return; }
+    if (prewarmReady) {
+      clearInterval(readinessCheck);
+      if (prewarmDataListener) prewarmDataListener.dispose();
+      return;
+    }
     const elapsed = Date.now() - prewarmStartTime;
     const lastData = prewarmSession.lastDataTime || prewarmStartTime; // Fallback to start time if no output yet
     const silent = Date.now() - lastData;
@@ -906,12 +930,14 @@ server.listen(PORT, '0.0.0.0', () => {
       prewarmReady = true;
       log('info', 'Pre-warm ready (quiescent)', { elapsedSec: (elapsed / 1000).toFixed(1) });
       clearInterval(readinessCheck);
+      if (prewarmDataListener) prewarmDataListener.dispose();
       return;
     }
     if (elapsed >= PREWARM_TIMEOUT_MS) {
       prewarmReady = true;
       log('info', 'Pre-warm ready (timeout)', { elapsedSec: (elapsed / 1000).toFixed(1) });
       clearInterval(readinessCheck);
+      if (prewarmDataListener) prewarmDataListener.dispose();
     }
   }, 500);
 

@@ -62,39 +62,3 @@
   opacity: 1;
 }
 
-.desktop-url-button {
-  position: fixed;
-  bottom: var(--space-3);
-  right: var(--space-3);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-md);
-  background: rgba(15, 15, 15, 0.75);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  color: var(--color-accent);
-  font-size: 12px;
-  font-weight: 500;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-  z-index: 50;
-  transition: transform 0.15s ease, background-color 0.15s ease;
-}
-
-.desktop-url-button:hover {
-  background: rgba(50, 50, 50, 0.9);
-  border-color: var(--color-accent);
-}
-
-.desktop-url-button:active {
-  transform: scale(0.96);
-}
-
-.desktop-url-button svg {
-  width: 16px;
-  height: 16px;
-}

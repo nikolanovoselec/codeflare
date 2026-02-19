@@ -27,9 +27,16 @@ vi.mock('../../lib/touch-gestures', () => ({
   sendTerminalKey: vi.fn(),
 }));
 
+const terminalStoreMock = vi.hoisted(() => ({
+  authUrl: null as string | null,
+  normalUrl: null as string | null,
+}));
+
 vi.mock('../../stores/terminal', () => ({
   terminalStore: {
     getTerminal: vi.fn(() => null),
+    get authUrl() { return terminalStoreMock.authUrl; },
+    get normalUrl() { return terminalStoreMock.normalUrl; },
   },
 }));
 
@@ -56,6 +63,8 @@ describe('FloatingTerminalButtons', () => {
     (sessionStore as any).activeSessionId = null;
     vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined as any);
     vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue(undefined as any);
+    terminalStoreMock.authUrl = null;
+    terminalStoreMock.normalUrl = null;
   });
 
   describe('Label Visibility', () => {
@@ -157,8 +166,8 @@ describe('FloatingTerminalButtons', () => {
     });
   });
 
-  describe('Desktop URL Button', () => {
-    it('renders desktop URL button on non-touch device when URL is detected', () => {
+  describe('Desktop URL Button (removed — moved to Header)', () => {
+    it('does NOT render desktop URL button (auth URL button now lives in Header)', () => {
       mobileMock.isTouchDevice.mockReturnValue(false);
       mobileMock.isVirtualKeyboardOpen.mockReturnValue(false);
 
@@ -187,9 +196,9 @@ describe('FloatingTerminalButtons', () => {
       // Trigger the URL check interval (URL_CHECK_INTERVAL_MS = 2000)
       vi.advanceTimersByTime(2000);
 
+      // Desktop URL button should no longer exist in FloatingTerminalButtons
       const desktopBtn = document.querySelector('.desktop-url-button');
-      expect(desktopBtn).toBeInTheDocument();
-      expect(desktopBtn?.textContent).toContain('Open URL');
+      expect(desktopBtn).not.toBeInTheDocument();
     });
 
     it('does not render mobile buttons on desktop', () => {

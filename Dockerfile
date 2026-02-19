@@ -82,7 +82,7 @@ RUN npm install -g github:nikolanovoselec/claude-unleashed && rm -f /tmp/.cache-
 # Without it, non-interactive Docker build has no TTY/stdin and the CLI errors.
 ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
-    claude-unleashed --silent --no-consent --help 2>&1 || true
+    claude-unleashed --silent --no-consent --help > /dev/null 2>&1 || true
 
 # Install vanilla Claude Code + Codex + Gemini + OpenCode CLIs for multi-agent support
 # claude-unleashed bundles claude-code as a dependency but doesn't expose a global

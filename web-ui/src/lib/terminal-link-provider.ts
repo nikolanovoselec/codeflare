@@ -50,10 +50,12 @@ function isLikelyUrlContinuation(
   if (!insideUrl && currentLineText.length < terminalCols - 1) return false;
   const urlChars = /[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/;
   if (!urlChars.test(currentLineText.slice(-1))) return false;
-  if (!nextLineText || /^\s/.test(nextLineText)) return false;
-  if (/^[$>#]/.test(nextLineText)) return false;
-  if (!urlChars.test(nextLineText[0])) return false;
-  if (/^https?:\/\//i.test(nextLineText)) return false;
+  // When inside a URL, trim leading whitespace (TUI dialog padding) before checks
+  const checkText = insideUrl ? nextLineText.trimStart() : nextLineText;
+  if (!checkText || /^\s/.test(checkText)) return false;
+  if (/^[$>#]/.test(checkText)) return false;
+  if (!urlChars.test(checkText[0])) return false;
+  if (/^https?:\/\//i.test(checkText)) return false;
   return true;
 }
 
@@ -149,7 +151,7 @@ export function registerMultiLineLinkProvider(terminal: XTerm): IDisposable {
         const lastLineText = lastLine.translateToString(true);
         const midUrl = /https?:\/\/[^\s]*$/.test(fullText);
         if (!isLikelyUrlContinuation(lastLineText, nextText, cols, midUrl)) break;
-        fullText += nextText;
+        fullText += midUrl ? nextText.trimStart() : nextText;
         joinedLines.push(nextIdx);
         nextIdx++;
         heuristicCount++;

@@ -332,4 +332,58 @@ describe('terminal-link-provider', () => {
       });
     });
   });
+
+  describe('Whitespace-padded TUI dialog URL detection', () => {
+    it('detects URL split across whitespace-padded TUI dialog lines', () => {
+      // Simulates Claude Code's auth dialog inside a TUI with ~20 chars of padding.
+      // Each line is ~55 chars (well under 80 cols), and starts with whitespace.
+      // The URL is split across 3 lines with leading whitespace on continuation lines.
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('                    https://claude.ai/oauth/authorize?', false),
+          createMockLine('                    code=true&client_id=9d1c250a-e61b-44d9-88ed-', false),
+          createMockLine('                    5944d1962f5e&response_type=code', false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      const expectedUrl = 'https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code';
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe(expectedUrl);
+          resolve();
+        });
+      });
+    });
+
+    it('does not false-positive on whitespace-padded non-URL lines', () => {
+      // Lines with leading whitespace that are NOT URLs should not be joined
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('                    This is a normal message', false),
+          createMockLine('                    with padding but no URL', false),
+          createMockLine('                    just regular text here', false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeUndefined();
+          resolve();
+        });
+      });
+    });
+  });
 });
