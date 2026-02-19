@@ -125,18 +125,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       term.open(containerEl);
     }
 
-    // Disable xterm's internal Viewport touch handlers on mobile.
-    // xterm manually manipulates scrollTop on touchmove which fights with
-    // native browser scrolling (CSS touch-action: pan-y). No-op them so
-    // only native scroll + our swipe gestures handle touch.
-    if (isTouchDevice()) {
-      const viewport = (term as any)._core?.viewport;
-      if (viewport) {
-        viewport.handleTouchStart = () => {};
-        viewport.handleTouchMove = () => true; // return true = don't cancel event
-      }
-    }
-
     if (isTouchDevice()) {
       const mobileCleanup = setupMobileInput(term, props, {
         refreshCursorLine: () => {

@@ -93,7 +93,7 @@ const Terminal: Component<TerminalProps> = (props) => {
           'overflow-anchor': 'none',
           '-webkit-user-select': isTouchDevice() ? 'none' : undefined,
           'user-select': isTouchDevice() ? 'none' : undefined,
-          'touch-action': isTouchDevice() ? (isVirtualKeyboardOpen() ? 'none' : 'pan-y') : undefined,
+          'touch-action': (isTouchDevice() && isVirtualKeyboardOpen()) ? 'none' : undefined,
         }}
       />
 
