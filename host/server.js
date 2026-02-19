@@ -177,9 +177,10 @@ const agentFileChecker = createAgentFileChecker(AGENT_DIRS);
  * Session represents a PTY terminal instance
  */
 class Session {
-  constructor(id, name = 'Terminal') {
+  constructor(id, name = 'Terminal', manual = false) {
     this.id = id;
     this.name = name;
+    this.manual = manual;
     this.ptyProcess = null;
     this.clients = new Set(); // WebSocket clients attached to this session
     this.headlessTerminal = new HeadlessTerminal({ cols: 80, rows: 24, allowProposedApi: true });
@@ -248,18 +249,24 @@ class Session {
     // Extract terminal ID from compound session ID (e.g., "abc123-2" -> "2")
     const terminalId = this.id.includes('-') ? this.id.split('-').pop() : '1';
 
+    const ptyEnv = {
+      ...process.env,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      HOME: process.env.HOME || '/root',
+      TERMINAL_ID: terminalId,
+    };
+    // User-created tabs ("+") get MANUAL_TAB=1 so .bashrc skips autostart
+    if (this.manual) {
+      ptyEnv.MANUAL_TAB = '1';
+    }
+
     this.ptyProcess = pty.spawn(cmd, args, {
       name: 'xterm-256color',
       cols,
       rows,
       cwd,
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        HOME: process.env.HOME || '/root',
-        TERMINAL_ID: terminalId,
-      },
+      env: ptyEnv,
     });
 
     this.ptyProcess.onData((data) => {
@@ -519,7 +526,7 @@ class SessionManager {
   /**
    * Get or create a session
    */
-  getOrCreate(id, name) {
+  getOrCreate(id, name, manual = false) {
     let session = this.sessions.get(id);
 
     if (session) {
@@ -553,7 +560,7 @@ class SessionManager {
         return null; // Caller must handle null
       }
       // Create new session
-      session = new Session(id, name);
+      session = new Session(id, name, manual);
       this.sessions.set(id, session);
       log('info', 'Created new session', { session: id });
     }
@@ -773,6 +780,7 @@ const wss = new WebSocketServer({ server, path: '/terminal', maxPayload: WS_MAX_
 wss.on('connection', (ws, req) => {
   const { query } = parseUrl(req.url, true);
   const sessionId = query.session;
+  const isManualTab = query.manual === '1';
   const connectedAt = Date.now();
 
   if (!sessionId) {
@@ -798,8 +806,8 @@ wss.on('connection', (ws, req) => {
   // Sanitize session name
   const name = (query.name || '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || 'Terminal';
 
-  // Get or create session
-  const session = sessionManager.getOrCreate(sessionId, name);
+  // Get or create session (pass manual flag for user-created tabs)
+  const session = sessionManager.getOrCreate(sessionId, name, isManualTab);
   if (!session) {
     ws.close(1013, 'Session limit reached');
     return;

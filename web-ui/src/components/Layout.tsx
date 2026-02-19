@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, createEffect, onMount, Show } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
 import SettingsPanel from './SettingsPanel';
@@ -43,9 +43,14 @@ const Layout: Component<LayoutProps> = (props) => {
     sessionStore.loadSessions();
     sessionStore.loadPresets();
     sessionStore.loadPreferences();
+    sessionStore.startSessionListPolling();
     // Apply saved accent color
     const savedSettings = loadSettings();
     applyAccentColor(savedSettings.accentColor);
+  });
+
+  onCleanup(() => {
+    sessionStore.stopSessionListPolling();
   });
 
   // viewState-derived computations

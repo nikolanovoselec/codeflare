@@ -190,7 +190,8 @@ function connect(
   sessionId: string,
   terminalId: string,
   terminal: Terminal,
-  onError?: (error: string) => void
+  onError?: (error: string) => void,
+  manual?: boolean
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 
@@ -234,7 +235,7 @@ function connect(
       setRetryMessage(sessionId, terminalId, 'Connecting...');
     }
 
-    const url = getTerminalWebSocketUrl(sessionId, terminalId);
+    const url = getTerminalWebSocketUrl(sessionId, terminalId, manual);
     const ws = new WebSocket(url);
 
     ws.binaryType = 'arraybuffer';

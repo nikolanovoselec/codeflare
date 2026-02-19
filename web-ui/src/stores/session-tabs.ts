@@ -179,6 +179,7 @@ export function addTerminalTab(sessionId: string): string | null {
     s.terminalsPerSession[sessionId].tabs.push({
       id: tabId,
       createdAt: new Date().toISOString(),
+      manual: true,
     });
     s.terminalsPerSession[sessionId].activeTabId = tabId;
     if (!s.terminalsPerSession[sessionId].tabOrder) {

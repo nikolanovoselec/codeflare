@@ -465,6 +465,10 @@ if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
 
     cd "$HOME/workspace" 2>/dev/null || cd "$HOME"
 
+    # Skip autostart for manually created tabs (user clicked "+")
+    if [ -n "$MANUAL_TAB" ]; then
+        export TERMINAL_APP_STARTED=1
+    else
     case "${TERMINAL_ID:-1}" in
         1)
             # Tab 1: Claude Code (via claude-unleashed)
@@ -497,6 +501,7 @@ if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
             # Just continue to normal bash prompt
             ;;
     esac
+    fi
 fi
 BASHRC_EOF
     else
@@ -513,6 +518,8 @@ if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
 
     cd "$HOME/workspace" 2>/dev/null || cd "$HOME"
 
+    # Skip autostart for manually created tabs (user clicked "+")
+    if [ -z "$MANUAL_TAB" ]; then
     case "${TERMINAL_ID:-1}" in
 BASHRC_HEADER
 
@@ -589,6 +596,7 @@ CASE_EOF
             # Unconfigured tabs: plain bash
             ;;
     esac
+    fi
 fi
 BASHRC_FOOTER
     fi

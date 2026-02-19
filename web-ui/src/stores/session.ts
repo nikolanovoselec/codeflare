@@ -3,7 +3,7 @@ import type { Session, SessionWithStatus, SessionStatus, InitProgress, InitStage
 import * as api from '../api/client';
 import { terminalStore, sendInputToTerminal } from './terminal';
 import { logger } from '../lib/logger';
-import { METRICS_POLL_INTERVAL_MS, STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS } from '../lib/constants';
+import { METRICS_POLL_INTERVAL_MS, STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS } from '../lib/constants';
 import {
   LAYOUT_MIN_TABS,
   getBestLayoutForTabCount,
@@ -443,6 +443,26 @@ function stopMetricsPolling(sessionId: string): void {
   }
 }
 
+// ============================================================================
+// Session List Polling
+// ============================================================================
+
+let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
+
+function startSessionListPolling(): void {
+  if (sessionListPollInterval !== null) return;
+  sessionListPollInterval = setInterval(() => {
+    loadSessions();
+  }, SESSION_LIST_POLL_INTERVAL_MS);
+}
+
+function stopSessionListPolling(): void {
+  if (sessionListPollInterval !== null) {
+    clearInterval(sessionListPollInterval);
+    sessionListPollInterval = null;
+  }
+}
+
 function stopAllMetricsPolling(): void {
   metricsPollingIntervals.forEach((interval, sessionId) => {
     clearInterval(interval);
@@ -510,6 +530,10 @@ export const sessionStore = {
   getMetricsForSession,
   stopMetricsPolling,
   stopAllMetricsPolling,
+
+  // Session list polling
+  startSessionListPolling,
+  stopSessionListPolling,
 
   // Actions
   loadSessions,

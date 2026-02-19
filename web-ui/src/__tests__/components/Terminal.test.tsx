@@ -71,6 +71,8 @@ vi.mock('../../stores/terminal', () => ({
     unregisterFitAddon: vi.fn(),
     triggerLayoutResize: vi.fn(),
     layoutChangeCounter: 0,
+    startUrlDetection: vi.fn(),
+    stopUrlDetection: vi.fn(),
   },
 }));
 
@@ -82,6 +84,7 @@ vi.mock('../../stores/session', () => ({
   sessionStore: {
     isSessionInitializing: vi.fn(),
     getInitProgressForSession: vi.fn(),
+    getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
   },
 }));
 

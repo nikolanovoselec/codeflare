@@ -68,6 +68,8 @@ vi.mock('../../stores/terminal', () => ({
     getRetryMessage: vi.fn(() => null),
     getConnectionState: vi.fn(() => 'disconnected'),
     triggerLayoutResize: vi.fn(),
+    startUrlDetection: vi.fn(),
+    stopUrlDetection: vi.fn(),
   },
 }));
 
@@ -75,6 +77,7 @@ vi.mock('../../stores/session', () => ({
   sessionStore: {
     isSessionInitializing: vi.fn(() => false),
     getInitProgressForSession: vi.fn(() => null),
+    getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
   },
 }));
 
@@ -243,6 +246,40 @@ describe('useTerminal hook', () => {
         defaultProps.sessionId,
         defaultProps.terminalId
       );
+    });
+  });
+
+  describe('URL detection lifecycle', () => {
+    it('should start URL detection after WebSocket connects', () => {
+      // isSessionInitializing returns false so the connect effect fires immediately
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(terminalStore.startUrlDetection).toHaveBeenCalledWith(
+        defaultProps.sessionId,
+        defaultProps.terminalId
+      );
+
+      dispose();
+    });
+
+    it('should stop URL detection on cleanup', () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      dispose();
+
+      expect(terminalStore.stopUrlDetection).toHaveBeenCalled();
     });
   });
 

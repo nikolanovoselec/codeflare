@@ -59,6 +59,9 @@ export const WS_WATCHDOG_TIMEOUT_MS = 45_000;
 /** Maximum terminals per session. Keep in sync with src/lib/constants.ts:MAX_TABS (backend equivalent) */
 export const MAX_TERMINALS_PER_SESSION = 6;
 
+/** Interval for polling the session list to keep the dashboard up to date (ms) */
+export const SESSION_LIST_POLL_INTERVAL_MS = 3_000;
+
 /** Duration display refresh interval (ms) - for relative time updates */
 export const DURATION_REFRESH_INTERVAL_MS = 60000;
 

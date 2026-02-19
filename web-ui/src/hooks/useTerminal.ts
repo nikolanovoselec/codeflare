@@ -276,7 +276,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const initializing = isInitializing();
     if (!initializing && term && !cleanup) {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Session ready, connecting WebSocket`);
-      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError);
+      // Look up tab to check if it was manually created (user clicked "+")
+      const terminals = sessionStore.getTerminalsForSession(props.sessionId);
+      const tab = terminals?.tabs.find(t => t.id === props.terminalId);
+      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError, tab?.manual);
+      terminalStore.startUrlDetection(props.sessionId, props.terminalId);
     }
   });
 
@@ -338,6 +342,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
     resizeObserver?.disconnect();
+    terminalStore.stopUrlDetection();
     terminalStore.unregisterFitAddon(props.sessionId, props.terminalId);
   });
 
