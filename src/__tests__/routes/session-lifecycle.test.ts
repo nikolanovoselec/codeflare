@@ -257,8 +257,8 @@ describe('Session Lifecycle Routes', () => {
     });
   });
 
-  describe('GET /batch-status', () => {
-    it('returns statuses for all user sessions', async () => {
+  describe('GET /batch-status (KV-only, no container interaction)', () => {
+    it('returns statuses for all user sessions from KV', async () => {
       const app = createLifecycleApp(mockKV);
       const session1: Session = {
         id: 'batchsession1234abc',
@@ -283,12 +283,12 @@ describe('Session Lifecycle Routes', () => {
 
       const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
       expect(Object.keys(body.statuses)).toHaveLength(2);
-      expect(body.statuses['batchsession1234abc']).toEqual(
-        expect.objectContaining({ status: expect.any(String), ptyActive: expect.any(Boolean) })
-      );
-      expect(body.statuses['batchsession5678def']).toEqual(
-        expect.objectContaining({ status: expect.any(String), ptyActive: expect.any(Boolean) })
-      );
+      // Sessions with no status field should return stopped
+      expect(body.statuses['batchsession1234abc']).toEqual({ status: 'stopped', ptyActive: false });
+      expect(body.statuses['batchsession5678def']).toEqual({ status: 'stopped', ptyActive: false });
+      // No container interaction
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
+      expect(testState.container!.getState).not.toHaveBeenCalled();
     });
 
     it('returns empty statuses when no sessions exist', async () => {
@@ -301,70 +301,100 @@ describe('Session Lifecycle Routes', () => {
       expect(body.statuses).toEqual({});
     });
 
-    it('reconciles KV to stopped when container returns stopped but KV says running', async () => {
-      // Create a mock container that reports stopped (unhealthy)
-      testState.container = createMockContainer(false);
+    it('returns running status from KV without container interaction', async () => {
       const app = createLifecycleApp(mockKV);
       const session: Session = {
-        id: 'reconcilesession1234',
-        name: 'Stale Running',
+        id: 'runningsession12345',
+        name: 'Running Session',
         userId: 'test-bucket',
         createdAt: '2024-01-15T09:00:00.000Z',
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
-        status: 'running', // KV says running, but container says stopped
+        status: 'running',
       };
-      mockKV._set('session:test-bucket:reconcilesession1234', session);
+      mockKV._set('session:test-bucket:runningsession12345', session);
 
-      // Track waitUntil promises to await reconciliation
-      const waitUntilPromises: Promise<unknown>[] = [];
-      const mockExecutionCtx = {
-        waitUntil: (p: Promise<unknown>) => { waitUntilPromises.push(p); },
-        passThroughOnException: () => {},
-      };
-      const res = await app.request(
-        '/sessions/batch-status',
-        {},
-        undefined, // Env (already set via middleware)
-        mockExecutionCtx as unknown as ExecutionContext
-      );
+      const res = await app.request('/sessions/batch-status');
       expect(res.status).toBe(200);
 
-      const body = await res.json() as { statuses: Record<string, { status: string }> };
-      expect(body.statuses['reconcilesession1234'].status).toBe('stopped');
-
-      // Wait for reconciliation promises to settle
-      await Promise.allSettled(waitUntilPromises);
-
-      // Verify KV was updated to stopped
-      const putCalls = mockKV.put.mock.calls;
-      const reconcileCall = putCalls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('reconcilesession1234')
-      );
-      expect(reconcileCall).toBeDefined();
-      const updatedSession = JSON.parse(reconcileCall![1] as string) as Session;
-      expect(updatedSession.status).toBe('stopped');
+      const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
+      expect(body.statuses['runningsession12345'].status).toBe('running');
+      expect(body.statuses['runningsession12345'].ptyActive).toBe(true);
+      // No container interaction
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
+      expect(testState.container!.getState).not.toHaveBeenCalled();
     });
 
-    it('skips container probe for stopped sessions with fresh timestamps', async () => {
+    it('returns stopped status from KV without container interaction', async () => {
       const app = createLifecycleApp(mockKV);
       const session: Session = {
         id: 'stoppedsession12345',
-        name: 'Stopped',
+        name: 'Stopped Session',
         userId: 'test-bucket',
         createdAt: '2024-01-15T09:00:00.000Z',
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
         status: 'stopped',
-        lastStatusCheck: Date.now(), // fresh timestamp
       };
       mockKV._set('session:test-bucket:stoppedsession12345', session);
 
       const res = await app.request('/sessions/batch-status');
       expect(res.status).toBe(200);
 
-      const body = await res.json() as { statuses: Record<string, { status: string }> };
+      const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
       expect(body.statuses['stoppedsession12345'].status).toBe('stopped');
-      // Should NOT have probed container
+      expect(body.statuses['stoppedsession12345'].ptyActive).toBe(false);
       expect(testState.container!.fetch).not.toHaveBeenCalled();
+    });
+
+    it('treats sessions with undefined status as stopped', async () => {
+      const app = createLifecycleApp(mockKV);
+      const session: Session = {
+        id: 'undefinedstatus1234',
+        name: 'No Status',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:undefinedstatus1234', session);
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
+      expect(body.statuses['undefinedstatus1234'].status).toBe('stopped');
+      expect(body.statuses['undefinedstatus1234'].ptyActive).toBe(false);
+    });
+
+    it('handles mixed running and stopped sessions', async () => {
+      const app = createLifecycleApp(mockKV);
+      const running: Session = {
+        id: 'mixedrunning123456',
+        name: 'Running',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        status: 'running',
+      };
+      const stopped: Session = {
+        id: 'mixedstopped123456',
+        name: 'Stopped',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T08:00:00.000Z',
+        lastAccessedAt: '2024-01-15T10:00:00.000Z',
+        status: 'stopped',
+      };
+
+      mockKV._set('session:test-bucket:mixedrunning123456', running);
+      mockKV._set('session:test-bucket:mixedstopped123456', stopped);
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
+      expect(body.statuses['mixedrunning123456']).toEqual({ status: 'running', ptyActive: true });
+      expect(body.statuses['mixedstopped123456']).toEqual({ status: 'stopped', ptyActive: false });
+      // No container interaction for any session
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
+      expect(testState.container!.getState).not.toHaveBeenCalled();
     });
   });
 });

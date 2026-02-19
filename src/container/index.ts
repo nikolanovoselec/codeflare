@@ -663,6 +663,7 @@ export class container extends Container<Env> {
   private async cleanupAndDestroy(reason: string, details?: Record<string, unknown>): Promise<void> {
     await this.recordShutdownInfo(reason, details, { overwrite: true });
     await this.updateKvSessionStopped();
+    this._destroyed = true;
     await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
     await this.ctx.storage.deleteAlarm();
     await this.destroy();
@@ -794,12 +795,18 @@ export class container extends Container<Env> {
    */
   override async destroy(): Promise<void> {
     this.logger.info('Destroying container, clearing operational storage');
+    // Set in-memory flag BEFORE super.destroy() — if the SDK triggers onStart()
+    // on the same instance, the kill switch sees this immediately
+    this._destroyed = true;
     try {
       await this.recordShutdownInfo('destroy_called', undefined, { overwrite: false });
 
       // Clear the alarm first
       await this.ctx.storage.deleteAlarm();
       this._activityPollAlarm = false;
+
+      // Ensure tombstone is persisted — destroy() may be called directly (not via cleanupAndDestroy)
+      await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
 
       // Delete operational data but KEEP _destroyed flag and _sessionId
       // _destroyed: a stale alarm can still detect zombie state
