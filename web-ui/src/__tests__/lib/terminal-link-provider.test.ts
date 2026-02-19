@@ -248,4 +248,88 @@ describe('terminal-link-provider', () => {
       });
     });
   });
+
+  describe('TUI dialog URL detection (narrow dialog, wide terminal)', () => {
+    it('detects URL split across non-wrapped lines inside a narrow TUI dialog', () => {
+      // Simulates a 40-column dialog inside an 80-column terminal.
+      // The URL spans two lines but neither line fills the terminal width.
+      // The insideUrl heuristic should still join them because fullText ends mid-URL.
+      const url = 'https://console.anthropic.com/oauth/authorize?client_id=abc123&state=xyz';
+      const cols = 80;
+      // Line 0: dialog text with start of URL (40 chars, way less than 80 cols)
+      const line0 = url.slice(0, 40);  // "https://console.anthropic.com/oauth/auth"
+      const line1 = url.slice(40);     // "orize?client_id=abc123&state=xyz"
+
+      const terminal = createMockTerminal(
+        [
+          createMockLine(line0, false),
+          createMockLine(line1, false),  // NOT wrapped — app-inserted newline
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe(url);
+          resolve();
+        });
+      });
+    });
+
+    it('does not false-positive join non-URL narrow lines', () => {
+      // Two short lines that are NOT URLs should NOT be joined
+      const cols = 80;
+      const terminal = createMockTerminal(
+        [
+          createMockLine('Hello world, this is a test', false),
+          createMockLine('Another line of text here', false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeUndefined();
+          resolve();
+        });
+      });
+    });
+
+    it('detects URL split across 3 non-wrapped lines in narrow dialog', () => {
+      const url = 'https://console.anthropic.com/oauth/authorize?client_id=abc123&redirect_uri=http%3A%2F%2Flocalhost&state=xyz789';
+      const cols = 80;
+      const line0 = url.slice(0, 35);
+      const line1 = url.slice(35, 70);
+      const line2 = url.slice(70);
+
+      const terminal = createMockTerminal(
+        [
+          createMockLine(line0, false),
+          createMockLine(line1, false),
+          createMockLine(line2, false),
+        ],
+        cols,
+      );
+
+      registerMultiLineLinkProvider(terminal as any);
+      const provider = terminal.getProvider();
+
+      return new Promise<void>((resolve) => {
+        provider.provideLinks(1, (links: any) => {
+          expect(links).toBeTruthy();
+          expect(links).toHaveLength(1);
+          expect(links[0].text).toBe(url);
+          resolve();
+        });
+      });
+    });
+  });
 });

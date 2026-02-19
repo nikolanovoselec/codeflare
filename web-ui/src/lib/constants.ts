@@ -95,6 +95,28 @@ export const BUTTON_LABEL_VISIBLE_DURATION_MS = 3000;
 export const URL_CHECK_INTERVAL_MS = 2000;
 
 // =============================================================================
+// Terminal URL Detection
+// =============================================================================
+
+/**
+ * URL patterns that trigger the floating "Open URL" / "Copy URL" button.
+ * Only auth/OAuth URLs are shown — not every URL that appears in the terminal.
+ * Covers: Claude Code, OpenCode, Codex, Gemini CLI, and generic OAuth flows.
+ */
+export const ACTIONABLE_URL_PATTERNS: RegExp[] = [
+  /\/oauth\/authorize/i,
+  /\/oauth2\/authorize/i,
+  /\/login\/oauth/i,
+  /\/auth\/callback/i,
+  /\/device\/code/i,
+  /\/device\/activate/i,
+  /\/login\/device/i,
+  /accounts\.google\.com\/o\/oauth2/i,
+  /github\.com\/login\/device/i,
+  /console\.anthropic\.com/i,
+];
+
+// =============================================================================
 // View Transitions
 // =============================================================================
 

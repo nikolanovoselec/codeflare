@@ -1,12 +1,12 @@
 import { Component, Show, createSignal, createEffect, onCleanup } from 'solid-js';
-import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp } from '@mdi/js';
+import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp, mdiOpenInNew, mdiSecurity } from '@mdi/js';
 import Icon from './Icon';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/mobile';
 import { sendTerminalKey } from '../lib/touch-gestures';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { loadSettings } from '../lib/settings';
-import { BUTTON_LABEL_VISIBLE_DURATION_MS, URL_CHECK_INTERVAL_MS } from '../lib/constants';
+import { BUTTON_LABEL_VISIBLE_DURATION_MS, URL_CHECK_INTERVAL_MS, ACTIONABLE_URL_PATTERNS } from '../lib/constants';
 import '../styles/floating-terminal-buttons.css';
 
 /**
@@ -19,8 +19,9 @@ function isLikelyUrlContinuation(
   currentLineText: string,
   nextLineText: string,
   terminalCols: number,
+  insideUrl = false,
 ): boolean {
-  if (currentLineText.length < terminalCols - 1) return false;
+  if (!insideUrl && currentLineText.length < terminalCols - 1) return false;
   const urlChars = /[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/;
   if (!urlChars.test(currentLineText.slice(-1))) return false;
   if (!nextLineText || /^\s/.test(nextLineText)) return false;
@@ -65,7 +66,8 @@ function getLastUrlFromBuffer(term: any): string | null {
       const nextText = nextLine.translateToString(true);
       // Use last physical buffer row for heuristic (matches Terminal.tsx approach)
       const lastPhysicalLine = buffer.getLine(j - 1)!.translateToString(true);
-      if (!isLikelyUrlContinuation(lastPhysicalLine, nextText, cols)) break;
+      const midUrl = /https?:\/\/[^\s]*$/.test(fullText);
+      if (!isLikelyUrlContinuation(lastPhysicalLine, nextText, cols, midUrl)) break;
       fullText += nextText;
       j++;
       heuristicCount++;
@@ -88,12 +90,18 @@ function getLastUrlFromBuffer(term: any): string | null {
   return lastUrl;
 }
 
+/** Returns true if the URL matches any pattern in ACTIONABLE_URL_PATTERNS */
+function isActionableUrl(url: string): boolean {
+  return ACTIONABLE_URL_PATTERNS.some((pattern) => pattern.test(url));
+}
+
 interface FloatingTerminalButtonsProps {
   showTerminal: boolean;
 }
 
 const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props) => {
-  const [hasUrl, setHasUrl] = createSignal(false);
+  const [hasAuthUrl, setHasAuthUrl] = createSignal(false);
+  const [hasNormalUrl, setHasNormalUrl] = createSignal(false);
   const [labelsVisible, setLabelsVisible] = createSignal(false);
   const [showLabels, setShowLabels] = createSignal(loadSettings().showButtonLabels !== false);
 
@@ -119,10 +127,20 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     return terminalStore.getTerminal(sessionId, terminalId);
   };
 
-  // Periodically check for URLs in the terminal buffer
+  // Periodically check for URLs in the terminal buffer (auth vs normal, mutually exclusive)
   const urlCheckInterval = setInterval(() => {
     const term = getActiveTerm();
-    setHasUrl(term ? !!getLastUrlFromBuffer(term) : false);
+    const url = term ? getLastUrlFromBuffer(term) : null;
+    if (url && isActionableUrl(url)) {
+      setHasAuthUrl(true);
+      setHasNormalUrl(false);
+    } else if (url) {
+      setHasAuthUrl(false);
+      setHasNormalUrl(true);
+    } else {
+      setHasAuthUrl(false);
+      setHasNormalUrl(false);
+    }
   }, URL_CHECK_INTERVAL_MS);
   onCleanup(() => clearInterval(urlCheckInterval));
 
@@ -174,99 +192,136 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     refocusTerminal();
   };
 
+  const openLastUrl = () => {
+    const term = getActiveTerm();
+    if (!term) return;
+    const url = getLastUrlFromBuffer(term);
+    if (url && isActionableUrl(url)) {
+      window.open(url, '_blank', 'noopener');
+    }
+  };
+
   return (
-    <Show when={isTouchDevice() && props.showTerminal && isVirtualKeyboardOpen()}>
-      <div class="floating-terminal-buttons" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px + 10px)` }}>
-        <Show when={hasUrl()}>
+    <>
+      <Show when={isTouchDevice() && props.showTerminal && isVirtualKeyboardOpen()}>
+        <div class="floating-terminal-buttons" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px + 10px)` }}>
+          <Show when={hasAuthUrl()}>
+            <div class="floating-btn-row">
+              <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>COPY AUTH URL</span>
+              <button
+                type="button"
+                class="floating-terminal-btn"
+                tabIndex={-1}
+                onPointerDown={preventFocusSteal}
+                onClick={copyLastUrl}
+                title="Copy auth URL"
+              >
+                <Icon path={mdiSecurity} size={18} />
+              </button>
+            </div>
+          </Show>
+          <Show when={hasNormalUrl()}>
+            <div class="floating-btn-row">
+              <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>COPY DETECTED URL</span>
+              <button
+                type="button"
+                class="floating-terminal-btn"
+                tabIndex={-1}
+                onPointerDown={preventFocusSteal}
+                onClick={copyLastUrl}
+                title="Copy URL"
+              >
+                <Icon path={mdiContentCopy} size={18} />
+              </button>
+            </div>
+          </Show>
           <div class="floating-btn-row">
-            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>COPY DETECTED URL</span>
+            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>PASTE</span>
             <button
               type="button"
               class="floating-terminal-btn"
               tabIndex={-1}
               onPointerDown={preventFocusSteal}
-              onClick={copyLastUrl}
-              title="Copy URL"
+              onClick={pasteFromClipboard}
+              title="Paste"
             >
-              <Icon path={mdiContentCopy} size={18} />
+              <Icon path={mdiContentPaste} size={18} />
             </button>
           </div>
-        </Show>
-        <div class="floating-btn-row">
-          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>PASTE</span>
-          <button
-            type="button"
-            class="floating-terminal-btn"
-            tabIndex={-1}
-            onPointerDown={preventFocusSteal}
-            onClick={pasteFromClipboard}
-            title="Paste"
-          >
-            <Icon path={mdiContentPaste} size={18} />
-          </button>
+          <div class="floating-btn-row">
+            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>TAB</span>
+            <button
+              type="button"
+              class="floating-terminal-btn"
+              tabIndex={-1}
+              onPointerDown={preventFocusSteal}
+              onClick={() => sendKey('\t')}
+              title="TAB"
+            >
+              <Icon path={mdiKeyboardTab} size={18} />
+            </button>
+          </div>
+          <div class="floating-btn-row">
+            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>ESCAPE / CANCEL</span>
+            <button
+              type="button"
+              class="floating-terminal-btn"
+              tabIndex={-1}
+              onPointerDown={preventFocusSteal}
+              onClick={() => sendKey('\x1b')}
+              title="ESC"
+            >
+              <Icon path={mdiCancel} size={18} />
+            </button>
+          </div>
+          <div class="floating-btn-row">
+            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>PAGE UP</span>
+            <button
+              type="button"
+              class="floating-terminal-btn"
+              tabIndex={-1}
+              onPointerDown={preventFocusSteal}
+              onClick={() => {
+                const term = getActiveTerm();
+                if (term) term.scrollPages(-1);
+                refocusTerminal();
+              }}
+              title="Page Up"
+            >
+              <Icon path={mdiArrowExpandUp} size={18} />
+            </button>
+          </div>
+          <div class="floating-btn-row">
+            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>SCROLL TO BOTTOM</span>
+            <button
+              type="button"
+              class="floating-terminal-btn"
+              tabIndex={-1}
+              onPointerDown={preventFocusSteal}
+              onClick={() => {
+                const term = getActiveTerm();
+                if (term) term.scrollToBottom();
+                refocusTerminal();
+              }}
+              title="Scroll to Bottom"
+            >
+              <Icon path={mdiArrowExpandDown} size={18} />
+            </button>
+          </div>
         </div>
-        <div class="floating-btn-row">
-          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>TAB</span>
-          <button
-            type="button"
-            class="floating-terminal-btn"
-            tabIndex={-1}
-            onPointerDown={preventFocusSteal}
-            onClick={() => sendKey('\t')}
-            title="TAB"
-          >
-            <Icon path={mdiKeyboardTab} size={18} />
-          </button>
-        </div>
-        <div class="floating-btn-row">
-          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>ESCAPE / CANCEL</span>
-          <button
-            type="button"
-            class="floating-terminal-btn"
-            tabIndex={-1}
-            onPointerDown={preventFocusSteal}
-            onClick={() => sendKey('\x1b')}
-            title="ESC"
-          >
-            <Icon path={mdiCancel} size={18} />
-          </button>
-        </div>
-        <div class="floating-btn-row">
-          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>PAGE UP</span>
-          <button
-            type="button"
-            class="floating-terminal-btn"
-            tabIndex={-1}
-            onPointerDown={preventFocusSteal}
-            onClick={() => {
-              const term = getActiveTerm();
-              if (term) term.scrollPages(-1);
-              refocusTerminal();
-            }}
-            title="Page Up"
-          >
-            <Icon path={mdiArrowExpandUp} size={18} />
-          </button>
-        </div>
-        <div class="floating-btn-row">
-          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>SCROLL TO BOTTOM</span>
-          <button
-            type="button"
-            class="floating-terminal-btn"
-            tabIndex={-1}
-            onPointerDown={preventFocusSteal}
-            onClick={() => {
-              const term = getActiveTerm();
-              if (term) term.scrollToBottom();
-              refocusTerminal();
-            }}
-            title="Scroll to Bottom"
-          >
-            <Icon path={mdiArrowExpandDown} size={18} />
-          </button>
-        </div>
-      </div>
-    </Show>
+      </Show>
+      <Show when={!isTouchDevice() && props.showTerminal && hasAuthUrl()}>
+        <button
+          type="button"
+          class="desktop-url-button"
+          onClick={openLastUrl}
+          title="Open detected URL"
+        >
+          <Icon path={mdiOpenInNew} size={16} />
+          <span>Open URL</span>
+        </button>
+      </Show>
+    </>
   );
 };
 

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@solidjs/testing-library';
 import FloatingTerminalButtons from '../../components/FloatingTerminalButtons';
+import { terminalStore } from '../../stores/terminal';
+import { sessionStore } from '../../stores/session';
 
 // Mocks for mobile detection
 const mobileMock = vi.hoisted(() => ({
@@ -51,6 +53,9 @@ describe('FloatingTerminalButtons', () => {
   afterEach(() => {
     vi.useRealTimers();
     cleanup();
+    (sessionStore as any).activeSessionId = null;
+    vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined as any);
+    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue(undefined as any);
   });
 
   describe('Label Visibility', () => {
@@ -102,7 +107,7 @@ describe('FloatingTerminalButtons', () => {
       const labels = document.querySelectorAll('.floating-btn-label');
       const labelTexts = Array.from(labels).map((l) => l.textContent);
 
-      // Copy URL button is conditional on hasUrl, so it won't appear
+      // Copy URL buttons are conditional on hasAuthUrl/hasNormalUrl, so neither will appear
       expect(labelTexts).toContain('PASTE');
       expect(labelTexts).toContain('TAB');
       expect(labelTexts).toContain('ESCAPE / CANCEL');
@@ -149,6 +154,51 @@ describe('FloatingTerminalButtons', () => {
 
       const buttons = document.querySelector('.floating-terminal-buttons');
       expect(buttons).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Desktop URL Button', () => {
+    it('renders desktop URL button on non-touch device when URL is detected', () => {
+      mobileMock.isTouchDevice.mockReturnValue(false);
+      mobileMock.isVirtualKeyboardOpen.mockReturnValue(false);
+
+      // Mock a terminal with a URL in the buffer
+      const mockBuffer = {
+        length: 2,
+        getLine: (y: number) => {
+          const lines = [
+            { isWrapped: false, translateToString: () => 'Visit this URL:' },
+            { isWrapped: false, translateToString: () => 'https://console.anthropic.com/oauth/authorize?client_id=abc123' },
+          ];
+          return lines[y] || null;
+        },
+      };
+
+      // Configure session store to return an active session
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue({
+        buffer: { active: mockBuffer },
+        cols: 80,
+      } as any);
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      // Trigger the URL check interval (URL_CHECK_INTERVAL_MS = 2000)
+      vi.advanceTimersByTime(2000);
+
+      const desktopBtn = document.querySelector('.desktop-url-button');
+      expect(desktopBtn).toBeInTheDocument();
+      expect(desktopBtn?.textContent).toContain('Open URL');
+    });
+
+    it('does not render mobile buttons on desktop', () => {
+      mobileMock.isTouchDevice.mockReturnValue(false);
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      const mobileButtons = document.querySelector('.floating-terminal-buttons');
+      expect(mobileButtons).not.toBeInTheDocument();
     });
   });
 });

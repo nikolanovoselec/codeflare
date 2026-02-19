@@ -45,8 +45,9 @@ function isLikelyUrlContinuation(
   currentLineText: string,
   nextLineText: string,
   terminalCols: number,
+  insideUrl = false,
 ): boolean {
-  if (currentLineText.length < terminalCols - 1) return false;
+  if (!insideUrl && currentLineText.length < terminalCols - 1) return false;
   const urlChars = /[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/;
   if (!urlChars.test(currentLineText.slice(-1))) return false;
   if (!nextLineText || /^\s/.test(nextLineText)) return false;
@@ -82,7 +83,8 @@ function findLogicalLineStart(
     const currLine = buffer.getLine(start);
     if (!currLine) break;
     const currText = currLine.translateToString(true);
-    if (!isLikelyUrlContinuation(prevText, currText, cols)) break;
+    const midUrl = /https?:\/\/[^\s]*$/.test(prevText);
+    if (!isLikelyUrlContinuation(prevText, currText, cols, midUrl)) break;
     start--;
     heuristic++;
     // Also follow isWrapped chain upward from this heuristic line
@@ -145,7 +147,8 @@ export function registerMultiLineLinkProvider(terminal: XTerm): IDisposable {
         const lastLine = buffer.getLine(lastLineIdx);
         if (!lastLine) break;
         const lastLineText = lastLine.translateToString(true);
-        if (!isLikelyUrlContinuation(lastLineText, nextText, cols)) break;
+        const midUrl = /https?:\/\/[^\s]*$/.test(fullText);
+        if (!isLikelyUrlContinuation(lastLineText, nextText, cols, midUrl)) break;
         fullText += nextText;
         joinedLines.push(nextIdx);
         nextIdx++;
