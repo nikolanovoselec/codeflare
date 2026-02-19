@@ -126,6 +126,14 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
 
     if (isTouchDevice()) {
+      const viewport = (term as any)._core?.viewport;
+      if (viewport) {
+        viewport.handleTouchStart = () => {};
+        viewport.handleTouchMove = () => false;
+      }
+    }
+
+    if (isTouchDevice()) {
       const mobileCleanup = setupMobileInput(term, props, {
         refreshCursorLine: () => {
           term?.refresh(term.buffer.active.cursorY, term.buffer.active.cursorY);
@@ -274,6 +282,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (!viewport) return;
     viewport.style.overflowY = kbOpen ? 'hidden' : '';
     onCleanup(() => { viewport.style.overflowY = ''; });
+  });
+
+  // Pointer-events toggle: when keyboard closed, disable canvas interaction so touches
+  // fall through to .xterm-viewport for native scroll. When keyboard opens, restore.
+  createEffect(() => {
+    if (!containerEl || !isTouchDevice()) return;
+    const screen = containerEl.querySelector('.xterm-screen') as HTMLElement | null;
+    if (!screen) return;
+    const kbOpen = isVirtualKeyboardOpen();
+    screen.style.pointerEvents = kbOpen ? '' : 'none';
+    onCleanup(() => { screen.style.pointerEvents = ''; });
   });
 
   // Refit on keyboard height change

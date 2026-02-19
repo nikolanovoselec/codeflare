@@ -3,7 +3,7 @@ import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
 import Terminal from '../../components/Terminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
-import { isTouchDevice, enableVirtualKeyboardOverlay } from '../../lib/mobile';
+import { isTouchDevice, enableVirtualKeyboardOverlay, isVirtualKeyboardOpen } from '../../lib/mobile';
 
 // Mock xterm.js and addons
 const mockTerminalInstance = {
@@ -403,13 +403,28 @@ describe('Terminal Component', () => {
       expect(container.style.userSelect).toBe('none');
     });
 
-    it('should NOT set touch-action: none when keyboard is closed (allows pan-y scroll)', () => {
+    it('should set touch-action: pan-y when keyboard is closed on mobile', () => {
+      // jsdom doesn't reflect touch-action via setProperty, so spy on the prototype
+      const spy = vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty');
+
       render(() => <Terminal {...defaultProps} />);
 
-      const container = document.querySelector('.terminal-container') as HTMLElement;
-      const styleAttr = container.getAttribute('style') || '';
-      // When keyboard is closed, touch-action should NOT be 'none' (which blocks scroll)
-      expect(styleAttr).not.toContain('touch-action: none');
+      const touchActionCalls = spy.mock.calls.filter(([prop]) => prop === 'touch-action');
+      expect(touchActionCalls.length).toBeGreaterThan(0);
+      expect(touchActionCalls[touchActionCalls.length - 1][1]).toBe('pan-y');
+      spy.mockRestore();
+    });
+
+    it('should set touch-action: none when keyboard is open on mobile', () => {
+      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      const spy = vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty');
+
+      render(() => <Terminal {...defaultProps} />);
+
+      const touchActionCalls = spy.mock.calls.filter(([prop]) => prop === 'touch-action');
+      expect(touchActionCalls.length).toBeGreaterThan(0);
+      expect(touchActionCalls[touchActionCalls.length - 1][1]).toBe('none');
+      spy.mockRestore();
     });
   });
 });

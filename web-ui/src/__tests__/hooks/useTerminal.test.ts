@@ -38,6 +38,12 @@ const mockTerminalInstance = {
     registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
   },
   registerLinkProvider: vi.fn(() => ({ dispose: vi.fn() })),
+  _core: {
+    viewport: {
+      handleTouchStart: vi.fn(),
+      handleTouchMove: vi.fn(),
+    },
+  },
 };
 
 // MOCK-DRIFT RISK: Terminal constructor returns a static mock object.
@@ -110,7 +116,7 @@ vi.mock('../../lib/terminal-mobile-input', () => ({
 import { useTerminal, type UseTerminalOptions } from '../../hooks/useTerminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
-import { isTouchDevice, getKeyboardHeight } from '../../lib/mobile';
+import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen } from '../../lib/mobile';
 
 describe('useTerminal hook', () => {
   const defaultProps: UseTerminalOptions = {
@@ -446,6 +452,147 @@ describe('useTerminal hook', () => {
 
       dispose();
       vi.useRealTimers();
+    });
+  });
+
+  describe('mobile viewport touch handler disable', () => {
+    it('should disable xterm viewport touch handlers on mobile', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      isTouchDeviceMock.mockReturnValue(true);
+
+      // Save original references
+      const originalHandleTouchStart = mockTerminalInstance._core.viewport.handleTouchStart;
+      const originalHandleTouchMove = mockTerminalInstance._core.viewport.handleTouchMove;
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Handlers should be replaced with no-ops, not the original vi.fn()
+      expect(mockTerminalInstance._core.viewport.handleTouchStart).not.toBe(originalHandleTouchStart);
+      expect(mockTerminalInstance._core.viewport.handleTouchMove).not.toBe(originalHandleTouchMove);
+
+      dispose();
+    });
+
+    it('should NOT disable viewport touch handlers on desktop', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      isTouchDeviceMock.mockReturnValue(false);
+
+      // Save original references
+      const originalHandleTouchStart = mockTerminalInstance._core.viewport.handleTouchStart;
+      const originalHandleTouchMove = mockTerminalInstance._core.viewport.handleTouchMove;
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Handlers should remain the original functions
+      expect(mockTerminalInstance._core.viewport.handleTouchStart).toBe(originalHandleTouchStart);
+      expect(mockTerminalInstance._core.viewport.handleTouchMove).toBe(originalHandleTouchMove);
+
+      dispose();
+    });
+  });
+
+  describe('mobile pointer-events toggle on .xterm-screen', () => {
+    let screenEl: HTMLDivElement;
+
+    beforeEach(() => {
+      screenEl = document.createElement('div');
+      screenEl.classList.add('xterm-screen');
+      containerEl.appendChild(screenEl);
+    });
+
+    it('should set pointer-events: none on .xterm-screen when keyboard closed on mobile', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbOpen, _setKbOpen] = createSignal(false);
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(screenEl.style.pointerEvents).toBe('none');
+
+      dispose();
+    });
+
+    it('should restore pointer-events on .xterm-screen when keyboard opens', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbOpen, setKbOpen] = createSignal(false);
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Keyboard opens
+      setKbOpen(true);
+
+      expect(screenEl.style.pointerEvents).toBe('');
+
+      dispose();
+    });
+
+    it('should NOT touch pointer-events on desktop', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(false);
+
+      const [kbOpen, _setKbOpen] = createSignal(false);
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(screenEl.style.pointerEvents).toBe('');
+
+      dispose();
+    });
+
+    it('should restore pointer-events on cleanup', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbOpen, _setKbOpen] = createSignal(false);
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // pointer-events should be 'none' while mounted on mobile with keyboard closed
+      expect(screenEl.style.pointerEvents).toBe('none');
+
+      dispose();
+
+      // After cleanup, pointer-events should be restored
+      expect(screenEl.style.pointerEvents).toBe('');
     });
   });
 });
