@@ -69,13 +69,18 @@ const Terminal: Component<TerminalProps> = (props) => {
         ref={(el) => { containerEl = el; containerRef(el); }}
         class="terminal-container"
         onPointerDown={(e: PointerEvent) => {
-          const term = terminal();
-          if (isTouchDevice() && term) {
+          // Only prevent text selection on mobile (focus logic moved to onClick)
+          if (isTouchDevice()) {
             const target = e.target as HTMLElement;
             const isLink = target?.closest('.xterm-link') || target?.classList?.contains('xterm-link');
             if (!isLink) {
               e.preventDefault();
             }
+          }
+        }}
+        onClick={() => {
+          const term = terminal();
+          if (isTouchDevice() && term) {
             (term as any).__removeFocusGuard?.();
             enableVirtualKeyboardOverlay();
             const iframeInput = (term as any).__iframeInput as HTMLInputElement | undefined;

@@ -3,6 +3,7 @@ import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
 import Terminal from '../../components/Terminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
+import { isTouchDevice, enableVirtualKeyboardOverlay } from '../../lib/mobile';
 
 // Mock xterm.js and addons
 const mockTerminalInstance = {
@@ -92,6 +93,30 @@ vi.mock('../../components/InitProgress', () => ({
   default: (props: { sessionName: string }) => (
     <div data-testid="init-progress">Init Progress: {props.sessionName}</div>
   ),
+}));
+
+// MOCK-DRIFT RISK: mobile module is stubbed to return desktop defaults.
+// Tests that need touch behavior must override isTouchDevice per-test.
+vi.mock('../../lib/mobile', () => ({
+  isTouchDevice: vi.fn(() => false),
+  isVirtualKeyboardOpen: vi.fn(() => false),
+  getKeyboardHeight: vi.fn(() => 0),
+  enableVirtualKeyboardOverlay: vi.fn(),
+  disableVirtualKeyboardOverlay: vi.fn(),
+  resetKeyboardStateIfStale: vi.fn(),
+  forceResetKeyboardState: vi.fn(),
+}));
+
+vi.mock('../../lib/touch-gestures', () => ({
+  attachSwipeGestures: vi.fn(() => vi.fn()),
+}));
+
+vi.mock('../../lib/terminal-mobile-input', () => ({
+  setupMobileInput: vi.fn(() => vi.fn()),
+}));
+
+vi.mock('../../lib/terminal-link-provider', () => ({
+  registerMultiLineLinkProvider: vi.fn(),
 }));
 
 describe('Terminal Component', () => {
@@ -325,6 +350,76 @@ describe('Terminal Component', () => {
       render(() => <Terminal {...defaultProps} terminalId="1" />);
 
       expect(document.querySelector('.terminal-connection-spinner')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Mobile Touch Behavior', () => {
+    // jsdom lacks PointerEvent — polyfill as a subclass of MouseEvent
+    const PointerEventPolyfill = class extends MouseEvent {
+      constructor(type: string, init?: MouseEventInit) { super(type, init); }
+    };
+    if (typeof globalThis.PointerEvent === 'undefined') {
+      (globalThis as any).PointerEvent = PointerEventPolyfill;
+    }
+
+    beforeEach(() => {
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+      // Provide a terminal instance so touch handlers can access it
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerminalInstance as any);
+    });
+
+    afterEach(() => {
+      vi.mocked(isTouchDevice).mockReturnValue(false);
+    });
+
+    it('should NOT call enableVirtualKeyboardOverlay on pointerdown', () => {
+      render(() => <Terminal {...defaultProps} />);
+
+      // Clear any calls from useTerminal's createEffect (keyboard lifecycle on mount)
+      vi.mocked(enableVirtualKeyboardOverlay).mockClear();
+
+      const container = document.querySelector('.terminal-container')!;
+      container.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+      expect(enableVirtualKeyboardOverlay).not.toHaveBeenCalled();
+    });
+
+    it('should call enableVirtualKeyboardOverlay on click (tap)', () => {
+      render(() => <Terminal {...defaultProps} />);
+
+      const container = document.querySelector('.terminal-container')!;
+      container.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(enableVirtualKeyboardOverlay).toHaveBeenCalled();
+    });
+
+    it('should call preventDefault on pointerdown for non-link targets', () => {
+      render(() => <Terminal {...defaultProps} />);
+
+      const container = document.querySelector('.terminal-container')!;
+      const event = new PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+
+      container.dispatchEvent(event);
+
+      expect(preventDefaultSpy).toHaveBeenCalled();
+    });
+
+    it('should NOT call preventDefault on pointerdown for link targets', () => {
+      render(() => <Terminal {...defaultProps} />);
+
+      const container = document.querySelector('.terminal-container')!;
+      // Create a link element inside the container
+      const linkEl = document.createElement('span');
+      linkEl.classList.add('xterm-link');
+      container.appendChild(linkEl);
+
+      const event = new PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+
+      linkEl.dispatchEvent(event);
+
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
     });
   });
 });

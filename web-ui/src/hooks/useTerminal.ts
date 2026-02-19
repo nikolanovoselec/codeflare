@@ -263,6 +263,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       kbDebouncePending = false;
       if (!fitAddon || !term) return;
       fitAddon.fit();
+      term.scrollToBottom();
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
       window.scrollTo(0, 0);

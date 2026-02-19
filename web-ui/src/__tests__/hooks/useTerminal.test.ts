@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createRoot } from 'solid-js';
+import { createRoot, createSignal } from 'solid-js';
 
 // Mock all heavy dependencies before importing the hook
 const mockFit = vi.fn();
@@ -107,6 +107,7 @@ vi.mock('../../lib/terminal-mobile-input', () => ({
 import { useTerminal, type UseTerminalOptions } from '../../hooks/useTerminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
+import { isTouchDevice, getKeyboardHeight } from '../../lib/mobile';
 
 describe('useTerminal hook', () => {
   const defaultProps: UseTerminalOptions = {
@@ -260,6 +261,46 @@ describe('useTerminal hook', () => {
       );
 
       dispose();
+    });
+  });
+
+  describe('keyboard height refit', () => {
+    it('should call scrollToBottom after fit when keyboard height changes on mobile', async () => {
+      vi.useFakeTimers();
+
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
+
+      // Start as mobile device with keyboard closed
+      isTouchDeviceMock.mockReturnValue(true);
+
+      // Use a SolidJS signal to back the mock so createEffect re-tracks
+      const [kbHeight, setKbHeight] = createSignal(0);
+      getKeyboardHeightMock.mockImplementation(() => kbHeight());
+
+      let result!: ReturnType<typeof useTerminal>;
+
+      const dispose = createRoot((dispose) => {
+        result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Clear any calls from initial mount
+      mockScrollToBottom.mockClear();
+      mockFit.mockClear();
+
+      // Simulate keyboard opening by changing keyboard height
+      setKbHeight(300);
+
+      // Advance past the 150ms debounce
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockFit).toHaveBeenCalled();
+      expect(mockScrollToBottom).toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
     });
   });
 });
