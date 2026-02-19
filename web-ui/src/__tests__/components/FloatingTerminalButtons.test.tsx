@@ -169,7 +169,7 @@ describe('FloatingTerminalButtons', () => {
   });
 
   describe('Clipboard Access Guard', () => {
-    it('should not read clipboard when clipboardAccess is disabled', () => {
+    it('should always read clipboard on mobile regardless of clipboardAccess setting', async () => {
       // Switch to real timers for this test — fake timers block async clipboard mocks
       vi.useRealTimers();
 
@@ -196,8 +196,10 @@ describe('FloatingTerminalButtons', () => {
       const pasteBtn = screen.getByTitle('Paste');
       pasteBtn.click();
 
-      // clipboardAccess is false, so readText should never be called — synchronous check
-      expect(readTextMock).not.toHaveBeenCalled();
+      // Mobile paste always works — clipboardAccess only gates desktop right-click paste
+      await vi.waitFor(() => {
+        expect(readTextMock).toHaveBeenCalled();
+      });
 
       // Restore fake timers for subsequent tests
       vi.useFakeTimers();
