@@ -191,8 +191,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       // interfere with clipboard read on subsequent right-clicks.
       e.stopPropagation();
       if (!term) return;
-      // Focus textarea so clipboard read has a focused editable context
-      term.textarea?.focus({ preventScroll: true });
+      // IMPORTANT: call readText() BEFORE any focus() calls.
+      // focus() consumes the transient user activation that readText()
+      // requires — calling focus first makes readText silently fail
+      // on every call after the initial permission grant.
       navigator.clipboard.readText().then((text) => {
         if (text && term) {
           term.paste(text);
