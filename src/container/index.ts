@@ -404,22 +404,21 @@ export class container extends Container<Env> {
    */
   override onStart(): void {
     // Kill switch: destroyed DO should not run
+    // Do NOT call this.destroy() — super.destroy() restarts the container, creating a zombie loop.
+    // Just delete the alarm so nothing reschedules. Container dies via sleepAfter.
     if (this._destroyed) {
-      this.logger.warn('onStart kill switch: DO is destroyed, tearing down');
-      void (async () => {
-        await this.ctx.storage.deleteAlarm();
-        await this.destroy();
-      })();
+      this.logger.warn('onStart kill switch: DO is destroyed, clearing alarm only');
+      void this.ctx.storage.deleteAlarm();
       return;
     }
 
     // Kill switch: orphan DO with no bucket should not run
     if (!this._bucketName) {
-      this.logger.warn('onStart kill switch: no bucketName, setting tombstone and tearing down');
+      this.logger.warn('onStart kill switch: no bucketName, setting tombstone');
+      this._destroyed = true;
       void (async () => {
         await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
         await this.ctx.storage.deleteAlarm();
-        await this.destroy();
       })();
       return;
     }
@@ -666,7 +665,20 @@ export class container extends Container<Env> {
     this._destroyed = true;
     await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
     await this.ctx.storage.deleteAlarm();
-    await this.destroy();
+    this._activityPollAlarm = false;
+
+    // Clean operational storage (same as destroy() but WITHOUT super.destroy())
+    // super.destroy() restarts the container in the SDK, which triggers onStart()
+    // on a fresh instance where _destroyed=false, scheduling a new alarm → zombie loop.
+    // Instead: set tombstone, delete alarm, clean storage, walk away.
+    // The container process dies naturally via sleepAfter (24h backstop).
+    try {
+      await this.ctx.storage.delete('bucketName');
+      await this.ctx.storage.delete('workspaceSyncEnabled');
+      await this.ctx.storage.delete('tabConfig');
+    } catch (err) {
+      this.logger.error('Failed to clear storage in cleanupAndDestroy', err instanceof Error ? err : new Error(toErrorMessage(err)));
+    }
   }
 
   /**

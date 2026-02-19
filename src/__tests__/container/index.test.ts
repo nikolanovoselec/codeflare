@@ -532,7 +532,7 @@ describe('container DO class', () => {
       });
     });
 
-    it('onStart() kill switch: when _destroyed is set, onStart() calls destroy() immediately', async () => {
+    it('onStart() kill switch: when _destroyed is set, onStart() clears alarm without calling destroy()', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === '_destroyed') return true;
         return null;
@@ -549,16 +549,17 @@ describe('container DO class', () => {
 
       instance.onStart();
 
-      // destroy() is called inside a void async IIFE, wait for it
+      // onStart() should clear alarm but NOT call destroy() — super.destroy() restarts the container
       await vi.waitFor(() => {
-        expect(destroySpy).toHaveBeenCalled();
+        expect(mockStorage.deleteAlarm).toHaveBeenCalled();
       });
+      expect(destroySpy).not.toHaveBeenCalled();
     });
 
-    it('onStart() orphan kill: orphan DO detected by constructor triggers destroy via onStart _destroyed check', async () => {
+    it('onStart() orphan kill: orphan DO sets tombstone and clears alarm without calling destroy()', async () => {
       // When constructor detects no bucketName, it sets _destroyed = true in memory.
-      // Then onStart() hits the _destroyed check first and calls destroy().
-      // This verifies the two-layer protection: constructor + onStart working together.
+      // Then onStart() hits the _destroyed check and clears alarm without calling destroy().
+      // super.destroy() would restart the container, creating a zombie loop.
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === '_destroyed') return false;
         if (key === 'bucketName') return null;
@@ -578,9 +579,10 @@ describe('container DO class', () => {
       instance.onStart();
 
       await vi.waitFor(() => {
-        expect(destroySpy).toHaveBeenCalled();
         expect(mockStorage.deleteAlarm).toHaveBeenCalled();
       });
+      // destroy() must NOT be called — it triggers super.destroy() which restarts the container
+      expect(destroySpy).not.toHaveBeenCalled();
     });
 
     it('onStart() normal path: legitimate start calls logStartContext() + scheduleActivityPoll()', async () => {
