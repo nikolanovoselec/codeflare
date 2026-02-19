@@ -132,7 +132,7 @@ describe('container DO class', () => {
       });
     });
 
-    it('clears all storage when _destroyed flag is set (zombie detection)', async () => {
+    it('keeps tombstone and clears alarm when _destroyed flag is set (zombie detection)', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === '_destroyed') return true;
         return null;
@@ -141,11 +141,13 @@ describe('container DO class', () => {
       new ContainerClass(mockCtx as any, mockEnv);
 
       await vi.waitFor(() => {
-        expect(mockStorage.deleteAll).toHaveBeenCalled();
+        expect(mockStorage.deleteAlarm).toHaveBeenCalled();
       });
+      // Must NOT erase the tombstone
+      expect(mockStorage.deleteAll).not.toHaveBeenCalled();
     });
 
-    it('clears all storage when no bucketName is found (orphan detection)', async () => {
+    it('sets tombstone and clears alarm when no bucketName is found (orphan detection)', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === '_destroyed') return false;
         if (key === 'bucketName') return null;
@@ -155,8 +157,11 @@ describe('container DO class', () => {
       new ContainerClass(mockCtx as any, mockEnv);
 
       await vi.waitFor(() => {
-        expect(mockStorage.deleteAll).toHaveBeenCalled();
+        expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+        expect(mockStorage.deleteAlarm).toHaveBeenCalled();
       });
+      // Must NOT erase the tombstone
+      expect(mockStorage.deleteAll).not.toHaveBeenCalled();
     });
   });
 
@@ -366,8 +371,7 @@ describe('container DO class', () => {
       // Now make activity endpoint reachable (active container, not idle)
       retryMock.mockResolvedValue({
         hasActiveConnections: true,
-        lastUserInputMs: 1000,
-        lastAgentFileActivityMs: 1000,
+        disconnectedForMs: null,
       });
 
       (instance as any)._activityPollAlarm = false;
@@ -389,13 +393,12 @@ describe('container DO class', () => {
       const instance = createAlarmInstance();
       vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
-      // Activity endpoint reachable but container is idle (high idle times)
+      // Activity endpoint reachable, disconnected for 1 hour (over threshold)
       vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
         if (new URL(request.url).pathname === '/activity') {
           return new Response(JSON.stringify({
             hasActiveConnections: false,
-            lastUserInputMs: 60 * 60 * 1000, // 1 hour idle
-            lastAgentFileActivityMs: 60 * 60 * 1000,
+            disconnectedForMs: 60 * 60 * 1000, // 1 hour
           }), { status: 200 });
         }
         return new Response('base fetch', { status: 200 });
@@ -404,20 +407,19 @@ describe('container DO class', () => {
       (instance as any)._activityPollAlarm = false;
       await instance.alarm();
 
-      // Should have destroyed via idle_timeout (not activity_unreachable)
+      // Should have destroyed via ws_idle_timeout (not activity_unreachable)
       expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
     });
 
-    it('stays alive when user input recent but agent files idle', async () => {
+    it('stays alive with active connections', async () => {
       const instance = createAlarmInstance();
       vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
       vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
         if (new URL(request.url).pathname === '/activity') {
           return new Response(JSON.stringify({
-            hasActiveConnections: false,
-            lastUserInputMs: 1000,              // 1 second ago
-            lastAgentFileActivityMs: 3600000,   // 1 hour ago
+            hasActiveConnections: true,
+            disconnectedForMs: null,
           }), { status: 200 });
         }
         return new Response('base fetch', { status: 200 });
@@ -427,11 +429,11 @@ describe('container DO class', () => {
       mockStorage.put.mockClear();
       await instance.alarm();
 
-      // min(1s, 1h) = 1s < 30min idle timeout — should NOT destroy
+      // Active connections — should NOT destroy
       expect(mockStorage.put).not.toHaveBeenCalledWith('_destroyed', true);
     });
 
-    it('stays alive when agent files active but no user input', async () => {
+    it('stays alive when disconnected under threshold', async () => {
       const instance = createAlarmInstance();
       vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
@@ -439,8 +441,7 @@ describe('container DO class', () => {
         if (new URL(request.url).pathname === '/activity') {
           return new Response(JSON.stringify({
             hasActiveConnections: false,
-            lastUserInputMs: 3600000,           // 1 hour ago
-            lastAgentFileActivityMs: 1000,      // 1 second ago
+            disconnectedForMs: 600000, // 10 minutes
           }), { status: 200 });
         }
         return new Response('base fetch', { status: 200 });
@@ -450,11 +451,11 @@ describe('container DO class', () => {
       mockStorage.put.mockClear();
       await instance.alarm();
 
-      // min(1h, 1s) = 1s < 30min idle timeout — should NOT destroy
+      // 10 min < 30 min threshold — should NOT destroy
       expect(mockStorage.put).not.toHaveBeenCalledWith('_destroyed', true);
     });
 
-    it('destroyed when BOTH exceed idle timeout', async () => {
+    it('destroyed when disconnected over threshold', async () => {
       const instance = createAlarmInstance();
       vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
@@ -462,8 +463,7 @@ describe('container DO class', () => {
         if (new URL(request.url).pathname === '/activity') {
           return new Response(JSON.stringify({
             hasActiveConnections: false,
-            lastUserInputMs: 1860001,           // 31 minutes
-            lastAgentFileActivityMs: 1860001,   // 31 minutes
+            disconnectedForMs: 1860001, // 31 minutes
           }), { status: 200 });
         }
         return new Response('base fetch', { status: 200 });
@@ -472,8 +472,242 @@ describe('container DO class', () => {
       (instance as any)._activityPollAlarm = false;
       await instance.alarm();
 
-      // min(31m, 31m) = 31m > 30min idle timeout — should destroy
+      // 31 min > 30 min threshold — should destroy
       expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('stays alive when disconnectedForMs is null (fresh container)', async () => {
+      const instance = createAlarmInstance();
+      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
+
+      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
+        if (new URL(request.url).pathname === '/activity') {
+          return new Response(JSON.stringify({
+            hasActiveConnections: false,
+            disconnectedForMs: null,
+          }), { status: 200 });
+        }
+        return new Response('base fetch', { status: 200 });
+      });
+
+      (instance as any)._activityPollAlarm = false;
+      mockStorage.put.mockClear();
+      await instance.alarm();
+
+      // disconnectedForMs is null (never had connections) — should NOT destroy
+      expect(mockStorage.put).not.toHaveBeenCalledWith('_destroyed', true);
+    });
+  });
+
+  describe('Zombie resurrection prevention', () => {
+    it('constructor preserves tombstone: destroyed DO does NOT call deleteAll(), only deleteAlarm()', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return true;
+        return null;
+      });
+
+      new ContainerClass(mockCtx as any, mockEnv);
+
+      await vi.waitFor(() => {
+        expect(mockStorage.deleteAlarm).toHaveBeenCalled();
+      });
+      // Must NOT wipe storage — that would erase the tombstone
+      expect(mockStorage.deleteAll).not.toHaveBeenCalled();
+      // Must NOT put any operational data (bucketName, etc.)
+      expect(mockStorage.put).not.toHaveBeenCalledWith('bucketName', expect.anything());
+    });
+
+    it('orphan sets tombstone: constructor with no bucketName sets _destroyed = true', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return null;
+        return null;
+      });
+
+      new ContainerClass(mockCtx as any, mockEnv);
+
+      await vi.waitFor(() => {
+        expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+        expect(mockStorage.deleteAlarm).toHaveBeenCalled();
+      });
+    });
+
+    it('onStart() kill switch: when _destroyed is set, onStart() calls destroy() immediately', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return true;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      // Wait for constructor blockConcurrencyWhile to finish setting _destroyed
+      await vi.waitFor(() => {
+        expect(mockStorage.deleteAlarm).toHaveBeenCalled();
+      });
+
+      const destroySpy = vi.spyOn(instance, 'destroy');
+      mockStorage.deleteAlarm.mockClear();
+
+      instance.onStart();
+
+      // destroy() is called inside a void async IIFE, wait for it
+      await vi.waitFor(() => {
+        expect(destroySpy).toHaveBeenCalled();
+      });
+    });
+
+    it('onStart() orphan kill: orphan DO detected by constructor triggers destroy via onStart _destroyed check', async () => {
+      // When constructor detects no bucketName, it sets _destroyed = true in memory.
+      // Then onStart() hits the _destroyed check first and calls destroy().
+      // This verifies the two-layer protection: constructor + onStart working together.
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        // Constructor detected orphan and set tombstone
+        expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+      });
+
+      // Now onStart fires — _destroyed is true in memory, so the _destroyed check fires
+      const destroySpy = vi.spyOn(instance, 'destroy');
+      mockStorage.deleteAlarm.mockClear();
+
+      instance.onStart();
+
+      await vi.waitFor(() => {
+        expect(destroySpy).toHaveBeenCalled();
+        expect(mockStorage.deleteAlarm).toHaveBeenCalled();
+      });
+    });
+
+    it('onStart() normal path: legitimate start calls logStartContext() + scheduleActivityPoll()', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_last_shutdown_info') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        // Constructor finished initialization
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      const logStartSpy = vi.spyOn(instance as any, 'logStartContext');
+      const scheduleSpy = vi.spyOn(instance as any, 'scheduleActivityPoll');
+
+      instance.onStart();
+
+      expect(logStartSpy).toHaveBeenCalled();
+      expect(scheduleSpy).toHaveBeenCalled();
+    });
+
+    it('cleanupAndDestroy() updates KV: session status set to stopped when sessionId + bucketName available', async () => {
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({ id: 'sess123', status: 'running', name: 'Test' });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        if (key === '_last_shutdown_info') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      await (instance as any).cleanupAndDestroy('test_reason');
+
+      // Should have read session from KV and written back with stopped status
+      expect(mockKvGet).toHaveBeenCalled();
+      expect(mockKvPut).toHaveBeenCalled();
+      const putArgs = mockKvPut.mock.calls[0];
+      const writtenSession = JSON.parse(putArgs[1]);
+      expect(writtenSession.status).toBe('stopped');
+    });
+
+    it('cleanupAndDestroy() graceful KV failure: KV write failure does not block destroy()', async () => {
+      mockEnv.KV = {
+        get: vi.fn().mockRejectedValue(new Error('KV unavailable')),
+        put: vi.fn().mockRejectedValue(new Error('KV unavailable')),
+      };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        if (key === '_last_shutdown_info') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      // Should not throw despite KV failure
+      await expect((instance as any).cleanupAndDestroy('test_reason')).resolves.not.toThrow();
+
+      // destroy() still sets the tombstone
+      expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('destroy() preserves tombstone keys: _destroyed and _sessionId not deleted', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_last_shutdown_info') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      mockStorage.delete.mockClear();
+      await instance.destroy();
+
+      // Should delete operational keys
+      expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
+      expect(mockStorage.delete).toHaveBeenCalledWith('workspaceSyncEnabled');
+      expect(mockStorage.delete).toHaveBeenCalledWith('tabConfig');
+
+      // Should NOT delete tombstone keys
+      const deletedKeys = mockStorage.delete.mock.calls.map((c: unknown[]) => c[0]);
+      expect(deletedKeys).not.toContain('_destroyed');
+      expect(deletedKeys).not.toContain('_sessionId');
+    });
+
+    it('setBucketName stores sessionId: sessionId persisted to DO storage', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return null;  // No bucket yet
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      // Call handleSetBucketName via fetch with sessionId
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'new-bucket', sessionId: 'mysession123' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      // Verify sessionId was stored
+      expect(mockStorage.put).toHaveBeenCalledWith('_sessionId', 'mysession123');
     });
   });
 

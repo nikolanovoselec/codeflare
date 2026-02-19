@@ -9,83 +9,79 @@ describe('activity-tracker', () => {
     tracker = createActivityTracker();
   });
 
-  it('initial timestamps are Date.now() (within 100ms)', () => {
-    const now = Date.now();
-    assert.ok(
-      Math.abs(tracker.lastUserInputTimestamp - now) < 100,
-      'lastUserInputTimestamp should be close to Date.now()',
-    );
-    assert.ok(
-      Math.abs(tracker.lastAgentFileActivityTimestamp - now) < 100,
-      'lastAgentFileActivityTimestamp should be close to Date.now()',
-    );
-  });
-
-  it('recordUserInput updates lastUserInputTimestamp', async () => {
-    const before = tracker.lastUserInputTimestamp;
-    await new Promise((r) => setTimeout(r, 10));
-    tracker.recordUserInput();
-    assert.ok(
-      tracker.lastUserInputTimestamp > before,
-      'lastUserInputTimestamp should advance after recordUserInput()',
-    );
-  });
-
-  it('recordUserInput does NOT update lastAgentFileActivityTimestamp', async () => {
-    const before = tracker.lastAgentFileActivityTimestamp;
-    await new Promise((r) => setTimeout(r, 10));
-    tracker.recordUserInput();
-    assert.equal(
-      tracker.lastAgentFileActivityTimestamp,
-      before,
-      'lastAgentFileActivityTimestamp should not change on user input',
-    );
-  });
-
-  it('getActivityInfo returns lastUserInputMs', () => {
-    const sessionManager = { clients: new Map() };
-    const info = tracker.getActivityInfo(sessionManager);
-    assert.ok(
-      'lastUserInputMs' in info,
-      'response must include lastUserInputMs',
-    );
-    assert.equal(typeof info.lastUserInputMs, 'number');
-  });
-
-  it('getActivityInfo returns lastAgentFileActivityMs', () => {
-    const sessionManager = { clients: new Map() };
-    const info = tracker.getActivityInfo(sessionManager);
-    assert.ok(
-      'lastAgentFileActivityMs' in info,
-      'response must include lastAgentFileActivityMs',
-    );
-    assert.equal(typeof info.lastAgentFileActivityMs, 'number');
-  });
-
-  it('getActivityInfo returns hasActiveConnections true when clients > 0', () => {
-    const sessionManager = { clients: new Map([['ws1', {}]]) };
-    const info = tracker.getActivityInfo(sessionManager);
-    assert.equal(info.hasActiveConnections, true);
-  });
-
-  it('getActivityInfo returns hasActiveConnections false when clients = 0', () => {
-    const sessionManager = { clients: new Map() };
+  it('initial state: disconnectedForMs close to 0, hasActiveConnections false', () => {
+    const sessionManager = { clients: new Map(), sessions: new Map() };
     const info = tracker.getActivityInfo(sessionManager);
     assert.equal(info.hasActiveConnections, false);
+    assert.equal(typeof info.disconnectedForMs, 'number');
+    assert.ok(info.disconnectedForMs < 100, 'disconnectedForMs should be close to 0 initially');
   });
 
-  it('response has NO lastPtyOutputMs or lastWsActivityMs', () => {
-    const sessionManager = { clients: new Map() };
+  it('after recordClientConnected: disconnectedForMs is null when clients > 0', () => {
+    tracker.recordClientConnected();
+    const sessionManager = { clients: new Map([['ws1', {}]]), sessions: new Map() };
     const info = tracker.getActivityInfo(sessionManager);
-    assert.equal(
-      'lastPtyOutputMs' in info,
-      false,
-      'response must NOT include lastPtyOutputMs (old field)',
-    );
-    assert.equal(
-      'lastWsActivityMs' in info,
-      false,
-      'response must NOT include lastWsActivityMs (old field)',
-    );
+    assert.equal(info.hasActiveConnections, true);
+    assert.equal(info.disconnectedForMs, null);
+  });
+
+  it('after recordAllClientsDisconnected: disconnectedForMs grows over time', async () => {
+    tracker.recordClientConnected();
+    tracker.recordAllClientsDisconnected();
+    await new Promise(r => setTimeout(r, 50));
+    const sessionManager = { clients: new Map(), sessions: new Map() };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.equal(info.hasActiveConnections, false);
+    assert.ok(info.disconnectedForMs >= 40, 'disconnectedForMs should have grown');
+  });
+
+  it('reconnect clears timer: disconnect then connect makes disconnectedForMs null', () => {
+    tracker.recordAllClientsDisconnected();
+    tracker.recordClientConnected();
+    const sessionManager = { clients: new Map([['ws1', {}]]), sessions: new Map() };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.equal(info.disconnectedForMs, null);
+  });
+
+  it('multiple attach/detach cycles: timer only starts on last client leaving', () => {
+    // Two clients connect
+    tracker.recordClientConnected();
+    tracker.recordClientConnected();
+    // One disconnects but global count not zero — no recordAllClientsDisconnected called
+    // Second disconnects — now recordAllClientsDisconnected is called
+    tracker.recordAllClientsDisconnected();
+
+    const sessionManager = { clients: new Map(), sessions: new Map() };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.equal(info.hasActiveConnections, false);
+    assert.equal(typeof info.disconnectedForMs, 'number');
+    assert.ok(info.disconnectedForMs < 100);
+  });
+
+  it('returns activeSessions count from sessionManager', () => {
+    const mockSession1 = { ptyProcess: {} };
+    const mockSession2 = { ptyProcess: null };
+    const sessionManager = {
+      clients: new Map(),
+      sessions: new Map([['s1', mockSession1], ['s2', mockSession2]]),
+    };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.equal(info.activeSessions, 1);
+  });
+
+  it('handles null sessionManager gracefully', () => {
+    const info = tracker.getActivityInfo(null);
+    assert.equal(info.hasActiveConnections, false);
+    assert.equal(info.connectedClients, 0);
+    assert.equal(info.activeSessions, 0);
+  });
+
+  it('response has NO lastUserInputMs or lastAgentFileActivityMs', () => {
+    const sessionManager = { clients: new Map(), sessions: new Map() };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.equal('lastUserInputMs' in info, false);
+    assert.equal('lastAgentFileActivityMs' in info, false);
+    assert.equal('lastPtyOutputMs' in info, false);
+    assert.equal('lastWsActivityMs' in info, false);
   });
 });

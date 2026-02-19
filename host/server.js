@@ -18,8 +18,7 @@ import pty from 'node-pty';
 import { parse as parseUrl } from 'url';
 import { parse as parseQuery } from 'querystring';
 import fs from 'fs';
-import { createActivityTracker, AGENT_DIRS } from './activity-tracker.js';
-import { createAgentFileChecker, checkAgentFileActivity } from './agent-file-activity.js';
+import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 
 const PROCESS_NAME_POLL_MS = 2000;
@@ -113,7 +112,7 @@ const TERMINAL_ARGS = process.env.TERMINAL_ARGS || '-l';  // Login shell flag
 const WORKSPACE_DEFAULT = process.env.WORKSPACE || '/home/user/workspace';
 
 // PTY persistence settings
-const PTY_KEEPALIVE_MS = parseInt(process.env.PTY_KEEPALIVE_MS || '1800000', 10); // 30 minutes - matches container sleepAfter
+const PTY_KEEPALIVE_MS = parseInt(process.env.PTY_KEEPALIVE_MS || '2700000', 10); // 45 minutes
 const PTY_CLEANUP_INTERVAL_MS = parseInt(process.env.PTY_CLEANUP_INTERVAL_MS || '60000', 10); // Check every minute
 
 // Session limits
@@ -169,9 +168,8 @@ function logWsEvent(sessionId, type, details) {
   }
 }
 
-// Activity tracking for smart hibernation (user input + agent file activity)
+// Activity tracking for smart hibernation (WebSocket disconnect tracking)
 const activityTracker = createActivityTracker();
-const agentFileChecker = createAgentFileChecker(AGENT_DIRS);
 
 /**
  * Session represents a PTY terminal instance
@@ -331,6 +329,7 @@ class Session {
   attach(ws) {
     this.clients.add(ws);
     this.lastAccessedAt = new Date().toISOString();
+    activityTracker.recordClientConnected();
 
     // Cancel any pending keepalive timeout since we have a client again
     if (this.keepAliveTimeout) {
@@ -366,6 +365,11 @@ class Session {
   detach(ws, sessionManager = null) {
     this.clients.delete(ws);
     log('info', 'Client detached', { session: this.id.substring(0, 8), totalClients: this.clients.size });
+
+    // Track global disconnect for idle detection
+    if (sessionManager && sessionManager.clients.size === 0) {
+      activityTracker.recordAllClientsDisconnected();
+    }
 
     // If no more clients and PTY is still running, start keepalive timer
     if (this.clients.size === 0 && this.ptyProcess) {
@@ -669,15 +673,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Activity endpoint for smart hibernation (user input + agent file activity)
+  // Activity endpoint for smart hibernation (WS connection-based)
   if (pathname === '/activity' && method === 'GET') {
-    const agentChanged = await checkAgentFileActivity(agentFileChecker);
-    if (agentChanged) {
-      activityTracker.updateAgentFileActivity();
-    }
-    const activityInfo = activityTracker.getActivityInfo(sessionManager);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(activityInfo));
+    res.end(JSON.stringify(activityTracker.getActivityInfo(sessionManager)));
     return;
   }
 
@@ -845,7 +844,6 @@ wss.on('connection', (ws, req) => {
 
         if (msg.type === 'data' && typeof msg.data === 'string') {
           session.write(msg.data);
-          activityTracker.recordUserInput();
           return;
         }
 
@@ -857,7 +855,6 @@ wss.on('connection', (ws, req) => {
 
     // Raw terminal input - write directly to PTY
     session.write(str);
-    activityTracker.recordUserInput();
   });
 
   // Handle client disconnect

@@ -309,6 +309,14 @@ export async function getOnboardingConfig(): Promise<OnboardingConfigResponse> {
   });
 }
 
+// Admin API
+export async function adminDestroyContainer(doId: string): Promise<{ success: boolean; message: string }> {
+  return fetchApi('/admin/destroy-by-id', {
+    method: 'POST',
+    body: JSON.stringify({ doId }),
+  }) as Promise<{ success: boolean; message: string }>;
+}
+
 // Session ID format: 8-24 lowercase alphanumeric characters (matches backend SESSION_ID_PATTERN)
 const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
 

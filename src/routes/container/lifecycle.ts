@@ -107,6 +107,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 bucketName,
+                sessionId,
                 r2AccessKeyId: c.env.R2_ACCESS_KEY_ID,
                 r2SecretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
                 r2AccountId: r2Config.accountId,

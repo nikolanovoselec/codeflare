@@ -1,38 +1,41 @@
-const AGENT_DIRS = [
-  `${process.env.HOME}/.claude/projects/`,
-  `${process.env.HOME}/.codex/sessions/`,
-  `${process.env.HOME}/.gemini/tmp/`,
-  `${process.env.HOME}/.local/share/opencode/`,
-];
-
 function createActivityTracker() {
-  const now = Date.now();
   const tracker = {
-    lastUserInputTimestamp: now,
-    lastAgentFileActivityTimestamp: now,
-    recordUserInput() {
-      tracker.lastUserInputTimestamp = Date.now();
+    // Initialize to Date.now() so fresh containers auto-expire after 30min if nobody connects
+    lastAllDisconnectedAt: Date.now(),
+
+    // Called on every WS attach (idempotent — just clears the disconnect timer)
+    recordClientConnected() {
+      tracker.lastAllDisconnectedAt = null;
     },
-    updateAgentFileActivity() {
-      tracker.lastAgentFileActivityTimestamp = Date.now();
+
+    // Called when the GLOBAL client count drops to 0
+    recordAllClientsDisconnected() {
+      tracker.lastAllDisconnectedAt = Date.now();
     },
+
     getActivityInfo(sessionManager) {
-      const now = Date.now();
       const connectedClients = sessionManager ? sessionManager.clients.size : 0;
-      const sessions = sessionManager?.sessions ? Array.from(sessionManager.sessions.values()) : [];
+      const hasActiveConnections = connectedClients > 0;
+      const sessions = sessionManager?.sessions
+        ? Array.from(sessionManager.sessions.values())
+        : [];
       const activeSessions = sessions.filter(s => s.ptyProcess != null).length;
+
+      // Duration since last disconnection (null if currently connected)
+      let disconnectedForMs = null;
+      if (!hasActiveConnections && tracker.lastAllDisconnectedAt !== null) {
+        disconnectedForMs = Date.now() - tracker.lastAllDisconnectedAt;
+      }
+
       return {
-        hasActiveConnections: connectedClients > 0,
+        hasActiveConnections,
         connectedClients,
         activeSessions,
-        lastUserInputMs: now - tracker.lastUserInputTimestamp,
-        lastAgentFileActivityMs: now - tracker.lastAgentFileActivityTimestamp,
-        lastUserInputAt: new Date(tracker.lastUserInputTimestamp).toISOString(),
-        lastAgentFileActivityAt: new Date(tracker.lastAgentFileActivityTimestamp).toISOString(),
+        disconnectedForMs,
       };
     },
   };
   return tracker;
 }
 
-export { createActivityTracker, AGENT_DIRS };
+export { createActivityTracker };
