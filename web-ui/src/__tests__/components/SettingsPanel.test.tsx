@@ -306,15 +306,15 @@ describe('SettingsPanel Component', () => {
       expect(toggle).toBeInTheDocument();
     });
 
-    it('should default Samsung address bar toggle to off', () => {
+    it('should default Samsung address bar toggle to on', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
       const toggle = screen.getByTestId('settings-samsung-bar-top-toggle');
-      expect(toggle).not.toHaveClass('toggle-on');
-      expect(toggle).toHaveAttribute('aria-checked', 'false');
+      expect(toggle).toHaveClass('toggle-on');
+      expect(toggle).toHaveAttribute('aria-checked', 'true');
     });
 
-    it('should toggle Samsung address bar setting on when clicked', () => {
+    it('should toggle Samsung address bar setting off when clicked', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
       const toggle = screen.getByTestId('settings-samsung-bar-top-toggle');
@@ -323,18 +323,18 @@ describe('SettingsPanel Component', () => {
       expect(localStorageMock.setItem).toHaveBeenCalled();
       const lastCall = localStorageMock.setItem.mock.calls.slice(-1)[0];
       const savedSettings = JSON.parse(lastCall[1]);
-      expect(savedSettings.samsungAddressBarTop).toBe(true);
+      expect(savedSettings.samsungAddressBarTop).toBe(false);
     });
 
     it('should load Samsung address bar setting from localStorage', () => {
-      const customSettings: Settings = { samsungAddressBarTop: true };
+      const customSettings: Settings = { samsungAddressBarTop: false };
       localStorageMock.getItem.mockReturnValue(JSON.stringify(customSettings));
 
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
       const toggle = screen.getByTestId('settings-samsung-bar-top-toggle');
-      expect(toggle).toHaveClass('toggle-on');
-      expect(toggle).toHaveAttribute('aria-checked', 'true');
+      expect(toggle).not.toHaveClass('toggle-on');
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
     });
 
     it('should have accessible switch role', () => {

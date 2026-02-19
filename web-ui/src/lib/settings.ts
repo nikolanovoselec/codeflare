@@ -68,7 +68,7 @@ export function applyAccentColor(hexColor?: string): void {
 export const defaultSettings: Settings = {
   showButtonLabels: true,
   showTips: true,
-  samsungAddressBarTop: false,
+  samsungAddressBarTop: true,
 };
 
 const STORAGE_KEY = 'codeflare-settings';

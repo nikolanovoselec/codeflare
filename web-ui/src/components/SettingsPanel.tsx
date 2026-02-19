@@ -38,7 +38,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
-  const samsungAddressBarTop = () => settings().samsungAddressBarTop === true;
+  const samsungAddressBarTop = () => settings().samsungAddressBarTop !== false;
 
   // Load settings on mount
   onMount(() => {
