@@ -490,6 +490,15 @@ describe('SettingsPanel Component', () => {
       const savedSettings = JSON.parse(lastCall[1]);
       expect(savedSettings.clipboardAccess).toBe(true);
     });
+
+    it('should hide clipboard toggle on mobile (paste always works)', () => {
+      mobileState.mobile = true;
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const toggle = screen.queryByTestId('settings-clipboard-access-toggle');
+      expect(toggle).not.toBeInTheDocument();
+      mobileState.mobile = false;
+    });
   });
 
   describe('Container Kill (admin)', () => {

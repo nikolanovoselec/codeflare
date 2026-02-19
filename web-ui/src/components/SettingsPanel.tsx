@@ -302,31 +302,33 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           </section>
 
           {/* Clipboard Access Section */}
-          <section class="settings-section">
-            <div class="settings-section-header">
-              <Icon path={mdiContentPaste} size={16} />
-              <h3 class="settings-section-title">Clipboard</h3>
-            </div>
-            <div class="setting-row">
-              <label for="settings-clipboard-access">Allow paste from clipboard</label>
-              <button
-                type="button"
-                id="settings-clipboard-access"
-                class={`toggle ${clipboardAccess() ? 'toggle-on' : ''}`}
-                onClick={() => updateSetting('clipboardAccess', !clipboardAccess())}
-                role="switch"
-                aria-checked={clipboardAccess()}
-                data-testid="settings-clipboard-access-toggle"
-              >
-                <span class="toggle-thumb" />
-              </button>
-            </div>
-            <div class="setting-row setting-row--column-gap">
-              <span class="settings-hint">
-                Allow right-click and button paste from clipboard. Works best in Chrome; unreliable in other browsers. When enabled, your browser may prompt for clipboard permission.
-              </span>
-            </div>
-          </section>
+          <Show when={!isTouchDevice()}>
+            <section class="settings-section">
+              <div class="settings-section-header">
+                <Icon path={mdiContentPaste} size={16} />
+                <h3 class="settings-section-title">Clipboard</h3>
+              </div>
+              <div class="setting-row">
+                <label for="settings-clipboard-access">Allow paste from clipboard</label>
+                <button
+                  type="button"
+                  id="settings-clipboard-access"
+                  class={`toggle ${clipboardAccess() ? 'toggle-on' : ''}`}
+                  onClick={() => updateSetting('clipboardAccess', !clipboardAccess())}
+                  role="switch"
+                  aria-checked={clipboardAccess()}
+                  data-testid="settings-clipboard-access-toggle"
+                >
+                  <span class="toggle-thumb" />
+                </button>
+              </div>
+              <div class="setting-row setting-row--column-gap">
+                <span class="settings-hint">
+                  Allow right-click paste from clipboard. Works best in Chrome; unreliable in other browsers. When enabled, your browser may prompt for clipboard permission.
+                </span>
+              </div>
+            </section>
+          </Show>
 
           {/* R2 Sync Section */}
           <section class="settings-section settings-section-sync">
