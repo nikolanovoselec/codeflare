@@ -57,10 +57,11 @@ export interface HealthData {
 // Circuit Breaker Health Check
 // ============================================================================
 
-interface ContainerHealthResult {
+export interface ContainerHealthResult {
   healthy: boolean;
   data?: HealthData;
   error?: string;
+  status?: string;
 }
 
 /**
@@ -91,4 +92,29 @@ export async function checkContainerHealth(
       error: toErrorMessage(error)
     };
   }
+}
+
+/**
+ * Safe health check that avoids auto-starting stopped containers.
+ * Uses container.getState() (read-only) to check if the container is running
+ * before calling checkContainerHealth() which uses container.fetch() (auto-starts).
+ *
+ * @param container - The container stub to check
+ * @returns Health check result with status and optional data
+ */
+export async function safeCheckContainerHealth(
+  container: DurableObjectStub
+): Promise<ContainerHealthResult> {
+  try {
+    const state = await (container as unknown as { getState(): Promise<{ status: string }> }).getState();
+    const isUp = state.status === 'running' || state.status === 'healthy';
+    if (!isUp) {
+      return { healthy: false, status: state.status };
+    }
+  } catch {
+    // getState() failed — container is not available
+    return { healthy: false, status: 'unknown' };
+  }
+
+  return checkContainerHealth(container);
 }

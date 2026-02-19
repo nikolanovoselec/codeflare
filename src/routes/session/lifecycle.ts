@@ -8,7 +8,7 @@ import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
 import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow } from '../../lib/kv-keys';
 import { AuthVariables } from '../../middleware/auth';
-import { getContainerId, checkContainerHealth } from '../../lib/container-helpers';
+import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
 import { createLogger } from '../../lib/logger';
 import { containerSessionsCB } from '../../lib/circuit-breakers';
 import { toApiSession } from '../../lib/session-helpers';
@@ -23,7 +23,7 @@ async function getContainerSessionStatus(
   container: DurableObjectStub,
   sessionId: string
 ): Promise<{ status: string; ptyActive: boolean; terminalSessions: { id: string; [key: string]: unknown }[] }> {
-  const healthResult = await checkContainerHealth(container);
+  const healthResult = await safeCheckContainerHealth(container);
 
   if (!healthResult.healthy) {
     return { status: 'stopped', ptyActive: false, terminalSessions: [] };
@@ -80,13 +80,8 @@ app.get('/batch-status', async (c) => {
       // trigger R2 sync and effectively auto-start sessions the user didn't request.
       // The stop endpoint writes 'stopped' to KV authoritatively (POST /:id/stop),
       // so this is a reliable signal.
-      // Exception: if the status is stale (older than 5 minutes), probe anyway.
       if (session.status === 'stopped') {
-        const STALE_THRESHOLD_MS = 5 * 60 * 1000;
-        const isStale = Date.now() - (session.lastStatusCheck || 0) > STALE_THRESHOLD_MS;
-        if (!isStale) {
-          return { sessionId: session.id, status: 'stopped', ptyActive: false } as const;
-        }
+        return { sessionId: session.id, status: 'stopped', ptyActive: false } as const;
       }
 
       const containerId = getContainerId(bucketName, session.id);

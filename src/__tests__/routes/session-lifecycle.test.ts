@@ -10,6 +10,7 @@ import { createMockKV } from '../helpers/mock-kv';
 // Mock container
 function createMockContainer(healthy = true) {
   return {
+    getState: vi.fn().mockResolvedValue({ status: healthy ? 'running' : 'stopped' }),
     fetch: vi.fn().mockImplementation((req: Request) => {
       const url = new URL(req.url);
       if (url.pathname === '/health') {

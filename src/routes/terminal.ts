@@ -21,7 +21,7 @@ import type { Env, Session } from '../types';
 import { getSessionKey } from '../lib/kv-keys';
 import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS } from '../lib/constants';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
-import { getContainerId, checkContainerHealth } from '../lib/container-helpers';
+import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
 import { authenticateRequest } from '../lib/access';
 import { createLogger } from '../lib/logger';
 import { containerSessionsCB } from '../lib/circuit-breakers';
@@ -303,29 +303,34 @@ app.get('/:sessionId/status', async (c) => {
     const container = getContainer(c.env.CONTAINER, containerId);
 
     // Check terminal server health (runs on default port 8080)
-    const healthResult = await checkContainerHealth(container);
+    // Uses safeCheckContainerHealth to avoid auto-starting stopped containers
+    const healthResult = await safeCheckContainerHealth(container);
 
     if (!healthResult.healthy) {
       return c.json({
         session,
-        containerRunning: true,
+        containerRunning: false,
         terminalServerReady: false,
       });
     }
 
-    // Check if this session has an active PTY (terminal server on default port)
-    const sessionsResponse = await containerSessionsCB.execute(() =>
-      container.fetch(
-        new Request('http://container/sessions', { method: 'GET' })
-      )
-    );
-
+    // Only fetch sessions if the container is healthy — avoids auto-starting via container.fetch()
     let ptyActive = false;
-    if (sessionsResponse.ok) {
-      const data = (await sessionsResponse.json()) as {
-        sessions: { id: string }[];
-      };
-      ptyActive = data.sessions.some((s) => s.id === sessionId);
+    try {
+      const sessionsResponse = await containerSessionsCB.execute(() =>
+        container.fetch(
+          new Request('http://container/sessions', { method: 'GET' })
+        )
+      );
+
+      if (sessionsResponse.ok) {
+        const data = (await sessionsResponse.json()) as {
+          sessions: { id: string }[];
+        };
+        ptyActive = data.sessions.some((s) => s.id === sessionId);
+      }
+    } catch {
+      // Sessions fetch failed, but container is healthy
     }
 
     return c.json({
