@@ -172,27 +172,24 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // Some browsers revoke the transient activation after the first async call,
     // causing subsequent right-click pastes to silently fail. We re-query the
     // permission state and re-request if needed, and always refocus the terminal.
+    // Right-click to paste (like a real terminal).
+    // MUST use bubbling phase (not capture) and MUST NOT stopPropagation —
+    // xterm.js needs its own contextmenu handler to run first to manage
+    // internal textarea focus. Without that, Chrome's clipboard readText()
+    // silently fails on subsequent calls (document focus state broken).
     handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      // Stop xterm's own contextmenu handler from running — it calls
-      // moveTextAreaUnderMouseCursor + textarea.select() which can
-      // interfere with clipboard read on subsequent right-clicks.
-      e.stopPropagation();
       if (!term) return;
-      // IMPORTANT: call readText() BEFORE any focus() calls.
-      // focus() consumes the transient user activation that readText()
-      // requires — calling focus first makes readText silently fail
-      // on every call after the initial permission grant.
+      term.focus();
       navigator.clipboard.readText().then((text) => {
         if (text && term) {
           term.paste(text);
-          term.textarea?.focus({ preventScroll: true });
         }
       }).catch(() => {
         // Permission denied or not available
       });
     };
-    containerEl.addEventListener('contextmenu', handleContextMenu, true);
+    containerEl.addEventListener('contextmenu', handleContextMenu);
 
     terminalStore.setTerminal(props.sessionId, props.terminalId, term);
     terminalStore.registerFitAddon(props.sessionId, props.terminalId, fitAddon);
@@ -372,7 +369,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     resizeObserver?.disconnect();
     terminalStore.stopUrlDetection();
     terminalStore.unregisterFitAddon(props.sessionId, props.terminalId);
-    if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu, true);
+    if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu);
   });
 
   return {
