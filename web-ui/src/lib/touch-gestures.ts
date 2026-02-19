@@ -156,10 +156,11 @@ export function attachSwipeGestures(
       }
     }
 
-    // When keyboard is closed, only block default for locked swipe directions
-    if (!kbOpen && lockedDirection) {
-      e.preventDefault();
-    }
+    // When keyboard is closed, do NOT preventDefault — let the browser
+    // handle native vertical scrolling. Horizontal swipe keys still fire
+    // via sendKey() above, but we don't block the scroll gesture.
+    // (Previously this called e.preventDefault() which killed vertical scroll
+    //  whenever a horizontal direction locked first.)
   }
 
   function onTouchEnd() {

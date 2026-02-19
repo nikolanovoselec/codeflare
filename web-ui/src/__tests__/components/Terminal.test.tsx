@@ -402,5 +402,14 @@ describe('Terminal Component', () => {
       const container = document.querySelector('.terminal-container') as HTMLElement;
       expect(container.style.userSelect).toBe('none');
     });
+
+    it('should NOT set touch-action: none when keyboard is closed (allows pan-y scroll)', () => {
+      render(() => <Terminal {...defaultProps} />);
+
+      const container = document.querySelector('.terminal-container') as HTMLElement;
+      const styleAttr = container.getAttribute('style') || '';
+      // When keyboard is closed, touch-action should NOT be 'none' (which blocks scroll)
+      expect(styleAttr).not.toContain('touch-action: none');
+    });
   });
 });

@@ -314,7 +314,7 @@ describe('useTerminal hook', () => {
         return dispose;
       });
 
-      expect(addEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+      expect(addEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function), true);
 
       dispose();
     });
@@ -405,7 +405,7 @@ describe('useTerminal hook', () => {
 
       dispose();
 
-      expect(removeEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+      expect(removeEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function), true);
     });
   });
 

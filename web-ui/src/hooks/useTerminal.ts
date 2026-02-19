@@ -125,6 +125,18 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       term.open(containerEl);
     }
 
+    // Disable xterm's internal Viewport touch handlers on mobile.
+    // xterm manually manipulates scrollTop on touchmove which fights with
+    // native browser scrolling (CSS touch-action: pan-y). No-op them so
+    // only native scroll + our swipe gestures handle touch.
+    if (isTouchDevice()) {
+      const viewport = (term as any)._core?.viewport;
+      if (viewport) {
+        viewport.handleTouchStart = () => {};
+        viewport.handleTouchMove = () => true; // return true = don't cancel event
+      }
+    }
+
     if (isTouchDevice()) {
       const mobileCleanup = setupMobileInput(term, props, {
         refreshCursorLine: () => {
@@ -167,16 +179,30 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       return true;
     });
 
-    // Right-click to paste (like a real terminal)
+    // Right-click to paste (like a real terminal).
+    // navigator.clipboard.readText() requires 'clipboard-read' permission.
+    // Some browsers revoke the transient activation after the first async call,
+    // causing subsequent right-click pastes to silently fail. We re-query the
+    // permission state and re-request if needed, and always refocus the terminal.
     handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
+      // Stop xterm's own contextmenu handler from running — it calls
+      // moveTextAreaUnderMouseCursor + textarea.select() which can
+      // interfere with clipboard read on subsequent right-clicks.
+      e.stopPropagation();
+      if (!term) return;
+      // Focus textarea so clipboard read has a focused editable context
+      term.textarea?.focus({ preventScroll: true });
       navigator.clipboard.readText().then((text) => {
-        if (text && term) term.paste(text);
+        if (text && term) {
+          term.paste(text);
+          term.textarea?.focus({ preventScroll: true });
+        }
       }).catch(() => {
-        // Clipboard read permission denied
+        // Permission denied or not available
       });
     };
-    containerEl.addEventListener('contextmenu', handleContextMenu);
+    containerEl.addEventListener('contextmenu', handleContextMenu, true);
 
     terminalStore.setTerminal(props.sessionId, props.terminalId, term);
     terminalStore.registerFitAddon(props.sessionId, props.terminalId, fitAddon);
@@ -356,7 +382,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     resizeObserver?.disconnect();
     terminalStore.stopUrlDetection();
     terminalStore.unregisterFitAddon(props.sessionId, props.terminalId);
-    if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu);
+    if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu, true);
   });
 
   return {
