@@ -141,6 +141,9 @@ describe('useTerminal hook', () => {
       configurable: true,
     });
 
+    // Stub window.scrollTo (not implemented in jsdom)
+    window.scrollTo = vi.fn();
+
     // Mock requestAnimationFrame
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
       cb(0);
