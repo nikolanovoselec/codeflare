@@ -27,6 +27,7 @@ const ALL_TIPS: Tip[] = [
   { text: 'Use the tiling button in the terminal to split into 2-panel, 3-panel, or grid', category: 'desktop' },
   { text: 'Accent color picker in Settings customizes the entire UI', category: 'desktop' },
   { text: 'Pre-installed terminal tools: lazygit, tmux, neovim, yazi, htop, fzf, ripgrep, gh and more', category: 'desktop' },
+  { text: 'Right-click in the terminal to paste from clipboard. Enable it in Settings', category: 'desktop' },
   // General
   { text: 'Storage panel syncs to Cloudflare R2 automatically', category: 'general' },
   { text: 'Save your favourite terminal tab configurations with bookmark profiles', category: 'general' },
