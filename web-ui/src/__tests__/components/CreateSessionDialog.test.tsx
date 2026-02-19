@@ -145,7 +145,7 @@ describe('CreateSessionDialog', () => {
       ));
 
       const opencode = screen.getByTestId('csd-agent-opencode');
-      expect(opencode.textContent).toContain('Open-source multi-model agent');
+      expect(opencode.textContent).toContain('Multi-model agent');
     });
 
     it('highlights opencode as last used agent type', () => {
@@ -404,7 +404,7 @@ describe('CreateSessionDialog', () => {
       expect(screen.getByText('Official Claude Code CLI')).toBeInTheDocument();
       expect(screen.getByText('OpenAI Codex agent')).toBeInTheDocument();
       expect(screen.getByText('Google Gemini CLI')).toBeInTheDocument();
-      expect(screen.getByText('Open-source multi-model agent')).toBeInTheDocument();
+      expect(screen.getByText('Multi-model agent')).toBeInTheDocument();
       expect(screen.getByText('Plain terminal session')).toBeInTheDocument();
     });
   });

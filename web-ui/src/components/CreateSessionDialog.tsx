@@ -31,7 +31,7 @@ const AGENT_OPTIONS: AgentOption[] = [
   { type: 'claude-unleashed', label: 'Claude Unleashed', icon: mdiFire, description: 'Full Claude Code experience' },
   { type: 'codex', label: 'Codex', icon: mdiCodeBraces, description: 'OpenAI Codex agent' },
   { type: 'gemini', label: 'Gemini', icon: mdiDiamond, description: 'Google Gemini CLI' },
-  { type: 'opencode', label: 'OpenCode', icon: mdiRobotIndustrial, description: 'Open-source multi-model agent' },
+  { type: 'opencode', label: 'OpenCode', icon: mdiRobotIndustrial, description: 'Multi-model agent' },
   { type: 'bash', label: 'Bash', icon: mdiConsole, description: 'Plain terminal session' },
 ];
 
