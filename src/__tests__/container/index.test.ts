@@ -299,7 +299,7 @@ describe('container DO class', () => {
     });
   });
 
-  describe('alarm — bounded activity failure counter', () => {
+  describe('alarm - bounded activity failure counter', () => {
     /**
      * The alarm() method polls the terminal server's /activity endpoint.
      * When the endpoint is unreachable (container process dead), it should
