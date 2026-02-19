@@ -241,6 +241,11 @@ export async function handleWebSocketUpgrade(
     terminalUrl.searchParams.set('session', fullSessionId);  // Pass full compound ID to container
     terminalUrl.searchParams.set('name', session.name);
     terminalUrl.searchParams.set('terminalId', terminalId);
+    // Forward manual flag so container can skip .bashrc autostart for user-created tabs
+    const incomingUrl = new URL(request.url);
+    if (incomingUrl.searchParams.get('manual') === '1') {
+      terminalUrl.searchParams.set('manual', '1');
+    }
 
     logger.info('Forwarding WebSocket to container', { pathname: terminalUrl.pathname, search: terminalUrl.search });
 

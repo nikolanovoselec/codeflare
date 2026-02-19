@@ -50,6 +50,7 @@ Your agent needs a key. Set it once, sync takes care of the rest.
 | Claude Unleashed | `echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.profile` |
 | Codex | `echo 'export OPENAI_API_KEY=sk-...' >> ~/.profile` |
 | Gemini | `echo 'export GEMINI_API_KEY=...' >> ~/.profile` |
+| OpenCode | `echo 'export OPENAI_API_KEY=sk-...' >> ~/.profile` (or configure via `opencode` TUI - supports 75+ providers) |
 
 Next session, the key is already there. Magic. (It's rclone, but magic sounds better.)
 

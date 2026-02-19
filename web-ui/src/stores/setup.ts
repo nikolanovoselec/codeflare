@@ -1,5 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import * as api from '../api/client';
+import { ApiError } from '../api/fetch-helper';
 
 /** Whether loadExistingConfig has already been called (prevents duplicate fetches). */
 let configLoaded = false;
@@ -214,6 +215,9 @@ async function configure(): Promise<boolean> {
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Configuration request failed';
+    if (err instanceof ApiError && err.steps) {
+      setState({ configureSteps: err.steps });
+    }
     setState({ configureError: msg });
     return false;
   } finally {

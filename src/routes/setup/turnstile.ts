@@ -1,7 +1,7 @@
 import { SetupError, toError } from '../../lib/error-types';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
-import { CF_API_BASE, addStep, logger } from './shared';
+import { CF_API_BASE, addStep, logger, withSetupRetry } from './shared';
 import type { SetupStep } from './shared';
 
 function buildTurnstileDomains(customDomain: string, requestUrl?: string): string[] {
@@ -42,17 +42,16 @@ function isDuplicateWidgetError(errors?: Array<{ code?: number; message?: string
 }
 
 async function listWidgets(token: string, accountId: string): Promise<TurnstileWidgetSummary[]> {
-  try {
-    const response = await cfApiCB.execute(() => fetch(
+  const response = await withSetupRetry(
+    () => cfApiCB.execute(() => fetch(
       `${CF_API_BASE}/accounts/${accountId}/challenges/widgets`,
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    ));
-    const data = await parseCfResponse<TurnstileWidgetSummary[]>(response);
-    if (data.success && Array.isArray(data.result)) {
-      return data.result;
-    }
-  } catch (error) {
-    logger.warn('Turnstile widget listing failed', { error: String(error) });
+      { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
+    )),
+    'listWidgets'
+  );
+  const data = await parseCfResponse<TurnstileWidgetSummary[]>(response);
+  if (data.success && Array.isArray(data.result)) {
+    return data.result;
   }
   return [];
 }
@@ -91,21 +90,24 @@ async function updateExistingWidget(
   domains: string[],
   widgetName: string
 ): Promise<{ sitekey: string; secret: string | null } | null> {
-  const response = await cfApiCB.execute(() => fetch(
-    `${CF_API_BASE}/accounts/${accountId}/challenges/widgets/${sitekey}`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: widgetName,
-        domains,
-        mode: 'managed',
-      }),
-    }
-  ));
+  const response = await withSetupRetry(
+    () => cfApiCB.execute(() => fetch(
+      `${CF_API_BASE}/accounts/${accountId}/challenges/widgets/${sitekey}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: widgetName,
+          domains,
+          mode: 'managed',
+        }),
+      }
+    )),
+    'updateWidget'
+  );
 
   const data = await parseCfResponse<Partial<TurnstileWidgetResult>>(response);
   if (!data.success) {
@@ -190,21 +192,24 @@ export async function handleConfigureTurnstile(
       }
     }
 
-    const createResponse = await cfApiCB.execute(() => fetch(
-      `${CF_API_BASE}/accounts/${accountId}/challenges/widgets`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: widgetName,
-          domains,
-          mode: 'managed',
-        }),
-      }
-    ));
+    const createResponse = await withSetupRetry(
+      () => cfApiCB.execute(() => fetch(
+        `${CF_API_BASE}/accounts/${accountId}/challenges/widgets`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: widgetName,
+            domains,
+            mode: 'managed',
+          }),
+        }
+      )),
+      'createWidget'
+    );
 
     const createData = await parseCfResponse<TurnstileWidgetResult>(createResponse);
 

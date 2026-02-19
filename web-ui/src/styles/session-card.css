@@ -1,38 +1,5 @@
-/* Session List Styles */
+/* Session Card Styles */
 
-.session-list {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.session-list-header {
-  padding: 16px;
-  padding-top: calc(var(--tab-bar-height) + 16px);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.session-list-header h3 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-secondary);
-}
-
-
-.session-list-items {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* Session Card */
 .session-card-wrapper {
   position: relative;
   animation: stagger-fade-in 150ms ease-out forwards;
@@ -376,33 +343,6 @@
   background: var(--color-bg-tertiary);
   color: var(--color-text-secondary);
   transform: scale(1.05);
-}
-
-.session-list-footer {
-  position: relative;
-  padding: 12px;
-  padding-bottom: 12px;
-  border-top: 1px solid var(--color-border-subtle);
-}
-
-.session-create-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  background: var(--color-accent);
-  border: none;
-  border-radius: 8px;
-  transition: all var(--transition-fast);
-}
-
-.session-create-btn:hover {
-  background: var(--color-accent-hover);
 }
 
 /* ======================================

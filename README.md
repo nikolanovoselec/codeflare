@@ -12,7 +12,7 @@ It's strongly optimized for mobile - because the best ideas hit while rewatching
 
 - Browser-native terminal with 6 tabs per session and tiling mode - view 2-4 terminals side by side. Once you tile, you don't go back.
 - One isolated container per session - agents can't escape their sandbox (I checked)
-- Pre-loaded AI agents: [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed), Codex, Gemini, or plain Bash for the purists
+- Pre-loaded AI agents: [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed), Codex, Gemini, OpenCode, or plain Bash for the purists
 - Persistent R2 storage with bisync every 60s - even if a session dies before you `git push`, R2 has got your back. Sync conflicts? Cleaned up automatically next cycle.
 - Pre-warmed terminals - the agent is already loaded when you open the tab, not staring at a blank screen wondering if something broke
 - Set your API key once. It syncs across sessions forever. (It's rclone, but magic sounds better.)
@@ -50,7 +50,7 @@ Find your worker URL: [dash.cloudflare.com](https://dash.cloudflare.com/) > `Com
 - Configuring a custom domain and allowed users
 - Creating Cloudflare Access policies (handles auth so you don't have to)
 
-That's it. You're live. No Kubernetes. No Terraform. No existential crisis. You'll need an active subscription to at least one coding agent (Claude Code, OpenAI Codex, or Gemini CLI) - log in directly from the terminal.
+That's it. You're live. No Kubernetes. No Terraform. No existential crisis. You'll need an active subscription to at least one coding agent (Claude Code, OpenAI Codex, Gemini CLI, or OpenCode) - log in directly from the terminal.
 
 ## API token scopes
 

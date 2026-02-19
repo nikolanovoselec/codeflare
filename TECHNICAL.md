@@ -107,29 +107,39 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 `/api/container/debug/*` restricted to `DEV_MODE = "true"`. Admin routes use CF Access `authMiddleware` + `requireAdmin` for production access.
 
-### 2.13 Session Route Architecture
+### 2.13 Setup Wizard Resilience
+
+**Directory:** `src/routes/setup/`
+
+All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (defined in `shared.ts`) for transient failure resilience. The wrapper retries up to 2 times (3 total attempts) with exponential backoff (1s, 2s), skipping retry for `CircuitBreakerOpenError`.
+
+**Cross-environment safety:** `resolveManagedAccessApp()` in `access.ts` uses a 4-tier fallback to find existing Access apps: (1) exact domain match, (2) stored app ID from KV, (3) name match + domain validation, (4) `/app/*` suffix + domain validation. Tiers 3 and 4 validate domain to prevent cross-environment collision when multiple environments share a CF account.
+
+**Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
+
+### 2.14 Session Route Architecture
 
 **Directory:** `src/routes/session/` - Split into `index.ts` (aggregator), `crud.ts` (CRUD), `lifecycle.ts` (start/stop/status/batch-status).
 
 **Session Stop Flow:** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
 
-### 2.14 Frontend Zod Validation
+### 2.15 Frontend Zod Validation
 
 **File:** `web-ui/src/lib/schemas.ts` - Zod schemas validate API responses at runtime. Types derived from schemas via `z.infer`.
 
-### 2.15 Frontend Constants
+### 2.16 Frontend Constants
 
 **File:** `web-ui/src/lib/constants.ts` - 16 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths.
 
-### 2.16 Terminal Tab Configuration
+### 2.17 Terminal Tab Configuration
 
-**File:** `web-ui/src/lib/terminal-config.ts` - Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, htop, yazi, lazygit to MDI icons).
+**File:** `web-ui/src/lib/terminal-config.ts` - Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, codex, gemini, opencode, htop, yazi, lazygit to MDI icons).
 
-### 2.17 Container DO (CodeflareContainer)
+### 2.18 Container DO (CodeflareContainer)
 
 **File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '24h'`.
 
-**Activity-Based Hibernation:** DO alarm fires every 5 minutes, checks `/activity` endpoint (hasActiveConnections, lastPtyOutputMs, lastWsActivityMs). Hibernates when no connections AND no PTY output for 5 minutes. `destroy()` override MUST call `this.ctx.storage.deleteAlarm()` to prevent zombie containers.
+**Activity-Based Hibernation:** DO alarm fires every 5 minutes, checks `/activity` endpoint (hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs). Hibernates when no user input (keystrokes to PTY) and no agent file activity for 5 minutes. `destroy()` override MUST call `this.ctx.storage.deleteAlarm()` to prevent zombie containers.
 
 **Environment Variables Injection:** R2 credentials flow via two paths: (1) `_internal/setBucketName` request body (primary, from Worker), (2) `this.env` fallback (DO restart). Fallback chain: Worker-provided > `this.env` > empty string.
 
@@ -137,17 +147,17 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 **Internal Endpoints:** `/_internal/setBucketName`, `/_internal/getBucketName`, `/_internal/debugEnvVars`
 
-### 2.18 Terminal Server (node-pty)
+### 2.19 Terminal Server (node-pty)
 
 **File:** `host/server.js` - Node.js server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
-Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (`lastPtyOutputTimestamp`, `lastWsActivityTimestamp`) for hibernation decisions via `GET /activity`.
+Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (`lastUserInputMs`, `lastAgentFileActivityMs`) for hibernation decisions via `GET /activity`.
 
 **WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, ping) as JSON. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
 **PTY:** Spawns `bash -l` (login shell for .bashrc) with `xterm-256color`, truecolor support.
 
-### 2.19 Frontend (SolidJS + xterm.js)
+### 2.20 Frontend (SolidJS + xterm.js)
 
 **Directory:** `web-ui/`
 
@@ -593,7 +603,15 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 ### Global NPM Packages
 
-`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code`, `@openai/codex`, `@google/gemini-cli`
+`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code`, `@openai/codex`, `@google/gemini-cli`, `opencode-ai`
+
+### V8 Compile Cache Warm-Up
+
+Node.js CLIs (claude, codex, gemini) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need this optimization.
+
+### OpenCode Database Pre-Initialization
+
+OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory). To avoid this overhead at container start, the Dockerfile runs `opencode run "hello"` at build time which triggers the migration, creating the sessions/files/messages schema so the first interactive launch is fast.
 
 Port: 8080 (single port architecture).
 
@@ -838,7 +856,7 @@ curl .../api/container/debug?sessionId=abc12345  # Returns masked env vars
 | `default` | 1 vCPU, 3 GiB, 4 GB | ~$56 (reference) |
 | `high` | 2 vCPU, 6 GiB, 8 GB | Higher; check CF pricing |
 
-Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate (no connections + no PTY output for 5 min). Hibernated containers = zero cost.
+Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate (no user input + no agent file activity for 5 min). Hibernated containers = zero cost.
 
 **R2:** First 10GB free, $0.015/GB/month after. User config typically <100MB.
 
@@ -854,7 +872,7 @@ Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate
 6. **Login shell for .bashrc** - PTY must spawn `bash -l` for auto-start.
 7. **Two-step sync prevents data loss** - Empty local + bisync resync = deleted R2 data. Always restore first.
 8. **DO alarm cleanup in destroy()** - Alarms persist across hibernation. Clear before `super.destroy()`.
-9. **Activity-based hibernation** - Poll actual usage (connections + PTY output), don't rely on `sleepAfter` alone.
+9. **Activity-based hibernation** - Poll actual usage (user input + agent file activity), don't rely on `sleepAfter` alone.
 10. **Don't getState() after destroy()** - Wakes the DO, undoing hibernation.
 11. **inputDisposable scope matters** - Dispose on reconnect to prevent character doubling.
 12. **No fallback container IDs** - `getContainerId()` must NEVER fallback to just `bucketName`. Root cause of zombies.

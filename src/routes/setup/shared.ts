@@ -1,6 +1,7 @@
 import { createLogger } from '../../lib/logger';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { CF_API_BASE } from '../../lib/constants';
+import { CircuitBreakerOpenError } from '../../lib/error-types';
 
 export { CF_API_BASE };
 
@@ -68,4 +69,35 @@ export function detectCloudflareAuthError(
   }
 
   return null;
+}
+
+/**
+ * Retry wrapper for setup API calls with exponential backoff.
+ * Retries up to 2 times (3 total attempts) with 1s base delay.
+ * Skips retry for CircuitBreakerOpenError (circuit is open, retrying won't help).
+ */
+export async function withSetupRetry<T>(fn: () => Promise<T>, label?: string): Promise<T> {
+  const MAX_RETRIES = 2;
+  const BASE_DELAY_MS = 1000;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (error instanceof CircuitBreakerOpenError) {
+        throw error;
+      }
+      if (attempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        logger.info(`Retrying ${label ?? 'operation'} (attempt ${attempt + 2}/${MAX_RETRIES + 1})`, {
+          error: error instanceof Error ? error.message : String(error),
+          delayMs: delay,
+        });
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
 }

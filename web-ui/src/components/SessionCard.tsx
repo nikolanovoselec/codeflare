@@ -15,6 +15,7 @@ import type { SessionWithStatus, SessionStatus, TerminalConnectionState } from '
 import { sessionStore } from '../stores/session';
 import { sendInputToTerminal } from '../stores/terminal';
 import '../styles/stat-cards.css';
+import '../styles/session-card.css';
 
 const statusLabel: Record<SessionStatus, string> = {
   running: 'Live',

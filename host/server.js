@@ -18,6 +18,9 @@ import pty from 'node-pty';
 import { parse as parseUrl } from 'url';
 import { parse as parseQuery } from 'querystring';
 import fs from 'fs';
+import { createActivityTracker, AGENT_DIRS } from './activity-tracker.js';
+import { createAgentFileChecker, checkAgentFileActivity } from './agent-file-activity.js';
+import { getPrewarmConfig } from './prewarm-config.js';
 
 const PROCESS_NAME_POLL_MS = 2000;
 const WS_KEEPALIVE_PING_MS = 30000;
@@ -166,46 +169,18 @@ function logWsEvent(sessionId, type, details) {
   }
 }
 
-// Bug 3 fix: Global activity tracking for smart hibernation
-const activityTracker = {
-  lastPtyOutputTimestamp: Date.now(),
-  lastWsActivityTimestamp: Date.now(),
-
-  // Call this whenever PTY produces output
-  recordPtyOutput() {
-    this.lastPtyOutputTimestamp = Date.now();
-  },
-
-  // Call this whenever WebSocket activity occurs
-  recordWsActivity() {
-    this.lastWsActivityTimestamp = Date.now();
-  },
-
-  // Get activity info for the /activity endpoint
-  getActivityInfo(sessionManager) {
-    const now = Date.now();
-    const totalConnectedClients = Array.from(sessionManager.sessions.values())
-      .reduce((sum, session) => sum + session.clients.size, 0);
-
-    return {
-      hasActiveConnections: totalConnectedClients > 0,
-      connectedClients: totalConnectedClients,
-      activeSessions: sessionManager.size,
-      lastPtyOutputMs: now - this.lastPtyOutputTimestamp,
-      lastWsActivityMs: now - this.lastWsActivityTimestamp,
-      lastPtyOutputAt: new Date(this.lastPtyOutputTimestamp).toISOString(),
-      lastWsActivityAt: new Date(this.lastWsActivityTimestamp).toISOString(),
-    };
-  },
-};
+// Activity tracking for smart hibernation (user input + agent file activity)
+const activityTracker = createActivityTracker();
+const agentFileChecker = createAgentFileChecker(AGENT_DIRS);
 
 /**
  * Session represents a PTY terminal instance
  */
 class Session {
-  constructor(id, name = 'Terminal') {
+  constructor(id, name = 'Terminal', manual = false) {
     this.id = id;
     this.name = name;
+    this.manual = manual;
     this.ptyProcess = null;
     this.clients = new Set(); // WebSocket clients attached to this session
     this.headlessTerminal = new HeadlessTerminal({ cols: 80, rows: 24, allowProposedApi: true });
@@ -274,25 +249,28 @@ class Session {
     // Extract terminal ID from compound session ID (e.g., "abc123-2" -> "2")
     const terminalId = this.id.includes('-') ? this.id.split('-').pop() : '1';
 
+    const ptyEnv = {
+      ...process.env,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      HOME: process.env.HOME || '/root',
+      TERMINAL_ID: terminalId,
+    };
+    // User-created tabs ("+") get MANUAL_TAB=1 so .bashrc skips autostart
+    if (this.manual) {
+      ptyEnv.MANUAL_TAB = '1';
+    }
+
     this.ptyProcess = pty.spawn(cmd, args, {
       name: 'xterm-256color',
       cols,
       rows,
       cwd,
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        HOME: process.env.HOME || '/root',
-        TERMINAL_ID: terminalId,
-      },
+      env: ptyEnv,
     });
 
     this.ptyProcess.onData((data) => {
       this.lastDataTime = Date.now();
-
-      // Bug 3 fix: Record PTY activity for smart hibernation
-      activityTracker.recordPtyOutput();
 
       // Feed data into headless terminal for state tracking
       this.headlessTerminal.write(data);
@@ -548,7 +526,7 @@ class SessionManager {
   /**
    * Get or create a session
    */
-  getOrCreate(id, name) {
+  getOrCreate(id, name, manual = false) {
     let session = this.sessions.get(id);
 
     if (session) {
@@ -582,7 +560,7 @@ class SessionManager {
         return null; // Caller must handle null
       }
       // Create new session
-      session = new Session(id, name);
+      session = new Session(id, name, manual);
       this.sessions.set(id, session);
       log('info', 'Created new session', { session: id });
     }
@@ -616,6 +594,21 @@ class SessionManager {
    */
   list() {
     return Array.from(this.sessions.values()).map((s) => s.toJSON());
+  }
+
+  /**
+   * Get a Map of all connected WebSocket clients across all sessions.
+   * Used by activityTracker.getActivityInfo() to determine hasActiveConnections.
+   */
+  get clients() {
+    const allClients = new Map();
+    let idx = 0;
+    for (const session of this.sessions.values()) {
+      for (const ws of session.clients) {
+        allClients.set(`${session.id}-${idx++}`, ws);
+      }
+    }
+    return allClients;
   }
 
   /**
@@ -676,8 +669,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Bug 3 fix: Activity endpoint for smart hibernation
+  // Activity endpoint for smart hibernation (user input + agent file activity)
   if (pathname === '/activity' && method === 'GET') {
+    const agentChanged = await checkAgentFileActivity(agentFileChecker);
+    if (agentChanged) {
+      activityTracker.updateAgentFileActivity();
+    }
     const activityInfo = activityTracker.getActivityInfo(sessionManager);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(activityInfo));
@@ -783,6 +780,7 @@ const wss = new WebSocketServer({ server, path: '/terminal', maxPayload: WS_MAX_
 wss.on('connection', (ws, req) => {
   const { query } = parseUrl(req.url, true);
   const sessionId = query.session;
+  const isManualTab = query.manual === '1';
   const connectedAt = Date.now();
 
   if (!sessionId) {
@@ -808,8 +806,8 @@ wss.on('connection', (ws, req) => {
   // Sanitize session name
   const name = (query.name || '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || 'Terminal';
 
-  // Get or create session
-  const session = sessionManager.getOrCreate(sessionId, name);
+  // Get or create session (pass manual flag for user-created tabs)
+  const session = sessionManager.getOrCreate(sessionId, name, isManualTab);
   if (!session) {
     ws.close(1013, 'Session limit reached');
     return;
@@ -824,9 +822,6 @@ wss.on('connection', (ws, req) => {
   // Handle incoming messages
   // RAW data goes directly to PTY, JSON only for control messages (resize, ping)
   ws.on('message', (message) => {
-    // Bug 3 fix: Record WebSocket activity for smart hibernation
-    activityTracker.recordWsActivity();
-
     const str = message.toString();
 
     // Try to parse as JSON for known control messages only
@@ -850,6 +845,7 @@ wss.on('connection', (ws, req) => {
 
         if (msg.type === 'data' && typeof msg.data === 'string') {
           session.write(msg.data);
+          activityTracker.recordUserInput();
           return;
         }
 
@@ -861,6 +857,7 @@ wss.on('connection', (ws, req) => {
 
     // Raw terminal input - write directly to PTY
     session.write(str);
+    activityTracker.recordUserInput();
   });
 
   // Handle client disconnect
@@ -890,7 +887,14 @@ wss.on('connection', (ws, req) => {
 let prewarmReady = false;
 let prewarmStartTime = 0;
 
-const PREWARM_QUIESCENCE_MS = 2000;  // 2s of silence = shell prompt is ready
+// Agent-aware quiescence: TUI agents (OpenCode, Gemini, Codex) get 500ms instead of 2000ms
+// because their busy startup spinners keep resetting the default 2s quiescence timer.
+const parsedTabConfig = (() => {
+  try { return JSON.parse(process.env.TAB_CONFIG || '[]'); } catch { return []; }
+})();
+const prewarmConfig = getPrewarmConfig(parsedTabConfig);
+const PREWARM_QUIESCENCE_MS = prewarmConfig.quiescenceMs;
+const PREWARM_READY_PATTERN = prewarmConfig.readyPattern;
 const PREWARM_TIMEOUT_MS = 20000;     // Hard cap: consider ready after 20s regardless
 const PREWARM_ORPHAN_MS = 120000;     // Kill pre-warmed session if not adopted within 2min
 
@@ -907,10 +911,26 @@ server.listen(PORT, '0.0.0.0', () => {
   sessionManager.sessions.set('prewarm-1', prewarmSession);
   prewarmSession.start();
   prewarmStartTime = Date.now();
-  log('info', 'Pre-warming tab 1 PTY');
+  log('info', 'Pre-warming tab 1 PTY', { quiescenceMs: PREWARM_QUIESCENCE_MS, hasReadyPattern: !!PREWARM_READY_PATTERN });
+
+  // If a ready-pattern is configured, listen for it on PTY output
+  let prewarmDataListener = null;
+  if (PREWARM_READY_PATTERN && prewarmSession.ptyProcess) {
+    prewarmDataListener = prewarmSession.ptyProcess.onData((data) => {
+      if (!prewarmReady && PREWARM_READY_PATTERN.test(data)) {
+        prewarmReady = true;
+        const elapsed = Date.now() - prewarmStartTime;
+        log('info', 'Pre-warm ready (pattern match)', { elapsedSec: (elapsed / 1000).toFixed(1) });
+      }
+    });
+  }
 
   const readinessCheck = setInterval(() => {
-    if (prewarmReady) { clearInterval(readinessCheck); return; }
+    if (prewarmReady) {
+      clearInterval(readinessCheck);
+      if (prewarmDataListener) prewarmDataListener.dispose();
+      return;
+    }
     const elapsed = Date.now() - prewarmStartTime;
     const lastData = prewarmSession.lastDataTime || prewarmStartTime; // Fallback to start time if no output yet
     const silent = Date.now() - lastData;
@@ -918,12 +938,14 @@ server.listen(PORT, '0.0.0.0', () => {
       prewarmReady = true;
       log('info', 'Pre-warm ready (quiescent)', { elapsedSec: (elapsed / 1000).toFixed(1) });
       clearInterval(readinessCheck);
+      if (prewarmDataListener) prewarmDataListener.dispose();
       return;
     }
     if (elapsed >= PREWARM_TIMEOUT_MS) {
       prewarmReady = true;
       log('info', 'Pre-warm ready (timeout)', { elapsedSec: (elapsed / 1000).toFixed(1) });
       clearInterval(readinessCheck);
+      if (prewarmDataListener) prewarmDataListener.dispose();
     }
   }, 500);
 

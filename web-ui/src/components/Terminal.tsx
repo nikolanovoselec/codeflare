@@ -65,17 +65,14 @@ const Terminal: Component<TerminalProps> = (props) => {
         </div>
       </Show>
 
+      {/* Text selection prevented via user-select CSS instead of
+          e.preventDefault() on pointerdown — preventDefault blocks native scroll */}
       <div
         ref={(el) => { containerEl = el; containerRef(el); }}
         class="terminal-container"
-        onPointerDown={(e: PointerEvent) => {
+        onClick={() => {
           const term = terminal();
           if (isTouchDevice() && term) {
-            const target = e.target as HTMLElement;
-            const isLink = target?.closest('.xterm-link') || target?.classList?.contains('xterm-link');
-            if (!isLink) {
-              e.preventDefault();
-            }
             (term as any).__removeFocusGuard?.();
             enableVirtualKeyboardOverlay();
             const iframeInput = (term as any).__iframeInput as HTMLInputElement | undefined;
@@ -94,7 +91,9 @@ const Terminal: Component<TerminalProps> = (props) => {
           'min-height': '0',
           'background-color': isInitializing() ? 'transparent' : 'var(--color-terminal-theme-bg)',
           'overflow-anchor': 'none',
-          'touch-action': (isTouchDevice() && isVirtualKeyboardOpen()) ? 'none' : undefined,
+          '-webkit-user-select': isTouchDevice() ? 'none' : undefined,
+          'user-select': isTouchDevice() ? 'none' : undefined,
+          'touch-action': isTouchDevice() ? (isVirtualKeyboardOpen() ? 'none' : 'pan-y') : undefined,
         }}
       />
 

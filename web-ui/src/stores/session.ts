@@ -3,7 +3,7 @@ import type { Session, SessionWithStatus, SessionStatus, InitProgress, InitStage
 import * as api from '../api/client';
 import { terminalStore, sendInputToTerminal } from './terminal';
 import { logger } from '../lib/logger';
-import { METRICS_POLL_INTERVAL_MS, STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS } from '../lib/constants';
+import { METRICS_POLL_INTERVAL_MS, STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS } from '../lib/constants';
 import {
   LAYOUT_MIN_TABS,
   getBestLayoutForTabCount,
@@ -443,6 +443,56 @@ function stopMetricsPolling(sessionId: string): void {
   }
 }
 
+// ============================================================================
+// Session List Polling
+// ============================================================================
+
+let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Lightweight status refresh — only fetches batch-status and updates
+ * existing session statuses in-place. Does NOT replace the sessions
+ * array or set loading state, so the dashboard doesn't flicker.
+ */
+async function refreshSessionStatuses(): Promise<void> {
+  try {
+    const batchStatuses = await api.getBatchSessionStatus();
+    // Remove sessions that no longer exist on the server (deleted from another device)
+    const removedIds = state.sessions
+      .filter((s) => !batchStatuses[s.id])
+      .map((s) => s.id);
+    if (removedIds.length > 0) {
+      setState('sessions', (prev) => prev.filter((s) => !removedIds.includes(s.id)));
+    }
+    for (const session of state.sessions) {
+      const remote = batchStatuses[session.id];
+      if (!remote) continue;
+      if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
+        updateSessionStatus(session.id, 'running');
+        initializeTerminalsForSession(session.id);
+      } else if (remote.status === 'stopped' && session.status !== 'stopped' && session.status !== 'stopping') {
+        updateSessionStatus(session.id, 'stopped');
+      }
+    }
+  } catch {
+    // Silently ignore — this is background polling
+  }
+}
+
+function startSessionListPolling(): void {
+  if (sessionListPollInterval !== null) return;
+  sessionListPollInterval = setInterval(() => {
+    refreshSessionStatuses();
+  }, SESSION_LIST_POLL_INTERVAL_MS);
+}
+
+function stopSessionListPolling(): void {
+  if (sessionListPollInterval !== null) {
+    clearInterval(sessionListPollInterval);
+    sessionListPollInterval = null;
+  }
+}
+
 function stopAllMetricsPolling(): void {
   metricsPollingIntervals.forEach((interval, sessionId) => {
     clearInterval(interval);
@@ -510,6 +560,10 @@ export const sessionStore = {
   getMetricsForSession,
   stopMetricsPolling,
   stopAllMetricsPolling,
+
+  // Session list polling
+  startSessionListPolling,
+  stopSessionListPolling,
 
   // Actions
   loadSessions,

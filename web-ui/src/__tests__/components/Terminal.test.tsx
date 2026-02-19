@@ -3,6 +3,7 @@ import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
 import Terminal from '../../components/Terminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
+import { isTouchDevice, enableVirtualKeyboardOverlay, isVirtualKeyboardOpen } from '../../lib/mobile';
 
 // Mock xterm.js and addons
 const mockTerminalInstance = {
@@ -70,6 +71,8 @@ vi.mock('../../stores/terminal', () => ({
     unregisterFitAddon: vi.fn(),
     triggerLayoutResize: vi.fn(),
     layoutChangeCounter: 0,
+    startUrlDetection: vi.fn(),
+    stopUrlDetection: vi.fn(),
   },
 }));
 
@@ -81,6 +84,7 @@ vi.mock('../../stores/session', () => ({
   sessionStore: {
     isSessionInitializing: vi.fn(),
     getInitProgressForSession: vi.fn(),
+    getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
   },
 }));
 
@@ -92,6 +96,30 @@ vi.mock('../../components/InitProgress', () => ({
   default: (props: { sessionName: string }) => (
     <div data-testid="init-progress">Init Progress: {props.sessionName}</div>
   ),
+}));
+
+// MOCK-DRIFT RISK: mobile module is stubbed to return desktop defaults.
+// Tests that need touch behavior must override isTouchDevice per-test.
+vi.mock('../../lib/mobile', () => ({
+  isTouchDevice: vi.fn(() => false),
+  isVirtualKeyboardOpen: vi.fn(() => false),
+  getKeyboardHeight: vi.fn(() => 0),
+  enableVirtualKeyboardOverlay: vi.fn(),
+  disableVirtualKeyboardOverlay: vi.fn(),
+  resetKeyboardStateIfStale: vi.fn(),
+  forceResetKeyboardState: vi.fn(),
+}));
+
+vi.mock('../../lib/touch-gestures', () => ({
+  attachSwipeGestures: vi.fn(() => vi.fn()),
+}));
+
+vi.mock('../../lib/terminal-mobile-input', () => ({
+  setupMobileInput: vi.fn(() => vi.fn()),
+}));
+
+vi.mock('../../lib/terminal-link-provider', () => ({
+  registerMultiLineLinkProvider: vi.fn(),
 }));
 
 describe('Terminal Component', () => {
@@ -325,6 +353,78 @@ describe('Terminal Component', () => {
       render(() => <Terminal {...defaultProps} terminalId="1" />);
 
       expect(document.querySelector('.terminal-connection-spinner')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Mobile Touch Behavior', () => {
+    // jsdom lacks PointerEvent — polyfill as a subclass of MouseEvent
+    const PointerEventPolyfill = class extends MouseEvent {
+      constructor(type: string, init?: MouseEventInit) { super(type, init); }
+    };
+    if (typeof globalThis.PointerEvent === 'undefined') {
+      (globalThis as any).PointerEvent = PointerEventPolyfill;
+    }
+
+    beforeEach(() => {
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+      // Provide a terminal instance so touch handlers can access it
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerminalInstance as any);
+    });
+
+    afterEach(() => {
+      vi.mocked(isTouchDevice).mockReturnValue(false);
+    });
+
+    it('should NOT call enableVirtualKeyboardOverlay on pointerdown', () => {
+      render(() => <Terminal {...defaultProps} />);
+
+      // Clear any calls from useTerminal's createEffect (keyboard lifecycle on mount)
+      vi.mocked(enableVirtualKeyboardOverlay).mockClear();
+
+      const container = document.querySelector('.terminal-container')!;
+      container.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+      expect(enableVirtualKeyboardOverlay).not.toHaveBeenCalled();
+    });
+
+    it('should call enableVirtualKeyboardOverlay on click (tap)', () => {
+      render(() => <Terminal {...defaultProps} />);
+
+      const container = document.querySelector('.terminal-container')!;
+      container.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(enableVirtualKeyboardOverlay).toHaveBeenCalled();
+    });
+
+    it('should set user-select: none on terminal container for mobile', () => {
+      render(() => <Terminal {...defaultProps} />);
+
+      const container = document.querySelector('.terminal-container') as HTMLElement;
+      expect(container.style.userSelect).toBe('none');
+    });
+
+    it('should set touch-action: pan-y when keyboard is closed on mobile', () => {
+      // jsdom doesn't reflect touch-action via setProperty, so spy on the prototype
+      const spy = vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty');
+
+      render(() => <Terminal {...defaultProps} />);
+
+      const touchActionCalls = spy.mock.calls.filter(([prop]) => prop === 'touch-action');
+      expect(touchActionCalls.length).toBeGreaterThan(0);
+      expect(touchActionCalls[touchActionCalls.length - 1][1]).toBe('pan-y');
+      spy.mockRestore();
+    });
+
+    it('should set touch-action: none when keyboard is open on mobile', () => {
+      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      const spy = vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty');
+
+      render(() => <Terminal {...defaultProps} />);
+
+      const touchActionCalls = spy.mock.calls.filter(([prop]) => prop === 'touch-action');
+      expect(touchActionCalls.length).toBeGreaterThan(0);
+      expect(touchActionCalls[touchActionCalls.length - 1][1]).toBe('none');
+      spy.mockRestore();
     });
   });
 });

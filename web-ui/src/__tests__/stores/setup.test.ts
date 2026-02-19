@@ -530,6 +530,41 @@ describe('Setup Store', () => {
     });
   });
 
+  describe('configure error with steps', () => {
+    it('should populate configureSteps from ApiError on HTTP error', async () => {
+      const errorSteps = [
+        { step: 'get_account', status: 'success' },
+        { step: 'derive_r2_credentials', status: 'success' },
+        { step: 'create_access_app', status: 'error', error: 'Failed to upsert Access application' },
+      ];
+
+      // Mock fetch for configure endpoint to return SetupError
+      mockFetch.mockResolvedValueOnce({
+        type: 'default',
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        text: () => Promise.resolve(JSON.stringify({
+          success: false,
+          error: 'Setup configuration failed',
+          code: 'SETUP_ERROR',
+          steps: errorSteps,
+        })),
+      });
+
+      // Need to add at least one admin user for configure to work
+      setupStore.addAdminUser('admin@test.com');
+
+      const result = await setupStore.configure();
+
+      expect(result).toBe(false);
+      expect(setupStore.configureError).toBeTruthy();
+      expect(setupStore.configureSteps).toHaveLength(3);
+      expect(setupStore.configureSteps[2].status).toBe('error');
+      expect(setupStore.configureSteps[2].error).toBe('Failed to upsert Access application');
+    });
+  });
+
   describe('reset', () => {
     it('should reset all state to initial values', async () => {
       // Modify state

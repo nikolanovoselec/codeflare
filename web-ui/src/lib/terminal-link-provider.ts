@@ -37,22 +37,44 @@ function mapStringToBuffer(
   return null;
 }
 
+/** Strips trailing non-URL characters (TUI border decoration like │, padding) */
+const TRAILING_NON_URL = /[^a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+$/;
+/** Strips leading non-URL characters (TUI border decoration like │, padding) */
+const LEADING_NON_URL = /^[^a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+/;
+
 /**
  * Checks whether the next buffer line is likely a URL continuation from
  * an application-inserted newline (e.g. ink-based TUIs like Claude Code).
+ * When insideUrl=true, strips TUI border decoration (│ etc.) from line
+ * boundaries before checking, so Bubble Tea dialogs don't block detection.
  */
 function isLikelyUrlContinuation(
   currentLineText: string,
   nextLineText: string,
   terminalCols: number,
+  insideUrl = false,
 ): boolean {
-  if (currentLineText.length < terminalCols - 1) return false;
+  // When inside a URL, strip trailing TUI decoration (│, spaces) so border
+  // chars don't prevent continuation detection
+  const effectiveCurrent = insideUrl
+    ? currentLineText.replace(TRAILING_NON_URL, '')
+    : currentLineText;
+  if (!insideUrl && effectiveCurrent.length < terminalCols - 1) return false;
   const urlChars = /[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/;
-  if (!urlChars.test(currentLineText.slice(-1))) return false;
-  if (!nextLineText || /^\s/.test(nextLineText)) return false;
-  if (/^[$>#]/.test(nextLineText)) return false;
-  if (!urlChars.test(nextLineText[0])) return false;
-  if (/^https?:\/\//i.test(nextLineText)) return false;
+  if (!effectiveCurrent || !urlChars.test(effectiveCurrent.slice(-1))) return false;
+  // When inside a URL, strip leading TUI decoration + whitespace from next line
+  const checkText = insideUrl ? nextLineText.replace(LEADING_NON_URL, '') : nextLineText;
+  if (!checkText || /^\s/.test(checkText)) return false;
+  if (/^[$>#]/.test(checkText)) return false;
+  if (!urlChars.test(checkText[0])) return false;
+  if (/^https?:\/\//i.test(checkText)) return false;
+  // When inside a URL in a bordered TUI dialog, verify continuation content has
+  // no internal spaces. URLs never contain literal spaces (they use %20), while
+  // English text like "Press ENTER to continue" almost always does.
+  if (insideUrl) {
+    const contentOnly = checkText.replace(TRAILING_NON_URL, '');
+    if (/\s/.test(contentOnly)) return false;
+  }
   return true;
 }
 
@@ -82,7 +104,8 @@ function findLogicalLineStart(
     const currLine = buffer.getLine(start);
     if (!currLine) break;
     const currText = currLine.translateToString(true);
-    if (!isLikelyUrlContinuation(prevText, currText, cols)) break;
+    const midUrl = /https?:\/\/[^\s]*$/.test(prevText);
+    if (!isLikelyUrlContinuation(prevText, currText, cols, midUrl)) break;
     start--;
     heuristic++;
     // Also follow isWrapped chain upward from this heuristic line
@@ -145,8 +168,17 @@ export function registerMultiLineLinkProvider(terminal: XTerm): IDisposable {
         const lastLine = buffer.getLine(lastLineIdx);
         if (!lastLine) break;
         const lastLineText = lastLine.translateToString(true);
-        if (!isLikelyUrlContinuation(lastLineText, nextText, cols)) break;
-        fullText += nextText;
+        // Strip trailing TUI decoration (│, padding) before checking if we're mid-URL
+        const cleanedForCheck = fullText.replace(TRAILING_NON_URL, '');
+        const midUrl = /https?:\/\/[^\s]*$/.test(cleanedForCheck);
+        if (!isLikelyUrlContinuation(lastLineText, nextText, cols, midUrl)) break;
+        if (midUrl) {
+          // Strip TUI border decoration from join points
+          fullText = cleanedForCheck;
+          fullText += nextText.replace(LEADING_NON_URL, '').replace(TRAILING_NON_URL, '');
+        } else {
+          fullText += nextText;
+        }
         joinedLines.push(nextIdx);
         nextIdx++;
         heuristicCount++;

@@ -1,7 +1,7 @@
 import { ValidationError, SetupError, toError, toErrorMessage } from '../../lib/error-types';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
-import { CF_API_BASE, logger, getWorkerNameFromHostname, detectCloudflareAuthError, addStep } from './shared';
+import { CF_API_BASE, logger, getWorkerNameFromHostname, detectCloudflareAuthError, addStep, withSetupRetry } from './shared';
 import type { SetupStep } from './shared';
 
 /**
@@ -139,10 +139,13 @@ async function upsertDnsRecord(
   // Check if DNS record already exists
   let existingDnsRecordId: string | null = null;
   try {
-    const dnsLookupRes = await cfApiCB.execute(() => fetch(
-      `${CF_API_BASE}/zones/${zoneId}/dns_records?name=${domain}`,
-      { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
-    ));
+    const dnsLookupRes = await withSetupRetry(
+      () => cfApiCB.execute(() => fetch(
+        `${CF_API_BASE}/zones/${zoneId}/dns_records?name=${domain}`,
+        { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
+      )),
+      'dnsRecordLookup'
+    );
     const dnsLookupData = await parseCfResponse<Array<{ id: string; type: string }>>(dnsLookupRes);
     if (dnsLookupData.success && dnsLookupData.result?.length) {
       const cnameRecord = dnsLookupData.result.find(r => r.type === 'CNAME');
@@ -164,23 +167,26 @@ async function upsertDnsRecord(
     ? `${CF_API_BASE}/zones/${zoneId}/dns_records/${existingDnsRecordId}`
     : `${CF_API_BASE}/zones/${zoneId}/dns_records`;
 
-  const dnsRecordRes = await cfApiCB.execute(() => fetch(
-    dnsUrl,
-    {
-      method: dnsMethod,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        type: 'CNAME',
-        name: subdomain,
-        content: workersDevTarget,
-        proxied: true
-      }),
-      signal: AbortSignal.timeout(10000),
-    }
-  ));
+  const dnsRecordRes = await withSetupRetry(
+    () => cfApiCB.execute(() => fetch(
+      dnsUrl,
+      {
+        method: dnsMethod,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          type: 'CNAME',
+          name: subdomain,
+          content: workersDevTarget,
+          proxied: true
+        }),
+        signal: AbortSignal.timeout(10000),
+      }
+    )),
+    'dnsRecordUpsert'
+  );
 
   if (!dnsRecordRes.ok) {
     const dnsError = await parseCfResponse(dnsRecordRes);
@@ -301,18 +307,21 @@ async function createWorkerRoute(
     }
   };
 
-  const routeRes = await cfApiCB.execute(() => fetch(
-    `${CF_API_BASE}/zones/${zoneId}/workers/routes`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(createRoutePayload),
-      signal: AbortSignal.timeout(10000),
-    }
-  ));
+  const routeRes = await withSetupRetry(
+    () => cfApiCB.execute(() => fetch(
+      `${CF_API_BASE}/zones/${zoneId}/workers/routes`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(createRoutePayload),
+        signal: AbortSignal.timeout(10000),
+      }
+    )),
+    'workerRouteCreate'
+  );
 
   if (routeRes.ok) {
     return;

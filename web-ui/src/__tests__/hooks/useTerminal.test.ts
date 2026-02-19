@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createRoot } from 'solid-js';
+import { createRoot, createSignal } from 'solid-js';
 
 // Mock all heavy dependencies before importing the hook
 const mockFit = vi.fn();
@@ -38,6 +38,12 @@ const mockTerminalInstance = {
     registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
   },
   registerLinkProvider: vi.fn(() => ({ dispose: vi.fn() })),
+  _core: {
+    viewport: {
+      handleTouchStart: vi.fn(),
+      handleTouchMove: vi.fn(),
+    },
+  },
 };
 
 // MOCK-DRIFT RISK: Terminal constructor returns a static mock object.
@@ -68,6 +74,8 @@ vi.mock('../../stores/terminal', () => ({
     getRetryMessage: vi.fn(() => null),
     getConnectionState: vi.fn(() => 'disconnected'),
     triggerLayoutResize: vi.fn(),
+    startUrlDetection: vi.fn(),
+    stopUrlDetection: vi.fn(),
   },
 }));
 
@@ -75,6 +83,7 @@ vi.mock('../../stores/session', () => ({
   sessionStore: {
     isSessionInitializing: vi.fn(() => false),
     getInitProgressForSession: vi.fn(() => null),
+    getTerminalsForSession: vi.fn(() => ({ tabs: [{ id: '1', label: 'Terminal', manual: false }], activeTabId: '1' })),
   },
 }));
 
@@ -104,9 +113,15 @@ vi.mock('../../lib/terminal-mobile-input', () => ({
   setupMobileInput: vi.fn(() => vi.fn()),
 }));
 
+vi.mock('../../lib/settings', () => ({
+  loadSettings: vi.fn(() => ({ clipboardAccess: true })),
+}));
+
 import { useTerminal, type UseTerminalOptions } from '../../hooks/useTerminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
+import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen } from '../../lib/mobile';
+import { loadSettings } from '../../lib/settings';
 
 describe('useTerminal hook', () => {
   const defaultProps: UseTerminalOptions = {
@@ -136,6 +151,9 @@ describe('useTerminal hook', () => {
       value: { ready: Promise.resolve() },
       configurable: true,
     });
+
+    // Stub window.scrollTo (not implemented in jsdom)
+    window.scrollTo = vi.fn() as any;
 
     // Mock requestAnimationFrame
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
@@ -245,6 +263,40 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('URL detection lifecycle', () => {
+    it('should start URL detection after WebSocket connects', () => {
+      // isSessionInitializing returns false so the connect effect fires immediately
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(terminalStore.startUrlDetection).toHaveBeenCalledWith(
+        defaultProps.sessionId,
+        defaultProps.terminalId
+      );
+
+      dispose();
+    });
+
+    it('should stop URL detection on cleanup', () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      dispose();
+
+      expect(terminalStore.stopUrlDetection).toHaveBeenCalled();
+    });
+  });
+
   describe('resize handling', () => {
     it('should register fit addon in the store on mount', () => {
       const dispose = createRoot((dispose) => {
@@ -260,6 +312,338 @@ describe('useTerminal hook', () => {
       );
 
       dispose();
+    });
+  });
+
+  describe('right-click to paste', () => {
+    it('should add contextmenu listener to container on mount', () => {
+      const addEventSpy = vi.spyOn(containerEl, 'addEventListener');
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(addEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+
+      dispose();
+    });
+
+    it('should prevent default context menu and paste clipboard text', async () => {
+      const clipboardText = 'pasted content';
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue(clipboardText),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+      containerEl.dispatchEvent(event);
+
+      expect(preventDefaultSpy).toHaveBeenCalled();
+
+      // Wait for clipboard promise to resolve
+      await vi.waitFor(() => {
+        expect(mockTerminalInstance.paste).toHaveBeenCalledWith(clipboardText);
+      });
+
+      dispose();
+    });
+
+    it('should not paste when clipboard is empty', async () => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue(''),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      // Give the promise time to settle
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockTerminalInstance.paste).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should handle clipboard permission denial gracefully', async () => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockRejectedValue(new DOMException('Denied')),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Should not throw
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockTerminalInstance.paste).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should remove contextmenu listener on cleanup', () => {
+      const removeEventSpy = vi.spyOn(containerEl, 'removeEventListener');
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      dispose();
+
+      expect(removeEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+    });
+  });
+
+  describe('clipboard access setting', () => {
+    beforeEach(() => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue('clipboard text'),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+    });
+
+    it('should not read clipboard on right-click when clipboardAccess is disabled', async () => {
+      vi.mocked(loadSettings).mockReturnValue({ clipboardAccess: false });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(navigator.clipboard.readText).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should read clipboard on right-click when clipboardAccess is enabled', async () => {
+      vi.mocked(loadSettings).mockReturnValue({ clipboardAccess: true });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await vi.waitFor(() => {
+        expect(navigator.clipboard.readText).toHaveBeenCalled();
+      });
+
+      dispose();
+    });
+  });
+
+  describe('keyboard height refit', () => {
+    it('should call scrollToBottom after fit when keyboard height changes on mobile', async () => {
+      vi.useFakeTimers();
+
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
+
+      // Start as mobile device with keyboard closed
+      isTouchDeviceMock.mockReturnValue(true);
+
+      // Use a SolidJS signal to back the mock so createEffect re-tracks
+      const [kbHeight, setKbHeight] = createSignal(0);
+      getKeyboardHeightMock.mockImplementation(() => kbHeight());
+
+      let result!: ReturnType<typeof useTerminal>;
+
+      const dispose = createRoot((dispose) => {
+        result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Clear any calls from initial mount
+      mockScrollToBottom.mockClear();
+      mockFit.mockClear();
+
+      // Simulate keyboard opening by changing keyboard height
+      setKbHeight(300);
+
+      // Advance past the 150ms debounce
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockFit).toHaveBeenCalled();
+      expect(mockScrollToBottom).toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+  });
+
+  describe('mobile viewport touch handler disable', () => {
+    it('should disable xterm viewport touch handlers on mobile', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      isTouchDeviceMock.mockReturnValue(true);
+
+      // Save original references
+      const originalHandleTouchStart = mockTerminalInstance._core.viewport.handleTouchStart;
+      const originalHandleTouchMove = mockTerminalInstance._core.viewport.handleTouchMove;
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Handlers should be replaced with no-ops, not the original vi.fn()
+      expect(mockTerminalInstance._core.viewport.handleTouchStart).not.toBe(originalHandleTouchStart);
+      expect(mockTerminalInstance._core.viewport.handleTouchMove).not.toBe(originalHandleTouchMove);
+
+      dispose();
+    });
+
+    it('should NOT disable viewport touch handlers on desktop', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      isTouchDeviceMock.mockReturnValue(false);
+
+      // Save original references
+      const originalHandleTouchStart = mockTerminalInstance._core.viewport.handleTouchStart;
+      const originalHandleTouchMove = mockTerminalInstance._core.viewport.handleTouchMove;
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Handlers should remain the original functions
+      expect(mockTerminalInstance._core.viewport.handleTouchStart).toBe(originalHandleTouchStart);
+      expect(mockTerminalInstance._core.viewport.handleTouchMove).toBe(originalHandleTouchMove);
+
+      dispose();
+    });
+  });
+
+  describe('mobile pointer-events toggle on .xterm-screen', () => {
+    let screenEl: HTMLDivElement;
+
+    beforeEach(() => {
+      screenEl = document.createElement('div');
+      screenEl.classList.add('xterm-screen');
+      containerEl.appendChild(screenEl);
+    });
+
+    it('should set pointer-events: none on .xterm-screen when keyboard closed on mobile', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbOpen, _setKbOpen] = createSignal(false);
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(screenEl.style.pointerEvents).toBe('none');
+
+      dispose();
+    });
+
+    it('should restore pointer-events on .xterm-screen when keyboard opens', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbOpen, setKbOpen] = createSignal(false);
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Keyboard opens
+      setKbOpen(true);
+
+      expect(screenEl.style.pointerEvents).toBe('');
+
+      dispose();
+    });
+
+    it('should NOT touch pointer-events on desktop', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(false);
+
+      const [kbOpen, _setKbOpen] = createSignal(false);
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(screenEl.style.pointerEvents).toBe('');
+
+      dispose();
+    });
+
+    it('should restore pointer-events on cleanup', () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbOpen, _setKbOpen] = createSignal(false);
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // pointer-events should be 'none' while mounted on mobile with keyboard closed
+      expect(screenEl.style.pointerEvents).toBe('none');
+
+      dispose();
+
+      // After cleanup, pointer-events should be restored
+      expect(screenEl.style.pointerEvents).toBe('');
     });
   });
 });

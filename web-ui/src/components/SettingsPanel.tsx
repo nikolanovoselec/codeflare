@@ -4,6 +4,7 @@ import {
   mdiPaletteOutline,
   mdiCloudSyncOutline,
   mdiCogOutline,
+  mdiContentPaste,
   mdiGestureTapButton,
   mdiLightbulbOnOutline,
 } from '@mdi/js';
@@ -39,6 +40,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
   const samsungAddressBarTop = () => settings().samsungAddressBarTop !== false;
+  const clipboardAccess = () => settings().clipboardAccess === true;
 
   // Load settings on mount
   onMount(() => {
@@ -271,6 +273,33 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             <div class="setting-row setting-row--column-gap">
               <span class="settings-hint">
                 Show rotating tips & tricks on the dashboard. When disabled, a welcome card is shown instead.
+              </span>
+            </div>
+          </section>
+
+          {/* Clipboard Access Section */}
+          <section class="settings-section">
+            <div class="settings-section-header">
+              <Icon path={mdiContentPaste} size={16} />
+              <h3 class="settings-section-title">Clipboard</h3>
+            </div>
+            <div class="setting-row">
+              <label for="settings-clipboard-access">Allow paste from clipboard</label>
+              <button
+                type="button"
+                id="settings-clipboard-access"
+                class={`toggle ${clipboardAccess() ? 'toggle-on' : ''}`}
+                onClick={() => updateSetting('clipboardAccess', !clipboardAccess())}
+                role="switch"
+                aria-checked={clipboardAccess()}
+                data-testid="settings-clipboard-access-toggle"
+              >
+                <span class="toggle-thumb" />
+              </button>
+            </div>
+            <div class="setting-row setting-row--column-gap">
+              <span class="settings-hint">
+                Allow right-click and button paste from clipboard. When enabled, your browser may prompt for clipboard permission.
               </span>
             </div>
           </section>

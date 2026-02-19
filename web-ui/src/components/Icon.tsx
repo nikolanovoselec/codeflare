@@ -21,6 +21,7 @@ const Icon: Component<IconProps> = (props) => {
       class={local.class}
       style={{
         fill: 'currentColor',
+        display: 'block',
         ...local.style,
       }}
       {...others}

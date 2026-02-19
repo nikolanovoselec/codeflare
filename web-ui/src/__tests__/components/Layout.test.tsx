@@ -74,6 +74,8 @@ vi.mock('../../stores/session', () => ({
     loadPreferences: vi.fn(),
     updatePreferences: vi.fn(),
     loadPresets: vi.fn(),
+    startSessionListPolling: vi.fn(),
+    stopSessionListPolling: vi.fn(),
     presets: [],
     preferences: {},
   }

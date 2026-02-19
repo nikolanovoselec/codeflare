@@ -7,6 +7,7 @@ import {
   ACTIVITY_POLL_INTERVAL_MS,
   ACTIVITY_FETCH_MAX_RETRIES,
   ACTIVITY_FETCH_RETRY_DELAY_MS,
+  MAX_CONSECUTIVE_ACTIVITY_FAILURES,
 } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
@@ -55,6 +56,9 @@ export class container extends Container<Env> {
 
   // Bug 3 fix: Activity polling timer
   private _activityPollAlarm: boolean = false;
+
+  // Consecutive activity endpoint failures — forces destruction after threshold
+  private _consecutiveActivityFailures = 0;
 
   // Map-based dispatch for internal routes (AR9)
   private readonly internalRoutes: Map<string, (request: Request) => Promise<Response> | Response>;
@@ -518,26 +522,46 @@ export class container extends Container<Env> {
     const activityInfo = await this.getActivityInfoWithRetry();
 
     if (!activityInfo) {
-      this.logger.warn('Activity endpoint unavailable after retries, skipping idle destroy this cycle', {
+      this._consecutiveActivityFailures++;
+      this.logger.warn('Activity endpoint unavailable after retries', {
         maxRetries: ACTIVITY_FETCH_MAX_RETRIES,
+        consecutiveFailures: this._consecutiveActivityFailures,
+        threshold: MAX_CONSECUTIVE_ACTIVITY_FAILURES,
       });
+
+      // After N consecutive failures (~30 min at 5-min intervals), the container
+      // process is presumed dead. Destroy to prevent "headless DO" zombies that
+      // run their alarm loop forever with an unreachable terminal server.
+      if (this._consecutiveActivityFailures >= MAX_CONSECUTIVE_ACTIVITY_FAILURES) {
+        this.logger.warn('Max consecutive activity failures reached, force-destroying container', {
+          consecutiveFailures: this._consecutiveActivityFailures,
+        });
+        await this.cleanupAndDestroy('activity_unreachable', {
+          consecutiveFailures: this._consecutiveActivityFailures,
+        });
+        return true;
+      }
+
       return false;
     }
 
-    const { hasActiveConnections, lastPtyOutputMs, lastWsActivityMs } = activityInfo;
-    const shortestIdleMs = Math.min(lastPtyOutputMs, lastWsActivityMs);
+    // Activity endpoint reachable — reset failure counter
+    this._consecutiveActivityFailures = 0;
 
-    this.logger.info('Activity check', { hasActiveConnections, lastPtyOutputMs, lastWsActivityMs });
+    const { hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs } = activityInfo;
+    const shortestIdleMs = Math.min(lastUserInputMs, lastAgentFileActivityMs);
+
+    this.logger.info('Activity check', { hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs });
 
     // Container is destroyed when idle for IDLE_TIMEOUT_MS regardless of WebSocket connections.
-    // Activity = PTY output or WS messages. An open browser tab with no work is still idle.
+    // Activity = user input (keystrokes) or agent file activity. An open browser tab with no work is still idle.
     // A headless agent producing output stays alive even without a browser.
     if (shortestIdleMs > IDLE_TIMEOUT_MS) {
       this.logger.info('Container idle, destroying', { idleMs: shortestIdleMs, hasActiveConnections });
       await this.cleanupAndDestroy('idle_timeout', {
         idleMs: shortestIdleMs,
-        lastPtyOutputMs,
-        lastWsActivityMs,
+        lastUserInputMs,
+        lastAgentFileActivityMs,
       });
       return true;
     }
@@ -613,8 +637,8 @@ export class container extends Container<Env> {
    */
   private async getActivityInfo(): Promise<{
     hasActiveConnections: boolean;
-    lastPtyOutputMs: number;
-    lastWsActivityMs: number;
+    lastUserInputMs: number;
+    lastAgentFileActivityMs: number;
   } | null> {
     try {
       const headers: HeadersInit = {};
@@ -628,8 +652,8 @@ export class container extends Container<Env> {
       if (response.ok) {
         const data = await response.json() as {
           hasActiveConnections: boolean;
-          lastPtyOutputMs: number;
-          lastWsActivityMs: number;
+          lastUserInputMs: number;
+          lastAgentFileActivityMs: number;
         };
         return data;
       }
@@ -645,8 +669,8 @@ export class container extends Container<Env> {
    */
   private async getActivityInfoWithRetry(): Promise<{
     hasActiveConnections: boolean;
-    lastPtyOutputMs: number;
-    lastWsActivityMs: number;
+    lastUserInputMs: number;
+    lastAgentFileActivityMs: number;
   } | null> {
     for (let attempt = 1; attempt <= ACTIVITY_FETCH_MAX_RETRIES; attempt++) {
       const info = await this.getActivityInfo();

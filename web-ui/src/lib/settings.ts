@@ -3,6 +3,7 @@ export interface Settings {
   showButtonLabels?: boolean;
   showTips?: boolean;
   samsungAddressBarTop?: boolean;
+  clipboardAccess?: boolean;
 }
 
 /** Convert a hex color string to HSL values */
@@ -69,6 +70,7 @@ export const defaultSettings: Settings = {
   showButtonLabels: true,
   showTips: true,
   samsungAddressBarTop: true,
+  clipboardAccess: false,
 };
 
 const STORAGE_KEY = 'codeflare-settings';

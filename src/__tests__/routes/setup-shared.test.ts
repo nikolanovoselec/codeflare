@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getWorkerNameFromHostname, detectCloudflareAuthError } from '../../routes/setup/shared';
+import { getWorkerNameFromHostname, detectCloudflareAuthError, withSetupRetry } from '../../routes/setup/shared';
+import { CircuitBreakerOpenError } from '../../lib/error-types';
 import { handleConfigureCustomDomain } from '../../routes/setup/custom-domain';
 import type { SetupStep } from '../../routes/setup/shared';
 
@@ -182,5 +183,51 @@ describe('resolveZone() via handleConfigureCustomDomain (ccTLD support)', () => 
     );
 
     expect(zoneId).toBe('zone-found');
+  });
+});
+
+describe('withSetupRetry()', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns result on first success without retrying', async () => {
+    const fn = vi.fn().mockResolvedValue('ok');
+    const result = await withSetupRetry(fn, 'test');
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries on failure and succeeds on second attempt', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValueOnce('recovered');
+
+    const promise = withSetupRetry(fn, 'test');
+    // Advance past the 1s backoff
+    await vi.advanceTimersByTimeAsync(1100);
+    const result = await promise;
+
+    expect(result).toBe('recovered');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws after exhausting all retries (3 total attempts)', async () => {
+    vi.useRealTimers();
+    const fn = vi.fn().mockImplementation(() => Promise.reject(new Error('persistent')));
+
+    await expect(withSetupRetry(fn, 'test')).rejects.toThrow('persistent');
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry on CircuitBreakerOpenError', async () => {
+    const fn = vi.fn().mockRejectedValue(new CircuitBreakerOpenError('cf-api'));
+
+    await expect(withSetupRetry(fn, 'test')).rejects.toThrow(CircuitBreakerOpenError);
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });

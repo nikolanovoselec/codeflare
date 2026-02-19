@@ -119,6 +119,7 @@ export interface TerminalTab {
   id: string;        // "1", "2", "3", "4"
   createdAt: string;
   processName?: string;  // Live process name from server (e.g., "claude", "htop")
+  manual?: boolean;      // true when tab was created by user clicking "+", skips .bashrc autostart
 }
 
 // Tiling layout types

@@ -5,6 +5,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
   'claude-code': 'Claude Code',
   'codex': 'Codex',
   'gemini': 'Gemini',
+  'opencode': 'OpenCode',
   'bash': 'Bash',
 };
 

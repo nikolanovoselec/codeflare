@@ -1,6 +1,8 @@
 import { ZodType } from 'zod';
 
 export class ApiError extends Error {
+  public steps?: Array<{ step: string; status: string; error?: string }>;
+
   constructor(
     message: string,
     public status: number,
@@ -51,20 +53,24 @@ export async function baseFetch<T>(
   if (!response.ok) {
     const body = await response.text().catch(() => undefined);
     let errorMessage = body || `HTTP ${response.status}`;
+    let steps: Array<{ step: string; status: string; error?: string }> | undefined;
     try {
       if (body) {
         const parsed = JSON.parse(body);
         if (parsed.error) errorMessage = parsed.error;
+        if (Array.isArray(parsed.steps)) steps = parsed.steps;
       }
     } catch {
       // Not JSON, use raw text
     }
-    throw new ApiError(
+    const apiError = new ApiError(
       errorMessage,
       response.status,
       response.statusText,
       body
     );
+    if (steps) apiError.steps = steps;
+    throw apiError;
   }
 
   const text = await response.text();

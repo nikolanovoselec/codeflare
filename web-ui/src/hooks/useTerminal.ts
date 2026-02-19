@@ -9,6 +9,7 @@ import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualK
 import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
+import { loadSettings } from '../lib/settings';
 
 export interface UseTerminalOptions {
   sessionId: string;
@@ -43,6 +44,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let hasInitialScrolled = false;
   let kbDebouncePending = false;
+  let handleContextMenu: ((e: MouseEvent) => void) | undefined;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -125,6 +127,14 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
 
     if (isTouchDevice()) {
+      const viewport = (term as any)._core?.viewport;
+      if (viewport) {
+        viewport.handleTouchStart = () => {};
+        viewport.handleTouchMove = () => false;
+      }
+    }
+
+    if (isTouchDevice()) {
       const mobileCleanup = setupMobileInput(term, props, {
         refreshCursorLine: () => {
           term?.refresh(term.buffer.active.cursorY, term.buffer.active.cursorY);
@@ -165,6 +175,31 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
       return true;
     });
+
+    // Right-click to paste (like a real terminal).
+    // navigator.clipboard.readText() requires 'clipboard-read' permission.
+    // Some browsers revoke the transient activation after the first async call,
+    // causing subsequent right-click pastes to silently fail. We re-query the
+    // permission state and re-request if needed, and always refocus the terminal.
+    // Right-click to paste (like a real terminal).
+    // MUST use bubbling phase (not capture) and MUST NOT stopPropagation —
+    // xterm.js needs its own contextmenu handler to run first to manage
+    // internal textarea focus. Without that, Chrome's clipboard readText()
+    // silently fails on subsequent calls (document focus state broken).
+    handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      if (!term) return;
+      if (loadSettings().clipboardAccess !== true) return;
+      term.focus();
+      navigator.clipboard.readText().then((text) => {
+        if (text && term) {
+          term.paste(text);
+        }
+      }).catch(() => {
+        // Permission denied or not available
+      });
+    };
+    containerEl.addEventListener('contextmenu', handleContextMenu);
 
     terminalStore.setTerminal(props.sessionId, props.terminalId, term);
     terminalStore.registerFitAddon(props.sessionId, props.terminalId, fitAddon);
@@ -251,6 +286,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     onCleanup(() => { viewport.style.overflowY = ''; });
   });
 
+  // Pointer-events toggle: when keyboard closed, disable canvas interaction so touches
+  // fall through to .xterm-viewport for native scroll. When keyboard opens, restore.
+  createEffect(() => {
+    if (!containerEl || !isTouchDevice()) return;
+    const screen = containerEl.querySelector('.xterm-screen') as HTMLElement | null;
+    if (!screen) return;
+    const kbOpen = isVirtualKeyboardOpen();
+    screen.style.pointerEvents = kbOpen ? '' : 'none';
+    onCleanup(() => { screen.style.pointerEvents = ''; });
+  });
+
   // Refit on keyboard height change
   createEffect(() => {
     const kbHeight = getKeyboardHeight();
@@ -263,6 +309,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       kbDebouncePending = false;
       if (!fitAddon || !term) return;
       fitAddon.fit();
+      term.scrollToBottom();
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
       window.scrollTo(0, 0);
@@ -275,7 +322,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const initializing = isInitializing();
     if (!initializing && term && !cleanup) {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Session ready, connecting WebSocket`);
-      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError);
+      // Look up tab to check if it was manually created (user clicked "+")
+      const terminals = sessionStore.getTerminalsForSession(props.sessionId);
+      const tab = terminals?.tabs.find(t => t.id === props.terminalId);
+      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError, tab?.manual);
+      terminalStore.startUrlDetection(props.sessionId, props.terminalId);
     }
   });
 
@@ -337,7 +388,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
     resizeObserver?.disconnect();
+    terminalStore.stopUrlDetection();
     terminalStore.unregisterFitAddon(props.sessionId, props.terminalId);
+    if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu);
   });
 
   return {

@@ -313,7 +313,7 @@ export async function getOnboardingConfig(): Promise<OnboardingConfigResponse> {
 const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
 
 // WebSocket URL helper - uses compound session ID for multiple terminals per session
-export function getTerminalWebSocketUrl(sessionId: string, terminalId: string = '1'): string {
+export function getTerminalWebSocketUrl(sessionId: string, terminalId: string = '1', manual?: boolean): string {
   if (!SESSION_ID_RE.test(sessionId)) {
     throw new Error(`Invalid sessionId "${sessionId}": must be 8-24 lowercase alphanumeric characters`);
   }
@@ -326,5 +326,8 @@ export function getTerminalWebSocketUrl(sessionId: string, terminalId: string = 
   const compoundSessionId = `${sessionId}-${terminalId}`;
   const wsUrl = new URL(`/api/terminal/${compoundSessionId}/ws`, window.location.href);
   wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (manual) {
+    wsUrl.searchParams.set('manual', '1');
+  }
   return wsUrl.toString();
 }

@@ -290,4 +290,62 @@ describe('fetch-helper: baseFetch', () => {
       );
     });
   });
+
+  // ==========================================================================
+  // SetupError Steps Extraction
+  // ==========================================================================
+  describe('SetupError steps extraction', () => {
+    it('should attach steps array from error response body to ApiError', async () => {
+      const errorBody = {
+        success: false,
+        error: 'Setup configuration failed',
+        code: 'SETUP_ERROR',
+        steps: [
+          { step: 'get_account', status: 'success' },
+          { step: 'create_access_app', status: 'error', error: 'Permission denied' },
+        ],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        type: 'default',
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        text: () => Promise.resolve(JSON.stringify(errorBody)),
+      });
+
+      try {
+        await baseFetch('/api/setup/configure', { method: 'POST' });
+        expect.unreachable('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError);
+        const apiErr = err as ApiError;
+        expect(apiErr.status).toBe(400);
+        expect(apiErr.steps).toBeDefined();
+        expect(apiErr.steps).toHaveLength(2);
+        expect(apiErr.steps![0]).toEqual({ step: 'get_account', status: 'success' });
+        expect(apiErr.steps![1].status).toBe('error');
+        expect(apiErr.steps![1].error).toBe('Permission denied');
+      }
+    });
+
+    it('should not set steps when error body has no steps array', async () => {
+      mockFetch.mockResolvedValueOnce({
+        type: 'default',
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        text: () => Promise.resolve(JSON.stringify({ error: 'Something broke' })),
+      });
+
+      try {
+        await baseFetch('/api/test', {});
+        expect.unreachable('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError);
+        const apiErr = err as ApiError;
+        expect(apiErr.steps).toBeUndefined();
+      }
+    });
+  });
 });

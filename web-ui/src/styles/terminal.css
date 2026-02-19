@@ -97,6 +97,11 @@
             z-index: -1 !important;
             pointer-events: none !important;
           }
+
+          .xterm-viewport {
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+          }
         }
 
         /* Contain overflow from xterm helper elements */

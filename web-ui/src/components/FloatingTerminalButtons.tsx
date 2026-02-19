@@ -1,99 +1,19 @@
 import { Component, Show, createSignal, createEffect, onCleanup } from 'solid-js';
-import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp } from '@mdi/js';
+import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp, mdiSecurity } from '@mdi/js';
 import Icon from './Icon';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/mobile';
 import { sendTerminalKey } from '../lib/touch-gestures';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { loadSettings } from '../lib/settings';
-import { BUTTON_LABEL_VISIBLE_DURATION_MS, URL_CHECK_INTERVAL_MS } from '../lib/constants';
+import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
 import '../styles/floating-terminal-buttons.css';
-
-/**
- * Checks whether the next buffer line is likely a URL continuation from
- * an application-inserted newline (e.g. ink-based TUIs like Claude Code).
- * Returns true only when the current line fills the terminal width and
- * the next line starts with URL-valid characters.
- */
-function isLikelyUrlContinuation(
-  currentLineText: string,
-  nextLineText: string,
-  terminalCols: number,
-): boolean {
-  if (currentLineText.length < terminalCols - 1) return false;
-  const urlChars = /[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/;
-  if (!urlChars.test(currentLineText.slice(-1))) return false;
-  if (!nextLineText || /^\s/.test(nextLineText)) return false;
-  if (/^[$>#]/.test(nextLineText)) return false;
-  if (!urlChars.test(nextLineText[0])) return false;
-  if (/^https?:\/\//i.test(nextLineText)) return false;
-  return true;
-}
-
-function getLastUrlFromBuffer(term: any): string | null {
-  const buffer = term.buffer?.active;
-  if (!buffer) return null;
-
-  const cols: number = term.cols || 80;
-  const urlRegex = /https?:\/\/[^\s"'<>]+/g;
-  let lastUrl: string | null = null;
-  const startLine = Math.max(0, buffer.length - 200);
-
-  let i = startLine;
-  while (i < buffer.length) {
-    const line = buffer.getLine(i);
-    if (!line) { i++; continue; }
-    // Skip wrapped continuation lines — they'll be joined from the master line
-    if (line.isWrapped) { i++; continue; }
-
-    // Phase 1: Join isWrapped continuation rows
-    let fullText = line.translateToString(true);
-    let j = i + 1;
-    while (j < buffer.length) {
-      const nextLine = buffer.getLine(j);
-      if (!nextLine?.isWrapped) break;
-      fullText += nextLine.translateToString(true);
-      j++;
-    }
-
-    // Phase 2: Heuristic expansion for application-inserted newlines
-    // (e.g. ink TUI wrapping long URLs with explicit newlines, isWrapped=false)
-    let heuristicCount = 0;
-    while (j < buffer.length && heuristicCount < 10) {
-      const nextLine = buffer.getLine(j);
-      if (!nextLine) break;
-      const nextText = nextLine.translateToString(true);
-      // Use last physical buffer row for heuristic (matches Terminal.tsx approach)
-      const lastPhysicalLine = buffer.getLine(j - 1)!.translateToString(true);
-      if (!isLikelyUrlContinuation(lastPhysicalLine, nextText, cols)) break;
-      fullText += nextText;
-      j++;
-      heuristicCount++;
-      // Also consume any isWrapped lines following this heuristic line
-      while (j < buffer.length) {
-        const wrapped = buffer.getLine(j);
-        if (!wrapped?.isWrapped) break;
-        fullText += wrapped.translateToString(true);
-        j++;
-      }
-    }
-
-    const matches = fullText.match(urlRegex);
-    if (matches) {
-      lastUrl = matches[matches.length - 1];
-    }
-    i = j;
-  }
-
-  return lastUrl;
-}
 
 interface FloatingTerminalButtonsProps {
   showTerminal: boolean;
 }
 
 const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props) => {
-  const [hasUrl, setHasUrl] = createSignal(false);
   const [labelsVisible, setLabelsVisible] = createSignal(false);
   const [showLabels, setShowLabels] = createSignal(loadSettings().showButtonLabels !== false);
 
@@ -118,13 +38,6 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     const terminalId = terminals?.activeTabId || '1';
     return terminalStore.getTerminal(sessionId, terminalId);
   };
-
-  // Periodically check for URLs in the terminal buffer
-  const urlCheckInterval = setInterval(() => {
-    const term = getActiveTerm();
-    setHasUrl(term ? !!getLastUrlFromBuffer(term) : false);
-  }, URL_CHECK_INTERVAL_MS);
-  onCleanup(() => clearInterval(urlCheckInterval));
 
   // Prevent button from stealing focus from xterm textarea (which would dismiss keyboard)
   const preventFocusSteal = (e: MouseEvent | PointerEvent) => e.preventDefault();
@@ -151,6 +64,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const pasteFromClipboard = async () => {
     const term = getActiveTerm();
     if (!term) return;
+    if (loadSettings().clipboardAccess !== true) return;
     try {
       const text = await navigator.clipboard.readText();
       if (text) term.paste(text);
@@ -160,11 +74,14 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     refocusTerminal();
   };
 
-  const copyLastUrl = async () => {
-    const term = getActiveTerm();
-    if (!term) return;
-    const url = getLastUrlFromBuffer(term);
-    if (url) {
+  const openOrCopyUrl = async (forceOpen = false) => {
+    const url = terminalStore.authUrl || terminalStore.normalUrl;
+    if (!url) return;
+    if (forceOpen || terminalStore.authUrl) {
+      // Auth URLs: open in background tab
+      window.open(url, '_blank', 'noopener');
+    } else {
+      // Normal URLs: copy to clipboard
       try {
         await navigator.clipboard.writeText(url);
       } catch {
@@ -177,7 +94,22 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   return (
     <Show when={isTouchDevice() && props.showTerminal && isVirtualKeyboardOpen()}>
       <div class="floating-terminal-buttons" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px + 10px)` }}>
-        <Show when={hasUrl()}>
+        <Show when={terminalStore.authUrl}>
+          <div class="floating-btn-row">
+            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>OPEN AUTH URL</span>
+            <button
+              type="button"
+              class="floating-terminal-btn"
+              tabIndex={-1}
+              onPointerDown={preventFocusSteal}
+              onClick={() => openOrCopyUrl(true)}
+              title="Open auth URL"
+            >
+              <Icon path={mdiSecurity} size={18} />
+            </button>
+          </div>
+        </Show>
+        <Show when={!terminalStore.authUrl && terminalStore.normalUrl}>
           <div class="floating-btn-row">
             <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>COPY DETECTED URL</span>
             <button
@@ -185,7 +117,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
               class="floating-terminal-btn"
               tabIndex={-1}
               onPointerDown={preventFocusSteal}
-              onClick={copyLastUrl}
+              onClick={() => openOrCopyUrl()}
               title="Copy URL"
             >
               <Icon path={mdiContentCopy} size={18} />

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@solidjs/testing-library';
 import FloatingTerminalButtons from '../../components/FloatingTerminalButtons';
+import { terminalStore } from '../../stores/terminal';
+import { sessionStore } from '../../stores/session';
 
 // Mocks for mobile detection
 const mobileMock = vi.hoisted(() => ({
@@ -13,21 +15,29 @@ const mobileMock = vi.hoisted(() => ({
 
 const settingsMock = vi.hoisted(() => ({
   showButtonLabels: true as boolean | undefined,
+  clipboardAccess: false as boolean | undefined,
 }));
 
 vi.mock('../../lib/mobile', () => mobileMock);
 
 vi.mock('../../lib/settings', () => ({
-  loadSettings: vi.fn(() => ({ showButtonLabels: settingsMock.showButtonLabels })),
+  loadSettings: vi.fn(() => ({ showButtonLabels: settingsMock.showButtonLabels, clipboardAccess: settingsMock.clipboardAccess })),
 }));
 
 vi.mock('../../lib/touch-gestures', () => ({
   sendTerminalKey: vi.fn(),
 }));
 
+const terminalStoreMock = vi.hoisted(() => ({
+  authUrl: null as string | null,
+  normalUrl: null as string | null,
+}));
+
 vi.mock('../../stores/terminal', () => ({
   terminalStore: {
     getTerminal: vi.fn(() => null),
+    get authUrl() { return terminalStoreMock.authUrl; },
+    get normalUrl() { return terminalStoreMock.normalUrl; },
   },
 }));
 
@@ -46,11 +56,17 @@ describe('FloatingTerminalButtons', () => {
     mobileMock.getKeyboardHeight.mockReturnValue(300);
 
     settingsMock.showButtonLabels = true;
+    settingsMock.clipboardAccess = false;
   });
 
   afterEach(() => {
     vi.useRealTimers();
     cleanup();
+    (sessionStore as any).activeSessionId = null;
+    vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined as any);
+    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue(undefined as any);
+    terminalStoreMock.authUrl = null;
+    terminalStoreMock.normalUrl = null;
   });
 
   describe('Label Visibility', () => {
@@ -102,7 +118,7 @@ describe('FloatingTerminalButtons', () => {
       const labels = document.querySelectorAll('.floating-btn-label');
       const labelTexts = Array.from(labels).map((l) => l.textContent);
 
-      // Copy URL button is conditional on hasUrl, so it won't appear
+      // Copy URL buttons are conditional on hasAuthUrl/hasNormalUrl, so neither will appear
       expect(labelTexts).toContain('PASTE');
       expect(labelTexts).toContain('TAB');
       expect(labelTexts).toContain('ESCAPE / CANCEL');
@@ -149,6 +165,87 @@ describe('FloatingTerminalButtons', () => {
 
       const buttons = document.querySelector('.floating-terminal-buttons');
       expect(buttons).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Clipboard Access Guard', () => {
+    it('should not read clipboard when clipboardAccess is disabled', () => {
+      // Switch to real timers for this test — fake timers block async clipboard mocks
+      vi.useRealTimers();
+
+      settingsMock.clipboardAccess = false;
+
+      const mockTerm = {
+        paste: vi.fn(),
+        textarea: document.createElement('textarea'),
+      };
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerm as any);
+
+      const readTextMock = vi.fn().mockResolvedValue('clipboard text');
+      Object.assign(navigator, {
+        clipboard: {
+          readText: readTextMock,
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      const pasteBtn = screen.getByTitle('Paste');
+      pasteBtn.click();
+
+      // clipboardAccess is false, so readText should never be called — synchronous check
+      expect(readTextMock).not.toHaveBeenCalled();
+
+      // Restore fake timers for subsequent tests
+      vi.useFakeTimers();
+    });
+  });
+
+  describe('Desktop URL Button (removed — moved to Header)', () => {
+    it('does NOT render desktop URL button (auth URL button now lives in Header)', () => {
+      mobileMock.isTouchDevice.mockReturnValue(false);
+      mobileMock.isVirtualKeyboardOpen.mockReturnValue(false);
+
+      // Mock a terminal with a URL in the buffer
+      const mockBuffer = {
+        length: 2,
+        getLine: (y: number) => {
+          const lines = [
+            { isWrapped: false, translateToString: () => 'Visit this URL:' },
+            { isWrapped: false, translateToString: () => 'https://console.anthropic.com/oauth/authorize?client_id=abc123' },
+          ];
+          return lines[y] || null;
+        },
+      };
+
+      // Configure session store to return an active session
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue({
+        buffer: { active: mockBuffer },
+        cols: 80,
+      } as any);
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      // Trigger the URL check interval (URL_CHECK_INTERVAL_MS = 2000)
+      vi.advanceTimersByTime(2000);
+
+      // Desktop URL button should no longer exist in FloatingTerminalButtons
+      const desktopBtn = document.querySelector('.desktop-url-button');
+      expect(desktopBtn).not.toBeInTheDocument();
+    });
+
+    it('does not render mobile buttons on desktop', () => {
+      mobileMock.isTouchDevice.mockReturnValue(false);
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      const mobileButtons = document.querySelector('.floating-terminal-buttons');
+      expect(mobileButtons).not.toBeInTheDocument();
     });
   });
 });

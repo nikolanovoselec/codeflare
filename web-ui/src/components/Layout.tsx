@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, createEffect, onMount, Show } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
 import SettingsPanel from './SettingsPanel';
@@ -46,6 +46,20 @@ const Layout: Component<LayoutProps> = (props) => {
     // Apply saved accent color
     const savedSettings = loadSettings();
     applyAccentColor(savedSettings.accentColor);
+  });
+
+  // Only poll session list while on dashboard — polling during terminal view
+  // replaces the sessions array, triggering reactivity that flips viewState.
+  createEffect(() => {
+    if (viewState() === 'dashboard') {
+      sessionStore.startSessionListPolling();
+    } else {
+      sessionStore.stopSessionListPolling();
+    }
+  });
+
+  onCleanup(() => {
+    sessionStore.stopSessionListPolling();
   });
 
   // viewState-derived computations

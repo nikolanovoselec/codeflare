@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // Agent type enum
-export const AgentTypeSchema = z.enum(['claude-unleashed', 'claude-code', 'codex', 'gemini', 'bash']);
+export const AgentTypeSchema = z.enum(['claude-unleashed', 'claude-code', 'codex', 'gemini', 'opencode', 'bash']);
 
 // Tab config schema (mirrors backend src/lib/schemas.ts constraints)
 const TabConfigSchema = z.object({

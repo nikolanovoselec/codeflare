@@ -77,29 +77,56 @@ RUN npm install -g github:nikolanovoselec/claude-unleashed && rm -f /tmp/.cache-
 # This does at build-time what cu normally does on first run:
 #   1. npm view + npm install → latest @anthropic-ai/claude-code
 #   2. applyPatches() → cli-patched.js + .hash written
-#   3. V8 compile cache seeded by importing the patched CLI (exits immediately)
+#   3. V8 compile cache seeded by importing the patched CLI
+# Pass --help so the CLI loads all JS (seeding V8 cache) then exits cleanly.
+# Without it, non-interactive Docker build has no TTY/stdin and the CLI errors.
 ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
-    claude-unleashed --silent --no-consent 2>&1 || true
+    claude-unleashed --silent --no-consent --help > /dev/null 2>&1 || true
 
-# Install vanilla Claude Code + Codex + Gemini CLIs for multi-agent support
+# Install vanilla Claude Code + Codex + Gemini + OpenCode CLIs for multi-agent support
 # claude-unleashed bundles claude-code as a dependency but doesn't expose a global
 # `claude` binary — this separate install provides `claude` for direct use in tabs.
+# OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
 # These fail gracefully (|| echo "WARN: ...") since they are optional agent backends.
 RUN npm install -g @anthropic-ai/claude-code@stable || echo "WARN: claude-code install failed"
 RUN npm install -g @openai/codex || echo "WARN: codex install failed"
 RUN npm install -g @google/gemini-cli || echo "WARN: gemini install failed"
+RUN npm install -g opencode-ai@latest || echo "WARN: opencode install failed"
+
+# V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
+# Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
+# This speeds up first-launch of Node.js CLIs (claude, codex, gemini) inside containers
+# by avoiding the compilation overhead on every container start.
+# Note: Go binaries (like opencode) don't need this — they're already natively compiled.
+RUN claude --version 2>&1 || true && \
+    codex --version 2>&1 || true && \
+    gemini --version 2>&1 || true
+
+# Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
+# OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs
+# schema migrations on every startup. Running `opencode run` at build time triggers the
+# migration ("Performing one time database migration") so first interactive launch is fast.
+# Unset all provider keys so the migration runs without making an actual LLM call.
+# GitHub Actions injects GITHUB_TOKEN which OpenCode would use for GitHub Models.
+RUN ANTHROPIC_API_KEY="" OPENAI_API_KEY="" GEMINI_API_KEY="" GITHUB_TOKEN="" \
+    timeout 30 opencode run "hello" 2>&1 || true
 
 # Verify critical tools are installed
 RUN git --version && gh --version && rclone --version && node --version && \
     which yazi && which lazygit
 
-# Browser shim: exit 1 so Claude Code falls back to displaying the auth URL
-# as text in its TUI. The WebLinksAddon in xterm.js makes plain-text URLs clickable.
-# (OSC 8 hyperlinks don't work here because Claude Code spawns BROWSER as a child
-# process and captures stdout -- the output never reaches the PTY.)
+# Browser shims: force CLI tools to fall back to displaying auth URLs as text.
+# Claude Code checks BROWSER env var; OpenCode/Bun use xdg-open directly.
+# When these shims exit 1, the CLIs print the URL as plain text in the PTY,
+# where the xterm.js link provider detects and makes it clickable.
+# (OSC 8 hyperlinks don't work here because CLIs spawn BROWSER/xdg-open as a
+# child process and capture stdout -- the output never reaches the PTY.)
 RUN printf '#!/bin/bash\nexit 1\n' > /usr/local/bin/open-url && \
-    chmod +x /usr/local/bin/open-url
+    chmod +x /usr/local/bin/open-url && \
+    printf '#!/bin/bash\nexit 1\n' > /usr/local/bin/xdg-open-shim && \
+    chmod +x /usr/local/bin/xdg-open-shim && \
+    ln -sf /usr/local/bin/xdg-open-shim /usr/bin/xdg-open
 ENV BROWSER=/usr/local/bin/open-url
 
 # Create workspace directory structure
@@ -108,7 +135,7 @@ RUN mkdir -p /app/host
 # Copy pre-compiled host server from builder stage
 COPY --from=builder /app/host/node_modules /app/host/node_modules
 COPY host/package.json /app/host/
-COPY host/server.js /app/host/
+COPY host/*.js /app/host/
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh

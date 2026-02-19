@@ -467,6 +467,29 @@ describe('SettingsPanel Component', () => {
       expect(closeButton).toHaveAttribute('title', 'Close settings');
     });
   });
+
+  describe('Clipboard Access Toggle', () => {
+    it('should render clipboard access toggle defaulted to off', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const toggle = screen.getByTestId('settings-clipboard-access-toggle');
+      expect(toggle).toBeInTheDocument();
+      expect(toggle).not.toHaveClass('toggle-on');
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('should toggle clipboard access setting on when clicked', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const toggle = screen.getByTestId('settings-clipboard-access-toggle');
+      fireEvent.click(toggle);
+
+      expect(localStorageMock.setItem).toHaveBeenCalled();
+      const lastCall = localStorageMock.setItem.mock.calls.slice(-1)[0];
+      const savedSettings = JSON.parse(lastCall[1]);
+      expect(savedSettings.clipboardAccess).toBe(true);
+    });
+  });
 });
 
 describe('Settings Helper Functions', () => {

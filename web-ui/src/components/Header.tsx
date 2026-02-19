@@ -11,11 +11,14 @@ import {
   mdiCheck,
   mdiClose,
   mdiFileCabinet,
+  mdiOpenInNew,
 } from '@mdi/js';
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
 import { sessionStore } from '../stores/session';
+import { terminalStore } from '../stores/terminal';
 import { md5 } from '../lib/md5';
+import { isTouchDevice } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
 
@@ -206,6 +209,22 @@ const Header: Component<HeaderProps> = (props) => {
 
       {/* Right side - User menu, settings, and dashboard */}
       <div class="header-actions">
+        {/* Auth URL button (shown when auth URL detected in terminal) */}
+        <Show when={!isTouchDevice() && terminalStore.authUrl}>
+          <button
+            type="button"
+            class="header-auth-url-btn header-auth-url-bounce-in"
+            onClick={() => {
+              const url = terminalStore.authUrl;
+              if (url) window.open(url, '_blank', 'noopener');
+            }}
+            title="Open auth URL"
+          >
+            <Icon path={mdiOpenInNew} size={16} />
+            <span>Open URL</span>
+          </button>
+        </Show>
+
         {/* User menu */}
         <button type="button" class="header-user-menu" data-testid="header-user-menu" title="User menu">
           <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>

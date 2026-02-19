@@ -13,6 +13,7 @@ const AGENT_COMMANDS: Record<AgentType, { command: string; label: string }> = {
   'claude-code': { command: 'claude', label: 'Terminal 1' },
   'codex': { command: 'codex', label: 'Terminal 1' },
   'gemini': { command: 'gemini', label: 'Terminal 1' },
+  'opencode': { command: 'opencode', label: 'Terminal 1' },
   'bash': { command: '', label: 'Terminal 1' },
 };
 
