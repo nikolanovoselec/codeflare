@@ -18,6 +18,7 @@ import SessionSwitcher from './SessionSwitcher';
 import { sessionStore } from '../stores/session';
 import { terminalStore } from '../stores/terminal';
 import { md5 } from '../lib/md5';
+import { isTouchDevice } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
 
@@ -209,7 +210,7 @@ const Header: Component<HeaderProps> = (props) => {
       {/* Right side - User menu, settings, and dashboard */}
       <div class="header-actions">
         {/* Auth URL button (shown when auth URL detected in terminal) */}
-        <Show when={terminalStore.authUrl}>
+        <Show when={!isTouchDevice() && terminalStore.authUrl}>
           <button
             type="button"
             class="header-auth-url-btn header-auth-url-bounce-in"

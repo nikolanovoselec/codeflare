@@ -73,10 +73,14 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     refocusTerminal();
   };
 
-  const copyLastUrl = async () => {
-    // Read the URL from the store (auth takes priority, then normal)
+  const openOrCopyUrl = async (forceOpen = false) => {
     const url = terminalStore.authUrl || terminalStore.normalUrl;
-    if (url) {
+    if (!url) return;
+    if (forceOpen || terminalStore.authUrl) {
+      // Auth URLs: open in background tab
+      window.open(url, '_blank', 'noopener');
+    } else {
+      // Normal URLs: copy to clipboard
       try {
         await navigator.clipboard.writeText(url);
       } catch {
@@ -91,14 +95,14 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
       <div class="floating-terminal-buttons" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px + 10px)` }}>
         <Show when={terminalStore.authUrl}>
           <div class="floating-btn-row">
-            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>COPY AUTH URL</span>
+            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>OPEN AUTH URL</span>
             <button
               type="button"
               class="floating-terminal-btn"
               tabIndex={-1}
               onPointerDown={preventFocusSteal}
-              onClick={copyLastUrl}
-              title="Copy auth URL"
+              onClick={() => openOrCopyUrl(true)}
+              title="Open auth URL"
             >
               <Icon path={mdiSecurity} size={18} />
             </button>
@@ -112,7 +116,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
               class="floating-terminal-btn"
               tabIndex={-1}
               onPointerDown={preventFocusSteal}
-              onClick={copyLastUrl}
+              onClick={() => openOrCopyUrl()}
               title="Copy URL"
             >
               <Icon path={mdiContentCopy} size={18} />

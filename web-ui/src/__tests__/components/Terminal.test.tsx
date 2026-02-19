@@ -396,33 +396,11 @@ describe('Terminal Component', () => {
       expect(enableVirtualKeyboardOverlay).toHaveBeenCalled();
     });
 
-    it('should call preventDefault on pointerdown for non-link targets', () => {
+    it('should set user-select: none on terminal container for mobile', () => {
       render(() => <Terminal {...defaultProps} />);
 
-      const container = document.querySelector('.terminal-container')!;
-      const event = new PointerEvent('pointerdown', { bubbles: true, cancelable: true });
-      const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
-
-      container.dispatchEvent(event);
-
-      expect(preventDefaultSpy).toHaveBeenCalled();
-    });
-
-    it('should NOT call preventDefault on pointerdown for link targets', () => {
-      render(() => <Terminal {...defaultProps} />);
-
-      const container = document.querySelector('.terminal-container')!;
-      // Create a link element inside the container
-      const linkEl = document.createElement('span');
-      linkEl.classList.add('xterm-link');
-      container.appendChild(linkEl);
-
-      const event = new PointerEvent('pointerdown', { bubbles: true, cancelable: true });
-      const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
-
-      linkEl.dispatchEvent(event);
-
-      expect(preventDefaultSpy).not.toHaveBeenCalled();
+      const container = document.querySelector('.terminal-container') as HTMLElement;
+      expect(container.style.userSelect).toBe('none');
     });
   });
 });

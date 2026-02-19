@@ -7,6 +7,7 @@ import Header from '../../components/Header';
 const isMobileMock = vi.hoisted(() => ({ value: false }));
 vi.mock('../../lib/mobile', () => ({
   isMobile: () => isMobileMock.value,
+  isTouchDevice: () => isMobileMock.value,
 }));
 
 // Mock SessionSwitcher

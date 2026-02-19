@@ -304,6 +304,111 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('right-click to paste', () => {
+    it('should add contextmenu listener to container on mount', () => {
+      const addEventSpy = vi.spyOn(containerEl, 'addEventListener');
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(addEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+
+      dispose();
+    });
+
+    it('should prevent default context menu and paste clipboard text', async () => {
+      const clipboardText = 'pasted content';
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue(clipboardText),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+      containerEl.dispatchEvent(event);
+
+      expect(preventDefaultSpy).toHaveBeenCalled();
+
+      // Wait for clipboard promise to resolve
+      await vi.waitFor(() => {
+        expect(mockTerminalInstance.paste).toHaveBeenCalledWith(clipboardText);
+      });
+
+      dispose();
+    });
+
+    it('should not paste when clipboard is empty', async () => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue(''),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      // Give the promise time to settle
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockTerminalInstance.paste).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should handle clipboard permission denial gracefully', async () => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockRejectedValue(new DOMException('Denied')),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Should not throw
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockTerminalInstance.paste).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should remove contextmenu listener on cleanup', () => {
+      const removeEventSpy = vi.spyOn(containerEl, 'removeEventListener');
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      dispose();
+
+      expect(removeEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+    });
+  });
+
   describe('keyboard height refit', () => {
     it('should call scrollToBottom after fit when keyboard height changes on mobile', async () => {
       vi.useFakeTimers();

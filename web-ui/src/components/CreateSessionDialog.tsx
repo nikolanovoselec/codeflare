@@ -24,6 +24,7 @@ interface AgentOption {
   label: string;
   icon: string;
   description: string;
+  badge?: string;
 }
 
 const AGENT_OPTIONS: AgentOption[] = [
@@ -31,7 +32,7 @@ const AGENT_OPTIONS: AgentOption[] = [
   { type: 'claude-unleashed', label: 'Claude Unleashed', icon: mdiFire, description: 'Full Claude Code experience' },
   { type: 'codex', label: 'Codex', icon: mdiCodeBraces, description: 'OpenAI Codex agent' },
   { type: 'gemini', label: 'Gemini', icon: mdiDiamond, description: 'Google Gemini CLI' },
-  { type: 'opencode', label: 'OpenCode', icon: mdiRobotIndustrial, description: 'Multi-model agent' },
+  { type: 'opencode', label: 'OpenCode', icon: mdiRobotIndustrial, description: 'Multi-model agent', badge: 'beta' },
   { type: 'bash', label: 'Bash', icon: mdiConsole, description: 'Plain terminal session' },
 ];
 
@@ -144,7 +145,12 @@ const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
                 >
                   <Icon path={agent.icon} size={18} class="csd-agent-icon" />
                   <div class="csd-agent-info">
-                    <span class="csd-agent-label">{agent.label}</span>
+                    <span class="csd-agent-label">
+                      {agent.label}
+                      <Show when={agent.badge}>
+                        <span class="csd-agent-badge">{agent.badge}</span>
+                      </Show>
+                    </span>
                     <span class="csd-agent-desc">{agent.description}</span>
                   </div>
                 </button>

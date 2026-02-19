@@ -65,19 +65,11 @@ const Terminal: Component<TerminalProps> = (props) => {
         </div>
       </Show>
 
+      {/* Text selection prevented via user-select CSS instead of
+          e.preventDefault() on pointerdown — preventDefault blocks native scroll */}
       <div
         ref={(el) => { containerEl = el; containerRef(el); }}
         class="terminal-container"
-        onPointerDown={(e: PointerEvent) => {
-          // Only prevent text selection on mobile (focus logic moved to onClick)
-          if (isTouchDevice()) {
-            const target = e.target as HTMLElement;
-            const isLink = target?.closest('.xterm-link') || target?.classList?.contains('xterm-link');
-            if (!isLink) {
-              e.preventDefault();
-            }
-          }
-        }}
         onClick={() => {
           const term = terminal();
           if (isTouchDevice() && term) {
@@ -99,6 +91,8 @@ const Terminal: Component<TerminalProps> = (props) => {
           'min-height': '0',
           'background-color': isInitializing() ? 'transparent' : 'var(--color-terminal-theme-bg)',
           'overflow-anchor': 'none',
+          '-webkit-user-select': isTouchDevice() ? 'none' : undefined,
+          'user-select': isTouchDevice() ? 'none' : undefined,
           'touch-action': (isTouchDevice() && isVirtualKeyboardOpen()) ? 'none' : undefined,
         }}
       />

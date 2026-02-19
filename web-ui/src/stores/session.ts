@@ -457,6 +457,13 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 async function refreshSessionStatuses(): Promise<void> {
   try {
     const batchStatuses = await api.getBatchSessionStatus();
+    // Remove sessions that no longer exist on the server (deleted from another device)
+    const removedIds = state.sessions
+      .filter((s) => !batchStatuses[s.id])
+      .map((s) => s.id);
+    if (removedIds.length > 0) {
+      setState('sessions', (prev) => prev.filter((s) => !removedIds.includes(s.id)));
+    }
     for (const session of state.sessions) {
       const remote = batchStatuses[session.id];
       if (!remote) continue;

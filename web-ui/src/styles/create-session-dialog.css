@@ -88,8 +88,23 @@
 }
 
 .csd-agent-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
+}
+
+.csd-agent-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
+  color: var(--color-accent);
+  line-height: 1.3;
 }
 
 .csd-agent-desc {

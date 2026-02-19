@@ -43,6 +43,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let hasInitialScrolled = false;
   let kbDebouncePending = false;
+  let handleContextMenu: ((e: MouseEvent) => void) | undefined;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -165,6 +166,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
       return true;
     });
+
+    // Right-click to paste (like a real terminal)
+    handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      navigator.clipboard.readText().then((text) => {
+        if (text && term) term.paste(text);
+      }).catch(() => {
+        // Clipboard read permission denied
+      });
+    };
+    containerEl.addEventListener('contextmenu', handleContextMenu);
 
     terminalStore.setTerminal(props.sessionId, props.terminalId, term);
     terminalStore.registerFitAddon(props.sessionId, props.terminalId, fitAddon);
@@ -344,6 +356,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     resizeObserver?.disconnect();
     terminalStore.stopUrlDetection();
     terminalStore.unregisterFitAddon(props.sessionId, props.terminalId);
+    if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu);
   });
 
   return {
