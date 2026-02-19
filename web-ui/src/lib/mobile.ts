@@ -161,7 +161,7 @@ export function isVirtualKeyboardOpen(): boolean {
 export function getKeyboardHeight(): number {
   if (isSamsungBrowser) {
     if (window.innerWidth > 600) return keyboardHeight();
-    const barTop = loadSettings().samsungAddressBarTop !== false;
+    const barTop = loadSettings().samsungAddressBarTop === true;
     if (barTop) return keyboardHeight();
   }
   return Math.max(0, keyboardHeight() - viewportGrowth());
@@ -254,7 +254,7 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     const overlays = nav.virtualKeyboard?.overlaysContent ?? 'N/A';
     const growth = viewportGrowth();
     const total = getKeyboardHeight();
-    const barTop = isSamsungBrowser ? loadSettings().samsungAddressBarTop !== false : false;
+    const barTop = isSamsungBrowser ? loadSettings().samsungAddressBarTop === true : false;
 
     overlay.textContent =
       `innerHeight:    ${innerH}\n` +
