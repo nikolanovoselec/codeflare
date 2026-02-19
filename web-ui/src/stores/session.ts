@@ -449,10 +449,33 @@ function stopMetricsPolling(sessionId: string): void {
 
 let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * Lightweight status refresh — only fetches batch-status and updates
+ * existing session statuses in-place. Does NOT replace the sessions
+ * array or set loading state, so the dashboard doesn't flicker.
+ */
+async function refreshSessionStatuses(): Promise<void> {
+  try {
+    const batchStatuses = await api.getBatchSessionStatus();
+    for (const session of state.sessions) {
+      const remote = batchStatuses[session.id];
+      if (!remote) continue;
+      if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
+        updateSessionStatus(session.id, 'running');
+        initializeTerminalsForSession(session.id);
+      } else if (remote.status === 'stopped' && session.status !== 'stopped' && session.status !== 'stopping') {
+        updateSessionStatus(session.id, 'stopped');
+      }
+    }
+  } catch {
+    // Silently ignore — this is background polling
+  }
+}
+
 function startSessionListPolling(): void {
   if (sessionListPollInterval !== null) return;
   sessionListPollInterval = setInterval(() => {
-    loadSessions();
+    refreshSessionStatuses();
   }, SESSION_LIST_POLL_INTERVAL_MS);
 }
 

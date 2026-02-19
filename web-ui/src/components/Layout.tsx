@@ -43,10 +43,19 @@ const Layout: Component<LayoutProps> = (props) => {
     sessionStore.loadSessions();
     sessionStore.loadPresets();
     sessionStore.loadPreferences();
-    sessionStore.startSessionListPolling();
     // Apply saved accent color
     const savedSettings = loadSettings();
     applyAccentColor(savedSettings.accentColor);
+  });
+
+  // Only poll session list while on dashboard — polling during terminal view
+  // replaces the sessions array, triggering reactivity that flips viewState.
+  createEffect(() => {
+    if (viewState() === 'dashboard') {
+      sessionStore.startSessionListPolling();
+    } else {
+      sessionStore.stopSessionListPolling();
+    }
   });
 
   onCleanup(() => {
