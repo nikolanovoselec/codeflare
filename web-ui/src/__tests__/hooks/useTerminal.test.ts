@@ -113,10 +113,15 @@ vi.mock('../../lib/terminal-mobile-input', () => ({
   setupMobileInput: vi.fn(() => vi.fn()),
 }));
 
+vi.mock('../../lib/settings', () => ({
+  loadSettings: vi.fn(() => ({ clipboardAccess: true })),
+}));
+
 import { useTerminal, type UseTerminalOptions } from '../../hooks/useTerminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen } from '../../lib/mobile';
+import { loadSettings } from '../../lib/settings';
 
 describe('useTerminal hook', () => {
   const defaultProps: UseTerminalOptions = {
@@ -412,6 +417,52 @@ describe('useTerminal hook', () => {
       dispose();
 
       expect(removeEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+    });
+  });
+
+  describe('clipboard access setting', () => {
+    beforeEach(() => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue('clipboard text'),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+    });
+
+    it('should not read clipboard on right-click when clipboardAccess is disabled', async () => {
+      vi.mocked(loadSettings).mockReturnValue({ clipboardAccess: false });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(navigator.clipboard.readText).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should read clipboard on right-click when clipboardAccess is enabled', async () => {
+      vi.mocked(loadSettings).mockReturnValue({ clipboardAccess: true });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await vi.waitFor(() => {
+        expect(navigator.clipboard.readText).toHaveBeenCalled();
+      });
+
+      dispose();
     });
   });
 

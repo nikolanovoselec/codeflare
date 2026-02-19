@@ -30,6 +30,11 @@ describe('settings', () => {
       const settings = loadSettings();
       expect(settings).toEqual({ ...defaultSettings, ...custom });
     });
+
+    it('should default clipboardAccess to false', () => {
+      const settings = loadSettings();
+      expect(settings.clipboardAccess).toBe(false);
+    });
   });
 
   describe('saveSettings', () => {

@@ -64,6 +64,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const pasteFromClipboard = async () => {
     const term = getActiveTerm();
     if (!term) return;
+    if (loadSettings().clipboardAccess !== true) return;
     try {
       const text = await navigator.clipboard.readText();
       if (text) term.paste(text);

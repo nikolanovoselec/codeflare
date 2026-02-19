@@ -9,6 +9,7 @@ import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualK
 import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
+import { loadSettings } from '../lib/settings';
 
 export interface UseTerminalOptions {
   sessionId: string;
@@ -188,6 +189,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       if (!term) return;
+      if (loadSettings().clipboardAccess !== true) return;
       term.focus();
       navigator.clipboard.readText().then((text) => {
         if (text && term) {

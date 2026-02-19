@@ -15,12 +15,13 @@ const mobileMock = vi.hoisted(() => ({
 
 const settingsMock = vi.hoisted(() => ({
   showButtonLabels: true as boolean | undefined,
+  clipboardAccess: false as boolean | undefined,
 }));
 
 vi.mock('../../lib/mobile', () => mobileMock);
 
 vi.mock('../../lib/settings', () => ({
-  loadSettings: vi.fn(() => ({ showButtonLabels: settingsMock.showButtonLabels })),
+  loadSettings: vi.fn(() => ({ showButtonLabels: settingsMock.showButtonLabels, clipboardAccess: settingsMock.clipboardAccess })),
 }));
 
 vi.mock('../../lib/touch-gestures', () => ({
@@ -55,6 +56,7 @@ describe('FloatingTerminalButtons', () => {
     mobileMock.getKeyboardHeight.mockReturnValue(300);
 
     settingsMock.showButtonLabels = true;
+    settingsMock.clipboardAccess = false;
   });
 
   afterEach(() => {
@@ -163,6 +165,42 @@ describe('FloatingTerminalButtons', () => {
 
       const buttons = document.querySelector('.floating-terminal-buttons');
       expect(buttons).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Clipboard Access Guard', () => {
+    it('should not read clipboard when clipboardAccess is disabled', () => {
+      // Switch to real timers for this test — fake timers block async clipboard mocks
+      vi.useRealTimers();
+
+      settingsMock.clipboardAccess = false;
+
+      const mockTerm = {
+        paste: vi.fn(),
+        textarea: document.createElement('textarea'),
+      };
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerm as any);
+
+      const readTextMock = vi.fn().mockResolvedValue('clipboard text');
+      Object.assign(navigator, {
+        clipboard: {
+          readText: readTextMock,
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      const pasteBtn = screen.getByTitle('Paste');
+      pasteBtn.click();
+
+      // clipboardAccess is false, so readText should never be called — synchronous check
+      expect(readTextMock).not.toHaveBeenCalled();
+
+      // Restore fake timers for subsequent tests
+      vi.useFakeTimers();
     });
   });
 
