@@ -202,9 +202,9 @@ describe('Container Metrics', () => {
       testState.containerRunning = false;
       await containerInstance.collectMetrics();
 
-      // Should still re-arm unconditionally (schedule is one-shot;
-      // if DO is shutting down, the alarm simply won't fire)
-      expect(testState.scheduleCalls).toHaveLength(1);
+      // Should NOT re-arm when container is not running.
+      // onStart() will restart the schedule loop on next container start.
+      expect(testState.scheduleCalls).toHaveLength(0);
     });
 
     it('should handle fetch failure gracefully without crashing', async () => {

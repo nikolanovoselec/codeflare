@@ -351,14 +351,21 @@ export class container extends Container<Env> {
    */
   override async onStart(): Promise<void> {
     this.updateEnvVars();
-    await this.updateKvStatus(null, 'lastStartedAt');
+    await this.updateKvStatus('running', 'lastStartedAt');
     this.logger.info('Container started');
     await this.schedule(5, 'collectMetrics');
   }
 
   async collectMetrics(): Promise<void> {
+    // Don't collect or re-arm if container process is dead.
+    // onStart() will restart the schedule loop on next container start.
+    if (!this.ctx.container?.running) {
+      this.logger.debug('collectMetrics skipped: container not running');
+      return;
+    }
+
     try {
-      const tcpPort = this.ctx.container!.getTcpPort(8080);
+      const tcpPort = this.ctx.container.getTcpPort(8080);
       const res = await tcpPort.fetch('http://localhost/health');
       const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
 
@@ -381,12 +388,14 @@ export class container extends Container<Env> {
       this.logger.warn('Metrics collection failed', { error: err instanceof Error ? err.message : String(err) });
     }
 
-    // Always re-arm. schedule() is one-shot (deleted after execution).
-    // If the DO is shutting down, the alarm simply won't fire.
-    try {
-      await this.schedule(5, 'collectMetrics');
-    } catch {
-      // DO is shutting down or destroyed — schedule() can't set alarm
+    // Re-arm only if still running. schedule() is one-shot — if we don't
+    // re-arm, onStart() will restart the loop on next container start.
+    if (this.ctx.container?.running) {
+      try {
+        await this.schedule(5, 'collectMetrics');
+      } catch {
+        // DO is shutting down or destroyed
+      }
     }
   }
 
