@@ -182,6 +182,7 @@ async function loadSessions(): Promise<void> {
         updateSessionStatus(session.id, 'running');
         if (!wasRunning) {
           initializeTerminalsForSession(session.id);
+          startMetricsPolling(session.id);
         }
       } else {
         updateSessionStatus(session.id, batchStatus.status);
@@ -237,6 +238,7 @@ async function deleteSession(id: string): Promise<void> {
     }
     await api.deleteSession(id);
     stopMetricsPolling(id);
+    sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
     setState(
       produce((s) => {
@@ -275,6 +277,7 @@ function startSession(id: string): Promise<void> {
         startupCleanups.delete(id);
         updateSessionStatus(id, 'running');
         initializeTerminalsForSession(id);
+        startMetricsPolling(id);
         resolve();
       },
       (error) => {
@@ -367,10 +370,7 @@ function updateSessionStatus(id: string, status: SessionStatus): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
     setState('sessions', index, 'status', status);
-
-    if (status === 'running') {
-      startMetricsPolling(id);
-    } else {
+    if (status !== 'running') {
       stopMetricsPolling(id);
     }
   }
@@ -456,6 +456,9 @@ function stopMetricsPolling(sessionId: string): void {
 // Session List Polling
 // ============================================================================
 
+const sessionMissCounters = new Map<string, number>();
+const REMOVAL_THRESHOLD = 3;
+
 let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
@@ -466,11 +469,24 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 async function refreshSessionStatuses(): Promise<void> {
   try {
     const batchStatuses = await api.getBatchSessionStatus();
-    // Remove sessions that no longer exist on the server (deleted from another device)
-    const removedIds = state.sessions
-      .filter((s) => !batchStatuses[s.id])
-      .map((s) => s.id);
+
+    // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses
+    const removedIds: string[] = [];
+    for (const session of state.sessions) {
+      if (!batchStatuses[session.id]) {
+        const count = (sessionMissCounters.get(session.id) || 0) + 1;
+        sessionMissCounters.set(session.id, count);
+        if (count >= REMOVAL_THRESHOLD) {
+          removedIds.push(session.id);
+        }
+      } else {
+        sessionMissCounters.delete(session.id);
+      }
+    }
     if (removedIds.length > 0) {
+      for (const id of removedIds) {
+        sessionMissCounters.delete(id);
+      }
       setState('sessions', (prev) => prev.filter((s) => !removedIds.includes(s.id)));
     }
     for (const session of state.sessions) {
@@ -487,6 +503,7 @@ async function refreshSessionStatuses(): Promise<void> {
       if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
         updateSessionStatus(session.id, 'running');
         initializeTerminalsForSession(session.id);
+        startMetricsPolling(session.id);
       } else if (remote.status === 'stopped' && session.status !== 'stopped' && session.status !== 'stopping') {
         updateSessionStatus(session.id, 'stopped');
       }
@@ -635,4 +652,6 @@ export const sessionStore = {
 
   // @internal -- exposed for tests (AD23)
   updateSessionStatus,
+  refreshSessionStatuses,
+  _resetMissCounters: () => sessionMissCounters.clear(),
 };

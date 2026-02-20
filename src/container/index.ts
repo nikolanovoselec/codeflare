@@ -351,14 +351,15 @@ export class container extends Container<Env> {
    */
   override async onStart(): Promise<void> {
     this.updateEnvVars();
-    await this.updateKvTimestamp('lastStartedAt');
+    await this.updateKvStatus(null, 'lastStartedAt');
     this.logger.info('Container started');
   }
 
   /**
    * Update a timestamp field on the KV session record (best-effort).
+   * Optionally sets session.status (e.g. 'stopped' on hibernation).
    */
-  private async updateKvTimestamp(field: 'lastStartedAt' | 'lastActiveAt'): Promise<void> {
+  private async updateKvStatus(status: 'running' | 'stopped' | null, field: 'lastStartedAt' | 'lastActiveAt'): Promise<void> {
     try {
       const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
       const bucketName = this._bucketName;
@@ -366,11 +367,14 @@ export class container extends Container<Env> {
       const key = getSessionKey(bucketName, sessionId);
       const session = await this.env.KV.get<Session>(key, 'json');
       if (session) {
+        if (status !== null) {
+          session.status = status;
+        }
         session[field] = new Date().toISOString();
         await this.env.KV.put(key, JSON.stringify(session));
       }
     } catch (err) {
-      this.logger.error('Failed to update KV timestamp', err instanceof Error ? err : new Error(String(err)));
+      this.logger.error('Failed to update KV status', err instanceof Error ? err : new Error(String(err)));
     }
   }
 
@@ -395,7 +399,7 @@ export class container extends Container<Env> {
    */
   override async onStop(): Promise<void> {
     this.logger.info('Container stopped');
-    await this.updateKvTimestamp('lastActiveAt');
+    await this.updateKvStatus('stopped', 'lastActiveAt');
   }
 
   /**

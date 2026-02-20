@@ -319,6 +319,8 @@ describe('container DO class', () => {
       const writtenSession = JSON.parse(putArgs[1]);
       expect(writtenSession.lastStartedAt).toBeDefined();
       expect(new Date(writtenSession.lastStartedAt).toISOString()).toBe(writtenSession.lastStartedAt);
+      // onStart does NOT change status (start route sets 'running' before container launches)
+      expect(writtenSession.status).toBe('running');
     });
 
     it('onStart re-populates envVars from stored bucketName', async () => {
@@ -360,7 +362,7 @@ describe('container DO class', () => {
   });
 
   describe('onStop lifecycle', () => {
-    it('onStop updates KV with lastActiveAt', async () => {
+    it('onStop updates KV with lastActiveAt and sets status to stopped', async () => {
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
       const mockKvGet = vi.fn().mockResolvedValue({
         id: 'sess123',
@@ -388,6 +390,7 @@ describe('container DO class', () => {
       const putArgs = mockKvPut.mock.calls[0];
       const writtenSession = JSON.parse(putArgs[1]);
       expect(writtenSession.lastActiveAt).toBeDefined();
+      expect(writtenSession.status).toBe('stopped');
     });
 
     it('onStop does NOT set tombstone', async () => {
