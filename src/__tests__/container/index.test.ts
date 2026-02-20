@@ -79,7 +79,21 @@ describe('container DO class', () => {
     setAlarm: ReturnType<typeof vi.fn>;
     deleteAlarm: ReturnType<typeof vi.fn>;
   };
-  let mockCtx: { storage: typeof mockStorage; id: { toString: () => string }; blockConcurrencyWhile: ReturnType<typeof vi.fn> };
+  let mockTcpPortFetch: ReturnType<typeof vi.fn>;
+  let mockContainerRuntime: {
+    running: boolean;
+    getTcpPort: ReturnType<typeof vi.fn>;
+    start: ReturnType<typeof vi.fn>;
+    destroy: ReturnType<typeof vi.fn>;
+    monitor: ReturnType<typeof vi.fn>;
+    signal: ReturnType<typeof vi.fn>;
+  };
+  let mockCtx: {
+    storage: typeof mockStorage;
+    id: { toString: () => string };
+    blockConcurrencyWhile: ReturnType<typeof vi.fn>;
+    container: typeof mockContainerRuntime;
+  };
   let mockEnv: any;
 
   beforeEach(() => {
@@ -91,10 +105,20 @@ describe('container DO class', () => {
       setAlarm: vi.fn().mockResolvedValue(undefined),
       deleteAlarm: vi.fn().mockResolvedValue(undefined),
     };
+    mockTcpPortFetch = vi.fn();
+    mockContainerRuntime = {
+      running: true,
+      getTcpPort: vi.fn().mockReturnValue({ fetch: mockTcpPortFetch }),
+      start: vi.fn(),
+      destroy: vi.fn(),
+      monitor: vi.fn(),
+      signal: vi.fn(),
+    };
     mockCtx = {
       storage: mockStorage,
       id: { toString: () => 'test-do-id-hex' },
       blockConcurrencyWhile: vi.fn(async (fn: () => Promise<void>) => fn()),
+      container: mockContainerRuntime,
     };
     mockEnv = {
       R2_ACCOUNT_ID: 'test-account',
@@ -114,7 +138,7 @@ describe('container DO class', () => {
 
     it('initializes with sleepAfter 24h', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.sleepAfter).toBe('8h');
     });
 
     it('calls blockConcurrencyWhile in constructor', () => {
@@ -326,7 +350,6 @@ describe('container DO class', () => {
 
     it('increments consecutive failure counter on each unreachable poll', async () => {
       const instance = createAlarmInstance();
-      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
       // Bypass retry delays — return null immediately (activity unreachable)
       vi.spyOn(instance as any, 'getActivityInfoWithRetry').mockResolvedValue(null);
 
@@ -340,7 +363,6 @@ describe('container DO class', () => {
 
     it('force-destroys after MAX_CONSECUTIVE_ACTIVITY_FAILURES', async () => {
       const instance = createAlarmInstance();
-      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
       vi.spyOn(instance as any, 'getActivityInfoWithRetry').mockResolvedValue(null);
 
       // Simulate 6 consecutive failures (MAX_CONSECUTIVE_ACTIVITY_FAILURES = 6)
@@ -358,7 +380,6 @@ describe('container DO class', () => {
 
     it('resets failure counter when activity endpoint becomes reachable', async () => {
       const instance = createAlarmInstance();
-      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
       const retryMock = vi.spyOn(instance as any, 'getActivityInfoWithRetry');
 
       // Simulate 3 failures
@@ -391,18 +412,12 @@ describe('container DO class', () => {
 
     it('does not destroy on normal idle timeout path when activity is reachable', async () => {
       const instance = createAlarmInstance();
-      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
       // Activity endpoint reachable, disconnected for 1 hour (over threshold)
-      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
-        if (new URL(request.url).pathname === '/activity') {
-          return new Response(JSON.stringify({
-            hasActiveConnections: false,
-            disconnectedForMs: 60 * 60 * 1000, // 1 hour
-          }), { status: 200 });
-        }
-        return new Response('base fetch', { status: 200 });
-      });
+      mockTcpPortFetch.mockResolvedValue(new Response(JSON.stringify({
+        hasActiveConnections: false,
+        disconnectedForMs: 60 * 60 * 1000, // 1 hour
+      }), { status: 200 }));
 
       (instance as any)._activityPollAlarm = false;
       await instance.alarm();
@@ -413,17 +428,11 @@ describe('container DO class', () => {
 
     it('stays alive with active connections', async () => {
       const instance = createAlarmInstance();
-      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
-      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
-        if (new URL(request.url).pathname === '/activity') {
-          return new Response(JSON.stringify({
-            hasActiveConnections: true,
-            disconnectedForMs: null,
-          }), { status: 200 });
-        }
-        return new Response('base fetch', { status: 200 });
-      });
+      mockTcpPortFetch.mockResolvedValue(new Response(JSON.stringify({
+        hasActiveConnections: true,
+        disconnectedForMs: null,
+      }), { status: 200 }));
 
       (instance as any)._activityPollAlarm = false;
       mockStorage.put.mockClear();
@@ -435,17 +444,11 @@ describe('container DO class', () => {
 
     it('stays alive when disconnected under threshold', async () => {
       const instance = createAlarmInstance();
-      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
-      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
-        if (new URL(request.url).pathname === '/activity') {
-          return new Response(JSON.stringify({
-            hasActiveConnections: false,
-            disconnectedForMs: 600000, // 10 minutes
-          }), { status: 200 });
-        }
-        return new Response('base fetch', { status: 200 });
-      });
+      mockTcpPortFetch.mockResolvedValue(new Response(JSON.stringify({
+        hasActiveConnections: false,
+        disconnectedForMs: 600000, // 10 minutes
+      }), { status: 200 }));
 
       (instance as any)._activityPollAlarm = false;
       mockStorage.put.mockClear();
@@ -457,17 +460,11 @@ describe('container DO class', () => {
 
     it('destroyed when disconnected over threshold', async () => {
       const instance = createAlarmInstance();
-      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
-      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
-        if (new URL(request.url).pathname === '/activity') {
-          return new Response(JSON.stringify({
-            hasActiveConnections: false,
-            disconnectedForMs: 1860001, // 31 minutes
-          }), { status: 200 });
-        }
-        return new Response('base fetch', { status: 200 });
-      });
+      mockTcpPortFetch.mockResolvedValue(new Response(JSON.stringify({
+        hasActiveConnections: false,
+        disconnectedForMs: 1860001, // 31 minutes
+      }), { status: 200 }));
 
       (instance as any)._activityPollAlarm = false;
       await instance.alarm();
@@ -478,17 +475,11 @@ describe('container DO class', () => {
 
     it('stays alive when disconnectedForMs is null (fresh container)', async () => {
       const instance = createAlarmInstance();
-      vi.spyOn(instance, 'getState' as any).mockResolvedValue({ status: 'running' });
 
-      vi.spyOn(instance, 'fetch').mockImplementation(async (request: Request) => {
-        if (new URL(request.url).pathname === '/activity') {
-          return new Response(JSON.stringify({
-            hasActiveConnections: false,
-            disconnectedForMs: null,
-          }), { status: 200 });
-        }
-        return new Response('base fetch', { status: 200 });
-      });
+      mockTcpPortFetch.mockResolvedValue(new Response(JSON.stringify({
+        hasActiveConnections: false,
+        disconnectedForMs: null,
+      }), { status: 200 }));
 
       (instance as any)._activityPollAlarm = false;
       mockStorage.put.mockClear();
@@ -532,7 +523,7 @@ describe('container DO class', () => {
       });
     });
 
-    it('onStart() kill switch: when _destroyed is set, onStart() calls destroy() immediately', async () => {
+    it('onStart() kill switch: when _destroyed is set, onStart() clears alarm without calling destroy()', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === '_destroyed') return true;
         return null;
@@ -549,16 +540,17 @@ describe('container DO class', () => {
 
       instance.onStart();
 
-      // destroy() is called inside a void async IIFE, wait for it
+      // onStart() should clear alarm but NOT call destroy() — super.destroy() restarts the container
       await vi.waitFor(() => {
-        expect(destroySpy).toHaveBeenCalled();
+        expect(mockStorage.deleteAlarm).toHaveBeenCalled();
       });
+      expect(destroySpy).not.toHaveBeenCalled();
     });
 
-    it('onStart() orphan kill: orphan DO detected by constructor triggers destroy via onStart _destroyed check', async () => {
+    it('onStart() orphan kill: orphan DO sets tombstone and clears alarm without calling destroy()', async () => {
       // When constructor detects no bucketName, it sets _destroyed = true in memory.
-      // Then onStart() hits the _destroyed check first and calls destroy().
-      // This verifies the two-layer protection: constructor + onStart working together.
+      // Then onStart() hits the _destroyed check and clears alarm without calling destroy().
+      // super.destroy() would restart the container, creating a zombie loop.
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === '_destroyed') return false;
         if (key === 'bucketName') return null;
@@ -578,9 +570,10 @@ describe('container DO class', () => {
       instance.onStart();
 
       await vi.waitFor(() => {
-        expect(destroySpy).toHaveBeenCalled();
         expect(mockStorage.deleteAlarm).toHaveBeenCalled();
       });
+      // destroy() must NOT be called — it triggers super.destroy() which restarts the container
+      expect(destroySpy).not.toHaveBeenCalled();
     });
 
     it('onStart() normal path: legitimate start calls logStartContext() + scheduleActivityPoll()', async () => {
@@ -711,6 +704,147 @@ describe('container DO class', () => {
     });
   });
 
+  describe('getActivityInfo zombie prevention', () => {
+    function createAlarmInstance() {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_last_shutdown_info') return null;
+        return null;
+      });
+      return new ContainerClass(mockCtx as any, mockEnv);
+    }
+
+    it('returns null when container not running', async () => {
+      const instance = createAlarmInstance();
+      mockContainerRuntime.running = false;
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // getTcpPort should NOT be called when container is not running
+      expect(mockContainerRuntime.getTcpPort).not.toHaveBeenCalled();
+      // Should have cleaned up via cleanupAndDestroy
+      expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('uses getTcpPort instead of this.fetch', async () => {
+      const instance = createAlarmInstance();
+      mockTcpPortFetch.mockResolvedValue(
+        new Response(JSON.stringify({
+          hasActiveConnections: true,
+          disconnectedForMs: null,
+        }), { status: 200 })
+      );
+
+      const fetchSpy = vi.spyOn(instance, 'fetch');
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // Should use getTcpPort(8080), NOT this.fetch
+      expect(mockContainerRuntime.getTcpPort).toHaveBeenCalledWith(8080);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns null on tcpPort.fetch failure', async () => {
+      const instance = createAlarmInstance();
+      mockTcpPortFetch.mockRejectedValue(new Error('connection refused'));
+
+      (instance as any)._activityPollAlarm = false;
+      // Should not throw — getActivityInfo catches errors
+      await expect(instance.alarm()).resolves.not.toThrow();
+    });
+
+    it('returns activity data on success', async () => {
+      const instance = createAlarmInstance();
+      mockTcpPortFetch.mockResolvedValue(
+        new Response(JSON.stringify({
+          hasActiveConnections: false,
+          disconnectedForMs: 60 * 60 * 1000, // 1 hour, over threshold
+        }), { status: 200 })
+      );
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // Should have destroyed (1 hour > 30 min threshold)
+      expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+    });
+
+    it('includes auth header when token set', async () => {
+      const instance = createAlarmInstance();
+      (instance as any)._containerAuthToken = 'test-token-123';
+      mockTcpPortFetch.mockResolvedValue(
+        new Response(JSON.stringify({
+          hasActiveConnections: true,
+          disconnectedForMs: null,
+        }), { status: 200 })
+      );
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // Verify auth header was passed
+      expect(mockTcpPortFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer test-token-123',
+          }),
+        })
+      );
+    });
+  });
+
+  describe('handleIdleContainer zombie prevention', () => {
+    function createAlarmInstance() {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === '_destroyed') return false;
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_last_shutdown_info') return null;
+        return null;
+      });
+      return new ContainerClass(mockCtx as any, mockEnv);
+    }
+
+    it('cleans up immediately when container not running', async () => {
+      const instance = createAlarmInstance();
+      mockContainerRuntime.running = false;
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // Should set _destroyed tombstone
+      expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+      // Should delete alarm
+      expect(mockStorage.deleteAlarm).toHaveBeenCalled();
+    });
+
+    it('does NOT call getState when container not running', async () => {
+      const instance = createAlarmInstance();
+      mockContainerRuntime.running = false;
+      const getStateSpy = vi.spyOn(instance, 'getState' as any);
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      expect(getStateSpy).not.toHaveBeenCalled();
+    });
+
+    it('full alarm cycle with stopped container does not auto-start', async () => {
+      const instance = createAlarmInstance();
+      mockContainerRuntime.running = false;
+
+      (instance as any)._activityPollAlarm = false;
+      await instance.alarm();
+
+      // Container.start should NOT be called
+      expect(mockContainerRuntime.start).not.toHaveBeenCalled();
+      // Tombstone should be set
+      expect(mockStorage.put).toHaveBeenCalledWith('_destroyed', true);
+    });
+  });
+
   describe('mock contract verification (FIX-53)', () => {
     /**
      * Verify that the mock Container base class used in these tests has the
@@ -733,7 +867,7 @@ describe('container DO class', () => {
 
       // Properties set by the class
       expect(instance.defaultPort).toBe(8080);
-      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.sleepAfter).toBe('8h');
     });
   });
 });

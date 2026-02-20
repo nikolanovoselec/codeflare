@@ -626,6 +626,7 @@ describe('GET /sessions/batch-status', () => {
       userId: 'test-bucket',
       createdAt: '2024-01-15T09:00:00.000Z',
       lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      status: 'running',
     };
     const session2: Session = {
       id: 'batchsession5678def',
@@ -633,6 +634,7 @@ describe('GET /sessions/batch-status', () => {
       userId: 'test-bucket',
       createdAt: '2024-01-15T08:00:00.000Z',
       lastAccessedAt: '2024-01-15T10:00:00.000Z',
+      status: 'running',
     };
 
     mockKV._set('session:test-bucket:batchsession1234abc', session1);
@@ -644,12 +646,8 @@ describe('GET /sessions/batch-status', () => {
     const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
     // Both sessions should have entries in the statuses map
     expect(Object.keys(body.statuses)).toHaveLength(2);
-    expect(body.statuses['batchsession1234abc']).toEqual(
-      expect.objectContaining({ status: expect.any(String), ptyActive: expect.any(Boolean) })
-    );
-    expect(body.statuses['batchsession5678def']).toEqual(
-      expect.objectContaining({ status: expect.any(String), ptyActive: expect.any(Boolean) })
-    );
+    expect(body.statuses['batchsession1234abc']).toEqual({ status: 'running', ptyActive: true });
+    expect(body.statuses['batchsession5678def']).toEqual({ status: 'running', ptyActive: true });
   });
 
   it('returns empty statuses when no sessions exist', async () => {

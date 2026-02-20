@@ -43,8 +43,11 @@ export class container extends Container<Env> {
   // Terminal server handles all endpoints: WebSocket, health check, metrics
   defaultPort = 8080;
 
-  // Bug 3 fix: Extend sleepAfter to 24h - our activity polling handles hibernation
-  sleepAfter = '24h';
+  // Safety backstop: SDK kills container after 8h of no HTTP fetch() activity.
+  // Our alarm-based polling (5-min interval, 30-min idle) handles real idle detection
+  // via WebSocket connection tracking. sleepAfter only tracks HTTP activity, so it
+  // must be long enough to never kill a container with active WebSocket sessions.
+  sleepAfter = '8h';
 
   // Environment variables - dynamically generated via getter
   private _bucketName: string | null = null;
@@ -404,22 +407,21 @@ export class container extends Container<Env> {
    */
   override onStart(): void {
     // Kill switch: destroyed DO should not run
+    // Do NOT call this.destroy() — super.destroy() restarts the container, creating a zombie loop.
+    // Just delete the alarm so nothing reschedules. Container dies via sleepAfter.
     if (this._destroyed) {
-      this.logger.warn('onStart kill switch: DO is destroyed, tearing down');
-      void (async () => {
-        await this.ctx.storage.deleteAlarm();
-        await this.destroy();
-      })();
+      this.logger.warn('onStart kill switch: DO is destroyed, clearing alarm only');
+      void this.ctx.storage.deleteAlarm();
       return;
     }
 
     // Kill switch: orphan DO with no bucket should not run
     if (!this._bucketName) {
-      this.logger.warn('onStart kill switch: no bucketName, setting tombstone and tearing down');
+      this.logger.warn('onStart kill switch: no bucketName, setting tombstone');
+      this._destroyed = true;
       void (async () => {
         await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
         await this.ctx.storage.deleteAlarm();
-        await this.destroy();
       })();
       return;
     }
@@ -538,43 +540,16 @@ export class container extends Container<Env> {
   }
 
   /**
-   * Check if container is stopped and clean it up if so.
-   * @returns true if container was stopped and cleaned up
-   */
-  private async checkContainerStopped(): Promise<boolean> {
-    try {
-      const state = await this.getState();
-      if (state.status === 'stopped' || state.status === 'stopped_with_code') {
-        this.logger.info('Container stopped, destroying to prevent zombie resurrection', { status: state.status });
-        await this.cleanupAndDestroy('container_stopped_state', { status: state.status });
-        return true;
-      }
-      return false;
-    } catch (err) {
-      this.logger.warn('Could not get state in alarm, skipping stopped-state check this cycle', {
-        error: toErrorMessage(err),
-      });
-      return false;
-    }
-  }
-
-  /**
    * Handle idle container by checking activity and destroying if idle too long.
    * @returns true if container was destroyed due to being idle
    */
   private async handleIdleContainer(): Promise<boolean> {
-    // Don't probe containers that aren't running — prevents zombie resurrection
-    // via this.fetch() -> super.fetch() -> containerFetch() auto-start path
-    try {
-      const state = await this.getState();
-      if (state.status !== 'running' && state.status !== 'healthy') {
-        await this.ctx.storage.deleteAlarm();
-        this._activityPollAlarm = false;
-        return true;
-      }
-    } catch {
-      // getState() failed — don't proceed with fetch that could auto-start
-      return false;
+    // Guard: if container isn't running, clean up immediately — prevents zombie auto-start
+    // via this.fetch() -> containerFetch() -> startAndWaitForPorts() path
+    if (!this.ctx.container?.running) {
+      this.logger.info('Container not running, cleaning up');
+      await this.cleanupAndDestroy('container_not_running');
+      return true;
     }
 
     const activityInfo = await this.getActivityInfoWithRetry();
@@ -663,9 +638,23 @@ export class container extends Container<Env> {
   private async cleanupAndDestroy(reason: string, details?: Record<string, unknown>): Promise<void> {
     await this.recordShutdownInfo(reason, details, { overwrite: true });
     await this.updateKvSessionStopped();
+    this._destroyed = true;
     await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
     await this.ctx.storage.deleteAlarm();
-    await this.destroy();
+    this._activityPollAlarm = false;
+
+    // Clean operational storage (same as destroy() but WITHOUT super.destroy())
+    // super.destroy() restarts the container in the SDK, which triggers onStart()
+    // on a fresh instance where _destroyed=false, scheduling a new alarm → zombie loop.
+    // Instead: set tombstone, delete alarm, clean storage, walk away.
+    // The container process dies naturally via sleepAfter (24h backstop).
+    try {
+      await this.ctx.storage.delete('bucketName');
+      await this.ctx.storage.delete('workspaceSyncEnabled');
+      await this.ctx.storage.delete('tabConfig');
+    } catch (err) {
+      this.logger.error('Failed to clear storage in cleanupAndDestroy', err instanceof Error ? err : new Error(toErrorMessage(err)));
+    }
   }
 
   /**
@@ -696,12 +685,9 @@ export class container extends Container<Env> {
       return;
     }
 
-    // Step 3: Check if container is stopped
-    if (await this.checkContainerStopped()) {
-      return;
-    }
-
-    // Step 4: Handle activity polling and idle detection
+    // Step 3: Handle activity polling and idle detection
+    // handleIdleContainer() checks ctx.container.running for liveness (no SDK auto-start)
+    // and uses getTcpPort().fetch() for activity data (no containerFetch() auto-start).
     try {
       if (await this.handleIdleContainer()) {
         return;
@@ -727,14 +713,19 @@ export class container extends Container<Env> {
     hasActiveConnections: boolean;
     disconnectedForMs: number | null;
   } | null> {
+    // Guard: don't fetch from a stopped container — prevents zombie auto-start
+    if (!this.ctx.container?.running) return null;
+
     try {
       const headers: HeadersInit = {};
       if (this._containerAuthToken) {
         headers['Authorization'] = `Bearer ${this._containerAuthToken}`;
       }
-      const response = await this.fetch(
-        new Request(this.getTerminalActivityUrl(), { method: 'GET', headers })
-      );
+      const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
+      const response = await tcpPort.fetch(this.getTerminalActivityUrl(), {
+        method: 'GET',
+        headers,
+      });
 
       if (response.ok) {
         const data = await response.json() as {
@@ -794,12 +785,18 @@ export class container extends Container<Env> {
    */
   override async destroy(): Promise<void> {
     this.logger.info('Destroying container, clearing operational storage');
+    // Set in-memory flag BEFORE super.destroy() — if the SDK triggers onStart()
+    // on the same instance, the kill switch sees this immediately
+    this._destroyed = true;
     try {
       await this.recordShutdownInfo('destroy_called', undefined, { overwrite: false });
 
       // Clear the alarm first
       await this.ctx.storage.deleteAlarm();
       this._activityPollAlarm = false;
+
+      // Ensure tombstone is persisted — destroy() may be called directly (not via cleanupAndDestroy)
+      await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
 
       // Delete operational data but KEEP _destroyed flag and _sessionId
       // _destroyed: a stale alarm can still detect zombie state
