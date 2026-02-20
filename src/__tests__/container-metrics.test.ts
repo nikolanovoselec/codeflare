@@ -202,8 +202,9 @@ describe('Container Metrics', () => {
       testState.containerRunning = false;
       await containerInstance.collectMetrics();
 
-      // Should exit early since container is not running
-      expect(testState.scheduleCalls).toHaveLength(0);
+      // Should still re-arm unconditionally (schedule is one-shot;
+      // if DO is shutting down, the alarm simply won't fire)
+      expect(testState.scheduleCalls).toHaveLength(1);
     });
 
     it('should handle fetch failure gracefully without crashing', async () => {

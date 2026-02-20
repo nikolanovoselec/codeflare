@@ -357,9 +357,8 @@ export class container extends Container<Env> {
   }
 
   async collectMetrics(): Promise<void> {
-    if (!this.ctx.container?.running) return;
     try {
-      const tcpPort = this.ctx.container.getTcpPort(8080);
+      const tcpPort = this.ctx.container!.getTcpPort(8080);
       const res = await tcpPort.fetch('http://localhost/health');
       const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
 
@@ -382,9 +381,12 @@ export class container extends Container<Env> {
       this.logger.warn('Metrics collection failed', { error: err instanceof Error ? err.message : String(err) });
     }
 
-    // Re-arm if still running
-    if (this.ctx.container?.running) {
+    // Always re-arm. schedule() is one-shot (deleted after execution).
+    // If the DO is shutting down, the alarm simply won't fire.
+    try {
       await this.schedule(5, 'collectMetrics');
+    } catch {
+      // DO is shutting down or destroyed — schedule() can't set alarm
     }
   }
 
