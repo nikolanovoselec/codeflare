@@ -465,6 +465,39 @@ export class container extends Container<Env> {
   }
 
   /**
+   * Called when sleepAfter expires. Check if there are active WebSocket
+   * clients — if so, renew the timeout instead of letting the container die.
+   */
+  override async onActivityExpired(): Promise<void> {
+    if (!this.ctx.container?.running) {
+      this.logger.info('onActivityExpired: container not running, allowing sleep');
+      await this.stop('SIGTERM');
+      return;
+    }
+
+    try {
+      const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
+      const res = await tcpPort.fetch('http://localhost/activity');
+      const activity = await res.json() as { hasActiveConnections: boolean; connectedClients: number };
+
+      if (activity.hasActiveConnections) {
+        this.logger.info('onActivityExpired: active WS clients, renewing timeout', {
+          connectedClients: activity.connectedClients,
+        });
+        this.renewActivityTimeout();
+        return;
+      }
+    } catch (err) {
+      this.logger.warn('onActivityExpired: failed to check activity, allowing sleep', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    this.logger.info('onActivityExpired: no active clients, stopping container');
+    await this.stop('SIGTERM');
+  }
+
+  /**
    * Called when the container stops
    */
   override async onStop(): Promise<void> {
