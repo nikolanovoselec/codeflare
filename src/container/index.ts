@@ -353,6 +353,8 @@ export class container extends Container<Env> {
     this.updateEnvVars();
     await this.updateKvStatus('running', 'lastStartedAt');
     this.logger.info('Container started');
+    // Clear any stale schedule rows from previous runs before arming fresh
+    try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
     await this.schedule(5, 'collectMetrics');
   }
 
@@ -360,32 +362,47 @@ export class container extends Container<Env> {
     // Don't collect or re-arm if container process is dead.
     // onStart() will restart the schedule loop on next container start.
     if (!this.ctx.container?.running) {
-      this.logger.debug('collectMetrics skipped: container not running');
+      this.logger.info('collectMetrics: container not running, skipping');
       return;
     }
 
     try {
       const tcpPort = this.ctx.container.getTcpPort(8080);
       const res = await tcpPort.fetch('http://localhost/health');
-      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
 
-      const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
-      if (sessionId && this._bucketName) {
-        const key = getSessionKey(this._bucketName, sessionId);
-        const session = await this.env.KV.get<Session>(key, 'json');
-        if (session) {
-          session.metrics = {
-            cpu: health.cpu,
-            mem: health.mem,
-            hdd: health.hdd,
-            syncStatus: health.syncStatus,
-            updatedAt: new Date().toISOString(),
-          };
-          await this.env.KV.put(key, JSON.stringify(session));
+      if (!res.ok) {
+        // Health endpoint returned non-200 (e.g. container still booting).
+        // Don't parse — just log and re-arm below.
+        this.logger.info('collectMetrics: health non-OK', { status: res.status });
+      } else {
+        const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
+
+        const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
+        // Fallback: if _bucketName isn't set on the instance, try loading from storage
+        const bucketName = this._bucketName || await this.ctx.storage.get<string>('bucketName') || null;
+
+        if (!sessionId || !bucketName) {
+          this.logger.info('collectMetrics: missing identifiers', { sessionId: !!sessionId, bucketName: !!bucketName });
+        } else {
+          const key = getSessionKey(bucketName, sessionId);
+          const session = await this.env.KV.get<Session>(key, 'json');
+          if (!session) {
+            this.logger.info('collectMetrics: session not found in KV', { key });
+          } else {
+            session.metrics = {
+              cpu: health.cpu,
+              mem: health.mem,
+              hdd: health.hdd,
+              syncStatus: health.syncStatus,
+              updatedAt: new Date().toISOString(),
+            };
+            await this.env.KV.put(key, JSON.stringify(session));
+            this.logger.info('collectMetrics: wrote metrics to KV', { key, cpu: health.cpu, mem: health.mem });
+          }
         }
       }
     } catch (err) {
-      this.logger.warn('Metrics collection failed', { error: err instanceof Error ? err.message : String(err) });
+      this.logger.warn('collectMetrics: fetch/write failed', { error: err instanceof Error ? err.message : String(err) });
     }
 
     // Re-arm only if still running. schedule() is one-shot — if we don't
@@ -406,20 +423,27 @@ export class container extends Container<Env> {
   private async updateKvStatus(status: 'running' | 'stopped' | null, field: 'lastStartedAt' | 'lastActiveAt'): Promise<void> {
     try {
       const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
-      const bucketName = this._bucketName;
-      if (!sessionId || !bucketName) return;
+      // Fallback: if _bucketName isn't set on the instance, try loading from storage
+      const bucketName = this._bucketName || await this.ctx.storage.get<string>('bucketName') || null;
+      if (!sessionId || !bucketName) {
+        this.logger.info('updateKvStatus: missing identifiers', { status, field, sessionId: !!sessionId, bucketName: !!bucketName });
+        return;
+      }
       const key = getSessionKey(bucketName, sessionId);
       const session = await this.env.KV.get<Session>(key, 'json');
-      if (session) {
-        if (status !== null) {
-          session.status = status;
-        }
-        session[field] = new Date().toISOString();
-        if (status === 'stopped') {
-          delete session.metrics;
-        }
-        await this.env.KV.put(key, JSON.stringify(session));
+      if (!session) {
+        this.logger.info('updateKvStatus: session not found in KV', { key, status, field });
+        return;
       }
+      if (status !== null) {
+        session.status = status;
+      }
+      session[field] = new Date().toISOString();
+      if (status === 'stopped') {
+        delete session.metrics;
+      }
+      await this.env.KV.put(key, JSON.stringify(session));
+      this.logger.info('updateKvStatus: wrote to KV', { key, status, field });
     } catch (err) {
       this.logger.error('Failed to update KV status', err instanceof Error ? err : new Error(String(err)));
     }
