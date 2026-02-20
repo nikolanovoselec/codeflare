@@ -149,11 +149,11 @@ describe('SessionCard', () => {
       expect(metrics.length).toBe(5);
     });
 
-    it('does not display metrics for stopped sessions', () => {
+    it('displays last-known metrics for stopped sessions when data exists', () => {
       const session = createSession({ id: 's1', status: 'stopped' });
       render(() => <SessionCard {...defaultProps} session={session} />);
-      expect(screen.queryByTestId('session-card-s1-metric-cpu')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('session-metrics')).not.toBeInTheDocument();
+      expect(screen.getByTestId('session-card-s1-metric-cpu')).toBeInTheDocument();
+      expect(screen.getByTestId('session-metrics')).toBeInTheDocument();
     });
   });
 

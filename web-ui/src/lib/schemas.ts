@@ -101,8 +101,8 @@ export const BatchSessionStatusResponseSchema = z.object({
     status: z.enum(['running', 'stopped', 'stopping']),
     ptyActive: z.boolean(),
     startupStage: z.string().optional(),
-    lastStartedAt: z.string().optional(),
-    lastActiveAt: z.string().optional(),
+    lastStartedAt: z.string().nullable().optional(),
+    lastActiveAt: z.string().nullable().optional(),
     metrics: z.object({
       cpu: z.string().optional(),
       mem: z.string().optional(),

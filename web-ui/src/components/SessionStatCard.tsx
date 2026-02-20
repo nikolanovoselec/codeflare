@@ -70,7 +70,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         </button>
       </div>
 
-      <Show when={props.session.status === 'running'}>
+      <Show when={props.session.status === 'running' || metrics()}>
         <div class="stat-card__metrics">
           <div class="stat-card__metric" data-testid={`session-stat-card-${props.session.id}-metric-cpu`}>
             <span class="stat-card__metric-label">

@@ -232,7 +232,7 @@ const SessionCard: Component<SessionCardProps> = (props) => {
             </span>
           </div>
 
-          <Show when={props.session.status === 'running'}>
+          <Show when={props.session.status === 'running' || metrics()}>
             <div class="stat-card__metrics" data-testid="session-metrics">
               <div class="stat-card__metric session-card-metric" data-testid={`session-card-${props.session.id}-metric-bucket`}>
                 <span class="stat-card__metric-label">

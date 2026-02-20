@@ -269,7 +269,7 @@ describe('Container Metrics', () => {
       // onStop calls updateKvStatus('stopped', 'lastActiveAt')
       await containerInstance.onStop();
 
-      // Verify metrics were cleared
+      // Verify metrics are preserved (last-known values kept for dashboard display)
       expect(mockKV.put).toHaveBeenCalled();
       const putCall = mockKV.put.mock.calls.find(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
@@ -277,7 +277,8 @@ describe('Container Metrics', () => {
       expect(putCall).toBeDefined();
       const stored = JSON.parse(putCall![1] as string) as Session;
       expect(stored.status).toBe('stopped');
-      expect(stored.metrics).toBeUndefined();
+      expect(stored.metrics).toBeDefined();
+      expect(stored.metrics?.cpu).toBe('25%');
       expect(stored.lastActiveAt).toBeDefined();
     });
   });
