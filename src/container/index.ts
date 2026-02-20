@@ -26,7 +26,7 @@ export class container extends Container<Env> {
   defaultPort = 8080;
 
   // SDK kills container after 24h of no HTTP fetch() activity.
-  override sleepAfter = '24h';
+  override sleepAfter = '3m';
 
   // Environment variables - dynamically generated via getter
   private _bucketName: string | null = null;
@@ -349,9 +349,9 @@ export class container extends Container<Env> {
   /**
    * Called when the container starts successfully.
    */
-  override onStart(): void {
+  override async onStart(): Promise<void> {
     this.updateEnvVars();
-    void this.updateKvTimestamp('lastStartedAt');
+    await this.updateKvTimestamp('lastStartedAt');
     this.logger.info('Container started');
   }
 
@@ -393,9 +393,9 @@ export class container extends Container<Env> {
   /**
    * Called when the container stops
    */
-  override onStop(): void {
+  override async onStop(): Promise<void> {
     this.logger.info('Container stopped');
-    void this.updateKvTimestamp('lastActiveAt');
+    await this.updateKvTimestamp('lastActiveAt');
   }
 
   /**

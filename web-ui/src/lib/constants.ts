@@ -131,7 +131,7 @@ export const VIEW_TRANSITION_DURATION_MS = 300;
 // =============================================================================
 
 /** After this duration of inactivity, agent context is gone and container must be fully restarted (ms) */
-export const CONTEXT_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24h — matches backend sleepAfter
+export const CONTEXT_EXPIRY_MS = 3 * 60 * 1000; // 3m — matches backend sleepAfter for testing
 
 /** Timeout for attempting WebSocket reconnection before falling back to full restart (ms) */
 export const WS_RECONNECT_TIMEOUT_MS = 5_000;

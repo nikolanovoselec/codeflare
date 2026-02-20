@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * Container DO class tests.
  *
  * The container class (src/container/index.ts) extends Cloudflare's Container<Env>
- * base class. The SDK handles idle detection via sleepAfter (24h). The DO manages
+ * base class. The SDK handles idle detection via sleepAfter (3m for testing). The DO manages
  * lifecycle timestamps via KV updates in onStart/onStop.
  *
  * What we CAN test in isolation:
@@ -132,9 +132,9 @@ describe('container DO class', () => {
       expect(instance.defaultPort).toBe(8080);
     });
 
-    it('initializes with sleepAfter 24h', () => {
+    it('initializes with sleepAfter 3m', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.sleepAfter).toBe('3m');
     });
 
     it('calls blockConcurrencyWhile in constructor', () => {
@@ -460,9 +460,9 @@ describe('container DO class', () => {
   });
 
   describe('sleepAfter', () => {
-    it('sleepAfter is 24h', () => {
+    it('sleepAfter is 3m', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.sleepAfter).toBe('3m');
     });
   });
 
@@ -487,7 +487,7 @@ describe('container DO class', () => {
 
       // Properties set by the class
       expect(instance.defaultPort).toBe(8080);
-      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.sleepAfter).toBe('3m');
     });
   });
 });
