@@ -137,9 +137,9 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ### 2.18 Container DO (CodeflareContainer)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '24h'`.
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '3m'` (SDK-managed lifecycle, set low for testing).
 
-**Activity-Based Hibernation:** DO alarm fires every 5 minutes, checks `/activity` endpoint (hasActiveConnections, lastUserInputMs, lastAgentFileActivityMs). Hibernates when no user input (keystrokes to PTY) and no agent file activity for 5 minutes. `destroy()` override MUST call `this.ctx.storage.deleteAlarm()` to prevent zombie containers.
+**SDK-Managed Hibernation:** No DO alarms — `sleepAfter` lets the SDK handle container process lifecycle. `onStart()` updates KV with `lastStartedAt` timestamp. `onStop()` sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
 
 **Environment Variables Injection:** R2 credentials flow via two paths: (1) `_internal/setBucketName` request body (primary, from Worker), (2) `this.env` fallback (DO restart). Fallback chain: Worker-provided > `this.env` > empty string.
 
@@ -782,9 +782,9 @@ Mixing `--include`/`--exclude` makes filter order indeterminate. Fix: use `--fil
 
 Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 
-### Zombie Container (DO Alarm Loop)
+### Zombie Container
 
-`destroy()` must clear DO alarm: `await this.ctx.storage.deleteAlarm()` before `super.destroy()`. Recovery: `POST /api/admin/destroy-by-id` with DO ID from dashboard.
+No longer caused by DO alarm loops (alarms removed in favor of SDK-managed `sleepAfter`). Recovery if needed: `POST /api/admin/destroy-by-id` with DO ID from dashboard.
 
 ### Character Doubling in Terminal
 
@@ -810,7 +810,7 @@ Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
 | `403 Forbidden` on R2 | Expired credentials | Regenerate in CF dashboard |
 | Container stuck "starting" | Port 8080 not responding | Check sync log |
 | WebSocket fails | Container not running | Verify startup-status |
-| Zombie restarts | DO alarm not cleared | Use admin destroy-by-id |
+| Zombie restarts | Stale DO state | Use admin destroy-by-id |
 | Character doubling | inputDisposable not disposed | Check Terminal.tsx |
 
 ---
@@ -856,7 +856,7 @@ curl .../api/container/debug?sessionId=abc12345  # Returns masked env vars
 | `default` | 1 vCPU, 3 GiB, 4 GB | ~$56 (reference) |
 | `high` | 2 vCPU, 6 GiB, 8 GB | Higher; check CF pricing |
 
-Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate (no user input + no agent file activity for 5 min). Hibernated containers = zero cost.
+Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate after `sleepAfter` (3m for testing) of no SDK-proxied requests. Hibernated containers = zero cost.
 
 **R2:** First 10GB free, $0.015/GB/month after. User config typically <100MB.
 
@@ -871,8 +871,8 @@ Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate
 5. **WebSocket sends RAW bytes** - xterm.js expects raw terminal data, not JSON.
 6. **Login shell for .bashrc** - PTY must spawn `bash -l` for auto-start.
 7. **Two-step sync prevents data loss** - Empty local + bisync resync = deleted R2 data. Always restore first.
-8. **DO alarm cleanup in destroy()** - Alarms persist across hibernation. Clear before `super.destroy()`.
-9. **Activity-based hibernation** - Poll actual usage (user input + agent file activity), don't rely on `sleepAfter` alone.
+8. **SDK-managed lifecycle over DO alarms** - `sleepAfter` with no alarms eliminates zombie container resurrection entirely.
+9. **`onStop()` must set KV status** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV, otherwise other devices see stale 'running' status.
 10. **Don't getState() after destroy()** - Wakes the DO, undoing hibernation.
 11. **inputDisposable scope matters** - Dispose on reconnect to prevent character doubling.
 12. **No fallback container IDs** - `getContainerId()` must NEVER fallback to just `bucketName`. Root cause of zombies.

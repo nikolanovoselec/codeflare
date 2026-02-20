@@ -182,7 +182,6 @@ async function loadSessions(): Promise<void> {
         updateSessionStatus(session.id, 'running');
         if (!wasRunning) {
           initializeTerminalsForSession(session.id);
-          startMetricsPolling(session.id);
         }
       } else {
         updateSessionStatus(session.id, batchStatus.status);
@@ -503,7 +502,6 @@ async function refreshSessionStatuses(): Promise<void> {
       if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
         updateSessionStatus(session.id, 'running');
         initializeTerminalsForSession(session.id);
-        startMetricsPolling(session.id);
       } else if (remote.status === 'stopped' && session.status !== 'stopped' && session.status !== 'stopping') {
         updateSessionStatus(session.id, 'stopped');
       }
@@ -598,6 +596,7 @@ export const sessionStore = {
 
   // Session metrics
   getMetricsForSession,
+  startMetricsPolling,
   stopMetricsPolling,
   stopAllMetricsPolling,
 

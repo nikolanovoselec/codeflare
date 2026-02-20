@@ -592,8 +592,11 @@ describe('Session Store', () => {
       });
 
       // Load sessions — session transitions from absent to 'running'
-      // which triggers initializeTerminalsForSession + startMetricsPolling
+      // which triggers initializeTerminalsForSession (but NOT metrics polling —
+      // metrics polling only starts from startSession() or explicit call)
       await sessionStore.loadSessions();
+      // Explicitly start metrics polling (simulates entering terminal view)
+      sessionStore.startMetricsPolling('session-1');
     });
 
     it('should start polling for running sessions', async () => {
