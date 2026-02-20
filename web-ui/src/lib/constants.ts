@@ -20,17 +20,11 @@ export const MAX_STARTUP_POLL_ERRORS = 10;
 // Terminal Connection
 // =============================================================================
 
-/** Maximum connection retries during initial connect */
-export const MAX_CONNECTION_RETRIES = 45;
+/** Maximum WebSocket connection retry attempts */
+export const MAX_WS_RETRIES = 10;
 
-/** Delay between initial connection retry attempts (ms) */
-export const CONNECTION_RETRY_DELAY_MS = 1500;
-
-/** Maximum reconnection attempts for dropped connections */
-export const MAX_RECONNECT_ATTEMPTS = 5;
-
-/** Delay between reconnection attempts (ms) */
-export const RECONNECT_DELAY_MS = 2000;
+/** Delay between WebSocket retry attempts (ms) */
+export const WS_RETRY_DELAY_MS = 2000;
 
 // =============================================================================
 // UI Timing
@@ -129,7 +123,7 @@ export const VIEW_TRANSITION_DURATION_MS = 300;
 export const CONTEXT_EXPIRY_MS = 3 * 60 * 1000; // 3m — matches backend sleepAfter for testing
 
 /** Timeout for attempting WebSocket reconnection before falling back to full restart (ms) */
-export const WS_RECONNECT_TIMEOUT_MS = 5_000;
+export const WS_RECONNECT_TIMEOUT_MS = 20_000;
 
 // =============================================================================
 // Dashboard WebSocket Disconnect

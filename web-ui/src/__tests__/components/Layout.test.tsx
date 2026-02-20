@@ -83,7 +83,7 @@ vi.mock('../../stores/session', () => ({
 
 vi.mock('../../stores/terminal', () => ({
   terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn() },
-  reconnectDroppedConnections: vi.fn(),
+  reconnectDisconnectedTerminals: vi.fn(),
   scheduleDisconnect: vi.fn(),
   cancelScheduledDisconnect: vi.fn(),
 }));

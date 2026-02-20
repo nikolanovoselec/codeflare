@@ -6,10 +6,8 @@ import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import { logger } from '../lib/logger';
 import {
-  MAX_CONNECTION_RETRIES,
-  CONNECTION_RETRY_DELAY_MS,
-  MAX_RECONNECT_ATTEMPTS,
-  RECONNECT_DELAY_MS,
+  MAX_WS_RETRIES,
+  WS_RETRY_DELAY_MS,
   CSS_TRANSITION_DELAY_MS,
   WS_CLOSE_ABNORMAL,
   URL_CHECK_INTERVAL_MS,
@@ -44,12 +42,10 @@ const [state, setState] = createStore<{
 const connections = new Map<string, WebSocket>();
 const terminals = new Map<string, Terminal>();
 const retryTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const abortControllers = new Map<string, AbortController>();
 
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
-
-// Bug 2 fix: Track reconnection attempts for dropped connections
-const reconnectAttempts = new Map<string, number>();
 
 // Store fitAddon references for triggering resize on layout change
 const fitAddons = new Map<string, FitAddon>();
@@ -164,19 +160,9 @@ function getTerminal(sessionId: string, terminalId: string): Terminal | undefine
 /**
  * Connect to terminal WebSocket with retry logic.
  *
- * Structure analysis (Phase 3 refactoring review):
- * - Uses nested `attemptConnection()` function for retry handling (appropriate since it
- *   needs closure over `cancelled` flag and `key` variable)
- * - WebSocket event handlers (onopen, onmessage, onerror, onclose) are self-contained
- * - Retry logic in onclose is well-commented and handles multiple scenarios:
- *   1. Initial connection retries (MAX_CONNECTION_RETRIES attempts)
- *   2. Reconnection for dropped connections (MAX_RECONNECT_ATTEMPTS)
- * - Returns cleanup function for proper resource disposal
- *
- * Further extraction not warranted because:
- * - Extracting `attemptConnection()` to module level would require passing many parameters
- * - WebSocket event handlers need closure over `ws`, `cancelled`, `terminal`, etc.
- * - Current structure is clear and well-documented
+ * Uses an AbortController (stored in module-level map) to cancel stale retry loops.
+ * When a new connect() or disconnect() is called for the same key, the previous
+ * controller is aborted, ensuring only one retry loop exists per terminal at a time.
  *
  * @param sessionId - The session ID to connect to
  * @param terminalId - The terminal tab ID within the session
@@ -206,14 +192,18 @@ function connect(
     inputDisposables.delete(key);
   }
 
-  // Reset reconnection attempts on fresh connect
-  reconnectAttempts.delete(key);
-
-  let cancelled = false;
+  // Abort any previous retry loop for this key and create a new controller
+  const previousController = abortControllers.get(key);
+  if (previousController) {
+    previousController.abort();
+  }
+  const controller = new AbortController();
+  const signal = controller.signal;
+  abortControllers.set(key, controller);
 
   // Attempt connection with retries
   function attemptConnection(attemptNumber: number): void {
-    if (cancelled) return;
+    if (signal.aborted) return;
 
     // Clear any existing retry timeout
     const existingTimeout = retryTimeouts.get(key);
@@ -225,7 +215,7 @@ function connect(
     setConnectionState(sessionId, terminalId, 'connecting');
 
     if (attemptNumber > 1) {
-      setRetryMessage(sessionId, terminalId, `Connecting... (attempt ${attemptNumber}/${MAX_CONNECTION_RETRIES})`);
+      setRetryMessage(sessionId, terminalId, `Connecting... (attempt ${attemptNumber}/${MAX_WS_RETRIES})`);
     } else {
       setRetryMessage(sessionId, terminalId, 'Connecting...');
     }
@@ -236,16 +226,13 @@ function connect(
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
-      if (cancelled) {
+      if (signal.aborted) {
         ws.close();
         return;
       }
       logger.debug(`[Terminal ${key}] WebSocket opened`);
       setConnectionState(sessionId, terminalId, 'connected');
       setRetryMessage(sessionId, terminalId, null);
-
-      // Bug 1 fix: Reset reconnection attempts on successful connection
-      reconnectAttempts.delete(key);
 
       // Bug 1 fix: Dispose any existing input handler before creating a new one
       const existingDisposable = inputDisposables.get(key);
@@ -280,7 +267,7 @@ function connect(
     };
 
     function handleWebSocketMessage(event: MessageEvent): void {
-      if (cancelled) return;
+      if (signal.aborted) return;
 
       // Server sends RAW terminal data - write directly to xterm
       let messageData: string;
@@ -321,7 +308,7 @@ function connect(
     }
 
     function handleWebSocketClose(event: CloseEvent): void {
-      if (cancelled) return;
+      if (signal.aborted) return;
 
       logger.warn(`[Terminal ${key}] WS CLOSED: code=${event.code}, reason="${event.reason}", state=${getConnectionState(sessionId, terminalId)}`);
       connections.delete(key);
@@ -332,49 +319,24 @@ function connect(
         return;
       }
 
-      // WS_CLOSE_ABNORMAL (1006) = abnormal closure (connection failed)
-      // Retry if we haven't exhausted attempts and connection was never successfully established
-      const wasNeverConnected = getConnectionState(sessionId, terminalId) === 'connecting';
-      const shouldRetry = wasNeverConnected && attemptNumber < MAX_CONNECTION_RETRIES && event.code === WS_CLOSE_ABNORMAL;
-
-      if (shouldRetry) {
-        logger.warn(`[Terminal ${key}] Retrying initial connection, attempt ${attemptNumber + 1}/${MAX_CONNECTION_RETRIES}, code=${event.code}`);
+      // Retry on abnormal closure if we haven't exhausted attempts
+      if (event.code === WS_CLOSE_ABNORMAL && attemptNumber < MAX_WS_RETRIES && !signal.aborted) {
+        logger.warn(`[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}/${MAX_WS_RETRIES}, code=${event.code}`);
         const timeout = setTimeout(() => {
           attemptConnection(attemptNumber + 1);
-        }, CONNECTION_RETRY_DELAY_MS);
+        }, WS_RETRY_DELAY_MS);
         retryTimeouts.set(key, timeout);
         return;
       }
 
-      // Reconnection logic - used for both:
-      // 1. Dropped connections (was connected, now disconnected)
-      // 2. Exhausted initial retries (gives extra attempts for slow container wake-up)
-      const currentReconnectAttempts = reconnectAttempts.get(key) || 0;
-
-      if (currentReconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        const nextAttempt = currentReconnectAttempts + 1;
-        reconnectAttempts.set(key, nextAttempt);
-
-        const reason = wasNeverConnected ? 'Initial retries exhausted' : 'Connection dropped';
-        logger.warn(`[Terminal ${key}] ${reason}, reconnecting (attempt ${nextAttempt}/${MAX_RECONNECT_ATTEMPTS}), code=${event.code}`);
-        setConnectionState(sessionId, terminalId, 'connecting');
-        setRetryMessage(sessionId, terminalId, `Reconnecting... (attempt ${nextAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
-
-        const timeout = setTimeout(() => {
-          if (!cancelled) {
-            attemptConnection(1);
-          }
-        }, RECONNECT_DELAY_MS);
-        retryTimeouts.set(key, timeout);
-      } else {
-        logger.warn(`[Terminal ${key}] Max reconnection attempts reached, giving up`);
-        setConnectionState(sessionId, terminalId, wasNeverConnected ? 'error' : 'disconnected');
-        setRetryMessage(sessionId, terminalId, null);
-        reconnectAttempts.delete(key);
-        onError?.(wasNeverConnected
-          ? 'Failed to connect to terminal after multiple attempts'
-          : 'Connection lost. Click reconnect to try again.');
-      }
+      // Max retries exhausted or non-abnormal close
+      const wasNeverConnected = getConnectionState(sessionId, terminalId) === 'connecting';
+      logger.warn(`[Terminal ${key}] Max retries reached or normal close, giving up`);
+      setConnectionState(sessionId, terminalId, wasNeverConnected ? 'error' : 'disconnected');
+      setRetryMessage(sessionId, terminalId, null);
+      onError?.(wasNeverConnected
+        ? 'Failed to connect to terminal after multiple attempts'
+        : 'Connection lost. Click reconnect to try again.');
     }
 
     ws.onmessage = handleWebSocketMessage;
@@ -393,7 +355,7 @@ function connect(
 
   // Return cleanup function
   return () => {
-    cancelled = true;
+    controller.abort();
 
     // Bug 1 fix: Dispose input handler from the external Map
     const disposable = inputDisposables.get(key);
@@ -409,9 +371,6 @@ function connect(
       retryTimeouts.delete(key);
     }
 
-    // Clear reconnection attempts
-    reconnectAttempts.delete(key);
-
     disconnect(sessionId, terminalId);
   };
 }
@@ -419,6 +378,13 @@ function connect(
 // Disconnect from terminal
 function disconnect(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
+
+  // Abort any in-flight retry loops for this key (THE BUG FIX)
+  const controller = abortControllers.get(key);
+  if (controller) {
+    controller.abort();
+    abortControllers.delete(key);
+  }
 
   // Bug 1 fix: Dispose input handler before closing WebSocket
   const disposable = inputDisposables.get(key);
@@ -490,9 +456,13 @@ function disposeSession(sessionId: string): void {
     }
   }
 
-  for (const key of [...reconnectAttempts.keys()]) {
+  for (const key of [...abortControllers.keys()]) {
     if (key.startsWith(prefix)) {
-      reconnectAttempts.delete(key);
+      const controller = abortControllers.get(key);
+      if (controller) {
+        controller.abort();
+      }
+      abortControllers.delete(key);
     }
   }
 
@@ -543,7 +513,12 @@ function disposeAll(): void {
   }
   retryTimeouts.clear();
 
-  reconnectAttempts.clear();
+  // Abort all retry loops
+  for (const controller of abortControllers.values()) {
+    controller.abort();
+  }
+  abortControllers.clear();
+
   fitAddons.clear();
 }
 
@@ -746,14 +721,14 @@ function stopUrlDetection(): void {
 let disconnectTimerId: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * Reconnect any WebSocket connections that were dropped (e.g. while the user
- * was on the dashboard view).  Connections that are still open are left as-is.
+ * Reconnect any terminals that are in 'disconnected' state (e.g. after the
+ * dashboard scheduled disconnect fired).  Connected terminals are left as-is.
  */
-export function reconnectDroppedConnections(): void {
-  for (const [key, ws] of connections) {
-    if (ws.readyState !== WebSocket.OPEN) {
-      const [sessionId, terminalId] = key.split(':');
-      logger.info(`[Terminal ${key}] WS dropped (readyState=${ws.readyState}), triggering reconnect`);
+export function reconnectDisconnectedTerminals(): void {
+  for (const [key] of terminals) {
+    const [sessionId, terminalId] = key.split(':');
+    if (getConnectionState(sessionId, terminalId) === 'disconnected') {
+      logger.info(`[Terminal ${key}] Disconnected, triggering reconnect`);
       reconnect(sessionId, terminalId);
     }
   }
@@ -785,7 +760,11 @@ function disconnectAll(): void {
   }
   retryTimeouts.clear();
 
-  reconnectAttempts.clear();
+  // Abort all retry loops
+  for (const controller of abortControllers.values()) {
+    controller.abort();
+  }
+  abortControllers.clear();
 
   // Mark all connections as disconnected in the reactive store
   setState(produce((s) => {

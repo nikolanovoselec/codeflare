@@ -6,7 +6,7 @@ import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore } from '../stores/session';
-import { terminalStore, reconnectDroppedConnections, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
+import { terminalStore, reconnectDisconnectedTerminals, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
@@ -59,7 +59,7 @@ const Layout: Component<LayoutProps> = (props) => {
       sessionStore.startSessionListPolling();
     } else {
       cancelScheduledDisconnect();
-      reconnectDroppedConnections();
+      reconnectDisconnectedTerminals();
       sessionStore.stopSessionListPolling();
     }
   });

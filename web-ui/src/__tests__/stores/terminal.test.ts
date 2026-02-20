@@ -6,10 +6,8 @@ vi.mock('../../lib/constants', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
-    MAX_CONNECTION_RETRIES: 3,
-    CONNECTION_RETRY_DELAY_MS: 100,
-    MAX_RECONNECT_ATTEMPTS: 2,
-    RECONNECT_DELAY_MS: 100,
+    MAX_WS_RETRIES: 3,
+    WS_RETRY_DELAY_MS: 100,
     CSS_TRANSITION_DELAY_MS: 10,
     WS_CLOSE_ABNORMAL: 1006,
   };
@@ -718,6 +716,238 @@ describe('Terminal Store', () => {
       // Should show retry attempt
       const retryMessage = terminalStore.getRetryMessage(sessionId, terminalId);
       expect(retryMessage).toMatch(/attempt/i);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+  });
+
+  describe('AbortController-based cancellation', () => {
+    it('should cancel previous retry loops when connect() is called again for same key', async () => {
+      const terminal = createMockTerminal();
+
+      // Create WebSocket that immediately closes with abnormal code
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsCloseCount = 0;
+
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
+        readyState = 0;
+        url: string;
+        binaryType: BinaryType = 'blob';
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          // Simulate immediate failure
+          setTimeout(() => {
+            this.readyState = 3;
+            wsCloseCount++;
+            if (this.onclose) {
+              this.onclose(new CloseEvent('close', { code: 1006 }));
+            }
+          }, 0);
+        }
+
+        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+        close(_code?: number, _reason?: string): void {
+          this.readyState = 3;
+        }
+      } as unknown as typeof WebSocket);
+
+      // First connect — starts retry loop
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0); // First WS fails
+
+      // Second connect for SAME key — should abort first retry loop
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0); // Second WS fails
+
+      // Advance through what would be multiple retry cycles
+      // With MAX_WS_RETRIES=3 and delay=100ms, 3 retries = 300ms
+      // If the bug existed, both loops would retry independently = 6+ connections
+      wsCloseCount = 0;
+      await vi.advanceTimersByTimeAsync(500);
+
+      // Should have at most MAX_WS_RETRIES (3) retries from the second connect,
+      // NOT double from both loops running in parallel
+      expect(wsCloseCount).toBeLessThanOrEqual(3);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('should cancel in-flight retries when disconnect() is called', async () => {
+      const terminal = createMockTerminal();
+
+      // Create WebSocket that immediately closes with abnormal code
+      const OriginalWebSocket = globalThis.WebSocket;
+      let connectAttempts = 0;
+
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
+        readyState = 0;
+        url: string;
+        binaryType: BinaryType = 'blob';
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          connectAttempts++;
+          setTimeout(() => {
+            this.readyState = 3;
+            if (this.onclose) {
+              this.onclose(new CloseEvent('close', { code: 1006 }));
+            }
+          }, 0);
+        }
+
+        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+        close(_code?: number, _reason?: string): void {
+          this.readyState = 3;
+        }
+      } as unknown as typeof WebSocket);
+
+      // Connect — starts retry loop
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0); // First WS fails
+
+      // Disconnect — should abort controller and stop retries
+      const attemptsBeforeDisconnect = connectAttempts;
+      terminalStore.disconnect(sessionId, terminalId);
+
+      // Advance time — no more retries should happen
+      await vi.advanceTimersByTimeAsync(500);
+
+      // disconnect() itself creates no new connections, so attempts should stay the same
+      // (the +1 from disconnect calling connect is not expected here since disconnect just aborts)
+      expect(connectAttempts).toBe(attemptsBeforeDisconnect);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('should stop all retries when disconnectAll is called via disposeAll()', async () => {
+      const terminal1 = createMockTerminal();
+      const terminal2 = createMockTerminal();
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let connectAttempts = 0;
+
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
+        readyState = 0;
+        url: string;
+        binaryType: BinaryType = 'blob';
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          connectAttempts++;
+          setTimeout(() => {
+            this.readyState = 3;
+            if (this.onclose) {
+              this.onclose(new CloseEvent('close', { code: 1006 }));
+            }
+          }, 0);
+        }
+
+        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+        close(_code?: number, _reason?: string): void {
+          this.readyState = 3;
+        }
+      } as unknown as typeof WebSocket);
+
+      // Start two failing connections
+      terminalStore.connect('session-1', '1', terminal1);
+      terminalStore.connect('session-2', '1', terminal2);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const attemptsBeforeDispose = connectAttempts;
+      terminalStore.disposeAll();
+
+      // Advance time — no more retries
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(connectAttempts).toBe(attemptsBeforeDispose);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('should use single-tier retry with MAX_WS_RETRIES limit', async () => {
+      const terminal = createMockTerminal();
+      const onError = vi.fn();
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let connectAttempts = 0;
+
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
+        readyState = 0;
+        url: string;
+        binaryType: BinaryType = 'blob';
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          connectAttempts++;
+          setTimeout(() => {
+            this.readyState = 3;
+            if (this.onclose) {
+              this.onclose(new CloseEvent('close', { code: 1006 }));
+            }
+          }, 0);
+        }
+
+        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+        close(_code?: number, _reason?: string): void {
+          this.readyState = 3;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal, onError);
+
+      // Run through all retries (MAX_WS_RETRIES=3 in test mock, delay=100ms)
+      // Each attempt: 0ms for WS close + 100ms delay = ~100ms per attempt
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(0);   // WS closes
+        await vi.advanceTimersByTimeAsync(100);  // retry delay
+      }
+
+      // Should have exactly MAX_WS_RETRIES (3) attempts total
+      // (initial + 2 retries, since attemptNumber starts at 1 and retries at attemptNumber < MAX_WS_RETRIES)
+      expect(connectAttempts).toBe(3);
+
+      // Should have called onError after exhausting retries
+      expect(onError).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'));
+
+      // State should be 'error' (was never connected)
+      expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('error');
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
