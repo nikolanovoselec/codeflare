@@ -373,6 +373,11 @@ export class container extends Container<Env> {
     try {
       const activityPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
       const activityRes = await activityPort.fetch('http://localhost/activity');
+      if (!activityRes.ok) {
+        this.logger.warn('collectMetrics: /activity returned non-OK, renewing as safety net', { status: activityRes.status });
+        this.renewActivityTimeout();
+        return;
+      }
       const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
       if (activity.hasActiveConnections) {
         this.renewActivityTimeout();
@@ -500,6 +505,11 @@ export class container extends Container<Env> {
     try {
       const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
       const res = await tcpPort.fetch('http://localhost/activity');
+      if (!res.ok) {
+        this.logger.warn('onActivityExpired: /activity returned non-OK, renewing as safety net', { status: res.status });
+        this.renewActivityTimeout();
+        return;
+      }
       const activity = await res.json() as { hasActiveConnections: boolean; connectedClients: number };
 
       if (activity.hasActiveConnections) {

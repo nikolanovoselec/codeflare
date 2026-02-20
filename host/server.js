@@ -635,10 +635,12 @@ const server = http.createServer(async (req, res) => {
   const { pathname } = parseUrl(req.url);
   const method = req.method;
 
-  // Health endpoint is exempt from auth — used by DO schedule-based metrics
-  // collection via getTcpPort(8080).fetch() which cannot inject auth headers.
-  // The endpoint is already behind the container network boundary (no external access).
-  if (pathname !== '/health') {
+  // Internal endpoints exempt from auth — used by DO schedule-based callbacks
+  // (collectMetrics, onActivityExpired) via getTcpPort().fetch() which bypasses
+  // the DO's fetch() override that injects auth headers.
+  // These endpoints are behind the container network boundary (no external access).
+  const authExemptPaths = new Set(['/health', '/activity']);
+  if (!authExemptPaths.has(pathname)) {
     // Validate container auth token (internal-only service, no CORS needed)
     const expectedToken = process.env.CONTAINER_AUTH_TOKEN;
     if (expectedToken) {
