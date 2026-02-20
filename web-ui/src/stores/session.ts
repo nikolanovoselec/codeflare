@@ -178,6 +178,7 @@ async function loadSessions(): Promise<void> {
       }
 
       // Populate sessionMetrics from KV-pushed metrics
+      console.log('[loadSessions] batchStatus for', session.id, ':', JSON.stringify(batchStatus));
       if (batchStatus.metrics) {
         setState(produce(s => {
           s.sessionMetrics[session.id] = {
