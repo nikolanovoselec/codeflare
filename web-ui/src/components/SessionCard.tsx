@@ -42,7 +42,7 @@ interface SessionCardProps {
 // WebSocket connection status config
 const wsStatusConfig: Record<TerminalConnectionState, { color: string; title: string }> = {
   connected: { color: 'var(--color-success)', title: 'WebSocket connected' },
-  disconnected: { color: 'var(--color-error)', title: 'WebSocket disconnected - click to reconnect' },
+  disconnected: { color: 'var(--color-warning)', title: 'Container idle — click to reconnect' },
   connecting: { color: 'var(--color-warning)', title: 'WebSocket connecting... - click to force reconnect' },
   error: { color: 'var(--color-error)', title: 'WebSocket error - click to reconnect' },
 };
@@ -159,7 +159,7 @@ const SessionCard: Component<SessionCardProps> = (props) => {
 
   const statusVariant = () => {
     if (props.session.status === 'running' && wsState() !== 'connected') {
-      return wsState() === 'connecting' ? 'warning' : 'error';
+      return 'warning'; // Yellow — container alive, WS disconnected (or reconnecting)
     }
     if (stoppedWithContext()) return 'warning';
     return statusDotVariant[props.session.status];

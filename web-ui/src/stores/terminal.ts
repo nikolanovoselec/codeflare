@@ -786,7 +786,7 @@ export function scheduleDisconnect(delayMs: number): void {
   cancelScheduledDisconnect();
   disconnectTimerId = setTimeout(() => {
     disconnectTimerId = null;
-    logger.info('[Terminal] Scheduled disconnect firing — closing all WebSocket connections');
+    logger.warn('[Terminal] Scheduled disconnect firing — closing all WebSocket connections');
     disconnectAll();
   }, delayMs);
   logger.debug(`[Terminal] Scheduled disconnect in ${delayMs}ms`);
