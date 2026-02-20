@@ -552,7 +552,11 @@ class SessionManager {
             prewarmed.orphanTimeout = null;
           }
           this.sessions.set(id, prewarmed);
-          prewarmReady = true; // Stop readiness check interval
+          // NOTE: Do NOT set prewarmReady here. The quiescence check interval
+          // manages prewarmReady independently — adoption just moves the session
+          // from 'prewarm-1' to the real ID. The PTY output tracker (lastDataTime)
+          // continues working on the same Session object, so the quiescence check
+          // correctly waits until the agent CLI goes quiet before declaring ready.
           log('info', 'Adopted pre-warmed session', { session: id });
           return prewarmed;
         }
