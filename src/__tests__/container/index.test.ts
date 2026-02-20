@@ -57,6 +57,7 @@ vi.mock('@cloudflare/containers', () => ({
     async getActivityInfo(): Promise<any> {
       return null;
     }
+    async schedule(_seconds: number, _method: string): Promise<void> {}
     onStart(): void {}
     onStop(): void {}
     onError(_error: unknown): void {}

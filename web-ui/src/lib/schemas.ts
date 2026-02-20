@@ -103,6 +103,13 @@ export const BatchSessionStatusResponseSchema = z.object({
     startupStage: z.string().optional(),
     lastStartedAt: z.string().optional(),
     lastActiveAt: z.string().optional(),
+    metrics: z.object({
+      cpu: z.string().optional(),
+      mem: z.string().optional(),
+      hdd: z.string().optional(),
+      syncStatus: z.string().optional(),
+      updatedAt: z.string().optional(),
+    }).optional(),
   })),
 });
 

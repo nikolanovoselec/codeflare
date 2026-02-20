@@ -364,6 +364,120 @@ describe('Session Lifecycle Routes', () => {
       expect(body.statuses['undefinedstatus1234'].ptyActive).toBe(false);
     });
 
+    it('includes metrics from KV session in batch-status response', async () => {
+      const app = createLifecycleApp(mockKV);
+      const session: Session = {
+        id: 'metricssession12345',
+        name: 'Metrics Session',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        status: 'running',
+        metrics: {
+          cpu: '25%',
+          mem: '512MB',
+          hdd: '1.2GB',
+          syncStatus: 'success',
+          updatedAt: '2024-01-15T10:00:00.000Z',
+        },
+      };
+      mockKV._set('session:test-bucket:metricssession12345', session);
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { statuses: Record<string, { metrics?: Session['metrics'] }> };
+      expect(body.statuses['metricssession12345'].metrics).toEqual({
+        cpu: '25%',
+        mem: '512MB',
+        hdd: '1.2GB',
+        syncStatus: 'success',
+        updatedAt: '2024-01-15T10:00:00.000Z',
+      });
+    });
+
+    it('returns undefined metrics when KV session has no metrics field', async () => {
+      const app = createLifecycleApp(mockKV);
+      const session: Session = {
+        id: 'nometricssess12345',
+        name: 'No Metrics',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        status: 'running',
+      };
+      mockKV._set('session:test-bucket:nometricssess12345', session);
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { statuses: Record<string, { metrics?: unknown }> };
+      expect(body.statuses['nometricssess12345'].metrics).toBeUndefined();
+    });
+
+    it('includes all metrics fields: cpu, mem, hdd, syncStatus, updatedAt', async () => {
+      const app = createLifecycleApp(mockKV);
+      const metrics = {
+        cpu: '80%',
+        mem: '2048MB',
+        hdd: '4.5GB',
+        syncStatus: 'pending',
+        updatedAt: '2024-01-15T12:30:00.000Z',
+      };
+      const session: Session = {
+        id: 'fullmetricssess1234',
+        name: 'Full Metrics',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        status: 'running',
+        metrics,
+      };
+      mockKV._set('session:test-bucket:fullmetricssess1234', session);
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { statuses: Record<string, { metrics?: Session['metrics'] }> };
+      const m = body.statuses['fullmetricssess1234'].metrics;
+      expect(m).toBeDefined();
+      expect(m!.cpu).toBe('80%');
+      expect(m!.mem).toBe('2048MB');
+      expect(m!.hdd).toBe('4.5GB');
+      expect(m!.syncStatus).toBe('pending');
+      expect(m!.updatedAt).toBe('2024-01-15T12:30:00.000Z');
+    });
+
+    it('returns mixed sessions with and without metrics', async () => {
+      const app = createLifecycleApp(mockKV);
+      const withMetrics: Session = {
+        id: 'withmetrics1234567',
+        name: 'With Metrics',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        status: 'running',
+        metrics: { cpu: '10%', mem: '256MB', updatedAt: '2024-01-15T10:00:00.000Z' },
+      };
+      const withoutMetrics: Session = {
+        id: 'nometrics123456789',
+        name: 'Without Metrics',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        status: 'running',
+      };
+      mockKV._set('session:test-bucket:withmetrics1234567', withMetrics);
+      mockKV._set('session:test-bucket:nometrics123456789', withoutMetrics);
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { statuses: Record<string, { metrics?: unknown }> };
+      expect(body.statuses['withmetrics1234567'].metrics).toBeDefined();
+      expect(body.statuses['nometrics123456789'].metrics).toBeUndefined();
+    });
+
     it('handles mixed running and stopped sessions', async () => {
       const app = createLifecycleApp(mockKV);
       const running: Session = {

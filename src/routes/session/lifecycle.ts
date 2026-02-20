@@ -74,7 +74,7 @@ app.get('/batch-status', async (c) => {
   const sessionResults = await Promise.all(sessionPromises);
   const sessions: Session[] = sessionResults.filter((s): s is Session => s !== null);
 
-  const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null }> = {};
+  const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; metrics?: Session['metrics'] }> = {};
 
   for (const session of sessions) {
     const isRunning = session.status === 'running';
@@ -83,6 +83,7 @@ app.get('/batch-status', async (c) => {
       ptyActive: isRunning,
       lastActiveAt: session.lastActiveAt || null,
       lastStartedAt: session.lastStartedAt || null,
+      metrics: session.metrics || undefined,
     };
   }
 

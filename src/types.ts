@@ -90,6 +90,13 @@ export interface Session {
   lastActiveAt?: string;
   agentType?: AgentType;
   tabConfig?: TabConfig[];
+  metrics?: {
+    cpu?: string;
+    mem?: string;
+    hdd?: string;
+    syncStatus?: string;
+    updatedAt?: string;
+  };
 }
 
 /**

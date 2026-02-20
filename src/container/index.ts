@@ -353,6 +353,39 @@ export class container extends Container<Env> {
     this.updateEnvVars();
     await this.updateKvStatus(null, 'lastStartedAt');
     this.logger.info('Container started');
+    await this.schedule(5, 'collectMetrics');
+  }
+
+  async collectMetrics(): Promise<void> {
+    if (!this.ctx.container?.running) return;
+    try {
+      const tcpPort = this.ctx.container.getTcpPort(8080);
+      const res = await tcpPort.fetch('http://localhost/health');
+      const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
+
+      const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
+      if (sessionId && this._bucketName) {
+        const key = getSessionKey(this._bucketName, sessionId);
+        const session = await this.env.KV.get<Session>(key, 'json');
+        if (session) {
+          session.metrics = {
+            cpu: health.cpu,
+            mem: health.mem,
+            hdd: health.hdd,
+            syncStatus: health.syncStatus,
+            updatedAt: new Date().toISOString(),
+          };
+          await this.env.KV.put(key, JSON.stringify(session));
+        }
+      }
+    } catch (err) {
+      this.logger.warn('Metrics collection failed', { error: err instanceof Error ? err.message : String(err) });
+    }
+
+    // Re-arm if still running
+    if (this.ctx.container?.running) {
+      await this.schedule(5, 'collectMetrics');
+    }
   }
 
   /**
@@ -371,6 +404,9 @@ export class container extends Container<Env> {
           session.status = status;
         }
         session[field] = new Date().toISOString();
+        if (status === 'stopped') {
+          delete session.metrics;
+        }
         await this.env.KV.put(key, JSON.stringify(session));
       }
     } catch (err) {

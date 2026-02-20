@@ -599,20 +599,15 @@ describe('Session Store', () => {
       sessionStore.startMetricsPolling('session-1');
     });
 
-    it('should start polling for running sessions', async () => {
+    it('startMetricsPolling should be a no-op (metrics come from batch-status)', async () => {
       // Clear previous mock calls
       mockGetStartupStatus.mockClear();
 
-      await sessionStore.loadSessions();
+      // startMetricsPolling is called in beforeEach but is now a no-op
+      // Advance time — should NOT call getStartupStatus
+      await vi.advanceTimersByTimeAsync(10000);
 
-      // Get the count after loadSessions (includes initial status check and metrics fetch)
-      const callsAfterLoad = mockGetStartupStatus.mock.calls.length;
-
-      // Advance time for polling interval
-      await vi.advanceTimersByTimeAsync(1000);
-
-      // Should have polled at least once more
-      expect(mockGetStartupStatus.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+      expect(mockGetStartupStatus).not.toHaveBeenCalled();
     });
 
     it('should stop polling when session stops', async () => {
@@ -627,28 +622,43 @@ describe('Session Store', () => {
       expect(mockGetStartupStatus.mock.calls.length).toBeLessThanOrEqual(initialCallCount + 1);
     });
 
-    it('should store metrics in state', async () => {
+    it('should populate metrics from batch-status during loadSessions', async () => {
+      // batch-status returns metrics from KV (pushed by container schedule)
+      mockGetBatchSessionStatus.mockResolvedValue({
+        'session-1': {
+          status: 'running',
+          ptyActive: true,
+          metrics: { cpu: '25%', mem: '512MB', hdd: '1.2GB', syncStatus: 'success', updatedAt: '2026-02-20T00:00:00Z' },
+        },
+      });
       await sessionStore.loadSessions();
 
       const metrics = sessionStore.getMetricsForSession('session-1');
 
       expect(metrics).not.toBeNull();
-      expect(metrics!.cpu).toBe('5%');
-      expect(metrics!.mem).toBe('256MB');
+      expect(metrics!.cpu).toBe('25%');
+      expect(metrics!.mem).toBe('512MB');
+      expect(metrics!.hdd).toBe('1.2GB');
     });
 
-    it('should not start duplicate polling for same session', async () => {
+    it('should populate metrics from batch-status during refreshSessionStatuses', async () => {
+      // First load sessions
       await sessionStore.loadSessions();
 
-      // Clear mock to count only new calls
-      mockGetStartupStatus.mockClear();
+      // Now refresh with updated metrics
+      mockGetBatchSessionStatus.mockResolvedValue({
+        'session-1': {
+          status: 'running',
+          ptyActive: true,
+          metrics: { cpu: '80%', mem: '2GB', hdd: '3GB', syncStatus: 'success', updatedAt: '2026-02-20T01:00:00Z' },
+        },
+      });
+      await sessionStore.refreshSessionStatuses();
 
-      // Advance one polling interval - should get exactly 1 poll
-      await vi.advanceTimersByTimeAsync(1000);
-      const callCount = mockGetStartupStatus.mock.calls.length;
-
-      // Should be 1 poll, not 2 (no duplicate interval)
-      expect(callCount).toBe(1);
+      const metrics = sessionStore.getMetricsForSession('session-1');
+      expect(metrics).not.toBeNull();
+      expect(metrics!.cpu).toBe('80%');
+      expect(metrics!.mem).toBe('2GB');
     });
 
     it('stopAllMetricsPolling should stop all active polling intervals', async () => {
@@ -991,6 +1001,83 @@ describe('Session Store', () => {
       await vi.advanceTimersByTimeAsync(5000);
 
       expect(mockGetStartupStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('KV-pushed metrics', () => {
+    it('should populate sessionMetrics from batch-status metrics during refresh', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        'session-1': { status: 'running', ptyActive: true, metrics: { cpu: '25%', mem: '512MB', hdd: '1.2GB', syncStatus: 'success' } },
+      });
+      await sessionStore.loadSessions();
+
+      const metrics = sessionStore.getMetricsForSession('session-1');
+      expect(metrics).toBeTruthy();
+      expect(metrics?.cpu).toBe('25%');
+      expect(metrics?.mem).toBe('512MB');
+      expect(metrics?.hdd).toBe('1.2GB');
+    });
+
+    it('should populate sessionMetrics via loadSessions from batch-status', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        'session-1': { status: 'stopped', ptyActive: false, metrics: { cpu: '10%', mem: '128MB', hdd: '500MB', syncStatus: 'syncing' } },
+      });
+
+      await sessionStore.loadSessions();
+
+      const metrics = sessionStore.getMetricsForSession('session-1');
+      expect(metrics).toBeTruthy();
+      expect(metrics?.cpu).toBe('10%');
+      expect(metrics?.mem).toBe('128MB');
+      expect(metrics?.hdd).toBe('500MB');
+    });
+
+    it('startMetricsPolling should be a no-op', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        'session-1': { status: 'running', ptyActive: true },
+      });
+      await sessionStore.loadSessions();
+      mockGetStartupStatus.mockClear();
+
+      sessionStore.startMetricsPolling('session-1');
+
+      // Advance timers — should NOT call getStartupStatus
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(mockGetStartupStatus).not.toHaveBeenCalled();
+    });
+
+    it('should update metrics on subsequent refreshSessionStatuses polls', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        'session-1': { status: 'running', ptyActive: true, metrics: { cpu: '10%', mem: '256MB', hdd: '1GB', syncStatus: 'success' } },
+      });
+      await sessionStore.loadSessions();
+
+      // Verify initial metrics
+      expect(sessionStore.getMetricsForSession('session-1')?.cpu).toBe('10%');
+
+      // Update batch-status with new metrics
+      mockGetBatchSessionStatus.mockResolvedValue({
+        'session-1': { status: 'running', ptyActive: true, metrics: { cpu: '75%', mem: '1024MB', hdd: '2GB', syncStatus: 'success' } },
+      });
+      await sessionStore.refreshSessionStatuses();
+
+      // Verify updated metrics
+      const metrics = sessionStore.getMetricsForSession('session-1');
+      expect(metrics?.cpu).toBe('75%');
+      expect(metrics?.mem).toBe('1024MB');
+      expect(metrics?.hdd).toBe('2GB');
     });
   });
 

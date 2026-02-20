@@ -3,7 +3,7 @@ import type { Session, SessionWithStatus, SessionStatus, InitProgress, InitStage
 import * as api from '../api/client';
 import { terminalStore, sendInputToTerminal } from './terminal';
 import { logger } from '../lib/logger';
-import { METRICS_POLL_INTERVAL_MS, STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
+import { STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
   LAYOUT_MIN_TABS,
   getBestLayoutForTabCount,
@@ -136,7 +136,7 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchStatuses] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus().catch(() => ({} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string; lastActiveAt?: string }>)),
+      api.getBatchSessionStatus().catch(() => ({} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string; lastActiveAt?: string; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>)),
     ]);
 
     if (thisGen !== loadSessionsGeneration) return;
@@ -175,6 +175,19 @@ async function loadSessions(): Promise<void> {
           if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
           if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
         }
+      }
+
+      // Populate sessionMetrics from KV-pushed metrics
+      if (batchStatus.metrics) {
+        setState(produce(s => {
+          s.sessionMetrics[session.id] = {
+            bucketName: s.sessionMetrics[session.id]?.bucketName || '...',
+            syncStatus: (batchStatus.metrics?.syncStatus as SessionMetrics['syncStatus']) || 'pending',
+            cpu: batchStatus.metrics?.cpu || '...',
+            mem: batchStatus.metrics?.mem || '...',
+            hdd: batchStatus.metrics?.hdd || '...',
+          };
+        }));
       }
 
       if (batchStatus.status === 'running') {
@@ -433,13 +446,9 @@ async function fetchMetricsForSession(sessionId: string): Promise<void> {
 const metricsPollingIntervals = new Map<string, ReturnType<typeof setInterval>>();
 
 function startMetricsPolling(sessionId: string): void {
-  if (metricsPollingIntervals.has(sessionId)) return;
-
-  fetchMetricsForSession(sessionId);
-
-  metricsPollingIntervals.set(sessionId, setInterval(() => {
-    fetchMetricsForSession(sessionId);
-  }, METRICS_POLL_INTERVAL_MS));
+  // Metrics now pushed to KV by container's schedule() callback.
+  // No per-session polling needed — batch-status includes metrics.
+  // Keep fetchMetricsForSession only for boot progress bar in startSession().
 }
 
 function stopMetricsPolling(sessionId: string): void {
@@ -497,6 +506,19 @@ async function refreshSessionStatuses(): Promise<void> {
       if (idx !== -1) {
         if (remote.lastActiveAt) setState('sessions', idx, 'lastActiveAt', remote.lastActiveAt);
         if (remote.lastStartedAt) setState('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
+      }
+
+      // Populate sessionMetrics from KV-pushed metrics
+      if (remote.metrics) {
+        setState(produce(s => {
+          s.sessionMetrics[session.id] = {
+            bucketName: s.sessionMetrics[session.id]?.bucketName || '...',
+            syncStatus: (remote.metrics?.syncStatus as SessionMetrics['syncStatus']) || s.sessionMetrics[session.id]?.syncStatus || 'pending',
+            cpu: remote.metrics?.cpu || '...',
+            mem: remote.metrics?.mem || '...',
+            hdd: remote.metrics?.hdd || '...',
+          };
+        }));
       }
 
       if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
