@@ -326,6 +326,12 @@ function connect(
       logger.warn(`[Terminal ${key}] WS CLOSED: code=${event.code}, reason="${event.reason}", state=${getConnectionState(sessionId, terminalId)}`);
       connections.delete(key);
 
+      // Intentional disconnect from dashboard — do not reconnect
+      if (event.reason === 'dashboard-disconnect') {
+        setConnectionState(sessionId, terminalId, 'disconnected');
+        return;
+      }
+
       // WS_CLOSE_ABNORMAL (1006) = abnormal closure (connection failed)
       // Retry if we haven't exhausted attempts and connection was never successfully established
       const wasNeverConnected = getConnectionState(sessionId, terminalId) === 'connecting';
