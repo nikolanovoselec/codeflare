@@ -56,6 +56,15 @@ const reconnectAttempts = new Map<string, number>();
 // Store fitAddon references for triggering resize on layout change
 const fitAddons = new Map<string, FitAddon>();
 
+// Track ping and watchdog intervals at module level so they can be paused/resumed
+// when the user navigates between dashboard and terminal views.
+// Each entry maps a connection key to its setInterval ID.
+const pingIntervals = new Map<string, ReturnType<typeof setInterval>>();
+const watchdogIntervals = new Map<string, ReturnType<typeof setInterval>>();
+
+// Track the lastDataTime per connection so watchdog can be re-armed on resume
+const lastDataTimes = new Map<string, number>();
+
 // Signal to trigger global terminal resize (incremented when tiling layout changes)
 const [layoutChangeCounter, setLayoutChangeCounter] = createSignal(0);
 
@@ -213,6 +222,7 @@ function connect(
 
   let cancelled = false;
   let lastDataTime = Date.now();
+  lastDataTimes.set(key, lastDataTime);
   let watchdogInterval: ReturnType<typeof setInterval> | null = null;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -289,28 +299,36 @@ function connect(
       // Without this, the 45s watchdog kills idle terminals because server-side
       // protocol pings (ws.ping()) are invisible to the browser WebSocket API.
       if (pingInterval) clearInterval(pingInterval);
+      const existingPing = pingIntervals.get(key);
+      if (existingPing) clearInterval(existingPing);
       pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'ping' }));
         }
       }, WS_PING_INTERVAL_MS);
+      pingIntervals.set(key, pingInterval);
 
       // Watchdog: if no data received for 45s, assume connection is dead and reconnect.
       // Now works correctly because application-level pong responses update lastDataTime.
       if (watchdogInterval) clearInterval(watchdogInterval);
+      const existingWatchdog = watchdogIntervals.get(key);
+      if (existingWatchdog) clearInterval(existingWatchdog);
       watchdogInterval = setInterval(() => {
         const idleMs = Date.now() - lastDataTime;
         if (idleMs > WS_WATCHDOG_TIMEOUT_MS) {
           logger.warn(`[Terminal ${key}] Watchdog: no data for ${Math.floor(idleMs / 1000)}s, closing WS to trigger reconnect`);
           if (watchdogInterval) { clearInterval(watchdogInterval); watchdogInterval = null; }
+          watchdogIntervals.delete(key);
           ws.close();
         }
       }, WS_WATCHDOG_TIMEOUT_MS);
+      watchdogIntervals.set(key, watchdogInterval);
     };
 
     function handleWebSocketMessage(event: MessageEvent): void {
       if (cancelled) return;
       lastDataTime = Date.now();
+      lastDataTimes.set(key, lastDataTime);
 
       // Server sends RAW terminal data - write directly to xterm
       let messageData: string;
@@ -359,6 +377,9 @@ function connect(
       // Clear intervals on close (will be re-created on reconnect)
       if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
       if (watchdogInterval) { clearInterval(watchdogInterval); watchdogInterval = null; }
+      pingIntervals.delete(key);
+      watchdogIntervals.delete(key);
+      lastDataTimes.delete(key);
 
       const lastDataAge = Math.floor((Date.now() - lastDataTime) / 1000);
       logger.warn(`[Terminal ${key}] WS CLOSED: code=${event.code}, reason="${event.reason}", lastDataAge=${lastDataAge}s, state=${getConnectionState(sessionId, terminalId)}`);
@@ -428,9 +449,12 @@ function connect(
   return () => {
     cancelled = true;
 
-    // Clear ping and watchdog intervals
+    // Clear ping and watchdog intervals (both local and module-level)
     if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
     if (watchdogInterval) { clearInterval(watchdogInterval); watchdogInterval = null; }
+    pingIntervals.delete(key);
+    watchdogIntervals.delete(key);
+    lastDataTimes.delete(key);
 
     // Bug 1 fix: Dispose input handler from the external Map
     const disposable = inputDisposables.get(key);
@@ -543,6 +567,26 @@ function disposeSession(sessionId: string): void {
     }
   }
 
+  for (const key of [...pingIntervals.keys()]) {
+    if (key.startsWith(prefix)) {
+      clearInterval(pingIntervals.get(key)!);
+      pingIntervals.delete(key);
+    }
+  }
+
+  for (const key of [...watchdogIntervals.keys()]) {
+    if (key.startsWith(prefix)) {
+      clearInterval(watchdogIntervals.get(key)!);
+      watchdogIntervals.delete(key);
+    }
+  }
+
+  for (const key of [...lastDataTimes.keys()]) {
+    if (key.startsWith(prefix)) {
+      lastDataTimes.delete(key);
+    }
+  }
+
   // Clean up state
   setState(produce((s) => {
     for (const key of Object.keys(s.connectionStates)) {
@@ -582,6 +626,18 @@ function disposeAll(): void {
 
   reconnectAttempts.clear();
   fitAddons.clear();
+
+  for (const interval of pingIntervals.values()) {
+    clearInterval(interval);
+  }
+  pingIntervals.clear();
+
+  for (const interval of watchdogIntervals.values()) {
+    clearInterval(interval);
+  }
+  watchdogIntervals.clear();
+
+  lastDataTimes.clear();
 }
 
 // Reconnect to terminal WebSocket
@@ -764,6 +820,75 @@ function stopUrlDetection(): void {
     urlDetectionInterval = null;
   }
   setDetectedUrl(null);
+}
+
+// ─── Ping Pause/Resume (Dashboard Sleep Support) ─────────────────────────────
+//
+// When the user navigates to the dashboard, we pause all ping and watchdog
+// intervals so no WebSocket messages are sent.  This lets Cloudflare's
+// Container `sleepAfter` idle timer start ticking.  When the user returns to
+// the terminal view, we resume pings (or trigger reconnect if Cloudflare
+// dropped the WS during the pause due to its ~100s idle timeout).
+
+/**
+ * Pause ping and watchdog intervals for ALL connections.
+ * Does NOT close WebSocket connections — just stops sending keep-alive messages.
+ */
+export function pauseAllPings(): void {
+  for (const [key, interval] of pingIntervals) {
+    clearInterval(interval);
+    logger.debug(`[Terminal ${key}] Ping paused (dashboard)`);
+  }
+  pingIntervals.clear();
+
+  for (const [key, interval] of watchdogIntervals) {
+    clearInterval(interval);
+    logger.debug(`[Terminal ${key}] Watchdog paused (dashboard)`);
+  }
+  watchdogIntervals.clear();
+}
+
+/**
+ * Resume ping and watchdog intervals for all connections that still have an
+ * open WebSocket.  If a WebSocket was dropped by Cloudflare during the pause,
+ * trigger reconnect for that connection.
+ */
+export function resumeAllPings(): void {
+  for (const [key, ws] of connections) {
+    if (ws.readyState === WebSocket.OPEN) {
+      // Re-arm ping interval
+      const ping = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, WS_PING_INTERVAL_MS);
+      pingIntervals.set(key, ping);
+
+      // Reset lastDataTime so the watchdog doesn't immediately fire
+      // (the connection was intentionally idle during dashboard view)
+      lastDataTimes.set(key, Date.now());
+
+      // Re-arm watchdog interval
+      const watchdog = setInterval(() => {
+        const storedTime = lastDataTimes.get(key) ?? Date.now();
+        const idleMs = Date.now() - storedTime;
+        if (idleMs > WS_WATCHDOG_TIMEOUT_MS) {
+          logger.warn(`[Terminal ${key}] Watchdog: no data for ${Math.floor(idleMs / 1000)}s, closing WS to trigger reconnect`);
+          clearInterval(watchdog);
+          watchdogIntervals.delete(key);
+          ws.close();
+        }
+      }, WS_WATCHDOG_TIMEOUT_MS);
+      watchdogIntervals.set(key, watchdog);
+
+      logger.debug(`[Terminal ${key}] Ping/watchdog resumed`);
+    } else {
+      // WebSocket was dropped during pause — trigger reconnect
+      const [sessionId, terminalId] = key.split(':');
+      logger.info(`[Terminal ${key}] WS dropped during pause (readyState=${ws.readyState}), triggering reconnect`);
+      reconnect(sessionId, terminalId);
+    }
+  }
 }
 
 // Export store and actions

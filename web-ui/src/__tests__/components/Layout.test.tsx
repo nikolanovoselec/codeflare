@@ -82,7 +82,9 @@ vi.mock('../../stores/session', () => ({
 }));
 
 vi.mock('../../stores/terminal', () => ({
-  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn() }
+  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn() },
+  pauseAllPings: vi.fn(),
+  resumeAllPings: vi.fn(),
 }));
 
 import Layout from '../../components/Layout';
