@@ -376,9 +376,16 @@ export class container extends Container<Env> {
       const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
       if (activity.hasActiveConnections) {
         this.renewActivityTimeout();
+        this.logger.info('collectMetrics: renewed sleepAfter (active WS clients)', {
+          connectedClients: activity.connectedClients,
+        });
+      } else {
+        this.logger.info('collectMetrics: no active WS clients, skipping renewal');
       }
-    } catch {
-      // Activity check is best-effort — don't block metrics collection
+    } catch (err) {
+      this.logger.warn('collectMetrics: activity check failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     try {
