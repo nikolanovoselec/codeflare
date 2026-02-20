@@ -366,6 +366,21 @@ export class container extends Container<Env> {
       return;
     }
 
+    // Keep-alive: renew sleepAfter timer while WebSocket clients are connected.
+    // The SDK only resets sleepAfterMs via containerFetch() — WebSocket frames
+    // flow through raw TCP and never call renewActivityTimeout(). Without this,
+    // the container dies after sleepAfter even during active terminal use.
+    try {
+      const activityPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
+      const activityRes = await activityPort.fetch('http://localhost/activity');
+      const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
+      if (activity.hasActiveConnections) {
+        this.renewActivityTimeout();
+      }
+    } catch {
+      // Activity check is best-effort — don't block metrics collection
+    }
+
     try {
       const tcpPort = this.ctx.container.getTcpPort(8080);
       const res = await tcpPort.fetch('http://localhost/health');
@@ -488,9 +503,14 @@ export class container extends Container<Env> {
         return;
       }
     } catch (err) {
-      this.logger.warn('onActivityExpired: failed to check activity, allowing sleep', {
+      // Don't kill the container on transient fetch errors — renew instead.
+      // The next alarm cycle will re-check. Killing on a failed /activity
+      // fetch is the most likely cause of containers dying during active use.
+      this.logger.warn('onActivityExpired: failed to check activity, renewing as safety net', {
         error: err instanceof Error ? err.message : String(err),
       });
+      this.renewActivityTimeout();
+      return;
     }
 
     this.logger.info('onActivityExpired: no active clients, stopping container');
