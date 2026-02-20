@@ -10,7 +10,7 @@ import { terminalStore } from '../stores/terminal';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
-import { VIEW_TRANSITION_DURATION_MS } from '../lib/constants';
+import { VIEW_TRANSITION_DURATION_MS, WS_RECONNECT_TIMEOUT_MS } from '../lib/constants';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -144,7 +144,14 @@ const Layout: Component<LayoutProps> = (props) => {
       sessionStore.setActiveSession(sessionId);
     } else if (session?.status === 'stopped') {
       sessionStore.setActiveSession(sessionId);
-      void sessionStore.startSession(sessionId).catch(() => {});
+      if (sessionStore.hasRecentContext(session)) {
+        // Context may still exist — try WebSocket first (SDK auto-starts container).
+        // If WebSocket fails within 5s, fall back to full startSession().
+        tryWebSocketFirst(sessionId);
+      } else {
+        // Context expired — full restart
+        void sessionStore.startSession(sessionId).catch(() => {});
+      }
     }
 
     // Start expansion animation
@@ -153,6 +160,42 @@ const Layout: Component<LayoutProps> = (props) => {
       setViewState('terminal');
       terminalStore.triggerLayoutResize();
     }, VIEW_TRANSITION_DURATION_MS);
+  };
+
+  /**
+   * Attempt WebSocket connection first for stopped sessions with recent context.
+   * The SDK may auto-start the container, preserving agent context.
+   * If connection fails within WS_RECONNECT_TIMEOUT_MS, fall back to startSession().
+   */
+  const tryWebSocketFirst = (sessionId: string) => {
+    // Set status to running optimistically so the terminal view renders
+    sessionStore.updateSessionStatus(sessionId, 'running');
+    sessionStore.initializeTerminalsForSession(sessionId);
+
+    const timeout = setTimeout(() => {
+      // Check if WebSocket connected within the timeout
+      const wsState = terminalStore.getConnectionState(sessionId, '1');
+      if (wsState !== 'connected') {
+        logger.info(`[Layout] WebSocket reconnect timed out for ${sessionId}, falling back to startSession()`);
+        // Dispose the failed WebSocket attempt
+        terminalStore.disposeSession(sessionId);
+        sessionStore.cleanupTerminalsForSession(sessionId);
+        // Fall back to full start
+        void sessionStore.startSession(sessionId).catch(() => {});
+      }
+    }, WS_RECONNECT_TIMEOUT_MS);
+
+    // If WebSocket connects successfully before timeout, clear the fallback
+    const checkInterval = setInterval(() => {
+      const wsState = terminalStore.getConnectionState(sessionId, '1');
+      if (wsState === 'connected') {
+        clearTimeout(timeout);
+        clearInterval(checkInterval);
+      }
+    }, 500);
+
+    // Clean up interval when timeout fires
+    setTimeout(() => clearInterval(checkInterval), WS_RECONNECT_TIMEOUT_MS + 100);
   };
 
   const handleSettingsClick = () => {

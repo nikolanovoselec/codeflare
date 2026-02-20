@@ -60,7 +60,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
  * KV is authoritative for session status:
  * - POST /api/sessions/:id/stop sets KV to 'stopped'
  * - Container start sets KV to 'running'
- * - DO cleanupAndDestroy() sets KV to 'stopped' on idle timeout
+ * - onStop() sets KV lastActiveAt on container hibernation
  *
  * This prevents phantom container auto-starts caused by container.fetch()
  * waking stopped containers during polling.
@@ -74,13 +74,15 @@ app.get('/batch-status', async (c) => {
   const sessionResults = await Promise.all(sessionPromises);
   const sessions: Session[] = sessionResults.filter((s): s is Session => s !== null);
 
-  const statuses: Record<string, { status: string; ptyActive: boolean }> = {};
+  const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null }> = {};
 
   for (const session of sessions) {
     const isRunning = session.status === 'running';
     statuses[session.id] = {
       status: isRunning ? 'running' : 'stopped',
       ptyActive: isRunning,
+      lastActiveAt: session.lastActiveAt || null,
+      lastStartedAt: session.lastStartedAt || null,
     };
   }
 

@@ -125,3 +125,13 @@ export const ACTIONABLE_URL_PATTERNS: RegExp[] = [
 
 /** Duration of dashboard expand/collapse CSS transition (ms) */
 export const VIEW_TRANSITION_DURATION_MS = 300;
+
+// =============================================================================
+// Container Context Expiry
+// =============================================================================
+
+/** After this duration of inactivity, agent context is gone and container must be fully restarted (ms) */
+export const CONTEXT_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24h — matches backend sleepAfter
+
+/** Timeout for attempting WebSocket reconnection before falling back to full restart (ms) */
+export const WS_RECONNECT_TIMEOUT_MS = 5_000;

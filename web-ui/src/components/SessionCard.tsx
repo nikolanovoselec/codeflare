@@ -26,6 +26,7 @@ const statusLabel: Record<SessionStatus, string> = {
 };
 import { terminalStore } from '../stores/terminal';
 import { formatUptime, formatRelativeTime } from '../lib/format';
+import { CONTEXT_EXPIRY_MS } from '../lib/constants';
 import { AGENT_ICON_MAP } from '../lib/terminal-config';
 
 interface SessionCardProps {
@@ -72,6 +73,20 @@ const SessionCard: Component<SessionCardProps> = (props) => {
   const isSpinning = () => statusSpinning[props.session.status];
   const canStop = () => props.session.status === 'running' || props.session.status === 'initializing';
   const canDelete = () => true;
+
+  // Determine if a stopped session has recent context (< 24h)
+  const stoppedWithContext = () => {
+    if (props.session.status !== 'stopped') return false;
+    return sessionStore.hasRecentContext(props.session);
+  };
+
+  // Resolved status label: override "Stopped" with relative time when context may still exist
+  const resolvedStatusLabel = () => {
+    if (props.session.status === 'stopped' && stoppedWithContext()) {
+      return formatRelativeTime(new Date(props.session.lastActiveAt!));
+    }
+    return statusLabel[props.session.status];
+  };
   const wsState = () => terminalStore.getConnectionState(props.session.id, '1');
   const wsConfig = () => wsStatusConfig[wsState()];
   const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
@@ -146,6 +161,7 @@ const SessionCard: Component<SessionCardProps> = (props) => {
     if (props.session.status === 'running' && wsState() !== 'connected') {
       return wsState() === 'connecting' ? 'warning' : 'error';
     }
+    if (stoppedWithContext()) return 'warning';
     return statusDotVariant[props.session.status];
   };
 
@@ -209,10 +225,10 @@ const SessionCard: Component<SessionCardProps> = (props) => {
               data-testid="session-status-badge"
               data-status={statusVariant()}
             >
-              <Show when={props.session.status === 'running'}>
+              <Show when={props.session.status === 'running' || stoppedWithContext()}>
                 <span class="session-status-dot" />
               </Show>
-              {statusLabel[props.session.status]}
+              {resolvedStatusLabel()}
             </span>
           </div>
 

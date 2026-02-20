@@ -14,6 +14,7 @@ vi.mock('../../stores/session', () => ({
       hdd: '2.1G/10G',
     })),
     renameSession: vi.fn(),
+    hasRecentContext: vi.fn(() => false),
   },
 }));
 

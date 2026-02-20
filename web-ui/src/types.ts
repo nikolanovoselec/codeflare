@@ -36,6 +36,10 @@ export interface Session {
   status?: 'stopped' | 'running' | 'stopping';
   agentType?: AgentType;
   tabConfig?: TabConfig[];
+  /** ISO timestamp of when the session was last started */
+  lastStartedAt?: string;
+  /** ISO timestamp of last activity (WebSocket data or PTY output) */
+  lastActiveAt?: string;
 }
 
 /** 'initializing' and 'error' are frontend-only ephemeral states, never persisted to KV. Backend uses only 'stopped' | 'running'. */

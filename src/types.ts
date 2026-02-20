@@ -86,6 +86,8 @@ export interface Session {
   lastAccessedAt: string;
   status?: 'stopped' | 'running';
   lastStatusCheck?: number;
+  lastStartedAt?: string;
+  lastActiveAt?: string;
   agentType?: AgentType;
   tabConfig?: TabConfig[];
 }

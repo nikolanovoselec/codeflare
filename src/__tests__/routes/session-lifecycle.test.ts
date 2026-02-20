@@ -284,8 +284,8 @@ describe('Session Lifecycle Routes', () => {
       const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
       expect(Object.keys(body.statuses)).toHaveLength(2);
       // Sessions with no status field should return stopped
-      expect(body.statuses['batchsession1234abc']).toEqual({ status: 'stopped', ptyActive: false });
-      expect(body.statuses['batchsession5678def']).toEqual({ status: 'stopped', ptyActive: false });
+      expect(body.statuses['batchsession1234abc']).toEqual({ status: 'stopped', ptyActive: false, lastActiveAt: null, lastStartedAt: null });
+      expect(body.statuses['batchsession5678def']).toEqual({ status: 'stopped', ptyActive: false, lastActiveAt: null, lastStartedAt: null });
       // No container interaction
       expect(testState.container!.fetch).not.toHaveBeenCalled();
       expect(testState.container!.getState).not.toHaveBeenCalled();
@@ -390,8 +390,8 @@ describe('Session Lifecycle Routes', () => {
       expect(res.status).toBe(200);
 
       const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
-      expect(body.statuses['mixedrunning123456']).toEqual({ status: 'running', ptyActive: true });
-      expect(body.statuses['mixedstopped123456']).toEqual({ status: 'stopped', ptyActive: false });
+      expect(body.statuses['mixedrunning123456']).toEqual({ status: 'running', ptyActive: true, lastActiveAt: null, lastStartedAt: null });
+      expect(body.statuses['mixedstopped123456']).toEqual({ status: 'stopped', ptyActive: false, lastActiveAt: null, lastStartedAt: null });
       // No container interaction for any session
       expect(testState.container!.fetch).not.toHaveBeenCalled();
       expect(testState.container!.getState).not.toHaveBeenCalled();

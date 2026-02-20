@@ -3,7 +3,7 @@ import type { Session, SessionWithStatus, SessionStatus, InitProgress, InitStage
 import * as api from '../api/client';
 import { terminalStore, sendInputToTerminal } from './terminal';
 import { logger } from '../lib/logger';
-import { METRICS_POLL_INTERVAL_MS, STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS } from '../lib/constants';
+import { METRICS_POLL_INTERVAL_MS, STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
   LAYOUT_MIN_TABS,
   getBestLayoutForTabCount,
@@ -136,7 +136,7 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchStatuses] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus().catch(() => ({} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string }>)),
+      api.getBatchSessionStatus().catch(() => ({} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string; lastActiveAt?: string }>)),
     ]);
 
     if (thisGen !== loadSessionsGeneration) return;
@@ -166,6 +166,15 @@ async function loadSessions(): Promise<void> {
       const batchStatus = batchStatuses[session.id];
       if (!batchStatus) {
         continue;
+      }
+
+      // Store timestamp fields from batch-status
+      if (batchStatus.lastActiveAt || batchStatus.lastStartedAt) {
+        const idx = sessionsWithStatus.findIndex(s => s.id === session.id);
+        if (idx !== -1) {
+          if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
+          if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
+        }
       }
 
       if (batchStatus.status === 'running') {
@@ -467,6 +476,14 @@ async function refreshSessionStatuses(): Promise<void> {
     for (const session of state.sessions) {
       const remote = batchStatuses[session.id];
       if (!remote) continue;
+
+      // Store timestamp fields
+      const idx = state.sessions.findIndex(s => s.id === session.id);
+      if (idx !== -1) {
+        if (remote.lastActiveAt) setState('sessions', idx, 'lastActiveAt', remote.lastActiveAt);
+        if (remote.lastStartedAt) setState('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
+      }
+
       if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
         updateSessionStatus(session.id, 'running');
         initializeTerminalsForSession(session.id);
@@ -531,6 +548,12 @@ async function updatePreferences(prefs: Partial<UserPreferences>): Promise<void>
   } catch (err) {
     logger.warn('[SessionStore] Failed to update preferences:', err);
   }
+}
+
+/** Check if a stopped session's context may still be alive (lastActiveAt < 24h ago) */
+function hasRecentContext(session: SessionWithStatus): boolean {
+  if (!session.lastActiveAt) return false;
+  return Date.now() - new Date(session.lastActiveAt).getTime() < CONTEXT_EXPIRY_MS;
 }
 
 // Export store and actions
@@ -606,6 +629,9 @@ export const sessionStore = {
   get preferences() { return state.preferences; },
   loadPreferences,
   updatePreferences,
+
+  // Context lifecycle
+  hasRecentContext,
 
   // @internal -- exposed for tests (AD23)
   updateSessionStatus,

@@ -101,6 +101,8 @@ export const BatchSessionStatusResponseSchema = z.object({
     status: z.enum(['running', 'stopped', 'stopping']),
     ptyActive: z.boolean(),
     startupStage: z.string().optional(),
+    lastStartedAt: z.string().optional(),
+    lastActiveAt: z.string().optional(),
   })),
 });
 

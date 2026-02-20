@@ -9,9 +9,6 @@ export const SESSION_ID_PATTERN = /^[a-z0-9]{8,24}$/;
 // These are used if ALLOWED_ORIGINS environment variable is not set
 export const DEFAULT_ALLOWED_ORIGINS = ['.workers.dev'];
 
-/** Idle timeout: container destroyed after this long with no WebSocket connections (30 minutes) */
-export const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-
 /** Delay after setting bucket name before proceeding */
 export const BUCKET_NAME_SETTLE_DELAY_MS = 100;
 
@@ -32,21 +29,6 @@ export const MAX_SESSION_NAME_LENGTH = 100;
 
 /** Container ID display truncation length */
 export const CONTAINER_ID_DISPLAY_LENGTH = 24;
-
-/** Activity poll interval for container idle detection (5 minutes) */
-export const ACTIVITY_POLL_INTERVAL_MS = 5 * 60 * 1000;
-
-/** Number of retries for activity endpoint fetch before giving up this poll cycle */
-export const ACTIVITY_FETCH_MAX_RETRIES = 3;
-
-/** Delay between activity endpoint retry attempts */
-export const ACTIVITY_FETCH_RETRY_DELAY_MS = 2000;
-
-/** Max consecutive activity poll failures before forced destruction.
- * At 5-minute poll intervals, 6 failures = 30 minutes of unreachable activity endpoint.
- * After this threshold, the container is destroyed regardless — a "headless DO"
- * (DO alarm running but container process dead) should not live forever. */
-export const MAX_CONSECUTIVE_ACTIVITY_FAILURES = 6;
 
 /** Cloudflare API base URL */
 export const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
