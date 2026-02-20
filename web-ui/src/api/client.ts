@@ -95,7 +95,7 @@ export async function deleteSession(id: string): Promise<void> {
  * Get status for all sessions in a single batch call
  * Returns a map of sessionId -> { status, ptyActive, startupStage? }
  */
-export async function getBatchSessionStatus(): Promise<Record<string, { status: 'running' | 'stopped' | 'stopping'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string; lastActiveAt?: string; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>> {
+export async function getBatchSessionStatus(): Promise<Record<string, { status: 'running' | 'stopped' | 'stopping'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>> {
   const response = await fetchApi('/sessions/batch-status', {}, BatchSessionStatusResponseSchema);
   return response.statuses;
 }
