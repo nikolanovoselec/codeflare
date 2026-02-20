@@ -824,7 +824,7 @@ wss.on('connection', (ws, req) => {
   logWsEvent(sessionId, 'connect', { clients: session.clients.size, ptyAlive: session.isPtyAlive(), ptyPid: session.ptyProcess?.pid || null });
 
   // Handle incoming messages
-  // RAW data goes directly to PTY, JSON only for control messages (resize, ping)
+  // RAW data goes directly to PTY, JSON only for control messages (resize)
   ws.on('message', (message) => {
     const str = message.toString();
 
@@ -839,11 +839,6 @@ wss.on('connection', (ws, req) => {
           if (msg.cols > 0 && msg.cols < 10000 && msg.rows > 0 && msg.rows < 10000) {
             session.resize(msg.cols, msg.rows);
           }
-          return;
-        }
-
-        if (msg.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
           return;
         }
 

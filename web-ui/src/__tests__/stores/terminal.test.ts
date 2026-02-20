@@ -12,8 +12,6 @@ vi.mock('../../lib/constants', async (importOriginal) => {
     RECONNECT_DELAY_MS: 100,
     CSS_TRANSITION_DELAY_MS: 10,
     WS_CLOSE_ABNORMAL: 1006,
-    WS_PING_INTERVAL_MS: 25_000,
-    WS_WATCHDOG_TIMEOUT_MS: 45_000,
   };
 });
 
@@ -567,7 +565,7 @@ describe('Terminal Store', () => {
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('should not write pong control messages to terminal', async () => {
+    it('should write unknown JSON control messages (e.g. pong) as raw terminal data', async () => {
       const terminal = createMockTerminal();
 
       const OriginalWebSocket = globalThis.WebSocket;
@@ -585,14 +583,12 @@ describe('Terminal Store', () => {
       // Allow WebSocket to open
       await vi.advanceTimersByTimeAsync(0);
 
-      // Send pong control message
-      wsInstance._simulateMessage(JSON.stringify({ type: 'pong' }));
+      // Send a pong message — no longer a recognized control message
+      const pongMsg = JSON.stringify({ type: 'pong' });
+      wsInstance._simulateMessage(pongMsg);
 
-      // terminal.write should NOT have been called with pong message
-      const writeCalls = (terminal.write as ReturnType<typeof vi.fn>).mock.calls;
-      for (const call of writeCalls) {
-        expect(call[0]).not.toContain('pong');
-      }
+      // Since pong is no longer handled, it falls through to terminal.write
+      expect(terminal.write).toHaveBeenCalledWith(pongMsg);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

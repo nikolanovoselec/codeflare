@@ -6,11 +6,11 @@ import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore } from '../stores/session';
-import { terminalStore, pauseAllPings, resumeAllPings } from '../stores/terminal';
+import { terminalStore, reconnectDroppedConnections, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
-import { VIEW_TRANSITION_DURATION_MS, WS_RECONNECT_TIMEOUT_MS } from '../lib/constants';
+import { VIEW_TRANSITION_DURATION_MS, WS_RECONNECT_TIMEOUT_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -50,16 +50,17 @@ const Layout: Component<LayoutProps> = (props) => {
 
   // Only poll session list while on dashboard — polling during terminal view
   // replaces the sessions array, triggering reactivity that flips viewState.
-  // Also pause/resume WebSocket pings: on dashboard, stop pings so the
-  // Cloudflare Container sleepAfter timer can start ticking. On terminal
-  // view, resume pings (or trigger reconnect if the WS was dropped).
+  // On dashboard: schedule a full WebSocket disconnect after a grace period
+  // so the Cloudflare Container can go idle.
+  // On terminal: cancel scheduled disconnect and reconnect any dropped connections.
   createEffect(() => {
     if (viewState() === 'dashboard') {
+      scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS);
       sessionStore.startSessionListPolling();
-      pauseAllPings();
     } else {
+      cancelScheduledDisconnect();
+      reconnectDroppedConnections();
       sessionStore.stopSessionListPolling();
-      resumeAllPings();
     }
   });
 

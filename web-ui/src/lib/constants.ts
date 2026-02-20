@@ -46,11 +46,6 @@ export const CSS_TRANSITION_DELAY_MS = 100;
 /** WebSocket close code for abnormal closure (connection failed) */
 export const WS_CLOSE_ABNORMAL = 1006;
 
-/** Application-level ping interval to keep idle WebSocket connections alive (ms) */
-export const WS_PING_INTERVAL_MS = 25_000;
-
-/** Watchdog timeout: close WebSocket if no data received within this window (ms) */
-export const WS_WATCHDOG_TIMEOUT_MS = 45_000;
 
 // =============================================================================
 // Session
@@ -135,3 +130,11 @@ export const CONTEXT_EXPIRY_MS = 3 * 60 * 1000; // 3m — matches backend sleepA
 
 /** Timeout for attempting WebSocket reconnection before falling back to full restart (ms) */
 export const WS_RECONNECT_TIMEOUT_MS = 5_000;
+
+// =============================================================================
+// Dashboard WebSocket Disconnect
+// =============================================================================
+
+/** Delay before closing all WebSocket connections when on dashboard (ms).
+ *  Gives the user a grace period to return to the terminal view without a full reconnect. */
+export const DASHBOARD_WS_DISCONNECT_DELAY_MS = 60_000;
