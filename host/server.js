@@ -631,14 +631,19 @@ const server = http.createServer(async (req, res) => {
   const { pathname } = parseUrl(req.url);
   const method = req.method;
 
-  // Validate container auth token (internal-only service, no CORS needed)
-  const expectedToken = process.env.CONTAINER_AUTH_TOKEN;
-  if (expectedToken) {
-    const authHeader = req.headers['authorization'];
-    if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
-      return;
+  // Health endpoint is exempt from auth — used by DO schedule-based metrics
+  // collection via getTcpPort(8080).fetch() which cannot inject auth headers.
+  // The endpoint is already behind the container network boundary (no external access).
+  if (pathname !== '/health') {
+    // Validate container auth token (internal-only service, no CORS needed)
+    const expectedToken = process.env.CONTAINER_AUTH_TOKEN;
+    if (expectedToken) {
+      const authHeader = req.headers['authorization'];
+      if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
     }
   }
 
