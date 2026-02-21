@@ -6,7 +6,6 @@ import SessionContextMenu from './SessionContextMenu';
 import CreateSessionDialog from './CreateSessionDialog';
 import type { SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
 import { generateSessionName } from '../lib/session-utils';
-import { sessionStore } from '../stores/session';
 import '../styles/session-dropdown.css';
 
 const STATUS_ORDER: Record<SessionStatus, number> = {

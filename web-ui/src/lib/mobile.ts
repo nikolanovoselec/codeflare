@@ -141,10 +141,6 @@ export function disableVirtualKeyboardOverlay(): void {
   }
 }
 
-function isUsingVirtualKeyboardAPI(): boolean {
-  return usingVirtualKeyboardAPI;
-}
-
 export function isVirtualKeyboardOpen(): boolean {
   return vkOpen();
 }

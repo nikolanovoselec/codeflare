@@ -10,9 +10,6 @@
 /** Interval for polling startup status during session initialization (ms) */
 export const STARTUP_POLL_INTERVAL_MS = 1500;
 
-/** Interval for polling session metrics when running (ms) */
-export const METRICS_POLL_INTERVAL_MS = 5000;
-
 /** Maximum consecutive polling errors before aborting startup */
 export const MAX_STARTUP_POLL_ERRORS = 10;
 
@@ -50,9 +47,6 @@ export const MAX_TERMINALS_PER_SESSION = 6;
 
 /** Interval for polling the session list to keep the dashboard up to date (ms) */
 export const SESSION_LIST_POLL_INTERVAL_MS = 5_000;
-
-/** Duration display refresh interval (ms) - for relative time updates */
-export const DURATION_REFRESH_INTERVAL_MS = 60000;
 
 /** Maximum polls when waiting for session to stop */
 export const MAX_STOP_POLL_ATTEMPTS = 20;

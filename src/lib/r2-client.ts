@@ -1,6 +1,7 @@
 import { AwsClient } from 'aws4fetch';
 import type { Env, StorageListResult } from '../types';
 import { ValidationError } from './error-types';
+import { decodeXmlEntities } from './xml-utils';
 
 /**
  * Create an AwsClient configured for Cloudflare R2 (S3-compatible).
@@ -82,16 +83,6 @@ export function parseInitiateMultipartUploadXml(xml: string): string {
     throw new Error('Failed to parse UploadId from InitiateMultipartUpload response');
   }
   return match[1];
-}
-
-/** Decode standard XML entities (&amp; &lt; &gt; &quot; &apos;). */
-function decodeXmlEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
 }
 
 /** Extract the text content of an XML tag, decoding XML entities. */

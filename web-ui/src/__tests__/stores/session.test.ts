@@ -21,7 +21,6 @@ vi.mock('../../lib/constants', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
-    METRICS_POLL_INTERVAL_MS: 1000,
     STARTUP_POLL_INTERVAL_MS: 1500,
     MAX_STARTUP_POLL_ERRORS: 10,
     MAX_TERMINALS_PER_SESSION: 6,
@@ -77,7 +76,7 @@ describe('Session Store', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    sessionStore.stopAllMetricsPolling();
+    sessionStore.stopAllPolling();
   });
 
   describe('loadSessions', () => {
@@ -557,10 +556,10 @@ describe('Session Store', () => {
     });
   });
 
-  describe('metrics polling', () => {
+  describe('metrics from batch-status', () => {
     beforeEach(async () => {
       // Clear stale polling intervals from previous tests (fake timer reset invalidates handles)
-      sessionStore.stopAllMetricsPolling();
+      sessionStore.stopAllPolling();
 
       // Reset session state so the next loadSessions sees a fresh transition to 'running'
       mockGetSessions.mockResolvedValue([]);
@@ -576,50 +575,8 @@ describe('Session Store', () => {
         },
       ]);
       mockGetBatchSessionStatus.mockResolvedValue({ 'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' } });
-      mockGetStartupStatus.mockResolvedValue({
-        stage: 'ready',
-        progress: 100,
-        message: 'Ready',
-        details: {
-          container: 'container-1',
-          bucketName: 'test-bucket',
-          path: '/workspace',
-          cpu: '5%',
-          mem: '256MB',
-          hdd: '1GB',
-          syncStatus: 'success',
-        },
-      });
 
-      // Load sessions — session transitions from absent to 'running'
-      // which triggers initializeTerminalsForSession (but NOT metrics polling —
-      // metrics polling only starts from startSession() or explicit call)
       await sessionStore.loadSessions();
-      // Explicitly start metrics polling (simulates entering terminal view)
-      sessionStore.startMetricsPolling('session-1');
-    });
-
-    it('startMetricsPolling should be a no-op (metrics come from batch-status)', async () => {
-      // Clear previous mock calls
-      mockGetStartupStatus.mockClear();
-
-      // startMetricsPolling is called in beforeEach but is now a no-op
-      // Advance time — should NOT call getStartupStatus
-      await vi.advanceTimersByTimeAsync(10000);
-
-      expect(mockGetStartupStatus).not.toHaveBeenCalled();
-    });
-
-    it('should stop polling when session stops', async () => {
-      await sessionStore.loadSessions();
-      const initialCallCount = mockGetStartupStatus.mock.calls.length;
-
-      sessionStore.stopMetricsPolling('session-1');
-
-      await vi.advanceTimersByTimeAsync(2000);
-
-      // Call count should not increase significantly
-      expect(mockGetStartupStatus.mock.calls.length).toBeLessThanOrEqual(initialCallCount + 1);
     });
 
     it('should populate metrics from batch-status during loadSessions', async () => {
@@ -661,24 +618,16 @@ describe('Session Store', () => {
       expect(metrics!.mem).toBe('2GB');
     });
 
-    it('stopAllMetricsPolling should stop all active polling intervals', async () => {
+    it('stopAllPolling should stop all active startup polling', async () => {
       await sessionStore.loadSessions();
       mockGetStartupStatus.mockClear();
 
-      sessionStore.stopAllMetricsPolling();
+      sessionStore.stopAllPolling();
 
       await vi.advanceTimersByTimeAsync(5000);
 
       // No new polls should have happened
       expect(mockGetStartupStatus.mock.calls.length).toBe(0);
-    });
-
-    it('stopMetricsPolling is idempotent (no error on double-stop)', async () => {
-      await sessionStore.loadSessions();
-
-      // Stop twice - should not throw
-      sessionStore.stopMetricsPolling('session-1');
-      sessionStore.stopMetricsPolling('session-1');
     });
   });
 
@@ -1036,23 +985,6 @@ describe('Session Store', () => {
       expect(metrics?.cpu).toBe('10%');
       expect(metrics?.mem).toBe('128MB');
       expect(metrics?.hdd).toBe('500MB');
-    });
-
-    it('startMetricsPolling should be a no-op', async () => {
-      mockGetSessions.mockResolvedValue([{
-        id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
-      }]);
-      mockGetBatchSessionStatus.mockResolvedValue({
-        'session-1': { status: 'running', ptyActive: true },
-      });
-      await sessionStore.loadSessions();
-      mockGetStartupStatus.mockClear();
-
-      sessionStore.startMetricsPolling('session-1');
-
-      // Advance timers — should NOT call getStartupStatus
-      await vi.advanceTimersByTimeAsync(10000);
-      expect(mockGetStartupStatus).not.toHaveBeenCalled();
     });
 
     it('should update metrics on subsequent refreshSessionStatuses polls', async () => {

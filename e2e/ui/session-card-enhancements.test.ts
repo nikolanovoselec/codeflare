@@ -40,7 +40,7 @@ describe('Session Card Enhancements', () => {
 
     it('should position LIVE badge at right edge of header', async () => {
       if (!mainAppAvailable) return;
-      const header = await page.$('.session-card-header');
+      const header = await page.$('.stat-card__header');
       const badge = await page.$('.session-status-badge');
       if (header && badge) {
         const headerBox = await header.boundingBox();
@@ -61,7 +61,7 @@ describe('Session Card Enhancements', () => {
   describe('Slide-in Action Buttons', () => {
     it('should hide action buttons by default', async () => {
       if (!mainAppAvailable) return;
-      const overlay = await page.$('.session-card-actions-overlay');
+      const overlay = await page.$('.session-context-menu');
       if (overlay) {
         const opacity = await page.evaluate(el => window.getComputedStyle(el).opacity, overlay);
         expect(opacity).toBe('0');
@@ -70,11 +70,11 @@ describe('Session Card Enhancements', () => {
 
     it('should show action buttons on card hover', async () => {
       if (!mainAppAvailable) return;
-      const card = await page.$('[data-testid^="session-card-"]');
+      const card = await page.$('[data-testid^="session-stat-card-"]');
       if (card) {
         await card.hover();
         await new Promise(r => setTimeout(r, 250));
-        const overlay = await page.$('.session-card-actions-overlay');
+        const overlay = await page.$('.session-context-menu');
         if (overlay) {
           const opacity = await page.evaluate(el => window.getComputedStyle(el).opacity, overlay);
           expect(opacity).toBe('1');
@@ -84,11 +84,11 @@ describe('Session Card Enhancements', () => {
 
     it('should slide buttons in from right edge', async () => {
       if (!mainAppAvailable) return;
-      const card = await page.$('[data-testid^="session-card-"]');
+      const card = await page.$('[data-testid^="session-stat-card-"]');
       if (card) {
         await card.hover();
         await new Promise(r => setTimeout(r, 250));
-        const overlay = await page.$('.session-card-actions-overlay');
+        const overlay = await page.$('.session-context-menu');
         if (overlay) {
           const transform = await page.evaluate(el => window.getComputedStyle(el).transform, overlay);
           // After hover, translateX should be 0 (not 100%)
@@ -99,12 +99,12 @@ describe('Session Card Enhancements', () => {
 
     it('should stack buttons vertically', async () => {
       if (!mainAppAvailable) return;
-      const card = await page.$('[data-testid^="session-card-"]');
+      const card = await page.$('[data-testid^="session-stat-card-"]');
       if (card) {
         await card.hover();
         await new Promise(r => setTimeout(r, 250));
         const flexDir = await page.evaluate(() => {
-          const overlay = document.querySelector('.session-card-actions-overlay');
+          const overlay = document.querySelector('.session-context-menu');
           return overlay ? window.getComputedStyle(overlay).flexDirection : null;
         });
         expect(flexDir).toBe('column');
@@ -113,13 +113,13 @@ describe('Session Card Enhancements', () => {
 
     it('should hide buttons when mouse leaves card', async () => {
       if (!mainAppAvailable) return;
-      const card = await page.$('[data-testid^="session-card-"]');
+      const card = await page.$('[data-testid^="session-stat-card-"]');
       if (card) {
         await card.hover();
         await new Promise(r => setTimeout(r, 250));
         await page.mouse.move(0, 0);
         await new Promise(r => setTimeout(r, 250));
-        const overlay = await page.$('.session-card-actions-overlay');
+        const overlay = await page.$('.session-context-menu');
         if (overlay) {
           const opacity = await page.evaluate(el => window.getComputedStyle(el).opacity, overlay);
           expect(opacity).toBe('0');
@@ -131,16 +131,16 @@ describe('Session Card Enhancements', () => {
   describe('Developer Metrics Section', () => {
     it('should render metrics section for running sessions', async () => {
       if (!mainAppAvailable) return;
-      const metrics = await page.$('.session-card-metrics');
+      const metrics = await page.$('.stat-card__metrics');
       // Metrics should exist for running sessions
       expect(metrics).not.toBeNull();
     });
 
     it('should NOT render metrics for stopped sessions', async () => {
       if (!mainAppAvailable) return;
-      const stoppedCard = await page.$('[data-testid^="session-card-"][data-status="stopped"]');
+      const stoppedCard = await page.$('[data-testid^="session-stat-card-"][data-status="stopped"]');
       if (stoppedCard) {
-        const metrics = await stoppedCard.$('.session-card-metrics');
+        const metrics = await stoppedCard.$('.stat-card__metrics');
         expect(metrics).toBeNull();
       }
     });

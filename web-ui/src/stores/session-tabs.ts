@@ -1,4 +1,3 @@
-import { produce } from 'solid-js/store';
 import type { SessionTerminals, TerminalTab, TileLayout } from '../types';
 import { logger } from '../lib/logger';
 import { MAX_TERMINALS_PER_SESSION } from '../lib/constants';

@@ -1,5 +1,5 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
-import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay } from './mobile';
+import { disableVirtualKeyboardOverlay } from './mobile';
 import { logger } from './logger';
 
 export interface MobileInputCallbacks {

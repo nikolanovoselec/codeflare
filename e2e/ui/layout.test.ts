@@ -650,7 +650,7 @@ describe('Layout', () => {
 
       // Session cards should have stagger animation
       const hasStaggerClass = await page.evaluate(() => {
-        const cards = document.querySelectorAll('[data-testid^="session-card-"]');
+        const cards = document.querySelectorAll('[data-testid^="session-stat-card-"]');
         if (cards.length === 0) return true; // No cards is fine
 
         const firstCard = cards[0];
@@ -727,7 +727,7 @@ describe('Layout', () => {
       const initialUrl = page.url();
 
       // Click a session card if any exist
-      const sessionCard = await page.$('[data-testid^="session-card-"]');
+      const sessionCard = await page.$('[data-testid^="session-stat-card-"]');
       if (sessionCard) {
         await sessionCard.click();
         await new Promise((resolve) => setTimeout(resolve, 500));

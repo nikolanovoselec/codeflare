@@ -72,7 +72,7 @@ export async function waitForContainerReady(page: Page, timeout: number = TIMEOU
     if (isRunning) {
       // Verify metrics are showing (indicates container is truly ready)
       const hasMetrics = await page.evaluate(() => {
-        return !!document.querySelector('.session-card-metrics');
+        return !!document.querySelector('.stat-card__metrics');
       });
 
       if (hasMetrics) {
@@ -118,7 +118,7 @@ export async function waitForTerminalTabs(page: Page, timeout: number = TIMEOUTS
  * Get the current session count
  */
 export async function getSessionCount(page: Page): Promise<number> {
-  const cards = await page.$$('[data-testid^="session-card-"]');
+  const cards = await page.$$('[data-testid^="session-stat-card-"]');
   return cards.length;
 }
 
@@ -152,10 +152,10 @@ export async function createSession(page: Page): Promise<string | null> {
 
   if (countAfter > countBefore) {
     // Get the newest session's ID
-    const cards = await page.$$('[data-testid^="session-card-"]');
+    const cards = await page.$$('[data-testid^="session-stat-card-"]');
     if (cards.length > 0) {
       const sessionId = await page.evaluate(
-        (el) => el.getAttribute('data-session-id') || el.getAttribute('data-testid')?.replace('session-card-', ''),
+        (el) => el.getAttribute('data-session-id') || el.getAttribute('data-testid')?.replace('session-stat-card-', ''),
         cards[0]
       );
       return sessionId;
@@ -170,8 +170,8 @@ export async function createSession(page: Page): Promise<string | null> {
  */
 export async function selectSession(page: Page, sessionId?: string): Promise<boolean> {
   const selector = sessionId
-    ? `[data-session-id="${sessionId}"], [data-testid="session-card-${sessionId}"]`
-    : '[data-testid^="session-card-"]';
+    ? `[data-session-id="${sessionId}"], [data-testid="session-stat-card-${sessionId}"]`
+    : '[data-testid^="session-stat-card-"]';
 
   const card = await page.$(selector);
 
@@ -190,7 +190,7 @@ export async function selectSession(page: Page, sessionId?: string): Promise<boo
  */
 export async function deleteSession(page: Page, sessionId: string): Promise<boolean> {
   // Find the session card
-  const card = await page.$(`[data-session-id="${sessionId}"], [data-testid="session-card-${sessionId}"]`);
+  const card = await page.$(`[data-session-id="${sessionId}"], [data-testid="session-stat-card-${sessionId}"]`);
 
   if (!card) {
     return false;

@@ -1,4 +1,4 @@
-import { Component, For, Show } from 'solid-js';
+import { Component, For } from 'solid-js';
 import type { TileLayout } from '../types';
 import '../styles/tiling-overlay.css';
 

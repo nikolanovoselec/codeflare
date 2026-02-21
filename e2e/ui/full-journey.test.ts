@@ -97,7 +97,7 @@ describe('Full User Journey', () => {
 
       if (progressComplete) {
         // Verify metrics are showing (indicates container is truly ready)
-        const hasMetrics = await elementExists(page, '.session-card-metrics', 1000);
+        const hasMetrics = await elementExists(page, '.stat-card__metrics', 1000);
         if (hasMetrics) {
           return true;
         }
@@ -158,12 +158,12 @@ describe('Full User Journey', () => {
       if (!createButton) {
         console.log('No create session button found - might already have sessions');
         // If sessions exist, the test passes (we can work with existing)
-        const hasExistingSessions = await elementExists(page, '[data-testid^="session-card-"]', 2000);
+        const hasExistingSessions = await elementExists(page, '[data-testid^="session-stat-card-"]', 2000);
         expect(hasExistingSessions || true).toBe(true);
         return;
       }
 
-      const sessionCountBefore = await getElementCount(page, '[data-testid^="session-card-"]');
+      const sessionCountBefore = await getElementCount(page, '[data-testid^="session-stat-card-"]');
 
       // Click create session
       await createButton.click();
@@ -171,7 +171,7 @@ describe('Full User Journey', () => {
       // Wait for session to appear
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      const sessionCountAfter = await getElementCount(page, '[data-testid^="session-card-"]');
+      const sessionCountAfter = await getElementCount(page, '[data-testid^="session-stat-card-"]');
 
       // Either a new session was created or we got a session card
       expect(sessionCountAfter).toBeGreaterThanOrEqual(sessionCountBefore);
@@ -190,7 +190,7 @@ describe('Full User Journey', () => {
       }
 
       // Click on a session card to select it
-      const sessionCard = await page.$('[data-testid^="session-card-"]');
+      const sessionCard = await page.$('[data-testid^="session-stat-card-"]');
       if (!sessionCard) {
         console.log('No session cards found');
         return;
@@ -198,7 +198,7 @@ describe('Full User Journey', () => {
 
       // Get session ID for later cleanup
       sessionId = await page.evaluate(
-        (el) => el.getAttribute('data-session-id') || el.getAttribute('data-testid')?.replace('session-card-', ''),
+        (el) => el.getAttribute('data-session-id') || el.getAttribute('data-testid')?.replace('session-stat-card-', ''),
         sessionCard
       );
       if (sessionId && !createdSessionIds.includes(sessionId)) {
@@ -249,7 +249,7 @@ describe('Full User Journey', () => {
       }
 
       // Check for metrics section
-      const hasMetrics = await elementExists(page, '.session-card-metrics', 5000);
+      const hasMetrics = await elementExists(page, '.stat-card__metrics', 5000);
 
       if (hasMetrics) {
         // Verify specific metrics are displayed
@@ -274,7 +274,7 @@ describe('Full User Journey', () => {
       }
 
       // Click on a session to select it
-      const sessionCard = await page.$('[data-testid^="session-card-"]');
+      const sessionCard = await page.$('[data-testid^="session-stat-card-"]');
       if (sessionCard) {
         await sessionCard.click();
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -323,7 +323,7 @@ describe('Full User Journey', () => {
       }
 
       // Select a session first
-      const sessionCard = await page.$('[data-testid^="session-card-"]');
+      const sessionCard = await page.$('[data-testid^="session-stat-card-"]');
       if (sessionCard) {
         await sessionCard.click();
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -366,7 +366,7 @@ describe('Full User Journey', () => {
       }
 
       // Select a session
-      const sessionCard = await page.$('[data-testid^="session-card-"]');
+      const sessionCard = await page.$('[data-testid^="session-stat-card-"]');
       if (sessionCard) {
         await sessionCard.click();
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -434,7 +434,7 @@ describe('Full User Journey', () => {
       }
 
       // Find a session card
-      const sessionCard = await page.$('[data-testid^="session-card-"]');
+      const sessionCard = await page.$('[data-testid^="session-stat-card-"]');
       if (!sessionCard) {
         console.log('No session to stop');
         return;
@@ -445,18 +445,18 @@ describe('Full User Journey', () => {
       await new Promise(resolve => setTimeout(resolve, 300));
 
       // Look for stop button
-      const stopBtn = await page.$('[data-testid$="-stop-btn"], .session-card-actions-overlay button[title*="stop" i]');
+      const stopBtn = await page.$('[data-testid$="-stop-btn"], .session-context-menu button[title*="stop" i]');
 
       if (stopBtn) {
         // Count sessions before stop
-        const countBefore = await getElementCount(page, '[data-testid^="session-card-"]');
+        const countBefore = await getElementCount(page, '[data-testid^="session-stat-card-"]');
 
         await stopBtn.click();
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Session should still exist but status may change
         // This is just a smoke test - verifying no crash
-        const hasSessionCards = await elementExists(page, '[data-testid^="session-card-"]', 2000);
+        const hasSessionCards = await elementExists(page, '[data-testid^="session-stat-card-"]', 2000);
         expect(hasSessionCards).toBe(true);
       }
     }, 45000);
@@ -472,7 +472,7 @@ describe('Full User Journey', () => {
       }
 
       // Find a session card
-      const sessionCard = await page.$('[data-testid^="session-card-"]');
+      const sessionCard = await page.$('[data-testid^="session-stat-card-"]');
       if (!sessionCard) {
         console.log('No session to delete');
         return;
@@ -480,7 +480,7 @@ describe('Full User Journey', () => {
 
       // Get session ID
       const deleteSessionId = await page.evaluate(
-        (el) => el.getAttribute('data-session-id') || el.getAttribute('data-testid')?.replace('session-card-', ''),
+        (el) => el.getAttribute('data-session-id') || el.getAttribute('data-testid')?.replace('session-stat-card-', ''),
         sessionCard
       );
 
@@ -489,7 +489,7 @@ describe('Full User Journey', () => {
       await new Promise(resolve => setTimeout(resolve, 300));
 
       // Look for delete button
-      const deleteBtn = await page.$('[data-testid$="-delete-btn"], .session-card-actions-overlay button[title*="delete" i]');
+      const deleteBtn = await page.$('[data-testid$="-delete-btn"], .session-context-menu button[title*="delete" i]');
 
       if (deleteBtn) {
         await deleteBtn.click();

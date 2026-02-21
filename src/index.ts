@@ -167,11 +167,6 @@ export function resetSetupCache() {
   resetSetupCacheShared();
 }
 
-// Server-rendered onboarding page removed — now served by the SPA.
-// The SPA fetches config from GET /public/onboarding-config and renders
-// the OnboardingLanding component with Turnstile + waitlist form.
-
-
 // ============================================================================
 // Global Error Handler
 // ============================================================================

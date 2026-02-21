@@ -115,7 +115,7 @@ describe('Session Management', () => {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Check for session cards - dashboard always shows the list (may be empty)
-      const sessionCards = await page.$$('[data-testid^="session-card-"]');
+      const sessionCards = await page.$$('[data-testid^="session-stat-card-"]');
       const hasDashboard = await elementExists(page, '[data-testid="dashboard-floating-panel"]', 1000);
 
       // Dashboard should be present; session cards depend on existing data
@@ -127,7 +127,7 @@ describe('Session Management', () => {
       await waitForDashboardReady(page);
 
       // Wait for potential session cards
-      const sessionCards = await page.$$('[data-testid^="session-card-"]');
+      const sessionCards = await page.$$('[data-testid^="session-stat-card-"]');
 
       if (sessionCards.length > 0) {
         // First session card should have duration info
@@ -140,7 +140,7 @@ describe('Session Management', () => {
       await navigateToHome(page);
       await waitForDashboardReady(page);
 
-      const sessionCards = await page.$$('[data-testid^="session-card-"]');
+      const sessionCards = await page.$$('[data-testid^="session-stat-card-"]');
 
       if (sessionCards.length > 0) {
         // First session card should have last accessed info
@@ -176,7 +176,7 @@ describe('Session Management', () => {
       await waitForDashboardReady(page);
 
       // Get initial session count
-      const initialCards = await page.$$('[data-testid^="session-card-"]');
+      const initialCards = await page.$$('[data-testid^="session-stat-card-"]');
 
       if (initialCards.length > 0) {
         // Type a search query that probably won't match
@@ -188,7 +188,7 @@ describe('Session Management', () => {
           await new Promise((resolve) => setTimeout(resolve, 500));
 
           // Check for filtered results
-          const filteredCards = await page.$$('[data-testid^="session-card-"]');
+          const filteredCards = await page.$$('[data-testid^="session-stat-card-"]');
 
           // Should have fewer cards after filtering with a nonexistent query
           expect(filteredCards.length).toBeLessThan(initialCards.length);
@@ -224,7 +224,7 @@ describe('Session Management', () => {
       await navigateToHome(page);
       await waitForDashboardReady(page);
 
-      const sessionCards = await page.$$('[data-testid^="session-card-"]');
+      const sessionCards = await page.$$('[data-testid^="session-stat-card-"]');
 
       if (sessionCards.length > 0) {
         // Get the first card's testid
@@ -247,7 +247,7 @@ describe('Session Management', () => {
       await waitForDashboardReady(page);
 
       // Dashboard shows all sessions - look for running ones with tab count
-      const sessionCards = await page.$$('[data-testid^="session-card-"]');
+      const sessionCards = await page.$$('[data-testid^="session-stat-card-"]');
 
       if (sessionCards.length > 0) {
         // Running sessions should show tab count
@@ -310,13 +310,13 @@ describe('Session Management', () => {
       await navigateToHome(page);
       await waitForDashboardReady(page);
 
-      const sessionCards = await page.$$('[data-testid^="session-card-"]');
+      const sessionCards = await page.$$('[data-testid^="session-stat-card-"]');
 
       if (sessionCards.length > 0) {
         // Session cards should have status indication (badge, icon, or class)
         const hasBadge = await elementExists(page, '[data-testid="badge"]', 2000);
         const hasStatusClass = await page.evaluate(() => {
-          const card = document.querySelector('[data-testid^="session-card-"]');
+          const card = document.querySelector('[data-testid^="session-stat-card-"]');
           const cardWrapper = card?.querySelector('.session-card, [class*="status"]');
           return cardWrapper !== null;
         });

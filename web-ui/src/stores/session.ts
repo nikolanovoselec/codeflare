@@ -1,9 +1,9 @@
 import { createStore, produce } from 'solid-js/store';
 import type { Session, SessionWithStatus, SessionStatus, InitProgress, InitStage, TerminalTab, SessionTerminals, TileLayout, TilingState, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
-import { terminalStore, sendInputToTerminal } from './terminal';
+import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
-import { STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
+import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
   LAYOUT_MIN_TABS,
   getBestLayoutForTabCount,
@@ -44,7 +44,7 @@ import {
  *  - CRUD operations for sessions (list, create, rename, delete)
  *  - Session start/stop with startup-status polling
  *  - Active session selection and view-state tracking
- *  - Per-session metrics polling (CPU, mem, sync status)
+ *  - Per-session metrics display (CPU, mem, sync status from KV)
  *  - User preferences persistence
  *
  * Delegates to:
@@ -249,7 +249,6 @@ async function deleteSession(id: string): Promise<void> {
       startupCleanups.delete(id);
     }
     await api.deleteSession(id);
-    stopMetricsPolling(id);
     sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
     setState(
@@ -289,7 +288,6 @@ function startSession(id: string): Promise<void> {
         startupCleanups.delete(id);
         updateSessionStatus(id, 'running');
         initializeTerminalsForSession(id);
-        startMetricsPolling(id);
         resolve();
       },
       (error) => {
@@ -326,7 +324,6 @@ async function stopSession(id: string): Promise<void> {
     );
     updateSessionStatus(id, 'stopping');
     await api.stopSession(id);
-    stopMetricsPolling(id);
 
     // Poll batch-status until session reaches 'stopped' (sync may still be running)
     const pollForStopped = (): Promise<void> => {
@@ -382,9 +379,6 @@ function updateSessionStatus(id: string, status: SessionStatus): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
     setState('sessions', index, 'status', status);
-    if (status !== 'running') {
-      stopMetricsPolling(id);
-    }
   }
 }
 
@@ -418,46 +412,6 @@ function isSessionInitializing(sessionId: string): boolean {
 
 function getInitProgressForSession(sessionId: string): InitProgress | null {
   return state.initProgressBySession[sessionId] || null;
-}
-
-// ============================================================================
-// Session Metrics
-// ============================================================================
-
-async function fetchMetricsForSession(sessionId: string): Promise<void> {
-  try {
-    const status = await api.getStartupStatus(sessionId);
-    if (status.details) {
-      setState(produce(s => {
-        s.sessionMetrics[sessionId] = {
-          bucketName: status.details?.bucketName || '...',
-          syncStatus: (status.details?.syncStatus as 'pending' | 'syncing' | 'success' | 'failed' | 'skipped') || 'pending',
-          cpu: status.details?.cpu || '...',
-          mem: status.details?.mem || '...',
-          hdd: status.details?.hdd || '...',
-        };
-      }));
-    }
-  } catch (err) {
-    logger.warn('[SessionStore] Failed to fetch metrics:', err);
-  }
-}
-
-const metricsPollingIntervals = new Map<string, ReturnType<typeof setInterval>>();
-
-function startMetricsPolling(sessionId: string): void {
-  // Metrics now pushed to KV by container's schedule() callback.
-  // No per-session polling needed — batch-status includes metrics.
-  // Keep fetchMetricsForSession only for boot progress bar in startSession().
-}
-
-function stopMetricsPolling(sessionId: string): void {
-  const interval = metricsPollingIntervals.get(sessionId);
-  if (interval) {
-    clearInterval(interval);
-    metricsPollingIntervals.delete(sessionId);
-    logger.debug(`[SessionStore] Stopped metrics polling for session ${sessionId}`);
-  }
 }
 
 // ============================================================================
@@ -547,13 +501,7 @@ function stopSessionListPolling(): void {
   }
 }
 
-function stopAllMetricsPolling(): void {
-  metricsPollingIntervals.forEach((interval, sessionId) => {
-    clearInterval(interval);
-    logger.debug(`[SessionStore] Stopped metrics polling for session ${sessionId}`);
-  });
-  metricsPollingIntervals.clear();
-
+function stopAllPolling(): void {
   for (const [sessionId, cleanup] of startupCleanups) {
     cleanup();
     logger.debug(`[SessionStore] Stopped startup polling for session ${sessionId}`);
@@ -618,9 +566,7 @@ export const sessionStore = {
 
   // Session metrics
   getMetricsForSession,
-  startMetricsPolling,
-  stopMetricsPolling,
-  stopAllMetricsPolling,
+  stopAllPolling,
 
   // Session list polling
   startSessionListPolling,
