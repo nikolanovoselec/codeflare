@@ -59,7 +59,7 @@ const Layout: Component<LayoutProps> = (props) => {
       sessionStore.startSessionListPolling();
     } else {
       cancelScheduledDisconnect();
-      reconnectDisconnectedTerminals();
+      reconnectDisconnectedTerminals(sessionStore.activeSessionId ?? undefined);
       sessionStore.stopSessionListPolling();
     }
   });

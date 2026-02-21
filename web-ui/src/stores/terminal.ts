@@ -721,12 +721,19 @@ function stopUrlDetection(): void {
 let disconnectTimerId: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * Reconnect any terminals that are in 'disconnected' state (e.g. after the
+ * Reconnect terminals that are in 'disconnected' state (e.g. after the
  * dashboard scheduled disconnect fired).  Connected terminals are left as-is.
+ *
+ * @param activeSessionId - If provided, only reconnect terminals belonging to
+ *   this session. This prevents auto-starting containers for OTHER sessions
+ *   whose terminals are still in the map from a previous view. Without this
+ *   filter, `container.fetch()` on a stopped DO auto-starts its container
+ *   (SDK `containerFetch` line 525), causing phantom containers.
  */
-export function reconnectDisconnectedTerminals(): void {
+export function reconnectDisconnectedTerminals(activeSessionId?: string): void {
   for (const [key] of terminals) {
     const [sessionId, terminalId] = key.split(':');
+    if (activeSessionId && sessionId !== activeSessionId) continue;
     if (getConnectionState(sessionId, terminalId) === 'disconnected') {
       logger.info(`[Terminal ${key}] Disconnected, triggering reconnect`);
       reconnect(sessionId, terminalId);
