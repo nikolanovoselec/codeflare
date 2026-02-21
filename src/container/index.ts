@@ -376,16 +376,17 @@ export class container extends Container<Env> {
       if (!activityRes.ok) {
         this.logger.warn('collectMetrics: /activity returned non-OK, renewing as safety net', { status: activityRes.status });
         this.renewActivityTimeout();
-        return;
-      }
-      const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
-      if (activity.hasActiveConnections) {
-        this.renewActivityTimeout();
-        this.logger.info('collectMetrics: renewed sleepAfter (active WS clients)', {
-          connectedClients: activity.connectedClients,
-        });
+        // Don't return — still need to push metrics and re-arm schedule below
       } else {
-        this.logger.info('collectMetrics: no active WS clients, skipping renewal');
+        const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
+        if (activity.hasActiveConnections) {
+          this.renewActivityTimeout();
+          this.logger.info('collectMetrics: renewed sleepAfter (active WS clients)', {
+            connectedClients: activity.connectedClients,
+          });
+        } else {
+          this.logger.info('collectMetrics: no active WS clients, skipping renewal');
+        }
       }
     } catch (err) {
       this.logger.warn('collectMetrics: activity check failed', {
