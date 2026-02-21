@@ -127,6 +127,23 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       }
     }
 
+    // Always ensure sessionId is stored in DO storage (needed by collectMetrics/onStop).
+    // This is a separate call because setBucketName is skipped when bucket already matches.
+    try {
+      await containerInternalCB.execute(() =>
+        container.fetch(
+          new Request('http://container/_internal/setSessionId', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId }),
+          })
+        )
+      );
+    } catch {
+      // Best-effort — don't fail the start if this fails
+      reqLogger.warn('Failed to store sessionId in DO', { sessionId });
+    }
+
     // Check current state
     let currentState;
     try {

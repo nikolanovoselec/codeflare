@@ -47,6 +47,7 @@ export class container extends Container<Env> {
     // Initialize internal route dispatch table
     this.internalRoutes = new Map<string, (request: Request) => Promise<Response> | Response>([
       ['POST:/_internal/setBucketName', (request) => this.handleSetBucketName(request)],
+      ['PUT:/_internal/setSessionId', (request) => this.handleSetSessionId(request)],
       ['GET:/_internal/getBucketName', () => this.handleGetBucketName()],
       ['GET:/_internal/debugEnvVars', () => this.handleDebugEnvVars()],
     ]);
@@ -202,14 +203,6 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      // FIX-28: Idempotency — once bucket name is set, reject subsequent calls
-      if (this._bucketName) {
-        return new Response(JSON.stringify({ error: 'Bucket name already set' }), {
-          status: 409,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
       const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, tabConfig } =
         await request.json() as {
           bucketName: string;
@@ -221,6 +214,19 @@ export class container extends Container<Env> {
           workspaceSyncEnabled?: boolean;
           tabConfig?: TabConfig[];
         };
+
+      // FIX-28: Idempotency — once bucket name is set, reject subsequent calls.
+      // But always store sessionId so collectMetrics/onStop can find the KV entry
+      // (sessionId may be missing if the DO was created before SESSION_ID_KEY existed).
+      if (this._bucketName) {
+        if (sessionId) {
+          await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+        }
+        return new Response(JSON.stringify({ error: 'Bucket name already set' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
 
       // FIX-15: Validate inputs
       if (typeof bucketName !== 'string' || bucketName.trim() === '') {
@@ -285,6 +291,28 @@ export class container extends Container<Env> {
       }
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: toErrorMessage(err) }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  /**
+   * Handle PUT /_internal/setSessionId
+   * Stores the sessionId in DO storage so collectMetrics/onStop can find the KV entry.
+   * Idempotent — safe to call on every start.
+   */
+  private async handleSetSessionId(request: Request): Promise<Response> {
+    try {
+      const { sessionId } = await request.json() as { sessionId?: string };
+      if (sessionId) {
+        await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+      }
+      return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {

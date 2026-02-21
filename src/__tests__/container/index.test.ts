@@ -147,11 +147,7 @@ describe('container DO class', () => {
 
   describe('internal route dispatch', () => {
     it('dispatches POST /_internal/setBucketName to handler', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'existing-bucket';
-        return null;
-      });
-
+      // No existing bucket — storage returns null for all keys
       const instance = new ContainerClass(mockCtx as any, mockEnv);
 
       const request = new Request('http://container/_internal/setBucketName', {
@@ -166,6 +162,26 @@ describe('container DO class', () => {
       const body = await response.json() as { success: boolean; bucketName: string };
       expect(body.success).toBe(true);
       expect(body.bucketName).toBe('new-bucket');
+    });
+
+    it('returns 409 when bucket name already set but stores sessionId', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'existing-bucket';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'new-bucket', sessionId: 'sess123' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(409);
+      // sessionId should still be stored even on 409
+      expect(mockStorage.put).toHaveBeenCalledWith('_sessionId', 'sess123');
     });
 
     it('dispatches GET /_internal/getBucketName to handler', async () => {
