@@ -47,7 +47,6 @@ export class container extends Container<Env> {
     // Initialize internal route dispatch table
     this.internalRoutes = new Map<string, (request: Request) => Promise<Response> | Response>([
       ['POST:/_internal/setBucketName', (request) => this.handleSetBucketName(request)],
-      ['PUT:/_internal/setSessionId', (request) => this.handleSetSessionId(request)],
       ['GET:/_internal/getBucketName', () => this.handleGetBucketName()],
       ['GET:/_internal/debugEnvVars', () => this.handleDebugEnvVars()],
     ]);
@@ -203,6 +202,14 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
+      // FIX-28: Idempotency — once bucket name is set, reject subsequent calls
+      if (this._bucketName) {
+        return new Response(JSON.stringify({ error: 'Bucket name already set' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
       const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, tabConfig } =
         await request.json() as {
           bucketName: string;
@@ -214,19 +221,6 @@ export class container extends Container<Env> {
           workspaceSyncEnabled?: boolean;
           tabConfig?: TabConfig[];
         };
-
-      // FIX-28: Idempotency — once bucket name is set, reject subsequent calls.
-      // But always store sessionId so collectMetrics/onStop can find the KV entry
-      // (sessionId may be missing if the DO was created before SESSION_ID_KEY existed).
-      if (this._bucketName) {
-        if (sessionId) {
-          await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
-        }
-        return new Response(JSON.stringify({ error: 'Bucket name already set' }), {
-          status: 409,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
 
       // FIX-15: Validate inputs
       if (typeof bucketName !== 'string' || bucketName.trim() === '') {
@@ -291,28 +285,6 @@ export class container extends Container<Env> {
       }
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch (err) {
-      return new Response(JSON.stringify({ error: toErrorMessage(err) }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
-
-  /**
-   * Handle PUT /_internal/setSessionId
-   * Stores the sessionId in DO storage so collectMetrics/onStop can find the KV entry.
-   * Idempotent — safe to call on every start.
-   */
-  private async handleSetSessionId(request: Request): Promise<Response> {
-    try {
-      const { sessionId } = await request.json() as { sessionId?: string };
-      if (sessionId) {
-        await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
-      }
-      return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
@@ -401,25 +373,12 @@ export class container extends Container<Env> {
     try {
       const activityPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
       const activityRes = await activityPort.fetch('http://localhost/activity');
-      if (!activityRes.ok) {
-        this.logger.warn('collectMetrics: /activity returned non-OK, renewing as safety net', { status: activityRes.status });
+      const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
+      if (activity.hasActiveConnections) {
         this.renewActivityTimeout();
-        // Don't return — still need to push metrics and re-arm schedule below
-      } else {
-        const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
-        if (activity.hasActiveConnections) {
-          this.renewActivityTimeout();
-          this.logger.info('collectMetrics: renewed sleepAfter (active WS clients)', {
-            connectedClients: activity.connectedClients,
-          });
-        } else {
-          this.logger.info('collectMetrics: no active WS clients, skipping renewal');
-        }
       }
-    } catch (err) {
-      this.logger.warn('collectMetrics: activity check failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+    } catch {
+      // Activity check is best-effort — don't block metrics collection
     }
 
     try {
@@ -510,14 +469,9 @@ export class container extends Container<Env> {
   override async destroy(): Promise<void> {
     this.logger.info('Destroying container, clearing operational storage');
     try {
-      // Delete SESSION_ID_KEY and null _bucketName so that onStop()
-      // (triggered by super.destroy() killing the container process)
-      // bails out early and does NOT resurrect the KV entry.
-      await this.ctx.storage.delete(SESSION_ID_KEY);
       await this.ctx.storage.delete('bucketName');
       await this.ctx.storage.delete('workspaceSyncEnabled');
       await this.ctx.storage.delete('tabConfig');
-      this._bucketName = null;
       this.logger.info('Operational storage cleared');
     } catch (err) {
       this.logger.error('Failed to clear storage', err instanceof Error ? err : new Error(toErrorMessage(err)));
@@ -539,11 +493,6 @@ export class container extends Container<Env> {
     try {
       const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
       const res = await tcpPort.fetch('http://localhost/activity');
-      if (!res.ok) {
-        this.logger.warn('onActivityExpired: /activity returned non-OK, renewing as safety net', { status: res.status });
-        this.renewActivityTimeout();
-        return;
-      }
       const activity = await res.json() as { hasActiveConnections: boolean; connectedClients: number };
 
       if (activity.hasActiveConnections) {

@@ -3,7 +3,6 @@ import { mdiConsole, mdiChip, mdiMemory, mdiHarddisk, mdiDotsVertical } from '@m
 import Icon from './Icon';
 import type { SessionWithStatus, SessionStatus } from '../types';
 import { sessionStore } from '../stores/session';
-import { terminalStore } from '../stores/terminal';
 import { AGENT_ICON_MAP } from '../lib/terminal-config';
 import '../styles/stat-cards.css';
 import '../styles/session-stat-card.css';
@@ -35,13 +34,7 @@ interface SessionStatCardProps {
 
 const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   const metrics = createMemo(() => sessionStore.getMetricsForSession(props.session.id));
-  const wsState = () => terminalStore.getConnectionState(props.session.id, '1');
-  const dotVariant = () => {
-    if (props.session.status === 'running' && wsState() !== 'connected') {
-      return 'warning'; // Yellow — container alive, WS disconnected
-    }
-    return statusDotVariant[props.session.status];
-  };
+  const dotVariant = () => statusDotVariant[props.session.status];
   const isPulsing = () => statusPulses[props.session.status];
 
   const getProgress = (): number => {
