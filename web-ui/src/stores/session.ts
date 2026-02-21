@@ -587,7 +587,7 @@ async function updatePreferences(prefs: Partial<UserPreferences>): Promise<void>
   }
 }
 
-/** Check if a stopped session's context may still be alive (lastActiveAt < 24h ago) */
+/** Check if a stopped session's context may still be alive (lastActiveAt < CONTEXT_EXPIRY_MS ago, i.e. 30m) */
 function hasRecentContext(session: SessionWithStatus): boolean {
   if (!session.lastActiveAt) return false;
   return Date.now() - new Date(session.lastActiveAt).getTime() < CONTEXT_EXPIRY_MS;

@@ -81,7 +81,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### 2.6 Constants
 
-**File:** `src/lib/constants.ts` - Single source of truth for 25 configuration values: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, retry/polling config, CORS defaults, idle timeouts, rate limit keys, container fetch timeouts, max presets/tabs, sync timeouts.
+**File:** `src/lib/constants.ts` - Single source of truth for 19 configuration values: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, DO ID pattern, request ID config.
 
 ### 2.7 Circuit Breaker
 
@@ -131,7 +131,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ### 2.16 Frontend Constants
 
-**File:** `web-ui/src/lib/constants.ts` - 16 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths.
+**File:** `web-ui/src/lib/constants.ts` - 22 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ### 2.17 Terminal Tab Configuration
 
@@ -175,7 +175,7 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. Paths called via `getTcpPort().fetch()` (which bypasses the DO's `fetch()` override that injects the auth header) must be in the `authExemptPaths` Set at `host/server.js`: `['/health', '/activity']`. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
 
-**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number }`. Used by both `collectMetrics()` (keepalive heartbeat) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected.
+**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null }`. Used by both `collectMetrics()` (keepalive heartbeat) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected).
 
 **WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, process-name) as JSON. No application-level ping/pong — Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
@@ -453,7 +453,7 @@ Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AU
 | POST | `/api/sessions/:id/touch` | Update lastAccessedAt |
 | POST | `/api/sessions/:id/stop` | Stop session (KV 'stopped' + container.destroy()) |
 | GET | `/api/sessions/:id/status` | Get session and container status |
-| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, startupStage) |
+| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics) |
 
 ### Container Lifecycle
 
@@ -466,6 +466,7 @@ Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AU
 | GET | `/api/container/state` | Container state (DEV_MODE) |
 | GET | `/api/container/debug` | Debug info (DEV_MODE) |
 | GET | `/api/container/sync-log` | Sync log (DEV_MODE) |
+| GET | `/api/container/mount-test` | Mount verification (DEV_MODE) |
 
 ### Terminal
 
@@ -479,9 +480,8 @@ Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AU
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/user` | Authenticated user info (includes `onboardingActive`) |
-| GET | `/api/users` | List allowed users |
-| POST | `/api/users` | Add allowed user |
-| DELETE | `/api/users/:email` | Remove allowed user |
+| GET | `/api/users` | List allowed users (admin only) |
+| DELETE | `/api/users/:email` | Remove allowed user (admin only) |
 
 ### Setup
 
@@ -521,7 +521,7 @@ Body: `{ "doId": "<64-char-hex-do-id>" }`. **CRITICAL:** Only `destroy-by-id` us
 
 ### Presets
 
-GET `/api/presets`, POST `/api/presets`, DELETE `/api/presets/:id`
+GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELETE `/api/presets/:id`
 
 ### Preferences
 
@@ -626,19 +626,21 @@ codeflare/
 │   │                         # error-types, type-guards, circuit-breaker, cors-cache, cache-reset,
 │   │                         # jwt, cf-api, logger
 │   ├── container/index.ts    # Container DO class
-│   └── __tests__/            # Backend unit tests (19 files)
+│   └── __tests__/            # Backend unit tests (64 files)
 ├── e2e/                      # E2E tests (API + Puppeteer UI)
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
+│   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
+│   ├── prewarm-config.js     # Agent-aware PTY pre-warm configuration
 │   └── package.json
 ├── web-ui/
 │   └── src/
 │       ├── components/       # SolidJS components (Terminal, Layout, SessionCard, StorageBrowser, etc.)
-│       ├── stores/           # terminal.ts, session.ts, storage.ts, setup.ts
+│       ├── stores/           # terminal.ts, session.ts, storage.ts, setup.ts, tiling.ts, session-presets.ts, session-tabs.ts
 │       ├── api/client.ts     # API client
 │       ├── lib/              # constants, schemas, terminal-config, settings, format, mobile
 │       ├── styles/           # CSS (design tokens, animations, component styles)
-│       └── __tests__/        # Frontend unit tests (54 files)
+│       └── __tests__/        # Frontend unit tests (67 files)
 ├── Dockerfile                # Multi-stage container image
 ├── entrypoint.sh             # Container startup script
 ├── wrangler.toml             # Cloudflare configuration
@@ -727,13 +729,13 @@ Port: 8080 (single port architecture).
 
 ## 13. Testing
 
-**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). ~317 tests across 19 files. Run: `npm test`
+**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 64 test files. Run: `npm test`
 
-**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. ~1161 tests across 54 files. Run: `cd web-ui && npm test`
+**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 67 test files. Run: `cd web-ui && npm test`
 
 **E2E API:** `e2e/` - tests against deployed worker. Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e`
 
-**E2E UI:** `e2e/ui/` - 132 Puppeteer tests. Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e:ui`
+**E2E UI:** `e2e/ui/` - Puppeteer tests (12 test files). Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e:ui`
 
 **E2E Requirements:** `DEV_MODE = "true"` deployed, no CF Access on workers.dev domain. Re-deploy with `DEV_MODE = "false"` after testing. Cleanup via `afterAll` hooks; if tests fail, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
 
