@@ -96,52 +96,42 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const tabConfig = sessionData.tabConfig
       || getDefaultTabConfig(sessionData.agentType || 'claude-unleashed');
 
-    // If bucket name is different or not set, update it
+    // Always call setBucketName — on first call it configures R2 credentials;
+    // on subsequent calls (409) it still stores sessionId in DO storage so
+    // collectMetrics/onStop can find the KV entry. No extra container.fetch()
+    // needed — the 409 path handles sessionId persistence.
     const needsBucketUpdate = storedBucketName !== bucketName;
-    if (needsBucketUpdate) {
-      try {
-        await containerInternalCB.execute(() =>
-          container.fetch(
-            new Request('http://container/_internal/setBucketName', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                bucketName,
-                sessionId,
-                r2AccessKeyId: c.env.R2_ACCESS_KEY_ID,
-                r2SecretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
-                r2AccountId: r2Config.accountId,
-                r2Endpoint: r2Config.endpoint,
-                tabConfig,
-                workspaceSyncEnabled,
-              }),
-            })
-          )
-        );
-        // Small delay to ensure DO processes the bucket name before container starts
-        await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
-        reqLogger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
-      } catch (error) {
-        reqLogger.error('Failed to set bucket name', toError(error));
-        throw new ContainerError('set_bucket_name', toErrorMessage(error));
-      }
-    }
-
-    // Always ensure sessionId is stored in DO storage (needed by collectMetrics/onStop).
-    // This is a separate call because setBucketName is skipped when bucket already matches.
     try {
       await containerInternalCB.execute(() =>
         container.fetch(
-          new Request('http://container/_internal/setSessionId', {
-            method: 'PUT',
+          new Request('http://container/_internal/setBucketName', {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId }),
+            body: JSON.stringify({
+              bucketName,
+              sessionId,
+              r2AccessKeyId: c.env.R2_ACCESS_KEY_ID,
+              r2SecretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
+              r2AccountId: r2Config.accountId,
+              r2Endpoint: r2Config.endpoint,
+              tabConfig,
+              workspaceSyncEnabled,
+            }),
           })
         )
       );
-    } catch {
-      // Best-effort — don't fail the start if this fails
-      reqLogger.warn('Failed to store sessionId in DO', { sessionId });
+      // Small delay only when bucket name is actually being set for the first time
+      if (needsBucketUpdate) {
+        await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
+      }
+      reqLogger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
+    } catch (error) {
+      if (needsBucketUpdate) {
+        reqLogger.error('Failed to set bucket name', toError(error));
+        throw new ContainerError('set_bucket_name', toErrorMessage(error));
+      }
+      // Best-effort when bucket already matches — sessionId storage failed but don't block start
+      reqLogger.warn('Failed to store sessionId via setBucketName', { sessionId });
     }
 
     // Check current state
