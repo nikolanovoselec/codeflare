@@ -149,6 +149,25 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       reqLogger.info('Bucket name changed, destroying container to restart with correct bucket');
       try {
         await container.destroy();
+        // Re-populate DO storage after destroy() wiped it (Scenario A race)
+        await containerInternalCB.execute(() =>
+          container.fetch(
+            new Request('http://container/_internal/setBucketName', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                bucketName,
+                sessionId,
+                r2AccessKeyId: c.env.R2_ACCESS_KEY_ID,
+                r2SecretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
+                r2AccountId: r2Config.accountId,
+                r2Endpoint: r2Config.endpoint,
+                tabConfig,
+                workspaceSyncEnabled,
+              }),
+            })
+          )
+        );
         // Container will be started below
         currentState = { status: 'stopped' };
       } catch (error) {

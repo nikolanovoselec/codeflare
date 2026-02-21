@@ -438,7 +438,8 @@ export class container extends Container<Env> {
         const bucketName = this._bucketName || await this.ctx.storage.get<string>('bucketName') || null;
 
         if (!sessionId || !bucketName) {
-          this.logger.info('collectMetrics: missing identifiers', { sessionId: !!sessionId, bucketName: !!bucketName });
+          this.logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
+          return; // Don't re-arm schedule — zombie DO, let it die
         } else {
           const key = getSessionKey(bucketName, sessionId);
           const session = await this.env.KV.get<Session>(key, 'json');
