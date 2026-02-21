@@ -49,7 +49,7 @@ export const WS_CLOSE_ABNORMAL = 1006;
 export const MAX_TERMINALS_PER_SESSION = 6;
 
 /** Interval for polling the session list to keep the dashboard up to date (ms) */
-export const SESSION_LIST_POLL_INTERVAL_MS = 3_000;
+export const SESSION_LIST_POLL_INTERVAL_MS = 5_000;
 
 /** Duration display refresh interval (ms) - for relative time updates */
 export const DURATION_REFRESH_INTERVAL_MS = 60000;
@@ -120,7 +120,7 @@ export const VIEW_TRANSITION_DURATION_MS = 300;
 // =============================================================================
 
 /** After this duration of inactivity, agent context is gone and container must be fully restarted (ms) */
-export const CONTEXT_EXPIRY_MS = 3 * 60 * 1000; // 3m — matches backend sleepAfter for testing
+export const CONTEXT_EXPIRY_MS = 30 * 60 * 1000; // 30m — matches backend sleepAfter
 
 // =============================================================================
 // Dashboard WebSocket Disconnect

@@ -26,7 +26,7 @@ export class container extends Container<Env> {
   defaultPort = 8080;
 
   // SDK kills container after 24h of no HTTP fetch() activity.
-  override sleepAfter = '3m';
+  override sleepAfter = '30m';
 
   // Environment variables - dynamically generated via getter
   private _bucketName: string | null = null;
@@ -409,11 +409,11 @@ export class container extends Container<Env> {
         const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
         if (activity.hasActiveConnections) {
           this.renewActivityTimeout();
-          this.logger.info('collectMetrics: renewed sleepAfter (active WS clients)', {
+          this.logger.debug('collectMetrics: renewed sleepAfter (active WS clients)', {
             connectedClients: activity.connectedClients,
           });
         } else {
-          this.logger.info('collectMetrics: no active WS clients, skipping renewal');
+          this.logger.debug('collectMetrics: no active WS clients, skipping renewal');
         }
       }
     } catch (err) {
@@ -454,7 +454,7 @@ export class container extends Container<Env> {
               updatedAt: new Date().toISOString(),
             };
             await this.env.KV.put(key, JSON.stringify(session));
-            this.logger.info('collectMetrics: wrote metrics to KV', { key, cpu: health.cpu, mem: health.mem });
+            this.logger.debug('collectMetrics: wrote metrics to KV', { key, cpu: health.cpu, mem: health.mem });
           }
         }
       }
