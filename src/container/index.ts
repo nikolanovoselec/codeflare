@@ -481,9 +481,14 @@ export class container extends Container<Env> {
   override async destroy(): Promise<void> {
     this.logger.info('Destroying container, clearing operational storage');
     try {
+      // Delete SESSION_ID_KEY and null _bucketName so that onStop()
+      // (triggered by super.destroy() killing the container process)
+      // bails out early and does NOT resurrect the KV entry.
+      await this.ctx.storage.delete(SESSION_ID_KEY);
       await this.ctx.storage.delete('bucketName');
       await this.ctx.storage.delete('workspaceSyncEnabled');
       await this.ctx.storage.delete('tabConfig');
+      this._bucketName = null;
       this.logger.info('Operational storage cleared');
     } catch (err) {
       this.logger.error('Failed to clear storage', err instanceof Error ? err : new Error(toErrorMessage(err)));
