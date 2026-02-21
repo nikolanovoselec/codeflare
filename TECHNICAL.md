@@ -121,7 +121,9 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **Directory:** `src/routes/session/` - Split into `index.ts` (aggregator), `crud.ts` (CRUD), `lifecycle.ts` (start/stop/status/batch-status).
 
-**Session Stop Flow:** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
+**Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` — prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
+
+**Session Stop Flow (idle):** `onActivityExpired()` detects no active WS clients → `this.stop('SIGTERM')` → `onStop()` fires with identifiers intact → writes `status: 'stopped'` to KV.
 
 ### 2.15 Frontend Zod Validation
 
@@ -139,13 +141,28 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '3m'` (SDK-managed lifecycle, set low for testing).
 
-**SDK-Managed Hibernation:** No DO alarms — `sleepAfter` lets the SDK handle container process lifecycle. `onStart()` updates KV with `lastStartedAt` timestamp. `onStop()` sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
+**SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 5-second `collectMetrics` schedule. `onStop()` sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
+
+**`collectMetrics()` Heartbeat (every 5s):**
+1. Checks `this.ctx.container?.running` — returns early (no re-arm) if container is dead
+2. Fetches `/activity` via `getTcpPort()` — if active WS clients, calls `renewActivityTimeout()` (keepalive). If `/activity` fails, renews as safety net (don't kill container on transient errors)
+3. Fetches `/health` via `getTcpPort()` — reads cpu/mem/hdd/syncStatus
+4. Writes metrics to KV session record (`session.metrics`)
+5. Re-arms schedule if container still running
+
+**Zombie DO Detection:** When `collectMetrics` reaches the health-fetch stage but `sessionId` or `bucketName` are missing from DO storage (happens after `destroy()` clears them), it logs `"missing identifiers, not re-arming (zombie DO)"` and returns without scheduling the next cycle. This is the kill switch for orphaned DOs.
+
+**`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected → `renewActivityTimeout()`. If no clients → `this.stop('SIGTERM')`. Safety net: renews timeout on any error (network failures, non-OK responses) rather than killing the container.
+
+**`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
 **Environment Variables Injection:** R2 credentials flow via two paths: (1) `_internal/setBucketName` request body (primary, from Worker), (2) `this.env` fallback (DO restart). Fallback chain: Worker-provided > `this.env` > empty string.
 
 **Critical: `envVars` must be set as a property assignment**, not as a getter. Cloudflare Containers reads `this.envVars` as a plain property at `start()` time.
 
-**Internal Endpoints:** `/_internal/setBucketName`, `/_internal/getBucketName`, `/_internal/debugEnvVars`
+**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId` in DO storage — this ensures `collectMetrics`/`onStop` can find the KV entry even if the DO predates the `SESSION_ID_KEY` feature.
+
+**Internal Endpoints:** `/_internal/setBucketName`, `/_internal/setSessionId`, `/_internal/getBucketName`, `/_internal/debugEnvVars`
 
 ### 2.19 Terminal Server (node-pty)
 
@@ -153,7 +170,11 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (`lastUserInputMs`, `lastAgentFileActivityMs`) for hibernation decisions via `GET /activity`.
 
-**WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, ping) as JSON. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
+**Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. Paths called via `getTcpPort().fetch()` (which bypasses the DO's `fetch()` override that injects the auth header) must be in the `authExemptPaths` Set at `host/server.js:642`: `['/health', '/activity']`.
+
+**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number }`. Used by both `collectMetrics()` (keepalive heartbeat) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected.
+
+**WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, process-name) as JSON. No application-level ping/pong — Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
 **PTY:** Spawns `bash -l` (login shell for .bashrc) with `xterm-256color`, truecolor support.
 
@@ -161,11 +182,17 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **Directory:** `web-ui/`
 
-Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Layout.tsx` (orchestrates sidebar/terminal/storage/settings with mutual exclusion), `SessionCard.tsx` (handles `'stopping'` with "Syncing" label), `StorageBrowser.tsx` (R2 browser with toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, `Dashboard.tsx`, `OnboardingLanding.tsx`, `KittScanner.tsx`.
+Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Layout.tsx` (orchestrates dashboard/terminal views, manages WS disconnect/reconnect lifecycle), `SessionStatCard.tsx` (dashboard card with three-color status dot and metrics), `StorageBrowser.tsx` (R2 browser with toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, `Dashboard.tsx`, `OnboardingLanding.tsx`, `KittScanner.tsx`.
 
-Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls), `storage.ts` (R2 operations), `setup.ts`.
+Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling), `storage.ts` (R2 operations), `setup.ts`.
 
-**Auto-Reconnect:** 5 attempts with 2-second delay. Reconnection triggers session buffer replay.
+**Dashboard WS Disconnect Flow:** When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(60000)`. After 60s, all WS connections close with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter`. When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then `reconnectDisconnectedTerminals(activeSessionId)` reconnects only the active session's terminals.
+
+**Three-Color Session Status:** `SessionStatCard` displays green (running + WS connected), yellow (running + WS disconnected — container alive but dashboard-disconnected), gray (stopped). Driven by `dotVariant()` which checks both `session.status` and `terminalStore.getConnectionState()`.
+
+**Auto-Reconnect:** 10 attempts (`MAX_WS_RETRIES`) with 2-second delay. Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops.
+
+**No Application-Level WS Pings:** Removed. Cloudflare's runtime handles protocol-level WebSocket keepalive for DO/Container connections automatically.
 
 **Character Doubling Fix:** The `inputDisposable` must be stored outside `connect()` and disposed before creating a new handler on reconnect:
 ```typescript
@@ -239,6 +266,58 @@ sequenceDiagram
 | mounting | 90% | Terminal server up, PTY pre-warming in progress |
 | ready | 100% | All checks passed |
 | error | 0% | Sync failed or other error |
+
+### Session Lifecycle State Machine
+
+```
+                    ┌──────────────────────────────────────────────┐
+                    │                                              │
+                    v                                              │
+  ┌─────────┐   start   ┌─────────────┐  ports ready  ┌─────────┐│
+  │ stopped │──────────>│ initializing │────────────>│ running ││
+  └─────────┘           └─────────────┘              └─────────┘│
+       ^                      │                          │   │   │
+       │                      │ error                    │   │   │
+       │                      v                     stop │   │   │
+       │                 ┌─────────┐                     │   │   │
+       │                 │  error  │                     │   │   │
+       │                 └─────────┘                     │   │   │
+       │                                                 v   │   │
+       │    poll stopped   ┌──────────┐                      │   │
+       │<──────────────────│ stopping │<─────────────────────┘   │
+       │                   └──────────┘                          │
+       │                                                         │
+       │         onActivityExpired (no WS clients)               │
+       └─────────────────────────────────────────────────────────┘
+```
+
+**Stop (idle):** `sleepAfter` expires → SDK calls `onActivityExpired()` → checks `/activity` → no WS clients → `this.stop('SIGTERM')` → `onStop()` → KV status = `'stopped'`
+
+**Stop (user-initiated):** Worker sets KV status to `'stopped'` → calls `container.destroy()` → `destroy()` clears DO storage → `super.destroy()` → `onStop()` bails (no identifiers)
+
+**Delete:** Worker deletes KV entry → calls `container.destroy()` → same as user-stop but KV entry already gone
+
+**Restart (same bucket):** `setBucketName` → 409 (stores sessionId) → `startAndWaitForPorts()` → `onStart()` re-arms metrics
+
+**Restart (different bucket):** `setBucketName` → `destroy()` → re-call `setBucketName` → `startAndWaitForPorts()`
+
+### Metrics Data Flow
+
+```
+Container DO                    Worker                      Frontend
+┌─────────────────┐     ┌──────────────────┐     ┌────────────────────┐
+│ collectMetrics() │     │ GET batch-status │     │ refreshSession-    │
+│  every 5s        │     │  (pure KV read)  │     │  Statuses()        │
+│                  │     │                  │     │                    │
+│ /activity check  │     │ Returns:         │     │ Populates:         │
+│  → renewTimeout  │     │  status          │     │  sessionMetrics    │
+│                  │     │  metrics         │     │  map               │
+│ /health fetch    │     │  lastStartedAt   │     │                    │
+│  → KV.put(       │────>│  lastActiveAt    │────>│ SessionStatCard    │
+│    session.      │     │                  │     │  reads metrics     │
+│    metrics)      │     │ NO DO contact    │     │  for display       │
+└─────────────────┘     └──────────────────┘     └────────────────────┘
+```
 
 ---
 
@@ -784,7 +863,7 @@ Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 
 ### Zombie Container
 
-No longer caused by DO alarm loops (alarms removed in favor of SDK-managed `sleepAfter`). Recovery if needed: `POST /api/admin/destroy-by-id` with DO ID from dashboard.
+DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate: `collectMetrics` checks `this.ctx.container?.running` (returns early if false) and checks for missing identifiers after `destroy()` clears them (returns early without re-arming). The SDK alarm handler eventually sees no schedules + no running container and calls `storage.deleteAlarm()`. Zombie DOs are harmless (no container process) but may briefly log warnings. Recovery if needed: `POST /api/admin/destroy-by-id` with DO ID from dashboard.
 
 ### Character Doubling in Terminal
 
@@ -811,6 +890,9 @@ Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
 | Container stuck "starting" | Port 8080 not responding | Check sync log |
 | WebSocket fails | Container not running | Verify startup-status |
 | Zombie restarts | Stale DO state | Use admin destroy-by-id |
+| Deleted session reappears | `onStop()` resurrects KV entry after `destroy()` | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
+| Container dies during active use | `/activity` 401 (auth not exempted) | Verify `/activity` in `authExemptPaths` in `host/server.js` |
+| Phantom container on session switch | `reconnectDisconnectedTerminals` reconnects wrong session | Ensure `activeSessionId` filter is passed |
 | Character doubling | inputDisposable not disposed | Check Terminal.tsx |
 
 ---
@@ -871,9 +953,14 @@ Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate
 5. **WebSocket sends RAW bytes** - xterm.js expects raw terminal data, not JSON.
 6. **Login shell for .bashrc** - PTY must spawn `bash -l` for auto-start.
 7. **Two-step sync prevents data loss** - Empty local + bisync resync = deleted R2 data. Always restore first.
-8. **SDK-managed lifecycle over DO alarms** - `sleepAfter` with no alarms eliminates zombie container resurrection entirely.
+8. **SDK-managed lifecycle with heartbeat** - `sleepAfter` with `collectMetrics` heartbeat keeps containers alive during active WS use. The heartbeat compensates for WS frames bypassing `renewActivityTimeout()`.
 9. **`onStop()` must set KV status** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV, otherwise other devices see stale 'running' status.
 10. **Don't getState() after destroy()** - Wakes the DO, undoing hibernation.
+20. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing `SESSION_ID_KEY` and `_bucketName` first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
+21. **`setBucketName` 409 path must store sessionId** - DOs created before `SESSION_ID_KEY` existed have no sessionId. The 409 handler stores it, so `collectMetrics`/`onStop` can reconcile with KV even on restart.
+22. **`getTcpPort().fetch()` does NOT auto-start containers** - Goes directly to the container TCP port. `container.fetch()` (which calls SDK `containerFetch`) DOES auto-start stopped containers. Use `getTcpPort()` for internal health/activity checks to avoid unintended wakeups.
+23. **SolidJS `createEffect` tracks all reactive reads** - Even reads in conditional branches or deep inside helper functions create subscriptions. Use `untrack()` when reading a signal without wanting to subscribe (e.g., `Layout.tsx` line 62).
+24. **Auth-exempt internal container paths** - `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the auth header). Paths called via `getTcpPort()` must be in `authExemptPaths` in `host/server.js`, or they'll get 401.
 11. **inputDisposable scope matters** - Dispose on reconnect to prevent character doubling.
 12. **No fallback container IDs** - `getContainerId()` must NEVER fallback to just `bucketName`. Root cause of zombies.
 13. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
