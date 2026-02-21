@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
 import SettingsPanel from './SettingsPanel';
@@ -59,7 +59,7 @@ const Layout: Component<LayoutProps> = (props) => {
       sessionStore.startSessionListPolling();
     } else {
       cancelScheduledDisconnect();
-      reconnectDisconnectedTerminals();
+      reconnectDisconnectedTerminals(untrack(() => sessionStore.activeSessionId) ?? undefined);
       sessionStore.stopSessionListPolling();
     }
   });
