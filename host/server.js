@@ -552,7 +552,11 @@ class SessionManager {
             prewarmed.orphanTimeout = null;
           }
           this.sessions.set(id, prewarmed);
-          prewarmReady = true; // Stop readiness check interval
+          // NOTE: Do NOT set prewarmReady here. The quiescence check interval
+          // manages prewarmReady independently — adoption just moves the session
+          // from 'prewarm-1' to the real ID. The PTY output tracker (lastDataTime)
+          // continues working on the same Session object, so the quiescence check
+          // correctly waits until the agent CLI goes quiet before declaring ready.
           log('info', 'Adopted pre-warmed session', { session: id });
           return prewarmed;
         }
@@ -631,14 +635,21 @@ const server = http.createServer(async (req, res) => {
   const { pathname } = parseUrl(req.url);
   const method = req.method;
 
-  // Validate container auth token (internal-only service, no CORS needed)
-  const expectedToken = process.env.CONTAINER_AUTH_TOKEN;
-  if (expectedToken) {
-    const authHeader = req.headers['authorization'];
-    if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
-      return;
+  // Internal endpoints exempt from auth — used by DO schedule-based callbacks
+  // (collectMetrics, onActivityExpired) via getTcpPort().fetch() which bypasses
+  // the DO's fetch() override that injects auth headers.
+  // These endpoints are behind the container network boundary (no external access).
+  const authExemptPaths = new Set(['/health', '/activity']);
+  if (!authExemptPaths.has(pathname)) {
+    // Validate container auth token (internal-only service, no CORS needed)
+    const expectedToken = process.env.CONTAINER_AUTH_TOKEN;
+    if (expectedToken) {
+      const authHeader = req.headers['authorization'];
+      if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
     }
   }
 
@@ -819,7 +830,7 @@ wss.on('connection', (ws, req) => {
   logWsEvent(sessionId, 'connect', { clients: session.clients.size, ptyAlive: session.isPtyAlive(), ptyPid: session.ptyProcess?.pid || null });
 
   // Handle incoming messages
-  // RAW data goes directly to PTY, JSON only for control messages (resize, ping)
+  // RAW data goes directly to PTY, JSON only for control messages (resize)
   ws.on('message', (message) => {
     const str = message.toString();
 
@@ -834,11 +845,6 @@ wss.on('connection', (ws, req) => {
           if (msg.cols > 0 && msg.cols < 10000 && msg.rows > 0 && msg.rows < 10000) {
             session.resize(msg.cols, msg.rows);
           }
-          return;
-        }
-
-        if (msg.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
           return;
         }
 

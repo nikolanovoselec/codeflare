@@ -1,31 +1,13 @@
 import { Container } from '@cloudflare/containers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Env, Session, TabConfig } from '../types';
-import {
-  TERMINAL_SERVER_PORT,
-  IDLE_TIMEOUT_MS,
-  ACTIVITY_POLL_INTERVAL_MS,
-  ACTIVITY_FETCH_MAX_RETRIES,
-  ACTIVITY_FETCH_RETRY_DELAY_MS,
-  MAX_CONSECUTIVE_ACTIVITY_FAILURES,
-} from '../lib/constants';
+import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { getSessionKey } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 
-/**
- * Storage key to mark a DO as destroyed - prevents zombie resurrection
- */
-const DESTROYED_FLAG_KEY = '_destroyed';
 const SESSION_ID_KEY = '_sessionId';
-const LAST_SHUTDOWN_INFO_KEY = '_last_shutdown_info';
-
-interface ShutdownInfo {
-  reason: string;
-  at: string;
-  details?: Record<string, unknown>;
-}
 
 /**
  * container - Container Durable Object for user workspaces
@@ -43,11 +25,8 @@ export class container extends Container<Env> {
   // Terminal server handles all endpoints: WebSocket, health check, metrics
   defaultPort = 8080;
 
-  // Safety backstop: SDK kills container after 8h of no HTTP fetch() activity.
-  // Our alarm-based polling (5-min interval, 30-min idle) handles real idle detection
-  // via WebSocket connection tracking. sleepAfter only tracks HTTP activity, so it
-  // must be long enough to never kill a container with active WebSocket sessions.
-  sleepAfter = '8h';
+  // SDK kills container after 24h of no HTTP fetch() activity.
+  override sleepAfter = '30m';
 
   // Environment variables - dynamically generated via getter
   private _bucketName: string | null = null;
@@ -59,15 +38,6 @@ export class container extends Container<Env> {
   private _tabConfig: TabConfig[] | null = null;
   private _containerAuthToken: string | null = null;
 
-  // Bug 3 fix: Activity polling timer
-  private _activityPollAlarm: boolean = false;
-
-  // Zombie prevention: in-memory flag loaded from storage in constructor
-  private _destroyed = false;
-
-  // Consecutive activity endpoint failures — forces destruction after threshold
-  private _consecutiveActivityFailures = 0;
-
   // Map-based dispatch for internal routes (AR9)
   private readonly internalRoutes: Map<string, (request: Request) => Promise<Response> | Response>;
 
@@ -77,20 +47,12 @@ export class container extends Container<Env> {
     // Initialize internal route dispatch table
     this.internalRoutes = new Map<string, (request: Request) => Promise<Response> | Response>([
       ['POST:/_internal/setBucketName', (request) => this.handleSetBucketName(request)],
+      ['PUT:/_internal/setSessionId', (request) => this.handleSetSessionId(request)],
       ['GET:/_internal/getBucketName', () => this.handleGetBucketName()],
       ['GET:/_internal/debugEnvVars', () => this.handleDebugEnvVars()],
     ]);
     // Load bucket name from storage on startup and update envVars
     this.ctx.blockConcurrencyWhile(async () => {
-      // Check if this DO was already destroyed - if so, keep tombstone but clear alarm
-      const wasDestroyed = await this.ctx.storage.get<boolean>(DESTROYED_FLAG_KEY);
-      if (wasDestroyed) {
-        this.logger.warn('Zombie detected in constructor, keeping tombstone, clearing alarm');
-        this._destroyed = true;
-        await this.ctx.storage.deleteAlarm();
-        return; // Don't initialize anything else
-      }
-
       this._bucketName = await this.ctx.storage.get<string>('bucketName') || null;
       const storedWorkspaceSyncEnabled = await this.ctx.storage.get<boolean>('workspaceSyncEnabled');
       if (typeof storedWorkspaceSyncEnabled === 'boolean') {
@@ -98,17 +60,7 @@ export class container extends Container<Env> {
       }
       this._tabConfig = await this.ctx.storage.get<TabConfig[]>('tabConfig') || null;
 
-      // If no bucket name stored, this is an orphan/zombie DO - set tombstone and clear alarm
-      if (!this._bucketName) {
-        this.logger.warn('Orphan DO detected, no bucketName, setting tombstone');
-        this._destroyed = true;
-        await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
-        await this.ctx.storage.deleteAlarm();
-        return; // Don't initialize anything else
-      }
-
       // Resolve R2 config via shared helper (env vars first, KV fallback)
-      // Done AFTER zombie/orphan checks to avoid unnecessary KV reads for doomed DOs
       try {
         const r2Config = await getR2Config(this.env);
         this._r2AccountId = r2Config.accountId;
@@ -119,8 +71,10 @@ export class container extends Container<Env> {
         });
       }
 
-      this.logger.info('Loaded bucket name from storage', { bucketName: this._bucketName });
-      this.updateEnvVars();
+      if (this._bucketName) {
+        this.logger.info('Loaded bucket name from storage', { bucketName: this._bucketName });
+        this.updateEnvVars();
+      }
     });
   }
 
@@ -249,14 +203,6 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      // FIX-28: Idempotency — once bucket name is set, reject subsequent calls
-      if (this._bucketName) {
-        return new Response(JSON.stringify({ error: 'Bucket name already set' }), {
-          status: 409,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
       const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, tabConfig } =
         await request.json() as {
           bucketName: string;
@@ -268,6 +214,41 @@ export class container extends Container<Env> {
           workspaceSyncEnabled?: boolean;
           tabConfig?: TabConfig[];
         };
+
+      // FIX-28: Idempotency — once bucket name is set, reject subsequent calls.
+      // But always store sessionId so collectMetrics/onStop can find the KV entry
+      // (sessionId may be missing if the DO was created before SESSION_ID_KEY existed).
+      if (this._bucketName) {
+        if (sessionId) {
+          await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+        }
+
+        // Update user preferences on restart even though bucket is already set.
+        // Without this, preference changes made between sessions are lost.
+        let prefsChanged = false;
+
+        if (typeof workspaceSyncEnabled === 'boolean' && workspaceSyncEnabled !== this._workspaceSyncEnabled) {
+          this._workspaceSyncEnabled = workspaceSyncEnabled;
+          await this.ctx.storage.put('workspaceSyncEnabled', workspaceSyncEnabled);
+          prefsChanged = true;
+          this.logger.info('Updated workspaceSyncEnabled on restart', { workspaceSyncEnabled });
+        }
+
+        if (tabConfig) {
+          this._tabConfig = tabConfig;
+          await this.ctx.storage.put('tabConfig', tabConfig);
+          prefsChanged = true;
+        }
+
+        if (prefsChanged) {
+          this.updateEnvVars();
+        }
+
+        return new Response(JSON.stringify({ error: 'Bucket name already set' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
 
       // FIX-15: Validate inputs
       if (typeof bucketName !== 'string' || bucketName.trim() === '') {
@@ -317,13 +298,6 @@ export class container extends Container<Env> {
         }
       }
 
-      // Clear orphan tombstone if set — this DO is being actively configured
-      if (this._destroyed) {
-        this.logger.info('Clearing orphan tombstone: DO is being configured with bucketName');
-        this._destroyed = false;
-        await this.ctx.storage.delete(DESTROYED_FLAG_KEY);
-      }
-
       await this.setBucketName(bucketName, {
         r2AccessKeyId,
         r2SecretAccessKey,
@@ -339,6 +313,28 @@ export class container extends Container<Env> {
       }
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: toErrorMessage(err) }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  /**
+   * Handle PUT /_internal/setSessionId
+   * Stores the sessionId in DO storage so collectMetrics/onStop can find the KV entry.
+   * Idempotent — safe to call on every start.
+   */
+  private async handleSetSessionId(request: Request): Promise<Response> {
+    try {
+      const { sessionId } = await request.json() as { sessionId?: string };
+      if (sessionId) {
+        await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+      }
+      return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
@@ -402,408 +398,149 @@ export class container extends Container<Env> {
 
   /**
    * Called when the container starts successfully.
-   * Acts as a kill switch: if the DO was marked destroyed or has no bucket,
-   * immediately tear down to prevent zombie resurrection.
    */
-  override onStart(): void {
-    // Kill switch: destroyed DO should not run
-    // Do NOT call this.destroy() — super.destroy() restarts the container, creating a zombie loop.
-    // Just delete the alarm so nothing reschedules. Container dies via sleepAfter.
-    if (this._destroyed) {
-      this.logger.warn('onStart kill switch: DO is destroyed, clearing alarm only');
-      void this.ctx.storage.deleteAlarm();
-      return;
-    }
-
-    // Kill switch: orphan DO with no bucket should not run
-    if (!this._bucketName) {
-      this.logger.warn('onStart kill switch: no bucketName, setting tombstone');
-      this._destroyed = true;
-      void (async () => {
-        await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
-        await this.ctx.storage.deleteAlarm();
-      })();
-      return;
-    }
-
-    void this.logStartContext();
-
-    // Bug 3 fix: Start activity polling
-    void this.scheduleActivityPoll();
+  override async onStart(): Promise<void> {
+    this.updateEnvVars();
+    await this.updateKvStatus('running', 'lastStartedAt');
+    this.logger.info('Container started');
+    // Clear any stale schedule rows from previous runs before arming fresh
+    try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
+    await this.schedule(5, 'collectMetrics');
   }
 
-  /**
-   * Log restart context to make container restarts diagnosable.
-   */
-  private async logStartContext(): Promise<void> {
-    const runtimeConfig = {
-      idleTimeoutMs: IDLE_TIMEOUT_MS,
-      activityPollIntervalMs: ACTIVITY_POLL_INTERVAL_MS,
-      activityFetchMaxRetries: ACTIVITY_FETCH_MAX_RETRIES,
-      activityFetchRetryDelayMs: ACTIVITY_FETCH_RETRY_DELAY_MS,
-    };
-    try {
-      const lastShutdown = await this.ctx.storage.get<ShutdownInfo>(LAST_SHUTDOWN_INFO_KEY);
-      if (lastShutdown) {
-        this.logger.warn('Container restarted after prior shutdown', {
-          ...runtimeConfig,
-          previousReason: lastShutdown.reason,
-          previousAt: lastShutdown.at,
-          previousDetails: lastShutdown.details,
-        });
-        await this.ctx.storage.delete(LAST_SHUTDOWN_INFO_KEY);
-      } else {
-        this.logger.info('Container started (no prior shutdown info; possible deploy/platform restart)', runtimeConfig);
-      }
-    } catch (err) {
-      this.logger.warn('Failed to load shutdown info at startup', {
-        ...runtimeConfig,
-        error: toErrorMessage(err),
-      });
-    }
-  }
-
-  /**
-   * Persist the most recent shutdown cause for restart diagnostics.
-   */
-  private async recordShutdownInfo(
-    reason: string,
-    details?: Record<string, unknown>,
-    options?: { overwrite?: boolean }
-  ): Promise<void> {
-    const overwrite = options?.overwrite ?? true;
-    try {
-      if (!overwrite) {
-        const existing = await this.ctx.storage.get<ShutdownInfo>(LAST_SHUTDOWN_INFO_KEY);
-        if (existing) return;
-      }
-      await this.ctx.storage.put(LAST_SHUTDOWN_INFO_KEY, {
-        reason,
-        at: new Date().toISOString(),
-        ...(details && { details }),
-      } satisfies ShutdownInfo);
-    } catch (err) {
-      this.logger.warn('Failed to persist shutdown info', {
-        reason,
-        error: toErrorMessage(err),
-      });
-    }
-  }
-
-  /**
-   * Bug 3 fix: Schedule the next activity poll using DO alarm
-   */
-  private async scheduleActivityPoll(): Promise<void> {
-    if (this._activityPollAlarm) return; // Already scheduled
-
-    try {
-      const nextPollTime = Date.now() + ACTIVITY_POLL_INTERVAL_MS;
-      await this.ctx.storage.setAlarm(nextPollTime);
-      this._activityPollAlarm = true;
-      this.logger.info('Activity poll scheduled', { nextPollTime: new Date(nextPollTime).toISOString() });
-    } catch (err) {
-      this.logger.error('Failed to schedule activity poll', err instanceof Error ? err : new Error(toErrorMessage(err)));
-    }
-  }
-
-  /**
-   * Check if DO was explicitly destroyed - prevents zombie resurrection.
-   * Uses only DO storage (not Container methods) to avoid waking up hibernated DO.
-   * @returns true if DO should be cleaned up and alarm handler should exit
-   */
-  private async checkDestroyedState(): Promise<boolean> {
-    const wasDestroyed = await this.ctx.storage.get<boolean>(DESTROYED_FLAG_KEY);
-    if (wasDestroyed) {
-      this.logger.warn('Zombie prevented: DO was destroyed, clearing alarm (keeping tombstone)');
-      await this.ctx.storage.deleteAlarm();
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Check if DO is an orphan (no bucket name) - these are zombies from old code.
-   * @returns true if DO should be cleaned up and alarm handler should exit
-   */
-  private async checkOrphanState(): Promise<boolean> {
-    if (!this._bucketName) {
-      this.logger.warn('Zombie detected: no bucketName stored, setting tombstone', { doId: this.ctx.id.toString() });
-      try {
-        await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
-        await this.ctx.storage.deleteAlarm();
-      } catch (err) {
-        this.logger.error('Failed to cleanup zombie', err instanceof Error ? err : new Error(toErrorMessage(err)));
-      }
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Handle idle container by checking activity and destroying if idle too long.
-   * @returns true if container was destroyed due to being idle
-   */
-  private async handleIdleContainer(): Promise<boolean> {
-    // Guard: if container isn't running, clean up immediately — prevents zombie auto-start
-    // via this.fetch() -> containerFetch() -> startAndWaitForPorts() path
+  async collectMetrics(): Promise<void> {
+    // Don't collect or re-arm if container process is dead.
+    // onStart() will restart the schedule loop on next container start.
     if (!this.ctx.container?.running) {
-      this.logger.info('Container not running, cleaning up');
-      await this.cleanupAndDestroy('container_not_running');
-      return true;
+      this.logger.info('collectMetrics: container not running, skipping');
+      return;
     }
 
-    const activityInfo = await this.getActivityInfoWithRetry();
-
-    if (!activityInfo) {
-      this._consecutiveActivityFailures++;
-      this.logger.warn('Activity endpoint unavailable after retries', {
-        maxRetries: ACTIVITY_FETCH_MAX_RETRIES,
-        consecutiveFailures: this._consecutiveActivityFailures,
-        threshold: MAX_CONSECUTIVE_ACTIVITY_FAILURES,
-      });
-
-      // After N consecutive failures (~30 min at 5-min intervals), the container
-      // process is presumed dead. Destroy to prevent "headless DO" zombies that
-      // run their alarm loop forever with an unreachable terminal server.
-      if (this._consecutiveActivityFailures >= MAX_CONSECUTIVE_ACTIVITY_FAILURES) {
-        this.logger.warn('Max consecutive activity failures reached, force-destroying container', {
-          consecutiveFailures: this._consecutiveActivityFailures,
-        });
-        await this.cleanupAndDestroy('activity_unreachable', {
-          consecutiveFailures: this._consecutiveActivityFailures,
-        });
-        return true;
+    // Keep-alive: renew sleepAfter timer while WebSocket clients are connected.
+    // The SDK only resets sleepAfterMs via containerFetch() — WebSocket frames
+    // flow through raw TCP and never call renewActivityTimeout(). Without this,
+    // the container dies after sleepAfter even during active terminal use.
+    try {
+      const activityPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
+      const activityRes = await activityPort.fetch('http://localhost/activity');
+      if (!activityRes.ok) {
+        this.logger.warn('collectMetrics: /activity returned non-OK, renewing as safety net', { status: activityRes.status });
+        this.renewActivityTimeout();
+        // Don't return — still need to push metrics and re-arm schedule below
+      } else {
+        const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
+        if (activity.hasActiveConnections) {
+          this.renewActivityTimeout();
+          this.logger.debug('collectMetrics: renewed sleepAfter (active WS clients)', {
+            connectedClients: activity.connectedClients,
+          });
+        } else {
+          this.logger.debug('collectMetrics: no active WS clients, skipping renewal');
+        }
       }
-
-      return false;
-    }
-
-    // Activity endpoint reachable — reset failure counter
-    this._consecutiveActivityFailures = 0;
-
-    const { hasActiveConnections, disconnectedForMs } = activityInfo;
-
-    this.logger.info('Activity check', { hasActiveConnections, disconnectedForMs });
-
-    // Active connections = alive
-    if (hasActiveConnections) {
-      return false;
-    }
-
-    // No connections for longer than idle timeout = kill
-    if (disconnectedForMs !== null && disconnectedForMs > IDLE_TIMEOUT_MS) {
-      this.logger.info('Container idle (no WebSocket connections), destroying', {
-        disconnectedForMs,
-        thresholdMs: IDLE_TIMEOUT_MS,
+    } catch (err) {
+      this.logger.warn('collectMetrics: activity check failed', {
+        error: err instanceof Error ? err.message : String(err),
       });
-      await this.cleanupAndDestroy('ws_idle_timeout', { disconnectedForMs });
-      return true;
     }
 
-    // Not yet timed out
-    return false;
+    try {
+      const tcpPort = this.ctx.container.getTcpPort(8080);
+      const res = await tcpPort.fetch('http://localhost/health');
+
+      if (!res.ok) {
+        // Health endpoint returned non-200 (e.g. container still booting).
+        // Don't parse — just log and re-arm below.
+        this.logger.info('collectMetrics: health non-OK', { status: res.status });
+      } else {
+        const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
+
+        const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
+        // Fallback: if _bucketName isn't set on the instance, try loading from storage
+        const bucketName = this._bucketName || await this.ctx.storage.get<string>('bucketName') || null;
+
+        if (!sessionId || !bucketName) {
+          this.logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
+          return; // Don't re-arm schedule — zombie DO, let it die
+        } else {
+          const key = getSessionKey(bucketName, sessionId);
+          const session = await this.env.KV.get<Session>(key, 'json');
+          if (!session) {
+            this.logger.info('collectMetrics: session not found in KV', { key });
+          } else {
+            session.metrics = {
+              cpu: health.cpu,
+              mem: health.mem,
+              hdd: health.hdd,
+              syncStatus: health.syncStatus,
+              updatedAt: new Date().toISOString(),
+            };
+            await this.env.KV.put(key, JSON.stringify(session));
+            this.logger.debug('collectMetrics: wrote metrics to KV', { key, cpu: health.cpu, mem: health.mem });
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.warn('collectMetrics: fetch/write failed', { error: err instanceof Error ? err.message : String(err) });
+    }
+
+    // Re-arm only if still running. schedule() is one-shot — if we don't
+    // re-arm, onStart() will restart the loop on next container start.
+    if (this.ctx.container?.running) {
+      try {
+        await this.schedule(5, 'collectMetrics');
+      } catch {
+        // DO is shutting down or destroyed
+      }
+    }
   }
 
   /**
-   * Best-effort update of KV session status to 'stopped' when the DO self-destructs.
-   * Reads sessionId + bucketName from DO storage, constructs the KV key, and patches
-   * the session record. Failures are logged but never propagated.
+   * Update a timestamp field on the KV session record (best-effort).
+   * Optionally sets session.status (e.g. 'stopped' on hibernation).
    */
-  private async updateKvSessionStopped(): Promise<void> {
+  private async updateKvStatus(status: 'running' | 'stopped' | null, field: 'lastStartedAt' | 'lastActiveAt'): Promise<void> {
     try {
       const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
-      const bucketName = await this.ctx.storage.get<string>('bucketName');
+      // Fallback: if _bucketName isn't set on the instance, try loading from storage
+      const bucketName = this._bucketName || await this.ctx.storage.get<string>('bucketName') || null;
       if (!sessionId || !bucketName) {
-        this.logger.info('Skipping KV update: missing sessionId or bucketName', { sessionId, bucketName });
+        this.logger.info('updateKvStatus: missing identifiers', { status, field, sessionId: !!sessionId, bucketName: !!bucketName });
         return;
       }
       const key = getSessionKey(bucketName, sessionId);
       const session = await this.env.KV.get<Session>(key, 'json');
-      if (session && session.status !== 'stopped') {
-        session.status = 'stopped';
-        await this.env.KV.put(key, JSON.stringify(session));
-        this.logger.info('Updated KV session status to stopped', { sessionId, bucketName });
-      }
-    } catch (err) {
-      this.logger.warn('Failed to update KV session status (best-effort)', {
-        error: toErrorMessage(err),
-      });
-    }
-  }
-
-  /**
-   * Helper to mark DO as destroyed and clean up all storage.
-   * Used by alarm handler to aggressively prevent zombie resurrection.
-   */
-  private async cleanupAndDestroy(reason: string, details?: Record<string, unknown>): Promise<void> {
-    await this.recordShutdownInfo(reason, details, { overwrite: true });
-    await this.updateKvSessionStopped();
-    this._destroyed = true;
-    await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
-    await this.ctx.storage.deleteAlarm();
-    this._activityPollAlarm = false;
-
-    // Clean operational storage (same as destroy() but WITHOUT super.destroy())
-    // super.destroy() restarts the container in the SDK, which triggers onStart()
-    // on a fresh instance where _destroyed=false, scheduling a new alarm → zombie loop.
-    // Instead: set tombstone, delete alarm, clean storage, walk away.
-    // The container process dies naturally via sleepAfter (24h backstop).
-    try {
-      await this.ctx.storage.delete('bucketName');
-      await this.ctx.storage.delete('workspaceSyncEnabled');
-      await this.ctx.storage.delete('tabConfig');
-    } catch (err) {
-      this.logger.error('Failed to clear storage in cleanupAndDestroy', err instanceof Error ? err : new Error(toErrorMessage(err)));
-    }
-  }
-
-  /**
-   * Bug 3 fix: Handle DO alarm for activity polling
-   *
-   * CRITICAL ZOMBIE FIX: The alarm() method must check for destroyed state FIRST
-   * before calling ANY Container base class methods like getState().
-   *
-   * Why? When destroy() is called, it sets the _destroyed flag and deletes the alarm.
-   * However, if an alarm was already scheduled to fire, it will still trigger.
-   * When alarm() fires and calls getState() on a destroyed container, it can
-   * resurrect the DO, creating a zombie loop.
-   *
-   * The fix: Check storage for _destroyed flag FIRST. This uses only DO storage,
-   * not Container methods, so it won't resurrect the container.
-   */
-  async alarm(): Promise<void> {
-    this._activityPollAlarm = false;
-    this.logger.info('Activity poll alarm triggered');
-
-    // Step 1: Check if DO was explicitly destroyed (uses only storage, not Container methods)
-    if (await this.checkDestroyedState()) {
-      return;
-    }
-
-    // Step 2: Check if this is an orphan/zombie DO (no bucket name)
-    if (await this.checkOrphanState()) {
-      return;
-    }
-
-    // Step 3: Handle activity polling and idle detection
-    // handleIdleContainer() checks ctx.container.running for liveness (no SDK auto-start)
-    // and uses getTcpPort().fetch() for activity data (no containerFetch() auto-start).
-    try {
-      if (await this.handleIdleContainer()) {
+      if (!session) {
+        this.logger.info('updateKvStatus: session not found in KV', { key, status, field });
         return;
       }
-
-      // Schedule next poll
-      await this.scheduleActivityPoll();
+      if (status !== null) {
+        session.status = status;
+      }
+      session[field] = new Date().toISOString();
+      // Preserve last-known metrics in KV even after container stops,
+      // so the dashboard can display them for recently-stopped sessions.
+      await this.env.KV.put(key, JSON.stringify(session));
+      this.logger.info('updateKvStatus: wrote to KV', { key, status, field });
     } catch (err) {
-      this.logger.error('Error in activity poll', err instanceof Error ? err : new Error(toErrorMessage(err)));
-      // Keep session alive on transient alarm errors; retry on next poll.
-      try {
-        await this.scheduleActivityPoll();
-      } catch (scheduleErr) {
-        this.logger.error('Failed to reschedule activity poll after error', scheduleErr instanceof Error ? scheduleErr : new Error(toErrorMessage(scheduleErr)));
-      }
+      this.logger.error('Failed to update KV status', err instanceof Error ? err : new Error(String(err)));
     }
   }
 
   /**
-   * Bug 3 fix: Get activity info from the terminal server
-   */
-  private async getActivityInfo(): Promise<{
-    hasActiveConnections: boolean;
-    disconnectedForMs: number | null;
-  } | null> {
-    // Guard: don't fetch from a stopped container — prevents zombie auto-start
-    if (!this.ctx.container?.running) return null;
-
-    try {
-      const headers: HeadersInit = {};
-      if (this._containerAuthToken) {
-        headers['Authorization'] = `Bearer ${this._containerAuthToken}`;
-      }
-      const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
-      const response = await tcpPort.fetch(this.getTerminalActivityUrl(), {
-        method: 'GET',
-        headers,
-      });
-
-      if (response.ok) {
-        const data = await response.json() as {
-          hasActiveConnections: boolean;
-          disconnectedForMs: number | null;
-        };
-        return data;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Retry activity checks multiple times to avoid destroying active sessions
-   * due to one transient fetch failure.
-   */
-  private async getActivityInfoWithRetry(): Promise<{
-    hasActiveConnections: boolean;
-    disconnectedForMs: number | null;
-  } | null> {
-    for (let attempt = 1; attempt <= ACTIVITY_FETCH_MAX_RETRIES; attempt++) {
-      const info = await this.getActivityInfo();
-      if (info) return info;
-
-      if (attempt < ACTIVITY_FETCH_MAX_RETRIES) {
-        this.logger.warn('Activity fetch failed, retrying', {
-          attempt,
-          maxAttempts: ACTIVITY_FETCH_MAX_RETRIES,
-        });
-        await new Promise(resolve => setTimeout(resolve, ACTIVITY_FETCH_RETRY_DELAY_MS));
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Bug 3 fix: Get the internal URL for the terminal server's activity endpoint
-   */
-  getTerminalActivityUrl(): string {
-    return `http://container:${TERMINAL_SERVER_PORT}/activity`;
-  }
-
-  /**
-   * Override destroy to clear the activity poll alarm and mark as destroyed
-   *
-   * CRITICAL ZOMBIE FIX: We set a _destroyed flag in storage BEFORE calling super.destroy().
-   * This flag is checked by alarm() BEFORE any Container methods are called.
-   * This prevents the zombie resurrection bug where:
-   * 1. destroy() is called
-   * 2. An already-scheduled alarm fires
-   * 3. alarm() calls getState() which resurrects the DO
-   *
-   * By setting the flag first, alarm() can detect the destroyed state without
-   * calling any Container methods that would resurrect it.
+   * Override destroy to clean up operational storage before SDK teardown.
    */
   override async destroy(): Promise<void> {
     this.logger.info('Destroying container, clearing operational storage');
-    // Set in-memory flag BEFORE super.destroy() — if the SDK triggers onStart()
-    // on the same instance, the kill switch sees this immediately
-    this._destroyed = true;
     try {
-      await this.recordShutdownInfo('destroy_called', undefined, { overwrite: false });
-
-      // Clear the alarm first
-      await this.ctx.storage.deleteAlarm();
-      this._activityPollAlarm = false;
-
-      // Ensure tombstone is persisted — destroy() may be called directly (not via cleanupAndDestroy)
-      await this.ctx.storage.put(DESTROYED_FLAG_KEY, true);
-
-      // Delete operational data but KEEP _destroyed flag and _sessionId
-      // _destroyed: a stale alarm can still detect zombie state
-      // _sessionId: needed for KV reconciliation on future resurrection attempts
+      // Delete SESSION_ID_KEY and null _bucketName so that onStop()
+      // (triggered by super.destroy() killing the container process)
+      // bails out early and does NOT resurrect the KV entry.
+      await this.ctx.storage.delete(SESSION_ID_KEY);
       await this.ctx.storage.delete('bucketName');
       await this.ctx.storage.delete('workspaceSyncEnabled');
       await this.ctx.storage.delete('tabConfig');
+      this._bucketName = null;
       this.logger.info('Operational storage cleared');
     } catch (err) {
       this.logger.error('Failed to clear storage', err instanceof Error ? err : new Error(toErrorMessage(err)));
@@ -812,11 +549,54 @@ export class container extends Container<Env> {
   }
 
   /**
+   * Called when sleepAfter expires. Check if there are active WebSocket
+   * clients — if so, renew the timeout instead of letting the container die.
+   */
+  override async onActivityExpired(): Promise<void> {
+    if (!this.ctx.container?.running) {
+      this.logger.info('onActivityExpired: container not running, allowing sleep');
+      await this.stop('SIGTERM');
+      return;
+    }
+
+    try {
+      const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
+      const res = await tcpPort.fetch('http://localhost/activity');
+      if (!res.ok) {
+        this.logger.warn('onActivityExpired: /activity returned non-OK, renewing as safety net', { status: res.status });
+        this.renewActivityTimeout();
+        return;
+      }
+      const activity = await res.json() as { hasActiveConnections: boolean; connectedClients: number };
+
+      if (activity.hasActiveConnections) {
+        this.logger.info('onActivityExpired: active WS clients, renewing timeout', {
+          connectedClients: activity.connectedClients,
+        });
+        this.renewActivityTimeout();
+        return;
+      }
+    } catch (err) {
+      // Don't kill the container on transient fetch errors — renew instead.
+      // The next alarm cycle will re-check. Killing on a failed /activity
+      // fetch is the most likely cause of containers dying during active use.
+      this.logger.warn('onActivityExpired: failed to check activity, renewing as safety net', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      this.renewActivityTimeout();
+      return;
+    }
+
+    this.logger.info('onActivityExpired: no active clients, stopping container');
+    await this.stop('SIGTERM');
+  }
+
+  /**
    * Called when the container stops
    */
-  override onStop(): void {
+  override async onStop(): Promise<void> {
     this.logger.info('Container stopped');
-    void this.recordShutdownInfo('on_stop', undefined, { overwrite: false });
+    await this.updateKvStatus('stopped', 'lastActiveAt');
   }
 
   /**
@@ -824,7 +604,6 @@ export class container extends Container<Env> {
    */
   override onError(error: unknown): void {
     this.logger.error('Container error', error instanceof Error ? error : new Error(toErrorMessage(error)));
-    void this.recordShutdownInfo('on_error', { error: toErrorMessage(error) }, { overwrite: false });
   }
 
 }

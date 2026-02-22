@@ -377,15 +377,6 @@ export const storageStore = {
     };
   },
 
-  async deepSearch(query: string) {
-    try {
-      const result = await storageApi.browseStorage('workspace/' + query);
-      return { objects: result.objects, prefixes: result.prefixes };
-    } catch {
-      return { objects: [], prefixes: [] };
-    }
-  },
-
   async refresh(options?: { silent?: boolean }) {
     await storageStore.browse(undefined, options);
   },

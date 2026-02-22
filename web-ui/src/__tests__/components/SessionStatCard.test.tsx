@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import SessionStatCard from '../../components/SessionStatCard';
 import type { SessionWithStatus } from '../../types';
+import { terminalStore } from '../../stores/terminal';
 
 // Mock stores
 vi.mock('../../stores/session', () => ({
@@ -97,6 +98,20 @@ describe('SessionStatCard', () => {
       const card = screen.getByTestId('session-stat-card-test-1');
       expect(card).toHaveAttribute('data-status', 'running');
     });
+
+    it('shows yellow warning dot when running but WS disconnected', () => {
+      vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
+      const dot = screen.getByTestId('session-stat-card-test-1').querySelector('.session-stat-card__dot--warning');
+      expect(dot).toBeInTheDocument();
+    });
+
+    it('shows green dot when running and WS connected', () => {
+      vi.mocked(terminalStore.getConnectionState).mockReturnValue('connected');
+      render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);
+      const dot = screen.getByTestId('session-stat-card-test-1').querySelector('.session-stat-card__dot--success');
+      expect(dot).toBeInTheDocument();
+    });
   });
 
   describe('Metrics for running sessions', () => {
@@ -115,9 +130,9 @@ describe('SessionStatCard', () => {
       expect(screen.getByTestId('session-stat-card-s1-metric-hdd')).toBeInTheDocument();
     });
 
-    it('does not display metrics for stopped sessions', () => {
+    it('displays last-known metrics for stopped sessions when data exists', () => {
       render(() => <SessionStatCard {...defaultProps} session={createSession({ id: 's1', status: 'stopped' })} />);
-      expect(screen.queryByTestId('session-stat-card-s1-metric-cpu')).not.toBeInTheDocument();
+      expect(screen.getByTestId('session-stat-card-s1-metric-cpu')).toBeInTheDocument();
     });
   });
 

@@ -58,8 +58,7 @@ vi.mock('../../stores/session', () => ({
     isSessionInitializing: vi.fn(() => false),
     getInitProgressForSession: vi.fn(() => null),
     getMetricsForSession: vi.fn(() => null),
-    stopMetricsPolling: vi.fn(),
-    stopAllMetricsPolling: vi.fn(),
+    stopAllPolling: vi.fn(),
     getTerminalsForSession: vi.fn(() => null),
     initializeTerminalsForSession: vi.fn(),
     addTerminalTab: vi.fn(),
@@ -82,7 +81,10 @@ vi.mock('../../stores/session', () => ({
 }));
 
 vi.mock('../../stores/terminal', () => ({
-  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn() }
+  terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn() },
+  reconnectDisconnectedTerminals: vi.fn(),
+  scheduleDisconnect: vi.fn(),
+  cancelScheduledDisconnect: vi.fn(),
 }));
 
 import Layout from '../../components/Layout';

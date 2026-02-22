@@ -11,7 +11,7 @@ import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, ContainerError, NotFoundError, ValidationError, toError, toErrorMessage } from '../../lib/error-types';
+import { AppError, ContainerError, NotFoundError, toError, toErrorMessage } from '../../lib/error-types';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
@@ -96,10 +96,60 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const tabConfig = sessionData.tabConfig
       || getDefaultTabConfig(sessionData.agentType || 'claude-unleashed');
 
-    // If bucket name is different or not set, update it
+    // Always call setBucketName — on first call it configures R2 credentials;
+    // on subsequent calls (409) it still stores sessionId in DO storage so
+    // collectMetrics/onStop can find the KV entry. No extra container.fetch()
+    // needed — the 409 path handles sessionId persistence.
     const needsBucketUpdate = storedBucketName !== bucketName;
-    if (needsBucketUpdate) {
+    try {
+      await containerInternalCB.execute(() =>
+        container.fetch(
+          new Request('http://container/_internal/setBucketName', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bucketName,
+              sessionId,
+              r2AccessKeyId: c.env.R2_ACCESS_KEY_ID,
+              r2SecretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
+              r2AccountId: r2Config.accountId,
+              r2Endpoint: r2Config.endpoint,
+              tabConfig,
+              workspaceSyncEnabled,
+            }),
+          })
+        )
+      );
+      // Small delay only when bucket name is actually being set for the first time
+      if (needsBucketUpdate) {
+        await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
+      }
+      reqLogger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
+    } catch (error) {
+      if (needsBucketUpdate) {
+        reqLogger.error('Failed to set bucket name', toError(error));
+        throw new ContainerError('set_bucket_name', toErrorMessage(error));
+      }
+      // Best-effort when bucket already matches — sessionId storage failed but don't block start
+      reqLogger.warn('Failed to store sessionId via setBucketName', { sessionId });
+    }
+
+    // Check current state
+    let currentState;
+    try {
+      currentState = await container.getState();
+    } catch (error) {
+      // Expected: container may not exist yet, treat as needing start
+      reqLogger.debug('Could not get container state, treating as unknown');
+      currentState = { status: 'unknown' };
+    }
+
+    // If container is running but bucket name was wrong or not set, destroy and restart
+    if ((currentState.status === 'running' || currentState.status === 'healthy') && needsBucketUpdate) {
+      reqLogger.info('Bucket name changed, destroying container to restart with correct bucket');
       try {
+        await container.destroy();
+        // Re-populate DO storage after destroy() wiped it (Scenario A race)
         await containerInternalCB.execute(() =>
           container.fetch(
             new Request('http://container/_internal/setBucketName', {
@@ -118,30 +168,6 @@ app.post('/start', containerStartRateLimiter, async (c) => {
             })
           )
         );
-        // Small delay to ensure DO processes the bucket name before container starts
-        await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
-        reqLogger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
-      } catch (error) {
-        reqLogger.error('Failed to set bucket name', toError(error));
-        throw new ContainerError('set_bucket_name', toErrorMessage(error));
-      }
-    }
-
-    // Check current state
-    let currentState;
-    try {
-      currentState = await container.getState();
-    } catch (error) {
-      // Expected: container may not exist yet, treat as needing start
-      reqLogger.debug('Could not get container state, treating as unknown');
-      currentState = { status: 'unknown' };
-    }
-
-    // If container is running but bucket name was wrong or not set, destroy and restart
-    if ((currentState.status === 'running' || currentState.status === 'healthy') && needsBucketUpdate) {
-      reqLogger.info('Bucket name changed, destroying container to restart with correct bucket');
-      try {
-        await container.destroy();
         // Container will be started below
         currentState = { status: 'stopped' };
       } catch (error) {

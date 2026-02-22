@@ -2,13 +2,16 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 /**
- * Pure classification function extracted from the WS message handler in server.js (lines 826-864).
+ * Pure classification function extracted from the WS message handler in server.js.
  *
  * The logic mirrors the control-message parsing gate:
  *   1. If short enough and starts with '{', attempt JSON parse.
- *   2. Recognized control types (ping, resize) are NOT user input.
+ *   2. Recognized control types (resize) are NOT user input.
  *   3. Data-type messages ARE user input (typed keystrokes sent as JSON).
  *   4. Parse failures or non-JSON → raw terminal bytes → user input.
+ *
+ * Note: Application-level ping/pong was removed — Cloudflare's runtime handles
+ * protocol-level WebSocket keepalive automatically for DO/Container connections.
  */
 const MAX_CONTROL_MSG_LENGTH = 200;
 
@@ -21,10 +24,6 @@ function classifyWsMessage(rawMessage) {
 
       if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
         return { isUserInput: false, type: 'resize' };
-      }
-
-      if (msg.type === 'ping') {
-        return { isUserInput: false, type: 'ping' };
       }
 
       if (msg.type === 'data' && typeof msg.data === 'string') {
@@ -60,10 +59,10 @@ describe('WS input classification', () => {
     assert.equal(result.type, 'data');
   });
 
-  it('{"type":"ping"} is NOT classified as user input', () => {
+  it('{"type":"ping"} falls through to unknown-json (no longer a control message)', () => {
     const result = classifyWsMessage(JSON.stringify({ type: 'ping' }));
-    assert.equal(result.isUserInput, false);
-    assert.equal(result.type, 'ping');
+    assert.equal(result.isUserInput, true);
+    assert.equal(result.type, 'unknown-json');
   });
 
   it('{"type":"resize",...} is NOT classified as user input', () => {

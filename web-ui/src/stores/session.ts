@@ -1,9 +1,9 @@
 import { createStore, produce } from 'solid-js/store';
 import type { Session, SessionWithStatus, SessionStatus, InitProgress, InitStage, TerminalTab, SessionTerminals, TileLayout, TilingState, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
-import { terminalStore, sendInputToTerminal } from './terminal';
+import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
-import { METRICS_POLL_INTERVAL_MS, STARTUP_POLL_INTERVAL_MS, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS } from '../lib/constants';
+import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
   LAYOUT_MIN_TABS,
   getBestLayoutForTabCount,
@@ -44,7 +44,7 @@ import {
  *  - CRUD operations for sessions (list, create, rename, delete)
  *  - Session start/stop with startup-status polling
  *  - Active session selection and view-state tracking
- *  - Per-session metrics polling (CPU, mem, sync status)
+ *  - Per-session metrics display (CPU, mem, sync status from KV)
  *  - User preferences persistence
  *
  * Delegates to:
@@ -136,7 +136,7 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchStatuses] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus().catch(() => ({} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string }>)),
+      api.getBatchSessionStatus().catch(() => ({} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string; lastActiveAt?: string; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>)),
     ]);
 
     if (thisGen !== loadSessionsGeneration) return;
@@ -166,6 +166,28 @@ async function loadSessions(): Promise<void> {
       const batchStatus = batchStatuses[session.id];
       if (!batchStatus) {
         continue;
+      }
+
+      // Store timestamp fields from batch-status
+      if (batchStatus.lastActiveAt || batchStatus.lastStartedAt) {
+        const idx = sessionsWithStatus.findIndex(s => s.id === session.id);
+        if (idx !== -1) {
+          if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
+          if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
+        }
+      }
+
+      // Populate sessionMetrics from KV-pushed metrics
+      if (batchStatus.metrics) {
+        setState(produce(s => {
+          s.sessionMetrics[session.id] = {
+            bucketName: s.sessionMetrics[session.id]?.bucketName || '...',
+            syncStatus: (batchStatus.metrics?.syncStatus as SessionMetrics['syncStatus']) || 'pending',
+            cpu: batchStatus.metrics?.cpu || '...',
+            mem: batchStatus.metrics?.mem || '...',
+            hdd: batchStatus.metrics?.hdd || '...',
+          };
+        }));
       }
 
       if (batchStatus.status === 'running') {
@@ -227,7 +249,7 @@ async function deleteSession(id: string): Promise<void> {
       startupCleanups.delete(id);
     }
     await api.deleteSession(id);
-    stopMetricsPolling(id);
+    sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
     setState(
       produce((s) => {
@@ -302,7 +324,6 @@ async function stopSession(id: string): Promise<void> {
     );
     updateSessionStatus(id, 'stopping');
     await api.stopSession(id);
-    stopMetricsPolling(id);
 
     // Poll batch-status until session reaches 'stopped' (sync may still be running)
     const pollForStopped = (): Promise<void> => {
@@ -358,12 +379,6 @@ function updateSessionStatus(id: string, status: SessionStatus): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
     setState('sessions', index, 'status', status);
-
-    if (status === 'running') {
-      startMetricsPolling(id);
-    } else {
-      stopMetricsPolling(id);
-    }
   }
 }
 
@@ -400,52 +415,11 @@ function getInitProgressForSession(sessionId: string): InitProgress | null {
 }
 
 // ============================================================================
-// Session Metrics
-// ============================================================================
-
-async function fetchMetricsForSession(sessionId: string): Promise<void> {
-  try {
-    const status = await api.getStartupStatus(sessionId);
-    if (status.details) {
-      setState(produce(s => {
-        s.sessionMetrics[sessionId] = {
-          bucketName: status.details?.bucketName || '...',
-          syncStatus: (status.details?.syncStatus as 'pending' | 'syncing' | 'success' | 'failed' | 'skipped') || 'pending',
-          cpu: status.details?.cpu || '...',
-          mem: status.details?.mem || '...',
-          hdd: status.details?.hdd || '...',
-        };
-      }));
-    }
-  } catch (err) {
-    logger.warn('[SessionStore] Failed to fetch metrics:', err);
-  }
-}
-
-const metricsPollingIntervals = new Map<string, ReturnType<typeof setInterval>>();
-
-function startMetricsPolling(sessionId: string): void {
-  if (metricsPollingIntervals.has(sessionId)) return;
-
-  fetchMetricsForSession(sessionId);
-
-  metricsPollingIntervals.set(sessionId, setInterval(() => {
-    fetchMetricsForSession(sessionId);
-  }, METRICS_POLL_INTERVAL_MS));
-}
-
-function stopMetricsPolling(sessionId: string): void {
-  const interval = metricsPollingIntervals.get(sessionId);
-  if (interval) {
-    clearInterval(interval);
-    metricsPollingIntervals.delete(sessionId);
-    logger.debug(`[SessionStore] Stopped metrics polling for session ${sessionId}`);
-  }
-}
-
-// ============================================================================
 // Session List Polling
 // ============================================================================
+
+const sessionMissCounters = new Map<string, number>();
+const REMOVAL_THRESHOLD = 3;
 
 let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -457,16 +431,50 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
 async function refreshSessionStatuses(): Promise<void> {
   try {
     const batchStatuses = await api.getBatchSessionStatus();
-    // Remove sessions that no longer exist on the server (deleted from another device)
-    const removedIds = state.sessions
-      .filter((s) => !batchStatuses[s.id])
-      .map((s) => s.id);
+
+    // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses
+    const removedIds: string[] = [];
+    for (const session of state.sessions) {
+      if (!batchStatuses[session.id]) {
+        const count = (sessionMissCounters.get(session.id) || 0) + 1;
+        sessionMissCounters.set(session.id, count);
+        if (count >= REMOVAL_THRESHOLD) {
+          removedIds.push(session.id);
+        }
+      } else {
+        sessionMissCounters.delete(session.id);
+      }
+    }
     if (removedIds.length > 0) {
+      for (const id of removedIds) {
+        sessionMissCounters.delete(id);
+      }
       setState('sessions', (prev) => prev.filter((s) => !removedIds.includes(s.id)));
     }
     for (const session of state.sessions) {
       const remote = batchStatuses[session.id];
       if (!remote) continue;
+
+      // Store timestamp fields
+      const idx = state.sessions.findIndex(s => s.id === session.id);
+      if (idx !== -1) {
+        if (remote.lastActiveAt) setState('sessions', idx, 'lastActiveAt', remote.lastActiveAt);
+        if (remote.lastStartedAt) setState('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
+      }
+
+      // Populate sessionMetrics from KV-pushed metrics
+      if (remote.metrics) {
+        setState(produce(s => {
+          s.sessionMetrics[session.id] = {
+            bucketName: s.sessionMetrics[session.id]?.bucketName || '...',
+            syncStatus: (remote.metrics?.syncStatus as SessionMetrics['syncStatus']) || s.sessionMetrics[session.id]?.syncStatus || 'pending',
+            cpu: remote.metrics?.cpu || '...',
+            mem: remote.metrics?.mem || '...',
+            hdd: remote.metrics?.hdd || '...',
+          };
+        }));
+      }
+
       if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
         updateSessionStatus(session.id, 'running');
         initializeTerminalsForSession(session.id);
@@ -493,13 +501,7 @@ function stopSessionListPolling(): void {
   }
 }
 
-function stopAllMetricsPolling(): void {
-  metricsPollingIntervals.forEach((interval, sessionId) => {
-    clearInterval(interval);
-    logger.debug(`[SessionStore] Stopped metrics polling for session ${sessionId}`);
-  });
-  metricsPollingIntervals.clear();
-
+function stopAllPolling(): void {
   for (const [sessionId, cleanup] of startupCleanups) {
     cleanup();
     logger.debug(`[SessionStore] Stopped startup polling for session ${sessionId}`);
@@ -533,6 +535,12 @@ async function updatePreferences(prefs: Partial<UserPreferences>): Promise<void>
   }
 }
 
+/** Check if a stopped session's context may still be alive (lastActiveAt < CONTEXT_EXPIRY_MS ago, i.e. 30m) */
+function hasRecentContext(session: SessionWithStatus): boolean {
+  if (!session.lastActiveAt) return false;
+  return Date.now() - new Date(session.lastActiveAt).getTime() < CONTEXT_EXPIRY_MS;
+}
+
 // Export store and actions
 export const sessionStore = {
   // State (readonly)
@@ -558,8 +566,7 @@ export const sessionStore = {
 
   // Session metrics
   getMetricsForSession,
-  stopMetricsPolling,
-  stopAllMetricsPolling,
+  stopAllPolling,
 
   // Session list polling
   startSessionListPolling,
@@ -607,6 +614,11 @@ export const sessionStore = {
   loadPreferences,
   updatePreferences,
 
+  // Context lifecycle
+  hasRecentContext,
+
   // @internal -- exposed for tests (AD23)
   updateSessionStatus,
+  refreshSessionStatuses,
+  _resetMissCounters: () => sessionMissCounters.clear(),
 };

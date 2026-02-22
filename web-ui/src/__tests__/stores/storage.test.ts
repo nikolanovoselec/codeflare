@@ -732,30 +732,4 @@ describe('Storage Store', () => {
     });
   });
 
-  describe('deepSearch()', () => {
-    it('should call browseStorage with the query as prefix appended to root', async () => {
-      mockBrowseStorage.mockResolvedValue({
-        objects: [
-          { key: 'workspace/src/utils.ts', size: 100, lastModified: '2025-01-01T00:00:00Z' },
-        ],
-        prefixes: [],
-        isTruncated: false,
-      });
-
-      const results = await storageStore.deepSearch('src/');
-
-      expect(mockBrowseStorage).toHaveBeenCalledWith('workspace/src/');
-      expect(results.objects).toHaveLength(1);
-      expect(results.objects[0].key).toBe('workspace/src/utils.ts');
-    });
-
-    it('should return empty result on error', async () => {
-      mockBrowseStorage.mockRejectedValue(new Error('Search failed'));
-
-      const results = await storageStore.deepSearch('missing/');
-
-      expect(results.objects).toEqual([]);
-      expect(results.prefixes).toEqual([]);
-    });
-  });
 });

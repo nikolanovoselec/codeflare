@@ -646,8 +646,8 @@ describe('GET /sessions/batch-status', () => {
     const body = await res.json() as { statuses: Record<string, { status: string; ptyActive: boolean }> };
     // Both sessions should have entries in the statuses map
     expect(Object.keys(body.statuses)).toHaveLength(2);
-    expect(body.statuses['batchsession1234abc']).toEqual({ status: 'running', ptyActive: true });
-    expect(body.statuses['batchsession5678def']).toEqual({ status: 'running', ptyActive: true });
+    expect(body.statuses['batchsession1234abc']).toEqual({ status: 'running', ptyActive: true, lastActiveAt: null, lastStartedAt: null });
+    expect(body.statuses['batchsession5678def']).toEqual({ status: 'running', ptyActive: true, lastActiveAt: null, lastStartedAt: null });
   });
 
   it('returns empty statuses when no sessions exist', async () => {

@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
 import SettingsPanel from './SettingsPanel';
@@ -6,11 +6,11 @@ import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore } from '../stores/session';
-import { terminalStore } from '../stores/terminal';
+import { terminalStore, reconnectDisconnectedTerminals, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
-import { VIEW_TRANSITION_DURATION_MS } from '../lib/constants';
+import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -50,10 +50,16 @@ const Layout: Component<LayoutProps> = (props) => {
 
   // Only poll session list while on dashboard — polling during terminal view
   // replaces the sessions array, triggering reactivity that flips viewState.
+  // On dashboard: schedule a full WebSocket disconnect after a grace period
+  // so the Cloudflare Container can go idle.
+  // On terminal: cancel scheduled disconnect and reconnect any dropped connections.
   createEffect(() => {
     if (viewState() === 'dashboard') {
+      scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS);
       sessionStore.startSessionListPolling();
     } else {
+      cancelScheduledDisconnect();
+      reconnectDisconnectedTerminals(untrack(() => sessionStore.activeSessionId) ?? undefined);
       sessionStore.stopSessionListPolling();
     }
   });
@@ -143,6 +149,9 @@ const Layout: Component<LayoutProps> = (props) => {
     if (session?.status === 'running') {
       sessionStore.setActiveSession(sessionId);
     } else if (session?.status === 'stopped') {
+      // Always do a full start — even if the container could auto-wake via SDK,
+      // the filesystem is empty after sleep (no R2 sync). startSession() runs
+      // entrypoint.sh which restores files from R2 before starting the terminal.
       sessionStore.setActiveSession(sessionId);
       void sessionStore.startSession(sessionId).catch(() => {});
     }

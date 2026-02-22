@@ -92,13 +92,13 @@ describe('resolveZone() via handleConfigureCustomDomain (ccTLD support)', () => 
         if (zoneName === expectedZoneDomain) {
           return Promise.resolve(new Response(
             JSON.stringify({ success: true, result: [{ id: 'zone-found' }] }),
-            { status: 200 }
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
         // Not the right zone - return empty result
         return Promise.resolve(new Response(
           JSON.stringify({ success: true, result: [] }),
-          { status: 200 }
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
         ));
       }
 
@@ -106,7 +106,7 @@ describe('resolveZone() via handleConfigureCustomDomain (ccTLD support)', () => 
       if (urlStr.includes('/workers/subdomain')) {
         return Promise.resolve(new Response(
           JSON.stringify({ success: true, result: { subdomain: 'test-account' } }),
-          { status: 200 }
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
         ));
       }
 
@@ -114,7 +114,7 @@ describe('resolveZone() via handleConfigureCustomDomain (ccTLD support)', () => 
       if (urlStr.includes('/dns_records') && (!init?.method || init.method === 'GET')) {
         return Promise.resolve(new Response(
           JSON.stringify({ success: true, result: [] }),
-          { status: 200 }
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
         ));
       }
 

@@ -41,42 +41,48 @@ function createUrlMockFetch(responses: Record<string, ((url: string, init?: Requ
   });
 }
 
+/** Helper: create a JSON Response with correct Content-Type header for CF API mocks. */
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: jsonHeaders });
+}
+
 // Standard mock responses for common Cloudflare API endpoints
+const jsonHeaders = { 'Content-Type': 'application/json' };
 const mockResponses = {
   accounts: () => new Response(
     JSON.stringify({ success: true, result: [{ id: 'acc123' }] }),
-    { status: 200 }
+    { status: 200, headers: jsonHeaders }
   ),
   tokenVerify: () => new Response(
     JSON.stringify({ success: true, result: { id: 'r2-key-id', status: 'active' } }),
-    { status: 200 }
+    { status: 200, headers: jsonHeaders }
   ),
   secretPut: () => new Response('', { status: 200 }),
   zoneLookup: () => new Response(
     JSON.stringify({ success: true, result: [{ id: 'zone123' }] }),
-    { status: 200 }
+    { status: 200, headers: jsonHeaders }
   ),
   subdomainLookup: () => new Response(
     JSON.stringify({ success: true, result: { subdomain: 'test-account' } }),
-    { status: 200 }
+    { status: 200, headers: jsonHeaders }
   ),
   dnsRecordLookupEmpty: () => new Response(
     JSON.stringify({ success: true, result: [] }),
-    { status: 200 }
+    { status: 200, headers: jsonHeaders }
   ),
   dnsRecordCreate: () => new Response('', { status: 200 }),
   workerRouteCreate: () => new Response('', { status: 200 }),
   accessAppsLookupEmpty: () => new Response(
     JSON.stringify({ success: true, result: [] }),
-    { status: 200 }
+    { status: 200, headers: jsonHeaders }
   ),
   accessAppCreate: () => new Response(
     JSON.stringify({ success: true, result: { id: 'app123' } }),
-    { status: 200 }
+    { status: 200, headers: jsonHeaders }
   ),
   accessGroupsLookupEmpty: () => new Response(
     JSON.stringify({ success: true, result: [] }),
-    { status: 200 }
+    { status: 200, headers: jsonHeaders }
   ),
   accessGroupCreate: (_url: string, init?: RequestInit) => {
     const body = JSON.parse((init?.body as string) || '{}') as { name?: string };
@@ -89,11 +95,30 @@ const mockResponses = {
         success: true,
         result: { id: idByName[body.name || ''] || 'group-generic-999', name: body.name || 'group' },
       }),
-      { status: 200 }
+      { status: 200, headers: jsonHeaders }
     );
   },
   accessPolicyCreate: () => new Response('', { status: 200 }),
 };
+
+/**
+ * Helper to read an NDJSON response stream and return all parsed lines.
+ * The last line with `done: true` is the summary.
+ */
+async function readNdjson(res: Response): Promise<Record<string, unknown>[]> {
+  // Use arrayBuffer + TextDecoder instead of .text() to avoid workerd warning
+  // about calling .text() on non-text content-type (application/x-ndjson)
+  const buf = await res.arrayBuffer();
+  const text = new TextDecoder().decode(buf);
+  return text.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>);
+}
+
+/** Extract the final summary line from NDJSON lines (the one with `done: true`). */
+function getNdjsonSummary(lines: Record<string, unknown>[]): Record<string, unknown> {
+  const summary = lines.find(l => l.done === true);
+  if (!summary) throw new Error('No summary line found in NDJSON response');
+  return summary;
+}
 
 // Standard env token for configure tests
 const TEST_TOKEN = 'env-api-token';
@@ -296,7 +321,7 @@ describe('Setup Routes', () => {
               },
             ],
           }),
-          { status: 200 }
+          { status: 200, headers: jsonHeaders }
         ),
       });
 
@@ -367,6 +392,8 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      // Consume NDJSON to ensure async work completes
+      await readNdjson(res);
 
       // Verify CF API was called with the env token, not a body token
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
@@ -394,12 +421,14 @@ describe('Setup Routes', () => {
         body: JSON.stringify(standardBody),
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as { success: boolean; steps: Array<{ step: string; status: string }> };
-      expect(body.success).toBe(false);
-      expect(body.steps).toContainEqual(
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      // Should have a running then error line for get_account
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'get_account', status: 'error' })
       );
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
     });
 
     it('progresses through steps correctly on success', async () => {
@@ -413,21 +442,20 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.success).toBe(true);
-      expect(body.steps).toContainEqual(
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      // Each step should have running + success lines
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'get_account', status: 'success' })
       );
-      expect(body.steps).toContainEqual(
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'derive_r2_credentials', status: 'success' })
       );
-      expect(body.steps).toContainEqual(
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'set_secrets', status: 'success' })
       );
-      expect(body.steps).toContainEqual(
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'finalize', status: 'success' })
       );
     });
@@ -436,11 +464,12 @@ describe('Setup Routes', () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
-      await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(standardBody),
       });
+      await readNdjson(res);
 
       // Find all secret-setting calls (PUT to /secrets)
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
@@ -477,6 +506,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
 
       // Verify user entries stored in KV with correct roles
       expect(mockKV.put).toHaveBeenCalledWith(
@@ -493,11 +523,12 @@ describe('Setup Routes', () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
-      await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(standardBody),
       });
+      await readNdjson(res);
 
       expect(mockKV.put).toHaveBeenCalledWith('setup:complete', 'true');
       expect(mockKV.put).toHaveBeenCalledWith('setup:account_id', 'acc123');
@@ -519,17 +550,14 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        customDomainUrl: string | null;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.success).toBe(true);
-      expect(body.customDomainUrl).toBe('https://claude.example.com');
-      expect(body.steps).toContainEqual(
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      expect(summary.customDomainUrl).toBe('https://claude.example.com');
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'configure_custom_domain', status: 'success' })
       );
-      expect(body.steps).toContainEqual(
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'create_access_app', status: 'success' })
       );
 
@@ -552,7 +580,7 @@ describe('Setup Routes', () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
-      await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -561,6 +589,7 @@ describe('Setup Routes', () => {
           adminUsers: ['alice@example.com'],
         }),
       });
+      await readNdjson(res);
 
       // Find the access policy creation call
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
@@ -598,21 +627,18 @@ describe('Setup Routes', () => {
         body: JSON.stringify(standardBody),
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as {
-        success: boolean;
-        error: string;
-        steps: Array<{ step: string; status: string; error?: string }>;
-      };
-      expect(body.success).toBe(false);
-      expect(body.error).toContain('Zone permissions');
-      expect(body.steps).toContainEqual(
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      expect(lines).toContainEqual(
         expect.objectContaining({
           step: 'configure_custom_domain',
           status: 'error',
           error: expect.stringContaining('Zone permissions'),
         })
       );
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
+      expect(summary.error).toEqual(expect.stringContaining('Zone permissions'));
     });
 
     it('returns permission error when zones API returns authentication error message', async () => {
@@ -636,14 +662,11 @@ describe('Setup Routes', () => {
         body: JSON.stringify(standardBody),
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as {
-        success: boolean;
-        error: string;
-        steps: Array<{ step: string; status: string; error?: string }>;
-      };
-      expect(body.success).toBe(false);
-      expect(body.error).toContain('Zone permissions');
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
+      expect(summary.error).toEqual(expect.stringContaining('Zone permissions'));
     });
 
     it('returns permission error when worker route creation returns auth error', async () => {
@@ -674,15 +697,11 @@ describe('Setup Routes', () => {
         body: JSON.stringify(standardBody),
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as {
-        success: boolean;
-        error: string;
-        steps: Array<{ step: string; status: string; error?: string }>;
-      };
-      expect(body.success).toBe(false);
-      expect(body.error).toContain('Zone permissions');
-      expect(body.error).toContain('worker route');
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
+      expect(summary.error).toEqual(expect.stringContaining('Zone permissions'));
     });
 
     it('returns permission error when DNS record creation returns auth error', async () => {
@@ -713,14 +732,11 @@ describe('Setup Routes', () => {
         body: JSON.stringify(standardBody),
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as {
-        success: boolean;
-        error: string;
-        steps: Array<{ step: string; status: string; error?: string }>;
-      };
-      expect(body.success).toBe(false);
-      expect(body.error).toContain('DNS permissions');
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
+      expect(summary.error).toEqual(expect.stringContaining('DNS permissions'));
     });
 
     it('continues when DNS record already exists (code 81057)', async () => {
@@ -754,12 +770,10 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.success).toBe(true);
-      expect(body.steps).toContainEqual(
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'configure_custom_domain', status: 'success' })
       );
     });
@@ -808,12 +822,10 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.success).toBe(true);
-      expect(body.steps).toContainEqual(
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'configure_custom_domain', status: 'success' })
       );
 
@@ -870,6 +882,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
 
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
       const routeUpdateCall = mockFetch.mock.calls.find(
@@ -913,8 +926,9 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean };
-      expect(body.success).toBe(true);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
 
       // Verify DNS record was created with fallback subdomain from hostname
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
@@ -933,11 +947,12 @@ describe('Setup Routes', () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
-      await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(standardBody),
       });
+      await readNdjson(res);
 
       expect(mockKV.put).toHaveBeenCalledWith(
         'setup:r2_endpoint',
@@ -1019,12 +1034,10 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.success).toBe(true);
-      expect(body.steps).toContainEqual(
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'set_secrets', status: 'success' })
       );
 
@@ -1110,6 +1123,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
 
       // Count deployment calls - should be exactly 1
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
@@ -1130,8 +1144,9 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as { customDomainUrl: string };
-      expect(body.customDomainUrl).toBe('https://claude.example.com');
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.customDomainUrl).toBe('https://claude.example.com');
     });
 
     it('updates existing DNS record instead of failing when record exists', async () => {
@@ -1166,12 +1181,10 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.success).toBe(true);
-      expect(body.steps).toContainEqual(
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'configure_custom_domain', status: 'success' })
       );
 
@@ -1262,12 +1275,10 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.success).toBe(true);
-      expect(body.steps).toContainEqual(
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'create_access_app', status: 'success' })
       );
 
@@ -1366,6 +1377,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
 
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
       const updateCall = mockFetch.mock.calls.find(
@@ -1423,11 +1435,9 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as {
-        success: boolean;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.success).toBe(true);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
 
       // Verify DNS record was created with POST (fallback behavior)
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
@@ -1476,23 +1486,21 @@ describe('Setup Routes', () => {
         body: JSON.stringify(standardBody),
       });
 
-      // listAccessApps now throws on error instead of silently returning []
-      // SetupError returns 400
-      expect(res.status).toBe(400);
-      const body = await res.json() as {
-        error: string;
-        steps: Array<{ step: string; status: string }>;
-      };
-      expect(body.steps).toContainEqual(
+      // listAccessApps now throws on error — streamed as NDJSON error
+      expect(res.status).toBe(200);
+      const lines = await readNdjson(res);
+      expect(lines).toContainEqual(
         expect.objectContaining({ step: 'create_access_app', status: 'error' })
       );
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(false);
     });
 
     it('stores combined allowedOrigins in KV including custom domain and .workers.dev', async () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
-      await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1502,6 +1510,7 @@ describe('Setup Routes', () => {
           allowedOrigins: ['.app.example.com', '.dev.example.com'],
         }),
       });
+      await readNdjson(res);
 
       // Should contain user-provided origins + custom domain + .workers.dev
       const putCall = mockKV.put.mock.calls.find(
@@ -1519,7 +1528,7 @@ describe('Setup Routes', () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
-      await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1528,6 +1537,7 @@ describe('Setup Routes', () => {
           adminUsers: ['user@example.com'],
         }),
       });
+      await readNdjson(res);
 
       const putCall = mockKV.put.mock.calls.find(
         (call: unknown[]) => call[0] === 'setup:allowed_origins'
@@ -1542,11 +1552,12 @@ describe('Setup Routes', () => {
       const app = createTestApp();
       mockFullSuccessFlow();
 
-      await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+      const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(standardBody),
       });
+      await readNdjson(res);
 
       expect(mockKV.put).toHaveBeenCalledWith('setup:custom_domain', 'claude.example.com');
     });
@@ -1566,6 +1577,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
 
       // Admin users should have role: admin
       expect(mockKV.put).toHaveBeenCalledWith(
@@ -1598,8 +1610,9 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean };
-      expect(body.success).toBe(true);
+      const lines = await readNdjson(res);
+      const summary = getNdjsonSummary(lines);
+      expect(summary.success).toBe(true);
     });
 
     it('stores access_aud in KV when Access app is created', async () => {
@@ -1637,6 +1650,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
       expect(mockKV.put).toHaveBeenCalledWith('setup:access_aud', 'test-aud-tag-12345');
     });
 
@@ -1651,6 +1665,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
 
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
       const createCalls = mockFetch.mock.calls.filter(
@@ -1737,6 +1752,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
 
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
       const deleteUrls = mockFetch.mock.calls
@@ -1790,6 +1806,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
       expect(mockKV.put).toHaveBeenCalledWith('setup:turnstile_site_key', '0x4AAAAA-test-site-key');
 
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
@@ -1865,6 +1882,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
       expect(mockKV.put).toHaveBeenCalledWith('setup:turnstile_site_key', '0x4AAAAA-existing');
       expect(mockKV.put).toHaveBeenCalledWith('setup:turnstile_secret_key', 'rotated-secret-key');
     });
@@ -1880,6 +1898,7 @@ describe('Setup Routes', () => {
       });
 
       expect(res.status).toBe(200);
+      await readNdjson(res);
       const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
       const turnstileCall = mockFetch.mock.calls.find(
         (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('/challenges/widgets')

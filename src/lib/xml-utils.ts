@@ -5,7 +5,7 @@
  * - storage/upload.ts: escapeXml(p.etag) in CompleteMultipartUpload
  * - storage/delete.ts: escapeXml(key) in DeleteObjects
  * - public/index.ts: escapeXml(email), escapeXml(ip) in notification HTML
- * - r2-client.ts: decodeXmlEntities() applied to extractTag output (FIX-18)
+ * - r2-client.ts: imports decodeXmlEntities() from this file, applied to extractTag output (FIX-18)
  * No unescaped user input is interpolated into HTML or XML.
  */
 export function escapeXml(str: string): string {

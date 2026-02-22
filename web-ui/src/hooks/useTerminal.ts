@@ -317,12 +317,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     onCleanup(() => clearTimeout(timer));
   });
 
-  // Connect WebSocket after init completes
+  // Connect WebSocket: at mounting stage during init (agent loads in background),
+  // or immediately when session is already running (e.g. tab switch, page reload).
   createEffect(() => {
     const initializing = isInitializing();
-    if (!initializing && term && !cleanup) {
-      logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Session ready, connecting WebSocket`);
-      // Look up tab to check if it was manually created (user clicked "+")
+    const stage = initProgress()?.stage;
+    // Terminal server is up at 'mounting' or 'ready' — safe to connect WS
+    const shouldConnect = !initializing || stage === 'mounting' || stage === 'ready';
+
+    if (shouldConnect && term && !cleanup) {
+      logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find(t => t.id === props.terminalId);
       cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError, tab?.manual);

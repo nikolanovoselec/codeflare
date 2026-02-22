@@ -7,6 +7,19 @@ let setupStore: typeof import('../../stores/setup').setupStore;
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
+/**
+ * Build a Response whose body is NDJSON (newline-delimited JSON).
+ * Each argument becomes one JSON line.  The final line is always the
+ * "done" summary that `configure()` looks for.
+ */
+function ndjsonResponse(...lines: Record<string, unknown>[]): Response {
+  const body = lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'application/x-ndjson' },
+  });
+}
+
 describe('Setup Store', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -339,10 +352,7 @@ describe('Setup Store', () => {
       expect(setupStore.configuring).toBe(true);
 
       resolvePromise!(
-        new Response(JSON.stringify({ success: true, steps: [] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
+        ndjsonResponse({ done: true, success: true, steps: [] })
       );
 
       await configurePromise;
@@ -352,10 +362,7 @@ describe('Setup Store', () => {
 
     it('should send customDomain and allowedUsers in request body', async () => {
       mockFetch.mockResolvedValue(
-        new Response(JSON.stringify({ success: true, steps: [] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
+        ndjsonResponse({ done: true, success: true, steps: [] })
       );
 
       setupStore.setCustomDomain('my-app.example.com');
@@ -374,10 +381,7 @@ describe('Setup Store', () => {
 
     it('should not include token in request body', async () => {
       mockFetch.mockResolvedValue(
-        new Response(JSON.stringify({ success: true, steps: [] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
+        ndjsonResponse({ done: true, success: true, steps: [] })
       );
 
       await setupStore.configure();
@@ -390,14 +394,9 @@ describe('Setup Store', () => {
 
     it('should return true and set setupComplete on success', async () => {
       mockFetch.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            success: true,
-            steps: [{ step: 'Create R2', status: 'success' }],
-            customDomainUrl: 'https://my-app.example.com',
-            accountId: 'acc-456',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        ndjsonResponse(
+          { step: 'Create R2', status: 'success' },
+          { done: true, success: true, steps: [{ step: 'Create R2', status: 'success' }], customDomainUrl: 'https://my-app.example.com', accountId: 'acc-456' },
         )
       );
 
@@ -411,13 +410,9 @@ describe('Setup Store', () => {
 
     it('should return false and set error on failure', async () => {
       mockFetch.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            success: false,
-            error: 'Configuration failed',
-            steps: [{ step: 'Create R2', status: 'failed', error: 'R2 error' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        ndjsonResponse(
+          { step: 'Create R2', status: 'error', error: 'R2 error' },
+          { done: true, success: false, error: 'Configuration failed', steps: [{ step: 'Create R2', status: 'failed', error: 'R2 error' }] },
         )
       );
 
@@ -438,15 +433,12 @@ describe('Setup Store', () => {
 
     it('should store configure steps', async () => {
       mockFetch.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            success: true,
-            steps: [
-              { step: 'Create R2', status: 'success' },
-              { step: 'Set secrets', status: 'success' },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        ndjsonResponse(
+          { step: 'Create R2', status: 'running' },
+          { step: 'Create R2', status: 'success' },
+          { step: 'Set secrets', status: 'running' },
+          { step: 'Set secrets', status: 'success' },
+          { done: true, success: true, steps: [{ step: 'Create R2', status: 'success' }, { step: 'Set secrets', status: 'success' }] },
         )
       );
 
@@ -458,13 +450,8 @@ describe('Setup Store', () => {
 
     it('should set customDomainUrl when provided', async () => {
       mockFetch.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            success: true,
-            steps: [],
-            customDomainUrl: 'https://my-app.example.com',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        ndjsonResponse(
+          { done: true, success: true, steps: [], customDomainUrl: 'https://my-app.example.com' },
         )
       );
 
@@ -475,13 +462,8 @@ describe('Setup Store', () => {
 
     it('should store accountId from configure response', async () => {
       mockFetch.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            success: true,
-            steps: [],
-            accountId: 'acc-456',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        ndjsonResponse(
+          { done: true, success: true, steps: [], accountId: 'acc-456' },
         )
       );
 
@@ -493,13 +475,9 @@ describe('Setup Store', () => {
     it('should clear configureSteps and error before starting', async () => {
       // First configure call fails
       mockFetch.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            success: false,
-            error: 'First failure',
-            steps: [{ step: 'Step 1', status: 'failed' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        ndjsonResponse(
+          { step: 'Step 1', status: 'error' },
+          { done: true, success: false, error: 'First failure', steps: [{ step: 'Step 1', status: 'failed' }] },
         )
       );
       await setupStore.configure();
@@ -520,10 +498,7 @@ describe('Setup Store', () => {
       expect(setupStore.configureSteps).toEqual([]);
 
       resolvePromise!(
-        new Response(JSON.stringify({ success: true, steps: [] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
+        ndjsonResponse({ done: true, success: true, steps: [] })
       );
 
       await configurePromise;
@@ -631,9 +606,8 @@ describe('Setup Store', () => {
 
     it('should use default error for configure failure without message', async () => {
       mockFetch.mockResolvedValue(
-        new Response(
-          JSON.stringify({ success: false }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        ndjsonResponse(
+          { done: true, success: false },
         )
       );
 

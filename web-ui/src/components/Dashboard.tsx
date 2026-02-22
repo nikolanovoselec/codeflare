@@ -1,6 +1,6 @@
 import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiLogout, mdiPlus } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';

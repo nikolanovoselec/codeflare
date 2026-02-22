@@ -54,7 +54,7 @@ const AppContent: Component = () => {
   });
 
   onCleanup(() => {
-    sessionStore.stopAllMetricsPolling();
+    sessionStore.stopAllPolling();
     terminalStore.disposeAll();
   });
 

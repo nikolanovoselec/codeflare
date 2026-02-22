@@ -10,9 +10,6 @@
 /** Interval for polling startup status during session initialization (ms) */
 export const STARTUP_POLL_INTERVAL_MS = 1500;
 
-/** Interval for polling session metrics when running (ms) */
-export const METRICS_POLL_INTERVAL_MS = 5000;
-
 /** Maximum consecutive polling errors before aborting startup */
 export const MAX_STARTUP_POLL_ERRORS = 10;
 
@@ -20,17 +17,11 @@ export const MAX_STARTUP_POLL_ERRORS = 10;
 // Terminal Connection
 // =============================================================================
 
-/** Maximum connection retries during initial connect */
-export const MAX_CONNECTION_RETRIES = 45;
+/** Maximum WebSocket connection retry attempts */
+export const MAX_WS_RETRIES = 10;
 
-/** Delay between initial connection retry attempts (ms) */
-export const CONNECTION_RETRY_DELAY_MS = 1500;
-
-/** Maximum reconnection attempts for dropped connections */
-export const MAX_RECONNECT_ATTEMPTS = 5;
-
-/** Delay between reconnection attempts (ms) */
-export const RECONNECT_DELAY_MS = 2000;
+/** Delay between WebSocket retry attempts (ms) */
+export const WS_RETRY_DELAY_MS = 2000;
 
 // =============================================================================
 // UI Timing
@@ -46,11 +37,6 @@ export const CSS_TRANSITION_DELAY_MS = 100;
 /** WebSocket close code for abnormal closure (connection failed) */
 export const WS_CLOSE_ABNORMAL = 1006;
 
-/** Application-level ping interval to keep idle WebSocket connections alive (ms) */
-export const WS_PING_INTERVAL_MS = 25_000;
-
-/** Watchdog timeout: close WebSocket if no data received within this window (ms) */
-export const WS_WATCHDOG_TIMEOUT_MS = 45_000;
 
 // =============================================================================
 // Session
@@ -60,10 +46,7 @@ export const WS_WATCHDOG_TIMEOUT_MS = 45_000;
 export const MAX_TERMINALS_PER_SESSION = 6;
 
 /** Interval for polling the session list to keep the dashboard up to date (ms) */
-export const SESSION_LIST_POLL_INTERVAL_MS = 3_000;
-
-/** Duration display refresh interval (ms) - for relative time updates */
-export const DURATION_REFRESH_INTERVAL_MS = 60000;
+export const SESSION_LIST_POLL_INTERVAL_MS = 5_000;
 
 /** Maximum polls when waiting for session to stop */
 export const MAX_STOP_POLL_ATTEMPTS = 20;
@@ -125,3 +108,18 @@ export const ACTIONABLE_URL_PATTERNS: RegExp[] = [
 
 /** Duration of dashboard expand/collapse CSS transition (ms) */
 export const VIEW_TRANSITION_DURATION_MS = 300;
+
+// =============================================================================
+// Container Context Expiry
+// =============================================================================
+
+/** After this duration of inactivity, agent context is gone and container must be fully restarted (ms) */
+export const CONTEXT_EXPIRY_MS = 30 * 60 * 1000; // 30m — matches backend sleepAfter
+
+// =============================================================================
+// Dashboard WebSocket Disconnect
+// =============================================================================
+
+/** Delay before closing all WebSocket connections when on dashboard (ms).
+ *  Gives the user a grace period to return to the terminal view without a full reconnect. */
+export const DASHBOARD_WS_DISCONNECT_DELAY_MS = 60_000;

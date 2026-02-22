@@ -1,4 +1,3 @@
-import { produce } from 'solid-js/store';
 import type { TabConfig, TabPreset, SessionWithStatus, SessionTerminals } from '../types';
 import * as api from '../api/client';
 import { sendInputToTerminal } from './terminal';

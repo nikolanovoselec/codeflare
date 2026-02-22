@@ -16,7 +16,7 @@ It's strongly optimized for mobile - because the best ideas hit while rewatching
 - Persistent R2 storage with bisync every 60s - even if a session dies before you `git push`, R2 has got your back. Sync conflicts? Cleaned up automatically next cycle.
 - Pre-warmed terminals - the agent is already loaded when you open the tab, not staring at a blank screen wondering if something broke
 - Set your API key once. It syncs across sessions forever. (It's rclone, but magic sounds better.)
-- Dashboard for managing sessions, browsing files, and inviting users (or revoking them when they get too creative)
+- Dashboard for managing sessions, browsing files, and inviting users (or revoking them when they get too creative). Live CPU/memory/disk metrics per session. Three-color status: green (active), yellow (idle but alive), gray (stopped).
 - Scales to zero when idle. You pay for what you use. Nothing when you don't.
 
 ## Setup
@@ -103,8 +103,8 @@ flowchart LR
     isolated per session, pre-warmed PTY"]
     D --> E["R2
     per-user storage, bisync every 60s"]
-    D -. "idle 30 min
-    (no terminal output, no user input)" .-> F["Hibernated
+    D -. "idle after 30m
+    (no WebSocket clients)" .-> F["Hibernated
     zero cost"]
 ```
 

@@ -25,7 +25,7 @@ vi.mock('../../components/OnboardingLanding', () => ({
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
-    stopAllMetricsPolling: vi.fn(),
+    stopAllPolling: vi.fn(),
   },
 }));
 

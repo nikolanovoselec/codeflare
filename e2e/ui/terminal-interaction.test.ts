@@ -61,12 +61,12 @@ describe('Terminal Interaction', () => {
       const hasTerminalTabs = await elementExists(page, '[data-testid="terminal-tabs"]', 5000);
 
       // Terminal tabs only show when there's a running session
-      const hasRunningSessions = await elementExists(page, '[data-testid^="session-card-"]', 3000);
+      const hasRunningSessions = await elementExists(page, '[data-testid^="session-stat-card-"]', 3000);
 
       if (hasRunningSessions) {
         // If we have sessions, we might have terminal tabs
         // Click on a session to potentially activate it
-        const sessionCard = await page.$('[data-testid^="session-card-"]');
+        const sessionCard = await page.$('[data-testid^="session-stat-card-"]');
         if (sessionCard) {
           await sessionCard.click();
           await new Promise((resolve) => setTimeout(resolve, 1000));
