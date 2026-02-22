@@ -59,6 +59,10 @@ export interface Env {
   // Enable protected path deletions for storage delete route (set to 'true' to enforce)
   PROTECTED_PATHS_ENABLED?: string;
 
+  // Maximum concurrent running sessions per user role
+  MAX_SESSIONS_USER?: string;
+  MAX_SESSIONS_ADMIN?: string;
+
 }
 
 /**

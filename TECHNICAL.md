@@ -646,6 +646,16 @@ Per-user rate limiting via KV (`src/middleware/rate-limit.ts`). Uses `bucketName
 
 30 connections per 60-second window per user (`WS_RATE_LIMIT_WINDOW_MS = 60000`, `WS_RATE_LIMIT_MAX_CONNECTIONS = 30`). Defined in `src/lib/constants.ts`.
 
+### Session Limits
+
+Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSIONS_USER` (default: 3) and `MAX_SESSIONS_ADMIN` (default: 10) in `wrangler.toml`.
+
+**Frontend-first enforcement:** The dashboard disables the start button when `isAtSessionLimit()` returns true (running + initializing sessions >= maxSessions). A popup explains the limit and which sessions to stop.
+
+**Backend loose check:** `POST /api/container/start` counts KV sessions with `status === 'running'` under the user's prefix (excluding the current session to allow restarts). Returns 429 `RateLimitError` if at or over the limit. This is a secondary guard — the frontend prevents most limit violations before they reach the backend.
+
+**`GET /api/sessions/batch-status`** returns `maxSessions` alongside `statuses` so the frontend stays in sync with the server-side limit without hardcoding defaults.
+
 ### Protected R2 Paths
 
 The following paths are excluded from R2 sync and cannot be uploaded/deleted/moved via the storage API: `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json`. Defined in `PROTECTED_PATHS` in `src/lib/constants.ts`.
@@ -684,7 +694,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | POST | `/api/sessions/:id/touch` | Update lastAccessedAt |
 | POST | `/api/sessions/:id/stop` | Stop session (KV 'stopped' + container.destroy()) |
 | GET | `/api/sessions/:id/status` | Get session and container status |
-| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics) |
+| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions) |
 
 ### Container Lifecycle
 
@@ -786,6 +796,8 @@ GET `/health`, GET `/api/health`
 | `RESEND_API_KEY` | Waitlist notification emails | Optional |
 | `WAITLIST_FROM_EMAIL` | Sender identity for waitlist | Optional |
 | `CLOUDFLARE_WORKER_NAME` | Worker name override for forks | GitHub Actions variable |
+| `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
+| `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
 
 ### Container Environment
 

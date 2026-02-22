@@ -90,6 +90,8 @@ All optional. The defaults work out of the box. I respect your time.
 | `ONBOARDING_LANDING_PAGE` | `inactive` | Set to `active` for a public waitlist at `/` (requires Turnstile + `RESEND_API_KEY` secret) |
 | `RUNNER` | `ubuntu-latest` | GitHub Actions runner |
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | Set to `active` to force-reinstall the AI agent layer on every deploy |
+| `MAX_SESSIONS_USER` | `3` | Max concurrent running sessions per regular user |
+| `MAX_SESSIONS_ADMIN` | `10` | Max concurrent running sessions per admin user |
 
 ## Architecture
 

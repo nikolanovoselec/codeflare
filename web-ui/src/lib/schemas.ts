@@ -111,6 +111,7 @@ export const BatchSessionStatusResponseSchema = z.object({
       updatedAt: z.string().optional(),
     }).optional(),
   })),
+  maxSessions: z.number(),
 });
 
 // Setup API schemas — moved from client.ts (strict versions)
