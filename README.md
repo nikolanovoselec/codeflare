@@ -17,6 +17,14 @@ Every session comes pre-loaded with your choice of AI coding agent:
 
 Or plain Bash, for the purists.
 
+<details>
+<summary><strong>Why Claude Unleashed?</strong></summary>
+<a id="why-claude-unleashed"></a>
+
+Cloudflare Containers run as root. Claude Code refuses to run with `--dangerously-skip-permissions` as root - even inside an ephemeral container where the root check is protecting a filesystem that won't exist in 30 seconds. Heroic. [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) is a wrapper that politely disagrees with this decision, patching around the restriction at source level. Handles root detection, auto-updates, and mode switching. Pre-installed in every Codeflare container because arguing with your tools is not a productive use of compute.
+
+</details>
+
 Codeflare is an ephemeral cloud IDE that runs entirely in your browser. Every session spins up an isolated container on Cloudflare, pre-loads your AI agent of choice, and tears itself down when you're done. Your files persist in R2 storage. The containers don't. Nothing touches your local machine.
 
 ![Codeflare on a phone](docs/images/mobile-phone.jpg)
@@ -63,14 +71,6 @@ flowchart LR
 ```
 
 Containers scale to zero when idle (no sessions = no bill). Storage persists. Auth is handled by Cloudflare Access - no custom login pages, no token management, no OAuth dance.
-
-<details>
-<summary><strong>Why Claude Unleashed?</strong></summary>
-<a id="why-claude-unleashed"></a>
-
-Cloudflare Containers run as root. Claude Code refuses to run with `--dangerously-skip-permissions` as root - even inside an ephemeral container where the root check is protecting a filesystem that won't exist in 30 seconds. Heroic. [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) is a wrapper that politely disagrees with this decision, patching around the restriction at source level. Handles root detection, auto-updates, and mode switching. Pre-installed in every Codeflare container because arguing with your tools is not a productive use of compute.
-
-</details>
 
 ## Setup
 
