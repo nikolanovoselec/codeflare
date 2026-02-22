@@ -106,7 +106,10 @@ const mockResponses = {
  * The last line with `done: true` is the summary.
  */
 async function readNdjson(res: Response): Promise<Record<string, unknown>[]> {
-  const text = await res.text();
+  // Use arrayBuffer + TextDecoder instead of .text() to avoid workerd warning
+  // about calling .text() on non-text content-type (application/x-ndjson)
+  const buf = await res.arrayBuffer();
+  const text = new TextDecoder().decode(buf);
   return text.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>);
 }
 
