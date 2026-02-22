@@ -256,8 +256,6 @@ flowchart TD
     FetchFailed -->|Yes| ReArm1["Still re-arm<br/>(safety net)"]
     FetchFailed -->|No| ReArm2["Re-arm setTimeout<br/>(collectMetrics, 5000)"]
 
-    style Exit1 fill:#f9d0d0
-    style Exit2 fill:#f9d0d0
 ```
 
 **`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected → `renewActivityTimeout()`. If no clients → `this.stop('SIGTERM')`. Safety net: renews timeout on any error (network failures, non-OK responses) rather than killing the container.
@@ -467,7 +465,6 @@ flowchart TD
     U3 -.- Key["destroy() clearing identifiers<br/>BEFORE onStop() prevents<br/>session resurrection"]
     D3 -.- Key
 
-    style Key fill:#fff3cd
 ```
 
 **Restart (same bucket):** `setBucketName` → 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage for KV reconciliation and preference updates) → `startAndWaitForPorts()` → `onStart()` re-arms metrics
