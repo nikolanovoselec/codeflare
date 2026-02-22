@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import { mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
+import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
 
 // Mock child components to isolate Dashboard testing
@@ -36,6 +37,33 @@ vi.mock('../../components/FilePreview', () => ({
 vi.mock('../../components/Icon', () => ({
   default: (props: any) => <svg data-testid="icon" data-path={props.path} />
 }));
+
+vi.mock('../../components/SessionLimitPopup', () => ({
+  default: (props: any) => {
+    (window as any).__sessionLimitPopupProps = props;
+    return (
+      <div data-testid="session-limit-popup" data-open={props.isOpen}>
+        <button data-testid="slp-dismiss" onClick={props.onClose}>Got it</button>
+      </div>
+    );
+  }
+}));
+
+vi.mock('../../stores/session', () => {
+  let _isAtLimit = false;
+  let _maxSessions = 3;
+  return {
+    sessionStore: {
+      get sessions() { return []; },
+      get maxSessions() { return _maxSessions; },
+      isAtSessionLimit: () => _isAtLimit,
+      _setTestLimit: (atLimit: boolean, max?: number) => {
+        _isAtLimit = atLimit;
+        if (max !== undefined) _maxSessions = max;
+      },
+    },
+  };
+});
 
 vi.mock('../../components/CreateSessionDialog', () => ({
   default: (props: any) => {
@@ -285,5 +313,47 @@ describe('Dashboard', () => {
     fireEvent.click(screen.getByTestId('dashboard-logout-button'));
 
     expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  // === Session Limit Tests ===
+
+  it('shows SessionLimitPopup instead of CreateSessionDialog when at limit', () => {
+    (sessionStore as any)._setTestLimit(true, 3);
+    render(() => <Dashboard {...defaultProps} />);
+
+    fireEvent.click(screen.getByTestId('dashboard-new-session'));
+
+    const popup = screen.getByTestId('session-limit-popup');
+    expect(popup.getAttribute('data-open')).toBe('true');
+
+    const dialog = screen.getByTestId('create-session-dialog');
+    expect(dialog.getAttribute('data-open')).toBe('false');
+
+    // Reset
+    (sessionStore as any)._setTestLimit(false);
+  });
+
+  it('shows CreateSessionDialog when under limit', () => {
+    (sessionStore as any)._setTestLimit(false, 3);
+    render(() => <Dashboard {...defaultProps} />);
+
+    fireEvent.click(screen.getByTestId('dashboard-new-session'));
+
+    const dialog = screen.getByTestId('create-session-dialog');
+    expect(dialog.getAttribute('data-open')).toBe('true');
+
+    const popup = screen.getByTestId('session-limit-popup');
+    expect(popup.getAttribute('data-open')).toBe('false');
+  });
+
+  it('applies limited CSS class when at session limit', () => {
+    (sessionStore as any)._setTestLimit(true, 3);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const btn = screen.getByTestId('dashboard-new-session');
+    expect(btn.classList.contains('dashboard-new-session-btn--limited')).toBe(true);
+
+    // Reset
+    (sessionStore as any)._setTestLimit(false);
   });
 });

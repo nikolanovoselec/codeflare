@@ -75,6 +75,7 @@ interface SessionState {
   sessionMetrics: Record<string, SessionMetrics>;
   presets: TabPreset[];
   preferences: UserPreferences;
+  maxSessions: number;
 }
 
 const [state, setState] = createStore<SessionState>({
@@ -88,6 +89,7 @@ const [state, setState] = createStore<SessionState>({
   sessionMetrics: {},
   presets: [],
   preferences: {},
+  maxSessions: 3,
 });
 
 // Register dependencies for extracted modules
@@ -134,10 +136,12 @@ async function loadSessions(): Promise<void> {
   setState('error', null);
 
   try {
-    const [sessions, batchStatuses] = await Promise.all([
+    const [sessions, batchResponse] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus().catch(() => ({} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string; lastActiveAt?: string; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>)),
+      api.getBatchSessionStatus().catch(() => ({ statuses: {} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string; lastActiveAt?: string; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>, maxSessions: state.maxSessions })),
     ]);
+    const batchStatuses = batchResponse.statuses;
+    if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
 
     if (thisGen !== loadSessionsGeneration) return;
 
@@ -348,9 +352,9 @@ async function stopSession(id: string): Promise<void> {
           }
 
           try {
-            const statuses = await api.getBatchSessionStatus();
+            const batchResp = await api.getBatchSessionStatus();
             consecutiveErrors = 0;
-            const sessionStatus = statuses[id];
+            const sessionStatus = batchResp.statuses[id];
             if (!sessionStatus || sessionStatus.status === 'stopped') {
               cleanupStopPolling();
             }
@@ -430,7 +434,9 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
  */
 async function refreshSessionStatuses(): Promise<void> {
   try {
-    const batchStatuses = await api.getBatchSessionStatus();
+    const batchResponse = await api.getBatchSessionStatus();
+    const batchStatuses = batchResponse.statuses;
+    if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions — they may not appear in batch status yet.
@@ -540,6 +546,18 @@ async function updatePreferences(prefs: Partial<UserPreferences>): Promise<void>
   }
 }
 
+/**
+ * Check if user has reached the maximum number of concurrent running sessions.
+ * Counts both 'running' and 'initializing' sessions (conservative — prevents
+ * clicking "+ New Session" while a session is still starting up).
+ * Note: backend only counts status === 'running', so this may be stricter
+ * than the backend check. This is intentional — better UX than hitting a 429.
+ */
+function isAtSessionLimit(): boolean {
+  const runningCount = state.sessions.filter(s => s.status === 'running' || s.status === 'initializing').length;
+  return runningCount >= state.maxSessions;
+}
+
 /** Check if a stopped session's context may still be alive (lastActiveAt < CONTEXT_EXPIRY_MS ago, i.e. 30m) */
 function hasRecentContext(session: SessionWithStatus): boolean {
   if (!session.lastActiveAt) return false;
@@ -618,6 +636,10 @@ export const sessionStore = {
   get preferences() { return state.preferences; },
   loadPreferences,
   updatePreferences,
+
+  // Session limits
+  get maxSessions() { return state.maxSessions; },
+  isAtSessionLimit,
 
   // Context lifecycle
   hasRecentContext,

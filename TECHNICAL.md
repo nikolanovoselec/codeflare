@@ -2,6 +2,33 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
+## Table of Contents
+
+1. [Architecture Overview](#1-architecture-overview)
+2. [Components](#2-components)
+3. [UI Features](#3-ui-features)
+4. [Data Flow](#4-data-flow)
+5. [Storage and Sync](#5-storage-and-sync)
+6. [Authentication](#6-authentication)
+7. [Security Model](#7-security-model)
+8. [API Reference](#8-api-reference)
+9. [Environment Variables](#9-environment-variables)
+10. [File Structure](#10-file-structure)
+11. [Container Startup](#11-container-startup)
+12. [Container Image](#12-container-image)
+13. [Claude-Unleashed Integration](#13-claude-unleashed-integration)
+14. [Testing](#14-testing)
+15. [Development](#15-development)
+16. [CI/CD (GitHub Actions)](#16-cicd-github-actions)
+17. [API Token Permissions](#17-api-token-permissions)
+18. [Configuration](#18-configuration)
+19. [Container Specs](#19-container-specs)
+20. [Troubleshooting](#20-troubleshooting)
+21. [Debugging Guide](#21-debugging-guide)
+22. [Cost](#22-cost)
+23. [Lessons Learned](#23-lessons-learned)
+24. [Mobile Terminal Bug Fixes](#24-mobile-terminal-bug-fixes)
+
 **Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by CF Access). The workers.dev URL should then be gated behind one-click Access in the Cloudflare dashboard.
 
 ---
@@ -114,7 +141,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### 2.4 Error Handling
 
-**File:** `src/lib/error-types.ts` - `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`.
+**File:** `src/lib/error-types.ts` - `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401), `ForbiddenError` (403), `SetupError` (400), `RateLimitError` (429), `CircuitBreakerOpenError` (503). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`.
 
 ### 2.5 Type Guards
 
@@ -156,6 +183,22 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **Cross-environment safety:** `resolveManagedAccessApp()` in `access.ts` uses a 4-tier fallback to find existing Access apps: (1) exact domain match, (2) stored app ID from KV, (3) name match + domain validation, (4) `/app/*` suffix + domain validation. Tiers 3 and 4 validate domain to prevent cross-environment collision when multiple environments share a CF account.
 
+```mermaid
+flowchart TD
+    Start["resolveManagedAccessApp()"] --> T1{"Tier 1:<br/>Exact domain match<br/>in Access apps list?"}
+    T1 -->|Found| R1["Return app"]
+    T1 -->|Not found| T2{"Tier 2:<br/>Stored app ID<br/>from KV?"}
+    T2 -->|Found| R2["Return app"]
+    T2 -->|Not found| T3{"Tier 3:<br/>Name match +<br/>domain validation?"}
+    T3 -->|Found| R3["Return app"]
+    T3 -->|Not found| T4{"Tier 4:<br/>/app/* suffix +<br/>domain validation?"}
+    T4 -->|Found| R4["Return app"]
+    T4 -->|Not found| Create["Create new Access app"]
+
+    T3 -.- Note1["Tiers 3-4: domain validation<br/>prevents cross-environment collision"]
+    T4 -.- Note1
+```
+
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
 
 **`parseCfResponse` content-type hardening** (`src/lib/cf-api.ts`): Checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts JSON.parse on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails — this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors.
@@ -174,7 +217,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ### 2.16 Frontend Constants
 
-**File:** `web-ui/src/lib/constants.ts` - 22 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
+**File:** `web-ui/src/lib/constants.ts` - 20 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ### 2.17 Terminal Tab Configuration
 
@@ -196,15 +239,52 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **Zombie DO Detection:** When `collectMetrics` reaches the health-fetch stage but `sessionId` or `bucketName` are missing from DO storage (happens after `destroy()` clears them), it logs `"missing identifiers, not re-arming (zombie DO)"` and returns without scheduling the next cycle. This is the kill switch for orphaned DOs.
 
+```mermaid
+flowchart TD
+    CM["collectMetrics() fires<br/>(every 5s)"] --> CRunning{"container.running?"}
+    CRunning -->|No| Exit1["Early return, no re-arm<br/>(loop dies -- container dead)"]
+    CRunning -->|Yes| IDs{"identifiers exist?<br/>(sessionId + bucketName)"}
+    IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
+    IDs -->|Yes| FetchAct["Fetch /activity<br/>from container"]
+    FetchAct --> WSClients{"Active WS clients?"}
+    WSClients -->|Yes| Renew["renewTimeout(sleepAfter)<br/>(keepalive)"]
+    WSClients -->|No| NoRenew["Don't renew<br/>(let container idle to sleepAfter)"]
+    Renew --> FetchHealth["Fetch /health<br/>from container"]
+    NoRenew --> FetchHealth
+    FetchHealth --> WriteKV["Write metrics to KV"]
+    WriteKV --> FetchFailed{"Fetch failed?"}
+    FetchFailed -->|Yes| ReArm1["Still re-arm<br/>(safety net)"]
+    FetchFailed -->|No| ReArm2["Re-arm setTimeout<br/>(collectMetrics, 5000)"]
+
+```
+
 **`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected → `renewActivityTimeout()`. If no clients → `this.stop('SIGTERM')`. Safety net: renews timeout on any error (network failures, non-OK responses) rather than killing the container.
 
 **`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
 **Environment Variables Injection:** R2 credentials flow via two paths: (1) `_internal/setBucketName` request body (primary, from Worker), (2) `this.env` fallback (DO restart). Fallback chain: Worker-provided > `this.env` > empty string.
 
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant DO as DO (constructor)
+    participant SBN as setBucketName
+    participant OS as onStart
+    participant C as Container
+
+    W->>DO: new DO instance (blockConcurrencyWhile)
+    DO->>DO: Load sessionId + bucketName from storage
+    W->>SBN: POST with R2 creds in body
+    SBN->>DO: Store bucketName + creds in storage
+    DO->>OS: startAndWaitForPorts()
+    OS->>OS: Build envVars<br/>(Worker-provided > this.env > empty)
+    OS->>C: Start with env vars
+    Note over DO: On hibernation wake, constructor<br/>re-runs blockConcurrencyWhile,<br/>reloading from storage
+```
+
 **Critical: `envVars` must be set as a property assignment**, not as a getter. Cloudflare Containers reads `this.envVars` as a plain property at `start()` time.
 
-**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId` in DO storage — this ensures `collectMetrics`/`onStop` can find the KV entry even on session restarts (where the DO already has a bucket set but needs the sessionId for the new lifecycle).
+**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage -- this ensures `collectMetrics`/`onStop` can find the KV entry even on session restarts (where the DO already has a bucket set but needs the sessionId for the new lifecycle), and that user preference changes take effect without container recreation.
 
 **Lifecycle Route Re-calls `setBucketName` After `destroy()`:** In the `needsBucketUpdate` path (restart with different bucket), `destroy()` wipes DO storage. The lifecycle route must call `setBucketName` again after `destroy()` to re-populate sessionId, bucketName, and R2 credentials. See `src/routes/container/lifecycle.ts`.
 
@@ -233,6 +313,26 @@ Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Lay
 Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling), `storage.ts` (R2 operations), `setup.ts`.
 
 **Dashboard WS Disconnect Flow:** When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (30m). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then `reconnectDisconnectedTerminals(activeSessionId)` reconnects only the active session's terminals. The `untrack()` fix in `Layout.tsx`'s `createEffect` wraps `activeSessionId` to prevent the reactive dependency from triggering reconnects on unrelated session changes.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant L as Layout.tsx
+    participant TS as TerminalStore
+    participant DO as ContainerDO
+
+    U->>L: Navigate to dashboard
+    L->>TS: scheduleDisconnect() (60s grace)
+    Note over TS: Status: green -> yellow (grace period)
+    TS->>TS: 60s timer expires
+    TS->>DO: disconnectAll()<br/>(close reason 'dashboard-disconnect')
+    Note over TS: Status: yellow -> gray (disconnected)
+    DO->>DO: No WS clients -><br/>sleepAfter can expire
+    U->>L: Return to session
+    L->>TS: cancelScheduledDisconnect()
+    TS->>DO: reconnectDisconnectedTerminals()<br/>(active session only)
+    Note over TS: Status: gray -> green (reconnected)
+```
 
 **Three-Color Session Status:** `SessionStatCard` displays green (running + WS connected), yellow (running + WS disconnected — container alive but dashboard-disconnected), gray (stopped). Driven by `dotVariant()` which checks both `session.status` and `terminalStore.getConnectionState()`. The yellow indicator was added to make the dashboard-disconnect flow visible to the user — without it, status jumped from green directly to gray.
 
@@ -319,26 +419,15 @@ sequenceDiagram
 
 ### Session Lifecycle State Machine
 
-```
-                    ┌──────────────────────────────────────────────┐
-                    │                                              │
-                    v                                              │
-  ┌─────────┐   start   ┌─────────────┐  ports ready  ┌─────────┐│
-  │ stopped │──────────>│ initializing │────────────>│ running ││
-  └─────────┘           └─────────────┘              └─────────┘│
-       ^                      │                          │   │   │
-       │                      │ error                    │   │   │
-       │                      v                     stop │   │   │
-       │                 ┌─────────┐                     │   │   │
-       │                 │  error  │                     │   │   │
-       │                 └─────────┘                     │   │   │
-       │                                                 v   │   │
-       │    poll stopped   ┌──────────┐                      │   │
-       │<──────────────────│ stopping │<─────────────────────┘   │
-       │                   └──────────┘                          │
-       │                                                         │
-       │         onActivityExpired (no WS clients)               │
-       └─────────────────────────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> stopped
+    stopped --> initializing : start
+    initializing --> running : ports ready
+    initializing --> error : error
+    running --> stopping : stop
+    stopping --> stopped : poll stopped
+    running --> stopped : onActivityExpired (no WS clients)
 ```
 
 **Stop (idle):** `sleepAfter` expires → SDK calls `onActivityExpired()` → checks `/activity` → no WS clients → `this.stop('SIGTERM')` → `onStop()` → KV status = `'stopped'`
@@ -347,32 +436,85 @@ sequenceDiagram
 
 **Delete:** Worker `KV.delete()` → `container.destroy()` → `destroy()` clears `SESSION_ID_KEY` + `bucketName` → `super.destroy()` → `onStop()` bails (no identifiers, so deleted session cannot be resurrected in KV)
 
-**Restart (same bucket):** `setBucketName` → 409 (bucket already set, but stores `sessionId` in DO storage for KV reconciliation) → `startAndWaitForPorts()` → `onStart()` re-arms metrics
+```mermaid
+flowchart TD
+    subgraph Idle["Idle Stop"]
+        I1["sleepAfter expires"] --> I2["onActivityExpired()"]
+        I2 --> I3["Check /activity"]
+        I3 --> I4["No WS clients"]
+        I4 --> I5["this.stop('SIGTERM')"]
+        I5 --> I6["onStop()"]
+        I6 --> I7["KV status = 'stopped'"]
+        I6 -.- IN["Identifiers INTACT<br/>so onStop() writes KV"]
+    end
+
+    subgraph User["User-Initiated Stop"]
+        U1["Worker sets KV<br/>status 'stopped'"] --> U2["container.destroy()"]
+        U2 --> U3["destroy() clears<br/>SESSION_ID_KEY + bucketName"]
+        U3 --> U4["super.destroy()"]
+        U4 --> U5["onStop() bails<br/>(no identifiers, no KV write)"]
+    end
+
+    subgraph Del["Delete"]
+        D1["Worker KV.delete()"] --> D2["container.destroy()"]
+        D2 --> D3["destroy() clears<br/>SESSION_ID_KEY + bucketName"]
+        D3 --> D4["super.destroy()"]
+        D4 --> D5["onStop() bails<br/>(no identifiers, no KV write)"]
+    end
+
+    U3 -.- Key["destroy() clearing identifiers<br/>BEFORE onStop() prevents<br/>session resurrection"]
+    D3 -.- Key
+
+```
+
+**Restart (same bucket):** `setBucketName` → 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage for KV reconciliation and preference updates) → `startAndWaitForPorts()` → `onStart()` re-arms metrics
 
 **Restart (different bucket):** `setBucketName` succeeds → `destroy()` (wipes DO storage) → lifecycle route re-calls `setBucketName` (re-populates sessionId + bucketName + R2 creds) → `startAndWaitForPorts()`
 
+```mermaid
+flowchart TD
+    Start["setBucketName(newBucket)"] --> SameBucket{"Same bucket<br/>already set?"}
+
+    SameBucket -->|"Yes (409 path)"| Store409["Store sessionId +<br/>workspaceSyncEnabled +<br/>tabConfig in DO storage"]
+    Store409 --> Start409["startAndWaitForPorts()"]
+    Start409 --> OnStart409["onStart() re-arms metrics"]
+
+    SameBucket -->|"No (new bucket)"| Destroy["destroy() wipes DO storage"]
+    Destroy --> Recall["Lifecycle route re-calls<br/>setBucketName()"]
+    Recall --> Repop["Re-populates sessionId +<br/>bucketName + R2 creds"]
+    Repop --> StartNew["startAndWaitForPorts()"]
+```
+
 ### Metrics Data Flow
 
-```
-Container DO                    Worker                      Frontend
-┌─────────────────┐     ┌──────────────────┐     ┌────────────────────┐
-│ collectMetrics() │     │ GET batch-status │     │ refreshSession-    │
-│  every 5s        │     │  (pure KV read)  │     │  Statuses()        │
-│                  │     │  (stateless,     │     │  (polls every 5s)  │
-│ /activity check  │     │   NO DO touch)   │     │                    │
-│  → renewTimeout  │     │                  │     │ Populates:         │
-│  (debug logs)    │     │ Returns:         │     │  sessionMetrics    │
-│                  │     │  status          │     │  map               │
-│ /health fetch    │     │  metrics         │     │                    │
-│  → KV.put(       │────>│  lastStartedAt   │────>│ SessionStatCard    │
-│    session.      │     │  lastActiveAt    │     │  reads metrics     │
-│    metrics)      │     │                  │     │  for display       │
-│                  │     │ KV eventual      │     │  (green/yellow/    │
-│ Zombie DO:       │     │  consistency:    │     │   gray status)     │
-│  missing IDs →   │     │  ~60s delay      │     │                    │
-│  early return,   │     │  for new sessions│     │                    │
-│  no re-arm       │     │                  │     │                    │
-└─────────────────┘     └──────────────────┘     └────────────────────┘
+```mermaid
+flowchart TD
+    subgraph ContainerDO["Container DO"]
+        A1["collectMetrics()<br/>every 5s"]
+        A2["/activity check<br/>renews timeout"]
+        A3["/health fetch<br/>writes KV metrics"]
+        A4["Zombie DO detection:<br/>missing IDs = early return,<br/>no re-arm"]
+        A1 --> A2 --> A3
+        A1 -.-> A4
+    end
+
+    subgraph Worker["Worker"]
+        B1["GET batch-status<br/>(pure KV read, stateless,<br/>NO DO touch)"]
+        B2["Returns: status, metrics,<br/>lastStartedAt, lastActiveAt"]
+        B3["KV eventual consistency<br/>~60s for new sessions"]
+        B1 --> B2
+        B1 -.-> B3
+    end
+
+    subgraph Frontend["Frontend"]
+        C1["refreshSessionStatuses()<br/>polls every 5s"]
+        C2["Populates<br/>sessionMetrics map"]
+        C3["SessionStatCard<br/>reads metrics<br/>(green/yellow/gray)"]
+        C1 --> C2 --> C3
+    end
+
+    A3 -->|KV| B1
+    B2 --> C1
 ```
 
 ---
@@ -443,12 +585,11 @@ Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts 
 ### Auth Flow
 
 ```mermaid
-flowchart LR
+flowchart TD
     A[Request] --> B[Edge routing]
     B --> C[CORS]
     C --> D[Auth Middleware]
-    D --> E["getUserFromRequest()
-    JWT / service token / DEV_MODE"]
+    D --> E["getUserFromRequest()&lt;br/&gt;JWT / service token / DEV_MODE"]
     E --> F[Normalize email]
     F --> G[Check KV allowlist]
     G --> H["getBucketName()"]
@@ -466,7 +607,62 @@ flowchart LR
 
 ---
 
-## 7. API Reference
+## 7. Security Model
+
+### CF Access Gate
+
+Cloudflare Access protects all authenticated surfaces. One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`. Including exact + wildcard variants removes ambiguity. Uses all 5 allowed entries.
+
+### API Token Containment
+
+The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
+
+### Container Auth Token
+
+A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/server.js`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
+
+### Graceful Shutdown
+
+`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon, runs a final `rclone bisync` to R2, and kills the terminal server. This ensures no data loss on container stop.
+
+### Security Headers
+
+Applied to every response in `src/index.ts`:
+- `Strict-Transport-Security` (HSTS)
+- `Content-Security-Policy`
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Permissions-Policy`
+
+### Body Limit
+
+64 KiB on all `/api/*` routes (storage routes exempt for file uploads).
+
+### Rate Limiting
+
+Per-user rate limiting via KV (`src/middleware/rate-limit.ts`). Uses `bucketName` from auth as the rate limit key, with IP fallback for unauthenticated requests. Configurable window and max per route. Adds `X-RateLimit-Limit`, `X-RateLimit-Remaining` response headers.
+
+### WebSocket Rate Limit
+
+30 connections per 60-second window per user (`WS_RATE_LIMIT_WINDOW_MS = 60000`, `WS_RATE_LIMIT_MAX_CONNECTIONS = 30`). Defined in `src/lib/constants.ts`.
+
+### Session Limits
+
+Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSIONS_USER` (default: 3) and `MAX_SESSIONS_ADMIN` (default: 10) in `wrangler.toml`.
+
+**Frontend-first enforcement:** The dashboard disables the start button when `isAtSessionLimit()` returns true (running + initializing sessions >= maxSessions). A popup explains the limit and which sessions to stop.
+
+**Backend loose check:** `POST /api/container/start` counts KV sessions with `status === 'running'` under the user's prefix (excluding the current session to allow restarts). Returns 429 `RateLimitError` if at or over the limit. This is a secondary guard — the frontend prevents most limit violations before they reach the backend.
+
+**`GET /api/sessions/batch-status`** returns `maxSessions` alongside `statuses` so the frontend stays in sync with the server-side limit without hardcoding defaults.
+
+### Protected R2 Paths
+
+The following paths are excluded from R2 sync and cannot be uploaded/deleted/moved via the storage API: `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json`. Defined in `PROTECTED_PATHS` in `src/lib/constants.ts`.
+
+---
+
+## 8. API Reference
 
 ### Common Response Headers
 
@@ -482,7 +678,9 @@ flowchart LR
 { "error": "User-friendly message", "code": "ERROR_CODE" }
 ```
 
-Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AUTH_ERROR` (401).
+Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AUTH_ERROR` (401), `FORBIDDEN` (403), `SETUP_ERROR` (400), `RATE_LIMIT_ERROR` (429), `CIRCUIT_BREAKER_OPEN` (503).
+
+Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, error, code }` instead of the standard `{ error, code }`.
 
 ### Session Management
 
@@ -496,7 +694,7 @@ Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AU
 | POST | `/api/sessions/:id/touch` | Update lastAccessedAt |
 | POST | `/api/sessions/:id/stop` | Stop session (KV 'stopped' + container.destroy()) |
 | GET | `/api/sessions/:id/status` | Get session and container status |
-| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics) |
+| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions) |
 
 ### Container Lifecycle
 
@@ -578,7 +776,7 @@ GET `/health`, GET `/api/health`
 
 ---
 
-## 8. Environment Variables
+## 9. Environment Variables
 
 ### Worker Environment
 
@@ -598,6 +796,8 @@ GET `/health`, GET `/api/health`
 | `RESEND_API_KEY` | Waitlist notification emails | Optional |
 | `WAITLIST_FROM_EMAIL` | Sender identity for waitlist | Optional |
 | `CLOUDFLARE_WORKER_NAME` | Worker name override for forks | GitHub Actions variable |
+| `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
+| `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
 
 ### Container Environment
 
@@ -608,14 +808,15 @@ GET `/health`, GET `/api/health`
 | `R2_ACCOUNT_ID` / `R2_ENDPOINT` | rclone endpoint | Worker → DO or `getR2Config()` fallback |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
 | `TERMINAL_PORT` | Always 8080 | Hardcoded |
-| `SYNC_MODE` | Sync strategy (`bisync` or `copy`) | Worker → DO |
+| `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) -- see Section 5 | Worker → DO |
+| `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`). Drives `SYNC_MODE` value. | Worker via `setBucketName` |
 | `TAB_CONFIG` | JSON array of terminal tab configurations | Worker → DO |
 | `TERMINAL_ID` | Unique ID for this terminal instance | Worker → DO |
 | `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker → DO |
 
 ---
 
-## 9. File Structure
+## 10. File Structure
 
 ```
 codeflare/
@@ -662,11 +863,14 @@ codeflare/
 │   │   ├── user-profile.ts   # User info
 │   │   └── users.ts          # User management
 │   ├── middleware/            # auth.ts, rate-limit.ts
-│   ├── lib/                  # access, r2-admin, r2-config, kv-keys, constants, container-helpers,
-│   │                         # error-types, type-guards, circuit-breaker, cors-cache, cache-reset,
-│   │                         # jwt, cf-api, logger
+│   ├── lib/                  # access, access-policy, agent-config, cache-reset, cf-api,
+│   │                         # circuit-breaker, circuit-breakers, constants, container-helpers,
+│   │                         # cors-cache, error-types, jwt, kv-keys, logger, onboarding,
+│   │                         # r2-admin, r2-client, r2-config, r2-seed, schemas,
+│   │                         # session-helpers, tutorial-seed.generated, type-guards,
+│   │                         # xml-utils
 │   ├── container/index.ts    # Container DO class
-│   └── __tests__/            # Backend unit tests (64 files)
+│   └── __tests__/            # Backend unit tests (63 files)
 ├── e2e/                      # E2E tests (API + Puppeteer UI)
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
@@ -678,9 +882,10 @@ codeflare/
 │       ├── components/       # SolidJS components (Terminal, Layout, SessionCard, StorageBrowser, etc.)
 │       ├── stores/           # terminal.ts, session.ts, storage.ts, setup.ts, tiling.ts, session-presets.ts, session-tabs.ts
 │       ├── api/client.ts     # API client
+│       ├── hooks/            # useTerminal.ts, useStageTimings.ts
 │       ├── lib/              # constants, schemas, terminal-config, settings, format, mobile
 │       ├── styles/           # CSS (design tokens, animations, component styles)
-│       └── __tests__/        # Frontend unit tests (67 files)
+│       └── __tests__/        # Frontend unit tests (63 files)
 ├── Dockerfile                # Multi-stage container image
 ├── entrypoint.sh             # Container startup script
 ├── wrangler.toml             # Cloudflare configuration
@@ -700,7 +905,7 @@ codeflare/
 
 ---
 
-## 10. Container Startup
+## 11. Container Startup
 
 **File:** `entrypoint.sh`
 
@@ -721,7 +926,7 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 ---
 
-## 11. Container Image
+## 12. Container Image
 
 **File:** `Dockerfile` - Base: `node:22.13-alpine3.21`, multi-stage build (builder compiles native addons, runtime has no build tools).
 
@@ -751,7 +956,7 @@ Port: 8080 (single port architecture).
 
 ---
 
-## 12. Claude-Unleashed Integration
+## 13. Claude-Unleashed Integration
 
 [claude-unleashed](https://github.com/nikolanovoselec/claude-unleashed) enables `--dangerously-skip-permissions` when running as root inside containers (standard CLI prevents this via `process.getuid() === 0` check).
 
@@ -767,11 +972,11 @@ Port: 8080 (single port architecture).
 
 ---
 
-## 13. Testing
+## 14. Testing
 
-**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 64 test files. Run: `npm test`
+**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 63 test files. Run: `npm test`
 
-**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 67 test files. Run: `cd web-ui && npm test`
+**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 63 test files. Run: `cd web-ui && npm test`
 
 **E2E API:** `e2e/` - tests against deployed worker. Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e`
 
@@ -781,7 +986,7 @@ Port: 8080 (single port architecture).
 
 ---
 
-## 14. Development
+## 15. Development
 
 ```bash
 npm install && cd web-ui && npm install && cd ..
@@ -790,14 +995,14 @@ npm run typecheck    # Type check backend
 npm test             # Backend unit tests
 npm run test:e2e     # E2E API tests
 npm run test:e2e:ui  # E2E UI tests (Puppeteer)
-npm run deploy       # Deploy to Cloudflare
+npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see Section 16)
 cd web-ui && npm run dev   # Frontend dev server
 cd web-ui && npm run build # Frontend production build
 ```
 
 ---
 
-## 15. CI/CD (GitHub Actions)
+## 16. CI/CD (GitHub Actions)
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
@@ -821,7 +1026,7 @@ cd web-ui && npm run build # Frontend production build
 
 ---
 
-## 16. API Token Permissions
+## 17. API Token Permissions
 
 ### Account Permissions
 
@@ -846,7 +1051,7 @@ cd web-ui && npm run build # Frontend production build
 
 ---
 
-## 17. Configuration
+## 18. Configuration
 
 ### Secrets
 
@@ -862,19 +1067,19 @@ Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGIN
 
 ---
 
-## 18. Container Specs
+## 19. Container Specs
 
-| Tier | Config | Notes |
-|------|--------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 4 GB | Baseline for node-pty + agent CLIs |
-| `high` | 2 vCPU, 6 GiB, 8 GB | Higher parallelism |
+| Tier | Config | Max Instances | Notes |
+|------|--------|---------------|-------|
+| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 3 | Sub-1-vCPU workloads |
+| default | 1 vCPU, 3 GiB, 4 GB | 4 | Baseline for node-pty + agent CLIs |
+| `high` | 2 vCPU, 6 GiB, 8 GB | 5 | Higher parallelism |
 
 Base image: Node.js 22 Alpine.
 
 ---
 
-## 19. Troubleshooting
+## 20. Troubleshooting
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
@@ -952,7 +1157,7 @@ Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
 
 ---
 
-## 20. Debugging Guide
+## 21. Debugging Guide
 
 ### Container Status
 
@@ -983,7 +1188,7 @@ curl .../api/container/debug?sessionId=abc12345  # Returns masked env vars
 
 ---
 
-## 21. Cost
+## 22. Cost
 
 ### Per-Container Pricing
 
@@ -999,42 +1204,26 @@ Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate
 
 ---
 
-## 22. Lessons Learned
+## 23. Lessons Learned
+
+Architectural principles and design rationale. For code-level implementation traps (specific files, functions, what breaks), see CLAUDE.md "Gotchas and Important Notes".
 
 1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
 2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
 3. **Auto-resync on failure** - Automatic `--resync` recovery handles most bisync failures.
-4. **envVars in constructor** - Container class reads envVars as property, not getter.
-5. **WebSocket sends RAW bytes** - xterm.js expects raw terminal data, not JSON.
-6. **Login shell for .bashrc** - PTY must spawn `bash -l` for auto-start.
-7. **Two-step sync prevents data loss** - Empty local + bisync resync = deleted R2 data. Always restore first.
-8. **SDK-managed lifecycle with heartbeat** - `sleepAfter = '30m'` with `collectMetrics` heartbeat keeps containers alive during active WS use. The heartbeat compensates for WS frames bypassing `renewActivityTimeout()`. Confirmed stable at 30m.
-9. **`onStop()` must set KV status** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV, otherwise other devices see stale 'running' status.
-10. **Don't getState() after destroy()** - Wakes the DO, undoing hibernation.
-20. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing `SESSION_ID_KEY` and `_bucketName` first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
-21. **`setBucketName` 409 path must store sessionId** - DOs created before `SESSION_ID_KEY` existed have no sessionId. The 409 handler stores it, so `collectMetrics`/`onStop` can reconcile with KV even on restart.
-22. **`getTcpPort().fetch()` does NOT auto-start containers** - Goes directly to the container TCP port. `container.fetch()` (which calls SDK `containerFetch`) DOES auto-start stopped containers. Use `getTcpPort()` for internal health/activity checks to avoid unintended wakeups.
-23. **SolidJS `createEffect` tracks all reactive reads** - Even reads in conditional branches or deep inside helper functions create subscriptions. Use `untrack()` when reading a signal without wanting to subscribe (e.g., `Layout.tsx` line 62).
-24. **Auth-exempt internal container paths** - `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the auth header). Paths called via `getTcpPort()` must be in `authExemptPaths` in `host/server.js`, or they'll get 401.
-11. **inputDisposable scope matters** - Dispose on reconnect to prevent character doubling.
-12. **No fallback container IDs** - `getContainerId()` must NEVER fallback to just `bucketName`. Root cause of zombies.
-13. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
-14. **Polling with safety timeouts** - Don't use fixed timeouts. Poll with `kill -0 $PID`, exit on success, safety timeout prevents hangs.
-15. **Zombie prevention with _destroyed flag** - Set flag in DO storage before `super.destroy()`. In `alarm()`, check flag first via `ctx.storage.get()`, clear storage and exit if destroyed.
-16. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
-17. **idFromName() CREATES DOs, idFromString() references existing** - Using `idFromName()` creates new DOs if they don't exist. Only `idFromString(hexId)` safely references existing DOs.
-18. **CPU metrics show load average, not utilization** - `os.loadavg()[0] / cpus * 100` measures run queue depth. Values >100% are normal.
-19. **Use `--filter` not `--include`/`--exclude`** - Mixed include/exclude has indeterminate order in rclone.
-25. **Polling interval should match push cadence** - Frontend polls at 5s, matching DO's `collectMetrics` 5s cycle. Polling faster wastes requests since KV data doesn't change between pushes.
-26. **`collectMetrics` early return must use if/else** - When identifiers are missing (zombie DO), the early return must kill both the metrics push AND the schedule re-arm. Using a flat return without if/else risks pushing stale metrics while still self-terminating.
-27. **Downgrade verbose heartbeat logs to debug** - Per-cycle keepalive logs at `info` level generate enormous log volume (every 5s per container). Once keepalive is confirmed stable, downgrade to `debug`.
-28. **KV eventual consistency affects new sessions** - ~60s propagation delay for first metrics write to appear at edge. Frontend handles gracefully by showing last-known metrics.
-29. **`container.fetch()` for `/_internal/*` routes bypasses lifecycle** - Internal routes are handled by the DO's `fetch()` override directly. They do NOT trigger `containerFetch`/`startAndWaitForPorts`/`renewActivityTimeout`.
-30. **`batch-status` must stay stateless** - Pure KV read, zero DO contact. Making it touch DOs would reset `sleepAfter` on every dashboard poll, preventing containers from ever hibernating.
+4. **SDK-managed lifecycle with heartbeat** - `sleepAfter` with `collectMetrics` heartbeat keeps containers alive during active WS use. The heartbeat compensates for WS frames bypassing `renewActivityTimeout()`.
+5. **`onStop()` must set KV status** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV, otherwise other devices see stale 'running' status.
+6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
+7. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
+8. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
+9. **CPU metrics show load average, not utilization** - `os.loadavg()[0] / cpus * 100` measures run queue depth. Values >100% are normal.
+10. **Downgrade verbose heartbeat logs to debug** - Per-cycle keepalive logs at `info` level generate enormous log volume (every 5s per container). Once keepalive is confirmed stable, downgrade to `debug`.
+11. **Stateless dashboard polling preserves hibernation** - Dashboard status endpoints must be pure KV reads with zero DO contact. Touching DOs resets `sleepAfter` on every poll, preventing containers from ever hibernating.
+12. **Polling interval should match push cadence** - Frontend poll frequency should equal the backend push cycle. Polling faster wastes requests since data doesn't change between pushes.
 
 ---
 
-## 23. Mobile Terminal Bug Fixes
+## 24. Mobile Terminal Bug Fixes
 
 ### Bug 1: "Orange Square" Cursor Duplication
 

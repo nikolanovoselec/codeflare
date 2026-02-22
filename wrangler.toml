@@ -17,6 +17,8 @@ ONBOARDING_LANDING_PAGE = "inactive"
 # Additional origins are managed dynamically via KV (setup:custom_domain, setup:allowed_origins)
 ALLOWED_ORIGINS = ".workers.dev"
 LOG_LEVEL = "info"
+MAX_SESSIONS_USER = "3"
+MAX_SESSIONS_ADMIN = "10"
 
 # KV namespace for session metadata
 # The id "placeholder" is for local dev/tests (vitest-pool-workers creates in-memory KV).
@@ -34,7 +36,7 @@ class_name = "container"
 image = "./Dockerfile"
 # This is the repo-level ceiling. GitHub Actions deploy.yml patches this value
 # per RESSOURCE_TIER (default=4, low=3, high=5). See README for tier details.
-max_instances = 4
+max_instances = 10
 
 [containers.instance_type]
 vcpu = 1

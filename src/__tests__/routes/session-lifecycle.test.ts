@@ -478,6 +478,42 @@ describe('Session Lifecycle Routes', () => {
       expect(body.statuses['nometrics123456789'].metrics).toBeUndefined();
     });
 
+    it('returns maxSessions: 3 for default user', async () => {
+      const app = createLifecycleApp(mockKV);
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { maxSessions: number };
+      expect(body.maxSessions).toBe(3);
+    });
+
+    it('returns maxSessions: 10 for admin user', async () => {
+      const adminApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      adminApp.onError((err, c) => {
+        if (err instanceof NotFoundError) {
+          return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+        }
+        return c.json({ error: err.message }, 500);
+      });
+      adminApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CONTAINER: {} as DurableObjectNamespace,
+        } as unknown as Env;
+        c.set('user', { email: 'admin@example.com', authenticated: true, role: 'admin' as const });
+        c.set('bucketName', 'test-bucket');
+        return next();
+      });
+      adminApp.route('/sessions', lifecycleRoutes);
+
+      const res = await adminApp.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { maxSessions: number };
+      expect(body.maxSessions).toBe(10);
+    });
+
     it('handles mixed running and stopped sessions', async () => {
       const app = createLifecycleApp(mockKV);
       const running: Session = {

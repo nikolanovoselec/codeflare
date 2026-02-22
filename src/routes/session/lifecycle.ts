@@ -7,6 +7,7 @@ import { getContainer } from '@cloudflare/containers';
 import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
 import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow } from '../../lib/kv-keys';
+import { getMaxSessions } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
 import { containerSessionsCB } from '../../lib/circuit-breakers';
@@ -87,7 +88,10 @@ app.get('/batch-status', async (c) => {
     };
   }
 
-  return c.json({ statuses });
+  const user = c.get('user');
+  const maxSessions = getMaxSessions(user.role, c.env);
+
+  return c.json({ statuses, maxSessions });
 });
 
 /**
