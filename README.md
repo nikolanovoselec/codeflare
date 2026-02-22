@@ -64,6 +64,14 @@ flowchart LR
 
 Containers scale to zero when idle (no sessions = no bill). Storage persists. Auth is handled by Cloudflare Access - no custom login pages, no token management, no OAuth dance.
 
+<details>
+<summary><strong>Why Claude Unleashed?</strong></summary>
+<a id="why-claude-unleashed"></a>
+
+Cloudflare Containers run as root. Claude Code refuses to run with `--dangerously-skip-permissions` as root - even inside an ephemeral container where the root check is protecting a filesystem that won't exist in 30 seconds. Heroic. [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) is a wrapper that politely disagrees with this decision, patching around the restriction at source level. Handles root detection, auto-updates, and mode switching. Pre-installed in every Codeflare container because arguing with your tools is not a productive use of compute.
+
+</details>
+
 ## Setup
 
 Four steps. Shorter than most cookie consent forms.
@@ -96,27 +104,6 @@ Find your worker URL: [dash.cloudflare.com](https://dash.cloudflare.com/) > `Com
 - Creating Cloudflare Access policies (handles auth so you don't have to)
 
 That's it. You're live. No Kubernetes. No Terraform. No existential crisis. You'll need an active subscription to at least one of the supported coding agents - log in directly from the terminal.
-
-## Security
-
-- Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
-- AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
-- Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`).
-- API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
-
-## Docs
-
-- `TECHNICAL.md` - deep dive into architecture, container lifecycle, and sync model
-- `tutorials/Getting Started.md` - what you can do and why you should want to. Tabs, tiling, API keys, file persistence, and three paths forward depending on how much hand-holding you need.
-- `tutorials/Examples/` - spec-driven project examples from Hello World to full blog platform. Hand one to your agent and go do something more interesting.
-
-## License
-
-PolyForm Noncommercial 1.0.0 - free for personal use, tinkering, and showing off.
-
-Commercial use, resale, or paid hosted offerings require a separate written license. You know who you are.
-
----
 
 <details>
 <summary><strong>API token scopes</strong></summary>
@@ -166,13 +153,18 @@ All optional. The defaults work out of the box. I respect your time.
 
 </details>
 
-<details>
-<summary><strong>Why Claude Unleashed?</strong></summary>
-<a id="why-claude-unleashed"></a>
+## Security
 
-Cloudflare Containers run as root. Claude Code refuses to run with `--dangerously-skip-permissions` as root - even inside an ephemeral container where the root check is protecting a filesystem that won't exist in 30 seconds. Heroic. [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) is a wrapper that politely disagrees with this decision, patching around the restriction at source level. Handles root detection, auto-updates, and mode switching. Pre-installed in every Codeflare container because arguing with your tools is not a productive use of compute.
+- Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
+- AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
+- Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`).
+- API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
 
-</details>
+## Docs
+
+- `TECHNICAL.md` - deep dive into architecture, container lifecycle, and sync model
+- `tutorials/Getting Started.md` - what you can do and why you should want to. Tabs, tiling, API keys, file persistence, and three paths forward depending on how much hand-holding you need.
+- `tutorials/Examples/` - spec-driven project examples from Hello World to full blog platform. Hand one to your agent and go do something more interesting.
 
 <details>
 <summary><strong>Local development</strong></summary>
@@ -184,6 +176,12 @@ npm run dev
 ```
 
 </details>
+
+## License
+
+PolyForm Noncommercial 1.0.0 - free for personal use, tinkering, and showing off.
+
+Commercial use, resale, or paid hosted offerings require a separate written license. You know who you are.
 
 <details>
 <summary><strong>Common gotchas</strong></summary>
