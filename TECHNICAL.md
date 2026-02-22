@@ -183,6 +183,22 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **Cross-environment safety:** `resolveManagedAccessApp()` in `access.ts` uses a 4-tier fallback to find existing Access apps: (1) exact domain match, (2) stored app ID from KV, (3) name match + domain validation, (4) `/app/*` suffix + domain validation. Tiers 3 and 4 validate domain to prevent cross-environment collision when multiple environments share a CF account.
 
+```mermaid
+flowchart TD
+    Start["resolveManagedAccessApp()"] --> T1{"Tier 1:<br/>Exact domain match<br/>in Access apps list?"}
+    T1 -->|Found| R1["Return app"]
+    T1 -->|Not found| T2{"Tier 2:<br/>Stored app ID<br/>from KV?"}
+    T2 -->|Found| R2["Return app"]
+    T2 -->|Not found| T3{"Tier 3:<br/>Name match +<br/>domain validation?"}
+    T3 -->|Found| R3["Return app"]
+    T3 -->|Not found| T4{"Tier 4:<br/>/app/* suffix +<br/>domain validation?"}
+    T4 -->|Found| R4["Return app"]
+    T4 -->|Not found| Create["Create new Access app"]
+
+    T3 -.- Note1["Tiers 3-4: domain validation<br/>prevents cross-environment collision"]
+    T4 -.- Note1
+```
+
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
 
 **`parseCfResponse` content-type hardening** (`src/lib/cf-api.ts`): Checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts JSON.parse on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails — this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors.
@@ -223,11 +239,50 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **Zombie DO Detection:** When `collectMetrics` reaches the health-fetch stage but `sessionId` or `bucketName` are missing from DO storage (happens after `destroy()` clears them), it logs `"missing identifiers, not re-arming (zombie DO)"` and returns without scheduling the next cycle. This is the kill switch for orphaned DOs.
 
+```mermaid
+flowchart TD
+    CM["collectMetrics() fires<br/>(every 5s)"] --> CRunning{"container.running?"}
+    CRunning -->|No| Exit1["Early return, no re-arm<br/>(loop dies -- container dead)"]
+    CRunning -->|Yes| IDs{"identifiers exist?<br/>(sessionId + bucketName)"}
+    IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
+    IDs -->|Yes| FetchAct["Fetch /activity<br/>from container"]
+    FetchAct --> WSClients{"Active WS clients?"}
+    WSClients -->|Yes| Renew["renewTimeout(sleepAfter)<br/>(keepalive)"]
+    WSClients -->|No| NoRenew["Don't renew<br/>(let container idle to sleepAfter)"]
+    Renew --> FetchHealth["Fetch /health<br/>from container"]
+    NoRenew --> FetchHealth
+    FetchHealth --> WriteKV["Write metrics to KV"]
+    WriteKV --> FetchFailed{"Fetch failed?"}
+    FetchFailed -->|Yes| ReArm1["Still re-arm<br/>(safety net)"]
+    FetchFailed -->|No| ReArm2["Re-arm setTimeout<br/>(collectMetrics, 5000)"]
+
+    style Exit1 fill:#f9d0d0
+    style Exit2 fill:#f9d0d0
+```
+
 **`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected → `renewActivityTimeout()`. If no clients → `this.stop('SIGTERM')`. Safety net: renews timeout on any error (network failures, non-OK responses) rather than killing the container.
 
 **`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
 **Environment Variables Injection:** R2 credentials flow via two paths: (1) `_internal/setBucketName` request body (primary, from Worker), (2) `this.env` fallback (DO restart). Fallback chain: Worker-provided > `this.env` > empty string.
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant DO as DO (constructor)
+    participant SBN as setBucketName
+    participant OS as onStart
+    participant C as Container
+
+    W->>DO: new DO instance (blockConcurrencyWhile)
+    DO->>DO: Load sessionId + bucketName from storage
+    W->>SBN: POST with R2 creds in body
+    SBN->>DO: Store bucketName + creds in storage
+    DO->>OS: startAndWaitForPorts()
+    OS->>OS: Build envVars<br/>(Worker-provided > this.env > empty)
+    OS->>C: Start with env vars
+    Note over DO: On hibernation wake, constructor<br/>re-runs blockConcurrencyWhile,<br/>reloading from storage
+```
 
 **Critical: `envVars` must be set as a property assignment**, not as a getter. Cloudflare Containers reads `this.envVars` as a plain property at `start()` time.
 
@@ -260,6 +315,26 @@ Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Lay
 Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling), `storage.ts` (R2 operations), `setup.ts`.
 
 **Dashboard WS Disconnect Flow:** When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (30m). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then `reconnectDisconnectedTerminals(activeSessionId)` reconnects only the active session's terminals. The `untrack()` fix in `Layout.tsx`'s `createEffect` wraps `activeSessionId` to prevent the reactive dependency from triggering reconnects on unrelated session changes.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant L as Layout.tsx
+    participant TS as TerminalStore
+    participant DO as ContainerDO
+
+    U->>L: Navigate to dashboard
+    L->>TS: scheduleDisconnect() (60s grace)
+    Note over TS: Status: green -> yellow (grace period)
+    TS->>TS: 60s timer expires
+    TS->>DO: disconnectAll()<br/>(close reason 'dashboard-disconnect')
+    Note over TS: Status: yellow -> gray (disconnected)
+    DO->>DO: No WS clients -><br/>sleepAfter can expire
+    U->>L: Return to session
+    L->>TS: cancelScheduledDisconnect()
+    TS->>DO: reconnectDisconnectedTerminals()<br/>(active session only)
+    Note over TS: Status: gray -> green (reconnected)
+```
 
 **Three-Color Session Status:** `SessionStatCard` displays green (running + WS connected), yellow (running + WS disconnected — container alive but dashboard-disconnected), gray (stopped). Driven by `dotVariant()` which checks both `session.status` and `terminalStore.getConnectionState()`. The yellow indicator was added to make the dashboard-disconnect flow visible to the user — without it, status jumped from green directly to gray.
 
@@ -363,9 +438,55 @@ stateDiagram-v2
 
 **Delete:** Worker `KV.delete()` → `container.destroy()` → `destroy()` clears `SESSION_ID_KEY` + `bucketName` → `super.destroy()` → `onStop()` bails (no identifiers, so deleted session cannot be resurrected in KV)
 
+```mermaid
+flowchart TD
+    subgraph Idle["Idle Stop"]
+        I1["sleepAfter expires"] --> I2["onActivityExpired()"]
+        I2 --> I3["Check /activity"]
+        I3 --> I4["No WS clients"]
+        I4 --> I5["this.stop('SIGTERM')"]
+        I5 --> I6["onStop()"]
+        I6 --> I7["KV status = 'stopped'"]
+        I6 -.- IN["Identifiers INTACT<br/>so onStop() writes KV"]
+    end
+
+    subgraph User["User-Initiated Stop"]
+        U1["Worker sets KV<br/>status 'stopped'"] --> U2["container.destroy()"]
+        U2 --> U3["destroy() clears<br/>SESSION_ID_KEY + bucketName"]
+        U3 --> U4["super.destroy()"]
+        U4 --> U5["onStop() bails<br/>(no identifiers, no KV write)"]
+    end
+
+    subgraph Del["Delete"]
+        D1["Worker KV.delete()"] --> D2["container.destroy()"]
+        D2 --> D3["destroy() clears<br/>SESSION_ID_KEY + bucketName"]
+        D3 --> D4["super.destroy()"]
+        D4 --> D5["onStop() bails<br/>(no identifiers, no KV write)"]
+    end
+
+    U3 -.- Key["destroy() clearing identifiers<br/>BEFORE onStop() prevents<br/>session resurrection"]
+    D3 -.- Key
+
+    style Key fill:#fff3cd
+```
+
 **Restart (same bucket):** `setBucketName` → 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage for KV reconciliation and preference updates) → `startAndWaitForPorts()` → `onStart()` re-arms metrics
 
 **Restart (different bucket):** `setBucketName` succeeds → `destroy()` (wipes DO storage) → lifecycle route re-calls `setBucketName` (re-populates sessionId + bucketName + R2 creds) → `startAndWaitForPorts()`
+
+```mermaid
+flowchart TD
+    Start["setBucketName(newBucket)"] --> SameBucket{"Same bucket<br/>already set?"}
+
+    SameBucket -->|"Yes (409 path)"| Store409["Store sessionId +<br/>workspaceSyncEnabled +<br/>tabConfig in DO storage"]
+    Store409 --> Start409["startAndWaitForPorts()"]
+    Start409 --> OnStart409["onStart() re-arms metrics"]
+
+    SameBucket -->|"No (new bucket)"| Destroy["destroy() wipes DO storage"]
+    Destroy --> Recall["Lifecycle route re-calls<br/>setBucketName()"]
+    Recall --> Repop["Re-populates sessionId +<br/>bucketName + R2 creds"]
+    Repop --> StartNew["startAndWaitForPorts()"]
+```
 
 ### Metrics Data Flow
 
