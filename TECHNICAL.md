@@ -5,29 +5,32 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 ## Table of Contents
 
 1. [Architecture Overview](#1-architecture-overview)
-2. [Components](#2-components)
-3. [UI Features](#3-ui-features)
+2. [System Components](#2-system-components)
+   - [Worker (Hono Router)](#21-worker-hono-router)
+   - [Container DO (CodeflareContainer)](#22-container-do-codeflarecontainer)
+   - [Terminal Server (node-pty)](#23-terminal-server-node-pty)
+   - [Frontend (SolidJS + xterm.js)](#24-frontend-solidjs--xtermjs)
+3. [Backend Libraries](#3-backend-libraries)
 4. [Data Flow](#4-data-flow)
 5. [Storage and Sync](#5-storage-and-sync)
 6. [Authentication](#6-authentication)
 7. [Security Model](#7-security-model)
 8. [API Reference](#8-api-reference)
-9. [Environment Variables](#9-environment-variables)
-10. [File Structure](#10-file-structure)
-11. [Container Startup](#11-container-startup)
-12. [Container Image](#12-container-image)
-13. [Claude-Unleashed Integration](#13-claude-unleashed-integration)
-14. [Testing](#14-testing)
-15. [Development](#15-development)
-16. [CI/CD (GitHub Actions)](#16-cicd-github-actions)
-17. [API Token Permissions](#17-api-token-permissions)
-18. [Configuration](#18-configuration)
-19. [Container Specs](#19-container-specs)
-20. [Troubleshooting](#20-troubleshooting)
-21. [Debugging Guide](#21-debugging-guide)
-22. [Cost](#22-cost)
-23. [Lessons Learned](#23-lessons-learned)
-24. [Mobile Terminal Bug Fixes](#24-mobile-terminal-bug-fixes)
+9. [Container Image](#9-container-image)
+10. [Container Startup](#10-container-startup)
+11. [Claude-Unleashed Integration](#11-claude-unleashed-integration)
+12. [File Structure](#12-file-structure)
+13. [Environment Variables](#13-environment-variables)
+14. [Configuration](#14-configuration)
+15. [CI/CD (GitHub Actions)](#15-cicd-github-actions)
+16. [Testing](#16-testing)
+17. [Development](#17-development)
+18. [Cost](#18-cost)
+19. [Troubleshooting](#19-troubleshooting)
+20. [Debugging Guide](#20-debugging-guide)
+21. [Architecture Decisions](#21-architecture-decisions)
+22. [Lessons Learned](#22-lessons-learned)
+23. [Mobile Terminal Bug Fixes](#23-mobile-terminal-bug-fixes)
 
 **Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by CF Access). The workers.dev URL should then be gated behind one-click Access in the Cloudflare dashboard.
 
@@ -49,64 +52,9 @@ graph TD
     P2 -->|"rclone bisync (every 60s)"| R2
 ```
 
-### Key Design Decisions
-
-| ID | Decision | Rationale |
-|----|----------|-----------|
-| AD1 | One container per SESSION | CPU isolation - each tab gets full 1 vCPU instead of sharing |
-| AD2 | Container ID format | `{bucketName}-{sessionId}` (e.g., `codeflare-user-example-com-abc12345`) |
-| AD3 | Per-user R2 buckets | Bucket name derived from email, auto-created on first login |
-| AD4 | Periodic rclone bisync | Background daemon runs bisync every 60 seconds, plus final sync on shutdown (SIGINT/SIGTERM). Local disk for all file operations. |
-| AD5 | Login shell | `.bashrc` auto-starts the configured agent in workspace |
-| AD6 | KV read-modify-write races | Last-writer-wins is acceptable - session PATCH/stop overlap is rare, rate limit off-by-one is minor, lastAccessedAt is best-effort |
-| AD7 | Pre-setup public endpoints | Setup runs once during initial deploy; short exposure window is acceptable risk. Pre-setup auth trusts spoofable email header - bootstrap problem, mitigated by rate limiting and short exposure window. |
-| AD8 | Container runs as root with no internal auth | Network isolation via DO proxy is sufficient; root needed for rclone mount; wildcard CORS is internal-only |
-| AD9 | RESSOURCE_TIER spelling | French/German "ressource" is intentional - consistent across all config, changing would be a breaking API change |
-
-#### AD10: Open setup endpoint before first configure
-
-The `/api/setup/configure` endpoint is intentionally public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet — that's what setup configures).
-
-**Trade-off**: A narrow window exists between deploy and first configure where any actor could claim the deployment. This is accepted because:
-- The window is typically seconds to minutes (deploy → owner configures)
-- Adding a bootstrap secret would require an extra deploy-time step, increasing setup friction
-- The target audience is self-hosted single-user/small-team deployments where the deployer is watching the process
-
-**Mitigation**: `setup:complete` KV flag prevents re-configuration after initial setup. Rate limiting applies to setup routes.
-
-**Future consideration**: A one-time bootstrap secret injected at deploy time would close this window entirely with minimal friction. Tracked as a potential hardening improvement.
-
-#### AD11: Suffix-pattern CORS with credentialed requests
-
-CORS origin matching uses `matchesPattern()` with domain-boundary enforcement (not naive substring). The default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, and `Access-Control-Allow-Credentials: true` is set on matching responses.
-
-**Trade-off**: Any `*.workers.dev` subdomain could pass the CORS check for credentialed requests. This is accepted because:
-- `matchesPattern()` enforces domain boundaries (e.g., `evil-workers.dev` does NOT match `.workers.dev`, only `x.workers.dev` does)
-- Custom domain deployments replace the workers.dev origin with the exact production domain
-- `ALLOWED_ORIGINS` is configurable per deployment — operators can restrict to exact origins
-- Cloudflare Access JWT validation is the primary auth gate, not CORS
-
-**Mitigation**: Setup adds the specific worker subdomain to KV-based dynamic origins. Operators deploying to custom domains should set `ALLOWED_ORIGINS` to their exact domain.
-
-**Future consideration**: Restricting credentialed CORS to exact known hosts (rather than suffix patterns) would tighten the trust surface. This is a low-risk hardening improvement.
-
-#### AD12: KV-based setup lock (non-atomic)
-
-The setup completion lock uses a KV read-then-write pattern: read `setup:complete`, check if false, perform setup, write `setup:complete = true`. This is not atomic — two simultaneous `/api/setup/configure` requests could both read `false` and proceed.
-
-**Trade-off**: This is accepted because:
-- Setup is a one-time operation performed by a single admin
-- The probability of concurrent configure requests is near zero in practice
-- KV is the existing state store — no additional infrastructure needed
-- `withSetupRetry` handles transient failures in individual setup steps, and each step is idempotent (creating Access apps, DNS records, etc. checks for existing resources first)
-
-**Mitigation**: Each setup sub-step (CF API calls) is individually idempotent — duplicate execution produces the same result. The worst case of a race is redundant CF API calls, not corrupted state.
-
-**Future consideration**: Moving the setup lock to a Durable Object would provide strict serialization. The blast radius of changing setup plumbing is non-trivial, so this is deferred until there's evidence of the race occurring in practice.
-
 ---
 
-## 2. Components
+## 2. System Components
 
 ### 2.1 Worker (Hono Router)
 
@@ -117,9 +65,9 @@ Entry point and API gateway. Handles routing, WebSocket upgrade interception, au
 **WebSocket must be intercepted BEFORE Hono routing** (required workaround for CF Workers):
 ```typescript
 // See: https://github.com/cloudflare/workerd/issues/2319
-const wsMatch = url.pathname.match(/^\/api\/terminal\/([^\/]+)\/ws$/);
-if (wsMatch && upgradeHeader?.toLowerCase() === 'websocket') {
-  return container.fetch(new Request(terminalUrl.toString(), request));
+const wsRouteResult = validateWebSocketRoute(request, env);
+if (wsRouteResult.isWebSocketRoute) {
+  return handleWebSocketUpgrade(request, env, ctx, wsRouteResult);
 }
 ```
 
@@ -131,99 +79,7 @@ if (wsMatch && upgradeHeader?.toLowerCase() === 'websocket') {
 
 With SPA fallback (`not_found_handling = "single-page-application"`), control-plane paths must execute Worker logic first via `run_worker_first = ["/", "/api/*", "/public/*", "/health"]`. Missing `/api/*` causes setup/auth flows to break (API endpoints return HTML instead of JSON).
 
-### 2.2 Auth Middleware
-
-**File:** `src/middleware/auth.ts` - Shared authentication middleware. Delegates to `authenticateRequest()` which throws `AuthError`/`ForbiddenError` on failure. Sets `c.get('user')` and `c.get('bucketName')` for downstream handlers.
-
-### 2.3 Container Helpers
-
-**File:** `src/lib/container-helpers.ts` - Consolidated container initialization: `getSessionIdFromRequest()` (from query param or header), `getContainerId()` (with validation, never fallbacks), `getContainerContext()` (full context for route handlers).
-
-### 2.4 Error Handling
-
-**File:** `src/lib/error-types.ts` - `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401), `ForbiddenError` (403), `SetupError` (400), `RateLimitError` (429), `CircuitBreakerOpenError` (503). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`.
-
-### 2.5 Type Guards
-
-**File:** `src/lib/type-guards.ts` - Runtime type validation replacing unsafe type casts (e.g., `isBucketNameResponse()`).
-
-### 2.6 Constants
-
-**File:** `src/lib/constants.ts` - Single source of truth for 18 configuration values: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, request ID config.
-
-### 2.7 Circuit Breaker
-
-**File:** `src/lib/circuit-breaker.ts` - Prevents cascading failures. States: CLOSED (normal), OPEN (fail fast), HALF_OPEN (testing recovery). Wraps `container.fetch()` calls.
-
-### 2.8 Rate Limiting
-
-**File:** `src/middleware/rate-limit.ts` - Per-user rate limiting (bucketName from auth, IP fallback). Stores counts in KV. Adds `X-RateLimit-*` headers.
-
-### 2.9 Structured Logging
-
-**File:** `src/lib/logger.ts` - JSON logging with `createLogger(module)`, child loggers with request context.
-
-### 2.10 JWT Verification
-
-**File:** `src/lib/jwt.ts` - RS256 verification against CF Access JWKS (`https://{authDomain}/cdn-cgi/access/certs`). Per-isolate JWKS cache with `resetJWKSCache()`.
-
-### 2.11 Cache Reset
-
-**File:** `src/lib/cache-reset.ts` - Centralized invalidation of CORS + auth config + JWKS caches. Called by setup wizard after configuration changes.
-
-### 2.12 DEV_MODE Gating
-
-`/api/container/debug/*` restricted to `DEV_MODE = "true"`.
-
-### 2.13 Setup Wizard Resilience
-
-**Directory:** `src/routes/setup/`
-
-All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (defined in `shared.ts`) for transient failure resilience. The wrapper retries up to 2 times (3 total attempts) with exponential backoff (1s, 2s), skipping retry for `CircuitBreakerOpenError`.
-
-**Cross-environment safety:** `resolveManagedAccessApp()` in `access.ts` uses a 4-tier fallback to find existing Access apps: (1) exact domain match, (2) stored app ID from KV, (3) name match + domain validation, (4) `/app/*` suffix + domain validation. Tiers 3 and 4 validate domain to prevent cross-environment collision when multiple environments share a CF account.
-
-```mermaid
-flowchart TD
-    Start["resolveManagedAccessApp()"] --> T1{"Tier 1:<br/>Exact domain match<br/>in Access apps list?"}
-    T1 -->|Found| R1["Return app"]
-    T1 -->|Not found| T2{"Tier 2:<br/>Stored app ID<br/>from KV?"}
-    T2 -->|Found| R2["Return app"]
-    T2 -->|Not found| T3{"Tier 3:<br/>Name match +<br/>domain validation?"}
-    T3 -->|Found| R3["Return app"]
-    T3 -->|Not found| T4{"Tier 4:<br/>/app/* suffix +<br/>domain validation?"}
-    T4 -->|Found| R4["Return app"]
-    T4 -->|Not found| Create["Create new Access app"]
-
-    T3 -.- Note1["Tiers 3-4: domain validation<br/>prevents cross-environment collision"]
-    T4 -.- Note1
-```
-
-**Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
-
-**`parseCfResponse` content-type hardening** (`src/lib/cf-api.ts`): Checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts JSON.parse on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails — this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors.
-
-### 2.14 Session Route Architecture
-
-**Directory:** `src/routes/session/` - Split into `index.ts` (aggregator), `crud.ts` (CRUD), `lifecycle.ts` (start/stop/status/batch-status).
-
-**Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` — prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
-
-**Session Stop Flow (idle):** `onActivityExpired()` detects no active WS clients → `this.stop('SIGTERM')` → `onStop()` fires with identifiers intact → writes `status: 'stopped'` to KV.
-
-### 2.15 Frontend Zod Validation
-
-**File:** `web-ui/src/lib/schemas.ts` - Zod schemas validate API responses at runtime. Types derived from schemas via `z.infer`.
-
-### 2.16 Frontend Constants
-
-**File:** `web-ui/src/lib/constants.ts` - 20 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
-
-### 2.17 Terminal Tab Configuration
-
-**File:** `web-ui/src/lib/terminal-config.ts` - Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, codex, gemini, opencode, htop, yazi, lazygit to MDI icons).
-
-### 2.18 Container DO (CodeflareContainer)
+### 2.2 Container DO (CodeflareContainer)
 
 **File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, confirmed stable with keepalive heartbeat).
 
@@ -258,7 +114,7 @@ flowchart TD
 
 ```
 
-**`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected → `renewActivityTimeout()`. If no clients → `this.stop('SIGTERM')`. Safety net: renews timeout on any error (network failures, non-OK responses) rather than killing the container.
+**`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected -> `renewActivityTimeout()`. If no clients -> `this.stop('SIGTERM')`. Safety net: renews timeout on any error (network failures, non-OK responses) rather than killing the container.
 
 **`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
@@ -290,7 +146,7 @@ sequenceDiagram
 
 **Internal Endpoints:** `/_internal/setBucketName`, `/_internal/setSessionId`, `/_internal/getBucketName`, `/_internal/debugEnvVars`
 
-### 2.19 Terminal Server (node-pty)
+### 2.3 Terminal Server (node-pty)
 
 **File:** `host/server.js` - Node.js server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
@@ -300,11 +156,11 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null }`. Used by both `collectMetrics()` (keepalive heartbeat) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected).
 
-**WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, process-name) as JSON. No application-level ping/pong — Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
+**WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, process-name) as JSON. No application-level ping/pong -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
 **PTY:** Spawns `bash -l` (login shell for .bashrc) with `xterm-256color`, truecolor support.
 
-### 2.20 Frontend (SolidJS + xterm.js)
+### 2.4 Frontend (SolidJS + xterm.js)
 
 **Directory:** `web-ui/`
 
@@ -312,7 +168,9 @@ Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Lay
 
 Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling), `storage.ts` (R2 operations), `setup.ts`.
 
-**Dashboard WS Disconnect Flow:** When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (30m). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then `reconnectDisconnectedTerminals(activeSessionId)` reconnects only the active session's terminals. The `untrack()` fix in `Layout.tsx`'s `createEffect` wraps `activeSessionId` to prevent the reactive dependency from triggering reconnects on unrelated session changes.
+#### Dashboard WS Disconnect Flow
+
+When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (30m). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then `reconnectDisconnectedTerminals(activeSessionId)` reconnects only the active session's terminals. The `untrack()` fix in `Layout.tsx`'s `createEffect` wraps `activeSessionId` to prevent the reactive dependency from triggering reconnects on unrelated session changes.
 
 ```mermaid
 sequenceDiagram
@@ -334,11 +192,15 @@ sequenceDiagram
     Note over TS: Status: gray -> green (reconnected)
 ```
 
-**Three-Color Session Status:** `SessionStatCard` displays green (running + WS connected), yellow (running + WS disconnected — container alive but dashboard-disconnected), gray (stopped). Driven by `dotVariant()` which checks both `session.status` and `terminalStore.getConnectionState()`. The yellow indicator was added to make the dashboard-disconnect flow visible to the user — without it, status jumped from green directly to gray.
+#### Three-Color Session Status
 
-**Polling Interval:** `SESSION_LIST_POLL_INTERVAL_MS = 5000` — matches the DO's `collectMetrics` 5s push cycle. Polling faster wastes requests since KV data doesn't change between pushes. `CONTEXT_EXPIRY_MS = 30 * 60 * 1000` (30m) matches backend `sleepAfter` for accurate context-expired detection.
+`SessionStatCard` displays green (running + WS connected), yellow (running + WS disconnected -- container alive but dashboard-disconnected), gray (stopped). Driven by `dotVariant()` which checks both `session.status` and `terminalStore.getConnectionState()`. The yellow indicator was added to make the dashboard-disconnect flow visible to the user -- without it, status jumped from green directly to gray.
 
-**KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully — `SessionStatCard` shows last-known metrics for recently-stopped sessions.
+#### Polling and Consistency
+
+**Polling Interval:** `SESSION_LIST_POLL_INTERVAL_MS = 5000` -- matches the DO's `collectMetrics` 5s push cycle. Polling faster wastes requests since KV data doesn't change between pushes. `CONTEXT_EXPIRY_MS = 30 * 60 * 1000` (30m) matches backend `sleepAfter` for accurate context-expired detection.
+
+**KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully -- `SessionStatCard` shows last-known metrics for recently-stopped sessions.
 
 **Auto-Reconnect:** 10 attempts (`MAX_WS_RETRIES`) with 2-second delay. Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops.
 
@@ -353,23 +215,75 @@ function connect() {
 }
 ```
 
+#### UI Features
+
+**Nested Terminals (Multiple PTYs per Session):** Up to 6 terminal tabs per session. Compound key strategy: frontend `sessionId:terminalId`, WebSocket URL `/api/terminal/{sessionId}-{terminalId}/ws`. Backend parses compound ID, validates base session, forwards full ID to container. Container's SessionManager handles each compound ID as a separate PTY.
+
+**StoragePanel (R2 File Browser):** Files: `StoragePanel.tsx`, `StorageBrowser.tsx`, `stores/storage.ts`. Desktop: 400px slide-in drawer. Mobile: bottom-sheet. Mutual exclusion with SettingsPanel. Reads directly from R2 via Worker API (no container-side sync trigger). Container sync handled by 60s bisync daemon.
+
+**Conditional Logout:** Depends on `onboardingActive` flag: active -> redirect to `/` (landing page), inactive -> redirect to `/cdn-cgi/access/logout`.
+
+**Frontend Zod Validation:** `web-ui/src/lib/schemas.ts` -- Zod schemas validate API responses at runtime. Types derived from schemas via `z.infer`.
+
+**Terminal Tab Configuration:** `web-ui/src/lib/terminal-config.ts` -- Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, cu, claude-code, codex, gemini, opencode, htop, yazi, lazygit, bash, sh, zsh to MDI icons).
+
 ---
 
-## 3. UI Features
+## 3. Backend Libraries
 
-### 3.1 Nested Terminals (Multiple PTYs per Session)
+| File | Purpose |
+|------|---------|
+| `src/middleware/auth.ts` | Shared authentication middleware. Delegates to `authenticateRequest()` which throws `AuthError`/`ForbiddenError` on failure. Sets `c.get('user')` and `c.get('bucketName')` for downstream handlers. |
+| `src/lib/container-helpers.ts` | Consolidated container initialization: `getSessionIdFromQuery()` (from query param), `getContainerId()` (with validation, never fallbacks), `getContainerContext()` (full context for route handlers). |
+| `src/lib/error-types.ts` | `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401), `ForbiddenError` (403), `SetupError` (400), `RateLimitError` (429), `CircuitBreakerOpenError` (503). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`. |
+| `src/lib/type-guards.ts` | Runtime type validation replacing unsafe type casts (e.g., `isBucketNameResponse()`). |
+| `src/lib/constants.ts` | Single source of truth for 20 configuration constants: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, request ID config, session limits. |
+| `src/lib/circuit-breaker.ts` | Prevents cascading failures. States: CLOSED (normal), OPEN (fail fast), HALF_OPEN (testing recovery). Wraps `container.fetch()` calls. |
+| `src/middleware/rate-limit.ts` | Per-user rate limiting (bucketName from auth, IP fallback). Stores counts in KV. Adds `X-RateLimit-*` headers. |
+| `src/lib/logger.ts` | JSON logging with `createLogger(module)`, child loggers with request context. |
+| `src/lib/jwt.ts` | RS256 verification against CF Access JWKS (`https://{authDomain}/cdn-cgi/access/certs`). Per-isolate JWKS cache with `resetJWKSCache()`. |
+| `src/lib/cache-reset.ts` | Centralized invalidation of CORS + auth config + JWKS caches. Called by setup wizard after configuration changes. |
+| `src/lib/cf-api.ts` | Cloudflare API client. `parseCfResponse` checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts `JSON.parse` on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails -- this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors. |
 
-Up to 6 terminal tabs per session. Compound key strategy: frontend `sessionId:terminalId`, WebSocket URL `/api/terminal/{sessionId}-{terminalId}/ws`. Backend parses compound ID, validates base session, forwards full ID to container. Container's SessionManager handles each compound ID as a separate PTY.
+**DEV_MODE Gating:** `/api/container/debug/*` restricted to `DEV_MODE = "true"`.
 
-### 3.2 StoragePanel (R2 File Browser)
+### Setup Wizard Resilience
 
-**Files:** `StoragePanel.tsx`, `StorageBrowser.tsx`, `stores/storage.ts`
+**Directory:** `src/routes/setup/`
 
-Desktop: 400px slide-in drawer. Mobile: bottom-sheet. Mutual exclusion with SettingsPanel. Reads directly from R2 via Worker API (no container-side sync trigger). Container sync handled by 60s bisync daemon.
+All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (defined in `shared.ts`) for transient failure resilience. The wrapper retries up to 2 times (3 total attempts) with exponential backoff (1s, 2s), skipping retry for `CircuitBreakerOpenError`.
 
-### 3.3 Conditional Logout
+**Cross-environment safety:** `resolveManagedAccessApp()` in `access.ts` uses a 4-tier fallback to find existing Access apps: (1) exact domain match, (2) stored app ID from KV, (3) name match + domain validation, (4) `/app/*` suffix + domain validation. Tiers 3 and 4 validate domain to prevent cross-environment collision when multiple environments share a CF account.
 
-Depends on `onboardingActive` flag: active -> redirect to `/` (landing page), inactive -> redirect to `/cdn-cgi/access/logout`.
+```mermaid
+flowchart TD
+    Start["resolveManagedAccessApp()"] --> T1{"Tier 1:<br/>Exact domain match<br/>in Access apps list?"}
+    T1 -->|Found| R1["Return app"]
+    T1 -->|Not found| T2{"Tier 2:<br/>Stored app ID<br/>from KV?"}
+    T2 -->|Found| R2["Return app"]
+    T2 -->|Not found| T3{"Tier 3:<br/>Name match +<br/>domain validation?"}
+    T3 -->|Found| R3["Return app"]
+    T3 -->|Not found| T4{"Tier 4:<br/>/app/* suffix +<br/>domain validation?"}
+    T4 -->|Found| R4["Return app"]
+    T4 -->|Not found| Create["Create new Access app"]
+
+    T3 -.- Note1["Tiers 3-4: domain validation<br/>prevents cross-environment collision"]
+    T4 -.- Note1
+```
+
+**Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
+
+### Session Route Architecture
+
+**Directory:** `src/routes/session/` - Split into `index.ts` (aggregator), `crud.ts` (CRUD), `lifecycle.ts` (start/stop/status/batch-status).
+
+**Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` -- prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
+
+**Session Stop Flow (idle):** `onActivityExpired()` detects no active WS clients -> `this.stop('SIGTERM')` -> `onStop()` fires with identifiers intact -> writes `status: 'stopped'` to KV.
+
+### Frontend Constants
+
+**File:** `web-ui/src/lib/constants.ts` -- 20 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ---
 
@@ -430,11 +344,11 @@ stateDiagram-v2
     running --> stopped : onActivityExpired (no WS clients)
 ```
 
-**Stop (idle):** `sleepAfter` expires → SDK calls `onActivityExpired()` → checks `/activity` → no WS clients → `this.stop('SIGTERM')` → `onStop()` → KV status = `'stopped'`
+**Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> no WS clients -> `this.stop('SIGTERM')` -> `onStop()` -> KV status = `'stopped'`
 
-**Stop (user-initiated):** Worker sets KV status to `'stopped'` → calls `container.destroy()` → `destroy()` clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection → `super.destroy()` → `onStop()` bails (no identifiers, so no KV write)
+**Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so no KV write)
 
-**Delete:** Worker `KV.delete()` → `container.destroy()` → `destroy()` clears `SESSION_ID_KEY` + `bucketName` → `super.destroy()` → `onStop()` bails (no identifiers, so deleted session cannot be resurrected in KV)
+**Delete:** Worker `KV.delete()` -> `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` -> `super.destroy()` -> `onStop()` bails (no identifiers, so deleted session cannot be resurrected in KV)
 
 ```mermaid
 flowchart TD
@@ -467,9 +381,9 @@ flowchart TD
 
 ```
 
-**Restart (same bucket):** `setBucketName` → 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage for KV reconciliation and preference updates) → `startAndWaitForPorts()` → `onStart()` re-arms metrics
+**Restart (same bucket):** `setBucketName` -> 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage for KV reconciliation and preference updates) -> `startAndWaitForPorts()` -> `onStart()` re-arms metrics
 
-**Restart (different bucket):** `setBucketName` succeeds → `destroy()` (wipes DO storage) → lifecycle route re-calls `setBucketName` (re-populates sessionId + bucketName + R2 creds) → `startAndWaitForPorts()`
+**Restart (different bucket):** `setBucketName` succeeds -> `destroy()` (wipes DO storage) -> lifecycle route re-calls `setBucketName` (re-populates sessionId + bucketName + R2 creds) -> `startAndWaitForPorts()`
 
 ```mermaid
 flowchart TD
@@ -540,7 +454,7 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 60s, f
 | `~/.config/` | Yes | App configs (gh CLI, etc.) |
 | `~/.gitconfig` | Yes | Git configuration |
 | `~/workspace/` | Depends on `SYNC_MODE` | Excluded by default (`none`). Synced when `full` or partially with `metadata`. |
-| `~/.npm/`, `.config/rclone/**`, `.cache/rclone/**`, `.claude/debug/**`, `.claude/plugins/cache/**` | **NO** | Cache/debug, regenerated |
+| `~/.npm/`, `~/.bun/`, `.config/rclone/**`, `.cache/rclone/**`, `.claude/debug/**`, `.claude/plugins/cache/**` | **NO** | Cache/debug, regenerated |
 
 ### rclone Sync Modes
 
@@ -550,7 +464,9 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 60s, f
 | `full` | Entire `workspace/` (minus `node_modules/`) | Persistent storage across stop/resume |
 | `metadata` | Only `CLAUDE.md` and `.claude/` per repo | Lightweight project context sync |
 
-All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache/rclone/`, `.npm/`, `.claude/debug/`, `.claude/plugins/cache/`, `**/node_modules/`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
+All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache/rclone/`, `.npm/`, `.bun/`, `.claude/debug/`, `.claude/plugins/cache/`, `**/node_modules/`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
+
+**Note:** The `metadata` mode is defined in `entrypoint.sh` but the Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`. The `metadata` mode can be used by setting `SYNC_MODE` directly in the container environment.
 
 ### Conflict Resolution
 
@@ -630,8 +546,9 @@ A random UUID is generated per DO lifecycle and passed to the container as `CONT
 Applied to every response in `src/index.ts`:
 - `Strict-Transport-Security` (HSTS)
 - `Content-Security-Policy`
-- `X-Frame-Options: DENY`
 - `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: strict-origin-when-cross-origin`
 - `Permissions-Policy`
 
 ### Body Limit
@@ -652,7 +569,7 @@ Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSI
 
 **Frontend-first enforcement:** The dashboard disables the start button when `isAtSessionLimit()` returns true (running + initializing sessions >= maxSessions). A popup explains the limit and which sessions to stop.
 
-**Backend loose check:** `POST /api/container/start` counts KV sessions with `status === 'running'` under the user's prefix (excluding the current session to allow restarts). Returns 429 `RateLimitError` if at or over the limit. This is a secondary guard — the frontend prevents most limit violations before they reach the backend.
+**Backend loose check:** `POST /api/container/start` counts KV sessions with `status === 'running'` under the user's prefix (excluding the current session to allow restarts). Returns 429 `RateLimitError` if at or over the limit. This is a secondary guard -- the frontend prevents most limit violations before they reach the backend.
 
 **`GET /api/sessions/batch-status`** returns `maxSessions` alongside `statuses` so the frontend stays in sync with the server-side limit without hardcoding defaults.
 
@@ -736,7 +653,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 **`POST /configure` streams NDJSON:** Returns `Content-Type: application/x-ndjson` with per-step progress lines as each CF API step executes. Each line is a JSON object:
 - **Step progress:** `{"step":"create_r2","status":"running"}` then `{"step":"create_r2","status":"success"}` (or `"error"` with optional `error` field)
 - **Final summary:** `{"done":true,"success":true,"steps":[...],"workersDevUrl":"...","customDomainUrl":"..."}` or `{"done":true,"success":false,"error":"...","steps":[...]}`
-- Always returns HTTP 200 — errors are conveyed within the stream. Validation errors (missing fields) still return HTTP 400 before streaming begins.
+- Always returns HTTP 200 -- errors are conveyed within the stream. Validation errors (missing fields) still return HTTP 400 before streaming begins.
 - Frontend reads via `response.body.getReader()` with buffer-based line parsing, updating `configureSteps` progressively so the UI shows real-time step status.
 
 Public before setup; admin-only after. All `adminUsers` must also be in `allowedUsers`.
@@ -776,47 +693,78 @@ GET `/health`, GET `/api/health`
 
 ---
 
-## 9. Environment Variables
+## 9. Container Image
 
-### Worker Environment
+**File:** `Dockerfile` - Base: `node:22.13-alpine3.21`, multi-stage build (builder compiles native addons, runtime has no build tools).
 
-| Variable | Purpose | Source |
-|----------|---------|--------|
-| `DEV_MODE` | Bypasses CF Access auth | wrangler.toml |
-| `SERVICE_TOKEN_EMAIL` | Email for service token auth | Optional |
-| `CLOUDFLARE_API_TOKEN` | R2 bucket creation | Wrangler secret |
-| `R2_ACCESS_KEY_ID` | R2 auth for containers | Wrangler secret |
-| `R2_SECRET_ACCESS_KEY` | R2 auth for containers | Wrangler secret |
-| `R2_ACCOUNT_ID` | R2 endpoint construction | Dynamic (env with KV fallback) |
-| `R2_ENDPOINT` | S3-compatible endpoint | Dynamic (env with KV fallback) |
-| `ALLOWED_ORIGINS` | CORS patterns (comma-separated) | wrangler.toml |
-| `LOG_LEVEL` | Min log level (default: "info") | wrangler.toml |
-| `ONBOARDING_LANDING_PAGE` | `"active"` enables public waitlist landing | wrangler.toml |
-| `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | Optional |
-| `RESEND_API_KEY` | Waitlist notification emails | Optional |
-| `WAITLIST_FROM_EMAIL` | Sender identity for waitlist | Optional |
-| `CLOUDFLARE_WORKER_NAME` | Worker name override for forks | GitHub Actions variable |
-| `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
-| `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
+### Installed Tools
 
-### Container Environment
+| Category | Packages |
+|----------|----------|
+| Sync | rclone |
+| Version Control | git, github-cli (gh), lazygit |
+| Editors | vim (symlinked to neovim), neovim, nano |
+| Network | curl, openssh-client |
+| Utilities | jq, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
 
-| Variable | Purpose | Source |
-|----------|---------|--------|
-| `R2_BUCKET_NAME` | User's personal bucket | Worker → DO via `setBucketName` |
-| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | rclone auth | Worker → DO (preferred) or DO `this.env` fallback |
-| `R2_ACCOUNT_ID` / `R2_ENDPOINT` | rclone endpoint | Worker → DO or `getR2Config()` fallback |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
-| `TERMINAL_PORT` | Always 8080 | Hardcoded |
-| `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) -- see Section 5 | Worker → DO |
-| `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`). Drives `SYNC_MODE` value. | Worker via `setBucketName` |
-| `TAB_CONFIG` | JSON array of terminal tab configurations | Worker → DO |
-| `TERMINAL_ID` | Unique ID for this terminal instance | Worker → DO |
-| `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker → DO |
+### Global NPM Packages
+
+`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code` (symlinked from claude-unleashed), `@openai/codex`, `@google/gemini-cli`, `opencode-ai`
+
+### V8 Compile Cache Warm-Up
+
+Node.js CLIs (claude, codex, gemini) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need this optimization.
+
+### OpenCode Database Pre-Initialization
+
+OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory). To avoid this overhead at container start, the Dockerfile runs `opencode run "hello"` at build time which triggers the migration, creating the sessions/files/messages schema so the first interactive launch is fast.
+
+### Browser Shims
+
+CLI tools (Claude Code, OpenCode, Gemini) try to open a browser for OAuth. The Dockerfile installs shims (`open-url` for `BROWSER` env var, `xdg-open-shim` for `xdg-open`) that exit 1, forcing CLIs to print auth URLs as plain text in the PTY. The xterm.js link provider then detects and makes these URLs clickable.
+
+Port: 8080 (single port architecture).
 
 ---
 
-## 10. File Structure
+## 10. Container Startup
+
+**File:** `entrypoint.sh`
+
+Uses polling with safety timeouts: poll until success OR background process exits OR safety timeout expires. Exit immediately on success. Safety timeout `SYNC_TIMEOUT=120` (2 min) prevents infinite blocking.
+
+### Parallel Startup
+
+```mermaid
+flowchart TD
+    A[Container Start] --> B["initial_sync_from_r2() &"]
+    A --> C[Wait for R2 sync]
+    B -.->|Background| C
+    C -->|Data restored| D["configure_tab_autostart()"]
+    D --> E["Start terminal server (:8080)"]
+```
+
+Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - pre-patched at build time, so the update check is fast (~2s). Users can also update manually via `cu` in any tab.
+
+---
+
+## 11. Claude-Unleashed Integration
+
+[claude-unleashed](https://github.com/nikolanovoselec/claude-unleashed) enables `--dangerously-skip-permissions` when running as root inside containers (standard CLI prevents this via `process.getuid() === 0` check).
+
+**Two separate updaters:** (1) claude-unleashed's updater checks npm for latest `@anthropic-ai/claude-code` - runs on every `cu` invocation (including auto-start), pre-patched at build time so the check is fast. (2) Upstream CLI's internal auto-updater - disabled via `DISABLE_INSTALLATION_CHECKS=1`.
+
+`claude` = vanilla CLI, `cu` = claude-unleashed.
+
+### Environment Variables
+
+**Global (Dockerfile ENV):** `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`
+
+**Auto-start flags (.bashrc):** `--silent`, `--no-consent`
+
+---
+
+## 12. File Structure
 
 ```
 codeflare/
@@ -881,15 +829,18 @@ codeflare/
 │   └── src/
 │       ├── components/       # SolidJS components (Terminal, Layout, SessionCard, StorageBrowser, etc.)
 │       ├── stores/           # terminal.ts, session.ts, storage.ts, setup.ts, tiling.ts, session-presets.ts, session-tabs.ts
-│       ├── api/client.ts     # API client
+│       ├── api/              # client.ts, fetch-helper.ts, storage.ts
 │       ├── hooks/            # useTerminal.ts, useStageTimings.ts
-│       ├── lib/              # constants, schemas, terminal-config, settings, format, mobile
+│       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, settings, format, mobile, + others
 │       ├── styles/           # CSS (design tokens, animations, component styles)
 │       └── __tests__/        # Frontend unit tests (63 files)
+├── scripts/                  # generate-tutorial-seed.mjs, fix-broken-sourcemaps.js
+├── tutorials/                # Tutorial content (Getting Started, Examples, etc.)
 ├── Dockerfile                # Multi-stage container image
 ├── entrypoint.sh             # Container startup script
 ├── wrangler.toml             # Cloudflare configuration
-└── vitest.config.ts          # Test configs
+├── vitest.config.ts          # Backend test config
+└── vitest.e2e.config.ts      # E2E test config
 ```
 
 ### Critical Paths Inside Container
@@ -905,104 +856,97 @@ codeflare/
 
 ---
 
-## 11. Container Startup
+## 13. Environment Variables
 
-**File:** `entrypoint.sh`
+### Worker Environment
 
-Uses polling with safety timeouts: poll until success OR background process exits OR safety timeout expires. Exit immediately on success. Safety timeout `SYNC_TIMEOUT=120` (2 min) prevents infinite blocking.
+| Variable | Purpose | Source |
+|----------|---------|--------|
+| `DEV_MODE` | Bypasses CF Access auth | wrangler.toml |
+| `SERVICE_TOKEN_EMAIL` | Email for service token auth | Optional |
+| `CLOUDFLARE_API_TOKEN` | R2 bucket creation | Wrangler secret |
+| `R2_ACCESS_KEY_ID` | R2 auth for containers | Wrangler secret |
+| `R2_SECRET_ACCESS_KEY` | R2 auth for containers | Wrangler secret |
+| `R2_ACCOUNT_ID` | R2 endpoint construction | Dynamic (env with KV fallback) |
+| `R2_ENDPOINT` | S3-compatible endpoint | Dynamic (env with KV fallback) |
+| `ALLOWED_ORIGINS` | CORS patterns (comma-separated) | wrangler.toml |
+| `LOG_LEVEL` | Min log level (default: "info") | wrangler.toml |
+| `ONBOARDING_LANDING_PAGE` | `"active"` enables public waitlist landing | wrangler.toml |
+| `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | Optional |
+| `RESEND_API_KEY` | Waitlist notification emails | Optional |
+| `WAITLIST_FROM_EMAIL` | Sender identity for waitlist | Optional |
+| `CLOUDFLARE_WORKER_NAME` | Worker name override for forks | GitHub Actions variable |
+| `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
+| `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
 
-### Parallel Startup
+### Container Environment
 
-```mermaid
-flowchart TD
-    A[Container Start] --> B["initial_sync_from_r2() &"]
-    A --> C[Wait for R2 sync]
-    B -.->|Background| C
-    C -->|Data restored| D["configure_tab_autostart()"]
-    D --> E["Start terminal server (:8080)"]
-```
-
-Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - pre-patched at build time, so the update check is fast (~2s). Users can also update manually via `cu` in any tab.
-
----
-
-## 12. Container Image
-
-**File:** `Dockerfile` - Base: `node:22.13-alpine3.21`, multi-stage build (builder compiles native addons, runtime has no build tools).
-
-### Installed Tools
-
-| Category | Packages |
-|----------|----------|
-| Sync | rclone |
-| Version Control | git, github-cli (gh), lazygit |
-| Editors | vim, neovim, nano |
-| Network | curl, openssh-client |
-| Utilities | jq, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
-
-### Global NPM Packages
-
-`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code`, `@openai/codex`, `@google/gemini-cli`, `opencode-ai`
-
-### V8 Compile Cache Warm-Up
-
-Node.js CLIs (claude, codex, gemini) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need this optimization.
-
-### OpenCode Database Pre-Initialization
-
-OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory). To avoid this overhead at container start, the Dockerfile runs `opencode run "hello"` at build time which triggers the migration, creating the sessions/files/messages schema so the first interactive launch is fast.
-
-Port: 8080 (single port architecture).
+| Variable | Purpose | Source |
+|----------|---------|--------|
+| `R2_BUCKET_NAME` | User's personal bucket | Worker -> DO via `setBucketName` |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | rclone auth | Worker -> DO (preferred) or DO `this.env` fallback |
+| `R2_ACCOUNT_ID` / `R2_ENDPOINT` | rclone endpoint | Worker -> DO or `getR2Config()` fallback |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
+| `TERMINAL_PORT` | Always 8080 | Hardcoded |
+| `SYNC_MODE` | Sync strategy (`none` or `full`) -- see Section 5 | Worker -> DO |
+| `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`). Drives `SYNC_MODE` value. | Worker via `setBucketName` |
+| `TAB_CONFIG` | JSON array of terminal tab configurations | Worker -> DO |
+| `TERMINAL_ID` | Unique ID for this terminal instance | Worker -> DO |
+| `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker -> DO |
+| `MANUAL_TAB` | Set to `1` for user-created tabs to skip autostart | Worker -> DO |
 
 ---
 
-## 13. Claude-Unleashed Integration
+## 14. Configuration
 
-[claude-unleashed](https://github.com/nikolanovoselec/claude-unleashed) enables `--dangerously-skip-permissions` when running as root inside containers (standard CLI prevents this via `process.getuid() === 0` check).
+### Secrets
 
-**Two separate updaters:** (1) claude-unleashed's updater checks npm for latest `@anthropic-ai/claude-code` - runs on every `cu` invocation (including auto-start), pre-patched at build time so the check is fast. (2) Upstream CLI's internal auto-updater - disabled via `DISABLE_INSTALLATION_CHECKS=1`.
+Repository: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optional `RESEND_API_KEY`
 
-`claude` = vanilla CLI, `cu` = claude-unleashed.
+Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **R2 credentials are derived from the API token** -- if the token is rotated, setup must be re-run to regenerate R2 credentials.
 
-### Environment Variables
+### CORS
 
-**Global (Dockerfile ENV):** `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`
+Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGINS` env var is static fallback.
 
-**Auto-start flags (.bashrc):** `--silent`, `--no-consent`
+`R2_ACCOUNT_ID` and `R2_ENDPOINT` resolved dynamically (env vars with KV fallback).
+
+### Container Specs
+
+| Tier | Config | Max Instances | Notes |
+|------|--------|---------------|-------|
+| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 3 | Sub-1-vCPU workloads |
+| default | 1 vCPU, 3 GiB, 4 GB | 4 | Baseline for node-pty + agent CLIs |
+| `high` | 2 vCPU, 6 GiB, 8 GB | 5 | Higher parallelism |
+
+Base image: Node.js 22 Alpine.
+
+### API Token Permissions
+
+#### Account Permissions
+
+| Permission | Access | Required | Why |
+|-----------|--------|----------|-----|
+| Account Settings | Read | Yes | Account ID discovery |
+| Workers Scripts | Edit | Yes | Deploy worker + secrets |
+| Workers KV Storage | Edit | Yes | KV namespace management |
+| Workers R2 Storage | Edit | Yes | Per-user R2 buckets |
+| Containers | Edit | Yes | Container lifecycle |
+| Access: Apps and Policies | Edit | Yes | Managed Access app |
+| Access: Organizations, Identity Providers, and Groups | Edit | Yes | Access groups + auth_domain |
+| Turnstile | Edit | Only if onboarding active | Turnstile widget |
+
+#### Zone Permissions
+
+| Permission | Access | Required | Why |
+|-----------|--------|----------|-----|
+| Zone | Read | Yes | Zone ID resolution |
+| DNS | Edit | Yes | Proxied CNAME |
+| Workers Routes | Edit | Yes | Worker route upsert |
 
 ---
 
-## 14. Testing
-
-**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 63 test files. Run: `npm test`
-
-**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 63 test files. Run: `cd web-ui && npm test`
-
-**E2E API:** `e2e/` - tests against deployed worker. Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e`
-
-**E2E UI:** `e2e/ui/` - Puppeteer tests (12 test files). Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e:ui`
-
-**E2E Requirements:** `DEV_MODE = "true"` deployed, no CF Access on workers.dev domain. Re-deploy with `DEV_MODE = "false"` after testing. Cleanup via `afterAll` hooks; if tests fail, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
-
----
-
-## 15. Development
-
-```bash
-npm install && cd web-ui && npm install && cd ..
-npm run dev          # Run locally (requires Docker)
-npm run typecheck    # Type check backend
-npm test             # Backend unit tests
-npm run test:e2e     # E2E API tests
-npm run test:e2e:ui  # E2E UI tests (Puppeteer)
-npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see Section 16)
-cd web-ui && npm run dev   # Frontend dev server
-cd web-ui && npm run build # Frontend production build
-```
-
----
-
-## 16. CI/CD (GitHub Actions)
+## 15. CI/CD (GitHub Actions)
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
@@ -1026,60 +970,53 @@ cd web-ui && npm run build # Frontend production build
 
 ---
 
-## 17. API Token Permissions
+## 16. Testing
 
-### Account Permissions
+**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 63 test files. Run: `npm test`
 
-| Permission | Access | Required | Why |
-|-----------|--------|----------|-----|
-| Account Settings | Read | Yes | Account ID discovery |
-| Workers Scripts | Edit | Yes | Deploy worker + secrets |
-| Workers KV Storage | Edit | Yes | KV namespace management |
-| Workers R2 Storage | Edit | Yes | Per-user R2 buckets |
-| Containers | Edit | Yes | Container lifecycle |
-| Access: Apps and Policies | Edit | Yes | Managed Access app |
-| Access: Organizations, Identity Providers, and Groups | Edit | Yes | Access groups + auth_domain |
-| Turnstile | Edit | Only if onboarding active | Turnstile widget |
+**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 63 test files. Run: `cd web-ui && npm test`
 
-### Zone Permissions
+**E2E API:** `e2e/` - tests against deployed worker. Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e`
 
-| Permission | Access | Required | Why |
-|-----------|--------|----------|-----|
-| Zone | Read | Yes | Zone ID resolution |
-| DNS | Edit | Yes | Proxied CNAME |
-| Workers Routes | Edit | Yes | Worker route upsert |
+**E2E UI:** `e2e/ui/` - Puppeteer tests (11 test files). Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e:ui`
+
+**E2E Requirements:** `DEV_MODE = "true"` deployed, no CF Access on workers.dev domain. Re-deploy with `DEV_MODE = "false"` after testing. Cleanup via `afterAll` hooks; if tests fail, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
 
 ---
 
-## 18. Configuration
+## 17. Development
 
-### Secrets
-
-Repository: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optional `RESEND_API_KEY`
-
-Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **R2 credentials are derived from the API token** — if the token is rotated, setup must be re-run to regenerate R2 credentials.
-
-### CORS
-
-Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGINS` env var is static fallback.
-
-`R2_ACCOUNT_ID` and `R2_ENDPOINT` resolved dynamically (env vars with KV fallback).
-
----
-
-## 19. Container Specs
-
-| Tier | Config | Max Instances | Notes |
-|------|--------|---------------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 3 | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 4 GB | 4 | Baseline for node-pty + agent CLIs |
-| `high` | 2 vCPU, 6 GiB, 8 GB | 5 | Higher parallelism |
-
-Base image: Node.js 22 Alpine.
+```bash
+npm install && cd web-ui && npm install && cd ..
+npm run dev          # Run locally (requires Docker)
+npm run typecheck    # Type check backend
+npm test             # Backend unit tests
+npm run test:e2e     # E2E API tests
+npm run test:e2e:ui  # E2E UI tests (Puppeteer)
+npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see Section 15)
+cd web-ui && npm run dev   # Frontend dev server
+cd web-ui && npm run build # Frontend production build
+```
 
 ---
 
-## 20. Troubleshooting
+## 18. Cost
+
+### Per-Container Pricing
+
+| Tier | Specs | Monthly Cost (active) |
+|------|-------|-----------------------|
+| `low` | 0.25 vCPU, 1 GiB, 4 GB | Lower; check CF pricing |
+| `default` | 1 vCPU, 3 GiB, 4 GB | ~$56 (reference) |
+| `high` | 2 vCPU, 6 GiB, 8 GB | Higher; check CF pricing |
+
+Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
+
+**R2:** First 10GB free, $0.015/GB/month after. User config typically <100MB.
+
+---
+
+## 19. Troubleshooting
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
@@ -1123,7 +1060,7 @@ Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 
 ### Zombie Container
 
-DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via two mechanisms: (1) `collectMetrics` checks `this.ctx.container?.running` and returns early if false (no re-arm), (2) the missing-identifiers guard returns early without re-arming when `destroy()` has cleared `SESSION_ID_KEY`/`bucketName` — this uses an if/else pattern that kills both the metrics push AND the schedule re-arm simultaneously. The SDK alarm handler eventually sees no schedules + no running container and calls `storage.deleteAlarm()`. Zombie DOs are harmless (no container process) but may briefly log debug-level warnings.
+DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via two mechanisms: (1) `collectMetrics` checks `this.ctx.container?.running` and returns early if false (no re-arm), (2) the missing-identifiers guard returns early without re-arming when `destroy()` has cleared `SESSION_ID_KEY`/`bucketName` -- this uses an if/else pattern that kills both the metrics push AND the schedule re-arm simultaneously. The SDK alarm handler eventually sees no schedules + no running container and calls `storage.deleteAlarm()`. Zombie DOs are harmless (no container process) but may briefly log debug-level warnings.
 
 ### Character Doubling in Terminal
 
@@ -1157,7 +1094,7 @@ Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
 
 ---
 
-## 21. Debugging Guide
+## 20. Debugging Guide
 
 ### Container Status
 
@@ -1188,23 +1125,64 @@ curl .../api/container/debug?sessionId=abc12345  # Returns masked env vars
 
 ---
 
-## 22. Cost
+## 21. Architecture Decisions
 
-### Per-Container Pricing
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| AD1 | One container per SESSION | CPU isolation - each tab gets full 1 vCPU instead of sharing |
+| AD2 | Container ID format | `{bucketName}-{sessionId}` (e.g., `codeflare-user-example-com-abc12345`) |
+| AD3 | Per-user R2 buckets | Bucket name derived from email, auto-created on first login |
+| AD4 | Periodic rclone bisync | Background daemon runs bisync every 60 seconds, plus final sync on shutdown (SIGINT/SIGTERM). Local disk for all file operations. |
+| AD5 | Login shell | `.bashrc` auto-starts the configured agent in workspace |
+| AD6 | KV read-modify-write races | Last-writer-wins is acceptable - session PATCH/stop overlap is rare, rate limit off-by-one is minor, lastAccessedAt is best-effort |
+| AD7 | Pre-setup public endpoints | Setup runs once during initial deploy; short exposure window is acceptable risk. Pre-setup auth trusts spoofable email header - bootstrap problem, mitigated by rate limiting and short exposure window. |
+| AD8 | Container runs as root with no internal auth | Network isolation via DO proxy is sufficient; root needed for rclone mount; wildcard CORS is internal-only |
+| AD9 | RESSOURCE_TIER spelling | French/German "ressource" is intentional - consistent across all config, changing would be a breaking API change |
 
-| Tier | Specs | Monthly Cost (active) |
-|------|-------|-----------------------|
-| `low` | 0.25 vCPU, 1 GiB, 4 GB | Lower; check CF pricing |
-| `default` | 1 vCPU, 3 GiB, 4 GB | ~$56 (reference) |
-| `high` | 2 vCPU, 6 GiB, 8 GB | Higher; check CF pricing |
+#### AD10: Open setup endpoint before first configure
 
-Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
+The `/api/setup/configure` endpoint is intentionally public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet -- that's what setup configures).
 
-**R2:** First 10GB free, $0.015/GB/month after. User config typically <100MB.
+**Trade-off**: A narrow window exists between deploy and first configure where any actor could claim the deployment. This is accepted because:
+- The window is typically seconds to minutes (deploy -> owner configures)
+- Adding a bootstrap secret would require an extra deploy-time step, increasing setup friction
+- The target audience is self-hosted single-user/small-team deployments where the deployer is watching the process
+
+**Mitigation**: `setup:complete` KV flag prevents re-configuration after initial setup. Rate limiting applies to setup routes.
+
+**Future consideration**: A one-time bootstrap secret injected at deploy time would close this window entirely with minimal friction. Tracked as a potential hardening improvement.
+
+#### AD11: Suffix-pattern CORS with credentialed requests
+
+CORS origin matching uses `matchesPattern()` with domain-boundary enforcement (not naive substring). The default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, and `Access-Control-Allow-Credentials: true` is set on matching responses.
+
+**Trade-off**: Any `*.workers.dev` subdomain could pass the CORS check for credentialed requests. This is accepted because:
+- `matchesPattern()` enforces domain boundaries (e.g., `evil-workers.dev` does NOT match `.workers.dev`, only `x.workers.dev` does)
+- Custom domain deployments replace the workers.dev origin with the exact production domain
+- `ALLOWED_ORIGINS` is configurable per deployment -- operators can restrict to exact origins
+- Cloudflare Access JWT validation is the primary auth gate, not CORS
+
+**Mitigation**: Setup adds the specific worker subdomain to KV-based dynamic origins. Operators deploying to custom domains should set `ALLOWED_ORIGINS` to their exact domain.
+
+**Future consideration**: Restricting credentialed CORS to exact known hosts (rather than suffix patterns) would tighten the trust surface. This is a low-risk hardening improvement.
+
+#### AD12: KV-based setup lock (non-atomic)
+
+The setup completion lock uses a KV read-then-write pattern: read `setup:complete`, check if false, perform setup, write `setup:complete = true`. This is not atomic -- two simultaneous `/api/setup/configure` requests could both read `false` and proceed.
+
+**Trade-off**: This is accepted because:
+- Setup is a one-time operation performed by a single admin
+- The probability of concurrent configure requests is near zero in practice
+- KV is the existing state store -- no additional infrastructure needed
+- `withSetupRetry` handles transient failures in individual setup steps, and each step is idempotent (creating Access apps, DNS records, etc. checks for existing resources first)
+
+**Mitigation**: Each setup sub-step (CF API calls) is individually idempotent -- duplicate execution produces the same result. The worst case of a race is redundant CF API calls, not corrupted state.
+
+**Future consideration**: Moving the setup lock to a Durable Object would provide strict serialization. The blast radius of changing setup plumbing is non-trivial, so this is deferred until there's evidence of the race occurring in practice.
 
 ---
 
-## 23. Lessons Learned
+## 22. Lessons Learned
 
 Architectural principles and design rationale. For code-level implementation traps (specific files, functions, what breaks), see CLAUDE.md "Gotchas and Important Notes".
 
@@ -1223,7 +1201,7 @@ Architectural principles and design rationale. For code-level implementation tra
 
 ---
 
-## 24. Mobile Terminal Bug Fixes
+## 23. Mobile Terminal Bug Fixes
 
 ### Bug 1: "Orange Square" Cursor Duplication
 

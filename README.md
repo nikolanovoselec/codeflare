@@ -5,6 +5,25 @@ I set out to prove that fully autonomous AI development actually works when done
 ![Codeflare on a foldable tablet](docs/images/mobile-foldable.jpg)
 *Keyboard dismissed: free scrolling through terminal output. Keyboard open: terminal locks in place with full gesture support.*
 
+Every session comes pre-loaded with your choice of AI coding agent:
+
+| Agent | Description |
+|---|---|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic CLI |
+| [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) | Claude Code without the guardrails |
+| [Codex](https://github.com/openai/codex) | OpenAI's coding agent |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's terminal agent |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Open-source coding agent |
+| Bash | For the purists |
+
+<details>
+<summary><strong>Why Claude Unleashed?</strong></summary>
+<a id="why-claude-unleashed"></a>
+
+Cloudflare Containers run as root. Claude Code refuses to run with `--dangerously-skip-permissions` as root - even inside an ephemeral container where the root check is protecting a filesystem that won't exist in 30 seconds. Heroic. [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) is a wrapper that politely disagrees with this decision, patching around the restriction at source level. Handles root detection, auto-updates, and mode switching. Pre-installed in every Codeflare container because arguing with your tools is not a productive use of compute.
+
+</details>
+
 Codeflare is an ephemeral cloud IDE that runs entirely in your browser. Every session spins up an isolated container on Cloudflare, pre-loads your AI agent of choice, and tears itself down when you're done. Your files persist in R2 storage. The containers don't. Nothing touches your local machine.
 
 ![Codeflare on a phone](docs/images/mobile-phone.jpg)
@@ -15,19 +34,42 @@ It's strongly optimized for mobile - because the best ideas hit while rewatching
 **Try it:** [codeflare.graymatter.ch](https://codeflare.graymatter.ch) (gated behind a waitlist - I'm not an animal)
 
 ![Onboarding](docs/images/onboarding.png)
+*Join the waitlist, get approved, log in. No account creation, no password — Cloudflare Access handles it.*
 
 ## What you get
 
 ![Dashboard](docs/images/dashboard.png)
+*Manage sessions, browse persistent storage, and monitor live resource usage — all from one view.*
 
 - Browser-native terminal with 6 tabs per session and tiling mode - view 2-4 terminals side by side. Once you tile, you don't go back.
 - One isolated container per session - agents can't escape their sandbox (I checked)
-- Pre-loaded AI agents: [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed), Codex, Gemini, OpenCode, or plain Bash for the purists
 - Persistent R2 storage with bisync every 60s - even if a session dies before you `git push`, R2 has got your back. Sync conflicts? Cleaned up automatically next cycle.
 - Pre-warmed terminals - the agent is already loaded when you open the tab, not staring at a blank screen wondering if something broke
 - Set your API key once. It syncs across sessions forever. (It's rclone, but magic sounds better.)
 - Dashboard for managing sessions, browsing files, and inviting users (or revoking them when they get too creative). Live CPU/memory/disk metrics per session. Three-color status: green (active), yellow (idle but alive), gray (stopped).
 - Scales to zero when idle. You pay for what you use. Nothing when you don't.
+
+## Architecture
+
+![Codeflare IDE](docs/images/hero-ide-fullscreen.png)
+*Six terminal tabs, split tiling, and your favorite dev tools — running in a disposable container you didn't have to configure.*
+
+```mermaid
+flowchart LR
+    A[Browser] --> B["Cloudflare Worker
+    Hono router + SolidJS static UI"]
+    B --> C["Durable Object
+    session lifecycle + hibernation"]
+    C --> D["Cloudflare Container
+    isolated per session, pre-warmed PTY"]
+    D --> E["R2
+    per-user storage, bisync every 60s"]
+    D -. "idle after 30m
+    (no WebSocket clients)" .-> F["Hibernated
+    zero cost"]
+```
+
+Containers scale to zero when idle (no sessions = no bill). Storage persists. Auth is handled by Cloudflare Access - no custom login pages, no token management, no OAuth dance.
 
 ## Setup
 
@@ -60,9 +102,11 @@ Find your worker URL: [dash.cloudflare.com](https://dash.cloudflare.com/) > `Com
 - Configuring a custom domain and allowed users
 - Creating Cloudflare Access policies (handles auth so you don't have to)
 
-That's it. You're live. No Kubernetes. No Terraform. No existential crisis. You'll need an active subscription to at least one coding agent (Claude Code, OpenAI Codex, Gemini CLI, or OpenCode) - log in directly from the terminal.
+That's it. You're live. No Kubernetes. No Terraform. No existential crisis. You'll need an active subscription to at least one of the supported coding agents - log in directly from the terminal.
 
-## API token scopes
+<details>
+<summary><strong>API token scopes</strong></summary>
+<a id="api-token-scopes"></a>
 
 Go to [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) and create a custom token. Yes, it's a lot of scopes. No, I'm not mining crypto with them (or am I?).
 
@@ -89,7 +133,10 @@ The minimum permissions for Codeflare to deploy and run. Every scope earns its k
 |---|---|---|---|
 | Account | Turnstile | Edit | Only needed when `ONBOARDING_LANDING_PAGE=active` - adds bot protection to the public waitlist page |
 
-## Configuration
+</details>
+
+<details>
+<summary><strong>Configuration</strong></summary>
 
 All optional. The defaults work out of the box. I respect your time.
 
@@ -103,30 +150,7 @@ All optional. The defaults work out of the box. I respect your time.
 | `MAX_SESSIONS_USER` | `3` | Max concurrent running sessions per regular user |
 | `MAX_SESSIONS_ADMIN` | `10` | Max concurrent running sessions per admin user |
 
-## Architecture
-
-![Codeflare IDE](docs/images/hero-ide-fullscreen.png)
-
-```mermaid
-flowchart LR
-    A[Browser] --> B["Cloudflare Worker
-    Hono router + SolidJS static UI"]
-    B --> C["Durable Object
-    session lifecycle + hibernation"]
-    C --> D["Cloudflare Container
-    isolated per session, pre-warmed PTY"]
-    D --> E["R2
-    per-user storage, bisync every 60s"]
-    D -. "idle after 30m
-    (no WebSocket clients)" .-> F["Hibernated
-    zero cost"]
-```
-
-Containers scale to zero when idle (no sessions = no bill). Storage persists. Auth is handled by Cloudflare Access - no custom login pages, no token management, no OAuth dance.
-
-## Claude Unleashed
-
-Cloudflare Containers run as root. Claude Code refuses to run with `--dangerously-skip-permissions` as root - even inside an ephemeral container where the root check is protecting a filesystem that won't exist in 30 seconds. Heroic. [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) is a wrapper that politely disagrees with this decision, patching around the restriction at source level. Handles root detection, auto-updates, and mode switching. Pre-installed in every Codeflare container because arguing with your tools is not a productive use of compute.
+</details>
 
 ## Security
 
@@ -135,7 +159,14 @@ Cloudflare Containers run as root. Claude Code refuses to run with `--dangerousl
 - Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`).
 - API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
 
-## Local development
+## Docs
+
+- `TECHNICAL.md` - deep dive into architecture, container lifecycle, and sync model
+- `tutorials/Getting Started.md` - what you can do and why you should want to. Tabs, tiling, API keys, file persistence, and three paths forward depending on how much hand-holding you need.
+- `tutorials/Examples/` - spec-driven project examples from Hello World to full blog platform. Hand one to your agent and go do something more interesting.
+
+<details>
+<summary><strong>Local development</strong></summary>
 
 ```bash
 npm install
@@ -143,11 +174,7 @@ cd web-ui && npm install && cd ..
 npm run dev
 ```
 
-## Docs
-
-- `TECHNICAL.md` - deep dive into architecture, container lifecycle, and sync model
-- `tutorials/Getting Started.md` - what you can do and why you should want to. Tabs, tiling, API keys, file persistence, and three paths forward depending on how much hand-holding you need.
-- `tutorials/Examples/` - spec-driven project examples from Hello World to full blog platform. Hand one to your agent and go do something more interesting.
+</details>
 
 ## License
 
@@ -155,7 +182,8 @@ PolyForm Noncommercial 1.0.0 - free for personal use, tinkering, and showing off
 
 Commercial use, resale, or paid hosted offerings require a separate written license. You know who you are.
 
-## Common Gotchas
+<details>
+<summary><strong>Common gotchas</strong></summary>
 
 ### Cloudflare WAF blocking API requests
 
@@ -164,3 +192,5 @@ If you're on a Cloudflare Pro plan (or higher) with Managed Rulesets enabled on 
 Symptoms: a wall of HTML appearing in your terminal where a simple "session deleted" confirmation should be. The HTML helpfully informs you that you have been blocked, as if you didn't notice.
 
 Fix: go to **Security** > **Analytics** > **Events** in your Domain configuration, find the blocked request (you will see "Action taken: Block"), click the rule that triggered it, disable it. Three clicks. Fewer clicks than it took Cloudflare to block you.
+
+</details>
