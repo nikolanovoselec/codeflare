@@ -21,9 +21,6 @@ export const REQUEST_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 /** CORS max age in seconds */
 export const CORS_MAX_AGE_SECONDS = 86400;
 
-/** DO ID validation pattern */
-export const DO_ID_PATTERN = /^[a-f0-9]{64}$/i;
-
 /** Maximum session name length */
 export const MAX_SESSION_NAME_LENGTH = 100;
 

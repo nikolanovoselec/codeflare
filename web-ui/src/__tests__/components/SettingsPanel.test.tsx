@@ -22,7 +22,6 @@ vi.mock('../../lib/mobile', () => ({
 vi.mock('../../api/client', () => ({
   getUsers: vi.fn(async () => []),
   removeUser: vi.fn(async () => undefined),
-  adminDestroyContainer: vi.fn(async () => ({ success: true, message: 'Container destroyed' })),
 }));
 
 vi.mock('../../api/storage', () => ({
@@ -501,15 +500,25 @@ describe('SettingsPanel Component', () => {
     });
   });
 
-  describe('Container Kill (admin)', () => {
-    const mockAdminDestroy = vi.mocked(apiClient.adminDestroyContainer);
-    const VALID_DO_ID = 'a'.repeat(64); // 64 hex chars
+  describe('R2 Warning (admin)', () => {
+    it('shows R2 warning hint in admin context', () => {
+      render(() => (
+        <SettingsPanel
+          isOpen={true}
+          onClose={() => {}}
+          currentUserRole="admin"
+          currentUserEmail="admin@example.com"
+        />
+      ));
 
-    beforeEach(() => {
-      mockAdminDestroy.mockResolvedValue({ success: true, message: 'Container destroyed' });
+      const warning = screen.getByTestId('settings-r2-warning');
+      expect(warning).toBeInTheDocument();
+      expect(warning.textContent).toContain('re-running setup');
+      expect(warning.textContent).toContain('R2 storage credentials');
+      expect(warning.textContent).toContain('file sync will break');
     });
 
-    it('kill section hidden for non-admin: kill-container-input not in DOM when role is user', () => {
+    it('hides R2 warning hint for non-admin users', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -519,110 +528,7 @@ describe('SettingsPanel Component', () => {
         />
       ));
 
-      expect(screen.queryByTestId('kill-container-input')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('kill-container-button')).not.toBeInTheDocument();
-    });
-
-    it('kill section visible for admin: section renders when role is admin', () => {
-      render(() => (
-        <SettingsPanel
-          isOpen={true}
-          onClose={() => {}}
-          currentUserRole="admin"
-          currentUserEmail="admin@example.com"
-        />
-      ));
-
-      expect(screen.getByTestId('kill-container-input')).toBeInTheDocument();
-      expect(screen.getByTestId('kill-container-button')).toBeInTheDocument();
-    });
-
-    it('button disabled with invalid ID: button disabled when input empty or not 64 hex chars', () => {
-      render(() => (
-        <SettingsPanel
-          isOpen={true}
-          onClose={() => {}}
-          currentUserRole="admin"
-          currentUserEmail="admin@example.com"
-        />
-      ));
-
-      const button = screen.getByTestId('kill-container-button');
-      // Empty input
-      expect(button).toBeDisabled();
-
-      // Short ID
-      const input = screen.getByTestId('kill-container-input');
-      fireEvent.input(input, { target: { value: 'abc123' } });
-      expect(button).toBeDisabled();
-
-      // Non-hex characters
-      fireEvent.input(input, { target: { value: 'g'.repeat(64) } });
-      expect(button).toBeDisabled();
-    });
-
-    it('button enabled with valid ID: button enabled with valid 64-char hex ID', () => {
-      render(() => (
-        <SettingsPanel
-          isOpen={true}
-          onClose={() => {}}
-          currentUserRole="admin"
-          currentUserEmail="admin@example.com"
-        />
-      ));
-
-      const input = screen.getByTestId('kill-container-input');
-      const button = screen.getByTestId('kill-container-button');
-
-      fireEvent.input(input, { target: { value: VALID_DO_ID } });
-      expect(button).not.toBeDisabled();
-    });
-
-    it('successful destroy: mock adminDestroyContainer success, verify success message and input cleared', async () => {
-      render(() => (
-        <SettingsPanel
-          isOpen={true}
-          onClose={() => {}}
-          currentUserRole="admin"
-          currentUserEmail="admin@example.com"
-        />
-      ));
-
-      const input = screen.getByTestId('kill-container-input');
-      const button = screen.getByTestId('kill-container-button');
-
-      fireEvent.input(input, { target: { value: VALID_DO_ID } });
-      await fireEvent.click(button);
-
-      expect(mockAdminDestroy).toHaveBeenCalledWith(VALID_DO_ID);
-
-      const result = await screen.findByTestId('kill-container-result');
-      expect(result.textContent).toContain('Container destroyed');
-
-      // Input should be cleared on success
-      expect(input).toHaveValue('');
-    });
-
-    it('failed destroy: mock adminDestroyContainer failure, verify error message shown', async () => {
-      mockAdminDestroy.mockRejectedValueOnce(new Error('DO not found'));
-
-      render(() => (
-        <SettingsPanel
-          isOpen={true}
-          onClose={() => {}}
-          currentUserRole="admin"
-          currentUserEmail="admin@example.com"
-        />
-      ));
-
-      const input = screen.getByTestId('kill-container-input');
-      const button = screen.getByTestId('kill-container-button');
-
-      fireEvent.input(input, { target: { value: VALID_DO_ID } });
-      await fireEvent.click(button);
-
-      const result = await screen.findByTestId('kill-container-result');
-      expect(result.textContent).toContain('DO not found');
+      expect(screen.queryByTestId('settings-r2-warning')).not.toBeInTheDocument();
     });
   });
 });
