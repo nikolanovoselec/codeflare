@@ -217,7 +217,7 @@ flowchart TD
 
 ### 2.16 Frontend Constants
 
-**File:** `web-ui/src/lib/constants.ts` - 22 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
+**File:** `web-ui/src/lib/constants.ts` - 20 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ### 2.17 Terminal Tab Configuration
 
@@ -848,11 +848,14 @@ codeflare/
 │   │   ├── user-profile.ts   # User info
 │   │   └── users.ts          # User management
 │   ├── middleware/            # auth.ts, rate-limit.ts
-│   ├── lib/                  # access, r2-admin, r2-config, kv-keys, constants, container-helpers,
-│   │                         # error-types, type-guards, circuit-breaker, cors-cache, cache-reset,
-│   │                         # jwt, cf-api, logger
+│   ├── lib/                  # access, access-policy, agent-config, cache-reset, cf-api,
+│   │                         # circuit-breaker, circuit-breakers, constants, container-helpers,
+│   │                         # cors-cache, error-types, jwt, kv-keys, logger, onboarding,
+│   │                         # r2-admin, r2-client, r2-config, r2-seed, schemas,
+│   │                         # session-helpers, tutorial-seed.generated, type-guards,
+│   │                         # xml-utils
 │   ├── container/index.ts    # Container DO class
-│   └── __tests__/            # Backend unit tests (64 files)
+│   └── __tests__/            # Backend unit tests (63 files)
 ├── e2e/                      # E2E tests (API + Puppeteer UI)
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
@@ -864,9 +867,10 @@ codeflare/
 │       ├── components/       # SolidJS components (Terminal, Layout, SessionCard, StorageBrowser, etc.)
 │       ├── stores/           # terminal.ts, session.ts, storage.ts, setup.ts, tiling.ts, session-presets.ts, session-tabs.ts
 │       ├── api/client.ts     # API client
+│       ├── hooks/            # useTerminal.ts, useStageTimings.ts
 │       ├── lib/              # constants, schemas, terminal-config, settings, format, mobile
 │       ├── styles/           # CSS (design tokens, animations, component styles)
-│       └── __tests__/        # Frontend unit tests (67 files)
+│       └── __tests__/        # Frontend unit tests (63 files)
 ├── Dockerfile                # Multi-stage container image
 ├── entrypoint.sh             # Container startup script
 ├── wrangler.toml             # Cloudflare configuration
@@ -955,9 +959,9 @@ Port: 8080 (single port architecture).
 
 ## 14. Testing
 
-**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 64 test files. Run: `npm test`
+**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 63 test files. Run: `npm test`
 
-**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 67 test files. Run: `cd web-ui && npm test`
+**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 63 test files. Run: `cd web-ui && npm test`
 
 **E2E API:** `e2e/` - tests against deployed worker. Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e`
 
