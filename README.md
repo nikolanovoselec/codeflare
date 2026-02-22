@@ -14,8 +14,7 @@ Every session comes pre-loaded with your choice of AI coding agent:
 | [Codex](https://github.com/openai/codex) | OpenAI's coding agent |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's terminal agent |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source coding agent |
-
-Or plain Bash, for the purists.
+| Bash | For the purists |
 
 <details>
 <summary><strong>Why Claude Unleashed?</strong></summary>
