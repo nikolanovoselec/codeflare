@@ -98,7 +98,7 @@ if (wsMatch && upgradeHeader?.toLowerCase() === 'websocket') {
 
 **CORS:** Checks static patterns from `env.ALLOWED_ORIGINS` + dynamic origins from KV (cached in memory). Uses `matchesPattern()` with domain-boundary enforcement (dot-prefixed = suffix match, bare domains = exact or subdomain with dot boundary).
 
-**Route Registration:** `/api/user`, `/api/users`, `/api/container`, `/api/sessions`, `/api/terminal`, `/api/setup`, `/api/storage`, `/api/presets`, `/api/preferences`, `/api/admin`, `/public`
+**Route Registration:** `/api/user`, `/api/users`, `/api/container`, `/api/sessions`, `/api/terminal`, `/api/setup`, `/api/storage`, `/api/presets`, `/api/preferences`, `/public`
 
 **Workers Assets Routing Guardrails (`wrangler.toml`):**
 
@@ -122,7 +122,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### 2.6 Constants
 
-**File:** `src/lib/constants.ts` - Single source of truth for 19 configuration values: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, DO ID pattern, request ID config.
+**File:** `src/lib/constants.ts` - Single source of truth for 18 configuration values: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, request ID config.
 
 ### 2.7 Circuit Breaker
 
@@ -146,7 +146,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### 2.12 DEV_MODE Gating
 
-`/api/container/debug/*` restricted to `DEV_MODE = "true"`. Admin routes use CF Access `authMiddleware` + `requireAdmin` for production access.
+`/api/container/debug/*` restricted to `DEV_MODE = "true"`.
 
 ### 2.13 Setup Wizard Resilience
 
@@ -543,14 +543,6 @@ Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AU
 
 Public before setup; admin-only after. All `adminUsers` must also be in `allowedUsers`.
 
-### Admin
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/admin/destroy-by-id` | Kill zombie container by raw DO ID (admin auth required) |
-
-Body: `{ "doId": "<64-char-hex-do-id>" }`. **CRITICAL:** Only `destroy-by-id` uses `idFromString()` which safely references EXISTING DOs. All `idFromName()` approaches CREATE new DOs if they don't exist.
-
 ### Storage (R2 File Browser)
 
 | Method | Endpoint | Description |
@@ -664,7 +656,6 @@ codeflare/
 │   │   │   └── validation.ts # Path validation
 │   │   ├── public/
 │   │   │   └── index.ts      # Onboarding endpoints
-│   │   ├── admin.ts          # Admin endpoints (destroy-by-id)
 │   │   ├── presets.ts        # Preset CRUD
 │   │   ├── preferences.ts    # User preferences
 │   │   ├── terminal.ts       # Terminal WebSocket proxy
@@ -861,7 +852,7 @@ cd web-ui && npm run build # Frontend production build
 
 Repository: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optional `RESEND_API_KEY`
 
-Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV.
+Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **R2 credentials are derived from the API token** — if the token is rotated, setup must be re-run to regenerate R2 credentials.
 
 ### CORS
 
@@ -927,7 +918,7 @@ Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 
 ### Zombie Container
 
-DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via two mechanisms: (1) `collectMetrics` checks `this.ctx.container?.running` and returns early if false (no re-arm), (2) the missing-identifiers guard returns early without re-arming when `destroy()` has cleared `SESSION_ID_KEY`/`bucketName` — this uses an if/else pattern that kills both the metrics push AND the schedule re-arm simultaneously. The SDK alarm handler eventually sees no schedules + no running container and calls `storage.deleteAlarm()`. Zombie DOs are harmless (no container process) but may briefly log debug-level warnings. Recovery if needed: `POST /api/admin/destroy-by-id` with DO ID from dashboard.
+DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via two mechanisms: (1) `collectMetrics` checks `this.ctx.container?.running` and returns early if false (no re-arm), (2) the missing-identifiers guard returns early without re-arming when `destroy()` has cleared `SESSION_ID_KEY`/`bucketName` — this uses an if/else pattern that kills both the metrics push AND the schedule re-arm simultaneously. The SDK alarm handler eventually sees no schedules + no running container and calls `storage.deleteAlarm()`. Zombie DOs are harmless (no container process) but may briefly log debug-level warnings.
 
 ### Character Doubling in Terminal
 
@@ -953,7 +944,7 @@ Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
 | `403 Forbidden` on R2 | Expired credentials | Regenerate in CF dashboard |
 | Container stuck "starting" | Port 8080 not responding | Check sync log |
 | WebSocket fails | Container not running | Verify startup-status |
-| Zombie restarts | Stale DO state | Use admin destroy-by-id |
+| Zombie restarts | Stale DO state | DO self-terminates via missing-identifiers guard |
 | Deleted session reappears | `onStop()` resurrects KV entry after `destroy()` | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
 | Container dies during active use | `/activity` 401 (auth not exempted) | Verify `/activity` in `authExemptPaths` in `host/server.js` |
 | Phantom container on session switch | `reconnectDisconnectedTerminals` reconnects wrong session | Ensure `activeSessionId` filter is passed |
@@ -1031,7 +1022,7 @@ Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate
 14. **Polling with safety timeouts** - Don't use fixed timeouts. Poll with `kill -0 $PID`, exit on success, safety timeout prevents hangs.
 15. **Zombie prevention with _destroyed flag** - Set flag in DO storage before `super.destroy()`. In `alarm()`, check flag first via `ctx.storage.get()`, clear storage and exit if destroyed.
 16. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
-17. **idFromName() CREATES DOs, idFromString() references existing** - Admin endpoints using `idFromName()` were creating zombies. Only `idFromString(hexId)` safely references existing DOs.
+17. **idFromName() CREATES DOs, idFromString() references existing** - Using `idFromName()` creates new DOs if they don't exist. Only `idFromString(hexId)` safely references existing DOs.
 18. **CPU metrics show load average, not utilization** - `os.loadavg()[0] / cpus * 100` measures run queue depth. Values >100% are normal.
 19. **Use `--filter` not `--include`/`--exclude`** - Mixed include/exclude has indeterminate order in rclone.
 25. **Polling interval should match push cadence** - Frontend polls at 5s, matching DO's `collectMetrics` 5s cycle. Polling faster wastes requests since KV data doesn't change between pushes.

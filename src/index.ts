@@ -7,7 +7,6 @@ import sessionRoutes from './routes/session/index';
 import terminalRoutes, { validateWebSocketRoute, handleWebSocketUpgrade } from './routes/terminal';
 import usersRoutes from './routes/users';
 import setupRoutes from './routes/setup/index';
-import adminRoutes from './routes/admin';
 import storageRoutes from './routes/storage';
 import presetRoutes from './routes/presets';
 import preferenceRoutes from './routes/preferences';
@@ -139,9 +138,6 @@ app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISO
 // Setup routes (public - no auth required)
 app.route('/api/setup', setupRoutes);
 app.route('/public', publicRoutes);
-
-// Admin routes (requires admin role via CF Access)
-app.route('/api/admin', adminRoutes);
 
 // API routes
 app.route('/api/user', userRoutes);
