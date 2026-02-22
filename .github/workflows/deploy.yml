@@ -117,15 +117,15 @@ jobs:
             low)
               # 0.25 vCPU / 1 GiB RAM / 4 GB disk (Cloudflare basic preset)
               INSTANCE_BLOCK='instance_type = "basic"'
-              MAX_INSTANCES=3
+              MAX_INSTANCES=10
               ;;
             high)
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 2\nmemory_mib = 6144\ndisk_mb = 8000'
-              MAX_INSTANCES=5
+              MAX_INSTANCES=10
               ;;
             default)
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 4000'
-              MAX_INSTANCES=4
+              MAX_INSTANCES=10
               ;;
             *)
               echo "::error::Invalid RESSOURCE_TIER=\"$TIER\". Allowed values: low, high. Leave unset for default."
