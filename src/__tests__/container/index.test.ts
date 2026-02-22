@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * Container DO class tests.
  *
  * The container class (src/container/index.ts) extends Cloudflare's Container<Env>
- * base class. The SDK handles idle detection via sleepAfter (3m for testing). The DO manages
+ * base class. The SDK handles idle detection via sleepAfter (30m). The DO manages
  * lifecycle timestamps via KV updates in onStart/onStop.
  *
  * What we CAN test in isolation:

@@ -12,7 +12,7 @@ const SESSION_ID_KEY = '_sessionId';
 /**
  * container - Container Durable Object for user workspaces
  *
- * Each user gets one container that persists their workspace via s3fs mount to R2.
+ * Each user gets one container that persists their workspace via rclone bisync to R2.
  * The container runs a terminal server that handles multiple PTY sessions.
  */
 // Class name must be lowercase 'container' to match wrangler.toml class_name
@@ -25,7 +25,8 @@ export class container extends Container<Env> {
   // Terminal server handles all endpoints: WebSocket, health check, metrics
   defaultPort = 8080;
 
-  // SDK kills container after 24h of no HTTP fetch() activity.
+  // Container goes to sleep after this duration of inactivity (no HTTP fetch() calls).
+  // collectMetrics() heartbeat and onActivityExpired() keep it alive while WS clients are connected.
   override sleepAfter = '30m';
 
   // Environment variables - dynamically generated via getter
@@ -158,7 +159,7 @@ export class container extends Container<Env> {
     });
 
     this.envVars = {
-      // R2 credentials - using AWS naming convention for s3fs compatibility
+      // R2 credentials - AWS naming convention for rclone S3 provider compatibility
       AWS_ACCESS_KEY_ID: accessKeyId,
       AWS_SECRET_ACCESS_KEY: secretAccessKey,
       // R2 configuration

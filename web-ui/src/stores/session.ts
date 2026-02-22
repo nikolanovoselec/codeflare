@@ -432,10 +432,12 @@ async function refreshSessionStatuses(): Promise<void> {
   try {
     const batchStatuses = await api.getBatchSessionStatus();
 
-    // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses
+    // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
+    // Skip initializing sessions — they may not appear in batch status yet.
     const removedIds: string[] = [];
     for (const session of state.sessions) {
       if (!batchStatuses[session.id]) {
+        if (session.status === 'initializing') continue;
         const count = (sessionMissCounters.get(session.id) || 0) + 1;
         sessionMissCounters.set(session.id, count);
         if (count >= REMOVAL_THRESHOLD) {
@@ -475,10 +477,13 @@ async function refreshSessionStatuses(): Promise<void> {
         }));
       }
 
+      // Guard: skip status transitions for initializing sessions to avoid
+      // clobbering the init progress UI with stale KV data. The container
+      // may report 'running' in batch-status before the init flow completes.
       if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
         updateSessionStatus(session.id, 'running');
         initializeTerminalsForSession(session.id);
-      } else if (remote.status === 'stopped' && session.status !== 'stopped' && session.status !== 'stopping') {
+      } else if (remote.status === 'stopped' && session.status !== 'stopped' && session.status !== 'stopping' && session.status !== 'initializing') {
         updateSessionStatus(session.id, 'stopped');
       }
     }

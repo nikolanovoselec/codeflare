@@ -48,25 +48,41 @@ const Layout: Component<LayoutProps> = (props) => {
     applyAccentColor(savedSettings.accentColor);
   });
 
-  // Only poll session list while on dashboard — polling during terminal view
-  // replaces the sessions array, triggering reactivity that flips viewState.
+  // Poll session statuses (metrics, status changes) regardless of view state
+  // so dashboard cards always show fresh CPU/mem/HDD when the user returns.
+  // refreshSessionStatuses() updates in-place and won't trigger viewState flips.
+  onMount(() => {
+    sessionStore.startSessionListPolling();
+  });
+
+  onCleanup(() => {
+    sessionStore.stopSessionListPolling();
+  });
+
   // On dashboard: schedule a full WebSocket disconnect after a grace period
   // so the Cloudflare Container can go idle.
   // On terminal: cancel scheduled disconnect and reconnect any dropped connections.
   createEffect(() => {
     if (viewState() === 'dashboard') {
       scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS);
-      sessionStore.startSessionListPolling();
     } else {
       cancelScheduledDisconnect();
       reconnectDisconnectedTerminals(untrack(() => sessionStore.activeSessionId) ?? undefined);
-      sessionStore.stopSessionListPolling();
     }
   });
 
-  onCleanup(() => {
-    sessionStore.stopSessionListPolling();
-  });
+  // Reconnect stale WebSockets when the browser tab regains focus.
+  // Without this, returning after ~5 min finds exhausted retry loops and
+  // a stuck "Reconnecting..." overlay that only clears on full page refresh.
+  {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && viewState() !== 'dashboard') {
+        reconnectDisconnectedTerminals(untrack(() => sessionStore.activeSessionId) ?? undefined);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    onCleanup(() => document.removeEventListener('visibilitychange', onVisibilityChange));
+  }
 
   // viewState-derived computations
   const showTerminal = createMemo(() => viewState() === 'terminal' || viewState() === 'expanding');

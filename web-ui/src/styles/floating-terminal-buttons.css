@@ -39,13 +39,17 @@
 }
 
 .floating-btn-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
 }
 
+/* Labels are position:absolute so they can animate width/opacity independently
+   without shifting the icon button. Anchored to the left of the parent button. */
 .floating-btn-label {
+  position: absolute;
+  right: calc(100% + 6px);
   background: rgba(0, 0, 0, 0.8);
   color: white;
   font-size: 11px;

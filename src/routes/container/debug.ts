@@ -104,7 +104,7 @@ app.get('/debug', async (c) => {
 
 /**
  * GET /api/container/mount-test
- * Tests if the s3fs mount is working by writing and reading a file
+ * Tests if the R2-synced workspace is accessible by writing and reading a file
  */
 app.get('/mount-test', async (c) => {
   const reqLogger = containerLogger.child({ requestId: c.get('requestId') });

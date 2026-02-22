@@ -497,6 +497,29 @@
             z-index: 200;
           }
 
+          .header-bookmarks-create {
+            padding: 12px 16px;
+          }
+
+          /* Anchor the bottom sheet to the top when creating a bookmark
+             so it doesn't overlap with floating terminal buttons. */
+          .header-bookmarks-menu:has(.header-bookmarks-create) {
+            bottom: auto;
+            top: 0;
+            border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+          }
+
+          .header-bookmark-name-input {
+            padding: 12px 14px;
+            font-size: 16px;
+          }
+
+          .header-bookmark-save {
+            height: 44px;
+            padding: 0 16px;
+            font-size: 14px;
+          }
+
           .header-user-name {
             display: none;
           }

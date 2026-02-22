@@ -18,7 +18,7 @@ import SessionSwitcher from './SessionSwitcher';
 import { sessionStore } from '../stores/session';
 import { terminalStore } from '../stores/terminal';
 import { md5 } from '../lib/md5';
-import { isTouchDevice } from '../lib/mobile';
+import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
 
@@ -248,7 +248,7 @@ const Header: Component<HeaderProps> = (props) => {
           </button>
 
           <Show when={showBookmarksMenu()}>
-            <div class="header-bookmarks-menu" data-testid="header-bookmarks-menu">
+            <div class="header-bookmarks-menu" data-testid="header-bookmarks-menu" style={isTouchDevice() && !showCreateBookmark() ? { bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px)` } : undefined}>
               <Show when={bookmarkError()}>
                 <div class="header-bookmark-error" data-testid="header-bookmark-error">
                   {bookmarkError()}
