@@ -2,6 +2,33 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
+## Table of Contents
+
+1. [Architecture Overview](#1-architecture-overview)
+2. [Components](#2-components)
+3. [UI Features](#3-ui-features)
+4. [Data Flow](#4-data-flow)
+5. [Storage and Sync](#5-storage-and-sync)
+6. [Authentication](#6-authentication)
+7. [Security Model](#7-security-model)
+8. [API Reference](#8-api-reference)
+9. [Environment Variables](#9-environment-variables)
+10. [File Structure](#10-file-structure)
+11. [Container Startup](#11-container-startup)
+12. [Container Image](#12-container-image)
+13. [Claude-Unleashed Integration](#13-claude-unleashed-integration)
+14. [Testing](#14-testing)
+15. [Development](#15-development)
+16. [CI/CD (GitHub Actions)](#16-cicd-github-actions)
+17. [API Token Permissions](#17-api-token-permissions)
+18. [Configuration](#18-configuration)
+19. [Container Specs](#19-container-specs)
+20. [Troubleshooting](#20-troubleshooting)
+21. [Debugging Guide](#21-debugging-guide)
+22. [Cost](#22-cost)
+23. [Lessons Learned](#23-lessons-learned)
+24. [Mobile Terminal Bug Fixes](#24-mobile-terminal-bug-fixes)
+
 **Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by CF Access). The workers.dev URL should then be gated behind one-click Access in the Cloudflare dashboard.
 
 ---
@@ -204,7 +231,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 **Critical: `envVars` must be set as a property assignment**, not as a getter. Cloudflare Containers reads `this.envVars` as a plain property at `start()` time.
 
-**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId` in DO storage — this ensures `collectMetrics`/`onStop` can find the KV entry even on session restarts (where the DO already has a bucket set but needs the sessionId for the new lifecycle).
+**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage -- this ensures `collectMetrics`/`onStop` can find the KV entry even on session restarts (where the DO already has a bucket set but needs the sessionId for the new lifecycle), and that user preference changes take effect without container recreation.
 
 **Lifecycle Route Re-calls `setBucketName` After `destroy()`:** In the `needsBucketUpdate` path (restart with different bucket), `destroy()` wipes DO storage. The lifecycle route must call `setBucketName` again after `destroy()` to re-populate sessionId, bucketName, and R2 credentials. See `src/routes/container/lifecycle.ts`.
 
@@ -347,7 +374,7 @@ sequenceDiagram
 
 **Delete:** Worker `KV.delete()` → `container.destroy()` → `destroy()` clears `SESSION_ID_KEY` + `bucketName` → `super.destroy()` → `onStop()` bails (no identifiers, so deleted session cannot be resurrected in KV)
 
-**Restart (same bucket):** `setBucketName` → 409 (bucket already set, but stores `sessionId` in DO storage for KV reconciliation) → `startAndWaitForPorts()` → `onStart()` re-arms metrics
+**Restart (same bucket):** `setBucketName` → 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage for KV reconciliation and preference updates) → `startAndWaitForPorts()` → `onStart()` re-arms metrics
 
 **Restart (different bucket):** `setBucketName` succeeds → `destroy()` (wipes DO storage) → lifecycle route re-calls `setBucketName` (re-populates sessionId + bucketName + R2 creds) → `startAndWaitForPorts()`
 
@@ -447,8 +474,7 @@ flowchart LR
     A[Request] --> B[Edge routing]
     B --> C[CORS]
     C --> D[Auth Middleware]
-    D --> E["getUserFromRequest()
-    JWT / service token / DEV_MODE"]
+    D --> E["getUserFromRequest()&lt;br/&gt;JWT / service token / DEV_MODE"]
     E --> F[Normalize email]
     F --> G[Check KV allowlist]
     G --> H["getBucketName()"]
@@ -466,7 +492,52 @@ flowchart LR
 
 ---
 
-## 7. API Reference
+## 7. Security Model
+
+### CF Access Gate
+
+Cloudflare Access protects all authenticated surfaces. One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`. Including exact + wildcard variants removes ambiguity. Uses all 5 allowed entries.
+
+### API Token Containment
+
+The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
+
+### Container Auth Token
+
+A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/server.js`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
+
+### Graceful Shutdown
+
+`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon, runs a final `rclone bisync` to R2, and kills the terminal server. This ensures no data loss on container stop.
+
+### Security Headers
+
+Applied to every response in `src/index.ts`:
+- `Strict-Transport-Security` (HSTS)
+- `Content-Security-Policy`
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Permissions-Policy`
+
+### Body Limit
+
+64 KiB on all `/api/*` routes (storage routes exempt for file uploads).
+
+### Rate Limiting
+
+Per-user rate limiting via KV (`src/middleware/rate-limit.ts`). Uses `bucketName` from auth as the rate limit key, with IP fallback for unauthenticated requests. Configurable window and max per route. Adds `X-RateLimit-Limit`, `X-RateLimit-Remaining` response headers.
+
+### WebSocket Rate Limit
+
+30 connections per 60-second window per user (`WS_RATE_LIMIT_WINDOW_MS = 60000`, `WS_RATE_LIMIT_MAX_CONNECTIONS = 30`). Defined in `src/lib/constants.ts`.
+
+### Protected R2 Paths
+
+The following paths are excluded from R2 sync and cannot be uploaded/deleted/moved via the storage API: `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json`. Defined in `PROTECTED_PATHS` in `src/lib/constants.ts`.
+
+---
+
+## 8. API Reference
 
 ### Common Response Headers
 
@@ -578,7 +649,7 @@ GET `/health`, GET `/api/health`
 
 ---
 
-## 8. Environment Variables
+## 9. Environment Variables
 
 ### Worker Environment
 
@@ -608,14 +679,14 @@ GET `/health`, GET `/api/health`
 | `R2_ACCOUNT_ID` / `R2_ENDPOINT` | rclone endpoint | Worker → DO or `getR2Config()` fallback |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
 | `TERMINAL_PORT` | Always 8080 | Hardcoded |
-| `SYNC_MODE` | Sync strategy (`bisync` or `copy`) | Worker → DO |
+| `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) -- see Section 5 | Worker → DO |
 | `TAB_CONFIG` | JSON array of terminal tab configurations | Worker → DO |
 | `TERMINAL_ID` | Unique ID for this terminal instance | Worker → DO |
 | `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker → DO |
 
 ---
 
-## 9. File Structure
+## 10. File Structure
 
 ```
 codeflare/
@@ -700,7 +771,7 @@ codeflare/
 
 ---
 
-## 10. Container Startup
+## 11. Container Startup
 
 **File:** `entrypoint.sh`
 
@@ -721,7 +792,7 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 ---
 
-## 11. Container Image
+## 12. Container Image
 
 **File:** `Dockerfile` - Base: `node:22.13-alpine3.21`, multi-stage build (builder compiles native addons, runtime has no build tools).
 
@@ -751,7 +822,7 @@ Port: 8080 (single port architecture).
 
 ---
 
-## 12. Claude-Unleashed Integration
+## 13. Claude-Unleashed Integration
 
 [claude-unleashed](https://github.com/nikolanovoselec/claude-unleashed) enables `--dangerously-skip-permissions` when running as root inside containers (standard CLI prevents this via `process.getuid() === 0` check).
 
@@ -767,7 +838,7 @@ Port: 8080 (single port architecture).
 
 ---
 
-## 13. Testing
+## 14. Testing
 
 **Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 64 test files. Run: `npm test`
 
@@ -781,7 +852,7 @@ Port: 8080 (single port architecture).
 
 ---
 
-## 14. Development
+## 15. Development
 
 ```bash
 npm install && cd web-ui && npm install && cd ..
@@ -790,14 +861,14 @@ npm run typecheck    # Type check backend
 npm test             # Backend unit tests
 npm run test:e2e     # E2E API tests
 npm run test:e2e:ui  # E2E UI tests (Puppeteer)
-npm run deploy       # Deploy to Cloudflare
+npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see Section 16)
 cd web-ui && npm run dev   # Frontend dev server
 cd web-ui && npm run build # Frontend production build
 ```
 
 ---
 
-## 15. CI/CD (GitHub Actions)
+## 16. CI/CD (GitHub Actions)
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
@@ -821,7 +892,7 @@ cd web-ui && npm run build # Frontend production build
 
 ---
 
-## 16. API Token Permissions
+## 17. API Token Permissions
 
 ### Account Permissions
 
@@ -846,7 +917,7 @@ cd web-ui && npm run build # Frontend production build
 
 ---
 
-## 17. Configuration
+## 18. Configuration
 
 ### Secrets
 
@@ -862,19 +933,19 @@ Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGIN
 
 ---
 
-## 18. Container Specs
+## 19. Container Specs
 
-| Tier | Config | Notes |
-|------|--------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 4 GB | Baseline for node-pty + agent CLIs |
-| `high` | 2 vCPU, 6 GiB, 8 GB | Higher parallelism |
+| Tier | Config | Max Instances | Notes |
+|------|--------|---------------|-------|
+| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 3 | Sub-1-vCPU workloads |
+| default | 1 vCPU, 3 GiB, 4 GB | 4 | Baseline for node-pty + agent CLIs |
+| `high` | 2 vCPU, 6 GiB, 8 GB | 5 | Higher parallelism |
 
 Base image: Node.js 22 Alpine.
 
 ---
 
-## 19. Troubleshooting
+## 20. Troubleshooting
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
@@ -952,7 +1023,7 @@ Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
 
 ---
 
-## 20. Debugging Guide
+## 21. Debugging Guide
 
 ### Container Status
 
@@ -983,7 +1054,7 @@ curl .../api/container/debug?sessionId=abc12345  # Returns masked env vars
 
 ---
 
-## 21. Cost
+## 22. Cost
 
 ### Per-Container Pricing
 
@@ -999,42 +1070,26 @@ Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate
 
 ---
 
-## 22. Lessons Learned
+## 23. Lessons Learned
+
+Architectural principles and design rationale. For code-level implementation traps (specific files, functions, what breaks), see CLAUDE.md "Gotchas and Important Notes".
 
 1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
 2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
 3. **Auto-resync on failure** - Automatic `--resync` recovery handles most bisync failures.
-4. **envVars in constructor** - Container class reads envVars as property, not getter.
-5. **WebSocket sends RAW bytes** - xterm.js expects raw terminal data, not JSON.
-6. **Login shell for .bashrc** - PTY must spawn `bash -l` for auto-start.
-7. **Two-step sync prevents data loss** - Empty local + bisync resync = deleted R2 data. Always restore first.
-8. **SDK-managed lifecycle with heartbeat** - `sleepAfter = '30m'` with `collectMetrics` heartbeat keeps containers alive during active WS use. The heartbeat compensates for WS frames bypassing `renewActivityTimeout()`. Confirmed stable at 30m.
-9. **`onStop()` must set KV status** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV, otherwise other devices see stale 'running' status.
-10. **Don't getState() after destroy()** - Wakes the DO, undoing hibernation.
-20. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing `SESSION_ID_KEY` and `_bucketName` first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
-21. **`setBucketName` 409 path must store sessionId** - DOs created before `SESSION_ID_KEY` existed have no sessionId. The 409 handler stores it, so `collectMetrics`/`onStop` can reconcile with KV even on restart.
-22. **`getTcpPort().fetch()` does NOT auto-start containers** - Goes directly to the container TCP port. `container.fetch()` (which calls SDK `containerFetch`) DOES auto-start stopped containers. Use `getTcpPort()` for internal health/activity checks to avoid unintended wakeups.
-23. **SolidJS `createEffect` tracks all reactive reads** - Even reads in conditional branches or deep inside helper functions create subscriptions. Use `untrack()` when reading a signal without wanting to subscribe (e.g., `Layout.tsx` line 62).
-24. **Auth-exempt internal container paths** - `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the auth header). Paths called via `getTcpPort()` must be in `authExemptPaths` in `host/server.js`, or they'll get 401.
-11. **inputDisposable scope matters** - Dispose on reconnect to prevent character doubling.
-12. **No fallback container IDs** - `getContainerId()` must NEVER fallback to just `bucketName`. Root cause of zombies.
-13. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
-14. **Polling with safety timeouts** - Don't use fixed timeouts. Poll with `kill -0 $PID`, exit on success, safety timeout prevents hangs.
-15. **Zombie prevention with _destroyed flag** - Set flag in DO storage before `super.destroy()`. In `alarm()`, check flag first via `ctx.storage.get()`, clear storage and exit if destroyed.
-16. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
-17. **idFromName() CREATES DOs, idFromString() references existing** - Using `idFromName()` creates new DOs if they don't exist. Only `idFromString(hexId)` safely references existing DOs.
-18. **CPU metrics show load average, not utilization** - `os.loadavg()[0] / cpus * 100` measures run queue depth. Values >100% are normal.
-19. **Use `--filter` not `--include`/`--exclude`** - Mixed include/exclude has indeterminate order in rclone.
-25. **Polling interval should match push cadence** - Frontend polls at 5s, matching DO's `collectMetrics` 5s cycle. Polling faster wastes requests since KV data doesn't change between pushes.
-26. **`collectMetrics` early return must use if/else** - When identifiers are missing (zombie DO), the early return must kill both the metrics push AND the schedule re-arm. Using a flat return without if/else risks pushing stale metrics while still self-terminating.
-27. **Downgrade verbose heartbeat logs to debug** - Per-cycle keepalive logs at `info` level generate enormous log volume (every 5s per container). Once keepalive is confirmed stable, downgrade to `debug`.
-28. **KV eventual consistency affects new sessions** - ~60s propagation delay for first metrics write to appear at edge. Frontend handles gracefully by showing last-known metrics.
-29. **`container.fetch()` for `/_internal/*` routes bypasses lifecycle** - Internal routes are handled by the DO's `fetch()` override directly. They do NOT trigger `containerFetch`/`startAndWaitForPorts`/`renewActivityTimeout`.
-30. **`batch-status` must stay stateless** - Pure KV read, zero DO contact. Making it touch DOs would reset `sleepAfter` on every dashboard poll, preventing containers from ever hibernating.
+4. **SDK-managed lifecycle with heartbeat** - `sleepAfter` with `collectMetrics` heartbeat keeps containers alive during active WS use. The heartbeat compensates for WS frames bypassing `renewActivityTimeout()`.
+5. **`onStop()` must set KV status** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV, otherwise other devices see stale 'running' status.
+6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
+7. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
+8. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
+9. **CPU metrics show load average, not utilization** - `os.loadavg()[0] / cpus * 100` measures run queue depth. Values >100% are normal.
+10. **Downgrade verbose heartbeat logs to debug** - Per-cycle keepalive logs at `info` level generate enormous log volume (every 5s per container). Once keepalive is confirmed stable, downgrade to `debug`.
+11. **Stateless dashboard polling preserves hibernation** - Dashboard status endpoints must be pure KV reads with zero DO contact. Touching DOs resets `sleepAfter` on every poll, preventing containers from ever hibernating.
+12. **Polling interval should match push cadence** - Frontend poll frequency should equal the backend push cycle. Polling faster wastes requests since data doesn't change between pushes.
 
 ---
 
-## 23. Mobile Terminal Bug Fixes
+## 24. Mobile Terminal Bug Fixes
 
 ### Bug 1: "Orange Square" Cursor Duplication
 
