@@ -141,7 +141,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### 2.4 Error Handling
 
-**File:** `src/lib/error-types.ts` - `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`.
+**File:** `src/lib/error-types.ts` - `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401), `ForbiddenError` (403), `SetupError` (400), `RateLimitError` (429), `CircuitBreakerOpenError` (503). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`.
 
 ### 2.5 Type Guards
 
@@ -668,7 +668,9 @@ The following paths are excluded from R2 sync and cannot be uploaded/deleted/mov
 { "error": "User-friendly message", "code": "ERROR_CODE" }
 ```
 
-Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AUTH_ERROR` (401).
+Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AUTH_ERROR` (401), `FORBIDDEN` (403), `SETUP_ERROR` (400), `RATE_LIMIT_ERROR` (429), `CIRCUIT_BREAKER_OPEN` (503).
+
+Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, error, code }` instead of the standard `{ error, code }`.
 
 ### Session Management
 
@@ -795,6 +797,7 @@ GET `/health`, GET `/api/health`
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
 | `TERMINAL_PORT` | Always 8080 | Hardcoded |
 | `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) -- see Section 5 | Worker → DO |
+| `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`). Drives `SYNC_MODE` value. | Worker via `setBucketName` |
 | `TAB_CONFIG` | JSON array of terminal tab configurations | Worker → DO |
 | `TERMINAL_ID` | Unique ID for this terminal instance | Worker → DO |
 | `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker → DO |
