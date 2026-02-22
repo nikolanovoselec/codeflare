@@ -11,9 +11,9 @@ import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, ContainerError, NotFoundError, toError, toErrorMessage } from '../../lib/error-types';
-import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey } from '../../lib/kv-keys';
+import { AppError, ContainerError, NotFoundError, RateLimitError, toError, toErrorMessage } from '../../lib/error-types';
+import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
+import { getSessionKey, getPreferencesKey, listAllKvKeys, getSessionPrefix } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, containerInternalCB, getStoredBucketName } from './shared';
 
@@ -45,6 +45,28 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const sessionData = await c.env.KV.get<Session>(sessionKey, 'json');
     if (!sessionData) {
       throw new NotFoundError('Session', sessionId);
+    }
+
+    // Session limit check: enforce max concurrent running sessions per role.
+    // This is a loose safety net — frontend enforces limits proactively.
+    // TOCTOU note: KV reads are not atomic with the status update below,
+    // so concurrent requests may both pass this check. Acceptable for the
+    // intended use case (small limits, frontend is primary gate).
+    const user = c.get('user');
+    const maxSessions = getMaxSessions(user.role, c.env);
+
+    const sessionKeys = await listAllKvKeys(c.env.KV, getSessionPrefix(bucketName));
+    const sessionResults = await Promise.all(
+      sessionKeys.map(key => c.env.KV.get<Session>(key.name, 'json'))
+    );
+    const runningCount = sessionResults.filter(
+      (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
+    ).length;
+
+    if (runningCount >= maxSessions) {
+      throw new RateLimitError(
+        `Session limit reached (${runningCount}/${maxSessions}). Stop an existing session to start a new one.`
+      );
     }
 
     const containerId = getContainerId(bucketName, sessionId);

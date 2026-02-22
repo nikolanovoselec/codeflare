@@ -357,6 +357,219 @@ describe('Container Lifecycle Routes', () => {
   });
 
   // =========================================================================
+  // Session Limits
+  // =========================================================================
+  describe('Session limits', () => {
+    it('returns 429 when running sessions exceed limit', async () => {
+      const fetch = createLifecycleApp();
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      // Seed 3 running sessions (default limit for regular users)
+      for (let i = 1; i <= 3; i++) {
+        const id = `runningsession${String(i).padStart(8, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Running ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(429);
+      const body = await res.json() as { code: string; error: string };
+      expect(body.code).toBe('RATE_LIMIT_ERROR');
+    });
+
+    it('allows start when under the limit', async () => {
+      const fetch = createLifecycleApp();
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      // Seed only 2 running sessions (under default limit of 3)
+      for (let i = 1; i <= 2; i++) {
+        const id = `runningsession${String(i).padStart(8, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Running ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('excludes the session being started from running count (restart)', async () => {
+      const fetch = createLifecycleApp();
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      // Seed 3 running sessions, one of which is the session being restarted
+      mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+        id: 'abcdef1234567890abcdef12',
+        name: 'Restarting Session',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      });
+      for (let i = 1; i <= 2; i++) {
+        const id = `runningsession${String(i).padStart(8, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Running ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      // Should succeed because the session itself is excluded from count (2 others < 3)
+      expect(res.status).toBe(200);
+    });
+
+    it('admin gets higher limit (DEFAULT_MAX_SESSIONS_ADMIN)', async () => {
+      const app = createTestApp({
+        routes: [{ path: '/container', handler: lifecycleRoutes }],
+        mockKV,
+        bucketName: 'test-bucket',
+        user: { email: 'admin@example.com', authenticated: true, role: 'admin' },
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token' } as Partial<Env>,
+      });
+
+      const fetchAdmin = (path: string, init?: RequestInit) => {
+        const req = new Request(`http://localhost${path}`, init);
+        return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
+      };
+
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      // Seed 5 running sessions (above user limit 3, below admin limit 10)
+      for (let i = 1; i <= 5; i++) {
+        const id = `runningsession${String(i).padStart(8, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Running ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetchAdmin('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('respects MAX_SESSIONS_USER env var override', async () => {
+      const app = createTestApp({
+        routes: [{ path: '/container', handler: lifecycleRoutes }],
+        mockKV,
+        bucketName: 'test-bucket',
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', MAX_SESSIONS_USER: '5' } as Partial<Env>,
+      });
+
+      const fetchWithOverride = (path: string, init?: RequestInit) => {
+        const req = new Request(`http://localhost${path}`, init);
+        return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
+      };
+
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      // Seed 4 running sessions (above default 3 but below override 5)
+      for (let i = 1; i <= 4; i++) {
+        const id = `runningsession${String(i).padStart(8, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Running ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetchWithOverride('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('falls back to default when env var is invalid', async () => {
+      const app = createTestApp({
+        routes: [{ path: '/container', handler: lifecycleRoutes }],
+        mockKV,
+        bucketName: 'test-bucket',
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', MAX_SESSIONS_USER: 'invalid' } as Partial<Env>,
+      });
+
+      const fetchBadEnv = (path: string, init?: RequestInit) => {
+        const req = new Request(`http://localhost${path}`, init);
+        return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
+      };
+
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      // Seed 3 running sessions (hits default limit of 3)
+      for (let i = 1; i <= 3; i++) {
+        const id = `runningsession${String(i).padStart(8, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Running ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetchBadEnv('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      // Should use default limit of 3, so 3 running = 429
+      expect(res.status).toBe(429);
+    });
+  });
+
+  // =========================================================================
   // POST /container/destroy
   // =========================================================================
   describe('POST /container/destroy', () => {

@@ -12,8 +12,10 @@ import StatCards from './StatCards';
 import StorageBrowser from './StorageBrowser';
 import FilePreview from './FilePreview';
 import CreateSessionDialog from './CreateSessionDialog';
+import SessionLimitPopup from './SessionLimitPopup';
 import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
+import { sessionStore } from '../stores/session';
 import '../styles/dashboard.css';
 
 function getGravatarUrl(email: string, size = 32): string {
@@ -37,6 +39,7 @@ interface DashboardProps {
 const Dashboard: Component<DashboardProps> = (props) => {
   const [collapseReady, setCollapseReady] = createSignal(false);
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
+  const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
   const [menuState, setMenuState] = createSignal<{ isOpen: boolean; position: { x: number; y: number }; session: SessionWithStatus | null }>({
     isOpen: false,
@@ -143,7 +146,29 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     anchorRef={newSessionBtnRef()}
                   />
                 </Portal>
-                <button type="button" ref={setNewSessionBtnRef} class="dashboard-new-session-btn" data-testid="dashboard-new-session" onClick={() => setShowCreateDialog(!showCreateDialog())}>
+                <Portal>
+                  <SessionLimitPopup
+                    isOpen={showLimitPopup()}
+                    onClose={() => setShowLimitPopup(false)}
+                    sessionsRunning={sessionStore.sessions.filter(s => s.status === 'running' || s.status === 'initializing').length}
+                    sessionsLimit={sessionStore.maxSessions}
+                    anchorRef={newSessionBtnRef()}
+                  />
+                </Portal>
+                <button
+                  type="button"
+                  ref={setNewSessionBtnRef}
+                  class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
+                  data-testid="dashboard-new-session"
+                  aria-label={sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
+                  onClick={() => {
+                    if (sessionStore.isAtSessionLimit()) {
+                      setShowLimitPopup(!showLimitPopup());
+                    } else {
+                      setShowCreateDialog(!showCreateDialog());
+                    }
+                  }}
+                >
                   + New Session
                 </button>
             </div>

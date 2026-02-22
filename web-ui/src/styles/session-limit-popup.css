@@ -1,0 +1,147 @@
+/* SessionLimitPopup Styles */
+
+.session-limit-popup {
+  position: fixed;
+  z-index: 100;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-4);
+  animation: slp-slide-in 150ms ease-out;
+}
+
+@keyframes slp-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Header */
+.slp-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.slp-warning-icon {
+  flex-shrink: 0;
+  color: var(--color-warning);
+}
+
+.slp-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+/* Body */
+.slp-body {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-normal);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.slp-count {
+  font-weight: var(--font-bold);
+  color: var(--color-warning);
+}
+
+/* Progress bar */
+.slp-progress-track {
+  height: 4px;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: var(--space-4);
+}
+
+.slp-progress-fill {
+  height: 100%;
+  background: var(--color-warning);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-base);
+}
+
+/* Dismiss button */
+.slp-dismiss-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.slp-dismiss-btn:hover {
+  background: var(--color-bg-muted);
+}
+
+/* Backdrop — click-outside dismiss overlay */
+.slp-backdrop {
+  display: none;
+}
+
+/* Limited state for dashboard new-session button */
+.dashboard-new-session-btn--limited {
+  border-color: rgba(245, 158, 11, 0.3);
+  color: var(--color-warning);
+}
+
+.dashboard-new-session-btn--limited:hover {
+  background: var(--color-warning-muted);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+/* ======================================
+   Mobile: full-width bottom sheet dialog
+   ====================================== */
+@media (max-width: 640px) {
+  .session-limit-popup {
+    position: fixed !important;
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 70vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: slp-slide-up 200ms ease-out;
+    z-index: 210;
+    overflow-y: auto;
+  }
+
+  @keyframes slp-slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .slp-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 209;
+  }
+}

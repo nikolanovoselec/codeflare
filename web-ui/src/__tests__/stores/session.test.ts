@@ -36,7 +36,7 @@ vi.mock('../../api/client', () => ({
   createSession: vi.fn(),
   deleteSession: vi.fn(),
   updateSession: vi.fn(),
-  getBatchSessionStatus: vi.fn().mockResolvedValue({}),
+  getBatchSessionStatus: vi.fn().mockResolvedValue({ statuses: {}, maxSessions: 3 }),
   getStartupStatus: vi.fn(),
   startSession: vi.fn(),
   stopSession: vi.fn(),
@@ -69,7 +69,7 @@ describe('Session Store', () => {
 
     // Default mock implementations
     mockGetSessions.mockResolvedValue([]);
-    mockGetBatchSessionStatus.mockResolvedValue({});
+    mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
     mockGetStartupStatus.mockRejectedValue(new Error('Not found'));
     sessionStore._resetMissCounters();
   });
@@ -139,9 +139,9 @@ describe('Session Store', () => {
         },
       ];
       mockGetSessions.mockResolvedValue(mockSessions);
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
-      });
+      }, maxSessions: 3 });
       mockGetStartupStatus.mockResolvedValue({
         stage: 'ready',
         progress: 100,
@@ -168,9 +168,9 @@ describe('Session Store', () => {
         },
       ];
       mockGetSessions.mockResolvedValue(mockSessions);
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
-      });
+      }, maxSessions: 3 });
 
       await sessionStore.loadSessions();
 
@@ -189,9 +189,9 @@ describe('Session Store', () => {
         },
       ];
       mockGetSessions.mockResolvedValue(mockSessions);
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
-      });
+      }, maxSessions: 3 });
       mockGetStartupStatus.mockResolvedValue({
         stage: 'ready',
         progress: 100,
@@ -227,9 +227,9 @@ describe('Session Store', () => {
       mockGetSessions.mockResolvedValue(mockSessions);
       // Even with startupStage 'verifying', a running container should stay 'running'
       // to avoid Terminal unmount/remount loops
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: false, startupStage: 'verifying' },
-      });
+      }, maxSessions: 3 });
 
       // First load — fresh page, session arrives as 'stopped'
       await sessionStore.loadSessions();
@@ -249,7 +249,7 @@ describe('Session Store', () => {
       mockGetSessions
         .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
         .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
-      mockGetBatchSessionStatus.mockResolvedValue({});
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
 
       const firstCall = sessionStore.loadSessions();
       const secondCall = sessionStore.loadSessions();
@@ -363,7 +363,7 @@ describe('Session Store', () => {
           lastAccessedAt: new Date().toISOString(),
         },
       ]);
-      mockGetBatchSessionStatus.mockResolvedValue({ 'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' } });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' } }, maxSessions: 3 });
       mockGetStartupStatus.mockResolvedValue({
         stage: 'ready',
         progress: 100,
@@ -385,8 +385,8 @@ describe('Session Store', () => {
       mockStopSession.mockResolvedValue(undefined);
       // First poll returns 'stopping', second returns 'stopped'
       mockGetBatchSessionStatus
-        .mockResolvedValueOnce({ 'session-1': { status: 'stopping' as any, ptyActive: false } })
-        .mockResolvedValueOnce({ 'session-1': { status: 'stopped', ptyActive: false } });
+        .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'stopping' as any, ptyActive: false } }, maxSessions: 3 })
+        .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
 
       const stopPromise = sessionStore.stopSession('session-1');
 
@@ -405,7 +405,7 @@ describe('Session Store', () => {
 
     it('should preserve terminal state (dispose without cleanup)', async () => {
       mockStopSession.mockResolvedValue(undefined);
-      mockGetBatchSessionStatus.mockResolvedValue({ 'session-1': { status: 'stopped', ptyActive: false } });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
 
       const stopPromise = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(3000);
@@ -418,7 +418,7 @@ describe('Session Store', () => {
 
     it('should clear initialization state if in progress', async () => {
       mockStopSession.mockResolvedValue(undefined);
-      mockGetBatchSessionStatus.mockResolvedValue({ 'session-1': { status: 'stopped', ptyActive: false } });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
 
       // Simulate session being in initializing state
       sessionStore.initializeTerminalsForSession('session-1');
@@ -539,7 +539,7 @@ describe('Session Store', () => {
           lastAccessedAt: new Date().toISOString(),
         },
       ]);
-      mockGetBatchSessionStatus.mockResolvedValue({ 'session-1': { status: 'stopped', ptyActive: false } });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
       await sessionStore.loadSessions();
 
       // startSession sets initializingSessionIds synchronously before calling the API
@@ -563,7 +563,7 @@ describe('Session Store', () => {
 
       // Reset session state so the next loadSessions sees a fresh transition to 'running'
       mockGetSessions.mockResolvedValue([]);
-      mockGetBatchSessionStatus.mockResolvedValue({});
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
       await sessionStore.loadSessions();
 
       mockGetSessions.mockResolvedValue([
@@ -574,20 +574,20 @@ describe('Session Store', () => {
           lastAccessedAt: new Date().toISOString(),
         },
       ]);
-      mockGetBatchSessionStatus.mockResolvedValue({ 'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' } });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' } }, maxSessions: 3 });
 
       await sessionStore.loadSessions();
     });
 
     it('should populate metrics from batch-status during loadSessions', async () => {
       // batch-status returns metrics from KV (pushed by container schedule)
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': {
           status: 'running',
           ptyActive: true,
           metrics: { cpu: '25%', mem: '512MB', hdd: '1.2GB', syncStatus: 'success', updatedAt: '2026-02-20T00:00:00Z' },
         },
-      });
+      }, maxSessions: 3 });
       await sessionStore.loadSessions();
 
       const metrics = sessionStore.getMetricsForSession('session-1');
@@ -603,13 +603,13 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
 
       // Now refresh with updated metrics
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': {
           status: 'running',
           ptyActive: true,
           metrics: { cpu: '80%', mem: '2GB', hdd: '3GB', syncStatus: 'success', updatedAt: '2026-02-20T01:00:00Z' },
         },
-      });
+      }, maxSessions: 3 });
       await sessionStore.refreshSessionStatuses();
 
       const metrics = sessionStore.getMetricsForSession('session-1');
@@ -832,15 +832,15 @@ describe('Session Store', () => {
           lastAccessedAt: new Date().toISOString(),
         },
       ]);
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'stopped', ptyActive: false },
-      });
+      }, maxSessions: 3 });
       await sessionStore.loadSessions();
     });
 
     it('should not remove session after 1 miss', async () => {
       // Session missing from batch status
-      mockGetBatchSessionStatus.mockResolvedValue({});
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
 
       await sessionStore.refreshSessionStatuses();
 
@@ -848,7 +848,7 @@ describe('Session Store', () => {
     });
 
     it('should not remove session after 2 misses', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({});
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
 
       await sessionStore.refreshSessionStatuses();
       await sessionStore.refreshSessionStatuses();
@@ -857,7 +857,7 @@ describe('Session Store', () => {
     });
 
     it('should remove session after 3 consecutive misses', async () => {
-      mockGetBatchSessionStatus.mockResolvedValue({});
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
 
       await sessionStore.refreshSessionStatuses();
       await sessionStore.refreshSessionStatuses();
@@ -868,20 +868,20 @@ describe('Session Store', () => {
 
     it('should reset miss counter when session reappears', async () => {
       // Miss once
-      mockGetBatchSessionStatus.mockResolvedValue({});
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
       await sessionStore.refreshSessionStatuses();
 
       // Miss twice
       await sessionStore.refreshSessionStatuses();
 
       // Reappear — counter resets
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'stopped', ptyActive: false },
-      });
+      }, maxSessions: 3 });
       await sessionStore.refreshSessionStatuses();
 
       // Miss again — should survive (counter reset to 0, now at 1)
-      mockGetBatchSessionStatus.mockResolvedValue({});
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
       await sessionStore.refreshSessionStatuses();
       await sessionStore.refreshSessionStatuses();
 
@@ -903,9 +903,9 @@ describe('Session Store', () => {
           lastAccessedAt: new Date().toISOString(),
         },
       ]);
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'stopped', ptyActive: false },
-      });
+      }, maxSessions: 3 });
       await sessionStore.loadSessions();
     });
 
@@ -937,9 +937,9 @@ describe('Session Store', () => {
       });
 
       // loadSessions with running status starts polling via initializeTerminalsForSession path
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
-      });
+      }, maxSessions: 3 });
       await sessionStore.loadSessions();
 
       mockGetStartupStatus.mockClear();
@@ -958,9 +958,9 @@ describe('Session Store', () => {
       mockGetSessions.mockResolvedValue([{
         id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       }]);
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: true, metrics: { cpu: '25%', mem: '512MB', hdd: '1.2GB', syncStatus: 'success' } },
-      });
+      }, maxSessions: 3 });
       await sessionStore.loadSessions();
 
       const metrics = sessionStore.getMetricsForSession('session-1');
@@ -974,9 +974,9 @@ describe('Session Store', () => {
       mockGetSessions.mockResolvedValue([{
         id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       }]);
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'stopped', ptyActive: false, metrics: { cpu: '10%', mem: '128MB', hdd: '500MB', syncStatus: 'syncing' } },
-      });
+      }, maxSessions: 3 });
 
       await sessionStore.loadSessions();
 
@@ -991,18 +991,18 @@ describe('Session Store', () => {
       mockGetSessions.mockResolvedValue([{
         id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
       }]);
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: true, metrics: { cpu: '10%', mem: '256MB', hdd: '1GB', syncStatus: 'success' } },
-      });
+      }, maxSessions: 3 });
       await sessionStore.loadSessions();
 
       // Verify initial metrics
       expect(sessionStore.getMetricsForSession('session-1')?.cpu).toBe('10%');
 
       // Update batch-status with new metrics
-      mockGetBatchSessionStatus.mockResolvedValue({
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: true, metrics: { cpu: '75%', mem: '1024MB', hdd: '2GB', syncStatus: 'success' } },
-      });
+      }, maxSessions: 3 });
       await sessionStore.refreshSessionStatuses();
 
       // Verify updated metrics
@@ -1010,6 +1010,80 @@ describe('Session Store', () => {
       expect(metrics?.cpu).toBe('75%');
       expect(metrics?.mem).toBe('1024MB');
       expect(metrics?.hdd).toBe('2GB');
+    });
+  });
+
+  describe('session limits', () => {
+    it('should set maxSessions from batch-status response', async () => {
+      mockGetSessions.mockResolvedValue([]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 5 });
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.maxSessions).toBe(5);
+    });
+
+    it('isAtSessionLimit should return true when running count >= maxSessions', async () => {
+      const sessions = [
+        { id: 's1', name: 'S1', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+        { id: 's2', name: 'S2', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+        { id: 's3', name: 'S3', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+      ];
+      mockGetSessions.mockResolvedValue(sessions);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {
+          s1: { status: 'running', ptyActive: true },
+          s2: { status: 'running', ptyActive: true },
+          s3: { status: 'running', ptyActive: true },
+        },
+        maxSessions: 3,
+      });
+
+      await sessionStore.loadSessions();
+      // Set all to running
+      sessionStore.updateSessionStatus('s1', 'running');
+      sessionStore.updateSessionStatus('s2', 'running');
+      sessionStore.updateSessionStatus('s3', 'running');
+
+      expect(sessionStore.isAtSessionLimit()).toBe(true);
+    });
+
+    it('isAtSessionLimit should return false when under the limit', async () => {
+      const sessions = [
+        { id: 's1', name: 'S1', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+        { id: 's2', name: 'S2', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+      ];
+      mockGetSessions.mockResolvedValue(sessions);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {
+          s1: { status: 'running', ptyActive: true },
+          s2: { status: 'stopped', ptyActive: false },
+        },
+        maxSessions: 3,
+      });
+
+      await sessionStore.loadSessions();
+      sessionStore.updateSessionStatus('s1', 'running');
+
+      expect(sessionStore.isAtSessionLimit()).toBe(false);
+    });
+
+    it('initializing sessions should count toward the limit', async () => {
+      const sessions = [
+        { id: 's1', name: 'S1', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+        { id: 's2', name: 'S2', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+        { id: 's3', name: 'S3', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+      ];
+      mockGetSessions.mockResolvedValue(sessions);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+
+      await sessionStore.loadSessions();
+      // 2 running + 1 initializing = 3 >= limit
+      sessionStore.updateSessionStatus('s1', 'running');
+      sessionStore.updateSessionStatus('s2', 'running');
+      sessionStore.updateSessionStatus('s3', 'initializing');
+
+      expect(sessionStore.isAtSessionLimit()).toBe(true);
     });
   });
 
