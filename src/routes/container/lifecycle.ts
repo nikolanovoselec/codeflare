@@ -264,7 +264,6 @@ app.post('/destroy', async (c) => {
 });
 
 // REMOVED: destroy-by-name and nuke-all endpoints
-// Also REMOVED: destroy-by-id (duplicate exists in src/index.ts under /api/admin/destroy-by-id)
 // These endpoints CREATED zombies instead of destroying them!
 // Reason: idFromName() + get() + any method CREATES a DO if it doesn't exist.
 // The only way to delete DOs is to delete the entire class via migration.
