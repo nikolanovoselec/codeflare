@@ -370,7 +370,7 @@ stateDiagram-v2
 ### Metrics Data Flow
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph ContainerDO["Container DO"]
         A1["collectMetrics()<br/>every 5s"]
         A2["/activity check<br/>renews timeout"]
@@ -467,7 +467,7 @@ Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts 
 ### Auth Flow
 
 ```mermaid
-flowchart LR
+flowchart TD
     A[Request] --> B[Edge routing]
     B --> C[CORS]
     C --> D[Auth Middleware]
