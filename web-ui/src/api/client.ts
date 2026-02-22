@@ -142,15 +142,14 @@ export function startSession(
       // The backend uses ctx.waitUntil() — container may have started despite client error.
       // For transient errors, proceed to polling; polling will timeout naturally if container didn't start.
       const isDefinitiveFailure = err instanceof ApiError
-        && err.status >= 400 && err.status < 500
-        && err.status !== 429; // 429 is transient (rate limit)
+        && err.status >= 400 && err.status < 500;
 
       if (isDefinitiveFailure) {
         logger.error('Container start failed (definitive):', (err as ApiError).status, err.message);
         onError(`Container start failed: ${err.message}`);
         return;
       }
-      // Transient error (network failure, timeout, 5xx, 429) — proceed to polling
+      // Transient error (network failure, timeout, 5xx) — proceed to polling
       logger.debug('Container start request (transient, proceeding to poll):', err);
     }
 
