@@ -120,6 +120,7 @@ Commercial use, resale, or paid hosted offerings require a separate written lice
 
 <details>
 <summary><strong>API token scopes</strong></summary>
+<a id="api-token-scopes"></a>
 
 Go to [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) and create a custom token. Yes, it's a lot of scopes. No, I'm not mining crypto with them (or am I?).
 
@@ -167,6 +168,7 @@ All optional. The defaults work out of the box. I respect your time.
 
 <details>
 <summary><strong>Why Claude Unleashed?</strong></summary>
+<a id="why-claude-unleashed"></a>
 
 Cloudflare Containers run as root. Claude Code refuses to run with `--dangerously-skip-permissions` as root - even inside an ephemeral container where the root check is protecting a filesystem that won't exist in 30 seconds. Heroic. [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) is a wrapper that politely disagrees with this decision, patching around the restriction at source level. Handles root detection, auto-updates, and mode switching. Pre-installed in every Codeflare container because arguing with your tools is not a productive use of compute.
 
