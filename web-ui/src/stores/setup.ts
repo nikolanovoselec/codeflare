@@ -1,6 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
 import * as api from '../api/client';
-import { ApiError } from '../api/fetch-helper';
 
 /** Whether loadExistingConfig has already been called (prevents duplicate fetches). */
 let configLoaded = false;
@@ -192,32 +191,108 @@ async function configure(): Promise<boolean> {
   setState({ configuring: true, configureSteps: [], configureError: null });
 
   try {
-    // Combine admin + regular users for the allowedUsers list (CF Access needs all emails)
     const allUsers = [...state.adminUsers, ...state.allowedUsers];
-    const data = await api.configure({
-      customDomain: state.customDomain,
-      allowedUsers: allUsers,
-      adminUsers: state.adminUsers,
+    const response = await fetch('/api/setup/configure', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      redirect: 'manual',
+      body: JSON.stringify({
+        customDomain: state.customDomain,
+        allowedUsers: allUsers,
+        adminUsers: state.adminUsers,
+      }),
     });
 
-    setState({ configureSteps: data.steps || [] });
-
-    if (data.success) {
-      setState({
-        setupComplete: true,
-        customDomainUrl: data.customDomainUrl || null,
-        accountId: data.accountId || null,
-      });
-      return true;
-    } else {
-      setState({ configureError: data.error || 'Configuration failed' });
+    // Detect CF Access auth redirects
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+      setState({ configureError: 'Authentication redirect detected — session may have expired' });
       return false;
     }
+
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => '');
+      let errorMsg = `HTTP ${response.status}`;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed.error) errorMsg = parsed.error;
+        if (Array.isArray(parsed.steps)) setState({ configureSteps: parsed.steps });
+      } catch { /* not JSON */ }
+      setState({ configureError: errorMsg });
+      return false;
+    }
+
+    // Read NDJSON stream line by line
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let success = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+
+      // Process complete lines
+      let newlineIdx: number;
+      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIdx).trim();
+        buffer = buffer.slice(newlineIdx + 1);
+        if (!line) continue;
+
+        try {
+          const msg = JSON.parse(line) as Record<string, unknown>;
+
+          if (msg.done) {
+            // Final summary message
+            if (msg.success) {
+              success = true;
+              setState({
+                setupComplete: true,
+                customDomainUrl: (msg.customDomainUrl as string) || null,
+                accountId: (msg.accountId as string) || null,
+              });
+              if (Array.isArray(msg.steps)) {
+                setState({ configureSteps: msg.steps as SetupState['configureSteps'] });
+              }
+            } else {
+              setState({ configureError: (msg.error as string) || 'Configuration failed' });
+              if (Array.isArray(msg.steps)) {
+                setState({ configureSteps: msg.steps as SetupState['configureSteps'] });
+              }
+            }
+          } else if (msg.step && msg.status) {
+            // Progressive step update
+            setState(
+              produce((s) => {
+                const existing = s.configureSteps.find((st) => st.step === msg.step);
+                if (existing) {
+                  existing.status = msg.status as string;
+                  if (msg.error) existing.error = msg.error as string;
+                } else {
+                  const entry: { step: string; status: string; error?: string } = {
+                    step: msg.step as string,
+                    status: msg.status as string,
+                  };
+                  if (msg.error) entry.error = msg.error as string;
+                  s.configureSteps.push(entry);
+                }
+              })
+            );
+          }
+        } catch {
+          // Skip malformed lines
+        }
+      }
+
+      if (done) break;
+    }
+
+    return success;
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Configuration request failed';
-    if (err instanceof ApiError && err.steps) {
-      setState({ configureSteps: err.steps });
-    }
     setState({ configureError: msg });
     return false;
   } finally {

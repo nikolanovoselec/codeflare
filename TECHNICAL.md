@@ -24,17 +24,58 @@ graph TD
 
 ### Key Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| One container per SESSION | CPU isolation - each tab gets full 1 vCPU instead of sharing |
-| Container ID format | `{bucketName}-{sessionId}` (e.g., `codeflare-user-example-com-abc12345`) |
-| Per-user R2 buckets | Bucket name derived from email, auto-created on first login |
-| Periodic rclone bisync | Background daemon runs bisync every 60 seconds, plus final sync on shutdown (SIGINT/SIGTERM). Local disk for all file operations. |
-| Login shell | `.bashrc` auto-starts the configured agent in workspace |
-| KV read-modify-write races | Last-writer-wins is acceptable - session PATCH/stop overlap is rare, rate limit off-by-one is minor, lastAccessedAt is best-effort |
-| Pre-setup public endpoints | Setup runs once during initial deploy; short exposure window is acceptable risk. Pre-setup auth trusts spoofable email header - bootstrap problem, mitigated by rate limiting and short exposure window. |
-| Container runs as root with no internal auth | Network isolation via DO proxy is sufficient; root needed for rclone mount; wildcard CORS is internal-only |
-| RESSOURCE_TIER spelling | French/German "ressource" is intentional - consistent across all config, changing would be a breaking API change |
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| AD1 | One container per SESSION | CPU isolation - each tab gets full 1 vCPU instead of sharing |
+| AD2 | Container ID format | `{bucketName}-{sessionId}` (e.g., `codeflare-user-example-com-abc12345`) |
+| AD3 | Per-user R2 buckets | Bucket name derived from email, auto-created on first login |
+| AD4 | Periodic rclone bisync | Background daemon runs bisync every 60 seconds, plus final sync on shutdown (SIGINT/SIGTERM). Local disk for all file operations. |
+| AD5 | Login shell | `.bashrc` auto-starts the configured agent in workspace |
+| AD6 | KV read-modify-write races | Last-writer-wins is acceptable - session PATCH/stop overlap is rare, rate limit off-by-one is minor, lastAccessedAt is best-effort |
+| AD7 | Pre-setup public endpoints | Setup runs once during initial deploy; short exposure window is acceptable risk. Pre-setup auth trusts spoofable email header - bootstrap problem, mitigated by rate limiting and short exposure window. |
+| AD8 | Container runs as root with no internal auth | Network isolation via DO proxy is sufficient; root needed for rclone mount; wildcard CORS is internal-only |
+| AD9 | RESSOURCE_TIER spelling | French/German "ressource" is intentional - consistent across all config, changing would be a breaking API change |
+
+#### AD10: Open setup endpoint before first configure
+
+The `/api/setup/configure` endpoint is intentionally public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet — that's what setup configures).
+
+**Trade-off**: A narrow window exists between deploy and first configure where any actor could claim the deployment. This is accepted because:
+- The window is typically seconds to minutes (deploy → owner configures)
+- Adding a bootstrap secret would require an extra deploy-time step, increasing setup friction
+- The target audience is self-hosted single-user/small-team deployments where the deployer is watching the process
+
+**Mitigation**: `setup:complete` KV flag prevents re-configuration after initial setup. Rate limiting applies to setup routes.
+
+**Future consideration**: A one-time bootstrap secret injected at deploy time would close this window entirely with minimal friction. Tracked as a potential hardening improvement.
+
+#### AD11: Suffix-pattern CORS with credentialed requests
+
+CORS origin matching uses `matchesPattern()` with domain-boundary enforcement (not naive substring). The default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, and `Access-Control-Allow-Credentials: true` is set on matching responses.
+
+**Trade-off**: Any `*.workers.dev` subdomain could pass the CORS check for credentialed requests. This is accepted because:
+- `matchesPattern()` enforces domain boundaries (e.g., `evil-workers.dev` does NOT match `.workers.dev`, only `x.workers.dev` does)
+- Custom domain deployments replace the workers.dev origin with the exact production domain
+- `ALLOWED_ORIGINS` is configurable per deployment — operators can restrict to exact origins
+- Cloudflare Access JWT validation is the primary auth gate, not CORS
+
+**Mitigation**: Setup adds the specific worker subdomain to KV-based dynamic origins. Operators deploying to custom domains should set `ALLOWED_ORIGINS` to their exact domain.
+
+**Future consideration**: Restricting credentialed CORS to exact known hosts (rather than suffix patterns) would tighten the trust surface. This is a low-risk hardening improvement.
+
+#### AD12: KV-based setup lock (non-atomic)
+
+The setup completion lock uses a KV read-then-write pattern: read `setup:complete`, check if false, perform setup, write `setup:complete = true`. This is not atomic — two simultaneous `/api/setup/configure` requests could both read `false` and proceed.
+
+**Trade-off**: This is accepted because:
+- Setup is a one-time operation performed by a single admin
+- The probability of concurrent configure requests is near zero in practice
+- KV is the existing state store — no additional infrastructure needed
+- `withSetupRetry` handles transient failures in individual setup steps, and each step is idempotent (creating Access apps, DNS records, etc. checks for existing resources first)
+
+**Mitigation**: Each setup sub-step (CF API calls) is individually idempotent — duplicate execution produces the same result. The worst case of a race is redundant CF API calls, not corrupted state.
+
+**Future consideration**: Moving the setup lock to a Durable Object would provide strict serialization. The blast radius of changing setup plumbing is non-trivial, so this is deferred until there's evidence of the race occurring in practice.
 
 ---
 
@@ -116,6 +157,8 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 **Cross-environment safety:** `resolveManagedAccessApp()` in `access.ts` uses a 4-tier fallback to find existing Access apps: (1) exact domain match, (2) stored app ID from KV, (3) name match + domain validation, (4) `/app/*` suffix + domain validation. Tiers 3 and 4 validate domain to prevent cross-environment collision when multiple environments share a CF account.
 
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
+
+**`parseCfResponse` content-type hardening** (`src/lib/cf-api.ts`): Checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts JSON.parse on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails — this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors.
 
 ### 2.14 Session Route Architecture
 
@@ -490,7 +533,13 @@ Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AU
 | GET | `/api/setup/status` | Check setup status |
 | GET | `/api/setup/detect-token` | Auto-detect token from env |
 | GET | `/api/setup/prefill` | Prefill emails from existing Access groups |
-| POST | `/api/setup/configure` | Run configuration (customDomain, users, origins) |
+| POST | `/api/setup/configure` | Run configuration (NDJSON stream response) |
+
+**`POST /configure` streams NDJSON:** Returns `Content-Type: application/x-ndjson` with per-step progress lines as each CF API step executes. Each line is a JSON object:
+- **Step progress:** `{"step":"create_r2","status":"running"}` then `{"step":"create_r2","status":"success"}` (or `"error"` with optional `error` field)
+- **Final summary:** `{"done":true,"success":true,"steps":[...],"workersDevUrl":"...","customDomainUrl":"..."}` or `{"done":true,"success":false,"error":"...","steps":[...]}`
+- Always returns HTTP 200 — errors are conveyed within the stream. Validation errors (missing fields) still return HTTP 400 before streaming begins.
+- Frontend reads via `response.body.getReader()` with buffer-based line parsing, updating `configureSteps` progressively so the UI shows real-time step status.
 
 Public before setup; admin-only after. All `adminUsers` must also be in `allowedUsers`.
 

@@ -38,10 +38,12 @@ const ProgressStep: Component = () => {
         return mdiCheckCircle;
       case 'error':
         return mdiAlertCircle;
+      case 'running':
+        return mdiLoading;
       case 'pending':
         return mdiCircleOutline;
       default:
-        return mdiLoading;
+        return mdiCircleOutline;
     }
   };
 

@@ -222,6 +222,28 @@ export class container extends Container<Env> {
         if (sessionId) {
           await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
         }
+
+        // Update user preferences on restart even though bucket is already set.
+        // Without this, preference changes made between sessions are lost.
+        let prefsChanged = false;
+
+        if (typeof workspaceSyncEnabled === 'boolean' && workspaceSyncEnabled !== this._workspaceSyncEnabled) {
+          this._workspaceSyncEnabled = workspaceSyncEnabled;
+          await this.ctx.storage.put('workspaceSyncEnabled', workspaceSyncEnabled);
+          prefsChanged = true;
+          this.logger.info('Updated workspaceSyncEnabled on restart', { workspaceSyncEnabled });
+        }
+
+        if (tabConfig) {
+          this._tabConfig = tabConfig;
+          await this.ctx.storage.put('tabConfig', tabConfig);
+          prefsChanged = true;
+        }
+
+        if (prefsChanged) {
+          this.updateEnvVars();
+        }
+
         return new Response(JSON.stringify({ error: 'Bucket name already set' }), {
           status: 409,
           headers: { 'Content-Type': 'application/json' },

@@ -30,7 +30,9 @@ describe('parseCfResponse', () => {
       ],
       messages: [],
     };
-    const response = new Response(JSON.stringify(body));
+    const response = new Response(JSON.stringify(body), {
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     const parsed = await parseCfResponse(response);
 
@@ -45,7 +47,9 @@ describe('parseCfResponse', () => {
     const body = {
       success: true,
     };
-    const response = new Response(JSON.stringify(body));
+    const response = new Response(JSON.stringify(body), {
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     const parsed = await parseCfResponse(response);
 
@@ -62,7 +66,9 @@ describe('parseCfResponse', () => {
       errors: [],
       result: { id: 'zone-1' },
     };
-    const response = new Response(JSON.stringify(body));
+    const response = new Response(JSON.stringify(body), {
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     const parsed = await parseCfResponse<{ id: string }>(response);
 
@@ -71,26 +77,49 @@ describe('parseCfResponse', () => {
     expect(parsed.result).toEqual({ id: 'zone-1' });
   });
 
+  it('throws on non-JSON content type', async () => {
+    const response = new Response('some html', {
+      status: 502,
+      headers: { 'Content-Type': 'text/html' },
+    });
+
+    await expect(parseCfResponse(response)).rejects.toThrow(/non-JSON response/);
+  });
+
+  it('throws on missing content type', async () => {
+    const response = new Response('no content type');
+
+    await expect(parseCfResponse(response)).rejects.toThrow(/non-JSON response/);
+  });
+
   it('throws on invalid JSON', async () => {
-    const response = new Response('not valid json');
+    const response = new Response('not valid json', {
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     await expect(parseCfResponse(response)).rejects.toThrow();
   });
 
   it('throws on non-object response (number)', async () => {
-    const response = new Response('42');
+    const response = new Response('42', {
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     await expect(parseCfResponse(response)).rejects.toThrow();
   });
 
   it('throws on non-object response (string)', async () => {
-    const response = new Response('"just a string"');
+    const response = new Response('"just a string"', {
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     await expect(parseCfResponse(response)).rejects.toThrow();
   });
 
   it('throws when success field is missing', async () => {
-    const response = new Response(JSON.stringify({ errors: [] }));
+    const response = new Response(JSON.stringify({ errors: [] }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     await expect(parseCfResponse(response)).rejects.toThrow();
   });
@@ -100,7 +129,9 @@ describe('parseCfResponse', () => {
       success: true,
       errors: [{ wrong: 'shape' }],
     };
-    const response = new Response(JSON.stringify(body));
+    const response = new Response(JSON.stringify(body), {
+      headers: { 'Content-Type': 'application/json' },
+    });
 
     await expect(parseCfResponse(response)).rejects.toThrow();
   });

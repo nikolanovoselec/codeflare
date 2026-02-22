@@ -271,6 +271,7 @@ establish_bisync_baseline() {
 # Regular bisync (after baseline is established)
 # Syncs config, credentials - excludes caches and workspace
 bisync_with_r2() {
+    local VERBOSE="${1:--v}"  # Default to -v (verbose); pass "" for quiet
     echo "[sync] Running bidirectional sync..." | tee -a /tmp/sync.log
 
     # Clear stale bisync lock if no bisync is running
@@ -301,7 +302,7 @@ bisync_with_r2() {
         --conflict-resolve newer \
         --resilient \
         --recover \
-        --transfers 32 --checkers 32 -v 2>&1 > "$SYNC_OUTPUT"; then
+        --transfers 32 --checkers 32 $VERBOSE 2>&1 > "$SYNC_OUTPUT"; then
         RESULT=0
     else
         RESULT=$?
@@ -319,7 +320,7 @@ bisync_with_r2() {
             --resync \
             --resilient \
             --recover \
-            --transfers 32 --checkers 32 -v 2>&1 > "$SYNC_OUTPUT"; then
+            --transfers 32 --checkers 32 $VERBOSE 2>&1 > "$SYNC_OUTPUT"; then
             RESULT=0
         else
             RESULT=$?
@@ -345,10 +346,17 @@ start_sync_daemon() {
 
     while true; do
         sleep 60
+
+        # Rotate sync log if too large (keep last 256KB when exceeding 512KB)
+        if [ -f /tmp/sync.log ] && [ "$(stat -c%s /tmp/sync.log 2>/dev/null || echo 0)" -gt 524288 ]; then
+            tail -c 262144 /tmp/sync.log > /tmp/sync.log.tmp && mv /tmp/sync.log.tmp /tmp/sync.log
+            echo "[sync-daemon] Log rotated (exceeded 512KB)" | tee -a /tmp/sync.log
+        fi
+
         echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /tmp/sync.log
 
-        # Use bisync for true bidirectional sync with newest-wins
-        if bisync_with_r2; then
+        # Use bisync for true bidirectional sync with newest-wins (quiet mode for periodic runs)
+        if bisync_with_r2 ""; then
             SYNC_RESULT=0
         else
             SYNC_RESULT=$?
@@ -356,8 +364,10 @@ start_sync_daemon() {
 
         if [ $SYNC_RESULT -eq 0 ]; then
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a /tmp/sync.log
+            update_sync_status "success" "null"
         else
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync failed with exit code $SYNC_RESULT (will retry in 60s)" | tee -a /tmp/sync.log
+            update_sync_status "failed" "Bisync exit code $SYNC_RESULT"
         fi
     done &
 

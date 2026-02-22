@@ -51,6 +51,11 @@
           transition: all 0.3s ease;
         }
 
+        .progress-step-item.running {
+          background: hsla(var(--accent-hue), var(--accent-s), 53%, 0.08);
+          border-color: hsla(var(--accent-hue), var(--accent-s), 53%, 0.25);
+        }
+
         .progress-step-item.success {
           background: rgba(22, 101, 52, 0.16);
           border-color: rgba(34, 197, 94, 0.2);
@@ -79,6 +84,10 @@
 
         .progress-step-item.error .step-icon {
           color: var(--color-error);
+        }
+
+        .progress-step-item.running .step-icon {
+          color: var(--color-accent);
         }
 
         .progress-step-item.pending .step-icon {

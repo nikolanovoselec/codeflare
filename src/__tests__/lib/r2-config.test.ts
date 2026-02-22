@@ -100,7 +100,7 @@ describe('getR2Config', () => {
       new Response(JSON.stringify({
         success: true,
         result: [{ id: 'api-resolved-account' }],
-      }))
+      }), { headers: { 'Content-Type': 'application/json' } })
     );
     vi.stubGlobal('fetch', mockFetch);
 
@@ -125,7 +125,7 @@ describe('getR2Config', () => {
 
   it('throws when API token is present but API call fails', async () => {
     const mockFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: false }))
+      new Response(JSON.stringify({ success: false }), { headers: { 'Content-Type': 'application/json' } })
     );
     vi.stubGlobal('fetch', mockFetch);
 
