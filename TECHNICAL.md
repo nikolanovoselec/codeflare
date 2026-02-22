@@ -346,26 +346,15 @@ sequenceDiagram
 
 ### Session Lifecycle State Machine
 
-```
-                    ┌──────────────────────────────────────────────┐
-                    │                                              │
-                    v                                              │
-  ┌─────────┐   start   ┌─────────────┐  ports ready  ┌─────────┐│
-  │ stopped │──────────>│ initializing │────────────>│ running ││
-  └─────────┘           └─────────────┘              └─────────┘│
-       ^                      │                          │   │   │
-       │                      │ error                    │   │   │
-       │                      v                     stop │   │   │
-       │                 ┌─────────┐                     │   │   │
-       │                 │  error  │                     │   │   │
-       │                 └─────────┘                     │   │   │
-       │                                                 v   │   │
-       │    poll stopped   ┌──────────┐                      │   │
-       │<──────────────────│ stopping │<─────────────────────┘   │
-       │                   └──────────┘                          │
-       │                                                         │
-       │         onActivityExpired (no WS clients)               │
-       └─────────────────────────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> stopped
+    stopped --> initializing : start
+    initializing --> running : ports ready
+    initializing --> error : error
+    running --> stopping : stop
+    stopping --> stopped : poll stopped
+    running --> stopped : onActivityExpired (no WS clients)
 ```
 
 **Stop (idle):** `sleepAfter` expires → SDK calls `onActivityExpired()` → checks `/activity` → no WS clients → `this.stop('SIGTERM')` → `onStop()` → KV status = `'stopped'`
@@ -380,26 +369,34 @@ sequenceDiagram
 
 ### Metrics Data Flow
 
-```
-Container DO                    Worker                      Frontend
-┌─────────────────┐     ┌──────────────────┐     ┌────────────────────┐
-│ collectMetrics() │     │ GET batch-status │     │ refreshSession-    │
-│  every 5s        │     │  (pure KV read)  │     │  Statuses()        │
-│                  │     │  (stateless,     │     │  (polls every 5s)  │
-│ /activity check  │     │   NO DO touch)   │     │                    │
-│  → renewTimeout  │     │                  │     │ Populates:         │
-│  (debug logs)    │     │ Returns:         │     │  sessionMetrics    │
-│                  │     │  status          │     │  map               │
-│ /health fetch    │     │  metrics         │     │                    │
-│  → KV.put(       │────>│  lastStartedAt   │────>│ SessionStatCard    │
-│    session.      │     │  lastActiveAt    │     │  reads metrics     │
-│    metrics)      │     │                  │     │  for display       │
-│                  │     │ KV eventual      │     │  (green/yellow/    │
-│ Zombie DO:       │     │  consistency:    │     │   gray status)     │
-│  missing IDs →   │     │  ~60s delay      │     │                    │
-│  early return,   │     │  for new sessions│     │                    │
-│  no re-arm       │     │                  │     │                    │
-└─────────────────┘     └──────────────────┘     └────────────────────┘
+```mermaid
+flowchart LR
+    subgraph ContainerDO["Container DO"]
+        A1["collectMetrics()<br/>every 5s"]
+        A2["/activity check<br/>renews timeout"]
+        A3["/health fetch<br/>writes KV metrics"]
+        A4["Zombie DO detection:<br/>missing IDs = early return,<br/>no re-arm"]
+        A1 --> A2 --> A3
+        A1 -.-> A4
+    end
+
+    subgraph Worker["Worker"]
+        B1["GET batch-status<br/>(pure KV read, stateless,<br/>NO DO touch)"]
+        B2["Returns: status, metrics,<br/>lastStartedAt, lastActiveAt"]
+        B3["KV eventual consistency<br/>~60s for new sessions"]
+        B1 --> B2
+        B1 -.-> B3
+    end
+
+    subgraph Frontend["Frontend"]
+        C1["refreshSessionStatuses()<br/>polls every 5s"]
+        C2["Populates<br/>sessionMetrics map"]
+        C3["SessionStatCard<br/>reads metrics<br/>(green/yellow/gray)"]
+        C1 --> C2 --> C3
+    end
+
+    A3 -->|KV| B1
+    B2 --> C1
 ```
 
 ---
