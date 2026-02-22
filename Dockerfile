@@ -97,7 +97,11 @@ RUN ln -s /usr/local/lib/node_modules/claude-unleashed/node_modules/@anthropic-a
 # Install Codex + Gemini + OpenCode CLIs for multi-agent support (single RUN for npm dedup).
 # OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
 # Consolidated install allows npm to deduplicate shared dependencies across packages.
+# OpenCode ships 11 platform binaries as optionalDependencies — delete unused ones (~446MB saved).
+# Alpine uses musl libc, so only opencode-linux-x64-musl is needed.
 RUN npm install -g @openai/codex @google/gemini-cli opencode-ai@latest && \
+    cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
+    find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64-musl' -type d -exec rm -rf {} + && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
