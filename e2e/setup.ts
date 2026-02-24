@@ -1,5 +1,5 @@
 // E2E Test Setup
-// Uses workers.dev URL with CF Access service tokens for authentication
+// Uses E2E_BASE_URL with CF Access service tokens for authentication
 import { BASE_URL } from './config';
 export { BASE_URL };
 
