@@ -327,8 +327,8 @@ sequenceDiagram
 | starting | 10-20% | Container running but health server not responding |
 | syncing | 30-45% | Health server up, syncStatus = pending/syncing |
 | verifying | 85% | Sync complete, terminal server not yet responding |
-| mounting | 90% | Terminal server up, PTY pre-warming in progress |
-| ready | 100% | All checks passed |
+| mounting | 90% | Terminal server up, PTY pre-warming in progress. WebSocket connects, terminal canvas hidden (`visibility: hidden`) |
+| ready | 100% | All checks passed. "Open" button appears. Click reveals terminal canvas with pre-buffered content |
 | error | 0% | Sync failed or other error |
 
 ### Session Lifecycle State Machine
