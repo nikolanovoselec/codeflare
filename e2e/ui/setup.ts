@@ -38,14 +38,13 @@ export async function launchBrowser(
   return browser;
 }
 
-/**
- * DEV_MODE email for bypassing CF Access auth
- */
-const DEV_MODE_EMAIL = 'user@example.com';
+// Service token credentials from environment
+const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID || '';
+const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || '';
 
 /**
  * Create a new page with default settings
- * Sets up headers to simulate authenticated user in DEV_MODE
+ * Sets up CF Access service token headers for authentication
  */
 export async function createPage(browser: Browser): Promise<Page> {
   const page = await browser.newPage();
@@ -59,9 +58,10 @@ export async function createPage(browser: Browser): Promise<Page> {
   // Set default timeout
   page.setDefaultTimeout(DEFAULT_TIMEOUT);
 
-  // Set headers to simulate CF Access auth in DEV_MODE
+  // Set service token headers for CF Access authentication
   await page.setExtraHTTPHeaders({
-    'CF-Access-Authenticated-User-Email': DEV_MODE_EMAIL,
+    'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
+    'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
   });
 
   return page;

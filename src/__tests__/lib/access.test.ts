@@ -227,17 +227,28 @@ describe('access.ts', () => {
       }
     });
 
-    it('grants admin role in DEV_MODE=true without any headers', async () => {
+    it('throws AuthError in DEV_MODE=true without any headers (no auth bypass)', async () => {
       const request = new Request('http://localhost/test');
+
+      await expect(
+        authenticateRequest(request, makeEnv({ DEV_MODE: 'true' } as Partial<Env>))
+      ).rejects.toThrow(AuthError);
+    });
+
+    it('always checks KV allowlist even in DEV_MODE=true', async () => {
+      const testEmail = 'dev-user@example.com';
+      mockKV._set(`user:${testEmail}`, { addedBy: 'setup', addedAt: '2024-01-01', role: 'user' });
+
+      const request = new Request('http://localhost/test', {
+        headers: { 'cf-access-authenticated-user-email': testEmail },
+      });
 
       const result = await authenticateRequest(request, makeEnv({ DEV_MODE: 'true' } as Partial<Env>));
 
       expect(result.user.authenticated).toBe(true);
-      expect(result.user.role).toBe('admin');
-      // Default prefix when CLOUDFLARE_WORKER_NAME is not set
-      expect(result.bucketName).toContain('codeflare-');
-      // KV allowlist should NOT be checked
-      expect(mockKV.get).not.toHaveBeenCalledWith(expect.stringMatching(/^user:/));
+      expect(result.user.role).toBe('user');
+      // KV allowlist IS checked even in DEV_MODE
+      expect(mockKV.get).toHaveBeenCalledWith(expect.stringMatching(/^user:/));
     });
 
     it('uses CLOUDFLARE_WORKER_NAME for bucket name prefix', async () => {
@@ -376,11 +387,11 @@ describe('access.ts', () => {
       expect(user.email).toBe('svc@company.com');
     });
 
-    it('returns test user in DEV_MODE with no headers', async () => {
+    it('returns unauthenticated in DEV_MODE with no headers (no auth bypass)', async () => {
       const request = new Request('http://localhost/test');
       const user = await getUserFromRequest(request, makeEnv({ DEV_MODE: 'true' } as Partial<Env>));
-      expect(user.authenticated).toBe(true);
-      expect(user.email).toBe('test@example.com');
+      expect(user.authenticated).toBe(false);
+      expect(user.email).toBe('');
     });
   });
 });

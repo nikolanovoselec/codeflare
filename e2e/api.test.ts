@@ -2,14 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { BASE_URL, apiRequest } from './setup';
 
 describe('API E2E', () => {
-  // Note: DEV_MODE=true means auth returns test user user@example.com
+  // Auth via CF Access service tokens — email is determined by SERVICE_TOKEN_EMAIL
+  // or derived from the service token client ID
 
   it('GET /api/user returns user info with email', async () => {
     const res = await apiRequest('/api/user');
     expect(res.status).toBe(200);
 
     const data = await res.json() as { email: string };
-    expect(data.email).toBe('user@example.com');
+    // Service token email format varies — just verify a non-empty email is returned
+    expect(data.email).toBeTruthy();
+    expect(data.email.length).toBeGreaterThan(0);
   });
 
   it('GET /api/sessions returns session list', async () => {

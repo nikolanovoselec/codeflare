@@ -3,7 +3,8 @@ import handlers from '../../../routes/setup/handlers';
 import type { Env } from '../../../types';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { AuthError, AppError } from '../../../lib/error-types';
+import { AuthError, AppError, ForbiddenError } from '../../../lib/error-types';
+import { resetAuthConfigCache } from '../../../lib/access';
 import { createMockKV } from '../../helpers/mock-kv';
 
 vi.mock('../../../lib/circuit-breakers', () => ({
@@ -16,15 +17,21 @@ vi.stubGlobal('fetch', mockFetch);
 describe('Setup Handlers', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
+  const TEST_EMAIL = 'test@example.com';
+
   beforeEach(() => {
     mockKV = createMockKV();
     vi.clearAllMocks();
+    resetAuthConfigCache();
   });
 
   function createApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env }>();
 
     app.onError((err, c) => {
+      if (err instanceof ForbiddenError) {
+        return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+      }
       if (err instanceof AppError) {
         return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
       }
@@ -135,11 +142,18 @@ describe('Setup Handlers', () => {
   });
 
   describe('POST /reset-for-tests', () => {
-    it('resets setup state in DEV_MODE', async () => {
+    it('resets setup state in DEV_MODE with authenticated user', async () => {
       mockKV._store.set('setup:complete', 'true');
+      mockKV._store.set(`user:${TEST_EMAIL}`, JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' }));
       const app = createApp({ DEV_MODE: 'true' } as Partial<Env>);
 
-      const res = await app.request('/setup/reset-for-tests', { method: 'POST' });
+      const res = await app.request('/setup/reset-for-tests', {
+        method: 'POST',
+        headers: {
+          'cf-access-authenticated-user-email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+        },
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json() as { success: boolean };
@@ -147,20 +161,45 @@ describe('Setup Handlers', () => {
       expect(mockKV.delete).toHaveBeenCalledWith('setup:complete');
     });
 
-    it('throws AuthError in production mode', async () => {
+    it('throws AuthError without auth headers', async () => {
+      const app = createApp({ DEV_MODE: 'true' } as Partial<Env>);
+
+      const res = await app.request('/setup/reset-for-tests', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'fetch' },
+      });
+
+      expect(res.status).toBe(401);
+    });
+
+    it('throws AuthError in production mode even with auth', async () => {
+      mockKV._store.set(`user:${TEST_EMAIL}`, JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' }));
       const app = createApp({ DEV_MODE: 'false' } as Partial<Env>);
 
-      const res = await app.request('/setup/reset-for-tests', { method: 'POST' });
+      const res = await app.request('/setup/reset-for-tests', {
+        method: 'POST',
+        headers: {
+          'cf-access-authenticated-user-email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+        },
+      });
 
       expect(res.status).toBe(401);
     });
   });
 
   describe('POST /restore-for-tests', () => {
-    it('restores setup state in DEV_MODE', async () => {
+    it('restores setup state in DEV_MODE with authenticated user', async () => {
+      mockKV._store.set(`user:${TEST_EMAIL}`, JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' }));
       const app = createApp({ DEV_MODE: 'true' } as Partial<Env>);
 
-      const res = await app.request('/setup/restore-for-tests', { method: 'POST' });
+      const res = await app.request('/setup/restore-for-tests', {
+        method: 'POST',
+        headers: {
+          'cf-access-authenticated-user-email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+        },
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json() as { success: boolean };
@@ -168,10 +207,17 @@ describe('Setup Handlers', () => {
       expect(mockKV.put).toHaveBeenCalledWith('setup:complete', 'true');
     });
 
-    it('throws AuthError in production mode', async () => {
+    it('throws AuthError in production mode even with auth', async () => {
+      mockKV._store.set(`user:${TEST_EMAIL}`, JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' }));
       const app = createApp({ DEV_MODE: 'false' } as Partial<Env>);
 
-      const res = await app.request('/setup/restore-for-tests', { method: 'POST' });
+      const res = await app.request('/setup/restore-for-tests', {
+        method: 'POST',
+        headers: {
+          'cf-access-authenticated-user-email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+        },
+      });
 
       expect(res.status).toBe(401);
     });

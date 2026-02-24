@@ -4,13 +4,15 @@ import { BASE_URL } from '../config';
 /**
  * E2E Test Utilities
  *
- * Additional utilities for E2E testing with Puppeteer.
- * Extends the base helpers with container-specific and journey-specific functions.
+ * Uses CF Access service tokens for authentication instead of DEV_MODE bypass.
  */
 
 // Re-export BASE_URL for consumers that import it from here
 export { BASE_URL } from '../config';
-export const TEST_EMAIL = 'user@example.com';
+
+// Service token credentials from environment
+const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID || '';
+const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || '';
 
 // Timeouts
 export const TIMEOUTS = {
@@ -20,6 +22,16 @@ export const TIMEOUTS = {
   TERMINAL_CONNECT: 45000, // 45 seconds for terminal connection
   NETWORK: 10000,          // 10 seconds for network requests
 } as const;
+
+/**
+ * Get the service token headers for API requests
+ */
+function getServiceTokenHeaders(): Record<string, string> {
+  return {
+    'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
+    'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
+  };
+}
 
 /**
  * Create a new browser instance with default settings
@@ -37,14 +49,11 @@ export async function createBrowser(): Promise<Browser> {
 }
 
 /**
- * Login using DEV_MODE bypass
- * DEV_MODE=true in wrangler.toml allows auth bypass with SERVICE_TOKEN_EMAIL
+ * Login using CF Access service token headers
+ * Sets service token headers on the page for all subsequent requests
  */
-export async function loginWithDevMode(page: Page): Promise<void> {
-  // Set CF Access header to simulate authenticated user
-  await page.setExtraHTTPHeaders({
-    'CF-Access-Authenticated-User-Email': TEST_EMAIL,
-  });
+export async function loginWithServiceToken(page: Page): Promise<void> {
+  await page.setExtraHTTPHeaders(getServiceTokenHeaders());
 
   await page.goto(BASE_URL, { waitUntil: 'networkidle2' });
 
@@ -328,13 +337,23 @@ export async function apiRequest(
   body: unknown;
   headers: Record<string, string>;
 }> {
-  return page.evaluate(async (baseUrl, requestPath, opts) => {
+  return page.evaluate(async (baseUrl, requestPath, opts, clientId, clientSecret) => {
+    const method = opts.method || 'GET';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'CF-Access-Client-Id': clientId,
+      'CF-Access-Client-Secret': clientSecret,
+      ...(opts.headers || {}),
+    };
+
+    // Add CSRF header for state-changing methods
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method.toUpperCase())) {
+      headers['X-Requested-With'] = 'fetch';
+    }
+
     const res = await fetch(`${baseUrl}${requestPath}`, {
-      method: opts.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(opts.headers || {}),
-      },
+      method,
+      headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
 
@@ -349,17 +368,17 @@ export async function apiRequest(
       }
     }
 
-    const headers: Record<string, string> = {};
+    const responseHeaders: Record<string, string> = {};
     res.headers.forEach((value, key) => {
-      headers[key] = value;
+      responseHeaders[key] = value;
     });
 
     return {
       status: res.status,
       body,
-      headers,
+      headers: responseHeaders,
     };
-  }, BASE_URL, path, options);
+  }, BASE_URL, path, options, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET);
 }
 
 /**
@@ -416,13 +435,16 @@ export async function waitForApiResponse(
 
 /**
  * Cleanup a session via API
- * Used in afterAll hooks to clean up sessions created during tests
+ * Uses service token headers for authentication
  */
 export async function cleanupSession(sessionId: string): Promise<void> {
   try {
     await fetch(`${BASE_URL}/api/sessions/${sessionId}`, {
       method: 'DELETE',
-      headers: { 'CF-Access-Authenticated-User-Email': TEST_EMAIL },
+      headers: {
+        ...getServiceTokenHeaders(),
+        'X-Requested-With': 'fetch',
+      },
     });
   } catch (e) {
     console.warn(`Failed to cleanup session ${sessionId}:`, e);
@@ -431,7 +453,6 @@ export async function cleanupSession(sessionId: string): Promise<void> {
 
 /**
  * Cleanup multiple sessions via API
- * Used in afterAll hooks to clean up sessions created during tests
  */
 export async function cleanupSessions(sessionIds: string[]): Promise<void> {
   for (const sessionId of sessionIds) {
@@ -441,18 +462,16 @@ export async function cleanupSessions(sessionIds: string[]): Promise<void> {
 
 /**
  * Cleanup ALL sessions via API
- * Used in global afterAll to ensure clean state after E2E test run
- * IMPORTANT: Call this at the end of E2E test suite to avoid leftover sessions
+ * Uses service token headers for authentication
  */
 export async function cleanupAllSessions(): Promise<{ deleted: number; failed: number }> {
   let deleted = 0;
   let failed = 0;
 
   try {
-    // Fetch all sessions
     const response = await fetch(`${BASE_URL}/api/sessions`, {
       method: 'GET',
-      headers: { 'CF-Access-Authenticated-User-Email': TEST_EMAIL },
+      headers: getServiceTokenHeaders(),
     });
 
     if (!response.ok) {
@@ -465,12 +484,14 @@ export async function cleanupAllSessions(): Promise<{ deleted: number; failed: n
 
     console.log(`[E2E Cleanup] Found ${sessions.length} sessions to clean up`);
 
-    // Delete each session
     for (const session of sessions) {
       try {
         const deleteResponse = await fetch(`${BASE_URL}/api/sessions/${session.id}`, {
           method: 'DELETE',
-          headers: { 'CF-Access-Authenticated-User-Email': TEST_EMAIL },
+          headers: {
+            ...getServiceTokenHeaders(),
+            'X-Requested-With': 'fetch',
+          },
         });
 
         if (deleteResponse.ok) {
@@ -496,21 +517,16 @@ export async function cleanupAllSessions(): Promise<{ deleted: number; failed: n
 
 /**
  * Restore the setup:complete flag in KV
- * IMPORTANT: Call this after any test that resets setup state
- * Prevents production setup wizard from appearing after E2E tests
+ * Uses service token headers for authentication
  */
 export async function restoreSetupComplete(): Promise<boolean> {
   try {
-    // We can't directly write to KV from tests, but we can use a special endpoint
-    // The setup-wizard.test.ts resets setup state, so we need to restore it
-
-    // Option 1: Call configure endpoint (requires valid token - won't work in tests)
-    // Option 2: Add a restore endpoint that only works in DEV_MODE
-
-    // For now, we'll make a POST to a restore endpoint
     const response = await fetch(`${BASE_URL}/api/setup/restore-for-tests`, {
       method: 'POST',
-      headers: { 'CF-Access-Authenticated-User-Email': TEST_EMAIL },
+      headers: {
+        ...getServiceTokenHeaders(),
+        'X-Requested-With': 'fetch',
+      },
     });
 
     if (response.ok) {

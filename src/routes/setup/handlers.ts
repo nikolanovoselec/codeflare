@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../../types';
 import { AuthError, toError } from '../../lib/error-types';
+import { authenticateRequest } from '../../lib/access';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -148,6 +149,12 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
  * Used by E2E tests to reset setup state before test runs
  */
 handlers.post('/reset-for-tests', async (c) => {
+  // Require authentication before checking DEV_MODE
+  const { user } = await authenticateRequest(c.req.raw, c.env);
+  if (!user.authenticated) {
+    throw new AuthError('Not authenticated');
+  }
+
   if (c.env.DEV_MODE !== 'true') {
     throw new AuthError('Not available in production');
   }
@@ -165,6 +172,12 @@ handlers.post('/reset-for-tests', async (c) => {
  * IMPORTANT: Must be called in afterAll of setup-wizard.test.ts
  */
 handlers.post('/restore-for-tests', async (c) => {
+  // Require authentication before checking DEV_MODE
+  const { user } = await authenticateRequest(c.req.raw, c.env);
+  if (!user.authenticated) {
+    throw new AuthError('Not authenticated');
+  }
+
   if (c.env.DEV_MODE !== 'true') {
     throw new AuthError('Not available in production');
   }

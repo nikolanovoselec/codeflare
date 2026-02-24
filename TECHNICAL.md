@@ -982,7 +982,7 @@ Base image: Node.js 22 Alpine.
 
 **E2E UI:** `e2e/ui/` - Puppeteer tests (11 test files). Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e:ui`
 
-**E2E Requirements:** `DEV_MODE = "true"` deployed, no CF Access on workers.dev domain. Re-deploy with `DEV_MODE = "false"` after testing. Cleanup via `afterAll` hooks; if tests fail, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
+**E2E Requirements:** CF Access service tokens (`CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` env vars). Tests authenticate via service token headers instead of DEV_MODE bypass. Cleanup via `afterAll` hooks; if tests fail, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
 
 ---
 

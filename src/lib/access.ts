@@ -50,7 +50,6 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
  *    When CF Access validates a service token, it sets cf-access-client-id header.
  *    Service tokens are mapped to SERVICE_TOKEN_EMAIL env var or default email.
  *
- * In DEV_MODE, returns a test user when no Access headers are present.
  */
 export async function getUserFromRequest(request: Request, env?: Env): Promise<AccessUser> {
   // Check for JWT assertion header first (primary auth method)
@@ -108,15 +107,12 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     }
 
     // JWT verification failed
-    // In DEV_MODE, fall through to header-based trust
-    if (env?.DEV_MODE !== 'true') {
-      return { email: '', authenticated: false };
-    }
+    return { email: '', authenticated: false };
   }
 
   // Post-setup (auth configured) but NO JWT: reject even if header is present (FIX-1).
   // This prevents header spoofing when Cloudflare Access is configured.
-  if (authConfigured && !jwtToken && env?.DEV_MODE !== 'true') {
+  if (authConfigured && !jwtToken) {
     return { email: '', authenticated: false };
   }
 
@@ -136,12 +132,6 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     // Use SERVICE_TOKEN_EMAIL env var or fall back to a default based on client ID
     const serviceEmail = env?.SERVICE_TOKEN_EMAIL || `service-${serviceTokenClientId.split('.')[0]}@codeflare.local`;
     return { email: normalizeEmail(serviceEmail), authenticated: true };
-  }
-
-  // DEV_MODE bypass: return user from SERVICE_TOKEN_EMAIL when no Access headers
-  if (env?.DEV_MODE === 'true') {
-    const devEmail = env?.SERVICE_TOKEN_EMAIL || 'test@example.com';
-    return { email: normalizeEmail(devEmail), authenticated: true };
   }
 
   return { email: '', authenticated: false };
@@ -225,16 +215,11 @@ export async function authenticateRequest(
   if (!normalizedEmail) {
     throw new AuthError('Not authenticated');
   }
-  let role: UserRole;
-  if (env.DEV_MODE !== 'true') {
-    const kvEntry = await resolveUserFromKV(env.KV, normalizedEmail);
-    if (!kvEntry) {
-      throw new ForbiddenError('User not in allowlist');
-    }
-    role = kvEntry.role;
-  } else {
-    role = 'admin';
+  const kvEntry = await resolveUserFromKV(env.KV, normalizedEmail);
+  if (!kvEntry) {
+    throw new ForbiddenError('User not in allowlist');
   }
+  const role = kvEntry.role;
   const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
   return { user: { ...rawUser, email: normalizedEmail, role }, bucketName };
 }

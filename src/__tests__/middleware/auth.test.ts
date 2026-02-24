@@ -86,18 +86,29 @@ describe('Auth Middleware', () => {
     expect(mockKV.get).toHaveBeenCalledWith(`user:${testEmail}`);
   });
 
-  it('bypasses KV allowlist check when DEV_MODE=true', async () => {
+  it('returns 401 in DEV_MODE=true without any auth headers (no auth bypass)', async () => {
     const app = createTestApp({ DEV_MODE: 'true' } as Partial<Env>);
 
-    // In DEV_MODE, getUserFromRequest returns a test user even without headers
     const res = await app.request('/test');
 
+    expect(res.status).toBe(401);
+  });
+
+  it('always checks KV allowlist even in DEV_MODE=true', async () => {
+    const testEmail = 'dev-allowed@example.com';
+    mockKV._store.set(`user:${testEmail}`, JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'user' }));
+
+    const app = createTestApp({ DEV_MODE: 'true' } as Partial<Env>);
+    const res = await app.request('/test', {
+      headers: { 'cf-access-authenticated-user-email': testEmail },
+    });
+
     expect(res.status).toBe(200);
-    const body = await res.json() as { user: { email: string; authenticated: boolean }; bucketName: string };
+    const body = await res.json() as { user: { email: string; authenticated: boolean; role: string }; bucketName: string };
     expect(body.user.authenticated).toBe(true);
-    expect(body.bucketName).toContain('codeflare-');
-    // KV should NOT have been called for user lookup
-    expect(mockKV.get).not.toHaveBeenCalledWith(expect.stringMatching(/^user:/));
+    expect(body.user.role).toBe('user');
+    // KV IS checked even in DEV_MODE
+    expect(mockKV.get).toHaveBeenCalledWith(`user:${testEmail}`);
   });
 
   it('returns 401 when unauthenticated (no CF Access headers, DEV_MODE=false)', async () => {
@@ -152,14 +163,22 @@ describe('Auth Middleware', () => {
       expect(body.user.role).toBe('user');
     });
 
-    it('grants admin role in DEV_MODE', async () => {
+    it('resolves role from KV even in DEV_MODE (no admin grant)', async () => {
+      const testEmail = 'dev-role@example.com';
+      mockKV._store.set(
+        `user:${testEmail}`,
+        JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'user' })
+      );
+
       const app = createTestApp({ DEV_MODE: 'true' } as Partial<Env>);
 
-      const res = await app.request('/test');
+      const res = await app.request('/test', {
+        headers: { 'cf-access-authenticated-user-email': testEmail },
+      });
 
       expect(res.status).toBe(200);
       const body = await res.json() as { user: { email: string; role: string } };
-      expect(body.user.role).toBe('admin');
+      expect(body.user.role).toBe('user');
     });
   });
 
@@ -212,14 +231,12 @@ describe('Auth Middleware', () => {
       ).rejects.toThrow(ForbiddenError);
     });
 
-    it('bypasses allowlist and grants admin in DEV_MODE', async () => {
+    it('throws AuthError in DEV_MODE without auth headers (no bypass)', async () => {
       const request = new Request('http://localhost/test');
 
-      const result = await authenticateRequest(request, makeEnv({ DEV_MODE: 'true' } as Partial<Env>));
-
-      expect(result.user.authenticated).toBe(true);
-      expect(result.user.role).toBe('admin');
-      expect(result.bucketName).toContain('codeflare-');
+      await expect(
+        authenticateRequest(request, makeEnv({ DEV_MODE: 'true' } as Partial<Env>))
+      ).rejects.toThrow(AuthError);
     });
   });
 });
