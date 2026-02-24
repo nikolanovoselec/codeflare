@@ -10,15 +10,14 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
-      ACCOUNT_SUBDOMAIN: ${{ vars.ACCOUNT_SUBDOMAIN }}
-      CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
+      E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
     steps:
       - name: Validate required variables
         run: |
-          if [ -z "$ACCOUNT_SUBDOMAIN" ]; then
-            echo "::error::ACCOUNT_SUBDOMAIN is not set. Configure it in repository variables."
+          if [ -z "$E2E_BASE_URL" ]; then
+            echo "::error::E2E_BASE_URL is not set. Configure it in repository variables (e.g., https://your-app.example.com)."
             exit 1
           fi
 
