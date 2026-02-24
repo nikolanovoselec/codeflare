@@ -90,6 +90,7 @@ const Terminal: Component<TerminalProps> = (props) => {
           flex: '1',
           'min-height': '0',
           'background-color': isInitializing() ? 'transparent' : 'var(--color-terminal-theme-bg)',
+          visibility: isInitializing() ? 'hidden' : 'visible',
           'overflow-anchor': 'none',
           '-webkit-user-select': isTouchDevice() ? 'none' : undefined,
           'user-select': isTouchDevice() ? 'none' : undefined,
