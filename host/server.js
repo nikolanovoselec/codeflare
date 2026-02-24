@@ -19,7 +19,7 @@ import { parse as parseUrl } from 'url';
 import { parse as parseQuery } from 'querystring';
 import fs from 'fs';
 import { createActivityTracker } from './activity-tracker.js';
-import { getPrewarmConfig } from './prewarm-config.js';
+import { getPrewarmConfig, shouldUseQuiescence } from './prewarm-config.js';
 
 const PROCESS_NAME_POLL_MS = 2000;
 const WS_KEEPALIVE_PING_MS = 30000;
@@ -937,7 +937,7 @@ server.listen(PORT, '0.0.0.0', () => {
     const elapsed = Date.now() - prewarmStartTime;
     const lastData = prewarmSession.lastDataTime || prewarmStartTime; // Fallback to start time if no output yet
     const silent = Date.now() - lastData;
-    if (elapsed >= PREWARM_QUIESCENCE_MS && silent >= PREWARM_QUIESCENCE_MS) {
+    if (shouldUseQuiescence(PREWARM_READY_PATTERN) && elapsed >= PREWARM_QUIESCENCE_MS && silent >= PREWARM_QUIESCENCE_MS) {
       prewarmReady = true;
       log('info', 'Pre-warm ready (quiescent)', { elapsedSec: (elapsed / 1000).toFixed(1) });
       clearInterval(readinessCheck);

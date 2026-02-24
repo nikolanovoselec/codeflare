@@ -29,6 +29,19 @@ const READY_PATTERNS = {
 };
 
 /**
+ * Whether the quiescence fallback should be used for readiness detection.
+ * When a readyPattern is configured, quiescence is disabled — only the
+ * pattern match or hard timeout should declare readiness.  This prevents
+ * startup silence (e.g. Node.js compile time) from prematurely firing "ready".
+ *
+ * @param {RegExp|null} readyPattern
+ * @returns {boolean}
+ */
+export function shouldUseQuiescence(readyPattern) {
+  return !readyPattern;
+}
+
+/**
  * Given a parsed TAB_CONFIG array, return readiness parameters for the
  * pre-warm PTY (which always spawns tab 1).
  *
