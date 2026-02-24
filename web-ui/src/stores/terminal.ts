@@ -557,9 +557,9 @@ export function sendInputToTerminal(sessionId: string, terminalId: string, text:
 // ─── URL Detection ───────────────────────────────────────────────────────────
 
 /** Strips trailing non-URL characters (TUI border decoration like │, padding) */
-const TRAILING_NON_URL = /[^a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+$/;
+const TRAILING_NON_URL = /[^a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
 /** Strips leading non-URL characters (TUI border decoration like │, padding) */
-const LEADING_NON_URL = /^[^a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+/;
+const LEADING_NON_URL = /^[^a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/;
 
 /**
  * Checks whether the next buffer line is likely a URL continuation from
@@ -579,7 +579,7 @@ function isLikelyUrlContinuation(
     ? currentLineText.replace(TRAILING_NON_URL, '')
     : currentLineText;
   if (!insideUrl && effectiveCurrent.length < terminalCols - 1) return false;
-  const urlChars = /[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]/;
+  const urlChars = /[a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=%]/;
   if (!effectiveCurrent || !urlChars.test(effectiveCurrent.slice(-1))) return false;
   // When inside a URL, strip leading TUI decoration + whitespace from next line
   const checkText = insideUrl ? nextLineText.replace(LEADING_NON_URL, '') : nextLineText;
