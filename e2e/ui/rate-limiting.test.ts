@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import type { Browser, Page } from 'puppeteer';
 import { launchBrowser, createPage, BASE_URL } from './setup';
-import { TEST_EMAIL, cleanupSession } from '../helpers/test-utils';
 
 /**
  * E2E Tests - Rate Limiting
@@ -13,12 +12,23 @@ import { TEST_EMAIL, cleanupSession } from '../helpers/test-utils';
  * - X-RateLimit-* headers format
  *
  * Prerequisites:
- * - DEV_MODE=true must be set in wrangler.toml
- * - Worker must be deployed to BASE_URL
+ * - CF Access service token credentials (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET)
+ * - Worker must be deployed to E2E_BASE_URL
  *
  * Note: These tests may fail if rate limits were recently hit.
  * Wait 60 seconds between test runs to allow rate limit window to reset.
  */
+
+// Service token credentials from environment
+const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID || '';
+const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || '';
+
+function getServiceTokenHeaders(): Record<string, string> {
+  return {
+    'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
+    'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
+  };
+}
 describe('Rate Limiting', () => {
   let browser: Browser;
   let page: Page;
@@ -53,7 +63,8 @@ describe('Rate Limiting', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+          ...getServiceTokenHeaders(),
         },
         body: JSON.stringify({ name: 'rate-limit-test' }),
       });
@@ -76,7 +87,8 @@ describe('Rate Limiting', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+          ...getServiceTokenHeaders(),
         },
         body: JSON.stringify({ name: 'rate-limit-test' }),
       });
@@ -102,7 +114,8 @@ describe('Rate Limiting', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            'X-Requested-With': 'fetch',
+            ...getServiceTokenHeaders(),
           },
           body: JSON.stringify({ name: `rate-limit-test-${i}` }),
         });
@@ -144,7 +157,8 @@ describe('Rate Limiting', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            'X-Requested-With': 'fetch',
+            ...getServiceTokenHeaders(),
           },
           body: JSON.stringify({ name: `rate-limit-test-${i}` }),
         });
@@ -166,7 +180,7 @@ describe('Rate Limiting', () => {
 
       // We should either hit rate limit or make all requests
       // If rate limit is 10/min, we should hit 429 before 20 requests
-      // But if DEV_MODE has higher limits, we might not hit it
+      // Rate limits may vary by deployment configuration
       expect(response.requestCount).toBeGreaterThan(0);
 
       if (response.hitRateLimit) {
@@ -182,7 +196,8 @@ describe('Rate Limiting', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            'X-Requested-With': 'fetch',
+            ...getServiceTokenHeaders(),
           },
           body: JSON.stringify({ name: `retry-test-${i}` }),
         });
@@ -207,7 +222,7 @@ describe('Rate Limiting', () => {
         }
       }
 
-      // If we didn't hit rate limit, that's also valid (DEV_MODE might have higher limits)
+      // If we didn't hit rate limit, that's also valid (rate limits may vary by configuration)
     }, 30000);
   });
 
@@ -219,7 +234,8 @@ describe('Rate Limiting', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            'X-Requested-With': 'fetch',
+            ...getServiceTokenHeaders(),
           },
           body: JSON.stringify({ name: `body-test-${i}` }),
         });
@@ -251,18 +267,18 @@ describe('Rate Limiting', () => {
         }
       }
 
-      // If we didn't hit rate limit, that's also valid (DEV_MODE might have higher limits)
+      // If we didn't hit rate limit, that's also valid (rate limits may vary by configuration)
     }, 30000);
   });
 
   describe('Rate Limit Scope', () => {
     it('should apply rate limits per-user', async () => {
-      // In DEV_MODE, all requests use the same user (user@example.com)
+      // All requests use the same service token identity
       // So rate limits should be shared across all requests in this test
       const res = await fetch(`${BASE_URL}/api/sessions`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = {
@@ -271,7 +287,7 @@ describe('Rate Limiting', () => {
       };
 
       // Just verify headers are returned (actual per-user enforcement
-      // would require different auth contexts which we can't test in DEV_MODE)
+      // would require different auth contexts which we can't test with a single service token)
       expect(response).toBeDefined();
     }, 10000);
 
@@ -285,7 +301,7 @@ describe('Rate Limiting', () => {
         const res = await fetch(`${BASE_URL}/api/sessions`, {
           method: 'GET',
           headers: {
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            ...getServiceTokenHeaders(),
           },
         });
         requestCount++;
@@ -311,7 +327,7 @@ describe('Rate Limiting', () => {
       const res = await fetch(`${BASE_URL}/api/sessions`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = {
@@ -339,7 +355,8 @@ describe('Rate Limiting', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            'X-Requested-With': 'fetch',
+            ...getServiceTokenHeaders(),
           },
           body: JSON.stringify({ name: `concurrent-${i}` }),
         }).then(res => ({
@@ -364,7 +381,7 @@ describe('Rate Limiting', () => {
       const sessionsRes = await fetch(`${BASE_URL}/api/sessions`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const sessionsRemaining = sessionsRes.headers.get('X-RateLimit-Remaining');
@@ -373,7 +390,7 @@ describe('Rate Limiting', () => {
       const userRes = await fetch(`${BASE_URL}/api/user`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const userRemaining = userRes.headers.get('X-RateLimit-Remaining');

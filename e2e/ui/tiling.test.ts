@@ -25,7 +25,7 @@ import { cleanupSessions } from '../helpers/test-utils';
  * - Return to tabbed mode
  *
  * Note: These tests require a running session with multiple terminal tabs.
- * DEV_MODE=true must be set in wrangler.toml for auth bypass.
+ * CF Access service token credentials must be set for authentication.
  */
 describe('Terminal Tiling Feature', () => {
   let browser: Browser;

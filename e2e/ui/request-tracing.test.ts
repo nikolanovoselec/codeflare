@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import type { Browser, Page } from 'puppeteer';
 import { launchBrowser, createPage, BASE_URL } from './setup';
-import { TEST_EMAIL } from '../helpers/test-utils';
 
 /**
  * E2E Tests - Request Tracing
@@ -13,9 +12,20 @@ import { TEST_EMAIL } from '../helpers/test-utils';
  * - Request ID is unique per request
  *
  * Prerequisites:
- * - DEV_MODE=true must be set in wrangler.toml
- * - Worker must be deployed to BASE_URL
+ * - CF Access service token credentials (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET)
+ * - Worker must be deployed to E2E_BASE_URL
  */
+
+// Service token credentials from environment
+const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID || '';
+const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || '';
+
+function getServiceTokenHeaders(): Record<string, string> {
+  return {
+    'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
+    'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
+  };
+}
 describe('Request Tracing', () => {
   let browser: Browser;
   let page: Page;
@@ -47,7 +57,7 @@ describe('Request Tracing', () => {
       const res = await fetch(`${BASE_URL}/api/setup/status`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = {
@@ -65,7 +75,7 @@ describe('Request Tracing', () => {
       const res = await fetch(`${BASE_URL}/api/nonexistent-endpoint`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = {
@@ -85,7 +95,8 @@ describe('Request Tracing', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+          ...getServiceTokenHeaders(),
         },
         body: JSON.stringify({ name: 'test' }),
       });
@@ -105,7 +116,7 @@ describe('Request Tracing', () => {
       const res = await fetch(`${BASE_URL}/api/setup/status`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = res.headers.get('X-Request-ID');
@@ -126,7 +137,7 @@ describe('Request Tracing', () => {
       const res = await fetch(`${BASE_URL}/api/setup/status`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = res.headers.get('X-Request-ID');
@@ -154,7 +165,7 @@ describe('Request Tracing', () => {
         const res = await fetch(`${BASE_URL}/api/setup/status`, {
           method: 'GET',
           headers: {
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            ...getServiceTokenHeaders(),
           },
         });
         const id = res.headers.get('X-Request-ID');
@@ -175,7 +186,7 @@ describe('Request Tracing', () => {
         fetch(`${BASE_URL}/api/setup/status`, {
           method: 'GET',
           headers: {
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            ...getServiceTokenHeaders(),
           },
         }).then(res => res.headers.get('X-Request-ID'))
       );
@@ -203,7 +214,7 @@ describe('Request Tracing', () => {
         method: 'GET',
         headers: {
           'X-Request-ID': clientRequestId,
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = res.headers.get('X-Request-ID');
@@ -221,7 +232,7 @@ describe('Request Tracing', () => {
         method: 'GET',
         headers: {
           'X-Request-ID': customId,
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = {
@@ -247,7 +258,7 @@ describe('Request Tracing', () => {
           method: 'GET',
           headers: {
             'X-Request-ID': testId,
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            ...getServiceTokenHeaders(),
           },
         });
         const response = {
@@ -277,7 +288,7 @@ describe('Request Tracing', () => {
         const res = await fetch(`${BASE_URL}${path}`, {
           method: method,
           headers: {
-            'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+            ...getServiceTokenHeaders(),
           },
         });
         const response = {
@@ -299,7 +310,7 @@ describe('Request Tracing', () => {
       const res = await fetch(`${BASE_URL}/api/setup/status`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
 

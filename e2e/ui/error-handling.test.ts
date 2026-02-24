@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import type { Browser, Page } from 'puppeteer';
 import { launchBrowser, createPage, navigateToHome, navigateTo, waitForAppReady, BASE_URL } from './setup';
 import { elementExists, waitForText, getTextContent } from './helpers';
-import { TEST_EMAIL } from '../helpers/test-utils';
 
 /**
  * E2E Tests - Error Handling
@@ -14,9 +13,20 @@ import { TEST_EMAIL } from '../helpers/test-utils';
  * - API error responses
  *
  * Prerequisites:
- * - DEV_MODE=true must be set in wrangler.toml
- * - Worker must be deployed to BASE_URL
+ * - CF Access service token credentials (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET)
+ * - Worker must be deployed to E2E_BASE_URL
  */
+
+// Service token credentials from environment
+const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID || '';
+const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || '';
+
+function getServiceTokenHeaders(): Record<string, string> {
+  return {
+    'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
+    'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
+  };
+}
 describe('Error Handling', () => {
   let browser: Browser;
   let page: Page;
@@ -75,7 +85,7 @@ describe('Error Handling', () => {
       const res = await fetch(`${BASE_URL}/api/invalid-endpoint-that-does-not-exist`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = { status: res.status, statusText: res.statusText };
@@ -92,7 +102,7 @@ describe('Error Handling', () => {
       const res = await fetch(`${BASE_URL}/api/sessions/${fakeSessionId}`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = { status: res.status, statusText: res.statusText };
@@ -106,7 +116,7 @@ describe('Error Handling', () => {
       const res = await fetch(`${BASE_URL}/api/sessions/invalid!@#$%`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = { status: res.status, statusText: res.statusText };
@@ -120,7 +130,8 @@ describe('Error Handling', () => {
       const res = await fetch(`${BASE_URL}/api/sessions/${fakeSessionId}/stop`, {
         method: 'POST',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+          ...getServiceTokenHeaders(),
         },
       });
       const response = { status: res.status, statusText: res.statusText };
@@ -134,7 +145,8 @@ describe('Error Handling', () => {
       const res = await fetch(`${BASE_URL}/api/sessions/${fakeSessionId}`, {
         method: 'DELETE',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+          ...getServiceTokenHeaders(),
         },
       });
       const response = { status: res.status, statusText: res.statusText };
@@ -197,7 +209,8 @@ describe('Error Handling', () => {
       const res = await fetch(`${BASE_URL}/api/sessions/invalid`, {
         method: 'DELETE',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+          ...getServiceTokenHeaders(),
         },
       });
 
@@ -229,7 +242,8 @@ describe('Error Handling', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+          ...getServiceTokenHeaders(),
         },
         body: 'this is not valid json{{{',
       });
@@ -262,7 +276,8 @@ describe('Error Handling', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          'X-Requested-With': 'fetch',
+          ...getServiceTokenHeaders(),
         },
         body: JSON.stringify({}), // Missing required token field
       });
@@ -318,7 +333,7 @@ describe('Error Handling', () => {
       const res = await fetch(`${BASE_URL}/api/container/health?sessionId=nonexistent123456789012`, {
         method: 'GET',
         headers: {
-          'CF-Access-Authenticated-User-Email': TEST_EMAIL,
+          ...getServiceTokenHeaders(),
         },
       });
       const response = { status: res.status };

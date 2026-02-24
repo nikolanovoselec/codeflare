@@ -10,13 +10,13 @@ import {
   waitForElementRemoved,
   getElementCount,
 } from './helpers';
-import { cleanupSession, TEST_EMAIL } from '../helpers/test-utils';
+import { cleanupSession } from '../helpers/test-utils';
 
 /**
  * E2E Tests - Full User Journey
  *
  * Tests the complete user flow from login to session deletion:
- * 1. Login/Authentication (DEV_MODE bypass)
+ * 1. Login/Authentication (CF Access service token)
  * 2. View dashboard
  * 3. Create new session
  * 4. Wait for container initialization
@@ -28,8 +28,8 @@ import { cleanupSession, TEST_EMAIL } from '../helpers/test-utils';
  * 10. Verify cleanup
  *
  * Prerequisites:
- * - DEV_MODE=true must be set in wrangler.toml
- * - Worker must be deployed to BASE_URL
+ * - CF Access service token credentials (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET)
+ * - Worker must be deployed to E2E_BASE_URL
  */
 describe('Full User Journey', () => {
   let browser: Browser;
@@ -110,7 +110,7 @@ describe('Full User Journey', () => {
   }
 
   describe('Journey Step 1: Login and View Dashboard', () => {
-    it('should authenticate via DEV_MODE and show dashboard', async () => {
+    it('should authenticate via service token and show dashboard', async () => {
       await navigateToHome(page);
 
       // Wait for app to load - either main app or setup wizard
