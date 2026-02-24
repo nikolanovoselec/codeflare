@@ -443,7 +443,7 @@ async function refreshSessionStatuses(): Promise<void> {
     const removedIds: string[] = [];
     for (const session of state.sessions) {
       if (!batchStatuses[session.id]) {
-        if (session.status === 'initializing') continue;
+        if (session.status === 'initializing' || session.id === state.activeSessionId) continue;
         const count = (sessionMissCounters.get(session.id) || 0) + 1;
         sessionMissCounters.set(session.id, count);
         if (count >= REMOVAL_THRESHOLD) {
@@ -482,6 +482,14 @@ async function refreshSessionStatuses(): Promise<void> {
           };
         }));
       }
+
+      // Guard: skip status transitions for the active session. While in
+      // terminal view, session lifecycle is managed by WebSocket and
+      // startup-status (which talk to the DO directly). KV is eventually
+      // consistent (~60-90s) and can report stale 'stopped' that clobbers
+      // the authoritative 'running' state. On dashboard (activeSessionId
+      // === null), KV is the sole authority for all sessions.
+      if (session.id === state.activeSessionId) continue;
 
       // Guard: skip status transitions for initializing sessions to avoid
       // clobbering the init progress UI with stale KV data. The container
@@ -565,6 +573,15 @@ function hasRecentContext(session: SessionWithStatus): boolean {
 }
 
 // Export store and actions
+/**
+ * Whether KV polling should skip status transitions for this session.
+ * The active session's lifecycle is managed by WebSocket/startup-status
+ * (which talk to the DO directly), not by eventually-consistent KV.
+ */
+export function shouldSkipStatusTransition(sessionId: string, activeSessionId: string | null): boolean {
+  return sessionId === activeSessionId && activeSessionId !== null;
+}
+
 export const sessionStore = {
   // State (readonly)
   get sessions() {
