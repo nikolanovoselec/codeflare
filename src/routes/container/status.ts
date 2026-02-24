@@ -198,7 +198,7 @@ app.get('/startup-status', async (c) => {
     let containerState;
     try {
       containerState = await container.getState();
-    } catch (err) {
+    } catch (_err) {
       // Container not available - stopped state
       return c.json(response);
     }
@@ -232,7 +232,7 @@ app.get('/startup-status', async (c) => {
       try {
         healthData = await healthRes.json() as typeof healthData;
         healthServerOk = true;
-      } catch (err) {
+      } catch (_err) {
         // Failed to parse - continue without health data
       }
     }

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 
 // Mock all child components to isolate Layout testing
 vi.mock('../../components/Header', () => ({
-  default: (props: any) => <header data-testid="header" />
+  default: (_props: any) => <header data-testid="header" />
 }));
 
 vi.mock('../../components/TerminalArea', () => ({
@@ -25,11 +25,11 @@ vi.mock('../../components/SplashCursor', () => ({
 }));
 
 vi.mock('../../components/SettingsPanel', () => ({
-  default: (props: any) => <div data-testid="settings-panel" />
+  default: (_props: any) => <div data-testid="settings-panel" />
 }));
 
 vi.mock('../../components/StoragePanel', () => ({
-  default: (props: any) => <div data-testid="storage-panel" />
+  default: (_props: any) => <div data-testid="storage-panel" />
 }));
 
 // Session store mock with controllable state.

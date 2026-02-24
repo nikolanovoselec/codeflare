@@ -1,13 +1,10 @@
 import { createStore, produce } from 'solid-js/store';
-import type { Session, SessionWithStatus, SessionStatus, InitProgress, InitStage, TerminalTab, SessionTerminals, TileLayout, TilingState, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
+import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
-  LAYOUT_MIN_TABS,
-  getBestLayoutForTabCount,
-  isLayoutCompatible,
   setTilingLayout,
   getTilingForSession,
   getTabOrder,

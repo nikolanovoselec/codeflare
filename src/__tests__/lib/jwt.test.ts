@@ -522,7 +522,7 @@ describe('JWT verification', () => {
       const token2 = await createTestJWT(payload, secondKeyPair.privateKey, secondKeyPair.kid);
 
       // Update fetch mock to return BOTH keys (simulates Cloudflare key rotation)
-      let fetchCallCount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+      let _fetchCallCount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
         if (url === `https://${TEST_AUTH_DOMAIN}/cdn-cgi/access/certs`) {

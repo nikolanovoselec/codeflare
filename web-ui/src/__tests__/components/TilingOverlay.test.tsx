@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import TilingOverlay from '../../components/TilingOverlay';
-import type { TileLayout } from '../../types';
 
 describe('TilingOverlay Component', () => {
   const mockOnSelectLayout = vi.fn();

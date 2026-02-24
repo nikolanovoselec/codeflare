@@ -46,7 +46,7 @@ vi.mock('@cloudflare/containers', () => ({
       this.env = env;
     }
 
-    async fetch(request: Request): Promise<Response> {
+    async fetch(_request: Request): Promise<Response> {
       return new Response('base fetch', { status: 200 });
     }
 

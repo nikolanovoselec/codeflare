@@ -5,6 +5,6 @@ import type { Session } from '../types';
  * Prevents leaking internal user identifiers to the client.
  */
 export function toApiSession(session: Session) {
-  const { userId, lastStatusCheck, ...apiSession } = session;
+  const { userId: _userId, lastStatusCheck: _lastStatusCheck, ...apiSession } = session;
   return apiSession;
 }

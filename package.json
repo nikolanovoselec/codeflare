@@ -15,7 +15,9 @@
     "test:watch": "vitest",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:e2e:ui": "vitest run --config vitest.e2e.config.ts e2e/ui/",
-    "postinstall": "node scripts/fix-broken-sourcemaps.js"
+    "postinstall": "node scripts/fix-broken-sourcemaps.js",
+    "lint": "oxlint src/ e2e/ --deny-warnings",
+    "lint:fix": "oxlint src/ e2e/ --fix"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.1.0",
@@ -29,9 +31,10 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.10",
     "@cloudflare/workers-types": "^4.20250124.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "oxlint": "^1.50.0",
     "puppeteer": "^24.36.1",
     "typescript": "^5.7.0",
-    "@vitest/coverage-v8": "^3.0.0",
     "vitest": "^3.0.0",
     "wrangler": "^4.0.0"
   }

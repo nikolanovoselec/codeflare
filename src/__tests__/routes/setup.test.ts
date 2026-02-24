@@ -43,7 +43,7 @@ function createUrlMockFetch(responses: Record<string, ((url: string, init?: Requ
 }
 
 /** Helper: create a JSON Response with correct Content-Type header for CF API mocks. */
-function jsonResponse(body: unknown, status = 200): Response {
+function _jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: jsonHeaders });
 }
 
@@ -131,7 +131,7 @@ const TEST_USER_GROUP_NAME = `${TEST_WORKER_NAME}-users`;
 describe('Setup Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let originalFetch: typeof globalThis.fetch;
-  const TEST_EMAIL = 'test@example.com';
+  const _TEST_EMAIL = 'test@example.com';
 
   beforeEach(() => {
     mockKV = createMockKV();
@@ -1412,7 +1412,7 @@ describe('Setup Routes', () => {
     it('falls back to create when DNS record lookup fails', async () => {
       const app = createTestApp();
 
-      let dnsLookupCalled = false;
+      let _dnsLookupCalled = false;
 
       globalThis.fetch = createUrlMockFetch({
         ...baseFlowMocks(),
@@ -1420,7 +1420,7 @@ describe('Setup Routes', () => {
         '/workers/subdomain': mockResponses.subdomainLookup,
         '~/dns_records': (_url: string, init?: RequestInit) => {
           if (!init?.method || init.method === 'GET') {
-            dnsLookupCalled = true;
+            _dnsLookupCalled = true;
             // Return an API error response (not a throw) so circuit breaker doesn't trip
             return new Response(
               JSON.stringify({ success: false, errors: [{ message: 'lookup failed' }] }),

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import TiledTerminalContainer from '../../components/TiledTerminalContainer';
-import type { TerminalTab, TileLayout } from '../../types';
+import type { TerminalTab } from '../../types';
 
 describe('TiledTerminalContainer Component', () => {
   const mockSessionId = 'test-session-123';

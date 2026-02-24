@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createRoot, createSignal, createEffect } from 'solid-js';
+import { createRoot, createSignal } from 'solid-js';
 import { useStageTimings } from '../../hooks/useStageTimings';
 import type { InitStage } from '../../types';
 

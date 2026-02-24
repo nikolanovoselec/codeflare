@@ -3,7 +3,7 @@ import handlers from '../../../routes/setup/handlers';
 import type { Env } from '../../../types';
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { AuthError, AppError, ForbiddenError } from '../../../lib/error-types';
+import { AppError, ForbiddenError } from '../../../lib/error-types';
 import { resetAuthConfigCache } from '../../../lib/access';
 import { createMockKV } from '../../helpers/mock-kv';
 
@@ -17,7 +17,7 @@ vi.stubGlobal('fetch', mockFetch);
 describe('Setup Handlers', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
-  const TEST_EMAIL = 'test@example.com';
+  const _TEST_EMAIL = 'test@example.com';
 
   beforeEach(() => {
     mockKV = createMockKV();

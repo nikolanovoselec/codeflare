@@ -44,7 +44,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('shows init progress during container startup', async () => {
-    const progress = await page.$('[data-testid="init-progress"]');
+    const _progress = await page.$('[data-testid="init-progress"]');
     // Init progress may or may not be visible depending on timing
     // If container is fast, it may already be ready
     expect(true).toBe(true); // Non-blocking check

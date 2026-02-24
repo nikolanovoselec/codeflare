@@ -1,4 +1,4 @@
-import type { Env, UserRole } from '../types';
+import type { UserRole } from '../types';
 import { createLogger } from './logger';
 import { listAllKvKeys, emailFromKvKey } from './kv-keys';
 import { CF_API_BASE } from './constants';

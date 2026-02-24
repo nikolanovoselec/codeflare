@@ -25,7 +25,7 @@ vi.mock('../../api/client', () => ({
 import { terminalStore, sendInputToTerminal } from '../../stores/terminal';
 
 // Get mock WebSocket class from global
-const MockWebSocket = globalThis.WebSocket as unknown as {
+const _MockWebSocket = globalThis.WebSocket as unknown as {
   new (url: string): WebSocket & {
     _simulateMessage: (data: string | ArrayBuffer) => void;
     _simulateError: () => void;
@@ -668,7 +668,7 @@ describe('Terminal Store', () => {
 
       // Create WebSocket that immediately closes with abnormal code
       const OriginalWebSocket = globalThis.WebSocket;
-      let wsInstance: WebSocket & { onclose?: ((event: CloseEvent) => void) | null };
+      let _wsInstance: WebSocket & { onclose?: ((event: CloseEvent) => void) | null };
 
       vi.stubGlobal('WebSocket', class {
         static CONNECTING = 0;
@@ -686,7 +686,7 @@ describe('Terminal Store', () => {
 
         constructor(url: string) {
           this.url = url;
-          wsInstance = this as unknown as WebSocket & { onclose?: ((event: CloseEvent) => void) | null };
+          _wsInstance = this as unknown as WebSocket & { onclose?: ((event: CloseEvent) => void) | null };
           // Simulate immediate failure
           setTimeout(() => {
             this.readyState = 3; // CLOSED
