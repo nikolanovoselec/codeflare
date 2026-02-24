@@ -752,13 +752,15 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 [claude-unleashed](https://github.com/nikolanovoselec/claude-unleashed) enables `--dangerously-skip-permissions` when running as root inside containers (standard CLI prevents this via `process.getuid() === 0` check).
 
-**Two separate updaters:** (1) claude-unleashed's updater checks npm for latest `@anthropic-ai/claude-code` - runs on every `cu` invocation (including auto-start), pre-patched at build time so the check is fast. (2) Upstream CLI's internal auto-updater - disabled via `DISABLE_INSTALLATION_CHECKS=1`.
+**Two separate updaters:** (1) claude-unleashed's updater checks npm for latest `@anthropic-ai/claude-code` - disabled at runtime via `CLAUDE_UNLEASHED_NO_UPDATE=1` to avoid ~25-30s startup delay from `npm view` + `npm install` on every container start. Updates happen at Docker build time instead (via `.cache-bust` layer invalidation). (2) Upstream CLI's internal auto-updater - disabled via `DISABLE_INSTALLATION_CHECKS=1`.
 
 `claude` = vanilla CLI, `cu` = claude-unleashed.
 
 ### Environment Variables
 
-**Global (Dockerfile ENV):** `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`
+**Global (Dockerfile ENV):** `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`
+
+**Prewarm readiness:** `cu`/`claude-unleashed` are classified as TUI agents (not shell commands) in `host/prewarm-config.js`. They use 500ms quiescence (vs 2000ms for shells) and a `readyPattern` of `/╭/` — the first character of Claude Code's ink TUI welcome box. This fires instantly on render, avoiding premature readiness from update silence periods.
 
 **Auto-start flags (.bashrc):** `--silent`, `--no-consent`
 

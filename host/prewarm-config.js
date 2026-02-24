@@ -15,15 +15,17 @@ const FAST_QUIESCENCE_MS = 500;
 
 // Commands that are TUI agents with busy startup output.
 // These get a shorter quiescence window.
-const TUI_AGENT_COMMANDS = new Set(['opencode', 'codex', 'gemini', 'claude']);
+const TUI_AGENT_COMMANDS = new Set(['opencode', 'codex', 'gemini', 'claude', 'cu', 'claude-unleashed']);
 
 // Commands that use the default (shell-like) quiescence.
-const SHELL_COMMANDS = new Set(['bash', 'sh', 'zsh', 'cu', 'claude-unleashed']);
+const SHELL_COMMANDS = new Set(['bash', 'sh', 'zsh']);
 
 // Ready-pattern regexes for specific agents.
 // When matched against PTY output, the pre-warm resolves immediately.
 const READY_PATTERNS = {
   opencode: />/,  // OpenCode Bubble Tea TUI shows ">" prompt when ready
+  cu: /╭/,  // Claude Code ink TUI renders ╭ as first char of welcome box
+  'claude-unleashed': /╭/,  // Same TUI as cu (wrapper around Claude Code)
 };
 
 /**

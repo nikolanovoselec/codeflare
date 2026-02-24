@@ -33,25 +33,39 @@ describe('getPrewarmConfig', () => {
     });
   });
 
-  describe('when tab 1 is a shell or Claude Code', () => {
+  describe('when tab 1 is a shell', () => {
     it('returns default quiescence for bash', () => {
       const cfg = getPrewarmConfig([{ id: '1', command: 'bash', label: 'Terminal' }]);
       assert.equal(cfg.quiescenceMs, 2000);
       assert.equal(cfg.readyPattern, null);
     });
+  });
 
-    it('returns default quiescence for cu (claude-unleashed)', () => {
+  describe('when tab 1 is cu or claude-unleashed (TUI agents)', () => {
+    it('returns fast quiescence (500 ms) for cu', () => {
       const cfg = getPrewarmConfig([{ id: '1', command: 'cu', label: 'Claude' }]);
-      assert.equal(cfg.quiescenceMs, 2000);
-      assert.equal(cfg.readyPattern, null);
+      assert.equal(cfg.quiescenceMs, 500);
     });
 
-    it('returns default quiescence for claude-unleashed', () => {
+    it('provides a readyPattern matching ╭ for cu', () => {
+      const cfg = getPrewarmConfig([{ id: '1', command: 'cu', label: 'Claude' }]);
+      assert.notEqual(cfg.readyPattern, null);
+      assert.ok(cfg.readyPattern.test('╭'), 'should match ╭ box-drawing character');
+    });
+
+    it('returns fast quiescence (500 ms) for claude-unleashed', () => {
       const cfg = getPrewarmConfig([
         { id: '1', command: 'claude-unleashed', label: 'Claude' },
       ]);
-      assert.equal(cfg.quiescenceMs, 2000);
-      assert.equal(cfg.readyPattern, null);
+      assert.equal(cfg.quiescenceMs, 500);
+    });
+
+    it('provides a readyPattern matching ╭ for claude-unleashed', () => {
+      const cfg = getPrewarmConfig([
+        { id: '1', command: 'claude-unleashed', label: 'Claude' },
+      ]);
+      assert.notEqual(cfg.readyPattern, null);
+      assert.ok(cfg.readyPattern.test('╭'), 'should match ╭ box-drawing character');
     });
   });
 
