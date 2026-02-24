@@ -1,22 +1,17 @@
 /**
  * Shared E2E test configuration.
  *
- * The base URL is constructed from two environment variables:
- * - ACCOUNT_SUBDOMAIN (required) — your Cloudflare account subdomain
- * - CLOUDFLARE_WORKER_NAME (optional, defaults to 'codeflare')
+ * E2E_BASE_URL must point to the deployed worker (custom domain with CF Access).
  */
 function getBaseUrl(): string {
-  const subdomain = process.env.ACCOUNT_SUBDOMAIN;
-  if (!subdomain) {
+  const baseUrl = process.env.E2E_BASE_URL;
+  if (!baseUrl) {
     throw new Error(
-      'E2E tests require ACCOUNT_SUBDOMAIN to be set.\n' +
-      'Find it in: Cloudflare dashboard > Workers & Pages > Overview > your subdomain.\n' +
-      'Usage: ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e'
+      'E2E tests require E2E_BASE_URL to be set.\n' +
+      'Usage: E2E_BASE_URL=https://your-app.example.com npm run test:e2e'
     );
   }
-
-  const workerName = process.env.CLOUDFLARE_WORKER_NAME || 'codeflare';
-  return `https://${workerName}.${subdomain}.workers.dev`;
+  return baseUrl.replace(/\/+$/, '');
 }
 
 export const BASE_URL = getBaseUrl();

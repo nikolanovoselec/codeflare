@@ -3,8 +3,9 @@ import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import setupRoutes from '../../routes/setup';
 import type { Env } from '../../types';
-import { ValidationError, AuthError, SetupError } from '../../lib/error-types';
+import { ValidationError, AuthError, SetupError, ForbiddenError } from '../../lib/error-types';
 import { cfApiCB } from '../../lib/circuit-breakers';
+import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
 
 // URL-based mock fetch factory — routes requests by URL pattern (and optionally method)
@@ -130,10 +131,12 @@ const TEST_USER_GROUP_NAME = `${TEST_WORKER_NAME}-users`;
 describe('Setup Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let originalFetch: typeof globalThis.fetch;
+  const TEST_EMAIL = 'test@example.com';
 
   beforeEach(() => {
     mockKV = createMockKV();
     originalFetch = globalThis.fetch;
+    resetAuthConfigCache();
   });
 
   afterEach(() => {
@@ -147,6 +150,9 @@ describe('Setup Routes', () => {
 
     // Error handler
     app.onError((err, c) => {
+      if (err instanceof ForbiddenError) {
+        return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+      }
       if (err instanceof ValidationError) {
         return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
       }
@@ -1907,53 +1913,4 @@ describe('Setup Routes', () => {
     });
   });
 
-  describe('POST /api/setup/reset-for-tests', () => {
-    it('returns 401 when DEV_MODE is not true', async () => {
-      const app = createTestApp({ DEV_MODE: 'false' });
-
-      const res = await app.request('/api/setup/reset-for-tests', {
-        method: 'POST',
-      });
-
-      expect(res.status).toBe(401);
-    });
-
-    it('clears setup:complete when DEV_MODE is true', async () => {
-      const app = createTestApp({ DEV_MODE: 'true' });
-
-      const res = await app.request('/api/setup/reset-for-tests', {
-        method: 'POST',
-      });
-
-      expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean };
-      expect(body.success).toBe(true);
-      expect(mockKV.delete).toHaveBeenCalledWith('setup:complete');
-    });
-  });
-
-  describe('POST /api/setup/restore-for-tests', () => {
-    it('returns 401 when DEV_MODE is not true', async () => {
-      const app = createTestApp({ DEV_MODE: 'false' });
-
-      const res = await app.request('/api/setup/restore-for-tests', {
-        method: 'POST',
-      });
-
-      expect(res.status).toBe(401);
-    });
-
-    it('restores setup:complete when DEV_MODE is true', async () => {
-      const app = createTestApp({ DEV_MODE: 'true' });
-
-      const res = await app.request('/api/setup/restore-for-tests', {
-        method: 'POST',
-      });
-
-      expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean };
-      expect(body.success).toBe(true);
-      expect(mockKV.put).toHaveBeenCalledWith('setup:complete', 'true');
-    });
-  });
 });

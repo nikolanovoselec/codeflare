@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../../types';
-import { AuthError, toError } from '../../lib/error-types';
+import { toError } from '../../lib/error-types';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -140,39 +140,6 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     logger.warn('Setup prefill failed', { error: toError(error).message });
     return c.json({ adminUsers: [], allowedUsers: [] });
   }
-});
-
-/**
- * POST /api/setup/reset-for-tests
- * Test-only reset endpoint (DEV_MODE required)
- * Used by E2E tests to reset setup state before test runs
- */
-handlers.post('/reset-for-tests', async (c) => {
-  if (c.env.DEV_MODE !== 'true') {
-    throw new AuthError('Not available in production');
-  }
-
-  // Clear setup state
-  await c.env.KV.delete('setup:complete');
-
-  return c.json({ success: true, message: 'Setup state reset for tests' });
-});
-
-/**
- * POST /api/setup/restore-for-tests
- * Test-only restore endpoint (DEV_MODE required)
- * Used by E2E tests to restore setup:complete after test runs
- * IMPORTANT: Must be called in afterAll of setup-wizard.test.ts
- */
-handlers.post('/restore-for-tests', async (c) => {
-  if (c.env.DEV_MODE !== 'true') {
-    throw new AuthError('Not available in production');
-  }
-
-  // Restore setup state
-  await c.env.KV.put('setup:complete', 'true');
-
-  return c.json({ success: true, message: 'Setup state restored for tests' });
 });
 
 export default handlers;

@@ -89,6 +89,10 @@ In your fork: `Settings` > `Secrets and variables` > `Actions` > `New repository
 
 Add each as a separate secret. Name goes in the **Name** field, value in **Secret**. Click **Add secret** after each one.
 
+**Secrets** (optional — for E2E testing):
+- `CF_ACCESS_CLIENT_ID` - CF Access service token client ID
+- `CF_ACCESS_CLIENT_SECRET` - CF Access service token client secret
+
 ### 3. Deploy
 
 Go to your fork: `Actions` > `Deploy` > `Run workflow` > Branch: `main` > **Run workflow**. GitHub Actions builds, tests, and deploys to Cloudflare Workers. Takes about 2 minutes - go grab a coffee.
@@ -149,6 +153,7 @@ All optional. The defaults work out of the box. I respect your time.
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | Set to `active` to force-reinstall the AI agent layer on every deploy |
 | `MAX_SESSIONS_USER` | `3` | Max concurrent running sessions per regular user |
 | `MAX_SESSIONS_ADMIN` | `10` | Max concurrent running sessions per admin user |
+| `E2E_BASE_URL` | unset | Custom domain URL for E2E tests (e.g., `https://codeflare.example.com`) |
 
 </details>
 

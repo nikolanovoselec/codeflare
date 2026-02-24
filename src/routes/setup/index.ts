@@ -64,7 +64,7 @@ app.use('/prefill', async (c, next) => {
   return next();
 });
 
-// Register simple endpoint handlers (status, detect-token, reset-for-tests, restore-for-tests)
+// Register simple endpoint handlers (status, detect-token, prefill)
 app.route('/', handlers);
 
 /**
