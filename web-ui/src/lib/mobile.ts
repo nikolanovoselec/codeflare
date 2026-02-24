@@ -1,7 +1,7 @@
 import { createSignal } from 'solid-js';
 import { loadSettings } from './settings';
 
-// Module-level singleton signals (AD30 pattern from CLAUDE.md)
+// Module-level singleton signals
 // Guard matchMedia for test environments (jsdom doesn't provide it)
 const mobileQuery = typeof window !== 'undefined' && window.matchMedia
   ? window.matchMedia('(max-width: 640px)')

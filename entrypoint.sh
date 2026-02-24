@@ -144,7 +144,7 @@ RCLONE_CONFIG="$USER_HOME/.config/rclone/rclone.conf"
 # SYNC_MODE controls what syncs from workspace/:
 #   "none"     = do not sync workspace at all
 #   "full"     = entire workspace folder (for persistent storage across stop/resume)
-#   "metadata" = only CLAUDE.md and .claude/ per repo (lightweight, restore later if needed)
+#   "metadata" = only agent config files and .claude/ per repo (lightweight, restore later if needed)
 SYNC_MODE="${SYNC_MODE:-none}"
 
 # Common exclusions shared by all sync modes

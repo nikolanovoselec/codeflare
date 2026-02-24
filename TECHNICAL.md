@@ -30,7 +30,7 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 20. [Debugging Guide](#20-debugging-guide)
 21. [Architecture Decisions](#21-architecture-decisions)
 22. [Lessons Learned](#22-lessons-learned)
-23. [Mobile Terminal Bug Fixes](#23-mobile-terminal-bug-fixes)
+23. [Mobile Terminal Design](#23-mobile-terminal-design)
 
 **Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by CF Access). The workers.dev URL should then be gated behind one-click Access in the Cloudflare dashboard.
 
@@ -462,7 +462,7 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 60s, f
 |------|---------------|----------|
 | `none` | Excluded entirely | Default. Settings and config only. |
 | `full` | Entire `workspace/` (minus `node_modules/`) | Persistent storage across stop/resume |
-| `metadata` | Only `CLAUDE.md` and `.claude/` per repo | Lightweight project context sync |
+| `metadata` | Only agent config files (`.claude/`) per repo | Lightweight project context sync |
 
 All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache/rclone/`, `.npm/`, `.bun/`, `.claude/debug/`, `.claude/plugins/cache/`, `**/node_modules/`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
 
@@ -835,7 +835,7 @@ codeflare/
 │       ├── hooks/            # useTerminal.ts, useStageTimings.ts
 │       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, settings, format, mobile, + others
 │       ├── styles/           # CSS (design tokens, animations, component styles)
-│       └── __tests__/        # Frontend unit tests (63 files)
+│       └── __tests__/        # Frontend unit tests (64 files)
 ├── scripts/                  # generate-tutorial-seed.mjs, fix-broken-sourcemaps.js
 ├── tutorials/                # Tutorial content (Getting Started, Examples, etc.)
 ├── Dockerfile                # Multi-stage container image
@@ -917,9 +917,9 @@ Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGIN
 
 | Tier | Config | Max Instances | Notes |
 |------|--------|---------------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 3 | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 4 GB | 4 | Baseline for node-pty + agent CLIs |
-| `high` | 2 vCPU, 6 GiB, 8 GB | 5 | Higher parallelism |
+| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 10 | Sub-1-vCPU workloads |
+| default | 1 vCPU, 3 GiB, 4 GB | 10 | Baseline for node-pty + agent CLIs |
+| `high` | 2 vCPU, 6 GiB, 8 GB | 10 | Higher parallelism |
 
 Base image: Node.js 22 Alpine.
 
@@ -976,7 +976,7 @@ Base image: Node.js 22 Alpine.
 
 **Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 63 test files. Run: `npm test`
 
-**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 63 test files. Run: `cd web-ui && npm test`
+**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 64 test files. Run: `cd web-ui && npm test`
 
 **E2E API:** `e2e/` - tests against deployed worker. Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e`
 
@@ -1022,7 +1022,7 @@ Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
-API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/api/*", "/public/*", "/health"]` in `[assets]`.
+API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/api/*", "/public/*", "/health"]` in `[assets]` section of `wrangler.toml`.
 
 ### `/setup` Shows "Access Denied"
 
@@ -1036,45 +1036,24 @@ Stale `setup:auth_domain` (JWT mismatch), stale `setup:access_aud`, or email cas
 
 Browser retained stale Access session. Test in incognito. Clear CF Access cookies. Confirm one managed app with correct destinations.
 
-### Bisync Empty Listing Error
-
-On-demand sync uses `--resync` by default, handles this case.
-
-### envVars Getter Not Working
-
-Container starts without R2 credentials. Fix: set `envVars` as property assignment in constructor, not as a getter.
-
-### R2 Sync Skipped - DO Missing Secrets
-
-Worker now passes R2 credentials via `_internal/setBucketName` body. Check `startup-status` response `details.syncError` for the missing variable.
-
 ### Container Stuck at "Waiting for Services"
 
-Terminal server not starting (sync blocking). Check: `GET /api/container/sync-log?sessionId=xxx`. Common: missing R2 credentials, bucket doesn't exist, network timeout.
+Terminal server not starting (sync blocking). Check: `GET /api/container/sync-log?sessionId=xxx`. Common causes: missing R2 credentials, bucket doesn't exist, network timeout.
 
-### R2 Sync Transfers 0 Files
+### R2 Sync Issues
 
-Mixing `--include`/`--exclude` makes filter order indeterminate. Fix: use `--filter` flags (`- pattern` for exclude, `+ pattern` for include).
-
-### Slow Sync With Full Workspace
-
-Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
+- **Bisync empty listing**: On-demand sync uses `--resync` by default, handles this case.
+- **Transfers 0 files**: Filter order indeterminacy from mixed `--include`/`--exclude`. Use `--filter` flags instead.
+- **Slow sync**: Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
+- **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.
 
 ### Zombie Container
 
-DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via two mechanisms: (1) `collectMetrics` checks `this.ctx.container?.running` and returns early if false (no re-arm), (2) the missing-identifiers guard returns early without re-arming when `destroy()` has cleared `SESSION_ID_KEY`/`bucketName` -- this uses an if/else pattern that kills both the metrics push AND the schedule re-arm simultaneously. The SDK alarm handler eventually sees no schedules + no running container and calls `storage.deleteAlarm()`. Zombie DOs are harmless (no container process) but may briefly log debug-level warnings.
-
-### Character Doubling in Terminal
-
-Multiple `terminal.onData()` handlers from reconnection. Store disposable outside `connect()`, dispose before creating new handler.
+DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via two mechanisms: (1) `collectMetrics` checks `container.running` and returns early if false, (2) the missing-identifiers guard returns early without re-arming. Zombie DOs are harmless (no container process) but may briefly log debug-level warnings.
 
 ### Secrets Lost After Worker Deletion
 
 `wrangler delete` nukes all secrets. Re-set with `wrangler secret put`.
-
-### Orphan Container Root Cause
-
-`getContainerId()` must NEVER fallback to just `bucketName`. Always throw on invalid sessionId. Container ID format is ALWAYS `${bucketName}-${sessionId}`.
 
 ### R2 Bucket Cleanup on User Deletion
 
@@ -1088,11 +1067,11 @@ Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
 | `403 Forbidden` on R2 | Expired credentials | Regenerate in CF dashboard |
 | Container stuck "starting" | Port 8080 not responding | Check sync log |
 | WebSocket fails | Container not running | Verify startup-status |
-| Zombie restarts | Stale DO state | DO self-terminates via missing-identifiers guard |
-| Deleted session reappears | `onStop()` resurrects KV entry after `destroy()` | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
-| Container dies during active use | `/activity` 401 (auth not exempted) | Verify `/activity` in `authExemptPaths` in `host/server.js` |
-| Phantom container on session switch | `reconnectDisconnectedTerminals` reconnects wrong session | Ensure `activeSessionId` filter is passed |
-| Character doubling | inputDisposable not disposed | Check Terminal.tsx |
+| Zombie restarts | Stale DO state | Self-terminates via missing-identifiers guard |
+| Deleted session reappears | `onStop()` resurrects KV entry | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
+| Container dies during active use | Auth issue on internal paths | Verify `/activity` in `authExemptPaths` in `host/server.js` |
+| Phantom container on session switch | Reconnect scope issue | Ensure `activeSessionId` filter passed to `reconnectDisconnectedTerminals()` |
+| Character doubling in terminal | Handler not disposed on reconnect | Dispose `inputDisposable` before creating new handler in `connect()` |
 
 ---
 
@@ -1186,7 +1165,7 @@ The setup completion lock uses a KV read-then-write pattern: read `setup:complet
 
 ## 22. Lessons Learned
 
-Architectural principles and design rationale. For code-level implementation traps (specific files, functions, what breaks), see CLAUDE.md "Gotchas and Important Notes".
+Architectural principles and design rationale.
 
 1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
 2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
@@ -1203,34 +1182,31 @@ Architectural principles and design rationale. For code-level implementation tra
 
 ---
 
-## 23. Mobile Terminal Bug Fixes
+## 23. Mobile Terminal Design
 
-### Bug 1: "Orange Square" Cursor Duplication
+### Challenge 1: Cursor Duplication ("Orange Square")
 
-**Root cause:** xterm.js renders its own DOM cursor (`<span class="xterm-cursor-block">` with `outline: 1px solid #d97706`) AND the server-side CLI renders its cursor via ANSI escape sequences. Two cursors at different positions because xterm tracks cursor state independently from the server-side CLI.
+xterm.js renders its own DOM cursor AND the server-side CLI renders a cursor via ANSI escape sequences. On mobile, this produces two visible cursors at different positions.
 
-**The fix (attempt 11):** Set `cursor: 'transparent'` in xterm theme + CSS `display: none !important` on all `.xterm-cursor-*` classes. The CLI's ANSI cursor is the only one needed.
+**Solution:** Disable xterm's cursor entirely (`cursor: 'transparent'` in theme + CSS hide on `.xterm-cursor-*` classes). The CLI's ANSI cursor is the only one needed.
 
-**Key lesson:** 10+ attempts tried to hide what was assumed to be an Android native IME caret. A simple "Inspect Element" revealed it was xterm's own DOM element using the theme's orange color (`#d97706`). The orange color matched what one might expect from a native browser caret, leading to elaborate attempts to fight an OS-level compositor issue that didn't exist.
+**Lesson learned:** 10+ attempts tried to hide what was assumed to be an Android native IME caret. A simple "Inspect Element" revealed it was xterm's own DOM element. Always inspect before assuming the problem source.
 
-**Note:** The iframe compositor jail code (attempts 10-10h) remains in the codebase as a precaution for the genuine Android IME native caret problem, which is a separate issue from xterm's DOM cursor. Future work should verify via Chrome remote debugging on Android.
+**Note:** The iframe compositor jail code remains as a precaution for the genuine Android IME native caret problem (separate from xterm's DOM cursor).
 
-### Bug 2: Samsung Internet Keyboard Gap
+### Challenge 2: Samsung Internet Keyboard Gap
 
-**Root cause:** Samsung Internet's bottom navigation bar (~48px) inflates viewport height. VirtualKeyboard API reports keyboard height including this invisible area.
+Samsung Internet's bottom navigation bar inflates viewport height, causing the VirtualKeyboard API to report incorrect dimensions.
 
-**The fix:** VirtualKeyboard API with `overlaysContent = true` for exact keyboard dimensions (`navigator.virtualKeyboard`, Chrome 94+, Samsung Internet 17+). Fallback: `clientHeight - visualViewport.height` for iOS. `boundingRect.height` returns 0 when `overlaysContent = false` - must enable before reading.
+**Solution:** VirtualKeyboard API with `overlaysContent = true` for accurate keyboard dimensions. Samsung-specific compensation via user settings toggle (`samsungAddressBarTop`) since Samsung exposes NO API to detect address bar position (exhaustively tested 6+ approaches -- all return identical values regardless of position).
 
-**Samsung-specific compensation** via user-facing settings toggle (`samsungAddressBarTop` in Settings). Samsung exposes NO API to detect address bar position - tested `clientHeight`, `fixedVpHeight`, sentinel elements, `env(keyboard-inset-bottom)`, `vk.boundingRect.top` - all return identical values regardless. When address bar is at top, no subtraction needed. When at bottom, subtract viewport growth. Wide-screen devices (>600px) bypass compensation entirely. All Samsung code gated behind `isSamsungBrowser` UA detection.
+### Mobile Input Architecture
 
-### Architecture Notes (Mobile)
+The mobile terminal input system uses several techniques to work around browser/OS limitations:
 
-**Iframe Compositor Jail:** Creates `<iframe>` with `srcdoc` containing `input[type=password]` for a separate compositor context. Android's IME caret is drawn inside iframe's 1x1px bounds (invisible). Keyboard input forwarded via `keydown` (functional keys -> ANSI) + `input` event (characters). `sentViaKeydown` flag prevents double-send.
-
-**_syncTextArea Freeze:** `Object.defineProperty` getter returning `() => {}`, immune to xterm's internal reassignment.
-
-**createElement Monkey-Patch:** Scoped to `terminal.open()` only. Returns `input[type=password]` instead of textarea. `.focus()` overridden to no-op at creation time.
-
-**isFocused Getter Override:** `Object.defineProperty` returning `iframe.contentDocument?.hasFocus()`. Live reference avoids stale state across app backgrounding/tab switching.
-
-**VK API Toggle:** `overlaysContent` is global per document. Enable BEFORE focus to beat the keyboard/layout race.
+1. **Iframe compositor jail** -- Separate compositor context for Android IME caret containment
+2. **`_syncTextArea` freeze** -- Prevents xterm from interfering with custom input handling
+3. **`createElement` monkey-patch** -- Uses `input[type=password]` instead of textarea (scoped to `terminal.open()`)
+4. **`isFocused` getter override** -- Live reference via `iframe.contentDocument?.hasFocus()` avoids stale state
+5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
+6. **Four-part scroll fix** -- Disables xterm's touch handlers, sets `touch-action: pan-y`, enables momentum scrolling, and manages pointer-events based on keyboard state

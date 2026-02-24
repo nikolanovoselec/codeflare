@@ -118,7 +118,7 @@ describe('Request Tracing', () => {
       // Should contain only valid characters (alphanumeric and hyphens)
       expect(response).toMatch(/^[a-zA-Z0-9-]+$/);
 
-      // Should have reasonable length (at least 8 characters based on CLAUDE.md)
+      // Should have reasonable length (at least 8 characters)
       expect(response!.length).toBeGreaterThanOrEqual(8);
     }, 10000);
 
@@ -133,7 +133,7 @@ describe('Request Tracing', () => {
 
       expect(response).not.toBeNull();
 
-      // Based on CLAUDE.md: "8-char UUID prefix" format
+      // 8-char UUID prefix format
       // Either it's exactly 8 chars or a full/partial UUID
       const isValidFormat =
         response!.length === 8 ||              // 8-char prefix

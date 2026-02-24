@@ -35,7 +35,7 @@ id = "placeholder"
 class_name = "container"
 image = "./Dockerfile"
 # This is the repo-level ceiling. GitHub Actions deploy.yml patches this value
-# per RESSOURCE_TIER (default=4, low=3, high=5). See README for tier details.
+# per RESSOURCE_TIER (all tiers use max_instances=10). See README for tier details.
 max_instances = 10
 
 [containers.instance_type]
