@@ -158,6 +158,7 @@ All optional. The defaults work out of the box. I respect your time.
 - AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
 - Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`).
 - API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
+- For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
 ## Docs
 

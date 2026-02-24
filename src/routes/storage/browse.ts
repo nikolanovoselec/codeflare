@@ -4,6 +4,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url, parseListObjectsXml } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { ValidationError, ContainerError } from '../../lib/error-types';
+import { validateKey } from './validation';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs } from '../../lib/r2-seed';
 import { createLogger } from '../../lib/logger';
@@ -21,9 +22,9 @@ app.get('/', async (c) => {
   const continuationToken = c.req.query('continuationToken');
   const maxKeysParam = c.req.query('maxKeys');
 
-  // Validate prefix - no path traversal
-  if (prefix.includes('..')) {
-    throw new ValidationError('Invalid prefix: path traversal not allowed');
+  // Validate prefix - path traversal and protected paths
+  if (prefix) {
+    validateKey(prefix, 'prefix');
   }
 
   // Validate maxKeys
