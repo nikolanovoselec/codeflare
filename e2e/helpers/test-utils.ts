@@ -515,29 +515,3 @@ export async function cleanupAllSessions(): Promise<{ deleted: number; failed: n
   return { deleted, failed };
 }
 
-/**
- * Restore the setup:complete flag in KV
- * Uses service token headers for authentication
- */
-export async function restoreSetupComplete(): Promise<boolean> {
-  try {
-    const response = await fetch(`${BASE_URL}/api/setup/restore-for-tests`, {
-      method: 'POST',
-      headers: {
-        ...getServiceTokenHeaders(),
-        'X-Requested-With': 'fetch',
-      },
-    });
-
-    if (response.ok) {
-      console.log('[E2E] Restored setup:complete flag');
-      return true;
-    } else {
-      console.warn(`[E2E] Failed to restore setup:complete: ${response.status}`);
-      return false;
-    }
-  } catch (e) {
-    console.error('[E2E] Error restoring setup:complete:', e);
-    return false;
-  }
-}
