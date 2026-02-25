@@ -87,46 +87,21 @@ jobs:
         run: |
           BASE="$E2E_BASE_URL"
 
-          echo "=== Diagnostic: /api/health (includes serviceAuthConfigured) ==="
-          HEALTH=$(curl -sS -D /tmp/health-headers.txt -o /tmp/health.json -w "%{http_code}" "$BASE/api/health" \
-            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
-          echo "Health status: $HEALTH"
-          cat /tmp/health.json 2>/dev/null; echo
-          echo "Health response headers:"
-          cat /tmp/health-headers.txt 2>/dev/null; echo
-
-          echo "=== Diagnostic: /api/sessions (response headers with X-Auth-Debug) ==="
-          curl -sS -D /tmp/sessions-headers.txt -o /tmp/sessions-diag.json "$BASE/api/sessions" \
-            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true
-          echo "Response headers:"
-          cat /tmp/sessions-headers.txt 2>/dev/null; echo
-          echo "Response body:"
-          cat /tmp/sessions-diag.json 2>/dev/null; echo
-
-          # Also check basic /health
-          HEALTH_BASIC=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/health" \
-            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" || true)
-          echo "Basic /health status: $HEALTH_BASIC"
-
-          if [ "$HEALTH" = "302" ] || [ "$HEALTH_BASIC" = "302" ]; then
-            echo "::error::CF Access returned 302 redirect. The service token is not accepted."
+          # Quick health check (no auth needed)
+          HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/health" || true)
+          echo "Health: $HEALTH"
+          if [ "$HEALTH" = "302" ]; then
+            echo "::error::CF Access returned 302 on /health. Service token not accepted."
             exit 1
           fi
 
-          # Retry sessions endpoint up to 4 times (KV eventual consistency ~60s)
-          echo "Testing: $BASE/api/sessions (with retries for KV propagation)"
+          # Auth check with retries (KV eventual consistency ~60s)
           for i in 1 2 3 4; do
             SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
               -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
               -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
               -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
-            echo "Attempt $i: Sessions status: $SESSIONS"
-            cat /tmp/sessions.json 2>/dev/null; echo
+            echo "Attempt $i: /api/sessions -> $SESSIONS"
 
             if [ "$SESSIONS" = "200" ]; then
               echo "Auth working!"
@@ -134,12 +109,12 @@ jobs:
             fi
 
             if [ "$SESSIONS" = "302" ]; then
-              echo "::error::CF Access returned 302 redirect. The service token is not accepted by the CF Access application protecting $BASE."
+              echo "::error::CF Access returned 302. Service token not accepted."
               exit 1
             fi
 
             if [ "$i" -lt 4 ]; then
-              echo "Waiting 15s before retry (KV propagation)..."
+              echo "Waiting 15s for KV propagation..."
               sleep 15
             fi
           done

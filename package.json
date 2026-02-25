@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts e2e/api/",
     "test:e2e:ui": "vitest run --config vitest.e2e.config.ts e2e/ui/",
     "postinstall": "node scripts/fix-broken-sourcemaps.js",
     "lint": "oxlint src/ e2e/ --deny-warnings",
