@@ -121,8 +121,11 @@ describe.skipIf(!isSetup)('Storage', () => {
 
     it('clicking storage button opens storage panel', async () => {
       await page.click('[data-testid="header-storage-button"]');
-      await page.waitForSelector('[data-testid="storage-panel"]', { timeout: 5000 });
-      const panel = await page.$('[data-testid="storage-panel"]');
+      await page.waitForFunction(
+        () => document.querySelector('[data-testid="storage-panel"]')?.classList.contains('open'),
+        { timeout: 5000 }
+      );
+      const panel = await page.$('[data-testid="storage-panel"].open');
       expect(panel).toBeTruthy();
     });
 
@@ -133,8 +136,11 @@ describe.skipIf(!isSetup)('Storage', () => {
 
     it('close button closes storage panel', async () => {
       await page.click('[data-testid="storage-panel-close-button"]');
-      await page.waitForSelector('[data-testid="storage-panel"]', { hidden: true, timeout: 5000 });
-      const panel = await page.$('[data-testid="storage-panel"]');
+      await page.waitForFunction(
+        () => !document.querySelector('[data-testid="storage-panel"]')?.classList.contains('open'),
+        { timeout: 5000 }
+      );
+      const panel = await page.$('[data-testid="storage-panel"].open');
       expect(panel).toBeNull();
     });
   });

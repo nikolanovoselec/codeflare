@@ -24,37 +24,52 @@ describe.skipIf(!isSetup)('Settings panel', () => {
 
   it('clicking settings button opens panel', async () => {
     await page.click('[data-testid="dashboard-settings-button"]');
-    await page.waitForSelector('[data-testid="settings-panel"]', { timeout: 5000 });
-    const panel = await page.$('[data-testid="settings-panel"]');
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
+      { timeout: 5000 }
+    );
+    const panel = await page.$('[data-testid="settings-panel"].open');
     expect(panel).toBeTruthy();
   });
 
   it('backdrop is visible', async () => {
-    const backdrop = await page.$('[data-testid="settings-backdrop"]');
+    const backdrop = await page.$('[data-testid="settings-backdrop"].open');
     expect(backdrop).toBeTruthy();
   });
 
   it('close button closes panel', async () => {
     await page.click('[data-testid="settings-close-button"]');
-    await page.waitForSelector('[data-testid="settings-panel"]', { hidden: true, timeout: 5000 });
-    const panel = await page.$('[data-testid="settings-panel"]');
+    await page.waitForFunction(
+      () => !document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
+      { timeout: 5000 }
+    );
+    const panel = await page.$('[data-testid="settings-panel"].open');
     expect(panel).toBeNull();
   });
 
   it('backdrop click closes panel', async () => {
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
-    await page.waitForSelector('[data-testid="settings-panel"]', { timeout: 5000 });
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
+      { timeout: 5000 }
+    );
     await page.click('[data-testid="settings-backdrop"]');
-    await page.waitForSelector('[data-testid="settings-panel"]', { hidden: true, timeout: 5000 });
-    const panel = await page.$('[data-testid="settings-panel"]');
+    await page.waitForFunction(
+      () => !document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
+      { timeout: 5000 }
+    );
+    const panel = await page.$('[data-testid="settings-panel"].open');
     expect(panel).toBeNull();
   });
 
   it('shows accent color controls', async () => {
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
-    await page.waitForSelector('[data-testid="settings-panel"]', { timeout: 5000 });
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
+      { timeout: 5000 }
+    );
     const swatch = await page.$('[data-testid="accent-color-swatch"]');
     const input = await page.$('[data-testid="accent-color-input"]');
     const reset = await page.$('[data-testid="accent-color-reset"]');
@@ -64,12 +79,13 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('shows toggle settings', async () => {
-    const buttonLabels = await page.$('[data-testid="settings-button-labels-toggle"]');
+    // Button labels toggle only shown on touch devices; clipboard toggle only on non-touch
     const showTips = await page.$('[data-testid="settings-show-tips-toggle"]');
-    const clipboard = await page.$('[data-testid="settings-clipboard-access-toggle"]');
-    expect(buttonLabels).toBeTruthy();
     expect(showTips).toBeTruthy();
-    expect(clipboard).toBeTruthy();
+    // At least one of these should exist depending on device type
+    const buttonLabels = await page.$('[data-testid="settings-button-labels-toggle"]');
+    const clipboard = await page.$('[data-testid="settings-clipboard-access-toggle"]');
+    expect(buttonLabels || clipboard).toBeTruthy();
   });
 
   it('shows workspace sync toggle with hint', async () => {

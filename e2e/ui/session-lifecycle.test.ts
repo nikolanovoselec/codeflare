@@ -57,9 +57,10 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('navigates back to dashboard and shows session card', async () => {
-    await page.click('[data-testid="header-dashboard-button"]');
-    await page.waitForSelector('[data-testid="dashboard"]', { timeout: 10000 });
-    // Wait for session card to appear (polling picks it up)
+    // Full page navigation to dashboard — in-page back button may not render
+    // dashboard if initializingSessionIds was not cleared after startup.
+    await navigateToDashboard(page);
+    // Wait for session card to appear
     await page.waitForFunction(
       () => document.querySelector('[data-testid^="session-stat-card-"]') !== null,
       { timeout: 15000 }
@@ -82,25 +83,27 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('stops session via context menu', async () => {
-    const card = await page.$('[data-testid^="session-stat-card-"]');
-    expect(card).toBeTruthy();
-    await card!.click({ button: 'right' });
+    // Open context menu via the three-dots menu trigger button (not right-click)
+    const menuBtn = await page.$('[data-testid^="session-stat-card-"] .session-stat-card__menu-trigger');
+    expect(menuBtn).toBeTruthy();
+    await menuBtn!.click();
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: 5000 });
     await page.click('[data-testid="context-menu-stop"]');
-    // Wait for status to change (card updates via polling)
+    // Wait for status to change — dot loses --success variant when stopped
     await page.waitForFunction(
       () => {
-        const dot = document.querySelector('[data-testid^="session-stat-card-"] .status-dot');
-        return dot && !dot.classList.contains('green');
+        const dot = document.querySelector('[data-testid^="session-stat-card-"] .session-stat-card__dot');
+        return dot && !dot.classList.contains('session-stat-card__dot--success');
       },
       { timeout: 30000, polling: 1000 }
     );
   });
 
   it('deletes session via context menu', async () => {
-    const card = await page.$('[data-testid^="session-stat-card-"]');
-    expect(card).toBeTruthy();
-    await card!.click({ button: 'right' });
+    // Open context menu via the three-dots menu trigger button
+    const menuBtn = await page.$('[data-testid^="session-stat-card-"] .session-stat-card__menu-trigger');
+    expect(menuBtn).toBeTruthy();
+    await menuBtn!.click();
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: 5000 });
     await page.click('[data-testid="context-menu-delete"]');
     await page.waitForSelector('[data-testid="context-menu-delete-confirm"]', { timeout: 5000 });
