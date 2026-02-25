@@ -75,3 +75,11 @@ jobs:
 
       - name: Security audit (frontend)
         run: cd web-ui && npm audit --audit-level=high
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
