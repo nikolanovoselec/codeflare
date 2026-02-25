@@ -222,7 +222,7 @@ jobs:
             SERVICE_EMAIL="service-${SHORT_ID}@codeflare.local"
             echo "Seeding E2E service token user: ${SERVICE_EMAIL}"
             KV_VALUE="{\"addedBy\":\"deploy\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
-            npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --binding KV 2>/dev/null || \
+            npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --binding KV --remote 2>/dev/null || \
             echo "::warning::Could not seed E2E user in KV (non-fatal)"
           fi
         env:
