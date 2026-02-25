@@ -1042,13 +1042,13 @@ Two-phase execution:
 ### 16.2 Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 64 test files, ~525 tests.
+**Count:** 64 test files, ~1,280 tests.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
 ### 16.3 Vitest Version Split
 
-Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v1.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify — the version constraint is real.
+Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v4.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify — the version constraint is real.
 
 ### 16.4 E2E API Tests
 
