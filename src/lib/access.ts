@@ -111,8 +111,9 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       if (expected.byteLength === actual.byteLength) {
         const match = await crypto.subtle.timingSafeEqual(expected, actual);
         if (match) {
-          const clientId = request.headers.get('CF-Access-Client-Id') || 'service';
-          const serviceEmail = env.SERVICE_TOKEN_EMAIL || `service-${clientId.split('.')[0]}@codeflare.local`;
+          // Use SERVICE_TOKEN_EMAIL or fixed e2e identity.
+          // CF Access may strip CF-Access-Client-Id, so we don't rely on it here.
+          const serviceEmail = env.SERVICE_TOKEN_EMAIL || 'e2e-service@codeflare.local';
           return { email: normalizeEmail(serviceEmail), authenticated: true };
         }
       }

@@ -58,25 +58,23 @@ jobs:
           echo "Setting SERVICE_AUTH_SECRET on worker: $WORKER"
           printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | npx wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>/dev/null
 
-          # Seed service token user in KV allowlist
-          if [ -n "${CF_ACCESS_CLIENT_ID}" ]; then
-            SHORT_ID=$(echo "$CF_ACCESS_CLIENT_ID" | cut -d. -f1)
-            SERVICE_EMAIL="service-${SHORT_ID}@codeflare.local"
-            echo "Seeding E2E service token user: ${SERVICE_EMAIL}"
+          # Seed E2E service user in KV allowlist
+          # Uses fixed email matching worker's X-Service-Auth identity
+          SERVICE_EMAIL="e2e-service@codeflare.local"
+          echo "Seeding E2E service user: ${SERVICE_EMAIL}"
 
-            KV_TITLE="${WORKER}-kv"
-            KV_ID=$(npx wrangler kv namespace list 2>/dev/null \
-              | sed -n '/^\[/,/^\]/p' \
-              | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
-              | head -1)
+          KV_TITLE="${WORKER}-kv"
+          KV_ID=$(npx wrangler kv namespace list 2>/dev/null \
+            | sed -n '/^\[/,/^\]/p' \
+            | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
+            | head -1)
 
-            if [ -n "$KV_ID" ]; then
-              KV_VALUE="{\"addedBy\":\"e2e\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
-              npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --namespace-id "$KV_ID" --remote 2>/dev/null || \
-              echo "::warning::Could not seed E2E user in KV (non-fatal)"
-            else
-              echo "::warning::KV namespace not found for worker $WORKER (non-fatal)"
-            fi
+          if [ -n "$KV_ID" ]; then
+            KV_VALUE="{\"addedBy\":\"e2e\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
+            npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --namespace-id "$KV_ID" --remote 2>/dev/null || \
+            echo "::warning::Could not seed E2E user in KV (non-fatal)"
+          else
+            echo "::warning::KV namespace not found for worker $WORKER (non-fatal)"
           fi
 
           # Wait for KV eventual consistency + worker secret propagation
