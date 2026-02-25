@@ -97,22 +97,20 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     await page.click('[data-testid="header-bookmark-name-input"]', { clickCount: 3 });
     await page.type('[data-testid="header-bookmark-name-input"]', 'E2E Test Preset');
     await page.click('[data-testid="header-bookmark-save"]');
-    // Wait for bookmark to appear in menu
+    // Save closes the menu on success — wait for the menu to disappear (confirms save worked)
     await page.waitForFunction(
-      () => document.querySelector('[data-testid="header-bookmarks-menu"]')?.textContent?.includes('E2E Test Preset'),
-      { timeout: 5000 }
+      () => !document.querySelector('[data-testid="header-bookmarks-menu"]'),
+      { timeout: 10000 }
     );
-    // Get preset ID for cleanup
+    // Verify via API that preset was created
     const presetsRes = await apiRequest('/api/presets');
-    if (presetsRes.ok) {
-      const data = await presetsRes.json();
-      const presets = data.presets;
-      if (Array.isArray(presets)) {
-        for (const p of presets) {
-          if (p.name === 'E2E Test Preset') presetIds.push(p.id);
-        }
-      }
-    }
+    expect(presetsRes.ok).toBe(true);
+    const data = await presetsRes.json();
+    const presets = data.presets;
+    expect(Array.isArray(presets)).toBe(true);
+    const testPreset = presets.find((p: { name: string }) => p.name === 'E2E Test Preset');
+    expect(testPreset).toBeDefined();
+    if (testPreset) presetIds.push(testPreset.id);
   });
 
   it('saved bookmark captures tab layout', async () => {
