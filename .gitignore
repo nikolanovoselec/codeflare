@@ -8,3 +8,4 @@ web-ui/dist/
 .env
 .dev.vars
 wrangler.toml.bak
+e2e-artifacts/

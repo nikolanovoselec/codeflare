@@ -158,9 +158,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts-api
-          path: |
-            /tmp/e2e-*.png
-            /tmp/e2e-*.html
+          path: e2e-artifacts/
           retention-days: 5
 
   e2e-ui-desktop:
@@ -226,9 +224,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts-ui-desktop
-          path: |
-            /tmp/e2e-*.png
-            /tmp/e2e-*.html
+          path: e2e-artifacts/
           retention-days: 5
 
   e2e-ui-mobile:
@@ -295,7 +291,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts-ui-mobile
-          path: |
-            /tmp/e2e-*.png
-            /tmp/e2e-*.html
+          path: e2e-artifacts/
           retention-days: 5

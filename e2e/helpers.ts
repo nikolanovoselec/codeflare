@@ -7,6 +7,9 @@ const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID!;
 const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
 const SERVICE_AUTH_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
 
+/** Workspace-relative directory for E2E failure artifacts (screenshots, HTML dumps). */
+const E2E_ARTIFACTS_DIR = new URL('../e2e-artifacts', import.meta.url).pathname;
+
 /** Extract origin from BASE_URL for request interception scope check. */
 const BASE_ORIGIN = new URL(BASE_URL).origin;
 
@@ -80,7 +83,7 @@ export async function navigateToDashboard(page: Page): Promise<void> {
   } catch (err) {
     const html = await page.content();
     console.error('[E2E] navigateToDashboard failed — page content (first 500 chars):\n', html.slice(0, 500));
-    await page.screenshot({ path: `/tmp/e2e-navigate-fail-${Date.now()}.png`, fullPage: true });
+    await page.screenshot({ path: `${E2E_ARTIFACTS_DIR}/e2e-navigate-fail-${Date.now()}.png`, fullPage: true });
     throw err;
   }
 }
@@ -161,14 +164,15 @@ export function registerScreenshotOnFailure(getPage: () => Page | null): void {
       if (page) {
         const name = ctx.task.name.replace(/[^a-z0-9]/gi, '-').toLowerCase();
         const timestamp = Date.now();
-        await page.screenshot({ path: `/tmp/e2e-fail-${name}-${timestamp}.png`, fullPage: true });
+        const fs = await import('fs');
+        fs.mkdirSync(E2E_ARTIFACTS_DIR, { recursive: true });
+        await page.screenshot({ path: `${E2E_ARTIFACTS_DIR}/e2e-fail-${name}-${timestamp}.png`, fullPage: true });
         // Dump page URL and HTML content for diagnostics
         try {
           const url = page.url();
           const html = await page.content();
           const diagnostics = `<!-- E2E Failure Diagnostics -->\n<!-- URL: ${url} -->\n<!-- Timestamp: ${new Date(timestamp).toISOString()} -->\n${html.slice(0, 2000)}`;
-          const fs = await import('fs');
-          fs.writeFileSync(`/tmp/e2e-fail-${name}-${timestamp}.html`, diagnostics);
+          fs.writeFileSync(`${E2E_ARTIFACTS_DIR}/e2e-fail-${name}-${timestamp}.html`, diagnostics);
         } catch {
           // Non-fatal: screenshot is primary, HTML dump is bonus
         }
