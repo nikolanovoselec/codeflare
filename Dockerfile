@@ -2,7 +2,7 @@
 # Uses node-pty for PTY management and rclone for R2 storage sync
 
 # ---- Stage 1: Builder (compile native addons) ----
-FROM node:22.13-alpine3.21 AS builder
+FROM node:25.2-alpine3.21 AS builder
 
 RUN apk add --no-cache make gcc g++ python3
 
@@ -11,7 +11,7 @@ WORKDIR /app/host
 RUN npm install --production
 
 # ---- Stage 2: Runtime ----
-FROM node:22.13-alpine3.21
+FROM node:25.2-alpine3.21
 
 # Suppress npm update nag; configure claude-unleashed for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
