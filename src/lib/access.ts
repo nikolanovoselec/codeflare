@@ -113,8 +113,10 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
         if (match) {
           // Use SERVICE_TOKEN_EMAIL or fixed e2e identity.
           // CF Access may strip CF-Access-Client-Id, so we don't rely on it here.
+          // Role is set to 'admin' — the caller proved they have the worker secret,
+          // so they're trusted without a KV allowlist lookup.
           const serviceEmail = env.SERVICE_TOKEN_EMAIL || 'e2e-service@codeflare.local';
-          return { email: normalizeEmail(serviceEmail), authenticated: true };
+          return { email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin' };
         }
       }
       // Invalid secret — fall through to normal rejection
@@ -238,6 +240,11 @@ export async function authenticateRequest(
   const normalizedEmail = normalizeEmail(rawUser.email);
   if (!normalizedEmail) {
     throw new AuthError('Not authenticated');
+  }
+  // Service auth users already have a role — skip KV allowlist lookup
+  if (rawUser.role) {
+    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    return { user: { ...rawUser, email: normalizedEmail }, bucketName };
   }
   const kvEntry = await resolveUserFromKV(env.KV, normalizedEmail);
   if (!kvEntry) {
