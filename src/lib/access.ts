@@ -97,21 +97,10 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     : (cachedAccessAud ? [cachedAccessAud] : []);
   const authConfigured = !!(cachedAuthDomain && accessAudList.length > 0);
 
-  // JWT verification: if token present and auth is configured, verify it
-  if (jwtToken && authConfigured && cachedAuthDomain) {
-    for (const expectedAud of accessAudList) {
-      const verifiedEmail = await verifyAccessJWT(jwtToken, cachedAuthDomain, expectedAud);
-      if (verifiedEmail) {
-        return { email: normalizeEmail(verifiedEmail), authenticated: true };
-      }
-    }
-
-    // JWT verification failed
-    return { email: '', authenticated: false };
-  }
-
-  // Direct service token validation (bypasses CF Access JWT exchange).
-  // Used for E2E testing when CF Access doesn't inject JWTs for service tokens.
+  // Direct service token validation — checked FIRST because CF Access may
+  // inject a JWT for service tokens whose audience doesn't match our app's
+  // access_aud. If we checked JWT first, verification would fail and return
+  // unauthenticated before ever reaching this code path.
   // Only active when SERVICE_AUTH_SECRET is set as a worker secret.
   if (env?.SERVICE_AUTH_SECRET) {
     const clientId = request.headers.get('CF-Access-Client-Id');
@@ -129,6 +118,19 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       }
       // Invalid secret — fall through to normal rejection
     }
+  }
+
+  // JWT verification: if token present and auth is configured, verify it
+  if (jwtToken && authConfigured && cachedAuthDomain) {
+    for (const expectedAud of accessAudList) {
+      const verifiedEmail = await verifyAccessJWT(jwtToken, cachedAuthDomain, expectedAud);
+      if (verifiedEmail) {
+        return { email: normalizeEmail(verifiedEmail), authenticated: true };
+      }
+    }
+
+    // JWT verification failed
+    return { email: '', authenticated: false };
   }
 
   // Post-setup (auth configured) but NO JWT: reject even if header is present (FIX-1).
