@@ -126,7 +126,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
     expect(cards.length).toBe(0);
   });
 
-  it('should auto-start container when clicking stopped session', { retry: 2, timeout: 180_000 }, async () => {
+  it('should auto-start container when clicking stopped session', { retry: 2 }, async () => {
     // Create a session via API (container is stopped by default)
     const session = await createSessionViaApi({ agentType: 'bash' });
     const autoStartId = session.id;
@@ -206,7 +206,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
     }
   });
 
-  it('should display metrics after container ready', { retry: 2, timeout: 180_000 }, async () => {
+  it('should display metrics after container ready', { retry: 2 }, async () => {
     const session = await createSessionViaApi({ agentType: 'bash' });
     const metricsId = session.id;
     try {
