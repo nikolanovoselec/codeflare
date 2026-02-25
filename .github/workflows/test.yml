@@ -1,11 +1,13 @@
 name: PR Checks
 on:
+  push:
+    branches: [develop]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: test-${{ github.head_ref }}
+  group: test-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
