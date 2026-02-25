@@ -4,6 +4,7 @@ import { apiRequest, BASE_URL } from './setup';
 
 const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID!;
 const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
+const SERVICE_AUTH_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
 
 export async function launchBrowser(): Promise<Browser> {
   return puppeteer.launch({
@@ -18,13 +19,21 @@ export async function createPage(browser: Browser): Promise<Page> {
   await page.setExtraHTTPHeaders({
     'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
     'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
+    'X-Service-Auth': SERVICE_AUTH_SECRET,
   });
   return page;
 }
 
 export async function navigateToDashboard(page: Page): Promise<void> {
   await page.goto(BASE_URL, { waitUntil: 'networkidle2' });
-  await page.waitForSelector('[data-testid="dashboard"], [data-testid="dashboard-floating-panel"]', { timeout: 15000 });
+  try {
+    await page.waitForSelector('[data-testid="dashboard"], [data-testid="dashboard-floating-panel"]', { timeout: 15000 });
+  } catch (err) {
+    const html = await page.content();
+    console.error('[E2E] navigateToDashboard failed — page content (first 500 chars):\n', html.slice(0, 500));
+    await page.screenshot({ path: `/tmp/e2e-navigate-fail-${Date.now()}.png`, fullPage: true });
+    throw err;
+  }
 }
 
 export async function navigateToSessionView(page: Page, sessionId: string): Promise<void> {
