@@ -959,42 +959,150 @@ Base image: Node.js 22 Alpine.
 
 ## 15. CI/CD (GitHub Actions)
 
+Six workflows covering deploy, testing, and supply chain security:
+
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
-| `deploy.yml` | Push to main + manual | Full deploy: tests + typecheck + Docker build + wrangler deploy + secrets |
-| `test.yml` | Pull requests + manual | PR checks: lint (oxlint), tests, typecheck, build verification, security audit |
-| `e2e.yml` | Manual | E2E tests against deployed worker |
-| `codeql.yml` | Push to main, PRs, weekly | CodeQL static analysis for JS/TS vulnerabilities |
-| `scorecard.yml` | Push to main, weekly | OSSF Scorecard security posture assessment |
-| `socket.yml` | Pull requests | Socket.dev supply chain analysis |
+| `deploy.yml` | Push to `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets |
+| `test.yml` | Pull requests to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, `npm audit`, dependency review |
+| `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker — matrix strategy: `api`, `ui-desktop`, `ui-mobile` on `ubuntu-latest` |
+| `codeql.yml` | Push to `main`/`develop`, PRs to `main`/`develop`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
+| `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
+| `socket.yml` | Pull requests to `main` | Socket.dev supply chain analysis — detects malicious or risky dependency changes |
+
+### GitHub Environments
+
+| Environment | Used by | Trigger |
+|-------------|---------|---------|
+| `production` | `deploy.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
+| `integration` | `deploy.yml`, `e2e.yml` | Manual dispatch with `integration` selected |
 
 ### GitHub Secrets and Variables
 
-**Secrets:** `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RESEND_API_KEY` (onboarding only)
+**Secrets (repository-level):**
 
-**Variables:** `CLOUDFLARE_WORKER_NAME`, `RUNNER`, `E2E_BASE_URL` (E2E), `ONBOARDING_LANDING_PAGE`, `RESSOURCE_TIER` (`low`/`high`/unset), `CLAUDE_UNLEASHED_CACHE_BUSTER`
+| Secret | Required | Used by |
+|--------|----------|---------|
+| `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` |
+| `RESEND_API_KEY` | Only if `ONBOARDING_LANDING_PAGE=active` | `deploy.yml` |
+| `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` |
+| `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` |
+| `SOCKET_SECURITY_API_KEY` | For Socket.dev | `socket.yml` |
 
-### Deploy Workflow
+**Variables:**
 
-1. Resolve/create KV namespace, patch `wrangler.toml`
-2. Apply container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU, default=1vCPU/3GiB, high=2vCPU/6GiB)
-3. Optionally generate `.cache-bust`
-4. Deploy with `--var ONBOARDING_LANDING_PAGE:<value>`
-5. Set `CLOUDFLARE_API_TOKEN` + optional `RESEND_API_KEY` as worker secrets
+| Variable | Default | Used by |
+|----------|---------|---------|
+| `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` |
+| `RUNNER` | `ubuntu-latest` | All workflows |
+| `E2E_BASE_URL` | — | `e2e.yml` |
+| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` |
+| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB) | `deploy.yml` |
+| `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | `deploy.yml` |
+| `MAX_SESSIONS_USER` | `3` | `deploy.yml` |
+| `MAX_SESSIONS_ADMIN` | `10` | `deploy.yml` |
+
+### Deploy Workflow Detail
+
+1. Install dependencies (cached via `actions/cache`)
+2. Build frontend, run backend + frontend tests, typecheck both
+3. Resolve/create KV namespace, patch `wrangler.toml` with KV ID
+4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU, default=1vCPU/3GiB, high=2vCPU/6GiB)
+5. Optionally generate `.cache-bust` for Claude Unleashed layer
+6. Build Docker image, scan with Trivy (HIGH/CRITICAL severity, `.trivyignore` for exceptions)
+7. Deploy with `npx wrangler deploy` passing `--var` for runtime config
+8. Set worker secrets: `CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET` (E2E), optional `RESEND_API_KEY` (onboarding)
+9. Seed E2E service user in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present
+
+### Test Workflow Detail
+
+Two parallel jobs:
+- **test**: Lint (oxlint), build frontend, run backend + frontend tests, typecheck both, `npm audit --audit-level=high` for backend and frontend
+- **dependency-review**: Runs `actions/dependency-review-action` on PRs — blocks merging if new dependencies introduce known vulnerabilities
+
+### E2E Workflow Detail
+
+Two-phase execution:
+1. **setup** job: Sets `SERVICE_AUTH_SECRET` on target worker, seeds E2E service user in KV, smoke-tests auth with retry loop (handles KV eventual consistency ~60s)
+2. **e2e** job (matrix): Runs `api`, `ui-desktop`, `ui-mobile` suites in parallel on `ubuntu-latest`. UI suites install Chrome via `npx puppeteer browsers install chrome` + system shared libraries. Failed runs upload screenshots/HTML as artifacts (5-day retention)
 
 ---
 
 ## 16. Testing
 
-**Backend:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` (real Workers runtime). 63 test files. Run: `npm test`
+### 16.1 Backend Tests
 
-**Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 64 test files. Run: `cd web-ui && npm test`
+**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` — tests run in real Workers runtime (not Node.js).
+**Count:** 63 test files, ~758 tests.
+**Run:** `npm test`
+**Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
+**Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
 
-**E2E API:** `e2e/api/` - 7 test files (26 tests) against deployed worker. Run: `E2E_BASE_URL=https://your-app.example.com npm run test:e2e`
+### 16.2 Frontend Tests
 
-**E2E UI:** `e2e/ui/` - Puppeteer tests (8 files, ~65 tests). Run: `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
+**Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
+**Count:** 64 test files, ~525 tests.
+**Run:** `cd web-ui && npm test`
+**Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
-**E2E Requirements:** CF Access service tokens (`CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` env vars). Tests authenticate via CF Access service token headers. Cleanup via `afterAll` hooks; if tests fail, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
+### 16.3 Vitest Version Split
+
+Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v1.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify — the version constraint is real.
+
+### 16.4 E2E API Tests
+
+**Dir:** `e2e/api/` — 10 test files, ~44 tests (expanding to ~48).
+**Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
+**Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
+
+Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `error-responses`.
+
+### 16.5 E2E UI Tests
+
+**Dir:** `e2e/ui/` — 8 test files, ~66 desktop tests (expanding to ~76 desktop + ~81 mobile).
+**Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
+**Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
+**Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1366x768. Mobile viewport: 375x812 (iPhone-like).
+
+Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`.
+
+### 16.6 E2E Infrastructure
+
+- **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page — UI tests work around this by intercepting requests.
+- **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
+- **CSS disable:** UI tests inject `document.querySelectorAll('style, link[rel=stylesheet]').forEach(el => el.remove())` to disable CSS for reliable element positioning in headless Chrome.
+- **Screenshot artifacts:** Failed UI tests capture screenshots to `/tmp/e2e-*.png`. CI uploads these as artifacts with 5-day retention.
+- **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier (e.g., `e2e-api-`, `e2e-ui-`) to avoid cross-suite interference when running in parallel.
+
+### 16.7 E2E Service Token Setup
+
+Step-by-step for running E2E tests against a deployed worker:
+
+1. Create a CF Access service token in Cloudflare dashboard (Access > Service Tokens)
+2. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` as GitHub repository secrets (under `integration` environment for E2E)
+3. Deploy the worker (sets `SERVICE_AUTH_SECRET` automatically from `CF_ACCESS_CLIENT_SECRET`)
+4. The deploy workflow seeds `e2e-service@codeflare.local` as admin in KV allowlist
+5. Run E2E via `Actions > E2E Tests > Run workflow`
+
+For local E2E development:
+```bash
+export CF_ACCESS_CLIENT_ID="<your-service-token-id>"
+export CF_ACCESS_CLIENT_SECRET="<your-service-token-secret>"
+export E2E_BASE_URL="https://your-app.example.com"
+npm run test:e2e        # All E2E tests
+npm run test:e2e:api    # API tests only
+npm run test:e2e:ui     # UI desktop tests only
+E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
+```
+
+### 16.8 E2E Test Maintenance
+
+**Rule:** When modifying UI components or API routes, review and update corresponding E2E tests.
+
+- **Source -> test mapping:** See the mapping table in CLAUDE.md for which source files correspond to which E2E test files.
+- **`data-testid` verification:** Every `data-testid` referenced in E2E tests must exist in the web-ui source. Grep to verify before committing.
+- **Cleanup:** `afterAll` hooks handle test cleanup. If tests fail mid-run, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
 
 ---
 
@@ -1072,6 +1180,23 @@ DO alarm loops from `collectMetrics` can persist after `destroy()` since `destro
 ### R2 Bucket Cleanup on User Deletion
 
 Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
+
+### Chrome in CI (Ubuntu 22.04)
+
+`apt install chromium-browser` on Ubuntu 22.04 installs a snap wrapper, NOT real Chromium. Without snapd (which GitHub Actions runners don't have), it installs with exit 0 but provides nothing usable.
+
+**Solution:** Install Chrome via Puppeteer, then install shared libraries individually:
+```bash
+npx puppeteer browsers install chrome
+sudo apt-get install -yqq --no-install-recommends \
+  libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+  libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 \
+  libgbm1 libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
+  libxfixes3 libx11-xcb1 libxext6 libxi6 libxtst6 libxcursor1 \
+  fonts-liberation
+```
+
+**Note:** Package names differ between Ubuntu versions — 22.04 uses `libatk1.0-0`, 24.04 uses `libatk1.0-0t64`.
 
 ### Common Failure Modes
 

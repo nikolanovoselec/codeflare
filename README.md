@@ -165,6 +165,52 @@ All optional. The defaults work out of the box. I respect your time.
 - API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
 - For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
+## Testing
+
+~1,370+ tests across four layers:
+
+| Layer | Tests | Framework |
+|-------|-------|-----------|
+| Backend | ~758 (63 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
+| Frontend | ~525 (64 files) | Vitest v1 + jsdom + SolidJS Testing Library |
+| E2E API | ~48 (10 files) | Vitest + plain fetch |
+| E2E UI | ~157 (8 files, desktop + mobile) | Vitest + Puppeteer |
+
+```bash
+npm test                           # Backend tests
+cd web-ui && npm test              # Frontend tests
+npm run test:e2e:api               # E2E API (requires deployed worker)
+npm run test:e2e:ui                # E2E UI desktop (requires deployed worker)
+E2E_MOBILE=1 npm run test:e2e:ui   # E2E UI mobile
+```
+
+E2E tests require a deployed worker and CF Access service tokens. See `TECHNICAL.md` Section 16 for setup details.
+
+## CI/CD
+
+Six GitHub Actions workflows:
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `deploy.yml` | Push to `main` / manual | Tests + Docker build + Trivy scan + deploy |
+| `test.yml` | Pull requests | Lint, tests, typecheck, security audit, dependency review |
+| `e2e.yml` | Manual | E2E matrix: API, UI desktop, UI mobile |
+| `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
+| `scorecard.yml` | Push to `main`, weekly | OSSF Scorecard |
+| `socket.yml` | Pull requests | Socket.dev supply chain analysis |
+
+See `TECHNICAL.md` Section 15 for full CI/CD documentation.
+
+## Security
+
+- Container isolation: one per session, no cross-session access
+- Cloudflare Access: gates `/app`, `/api`, `/setup` with JWT verification
+- Security headers: HSTS, CSP, X-Frame-Options, Referrer-Policy on every response
+- Rate limiting: KV-backed, per-user
+- Input validation: Zod schemas, 64 KiB body limit
+- Supply chain: CodeQL, OSSF Scorecard, Socket.dev, `npm audit`, dependency review
+- See [SECURITY.md](SECURITY.md) for vulnerability reporting and security architecture
+
 ## Docs
 
 - `TECHNICAL.md` - deep dive into architecture, container lifecycle, and sync model

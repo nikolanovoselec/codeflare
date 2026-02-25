@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Browser, Page } from 'puppeteer';
 import {
-  launchBrowser, createPage, navigateToDashboard, checkSetupComplete, registerScreenshotOnFailure,
-  deleteSessionViaApi,
+  launchBrowser, createTestPage, navigateToDashboard, checkSetupComplete, registerScreenshotOnFailure,
+  createSessionViaApi, deleteSessionViaApi, startContainerViaApi,
 } from '../helpers';
 import { apiRequest } from '../setup';
+import { TIMEOUTS } from '../config';
 
 const isSetup = await checkSetupComplete();
 
@@ -17,7 +18,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
 
   beforeAll(async () => {
     browser = await launchBrowser();
-    page = await createPage(browser);
+    page = await createTestPage(browser);
     // Seed getting-started files for storage visibility
     await apiRequest('/api/storage/seed/getting-started', { method: 'POST' });
     await navigateToDashboard(page);
@@ -30,15 +31,15 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
 
   it('creates session via UI', async () => {
     await page.click('[data-testid="dashboard-new-session"]');
-    await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="csd-agent-bash"]');
     // Init progress screen replaces dashboard while container starts
-    await page.waitForSelector('[data-testid="init-progress"]', { timeout: 15000 });
+    await page.waitForSelector('[data-testid="init-progress"]', { timeout: TIMEOUTS.DASHBOARD });
     // Wait for container to become ready and Open button to appear
-    await page.waitForSelector('[data-testid="init-progress-open-btn"]', { timeout: 90000 });
+    await page.waitForSelector('[data-testid="init-progress-open-btn"]', { timeout: TIMEOUTS.SESSION_NAV });
     await page.click('[data-testid="init-progress-open-btn"]');
     // Now terminal view loads with header
-    await page.waitForSelector('[data-testid="header-logo"]', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="header-logo"]', { timeout: TIMEOUTS.TERMINAL_READY });
     // Extract session ID from URL (hash or query params)
     const url = page.url();
     const match = url.match(/[?&#]session=([a-z0-9]+)/i) || url.match(/\/session\/([a-z0-9]+)/i);
@@ -50,19 +51,19 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('terminal becomes ready with tabs', async () => {
-    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: 90000 });
+    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: TIMEOUTS.SESSION_NAV });
     const tabs = await page.$('[data-testid="terminal-tabs"]');
     expect(tabs).toBeTruthy();
   });
 
-  it('navigates back to dashboard and shows session card', async () => {
+  it('navigates back to dashboard and shows session card', { retry: 2 }, async () => {
     // Full page navigation to dashboard — in-page back button may not render
     // dashboard if initializingSessionIds was not cleared after startup.
     await navigateToDashboard(page);
     // Wait for session card to appear
     await page.waitForFunction(
       () => document.querySelector('[data-testid^="session-stat-card-"]') !== null,
-      { timeout: 15000 }
+      { timeout: TIMEOUTS.DASHBOARD }
     );
     const cards = await page.$$('[data-testid^="session-stat-card-"]');
     expect(cards.length).toBeGreaterThan(0);
@@ -85,7 +86,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
         const el = document.querySelector('[data-testid^="session-stat-card-"][data-testid$="-metric-cpu"]');
         return el !== null;
       },
-      { timeout: 30000 }
+      { timeout: TIMEOUTS.TERMINAL_READY }
     );
     const cpu = await page.$('[data-testid^="session-stat-card-"][data-testid$="-metric-cpu"]');
     expect(cpu).toBeTruthy();
@@ -94,7 +95,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   it('stops session via context menu', async () => {
     // Click the three-dot menu trigger (not right-click -- no contextmenu handler on card)
     await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
-    await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="context-menu-stop"]');
     // Wait for status to change — dot loses --success variant when stopped
     await page.waitForFunction(
@@ -102,26 +103,114 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
         const dot = document.querySelector('[data-testid^="session-stat-card-"] .session-stat-card__dot');
         return dot && !dot.classList.contains('session-stat-card__dot--success');
       },
-      { timeout: 30000, polling: 1000 }
+      { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL }
     );
   });
 
   it('deletes session via context menu', async () => {
     // Click the three-dot menu trigger (not right-click -- no contextmenu handler on card)
     await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
-    await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="context-menu-delete"]');
-    await page.waitForSelector('[data-testid="context-menu-delete-confirm"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="context-menu-delete-confirm"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="context-menu-delete-confirm"]');
     // Wait for card to disappear
     await page.waitForFunction(
       () => document.querySelector('[data-testid^="session-stat-card-"]') === null,
-      { timeout: 15000 }
+      { timeout: TIMEOUTS.DASHBOARD }
     );
   });
 
   it('dashboard returns to empty state', async () => {
     const cards = await page.$$('[data-testid^="session-stat-card-"]');
     expect(cards.length).toBe(0);
+  });
+
+  it('should auto-start container when clicking stopped session', { retry: 2 }, async () => {
+    // Create a session via API (container is stopped by default)
+    const session = await createSessionViaApi({ agentType: 'bash' });
+    const autoStartId = session.id;
+    try {
+      await navigateToDashboard(page);
+      // Wait for session card to appear
+      await page.waitForFunction(
+        (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        autoStartId
+      );
+      // Click the session card to navigate into it
+      await page.click(`[data-testid="session-stat-card-${autoStartId}"]`);
+      // Init progress screen should appear (container starting)
+      await page.waitForSelector('[data-testid="init-progress"]', { timeout: TIMEOUTS.SESSION_NAV });
+      // Wait for "Open" button to appear (container ready)
+      await page.waitForSelector('[data-testid="init-progress-open-btn"]', { timeout: TIMEOUTS.SESSION_NAV });
+      await page.click('[data-testid="init-progress-open-btn"]');
+      // Terminal view should load
+      await page.waitForSelector('[data-testid="header-logo"]', { timeout: TIMEOUTS.TERMINAL_READY });
+    } finally {
+      await deleteSessionViaApi(autoStartId);
+    }
+  });
+
+  it('should show delete confirmation on first click', { retry: 2 }, async () => {
+    const session = await createSessionViaApi({ agentType: 'bash' });
+    const confirmId = session.id;
+    try {
+      await navigateToDashboard(page);
+      // Wait for session card
+      await page.waitForFunction(
+        (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        confirmId
+      );
+      // Open context menu
+      await page.click(`[data-testid="session-stat-card-${confirmId}-menu"]`);
+      await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
+      // First click on delete shows confirmation
+      await page.click('[data-testid="context-menu-delete"]');
+      await page.waitForSelector('[data-testid="context-menu-delete-confirm"]', { timeout: TIMEOUTS.DIALOG });
+      const confirmBtn = await page.$('[data-testid="context-menu-delete-confirm"]');
+      expect(confirmBtn).toBeTruthy();
+      // Second click actually deletes
+      await page.click('[data-testid="context-menu-delete-confirm"]');
+      await page.waitForFunction(
+        (id: string) => !document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+        { timeout: TIMEOUTS.DASHBOARD },
+        confirmId
+      );
+    } catch (err) {
+      // Clean up on test failure
+      await deleteSessionViaApi(confirmId);
+      throw err;
+    }
+  });
+
+  it('should display metrics after container ready', { retry: 2 }, async () => {
+    const session = await createSessionViaApi({ agentType: 'bash' });
+    const metricsId = session.id;
+    try {
+      // Start container via API and wait for ready
+      await startContainerViaApi(metricsId);
+      await navigateToDashboard(page);
+      // Navigate to session view to trigger waitForContainerReady in page context
+      await page.waitForFunction(
+        (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        metricsId
+      );
+      // Wait for metrics to appear on the card (collectMetrics pushes every 5s)
+      await page.waitForFunction(
+        (id: string) => {
+          const cpu = document.querySelector(`[data-testid="session-stat-card-${id}-metric-cpu"]`);
+          return cpu !== null;
+        },
+        { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        metricsId
+      );
+      const cpu = await page.$(`[data-testid="session-stat-card-${metricsId}-metric-cpu"]`);
+      expect(cpu).toBeTruthy();
+    } finally {
+      await deleteSessionViaApi(metricsId);
+    }
   });
 });

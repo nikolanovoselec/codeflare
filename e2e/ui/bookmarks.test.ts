@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Browser, Page } from 'puppeteer';
 import {
-  launchBrowser, createPage, checkSetupComplete, registerScreenshotOnFailure,
+  launchBrowser, createTestPage, checkSetupComplete, registerScreenshotOnFailure,
   createSessionViaApi, deleteSessionViaApi, startContainerViaApi, waitForContainerReady,
   navigateToSessionView,
 } from '../helpers';
 import { apiRequest } from '../setup';
+import { TIMEOUTS } from '../config';
 
 const isSetup = await checkSetupComplete();
 
@@ -30,7 +31,7 @@ async function ensureBookmarksMenuOpen(page: Page): Promise<void> {
     await page.evaluate(() => {
       (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
     });
-    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: TIMEOUTS.TERMINAL_READY });
   }
 }
 
@@ -44,7 +45,7 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
 
   beforeAll(async () => {
     browser = await launchBrowser();
-    page = await createPage(browser);
+    page = await createTestPage(browser);
     // Clean all presets from previous runs to ensure empty state
     await deleteAllPresets();
     const session = await createSessionViaApi({ agentType: 'bash' });
@@ -52,11 +53,11 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     await startContainerViaApi(sessionId);
     await navigateToSessionView(page, sessionId);
     await waitForContainerReady(page, sessionId);
-    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: TIMEOUTS.TERMINAL_READY });
     // Add 2 extra tabs for bookmark to capture
     for (let i = 2; i <= 3; i++) {
       await page.click('[data-testid="terminal-tab-add"]');
-      await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: 10000 });
+      await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: TIMEOUTS.TERMINAL_READY });
     }
   });
 
@@ -75,11 +76,11 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
   });
 
   it('clicking opens bookmarks menu with empty state form', async () => {
-    await page.waitForSelector('[data-testid="header-bookmarks-button"]', { visible: true, timeout: 10000 });
+    await page.waitForSelector('[data-testid="header-bookmarks-button"]', { visible: true, timeout: TIMEOUTS.TERMINAL_READY });
     await page.evaluate(() => {
       (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
     });
-    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: TIMEOUTS.TERMINAL_READY });
     const menu = await page.$('[data-testid="header-bookmarks-menu"]');
     expect(menu).toBeTruthy();
     // When no bookmarks exist, the menu shows the create form (input + Save) directly
@@ -92,7 +93,7 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
   it('typing name and saving creates bookmark', async () => {
     // Menu may have closed due to retry — reopen if needed
     await ensureBookmarksMenuOpen(page);
-    await page.waitForSelector('[data-testid="header-bookmark-name-input"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="header-bookmark-name-input"]', { timeout: TIMEOUTS.DIALOG });
     // Clear any existing text and type the name
     await page.click('[data-testid="header-bookmark-name-input"]', { clickCount: 3 });
     await page.type('[data-testid="header-bookmark-name-input"]', 'E2E Test Preset');
@@ -100,7 +101,7 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     // Save closes the menu on success — wait for the menu to disappear (confirms save worked)
     await page.waitForFunction(
       () => !document.querySelector('[data-testid="header-bookmarks-menu"]'),
-      { timeout: 10000 }
+      { timeout: TIMEOUTS.TERMINAL_READY }
     );
     // Verify via API that preset was created
     const presetsRes = await apiRequest('/api/presets');
@@ -131,14 +132,14 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
       });
       await page.waitForFunction(
         () => !document.querySelector('[data-testid="header-bookmarks-menu"]'),
-        { timeout: 5000 }
+        { timeout: TIMEOUTS.DIALOG }
       );
     }
     // Reopen the menu
     await page.evaluate(() => {
       (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
     });
-    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: TIMEOUTS.TERMINAL_READY });
     // With bookmarks present, "Add New" button should now be visible
     const addNew = await page.$('[data-testid="header-bookmark-add-new"]');
     expect(addNew).toBeTruthy();
@@ -148,13 +149,13 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
         const items = document.querySelectorAll('[data-testid="header-bookmarks-menu"] [data-testid^="header-bookmark-item-"]');
         return items.length > 0;
       },
-      { timeout: 5000 }
+      { timeout: TIMEOUTS.DIALOG }
     );
     const items = await page.$$('[data-testid="header-bookmarks-menu"] [data-testid^="header-bookmark-item-"]');
     if (items.length > 0) {
       await items[0].click();
     }
-    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: TIMEOUTS.TERMINAL_READY });
     const tabs = await page.$('[data-testid="terminal-tabs"]');
     expect(tabs).toBeTruthy();
   });

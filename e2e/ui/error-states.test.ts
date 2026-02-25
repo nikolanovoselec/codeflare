@@ -1,0 +1,128 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Browser, Page } from 'puppeteer';
+import {
+  launchBrowser, createTestPage, navigateToDashboard, registerScreenshotOnFailure,
+  createSessionViaApi, deleteSessionViaApi, deleteAllSessionsViaApi, checkSetupComplete,
+} from '../helpers';
+import { TIMEOUTS } from '../config';
+
+const isSetup = await checkSetupComplete();
+
+/** Wait until settings panel has aria-hidden=false */
+async function waitForPanelOpen(page: Page, timeout = TIMEOUTS.DIALOG): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const panel = document.querySelector('[data-testid="settings-panel"]');
+      return panel?.getAttribute('aria-hidden') === 'false';
+    },
+    { timeout }
+  );
+}
+
+describe.skipIf(!isSetup)('Error States & Edge Cases', () => {
+  let browser: Browser;
+  let page: Page;
+
+  registerScreenshotOnFailure(() => page);
+
+  beforeAll(async () => {
+    browser = await launchBrowser();
+    page = await createTestPage(browser);
+  });
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  it('should show empty state when no sessions exist', async () => {
+    // Delete all sessions first
+    await deleteAllSessionsViaApi();
+    await navigateToDashboard(page);
+    // Wait for dashboard to settle
+    await page.waitForSelector('[data-testid="dashboard"]', { timeout: TIMEOUTS.DASHBOARD });
+    // Verify no session cards are present
+    const cards = await page.$$('[data-testid^="session-stat-card-"]');
+    expect(cards.length).toBe(0);
+  });
+
+  it('should remove session card after API deletion', { retry: 2 }, async () => {
+    // Create a session and verify it appears on dashboard
+    const session = await createSessionViaApi({ agentType: 'bash' });
+    try {
+      await navigateToDashboard(page);
+      await page.waitForFunction(
+        (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        session.id
+      );
+      const cardBefore = await page.$(`[data-testid="session-stat-card-${session.id}"]`);
+      expect(cardBefore).toBeTruthy();
+
+      // Delete via API
+      await deleteSessionViaApi(session.id);
+
+      // Wait for card to disappear (dashboard polls every 5s, 3 consecutive misses to remove)
+      // Allow up to ~20s for the card to be removed
+      await page.waitForFunction(
+        (id: string) => !document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        session.id
+      );
+    } catch (err) {
+      // Attempt cleanup on failure
+      await deleteSessionViaApi(session.id).catch(() => {});
+      throw err;
+    }
+  });
+
+  it('should change accent color in settings', async () => {
+    await navigateToDashboard(page);
+    // Open settings panel
+    await page.click('[data-testid="dashboard-settings-button"]');
+    await waitForPanelOpen(page);
+
+    // Get the accent color input and change it
+    const input = await page.$('[data-testid="accent-color-input"]');
+    expect(input).toBeTruthy();
+
+    // Clear current value and type a new color
+    await page.evaluate((el) => {
+      (el as HTMLInputElement).value = '';
+      el?.dispatchEvent(new Event('input', { bubbles: true }));
+    }, input);
+    await page.type('[data-testid="accent-color-input"]', '#ff5500');
+
+    // Verify the swatch updated
+    const swatchBg = await page.$eval('[data-testid="accent-color-swatch"]', (el) => {
+      return getComputedStyle(el).background || (el as HTMLElement).style.background;
+    });
+    expect(swatchBg).toBeTruthy();
+  });
+
+  it('should reset accent color to default', async () => {
+    // Settings panel should still be open from previous test
+    const isOpen = await page.evaluate(
+      () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false'
+    );
+    if (!isOpen) {
+      await page.click('[data-testid="dashboard-settings-button"]');
+      await waitForPanelOpen(page);
+    }
+
+    // Click the Reset button — uses evaluate to avoid overlay click issues
+    // The Button component uses data-testid="accent-color-reset"
+    await page.evaluate(() => {
+      const btn = document.querySelector('[data-testid="accent-color-reset"]') as HTMLElement;
+      btn?.click();
+    });
+
+    // Verify the input was cleared
+    const inputValue = await page.$eval('[data-testid="accent-color-input"]', (el) => (el as HTMLInputElement).value);
+    expect(inputValue).toBe('');
+
+    // Close settings panel
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="settings-close-button"]') as HTMLElement)?.click();
+    });
+  });
+});

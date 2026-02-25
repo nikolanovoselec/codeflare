@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Browser, Page } from 'puppeteer';
 import {
-  launchBrowser, createPage, checkSetupComplete, registerScreenshotOnFailure,
+  launchBrowser, createTestPage, checkSetupComplete, registerScreenshotOnFailure,
   createSessionViaApi, deleteSessionViaApi, startContainerViaApi, waitForContainerReady,
   navigateToSessionView,
 } from '../helpers';
+import { TIMEOUTS } from '../config';
 
 const isSetup = await checkSetupComplete();
 
@@ -17,13 +18,13 @@ describe.skipIf(!isSetup)('Terminal tabs', () => {
 
   beforeAll(async () => {
     browser = await launchBrowser();
-    page = await createPage(browser);
+    page = await createTestPage(browser);
     const session = await createSessionViaApi({ agentType: 'bash' });
     sessionId = session.id;
     await startContainerViaApi(sessionId);
     await navigateToSessionView(page, sessionId);
     await waitForContainerReady(page, sessionId);
-    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: TIMEOUTS.TERMINAL_READY });
   });
 
   afterAll(async () => {
@@ -53,7 +54,7 @@ describe.skipIf(!isSetup)('Terminal tabs', () => {
 
   it('clicking add creates new tab', async () => {
     await page.click('[data-testid="terminal-tab-add"]');
-    await page.waitForSelector('[data-testid="terminal-tab-2"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="terminal-tab-2"]', { timeout: TIMEOUTS.TERMINAL_READY });
     const tab2 = await page.$('[data-testid="terminal-tab-2"]');
     expect(tab2).toBeTruthy();
   });
@@ -65,7 +66,7 @@ describe.skipIf(!isSetup)('Terminal tabs', () => {
 
   it('closing tab removes it', async () => {
     await page.click('[data-testid="terminal-tab-2-close"]');
-    await page.waitForSelector('[data-testid="terminal-tab-2"]', { hidden: true, timeout: 5000 });
+    await page.waitForSelector('[data-testid="terminal-tab-2"]', { hidden: true, timeout: TIMEOUTS.DIALOG });
     const tab2 = await page.$('[data-testid="terminal-tab-2"]');
     expect(tab2).toBeNull();
   });
@@ -74,11 +75,11 @@ describe.skipIf(!isSetup)('Terminal tabs', () => {
     // Add tabs 2 through 6 (5 more tabs)
     for (let i = 2; i <= 6; i++) {
       await page.click('[data-testid="terminal-tab-add"]');
-      await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: 10000 });
+      await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: TIMEOUTS.TERMINAL_READY });
     }
     // At max tabs, the add button is removed from the DOM entirely
     // (SolidJS <Show when={canAddTab()}>) rather than being disabled.
-    await page.waitForSelector('[data-testid="terminal-tab-add"]', { hidden: true, timeout: 5000 });
+    await page.waitForSelector('[data-testid="terminal-tab-add"]', { hidden: true, timeout: TIMEOUTS.DIALOG });
     const addBtn = await page.$('[data-testid="terminal-tab-add"]');
     expect(addBtn).toBeNull();
   });

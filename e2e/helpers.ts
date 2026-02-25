@@ -1,6 +1,7 @@
 import puppeteer, { Browser, HTTPRequest, Page } from 'puppeteer';
 import { afterEach } from 'vitest';
 import { apiRequest, BASE_URL } from './setup';
+import { IS_MOBILE, SUITE_PREFIX, TIMEOUTS } from './config';
 
 const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID!;
 const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
@@ -133,10 +134,21 @@ export async function createPage(browser: Browser): Promise<Page> {
   return page;
 }
 
+export async function createMobilePage(browser: Browser): Promise<Page> {
+  const page = await createPage(browser);
+  await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+  await page.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
+  return page;
+}
+
+export async function createTestPage(browser: Browser): Promise<Page> {
+  return IS_MOBILE ? createMobilePage(browser) : createPage(browser);
+}
+
 export async function navigateToDashboard(page: Page): Promise<void> {
   await page.goto(BASE_URL, { waitUntil: 'networkidle2' });
   try {
-    await page.waitForSelector('[data-testid="dashboard"], [data-testid="dashboard-floating-panel"]', { timeout: 15000 });
+    await page.waitForSelector('[data-testid="dashboard"], [data-testid="dashboard-floating-panel"]', { timeout: TIMEOUTS.DASHBOARD });
   } catch (err) {
     const html = await page.content();
     console.error('[E2E] navigateToDashboard failed — page content (first 500 chars):\n', html.slice(0, 500));
@@ -147,20 +159,20 @@ export async function navigateToDashboard(page: Page): Promise<void> {
 
 export async function navigateToSessionView(page: Page, sessionId: string): Promise<void> {
   // Verify session exists via direct GET (avoids KV list eventual consistency).
-  // Retry up to 10 times with 2s intervals (~20s total) to handle KV propagation delay.
+  // Retry up to TIMEOUTS.KV_PROPAGATION_RETRIES times with TIMEOUTS.KV_PROPAGATION_INTERVAL intervals.
   let verified = false;
-  for (let attempt = 0; attempt < 10; attempt++) {
+  for (let attempt = 0; attempt < TIMEOUTS.KV_PROPAGATION_RETRIES; attempt++) {
     const res = await apiRequest(`/api/sessions/${sessionId}`);
     if (res.ok) {
       verified = true;
       console.log(`[E2E] navigateToSessionView: session ${sessionId} verified on attempt ${attempt + 1}`);
       break;
     }
-    console.log(`[E2E] navigateToSessionView: session ${sessionId} not found (attempt ${attempt + 1}/10, status ${res.status})`);
-    await new Promise(r => setTimeout(r, 2000));
+    console.log(`[E2E] navigateToSessionView: session ${sessionId} not found (attempt ${attempt + 1}/${TIMEOUTS.KV_PROPAGATION_RETRIES}, status ${res.status})`);
+    await new Promise(r => setTimeout(r, TIMEOUTS.KV_PROPAGATION_INTERVAL));
   }
   if (!verified) {
-    throw new Error(`[E2E] navigateToSessionView: session ${sessionId} not found after 10 retries (KV propagation timeout)`);
+    throw new Error(`[E2E] navigateToSessionView: session ${sessionId} not found after ${TIMEOUTS.KV_PROPAGATION_RETRIES} retries (KV propagation timeout)`);
   }
 
   // Navigate to dashboard and wait for our specific session card.
@@ -172,7 +184,7 @@ export async function navigateToSessionView(page: Page, sessionId: string): Prom
     await navigateToDashboard(page);
     cardFound = await page.waitForFunction(
       (sel: string) => !!document.querySelector(sel),
-      { timeout: 20000, polling: 1000 },
+      { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
       cardSelector
     ).then(() => true).catch(() => false);
     if (cardFound) break;
@@ -190,13 +202,13 @@ export async function navigateToSessionView(page: Page, sessionId: string): Prom
   // Could land on either init progress (stopped session) or terminal view (running session)
   const firstElement = await page.waitForSelector(
     '[data-testid="init-progress-open-btn"], [data-testid="header-logo"]',
-    { timeout: 90000 }
+    { timeout: TIMEOUTS.SESSION_NAV }
   );
   if (firstElement) {
     const testId = await page.evaluate(el => el?.getAttribute('data-testid'), firstElement);
     if (testId === 'init-progress-open-btn') {
       await firstElement.click();
-      await page.waitForSelector('[data-testid="header-logo"]', { timeout: 30000 });
+      await page.waitForSelector('[data-testid="header-logo"]', { timeout: TIMEOUTS.TERMINAL_READY });
     }
   }
 }
@@ -214,7 +226,18 @@ export function registerScreenshotOnFailure(getPage: () => Page | null): void {
       const page = getPage();
       if (page) {
         const name = ctx.task.name.replace(/[^a-z0-9]/gi, '-').toLowerCase();
-        await page.screenshot({ path: `/tmp/e2e-fail-${name}-${Date.now()}.png`, fullPage: true });
+        const timestamp = Date.now();
+        await page.screenshot({ path: `/tmp/e2e-fail-${name}-${timestamp}.png`, fullPage: true });
+        // Dump page URL and HTML content for diagnostics
+        try {
+          const url = page.url();
+          const html = await page.content();
+          const diagnostics = `<!-- E2E Failure Diagnostics -->\n<!-- URL: ${url} -->\n<!-- Timestamp: ${new Date(timestamp).toISOString()} -->\n${html.slice(0, 2000)}`;
+          const fs = await import('fs');
+          fs.writeFileSync(`/tmp/e2e-fail-${name}-${timestamp}.html`, diagnostics);
+        } catch {
+          // Non-fatal: screenshot is primary, HTML dump is bonus
+        }
       }
     }
   });
@@ -222,7 +245,7 @@ export function registerScreenshotOnFailure(getPage: () => Page | null): void {
 
 export async function createSessionViaApi(opts?: { name?: string; agentType?: string }): Promise<{ id: string; name: string }> {
   const body: Record<string, string> = {};
-  if (opts?.name) body.name = opts.name;
+  body.name = opts?.name || `${SUITE_PREFIX}-Terminal`;
   if (opts?.agentType) body.agentType = opts.agentType;
   const res = await apiRequest('/api/sessions', {
     method: 'POST',
@@ -276,7 +299,7 @@ export async function waitForContainerReady(page: Page, sessionId: string): Prom
         return false;
       }
     },
-    { timeout: 60000, polling: 1000 },
+    { timeout: TIMEOUTS.CONTAINER_STARTUP, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
     baseUrl,
     sessionId,
     clientId,

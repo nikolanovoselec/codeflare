@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Browser, Page } from 'puppeteer';
 import {
-  launchBrowser, createPage, checkSetupComplete, registerScreenshotOnFailure,
+  launchBrowser, createTestPage, checkSetupComplete, registerScreenshotOnFailure,
   createSessionViaApi, deleteSessionViaApi, startContainerViaApi, waitForContainerReady,
   navigateToSessionView,
 } from '../helpers';
+import { TIMEOUTS } from '../config';
 
 const isSetup = await checkSetupComplete();
 
@@ -17,17 +18,17 @@ describe.skipIf(!isSetup)('Tiling', () => {
 
   beforeAll(async () => {
     browser = await launchBrowser();
-    page = await createPage(browser);
+    page = await createTestPage(browser);
     const session = await createSessionViaApi({ agentType: 'bash' });
     sessionId = session.id;
     await startContainerViaApi(sessionId);
     await navigateToSessionView(page, sessionId);
     await waitForContainerReady(page, sessionId);
-    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: TIMEOUTS.TERMINAL_READY });
     // Add extra tabs for tiling (need 3+ tabs)
     for (let i = 2; i <= 4; i++) {
       await page.click('[data-testid="terminal-tab-add"]');
-      await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: 10000 });
+      await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: TIMEOUTS.TERMINAL_READY });
     }
   });
 
@@ -43,7 +44,7 @@ describe.skipIf(!isSetup)('Tiling', () => {
 
   it('clicking tiling button opens overlay', async () => {
     await page.click('[data-testid="tiling-button"]');
-    await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: TIMEOUTS.DIALOG });
     const overlay = await page.$('[data-testid="tiling-overlay"]');
     const backdrop = await page.$('[data-testid="tiling-overlay-backdrop"]');
     expect(overlay).toBeTruthy();
@@ -59,34 +60,34 @@ describe.skipIf(!isSetup)('Tiling', () => {
 
   it('selecting 2-split creates tiled container with 2 slots', async () => {
     await page.click('[data-testid="tiling-option-2-split"]');
-    await page.waitForSelector('[data-testid="tiled-terminal-container"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="tiled-terminal-container"]', { timeout: TIMEOUTS.DIALOG });
     const container = await page.$('[data-testid="tiled-terminal-container"]');
     expect(container).toBeTruthy();
   });
 
   it('selecting 4-grid shows 4 slots', async () => {
     await page.click('[data-testid="tiling-button"]');
-    await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="tiling-option-4-grid"]');
-    await page.waitForSelector('[data-testid="tiled-terminal-container"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="tiled-terminal-container"]', { timeout: TIMEOUTS.DIALOG });
     const slots = await page.$$('[data-testid^="tiled-slot-"]');
     expect(slots.length).toBe(4);
   });
 
   it('selecting tabbed returns to single terminal view', async () => {
     await page.click('[data-testid="tiling-button"]');
-    await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="tiling-option-tabbed"]');
-    await page.waitForSelector('[data-testid="tiled-terminal-container"]', { hidden: true, timeout: 5000 });
+    await page.waitForSelector('[data-testid="tiled-terminal-container"]', { hidden: true, timeout: TIMEOUTS.DIALOG });
     const container = await page.$('[data-testid="tiled-terminal-container"]');
     expect(container).toBeNull();
   });
 
   it('backdrop click closes overlay without changing layout', async () => {
     await page.click('[data-testid="tiling-button"]');
-    await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="tiling-overlay-backdrop"]');
-    await page.waitForSelector('[data-testid="tiling-overlay"]', { hidden: true, timeout: 5000 });
+    await page.waitForSelector('[data-testid="tiling-overlay"]', { hidden: true, timeout: TIMEOUTS.DIALOG });
     const overlay = await page.$('[data-testid="tiling-overlay"]');
     expect(overlay).toBeNull();
   });

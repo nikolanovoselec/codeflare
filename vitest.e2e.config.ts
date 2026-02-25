@@ -13,7 +13,5 @@ export default defineConfig({
     sequence: {
       shuffle: false,
     },
-    // Retry flaky tests once
-    retry: 1,
   },
 });

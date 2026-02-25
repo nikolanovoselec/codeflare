@@ -1,4 +1,5 @@
 import { apiRequest } from './setup';
+import { SUITE_PREFIX } from './config';
 
 async function deleteAllSessions() {
   try {
@@ -7,8 +8,12 @@ async function deleteAllSessions() {
       const data = await res.json();
       const sessions = data.sessions;
       if (Array.isArray(sessions)) {
+        // Only delete sessions with matching prefix (or all if prefix is 'default')
+        const toDelete = SUITE_PREFIX === 'default'
+          ? sessions
+          : sessions.filter((s: { name?: string }) => s.name?.startsWith(SUITE_PREFIX));
         await Promise.all(
-          sessions.map((s: { id: string }) =>
+          toDelete.map((s: { id: string }) =>
             apiRequest(`/api/sessions/${s.id}`, { method: 'DELETE' }).catch(() => {})
           )
         );

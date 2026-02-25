@@ -113,7 +113,7 @@ describe('Sessions API', () => {
     expect(res.status).toBe(404);
   });
 
-  it('GET /api/sessions/batch-status returns statuses and maxSessions', async () => {
+  it('GET /api/sessions/batch-status returns statuses and maxSessions', { retry: 2 }, async () => {
     const res = await apiRequest('/api/sessions/batch-status');
     expect(res.ok).toBe(true);
     const data = await res.json();

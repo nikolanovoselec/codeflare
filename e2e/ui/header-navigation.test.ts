@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Browser, Page } from 'puppeteer';
 import {
-  launchBrowser, createPage, checkSetupComplete, registerScreenshotOnFailure,
+  launchBrowser, createTestPage, checkSetupComplete, registerScreenshotOnFailure,
   createSessionViaApi, deleteSessionViaApi, navigateToSessionView, navigateToDashboard,
 } from '../helpers';
+import { IS_MOBILE, TIMEOUTS } from '../config';
 
 const isSetup = await checkSetupComplete();
 
 /** Wait for a slide-in panel to fully open (aria-hidden=false + transform complete) */
-async function waitForPanelOpen(page: Page, testId: string, timeout = 10000): Promise<void> {
+async function waitForPanelOpen(page: Page, testId: string, timeout = TIMEOUTS.DIALOG): Promise<void> {
   await page.waitForFunction(
     (tid: string) => {
       const panel = document.querySelector(`[data-testid="${tid}"]`);
@@ -23,7 +24,7 @@ async function waitForPanelOpen(page: Page, testId: string, timeout = 10000): Pr
 }
 
 /** Wait for a slide-in panel to fully close (aria-hidden=true + transform complete) */
-async function waitForPanelClosed(page: Page, testId: string, timeout = 10000): Promise<void> {
+async function waitForPanelClosed(page: Page, testId: string, timeout = TIMEOUTS.DIALOG): Promise<void> {
   await page.waitForFunction(
     (tid: string) => {
       const panel = document.querySelector(`[data-testid="${tid}"]`);
@@ -46,7 +47,7 @@ describe.skipIf(!isSetup)('Header navigation', () => {
 
   beforeAll(async () => {
     browser = await launchBrowser();
-    page = await createPage(browser);
+    page = await createTestPage(browser);
     const session = await createSessionViaApi({ name: 'Header Nav Test' });
     sessionId = session.id;
     await navigateToSessionView(page, sessionId);
@@ -67,13 +68,19 @@ describe.skipIf(!isSetup)('Header navigation', () => {
     expect(userMenu).toBeTruthy();
   });
 
-  it('session switcher shows current session name', async () => {
+  it('session switcher shows current session name or mobile icon', async () => {
     const switcher = await page.$('[data-testid="session-switcher"]');
     expect(switcher).toBeTruthy();
-    const nameEl = await page.$('[data-testid="session-switcher-name"]');
-    expect(nameEl).toBeTruthy();
-    const name = await page.evaluate((el) => el?.textContent, nameEl);
-    expect(name).toContain('Header Nav Test');
+    if (IS_MOBILE) {
+      // Mobile: shows layers icon instead of session name
+      const mobileIcon = await page.$('[data-testid="session-switcher-mobile-icon"]');
+      expect(mobileIcon).toBeTruthy();
+    } else {
+      const nameEl = await page.$('[data-testid="session-switcher-name"]');
+      expect(nameEl).toBeTruthy();
+      const name = await page.evaluate((el) => el?.textContent, nameEl);
+      expect(name).toContain('Header Nav Test');
+    }
   });
 
   it('settings button opens settings panel from header', async () => {

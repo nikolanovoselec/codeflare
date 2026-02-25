@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Browser, Page } from 'puppeteer';
 import {
-  launchBrowser, createPage, navigateToDashboard, checkSetupComplete, registerScreenshotOnFailure,
+  launchBrowser, createTestPage, navigateToDashboard, checkSetupComplete, registerScreenshotOnFailure,
 } from '../helpers';
+import { TIMEOUTS } from '../config';
 
 const isSetup = await checkSetupComplete();
 
@@ -14,7 +15,7 @@ describe.skipIf(!isSetup)('Dashboard', () => {
 
   beforeAll(async () => {
     browser = await launchBrowser();
-    page = await createPage(browser);
+    page = await createTestPage(browser);
     await navigateToDashboard(page);
   });
 
@@ -44,7 +45,7 @@ describe.skipIf(!isSetup)('Dashboard', () => {
 
   it('new session button opens create dialog', async () => {
     await page.click('[data-testid="dashboard-new-session"]');
-    await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
     const dialog = await page.$('[data-testid="create-session-dialog"]');
     expect(dialog).toBeTruthy();
   });
@@ -54,7 +55,7 @@ describe.skipIf(!isSetup)('Dashboard', () => {
     const dialog = await page.$('[data-testid="create-session-dialog"]');
     if (!dialog) {
       await page.click('[data-testid="dashboard-new-session"]');
-      await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: 5000 });
+      await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
     }
     const claude = await page.$('[data-testid="csd-agent-claude-code"]');
     const bash = await page.$('[data-testid="csd-agent-bash"]');
@@ -66,10 +67,10 @@ describe.skipIf(!isSetup)('Dashboard', () => {
     const dialog = await page.$('[data-testid="create-session-dialog"]');
     if (!dialog) {
       await page.click('[data-testid="dashboard-new-session"]');
-      await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: 5000 });
+      await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
     }
     await page.keyboard.press('Escape');
-    await page.waitForSelector('[data-testid="create-session-dialog"]', { hidden: true, timeout: 5000 });
+    await page.waitForSelector('[data-testid="create-session-dialog"]', { hidden: true, timeout: TIMEOUTS.DIALOG });
     const closedDialog = await page.$('[data-testid="create-session-dialog"]');
     expect(closedDialog).toBeNull();
   });

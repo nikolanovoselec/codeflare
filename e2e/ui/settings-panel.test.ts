@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Browser, Page } from 'puppeteer';
 import {
-  launchBrowser, createPage, navigateToDashboard, checkSetupComplete, registerScreenshotOnFailure,
+  launchBrowser, createTestPage, navigateToDashboard, checkSetupComplete, registerScreenshotOnFailure,
 } from '../helpers';
+import { IS_MOBILE, TIMEOUTS } from '../config';
 
 const isSetup = await checkSetupComplete();
 
 /** Wait until settings panel has aria-hidden=false (animations are disabled in CI via createPage) */
-async function waitForPanelOpen(page: Page, timeout = 10000): Promise<void> {
+async function waitForPanelOpen(page: Page, timeout = TIMEOUTS.DIALOG): Promise<void> {
   await page.waitForFunction(
     () => {
       const panel = document.querySelector('[data-testid="settings-panel"]');
@@ -18,7 +19,7 @@ async function waitForPanelOpen(page: Page, timeout = 10000): Promise<void> {
 }
 
 /** Wait until settings panel has aria-hidden=true (animations are disabled in CI via createPage) */
-async function waitForPanelClosed(page: Page, timeout = 10000): Promise<void> {
+async function waitForPanelClosed(page: Page, timeout = TIMEOUTS.DIALOG): Promise<void> {
   await page.waitForFunction(
     () => {
       const panel = document.querySelector('[data-testid="settings-panel"]');
@@ -37,7 +38,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
 
   beforeAll(async () => {
     browser = await launchBrowser();
-    page = await createPage(browser);
+    page = await createTestPage(browser);
     await navigateToDashboard(page);
   });
 
@@ -67,7 +68,9 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     expect(ariaHidden).toBe('true');
   });
 
-  it('backdrop click closes panel', async () => {
+  it.skipIf(IS_MOBILE)('backdrop click closes panel', async () => {
+    // Mobile: settings panel is full-width (100vw), no backdrop area to click.
+    // This test only applies to desktop where the panel is 400px on the right.
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
     await waitForPanelOpen(page);
@@ -107,9 +110,19 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   it('shows toggle settings', async () => {
     const showTips = await page.$('[data-testid="settings-show-tips-toggle"]');
     expect(showTips).toBeTruthy();
-    const buttonLabels = await page.$('[data-testid="settings-button-labels-toggle"]');
-    const clipboard = await page.$('[data-testid="settings-clipboard-access-toggle"]');
-    expect(buttonLabels || clipboard).toBeTruthy();
+    if (IS_MOBILE) {
+      // Mobile (touch device): shows button labels toggle, hides clipboard toggle
+      const buttonLabels = await page.$('[data-testid="settings-button-labels-toggle"]');
+      expect(buttonLabels).toBeTruthy();
+      const clipboard = await page.$('[data-testid="settings-clipboard-access-toggle"]');
+      expect(clipboard).toBeNull();
+    } else {
+      // Desktop: shows clipboard toggle, hides button labels toggle
+      const clipboard = await page.$('[data-testid="settings-clipboard-access-toggle"]');
+      expect(clipboard).toBeTruthy();
+      const buttonLabels = await page.$('[data-testid="settings-button-labels-toggle"]');
+      expect(buttonLabels).toBeNull();
+    }
   });
 
   it('shows workspace sync toggle with hint', async () => {
