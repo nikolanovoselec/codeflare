@@ -22,7 +22,7 @@
   "dependencies": {
     "@cloudflare/containers": "^0.1.0",
     "aws4fetch": "^1.0.20",
-    "hono": "^4.7.0",
+    "hono": "^4.11.10",
     "zod": "^4.3.6"
   },
   "overrides": {
