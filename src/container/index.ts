@@ -317,7 +317,8 @@ export class container extends Container<Env> {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
-      return new Response(JSON.stringify({ error: toErrorMessage(err) }), {
+      console.error('setBucketName failed:', toErrorMessage(err));
+      return new Response(JSON.stringify({ error: 'Internal error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -339,7 +340,8 @@ export class container extends Container<Env> {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
-      return new Response(JSON.stringify({ error: toErrorMessage(err) }), {
+      console.error('setSessionId failed:', toErrorMessage(err));
+      return new Response(JSON.stringify({ error: 'Internal error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       });

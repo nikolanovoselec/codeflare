@@ -17,12 +17,18 @@ export function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-/** Decode standard XML entities (&amp; &lt; &gt; &quot; &apos;). */
+/**
+ * Decode standard XML entities (&amp; &lt; &gt; &quot; &apos;).
+ * Only used on trusted XML from Cloudflare R2 S3-compatible API responses,
+ * never on user-supplied input. Single-pass decode (not recursive).
+ */
 export function decodeXmlEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
+  const entityMap: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&apos;': "'",
+  };
+  return text.replace(/&(?:amp|lt|gt|quot|apos);/g, (match) => entityMap[match] ?? match);
 }
