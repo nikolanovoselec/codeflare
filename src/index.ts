@@ -133,6 +133,7 @@ app.get('/health', (c) => c.json({ status: 'ok' }));
 app.get('/api/health', (c) => c.json({
   status: 'ok',
   timestamp: new Date().toISOString(),
+  build: 'v2025-02-25a',
   serviceAuthConfigured: !!c.env.SERVICE_AUTH_SECRET,
 }));
 
