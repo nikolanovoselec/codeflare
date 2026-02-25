@@ -70,6 +70,11 @@ jobs:
             exit 1
           fi
 
+          if [ "$SESSIONS" = "302" ]; then
+            echo "::error::CF Access returned 302 redirect. The service token is not accepted by the CF Access application protecting $BASE. Verify the service token is added to the Access policy."
+            exit 1
+          fi
+
       - name: Cache root node_modules
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: cache-root
