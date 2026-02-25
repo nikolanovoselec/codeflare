@@ -7,6 +7,36 @@ import {
 
 const isSetup = await checkSetupComplete();
 
+/** Wait for a slide-in panel to fully open (aria-hidden=false + transform complete) */
+async function waitForPanelOpen(page: Page, testId: string, timeout = 10000): Promise<void> {
+  await page.waitForFunction(
+    (tid: string) => {
+      const panel = document.querySelector(`[data-testid="${tid}"]`);
+      if (!panel) return false;
+      if (panel.getAttribute('aria-hidden') !== 'false') return false;
+      const t = getComputedStyle(panel).transform;
+      return t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)';
+    },
+    { timeout },
+    testId
+  );
+}
+
+/** Wait for a slide-in panel to fully close (aria-hidden=true + transform complete) */
+async function waitForPanelClosed(page: Page, testId: string, timeout = 10000): Promise<void> {
+  await page.waitForFunction(
+    (tid: string) => {
+      const panel = document.querySelector(`[data-testid="${tid}"]`);
+      if (!panel) return true;
+      if (panel.getAttribute('aria-hidden') !== 'true') return false;
+      const t = getComputedStyle(panel).transform;
+      return t !== 'none' && t !== 'matrix(1, 0, 0, 1, 0, 0)';
+    },
+    { timeout },
+    testId
+  );
+}
+
 describe.skipIf(!isSetup)('Header navigation', () => {
   let browser: Browser;
   let page: Page;
@@ -19,7 +49,6 @@ describe.skipIf(!isSetup)('Header navigation', () => {
     page = await createPage(browser);
     const session = await createSessionViaApi({ name: 'Header Nav Test' });
     sessionId = session.id;
-    // Navigate to session view (clicking stopped session auto-starts container)
     await navigateToSessionView(page, sessionId);
   });
 
@@ -49,34 +78,22 @@ describe.skipIf(!isSetup)('Header navigation', () => {
 
   it('settings button opens settings panel from header', async () => {
     await page.click('[data-testid="header-settings-button"]');
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false',
-      { timeout: 10000 }
-    );
+    await waitForPanelOpen(page, 'settings-panel');
     const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('false');
     // Close it
     await page.click('[data-testid="settings-close-button"]');
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'true',
-      { timeout: 10000 }
-    );
+    await waitForPanelClosed(page, 'settings-panel');
   });
 
   it('storage button opens storage panel', async () => {
     await page.click('[data-testid="header-storage-button"]');
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="storage-panel"]')?.getAttribute('aria-hidden') === 'false',
-      { timeout: 10000 }
-    );
+    await waitForPanelOpen(page, 'storage-panel');
     const ariaHidden = await page.$eval('[data-testid="storage-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('false');
     // Close it
     await page.click('[data-testid="storage-panel-close-button"]');
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="storage-panel"]')?.getAttribute('aria-hidden') === 'true',
-      { timeout: 10000 }
-    );
+    await waitForPanelClosed(page, 'storage-panel');
   });
 
   it('dashboard button is visible', async () => {
@@ -85,16 +102,12 @@ describe.skipIf(!isSetup)('Header navigation', () => {
   });
 
   it('clicking dashboard button returns to dashboard', async () => {
-    // Full page navigation — in-page dashboard button may not render the
-    // Dashboard component if initializingSessionIds was not cleared after
-    // container startup (source bug workaround).
     await navigateToDashboard(page);
     const dashboard = await page.$('[data-testid="dashboard"]');
     expect(dashboard).toBeTruthy();
   });
 
   it('bookmarks button is visible', async () => {
-    // Navigate back to session view for header
     await navigateToSessionView(page, sessionId);
     const bookmarksBtn = await page.$('[data-testid="header-bookmarks-button"]');
     expect(bookmarksBtn).toBeTruthy();

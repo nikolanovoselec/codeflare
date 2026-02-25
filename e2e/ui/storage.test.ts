@@ -93,8 +93,15 @@ describe.skipIf(!isSetup)('Storage', () => {
 
     it('clicking storage button opens storage panel', async () => {
       await page.click('[data-testid="header-storage-button"]');
+      // Wait for panel open: aria-hidden=false AND CSS transform complete
       await page.waitForFunction(
-        () => document.querySelector('[data-testid="storage-panel"]')?.getAttribute('aria-hidden') === 'false',
+        () => {
+          const panel = document.querySelector('[data-testid="storage-panel"]');
+          if (!panel) return false;
+          if (panel.getAttribute('aria-hidden') !== 'false') return false;
+          const t = getComputedStyle(panel).transform;
+          return t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)';
+        },
         { timeout: 10000 }
       );
       const ariaHidden = await page.$eval('[data-testid="storage-panel"]', el => el.getAttribute('aria-hidden'));
@@ -108,8 +115,15 @@ describe.skipIf(!isSetup)('Storage', () => {
 
     it('close button closes storage panel', async () => {
       await page.click('[data-testid="storage-panel-close-button"]');
+      // Wait for panel close: aria-hidden=true AND CSS transform complete
       await page.waitForFunction(
-        () => document.querySelector('[data-testid="storage-panel"]')?.getAttribute('aria-hidden') === 'true',
+        () => {
+          const panel = document.querySelector('[data-testid="storage-panel"]');
+          if (!panel) return true;
+          if (panel.getAttribute('aria-hidden') !== 'true') return false;
+          const t = getComputedStyle(panel).transform;
+          return t !== 'none' && t !== 'matrix(1, 0, 0, 1, 0, 0)';
+        },
         { timeout: 10000 }
       );
       const ariaHidden = await page.$eval('[data-testid="storage-panel"]', el => el.getAttribute('aria-hidden'));

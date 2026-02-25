@@ -57,8 +57,10 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
   });
 
   it('clicking opens bookmarks menu with empty state form', async () => {
+    // Ensure button is visible and clickable
+    await page.waitForSelector('[data-testid="header-bookmarks-button"]', { visible: true, timeout: 10000 });
     await page.click('[data-testid="header-bookmarks-button"]');
-    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 10000 });
     const menu = await page.$('[data-testid="header-bookmarks-menu"]');
     expect(menu).toBeTruthy();
     // When no bookmarks exist, the menu shows the create form (input + Save) directly

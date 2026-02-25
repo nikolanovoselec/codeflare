@@ -6,18 +6,32 @@ import {
 
 const isSetup = await checkSetupComplete();
 
-/** Wait until settings panel has aria-hidden=false (open) */
+/** Wait until settings panel has aria-hidden=false and slide-in animation is done */
 async function waitForPanelOpen(page: Page, timeout = 10000): Promise<void> {
   await page.waitForFunction(
-    () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false',
+    () => {
+      const panel = document.querySelector('[data-testid="settings-panel"]');
+      if (!panel) return false;
+      if (panel.getAttribute('aria-hidden') !== 'false') return false;
+      // Wait for CSS transform to reach identity (panel fully slid in)
+      const t = getComputedStyle(panel).transform;
+      return t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)';
+    },
     { timeout }
   );
 }
 
-/** Wait until settings panel has aria-hidden=true (closed) */
+/** Wait until settings panel has aria-hidden=true and slide-out animation is done */
 async function waitForPanelClosed(page: Page, timeout = 10000): Promise<void> {
   await page.waitForFunction(
-    () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'true',
+    () => {
+      const panel = document.querySelector('[data-testid="settings-panel"]');
+      if (!panel) return true;
+      if (panel.getAttribute('aria-hidden') !== 'true') return false;
+      // Wait for CSS transform to finish (panel fully slid out)
+      const t = getComputedStyle(panel).transform;
+      return t !== 'none' && t !== 'matrix(1, 0, 0, 1, 0, 0)';
+    },
     { timeout }
   );
 }
@@ -41,8 +55,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   it('clicking settings button opens panel', async () => {
     await page.click('[data-testid="dashboard-settings-button"]');
     await waitForPanelOpen(page);
-    const panel = await page.$('[data-testid="settings-panel"]');
-    const ariaHidden = await page.evaluate(el => el?.getAttribute('aria-hidden'), panel);
+    const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('false');
   });
 
@@ -54,8 +67,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   it('close button closes panel', async () => {
     await page.click('[data-testid="settings-close-button"]');
     await waitForPanelClosed(page);
-    const panel = await page.$('[data-testid="settings-panel"]');
-    const ariaHidden = await page.evaluate(el => el?.getAttribute('aria-hidden'), panel);
+    const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('true');
   });
 
@@ -63,20 +75,9 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
     await waitForPanelOpen(page);
-    // Wait for slide-in transition to finish so backdrop is clickable
-    await page.waitForFunction(
-      () => {
-        const panel = document.querySelector('[data-testid="settings-panel"]');
-        if (!panel) return false;
-        const style = getComputedStyle(panel);
-        return style.transform === 'none' || style.transform === 'matrix(1, 0, 0, 1, 0, 0)';
-      },
-      { timeout: 5000 }
-    );
     await page.click('[data-testid="settings-backdrop"]');
     await waitForPanelClosed(page);
-    const panel = await page.$('[data-testid="settings-panel"]');
-    const ariaHidden = await page.evaluate(el => el?.getAttribute('aria-hidden'), panel);
+    const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('true');
   });
 
@@ -93,10 +94,8 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('shows toggle settings', async () => {
-    // Button labels toggle only shown on touch devices; clipboard toggle only on non-touch
     const showTips = await page.$('[data-testid="settings-show-tips-toggle"]');
     expect(showTips).toBeTruthy();
-    // At least one of these should exist depending on device type
     const buttonLabels = await page.$('[data-testid="settings-button-labels-toggle"]');
     const clipboard = await page.$('[data-testid="settings-clipboard-access-toggle"]');
     expect(buttonLabels || clipboard).toBeTruthy();
@@ -119,20 +118,16 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   it('toggling a boolean setting auto-saves', async () => {
     const toggle = await page.$('[data-testid="settings-show-tips-toggle"]');
     expect(toggle).toBeTruthy();
-    // Get initial state
     const initialState = await page.evaluate(
       (el) => (el as HTMLInputElement).checked ?? el?.getAttribute('aria-checked') === 'true',
       toggle
     );
-    // Click toggle
     await toggle!.click();
-    // Verify state changed
     const newState = await page.evaluate(
       (el) => (el as HTMLInputElement).checked ?? el?.getAttribute('aria-checked') === 'true',
       toggle
     );
     expect(newState).not.toBe(initialState);
-    // Restore original state
     await toggle!.click();
   });
 });
