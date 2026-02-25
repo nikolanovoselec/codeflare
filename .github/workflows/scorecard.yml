@@ -2,9 +2,10 @@ name: Scorecard
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   schedule:
     - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   security-events: write
