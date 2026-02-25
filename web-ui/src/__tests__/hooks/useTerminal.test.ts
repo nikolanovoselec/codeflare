@@ -50,16 +50,22 @@ const mockTerminalInstance = {
 // Real @xterm/xterm Terminal creates a full terminal emulator with DOM rendering,
 // buffer management, and input processing. Our mock only stubs the methods
 // that useTerminal calls during lifecycle.
-vi.mock('@xterm/xterm', () => ({
-  Terminal: vi.fn(() => mockTerminalInstance),
-}));
+vi.mock('@xterm/xterm', () => {
+  const TerminalClass = vi.fn(function (this: any) {
+    Object.assign(this, mockTerminalInstance);
+  }) as any;
+  return { Terminal: TerminalClass };
+});
 
 // MOCK-DRIFT RISK: FitAddon.fit() is a no-op here.
 // Real FitAddon calculates terminal dimensions from container element size
 // and calls terminal.resize(). Our mock skips dimension calculation entirely.
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: vi.fn(() => ({ fit: mockFit })),
-}));
+vi.mock('@xterm/addon-fit', () => {
+  const FitAddonClass = vi.fn(function (this: any) {
+    this.fit = mockFit;
+  }) as any;
+  return { FitAddon: FitAddonClass };
+});
 
 // MOCK-DRIFT RISK: terminalStore.connect() returns a cleanup function.
 // Real implementation opens a WebSocket, attaches data handlers, and manages

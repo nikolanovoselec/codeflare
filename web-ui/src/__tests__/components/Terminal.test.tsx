@@ -40,18 +40,22 @@ const mockTerminalInstance = {
 // creates a full emulator with DOM rendering, buffer management, input handling, and
 // CSI/OSC parsing. This mock only stubs the API surface used by useTerminal and the
 // Terminal component — any new xterm API usage requires updating this mock.
-vi.mock('@xterm/xterm', () => ({
-  Terminal: vi.fn(() => mockTerminalInstance),
-}));
+vi.mock('@xterm/xterm', () => {
+  const TerminalClass = vi.fn(function (this: any) {
+    Object.assign(this, mockTerminalInstance);
+  }) as any;
+  return { Terminal: TerminalClass };
+});
 
 // MOCK-DRIFT RISK: FitAddon.fit() is a no-op. Real FitAddon measures the container
 // element to calculate cols/rows and calls terminal.resize(). Dimension-dependent
 // tests must set cols/rows on mockTerminalInstance manually.
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: vi.fn(() => ({
-    fit: vi.fn(),
-  })),
-}));
+vi.mock('@xterm/addon-fit', () => {
+  const FitAddonClass = vi.fn(function (this: any) {
+    this.fit = vi.fn();
+  }) as any;
+  return { FitAddon: FitAddonClass };
+});
 
 // MOCK-DRIFT RISK: terminalStore is a shallow stub of the reactive SolidJS store.
 // Real store manages WebSocket connections, reconnection logic, and per-session
