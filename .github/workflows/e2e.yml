@@ -60,7 +60,8 @@ jobs:
           echo "Testing: $BASE/api/sessions"
           SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
             -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" || true)
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
           echo "Sessions status: $SESSIONS"
           cat /tmp/sessions.json 2>/dev/null; echo
 

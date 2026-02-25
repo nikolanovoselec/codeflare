@@ -15,12 +15,15 @@ if (!CF_ACCESS_CLIENT_ID || !CF_ACCESS_CLIENT_SECRET) {
   );
 }
 
-// Helper to make API requests with service token headers
+// Helper to make API requests with service token + direct auth headers
 export async function apiRequest(path: string, options?: RequestInit) {
   const url = `${BASE_URL}${path}`;
   const headers = new Headers(options?.headers);
+  // CF Access service token headers (pass through CF Access edge)
   headers.set('CF-Access-Client-Id', CF_ACCESS_CLIENT_ID!);
   headers.set('CF-Access-Client-Secret', CF_ACCESS_CLIENT_SECRET!);
+  // Direct service auth header (validated by worker, not stripped by CF Access)
+  headers.set('X-Service-Auth', CF_ACCESS_CLIENT_SECRET!);
 
   // Add CSRF header for state-changing methods
   const method = options?.method?.toUpperCase() || 'GET';

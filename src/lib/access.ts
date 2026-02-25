@@ -97,21 +97,21 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     : (cachedAccessAud ? [cachedAccessAud] : []);
   const authConfigured = !!(cachedAuthDomain && accessAudList.length > 0);
 
-  // Direct service token validation — checked FIRST because CF Access may
+  // Direct service auth validation — checked FIRST because CF Access may
   // inject a JWT for service tokens whose audience doesn't match our app's
-  // access_aud. If we checked JWT first, verification would fail and return
-  // unauthenticated before ever reaching this code path.
+  // access_aud, AND CF Access strips CF-Access-Client-Secret from forwarded
+  // requests. Uses custom X-Service-Auth header to bypass both issues.
   // Only active when SERVICE_AUTH_SECRET is set as a worker secret.
   if (env?.SERVICE_AUTH_SECRET) {
-    const clientId = request.headers.get('CF-Access-Client-Id');
-    const clientSecret = request.headers.get('CF-Access-Client-Secret');
-    if (clientId && clientSecret) {
+    const serviceAuth = request.headers.get('X-Service-Auth');
+    if (serviceAuth) {
       // Constant-time comparison to prevent timing attacks
       const expected = new TextEncoder().encode(env.SERVICE_AUTH_SECRET);
-      const actual = new TextEncoder().encode(clientSecret);
+      const actual = new TextEncoder().encode(serviceAuth);
       if (expected.byteLength === actual.byteLength) {
         const match = await crypto.subtle.timingSafeEqual(expected, actual);
         if (match) {
+          const clientId = request.headers.get('CF-Access-Client-Id') || 'service';
           const serviceEmail = env.SERVICE_TOKEN_EMAIL || `service-${clientId.split('.')[0]}@codeflare.local`;
           return { email: normalizeEmail(serviceEmail), authenticated: true };
         }
