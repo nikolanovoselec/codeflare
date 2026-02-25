@@ -123,12 +123,18 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
   });
 
   it('reopened menu shows bookmark list and Add New button', async () => {
-    // Close bookmarks menu if open, then reopen
-    await page.keyboard.press('Escape');
-    await page.waitForFunction(
-      () => !document.querySelector('[data-testid="header-bookmarks-menu"]'),
-      { timeout: 3000 }
-    ).catch(() => {});
+    // Close bookmarks menu if open by clicking the toggle button (Escape only works when input is focused)
+    const menuOpen = await page.$('[data-testid="header-bookmarks-menu"]');
+    if (menuOpen) {
+      await page.evaluate(() => {
+        (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
+      });
+      await page.waitForFunction(
+        () => !document.querySelector('[data-testid="header-bookmarks-menu"]'),
+        { timeout: 5000 }
+      );
+    }
+    // Reopen the menu
     await page.evaluate(() => {
       (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
     });

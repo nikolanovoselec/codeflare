@@ -6,31 +6,24 @@ import {
 
 const isSetup = await checkSetupComplete();
 
-/** Wait until settings panel has aria-hidden=false and slide-in animation is done */
+/** Wait until settings panel has aria-hidden=false (animations are disabled in CI via createPage) */
 async function waitForPanelOpen(page: Page, timeout = 10000): Promise<void> {
   await page.waitForFunction(
     () => {
       const panel = document.querySelector('[data-testid="settings-panel"]');
-      if (!panel) return false;
-      if (panel.getAttribute('aria-hidden') !== 'false') return false;
-      // Wait for CSS transform to reach identity (panel fully slid in)
-      const t = getComputedStyle(panel).transform;
-      return t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)';
+      return panel?.getAttribute('aria-hidden') === 'false';
     },
     { timeout }
   );
 }
 
-/** Wait until settings panel has aria-hidden=true and slide-out animation is done */
+/** Wait until settings panel has aria-hidden=true (animations are disabled in CI via createPage) */
 async function waitForPanelClosed(page: Page, timeout = 10000): Promise<void> {
   await page.waitForFunction(
     () => {
       const panel = document.querySelector('[data-testid="settings-panel"]');
       if (!panel) return true;
-      if (panel.getAttribute('aria-hidden') !== 'true') return false;
-      // Wait for CSS transform to finish (panel fully slid out)
-      const t = getComputedStyle(panel).transform;
-      return t !== 'none' && t !== 'matrix(1, 0, 0, 1, 0, 0)';
+      return panel.getAttribute('aria-hidden') === 'true';
     },
     { timeout }
   );
@@ -75,13 +68,12 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
     await waitForPanelOpen(page);
-    // The backdrop's onClick checks e.target === e.currentTarget (direct click only).
-    // Use evaluate to dispatch a click event directly on the backdrop element,
-    // guaranteeing the target/currentTarget match.
-    await page.evaluate(() => {
-      const backdrop = document.querySelector('[data-testid="settings-backdrop"]') as HTMLElement;
-      if (backdrop) backdrop.click();
-    });
+    // Click backdrop at specific coordinates to avoid hitting the panel (right side).
+    // The panel is 400px wide on the right (x: 880-1280). Click at x=200 which is
+    // safely on the backdrop, not the panel. Use Puppeteer's page.mouse.click for
+    // precise coordinate control (page.click on selector clicks center which works
+    // but SolidJS event delegation requires real mouse events, not HTMLElement.click).
+    await page.mouse.click(200, 360);
     await waitForPanelClosed(page);
     const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('true');
