@@ -4,7 +4,8 @@ async function deleteAllSessions() {
   try {
     const res = await apiRequest('/api/sessions');
     if (res.ok) {
-      const sessions = await res.json();
+      const data = await res.json();
+      const sessions = data.sessions;
       if (Array.isArray(sessions)) {
         await Promise.all(
           sessions.map((s: { id: string }) =>

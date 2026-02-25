@@ -77,7 +77,8 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     // Get preset ID for cleanup
     const presetsRes = await apiRequest('/api/presets');
     if (presetsRes.ok) {
-      const presets = await presetsRes.json();
+      const data = await presetsRes.json();
+      const presets = data.presets;
       if (Array.isArray(presets)) {
         for (const p of presets) {
           if (p.name === 'E2E Test Preset') presetIds.push(p.id);
@@ -90,8 +91,8 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     // Bookmark was saved with 3 tabs open — verify by checking preset API
     const presetsRes = await apiRequest('/api/presets');
     expect(presetsRes.ok).toBe(true);
-    const presets = await presetsRes.json();
-    const testPreset = presets.find((p: { name: string }) => p.name === 'E2E Test Preset');
+    const presetsData = await presetsRes.json();
+    const testPreset = presetsData.presets.find((p: { name: string }) => p.name === 'E2E Test Preset');
     expect(testPreset).toBeDefined();
     expect(testPreset.tabs).toBeDefined();
   });
@@ -104,12 +105,12 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     // Click the preset name to apply it
     await page.waitForFunction(
       () => {
-        const items = document.querySelectorAll('[data-testid="header-bookmarks-menu"] [data-testid^="bookmark-item-"]');
+        const items = document.querySelectorAll('[data-testid="header-bookmarks-menu"] [data-testid^="header-bookmark-item-"]');
         return items.length > 0;
       },
       { timeout: 5000 }
     );
-    const items = await page.$$('[data-testid="header-bookmarks-menu"] [data-testid^="bookmark-item-"]');
+    const items = await page.$$('[data-testid="header-bookmarks-menu"] [data-testid^="header-bookmark-item-"]');
     if (items.length > 0) {
       await items[0].click();
     }

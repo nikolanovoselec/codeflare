@@ -73,7 +73,7 @@ export async function createSessionViaApi(opts?: { name?: string; agentType?: st
   });
   if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
   const data = await res.json();
-  return { id: data.id, name: data.name };
+  return { id: data.session.id, name: data.session.name };
 }
 
 export async function deleteSessionViaApi(id: string): Promise<void> {
@@ -83,7 +83,8 @@ export async function deleteSessionViaApi(id: string): Promise<void> {
 export async function deleteAllSessionsViaApi(): Promise<void> {
   const res = await apiRequest('/api/sessions');
   if (!res.ok) return;
-  const sessions = await res.json();
+  const data = await res.json();
+  const sessions = data.sessions;
   if (!Array.isArray(sessions)) return;
   await Promise.all(sessions.map((s: { id: string }) => deleteSessionViaApi(s.id)));
 }
@@ -97,20 +98,22 @@ export async function waitForContainerReady(page: Page, sessionId: string): Prom
   const baseUrl = BASE_URL;
   const clientId = CF_ACCESS_CLIENT_ID;
   const clientSecret = CF_ACCESS_CLIENT_SECRET;
+  const serviceAuth = SERVICE_AUTH_SECRET;
 
   await page.waitForFunction(
-    async (url: string, sid: string, cfId: string, cfSecret: string) => {
+    async (url: string, sid: string, cfId: string, cfSecret: string, svcAuth: string) => {
       try {
         const res = await fetch(`${url}/api/container/startup-status?sessionId=${sid}`, {
           headers: {
             'CF-Access-Client-Id': cfId,
             'CF-Access-Client-Secret': cfSecret,
+            'X-Service-Auth': svcAuth,
             'X-Requested-With': 'fetch',
           },
         });
         if (!res.ok) return false;
         const data = await res.json();
-        return data.status === 'ready';
+        return data.stage === 'ready';
       } catch {
         return false;
       }
@@ -119,7 +122,8 @@ export async function waitForContainerReady(page: Page, sessionId: string): Prom
     baseUrl,
     sessionId,
     clientId,
-    clientSecret
+    clientSecret,
+    serviceAuth
   );
 }
 
