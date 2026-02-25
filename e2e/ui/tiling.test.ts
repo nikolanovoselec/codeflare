@@ -5,11 +5,12 @@ import {
   createSessionViaApi, deleteSessionViaApi, startContainerViaApi, waitForContainerReady,
   navigateToSessionView,
 } from '../helpers';
-import { TIMEOUTS } from '../config';
+import { IS_MOBILE, TIMEOUTS } from '../config';
 
 const isSetup = await checkSetupComplete();
 
-describe.skipIf(!isSetup)('Tiling', () => {
+// Tiling button is display:none on mobile (max-width: 640px) — skip entire suite
+describe.skipIf(!isSetup || IS_MOBILE)('Tiling', () => {
   let browser: Browser;
   let page: Page;
   let sessionId: string;

@@ -12,11 +12,11 @@ async function deleteAllSessions() {
         const toDelete = SUITE_PREFIX === 'default'
           ? sessions
           : sessions.filter((s: { name?: string }) => s.name?.startsWith(SUITE_PREFIX));
-        await Promise.all(
-          toDelete.map((s: { id: string }) =>
-            apiRequest(`/api/sessions/${s.id}`, { method: 'DELETE' }).catch(() => {})
-          )
-        );
+        // Delete sequentially with small delays to avoid 429 rate limiting
+        for (const s of toDelete) {
+          await apiRequest(`/api/sessions/${s.id}`, { method: 'DELETE' }).catch(() => {});
+          await new Promise(r => setTimeout(r, 500));
+        }
       }
     }
   } catch {
@@ -31,11 +31,10 @@ async function deleteAllPresets() {
       const data = await res.json();
       const presets = data.presets;
       if (Array.isArray(presets)) {
-        await Promise.all(
-          presets.map((p: { id: string }) =>
-            apiRequest(`/api/presets/${p.id}`, { method: 'DELETE' }).catch(() => {})
-          )
-        );
+        for (const p of presets) {
+          await apiRequest(`/api/presets/${p.id}`, { method: 'DELETE' }).catch(() => {});
+          await new Promise(r => setTimeout(r, 500));
+        }
       }
     }
   } catch {

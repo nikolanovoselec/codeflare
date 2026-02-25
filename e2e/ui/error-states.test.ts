@@ -62,10 +62,10 @@ describe.skipIf(!isSetup)('Error States & Edge Cases', () => {
       await deleteSessionViaApi(session.id);
 
       // Wait for card to disappear (dashboard polls every 5s, 3 consecutive misses to remove)
-      // Allow up to ~20s for the card to be removed
+      // Allow up to 30s for the card to be removed (3 polls x 5s + KV propagation delay)
       await page.waitForFunction(
         (id: string) => !document.querySelector(`[data-testid="session-stat-card-${id}"]`),
-        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        { timeout: 30_000, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
         session.id
       );
     } catch (err) {
@@ -109,11 +109,13 @@ describe.skipIf(!isSetup)('Error States & Edge Cases', () => {
       await waitForPanelOpen(page);
     }
 
-    // Click the Reset button — uses evaluate to avoid overlay click issues
-    // The Button component uses data-testid="accent-color-reset"
+    // Click the Reset button — the Button component hardcodes data-testid="button",
+    // so we find the Reset button by matching the one inside the accent color row with "Reset" text
     await page.evaluate(() => {
-      const btn = document.querySelector('[data-testid="accent-color-reset"]') as HTMLElement;
-      btn?.click();
+      const row = document.querySelector('.accent-color-row');
+      const buttons = row?.querySelectorAll('[data-testid="button"]');
+      const resetBtn = Array.from(buttons || []).find(b => b.textContent?.trim() === 'Reset') as HTMLElement;
+      resetBtn?.click();
     });
 
     // Verify the input was cleared

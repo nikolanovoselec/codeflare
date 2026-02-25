@@ -17,7 +17,7 @@ describe('Presets API', () => {
 
   const validPresetBody = {
     name: 'E2E Test Preset',
-    tabs: [{ agentType: 'bash', label: 'Bash' }],
+    tabs: [{ id: '1', command: 'bash', label: 'Bash' }],
   };
 
   it('GET /api/presets returns presets array', async () => {
@@ -57,7 +57,7 @@ describe('Presets API', () => {
     const createRes = await apiRequest('/api/presets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'To Delete', tabs: [{ agentType: 'bash', label: 'Bash' }] }),
+      body: JSON.stringify({ name: 'To Delete', tabs: [{ id: '1', command: 'bash', label: 'Bash' }] }),
     });
     const created = await createRes.json();
     const deleteId = created.preset.id;
@@ -81,7 +81,7 @@ describe('Presets API', () => {
       const res = await apiRequest('/api/presets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `Filler ${i}`, tabs: [{ agentType: 'bash', label: 'Bash' }] }),
+        body: JSON.stringify({ name: `Filler ${i}`, tabs: [{ id: '1', command: 'bash', label: 'Bash' }] }),
       });
       if (res.status === 201) {
         const data = await res.json();
@@ -93,7 +93,7 @@ describe('Presets API', () => {
     const overflowRes = await apiRequest('/api/presets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Overflow', tabs: [{ agentType: 'bash', label: 'Bash' }] }),
+      body: JSON.stringify({ name: 'Overflow', tabs: [{ id: '1', command: 'bash', label: 'Bash' }] }),
     });
     expect(overflowRes.ok).toBe(false);
     expect(overflowRes.status).toBe(400);

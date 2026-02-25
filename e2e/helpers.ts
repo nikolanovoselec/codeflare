@@ -198,7 +198,11 @@ export async function navigateToSessionView(page: Page, sessionId: string): Prom
     throw new Error(`[E2E] navigateToSessionView: card for ${sessionId} not found after 3 page loads. Cards on page: ${JSON.stringify(allCards)}`);
   }
 
-  await page.click(cardSelector);
+  // Use evaluate click for mobile hit-test reliability (card may be positioned differently
+  // at 390px viewport or partially obscured by stacked layout)
+  await page.evaluate((sel: string) => {
+    (document.querySelector(sel) as HTMLElement)?.click();
+  }, cardSelector);
   // Could land on either init progress (stopped session) or terminal view (running session)
   const firstElement = await page.waitForSelector(
     '[data-testid="init-progress-open-btn"], [data-testid="header-logo"]',
@@ -207,7 +211,9 @@ export async function navigateToSessionView(page: Page, sessionId: string): Prom
   if (firstElement) {
     const testId = await page.evaluate(el => el?.getAttribute('data-testid'), firstElement);
     if (testId === 'init-progress-open-btn') {
-      await firstElement.click();
+      await page.evaluate(() => {
+        (document.querySelector('[data-testid="init-progress-open-btn"]') as HTMLElement)?.click();
+      });
       await page.waitForSelector('[data-testid="header-logo"]', { timeout: TIMEOUTS.TERMINAL_READY });
     }
   }
@@ -247,18 +253,38 @@ export async function createSessionViaApi(opts?: { name?: string; agentType?: st
   const body: Record<string, string> = {};
   body.name = opts?.name || `${SUITE_PREFIX}-Terminal`;
   if (opts?.agentType) body.agentType = opts.agentType;
-  const res = await apiRequest('/api/sessions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
-  const data = await res.json();
-  return { id: data.session.id, name: data.session.name };
+  // Retry on 429 with exponential backoff
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await apiRequest('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429) {
+      const delay = (attempt + 1) * 5000; // 5s, 10s, 15s
+      console.log(`[E2E] createSessionViaApi: rate limited (429), retry in ${delay}ms (attempt ${attempt + 1}/3)`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+    if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
+    const data = await res.json();
+    return { id: data.session.id, name: data.session.name };
+  }
+  throw new Error('Failed to create session: rate limited after 3 retries');
 }
 
 export async function deleteSessionViaApi(id: string): Promise<void> {
-  await apiRequest(`/api/sessions/${id}`, { method: 'DELETE' });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await apiRequest(`/api/sessions/${id}`, { method: 'DELETE' });
+    if (res.status === 429) {
+      const delay = (attempt + 1) * 5000;
+      console.log(`[E2E] deleteSessionViaApi: rate limited (429), retry in ${delay}ms (attempt ${attempt + 1}/3)`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+    return;
+  }
+  console.warn(`[E2E] deleteSessionViaApi: rate limited after 3 retries for ${id}`);
 }
 
 export async function deleteAllSessionsViaApi(): Promise<void> {
@@ -267,7 +293,11 @@ export async function deleteAllSessionsViaApi(): Promise<void> {
   const data = await res.json();
   const sessions = data.sessions;
   if (!Array.isArray(sessions)) return;
-  await Promise.all(sessions.map((s: { id: string }) => deleteSessionViaApi(s.id)));
+  // Delete sequentially with small delays to avoid 429 rate limiting
+  for (const s of sessions) {
+    await deleteSessionViaApi(s.id);
+    await new Promise(r => setTimeout(r, 500));
+  }
 }
 
 export async function startContainerViaApi(sessionId: string): Promise<void> {

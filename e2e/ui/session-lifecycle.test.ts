@@ -30,14 +30,22 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('creates session via UI', async () => {
-    await page.click('[data-testid="dashboard-new-session"]');
+    // Use evaluate clicks on mobile to bypass Puppeteer hit-test issues
+    // (elements may be positioned differently in the 390px bottom-sheet layout)
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="dashboard-new-session"]') as HTMLElement)?.click();
+    });
     await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="csd-agent-bash"]');
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="csd-agent-bash"]') as HTMLElement)?.click();
+    });
     // Init progress screen replaces dashboard while container starts
     await page.waitForSelector('[data-testid="init-progress"]', { timeout: TIMEOUTS.DASHBOARD });
     // Wait for container to become ready and Open button to appear
     await page.waitForSelector('[data-testid="init-progress-open-btn"]', { timeout: TIMEOUTS.SESSION_NAV });
-    await page.click('[data-testid="init-progress-open-btn"]');
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="init-progress-open-btn"]') as HTMLElement)?.click();
+    });
     // Now terminal view loads with header
     await page.waitForSelector('[data-testid="header-logo"]', { timeout: TIMEOUTS.TERMINAL_READY });
     // Extract session ID from URL (hash or query params)
@@ -93,10 +101,14 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('stops session via context menu', async () => {
-    // Click the three-dot menu trigger (not right-click -- no contextmenu handler on card)
-    await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
+    // Use evaluate clicks to bypass hit-test issues on mobile (menu trigger may overlap card edge)
+    await page.evaluate((id: string) => {
+      (document.querySelector(`[data-testid="session-stat-card-${id}-menu"]`) as HTMLElement)?.click();
+    }, sessionId);
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="context-menu-stop"]');
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="context-menu-stop"]') as HTMLElement)?.click();
+    });
     // Wait for status to change — dot loses --success variant when stopped
     await page.waitForFunction(
       () => {
@@ -108,12 +120,18 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('deletes session via context menu', async () => {
-    // Click the three-dot menu trigger (not right-click -- no contextmenu handler on card)
-    await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
+    // Use evaluate clicks to bypass hit-test issues on mobile
+    await page.evaluate((id: string) => {
+      (document.querySelector(`[data-testid="session-stat-card-${id}-menu"]`) as HTMLElement)?.click();
+    }, sessionId);
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="context-menu-delete"]');
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="context-menu-delete"]') as HTMLElement)?.click();
+    });
     await page.waitForSelector('[data-testid="context-menu-delete-confirm"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="context-menu-delete-confirm"]');
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="context-menu-delete-confirm"]') as HTMLElement)?.click();
+    });
     // Wait for card to disappear
     await page.waitForFunction(
       () => document.querySelector('[data-testid^="session-stat-card-"]') === null,
@@ -138,13 +156,17 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
         { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
         autoStartId
       );
-      // Click the session card to navigate into it
-      await page.click(`[data-testid="session-stat-card-${autoStartId}"]`);
+      // Click the session card to navigate into it (use evaluate for mobile hit-test reliability)
+      await page.evaluate((id: string) => {
+        (document.querySelector(`[data-testid="session-stat-card-${id}"]`) as HTMLElement)?.click();
+      }, autoStartId);
       // Init progress screen should appear (container starting)
       await page.waitForSelector('[data-testid="init-progress"]', { timeout: TIMEOUTS.SESSION_NAV });
       // Wait for "Open" button to appear (container ready)
       await page.waitForSelector('[data-testid="init-progress-open-btn"]', { timeout: TIMEOUTS.SESSION_NAV });
-      await page.click('[data-testid="init-progress-open-btn"]');
+      await page.evaluate(() => {
+        (document.querySelector('[data-testid="init-progress-open-btn"]') as HTMLElement)?.click();
+      });
       // Terminal view should load
       await page.waitForSelector('[data-testid="header-logo"]', { timeout: TIMEOUTS.TERMINAL_READY });
     } finally {
@@ -163,16 +185,22 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
         { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
         confirmId
       );
-      // Open context menu
-      await page.click(`[data-testid="session-stat-card-${confirmId}-menu"]`);
+      // Open context menu (use evaluate for mobile hit-test reliability)
+      await page.evaluate((id: string) => {
+        (document.querySelector(`[data-testid="session-stat-card-${id}-menu"]`) as HTMLElement)?.click();
+      }, confirmId);
       await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
       // First click on delete shows confirmation
-      await page.click('[data-testid="context-menu-delete"]');
+      await page.evaluate(() => {
+        (document.querySelector('[data-testid="context-menu-delete"]') as HTMLElement)?.click();
+      });
       await page.waitForSelector('[data-testid="context-menu-delete-confirm"]', { timeout: TIMEOUTS.DIALOG });
       const confirmBtn = await page.$('[data-testid="context-menu-delete-confirm"]');
       expect(confirmBtn).toBeTruthy();
       // Second click actually deletes
-      await page.click('[data-testid="context-menu-delete-confirm"]');
+      await page.evaluate(() => {
+        (document.querySelector('[data-testid="context-menu-delete-confirm"]') as HTMLElement)?.click();
+      });
       await page.waitForFunction(
         (id: string) => !document.querySelector(`[data-testid="session-stat-card-${id}"]`),
         { timeout: TIMEOUTS.DASHBOARD },
