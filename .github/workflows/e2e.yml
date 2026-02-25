@@ -36,7 +36,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      - uses: actions/setup-node@774c1d62961e73038a114d59c8847023c003194d # v6.2.0
         with:
           node-version: '22'
 
@@ -135,7 +135,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      - uses: actions/setup-node@774c1d62961e73038a114d59c8847023c003194d # v6.2.0
         with:
           node-version: '22'
 
@@ -176,7 +176,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      - uses: actions/setup-node@774c1d62961e73038a114d59c8847023c003194d # v6.2.0
         with:
           node-version: '22'
 
@@ -243,7 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      - uses: actions/setup-node@774c1d62961e73038a114d59c8847023c003194d # v6.2.0
         with:
           node-version: '22'
 
