@@ -93,10 +93,15 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     }
     const swatch = await page.$('[data-testid="accent-color-swatch"]');
     const input = await page.$('[data-testid="accent-color-input"]');
-    const reset = await page.$('[data-testid="accent-color-reset"]');
+    // The Button component uses a hardcoded data-testid="button" and doesn't
+    // forward custom data-testid props. Find reset by text content instead.
+    const reset = await page.evaluateHandle(() => {
+      const buttons = document.querySelectorAll('.accent-color-row [data-testid="button"]');
+      return Array.from(buttons).find(b => b.textContent?.trim() === 'Reset') ?? null;
+    });
     expect(swatch).toBeTruthy();
     expect(input).toBeTruthy();
-    expect(reset).toBeTruthy();
+    expect(reset.asElement()).toBeTruthy();
   });
 
   it('shows toggle settings', async () => {
