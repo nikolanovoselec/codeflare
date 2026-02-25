@@ -207,6 +207,27 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Set service auth secret for E2E testing (optional)
+        if: ${{ secrets.CF_ACCESS_CLIENT_SECRET != '' }}
+        run: |
+          printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | npx wrangler secret put SERVICE_AUTH_SECRET --name "${WORKER_NAME}" 2>/dev/null
+
+          # Seed service token user in KV allowlist (derives email from client ID)
+          if [ -n "${CF_ACCESS_CLIENT_ID}" ]; then
+            # Extract first segment of client ID for email
+            SHORT_ID=$(echo "$CF_ACCESS_CLIENT_ID" | cut -d. -f1)
+            SERVICE_EMAIL="service-${SHORT_ID}@codeflare.local"
+            echo "Seeding E2E service token user: ${SERVICE_EMAIL}"
+            KV_VALUE="{\"addedBy\":\"deploy\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
+            npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --binding KV 2>/dev/null || \
+            echo "::warning::Could not seed E2E user in KV (non-fatal)"
+          fi
+        env:
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Set Resend API key as worker secret (optional onboarding mode)
         if: ${{ vars.ONBOARDING_LANDING_PAGE == 'active' }}
         run: |

@@ -110,6 +110,27 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     return { email: '', authenticated: false };
   }
 
+  // Direct service token validation (bypasses CF Access JWT exchange).
+  // Used for E2E testing when CF Access doesn't inject JWTs for service tokens.
+  // Only active when SERVICE_AUTH_SECRET is set as a worker secret.
+  if (env?.SERVICE_AUTH_SECRET) {
+    const clientId = request.headers.get('CF-Access-Client-Id');
+    const clientSecret = request.headers.get('CF-Access-Client-Secret');
+    if (clientId && clientSecret) {
+      // Constant-time comparison to prevent timing attacks
+      const expected = new TextEncoder().encode(env.SERVICE_AUTH_SECRET);
+      const actual = new TextEncoder().encode(clientSecret);
+      if (expected.byteLength === actual.byteLength) {
+        const match = await crypto.subtle.timingSafeEqual(expected, actual);
+        if (match) {
+          const serviceEmail = env.SERVICE_TOKEN_EMAIL || `service-${clientId.split('.')[0]}@codeflare.local`;
+          return { email: normalizeEmail(serviceEmail), authenticated: true };
+        }
+      }
+      // Invalid secret — fall through to normal rejection
+    }
+  }
+
   // Post-setup (auth configured) but NO JWT: reject even if header is present (FIX-1).
   // This prevents header spoofing when Cloudflare Access is configured.
   if (authConfigured && !jwtToken) {

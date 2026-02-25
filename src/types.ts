@@ -30,6 +30,8 @@ export interface Env {
   // Service token email - when using CF Access service tokens, this email is used
   // Default: service-{clientId}@codeflare.local
   SERVICE_TOKEN_EMAIL?: string;
+  // Direct service token secret for E2E testing (bypasses CF Access JWT exchange)
+  SERVICE_AUTH_SECRET?: string;
 
   // Cloudflare API token for R2 bucket management
   CLOUDFLARE_API_TOKEN: string;
