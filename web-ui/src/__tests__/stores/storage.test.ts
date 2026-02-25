@@ -14,6 +14,12 @@ vi.mock('../../api/storage', () => ({
   getPreview: vi.fn(),
 }));
 
+// Mock constants to eliminate retry delay in tests
+vi.mock('../../lib/constants', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/constants')>();
+  return { ...actual, STORAGE_BROWSE_RETRY_DELAY_MS: 0 };
+});
+
 // Mock file-upload helpers
 vi.mock('../../lib/file-upload', () => ({
   shouldUseMultipart: vi.fn((file: File) => file.size > 5 * 1024 * 1024),
