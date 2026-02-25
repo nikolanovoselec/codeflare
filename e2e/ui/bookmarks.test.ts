@@ -60,16 +60,48 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
   });
 
   it('clicking opens bookmarks menu with empty state form', async () => {
-    // Use evaluate click to avoid Puppeteer mousedown/click coordinate issues
-    // The button's handleClickOutside listener uses mousedown which can race with Puppeteer's click
     await page.waitForSelector('[data-testid="header-bookmarks-button"]', { visible: true, timeout: 10000 });
+    // Debug: check button state and page errors before clicking
+    const btnInfo = await page.evaluate(() => {
+      const btn = document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement;
+      if (!btn) return { exists: false };
+      const rect = btn.getBoundingClientRect();
+      return {
+        exists: true,
+        visible: rect.width > 0 && rect.height > 0,
+        rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+        disabled: (btn as HTMLButtonElement).disabled,
+        display: getComputedStyle(btn).display,
+        pointerEvents: getComputedStyle(btn).pointerEvents,
+      };
+    });
+    console.log('[E2E] Bookmarks button info:', JSON.stringify(btnInfo));
+    // Try click and check for JS errors
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
     await page.evaluate(() => {
       (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
     });
+    // Brief wait for SolidJS reactivity
+    await new Promise(r => setTimeout(r, 500));
+    const menuExists = await page.evaluate(() => !!document.querySelector('[data-testid="header-bookmarks-menu"]'));
+    console.log('[E2E] After click: menu exists =', menuExists, 'JS errors:', errors);
+    if (!menuExists) {
+      // Debug: check what happened to the signal
+      const pageState = await page.evaluate(() => {
+        const menu = document.querySelector('[data-testid="header-bookmarks-menu"]');
+        const wrapper = document.querySelector('.header-bookmarks-wrapper');
+        return {
+          menuExists: !!menu,
+          wrapperChildCount: wrapper?.childElementCount,
+          wrapperHTML: wrapper?.innerHTML?.slice(0, 200),
+        };
+      });
+      console.log('[E2E] Page state after click:', JSON.stringify(pageState));
+    }
     await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 10000 });
     const menu = await page.$('[data-testid="header-bookmarks-menu"]');
     expect(menu).toBeTruthy();
-    // When no bookmarks exist, the menu shows the create form (input + Save) directly
     const input = await page.$('[data-testid="header-bookmark-name-input"]');
     const save = await page.$('[data-testid="header-bookmark-save"]');
     expect(input).toBeTruthy();
