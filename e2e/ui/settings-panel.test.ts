@@ -75,6 +75,14 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
     await waitForPanelOpen(page);
+    // Wait for backdrop to become clickable (pointer-events transitions with opacity)
+    await page.waitForFunction(
+      () => {
+        const backdrop = document.querySelector('[data-testid="settings-backdrop"]');
+        return backdrop && getComputedStyle(backdrop).pointerEvents === 'auto';
+      },
+      { timeout: 5000 }
+    );
     await page.click('[data-testid="settings-backdrop"]');
     await waitForPanelClosed(page);
     const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
