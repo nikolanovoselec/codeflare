@@ -31,7 +31,7 @@ export interface SplashConfig {
   TRANSPARENT: boolean;
 }
 
-export interface SplashSimulation {
+interface SplashSimulation {
   /** Start the animation loop */
   start(): void;
   /** Stop and clean up */

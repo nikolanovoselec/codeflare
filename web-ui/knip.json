@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignore": ["src/__tests__/helpers/**"],
+  "ignoreDependencies": ["@testing-library/dom", "@vitest/coverage-v8"],
+  "rules": {
+    "enumMembers": "off",
+    "classMembers": "off"
+  },
+  "ignoreExportsUsedInFile": true
+}

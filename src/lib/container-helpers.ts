@@ -57,7 +57,7 @@ export interface HealthData {
 // Circuit Breaker Health Check
 // ============================================================================
 
-export interface ContainerHealthResult {
+interface ContainerHealthResult {
   healthy: boolean;
   data?: HealthData;
   error?: string;
@@ -72,7 +72,7 @@ export interface ContainerHealthResult {
  * @param container - The container stub to check
  * @returns Health check result with status and optional data
  */
-export async function checkContainerHealth(
+async function checkContainerHealth(
   container: DurableObjectStub
 ): Promise<ContainerHealthResult> {
   try {

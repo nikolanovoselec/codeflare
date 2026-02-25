@@ -2,7 +2,7 @@ import { Component, JSX, Show } from 'solid-js';
 import Icon from '../Icon';
 import '../../styles/button.css';
 
-export interface ButtonProps {
+interface ButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   size?: 'sm' | 'md' | 'lg';
   icon?: string;

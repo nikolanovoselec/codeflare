@@ -52,6 +52,13 @@ jobs:
         run: npm run lint
         working-directory: web-ui
 
+      - name: Dead code check (backend)
+        run: npm run knip
+
+      - name: Dead code check (frontend)
+        run: npm run knip
+        working-directory: web-ui
+
       - name: Build frontend
         run: npm run build
         working-directory: web-ui

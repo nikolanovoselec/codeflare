@@ -134,14 +134,6 @@ export const SetupPrefillResponseSchema = z.object({
   allowedUsers: z.array(z.string()).default([]),
 });
 
-export const ConfigureResponseSchema = z.object({
-  success: z.boolean(),
-  steps: z.array(z.object({ step: z.string(), status: z.string(), error: z.string().optional() })).optional(),
-  error: z.string().optional(),
-  customDomainUrl: z.string().optional(),
-  accountId: z.string().optional(),
-});
-
 // User management schemas — moved from client.ts (strict versions)
 export const UserEntrySchema = z.object({
   email: z.string(),

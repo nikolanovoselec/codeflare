@@ -2,7 +2,7 @@ import type { Terminal as XTerm } from '@xterm/xterm';
 import { disableVirtualKeyboardOverlay } from './mobile';
 import { logger } from './logger';
 
-export interface MobileInputCallbacks {
+interface MobileInputCallbacks {
   /** Called when cursor line needs a refresh */
   refreshCursorLine: () => void;
 }

@@ -11,7 +11,6 @@ import {
   SetupStatusResponseSchema,
   DetectTokenResponseSchema,
   SetupPrefillResponseSchema,
-  ConfigureResponseSchema,
   UserEntrySchema,
   GetUsersResponseSchema,
   UserMutationResponseSchema,
@@ -241,20 +240,6 @@ export type SetupPrefillResponse = z.infer<typeof SetupPrefillResponseSchema>;
 
 export async function getSetupPrefill(): Promise<SetupPrefillResponse> {
   return fetchApi('/setup/prefill', {}, SetupPrefillResponseSchema);
-}
-
-export type ConfigureResponse = z.infer<typeof ConfigureResponseSchema>;
-
-export async function configure(body: {
-  customDomain: string;
-  allowedUsers: string[];
-  adminUsers: string[];
-  allowedOrigins?: string[];
-}): Promise<ConfigureResponse> {
-  return fetchApi('/setup/configure', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  }, ConfigureResponseSchema);
 }
 
 // Preset API

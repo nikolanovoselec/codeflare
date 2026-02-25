@@ -20,7 +20,8 @@
     "test:e2e:ui-mobile": "E2E_MOBILE=1 vitest run --config vitest.e2e.config.ts e2e/ui/",
     "postinstall": "node scripts/fix-broken-sourcemaps.js",
     "lint": "oxlint src/ e2e/ --deny-warnings",
-    "lint:fix": "oxlint src/ e2e/ --fix"
+    "lint:fix": "oxlint src/ e2e/ --fix",
+    "knip": "knip"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.1.0",
@@ -35,6 +36,7 @@
     "@cloudflare/vitest-pool-workers": "^0.12.17",
     "@cloudflare/workers-types": "^4.20260304.0",
     "@vitest/coverage-v8": "^3.0.0",
+    "knip": "^5.85.0",
     "oxlint": "^1.50.0",
     "puppeteer": "^24.37.5",
     "typescript": "^5.7.0",

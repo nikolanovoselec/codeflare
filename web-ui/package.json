@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint src/ --deny-warnings",
-    "lint:fix": "oxlint src/ --fix"
+    "lint:fix": "oxlint src/ --fix",
+    "knip": "knip"
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
@@ -27,6 +28,7 @@
     "@testing-library/jest-dom": "^6.0.0",
     "@types/node": "^25.3.0",
     "jsdom": "^28.1.0",
+    "knip": "^5.85.0",
     "oxlint": "^1.50.0",
     "typescript": "^5.7.0",
     "vite": "^7.3.1",

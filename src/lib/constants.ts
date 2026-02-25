@@ -56,10 +56,10 @@ export const WS_RATE_LIMIT_TTL_SECONDS = 120;
 export const PROTECTED_PATHS = ['.claude/', '.anthropic/', '.ssh/', '.config/', '.claude.json'];
 
 /** Default max concurrent running sessions for regular users */
-export const DEFAULT_MAX_SESSIONS_USER = 3;
+const DEFAULT_MAX_SESSIONS_USER = 3;
 
 /** Default max concurrent running sessions for admin users */
-export const DEFAULT_MAX_SESSIONS_ADMIN = 10;
+const DEFAULT_MAX_SESSIONS_ADMIN = 10;
 
 /**
  * Resolve the session limit for the given role from env vars, falling back to defaults.

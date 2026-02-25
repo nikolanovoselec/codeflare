@@ -22,7 +22,7 @@ export interface UseTerminalOptions {
   onInitComplete?: () => void;
 }
 
-export interface UseTerminalResult {
+interface UseTerminalResult {
   containerRef: (el: HTMLDivElement) => void;
   terminal: () => Terminal | undefined;
   dimensions: () => { cols: number; rows: number };
