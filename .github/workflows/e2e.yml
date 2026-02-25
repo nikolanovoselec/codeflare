@@ -36,6 +36,39 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Smoke test — verify E2E target is reachable and auth works
+        run: |
+          # Normalize URL
+          BASE="$E2E_BASE_URL"
+          [[ "$BASE" =~ ^https?:// ]] || BASE="https://$BASE"
+
+          echo "Testing: $BASE/health"
+          HEALTH=$(curl -sS -o /tmp/health.json -w "%{http_code}" "$BASE/health" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" || true)
+          echo "Health status: $HEALTH"
+          cat /tmp/health.json 2>/dev/null; echo
+
+          echo "Testing: $BASE/api/setup/status"
+          SETUP=$(curl -sS -o /tmp/setup.json -w "%{http_code}" "$BASE/api/setup/status" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "X-Requested-With: fetch" || true)
+          echo "Setup status: $SETUP"
+          cat /tmp/setup.json 2>/dev/null; echo
+
+          echo "Testing: $BASE/api/sessions"
+          SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" || true)
+          echo "Sessions status: $SESSIONS"
+          cat /tmp/sessions.json 2>/dev/null; echo
+
+          if [ "$SESSIONS" = "401" ] || [ "$SESSIONS" = "403" ]; then
+            echo "::error::Auth failed ($SESSIONS). Check CF_ACCESS_CLIENT_ID/SECRET and ensure the service token has access to the CF Access application protecting $BASE."
+            exit 1
+          fi
+
       - name: Cache root node_modules
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: cache-root
