@@ -28,12 +28,12 @@ describe('Preferences API', () => {
     const patchRes = await apiRequest('/api/preferences', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ e2eTestFlag: true }),
+      body: JSON.stringify({ workspaceSyncEnabled: true }),
     });
     expect(patchRes.ok).toBe(true);
 
     const getRes = await apiRequest('/api/preferences');
     const data = await getRes.json();
-    expect(data.e2eTestFlag).toBe(true);
+    expect(data.workspaceSyncEnabled).toBe(true);
   });
 });
