@@ -147,17 +147,18 @@ jobs:
         run: npm ci
         working-directory: web-ui
 
-      - name: Install Chrome system dependencies
+      - name: Install Chrome and system dependencies
         run: |
+          # Install all Chrome/Chromium system dependencies in one shot
           sudo apt-get update -qq
+          sudo apt-get install -yqq --no-install-recommends chromium-browser || \
           sudo apt-get install -yqq --no-install-recommends \
-            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
-            libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
-            libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
-            libcairo2 libasound2 libxshmfence1
-
-      - name: Install Puppeteer Chrome
-        run: npx puppeteer browsers install chrome
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+            libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 \
+            libgbm1 libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
+            libxfixes3 libx11-xcb1 libxext6 libxi6 libxtst6 \
+            fonts-liberation xdg-utils
+          npx puppeteer browsers install chrome
 
       - name: Run E2E API tests
         env:
