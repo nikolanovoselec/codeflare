@@ -253,16 +253,16 @@ export async function createSessionViaApi(opts?: { name?: string; agentType?: st
   const body: Record<string, string> = {};
   body.name = opts?.name || `${SUITE_PREFIX}-Terminal`;
   if (opts?.agentType) body.agentType = opts.agentType;
-  // Retry on 429 with exponential backoff
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // Retry on 429 with increasing backoff (rate limit window is 60s)
+  for (let attempt = 0; attempt < 5; attempt++) {
     const res = await apiRequest('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (res.status === 429) {
-      const delay = (attempt + 1) * 5000; // 5s, 10s, 15s
-      console.log(`[E2E] createSessionViaApi: rate limited (429), retry in ${delay}ms (attempt ${attempt + 1}/3)`);
+      const delay = (attempt + 1) * 10_000; // 10s, 20s, 30s, 40s, 50s
+      console.log(`[E2E] createSessionViaApi: rate limited (429), retry in ${delay}ms (attempt ${attempt + 1}/5)`);
       await new Promise(r => setTimeout(r, delay));
       continue;
     }
@@ -270,7 +270,7 @@ export async function createSessionViaApi(opts?: { name?: string; agentType?: st
     const data = await res.json();
     return { id: data.session.id, name: data.session.name };
   }
-  throw new Error('Failed to create session: rate limited after 3 retries');
+  throw new Error('Failed to create session: rate limited after 5 retries');
 }
 
 export async function deleteSessionViaApi(id: string): Promise<void> {

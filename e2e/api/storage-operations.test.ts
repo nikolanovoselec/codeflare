@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { apiRequest } from '../setup';
 import { TIMEOUTS } from '../config';
+import { createSessionViaApi } from '../helpers';
 
 /**
  * Storage CRUD operation E2E tests.
@@ -12,29 +13,13 @@ import { TIMEOUTS } from '../config';
  */
 describe('Storage Operations API', () => {
   let sessionId: string;
-  // Container readiness is tracked by the polling loop in beforeAll
   const testFileName = `e2e-test-${Date.now()}.txt`;
   const testFileContent = btoa('Hello from E2E storage test');
   const testSubFolder = `e2e-subfolder-${Date.now()}`;
 
   beforeAll(async () => {
-    // Create session (retry on 429 from parallel suites)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const sessionRes = await apiRequest('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'E2E Storage Ops Test' }),
-      });
-      if (sessionRes.status === 429) {
-        await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
-        continue;
-      }
-      if (!sessionRes.ok) throw new Error(`Failed to create session: ${sessionRes.status}`);
-      const sessionData = await sessionRes.json();
-      sessionId = sessionData.session.id;
-      break;
-    }
-    if (!sessionId) throw new Error('Failed to create session after 3 retries (rate limited)');
+    const session = await createSessionViaApi({ name: 'E2E Storage Ops Test' });
+    sessionId = session.id;
 
     // Start container
     await apiRequest(`/api/container/start?sessionId=${sessionId}`, { method: 'POST' });

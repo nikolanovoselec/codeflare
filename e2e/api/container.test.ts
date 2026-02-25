@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { apiRequest } from '../setup';
 import { TIMEOUTS } from '../config';
+import { createSessionViaApi } from '../helpers';
 
 /**
  * Container lifecycle E2E tests.
@@ -10,23 +11,8 @@ describe('Container Lifecycle API', () => {
   let sessionId: string;
 
   beforeAll(async () => {
-    // Retry on 429 (rate limit from parallel suites)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await apiRequest('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'E2E Container Test' }),
-      });
-      if (res.status === 429) {
-        await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
-        continue;
-      }
-      if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
-      const data = await res.json();
-      sessionId = data.session.id;
-      return;
-    }
-    throw new Error('Failed to create session after 3 retries (rate limited)');
+    const session = await createSessionViaApi({ name: 'E2E Container Test' });
+    sessionId = session.id;
   }, TIMEOUTS.CONTAINER_STARTUP);
 
   afterAll(async () => {
