@@ -135,7 +135,10 @@ describe('StorageBrowser', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Mock fetch + URL.createObjectURL/revokeObjectURL for triggerDownload
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Blob(['test'])));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(['test'])),
+    } as unknown as Response);
     globalThis.URL.createObjectURL = vi.fn(() => 'blob:mock');
     globalThis.URL.revokeObjectURL = vi.fn();
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});

@@ -29,17 +29,9 @@ jobs:
       - name: Resolve target worker
         id: target
         run: |
-          TARGET="${{ inputs.environment || 'integration' }}"
-          if [ "$TARGET" = "production" ]; then
-            # Production uses custom domain
-            echo "base_url=https://codeflare.novoselec.ch" >> "$GITHUB_OUTPUT"
-            echo "worker_name=codeflare-production" >> "$GITHUB_OUTPUT"
-          else
-            # Integration uses workers.dev subdomain
-            echo "base_url=https://codeflare-integration.nikola-novoselec.workers.dev" >> "$GITHUB_OUTPUT"
-            echo "worker_name=codeflare-integration" >> "$GITHUB_OUTPUT"
-          fi
-          echo "Target: $TARGET"
+          echo "base_url=${{ vars.E2E_BASE_URL }}" >> "$GITHUB_OUTPUT"
+          echo "worker_name=${{ vars.CLOUDFLARE_WORKER_NAME }}" >> "$GITHUB_OUTPUT"
+          echo "Target: ${{ inputs.environment || 'integration' }}"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
