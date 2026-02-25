@@ -11,11 +11,12 @@ describe('Sessions API', () => {
     createdIds.length = 0;
   });
 
-  it('GET /api/sessions returns array', async () => {
+  it('GET /api/sessions returns sessions array', async () => {
     const res = await apiRequest('/api/sessions');
     expect(res.ok).toBe(true);
     const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+    expect(data.sessions).toBeDefined();
+    expect(Array.isArray(data.sessions)).toBe(true);
   });
 
   it('POST /api/sessions with empty body creates Terminal session', async () => {
@@ -26,11 +27,11 @@ describe('Sessions API', () => {
     });
     expect(res.ok).toBe(true);
     const data = await res.json();
-    expect(data.name).toBe('Terminal');
-    expect(data.id).toBeDefined();
-    expect(data.agentType).toBeDefined();
-    expect(data.createdAt).toBeDefined();
-    createdIds.push(data.id);
+    const session = data.session;
+    expect(session.name).toBe('Terminal');
+    expect(session.id).toBeDefined();
+    expect(session.createdAt).toBeDefined();
+    createdIds.push(session.id);
   });
 
   it('POST /api/sessions with custom name uses that name', async () => {
@@ -40,8 +41,8 @@ describe('Sessions API', () => {
       body: JSON.stringify({ name: 'My Test Session' }),
     });
     const data = await res.json();
-    expect(data.name).toBe('My Test Session');
-    createdIds.push(data.id);
+    expect(data.session.name).toBe('My Test Session');
+    createdIds.push(data.session.id);
   });
 
   it('POST /api/sessions with agentType sets agent type', async () => {
@@ -51,8 +52,8 @@ describe('Sessions API', () => {
       body: JSON.stringify({ agentType: 'bash' }),
     });
     const data = await res.json();
-    expect(data.agentType).toBe('bash');
-    createdIds.push(data.id);
+    expect(data.session.agentType).toBe('bash');
+    createdIds.push(data.session.id);
   });
 
   it('GET /api/sessions/:id returns specific session', async () => {
@@ -62,13 +63,13 @@ describe('Sessions API', () => {
       body: JSON.stringify({ name: 'Fetch Test' }),
     });
     const created = await createRes.json();
-    createdIds.push(created.id);
+    createdIds.push(created.session.id);
 
-    const res = await apiRequest(`/api/sessions/${created.id}`);
+    const res = await apiRequest(`/api/sessions/${created.session.id}`);
     expect(res.ok).toBe(true);
     const data = await res.json();
-    expect(data.id).toBe(created.id);
-    expect(data.name).toBe('Fetch Test');
+    expect(data.session.id).toBe(created.session.id);
+    expect(data.session.name).toBe('Fetch Test');
   });
 
   it('PATCH /api/sessions/:id renames session', async () => {
@@ -78,18 +79,18 @@ describe('Sessions API', () => {
       body: JSON.stringify({ name: 'Before Rename' }),
     });
     const created = await createRes.json();
-    createdIds.push(created.id);
+    createdIds.push(created.session.id);
 
-    const patchRes = await apiRequest(`/api/sessions/${created.id}`, {
+    const patchRes = await apiRequest(`/api/sessions/${created.session.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'After Rename' }),
     });
     expect(patchRes.ok).toBe(true);
 
-    const getRes = await apiRequest(`/api/sessions/${created.id}`);
+    const getRes = await apiRequest(`/api/sessions/${created.session.id}`);
     const data = await getRes.json();
-    expect(data.name).toBe('After Rename');
+    expect(data.session.name).toBe('After Rename');
   });
 
   it('DELETE /api/sessions/:id removes session', async () => {
@@ -100,10 +101,10 @@ describe('Sessions API', () => {
     });
     const created = await createRes.json();
 
-    const deleteRes = await apiRequest(`/api/sessions/${created.id}`, { method: 'DELETE' });
+    const deleteRes = await apiRequest(`/api/sessions/${created.session.id}`, { method: 'DELETE' });
     expect(deleteRes.ok).toBe(true);
 
-    const getRes = await apiRequest(`/api/sessions/${created.id}`);
+    const getRes = await apiRequest(`/api/sessions/${created.session.id}`);
     expect(getRes.status).toBe(404);
   });
 
@@ -127,9 +128,9 @@ describe('Sessions API', () => {
       body: JSON.stringify({}),
     });
     const created = await createRes.json();
-    createdIds.push(created.id);
+    createdIds.push(created.session.id);
 
-    const touchRes = await apiRequest(`/api/sessions/${created.id}/touch`, { method: 'POST' });
+    const touchRes = await apiRequest(`/api/sessions/${created.session.id}/touch`, { method: 'POST' });
     expect(touchRes.ok).toBe(true);
   });
 });

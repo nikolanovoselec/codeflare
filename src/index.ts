@@ -130,12 +130,7 @@ app.use('/api/*', async (c, next) => {
 
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok' }));
-app.get('/api/health', (c) => c.json({
-  status: 'ok',
-  timestamp: new Date().toISOString(),
-  build: 'v2025-02-25a',
-  serviceAuthConfigured: !!c.env.SERVICE_AUTH_SECRET,
-}));
+app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Static assets are served by Cloudflare Workers Assets at /
 // Frontend SPA handles all non-API routes via its own routing
