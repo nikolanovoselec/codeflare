@@ -21,6 +21,9 @@ ENV DISABLE_INSTALLATION_CHECKS=1
 ENV CLAUDE_UNLEASHED_NO_UPDATE=1
 ENV IS_SANDBOX=1
 
+# Upgrade base packages to pick up security patches (musl, openssl, etc.)
+RUN apk upgrade --no-cache
+
 # Install runtime packages (no build tools needed - native addons pre-compiled)
 RUN apk add --no-cache \
     # System essentials
