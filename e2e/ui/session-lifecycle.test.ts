@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Browser, Page } from 'puppeteer';
 import {
   launchBrowser, createPage, navigateToDashboard, checkSetupComplete, registerScreenshotOnFailure,
-  deleteAllSessionsViaApi,
+  deleteSessionViaApi,
 } from '../helpers';
 import { apiRequest } from '../setup';
 
@@ -24,7 +24,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   afterAll(async () => {
-    await deleteAllSessionsViaApi();
+    if (sessionId) await deleteSessionViaApi(sessionId);
     await browser?.close();
   });
 
