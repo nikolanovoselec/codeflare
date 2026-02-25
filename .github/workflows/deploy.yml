@@ -208,13 +208,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Set service auth secret for E2E testing (optional)
-        if: ${{ secrets.CF_ACCESS_CLIENT_SECRET != '' }}
         run: |
+          if [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
+            echo "No CF_ACCESS_CLIENT_SECRET — skipping service auth setup"
+            exit 0
+          fi
+
           printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | npx wrangler secret put SERVICE_AUTH_SECRET --name "${WORKER_NAME}" 2>/dev/null
 
           # Seed service token user in KV allowlist (derives email from client ID)
           if [ -n "${CF_ACCESS_CLIENT_ID}" ]; then
-            # Extract first segment of client ID for email
             SHORT_ID=$(echo "$CF_ACCESS_CLIENT_ID" | cut -d. -f1)
             SERVICE_EMAIL="service-${SHORT_ID}@codeflare.local"
             echo "Seeding E2E service token user: ${SERVICE_EMAIL}"
