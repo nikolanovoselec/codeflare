@@ -10,6 +10,8 @@ export default defineWorkersConfig({
     slowTestThreshold: 5000,
     include: ['src/**/*.test.ts'],
     exclude: ['web-ui/**', 'e2e/**'],
+    // Limit worker pool to prevent OOM during shutdown (each worker spins up a V8 isolate)
+    maxWorkers: 4,
     poolOptions: {
       workers: {
         /**

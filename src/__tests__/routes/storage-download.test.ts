@@ -56,7 +56,7 @@ describe('Storage Download Routes', () => {
     const originalFetch = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-      if (url.startsWith('https://test.r2.cloudflarestorage.com')) {
+      if (new URL(url).hostname === 'test.r2.cloudflarestorage.com') {
         return new Response('file-content', {
           status: 200,
           headers: {
