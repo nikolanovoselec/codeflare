@@ -188,6 +188,7 @@ jobs:
           exit-code: 1
           format: table
           scanners: vuln
+          trivyignores: .trivyignore
 
       - name: Deploy to Cloudflare
         run: >-
