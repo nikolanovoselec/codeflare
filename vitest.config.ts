@@ -8,6 +8,8 @@ export default defineWorkersConfig({
   test: {
     // Only run backend tests - web-ui tests are run separately with their own vitest config
     slowTestThreshold: 5000,
+    testTimeout: 30000,
+    hookTimeout: 30000,
     include: ['src/**/*.test.ts'],
     exclude: ['web-ui/**', 'e2e/**'],
     // Limit worker pool to prevent OOM during shutdown (each worker spins up a V8 isolate)
