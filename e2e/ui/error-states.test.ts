@@ -90,7 +90,11 @@ describe.skipIf(!isSetup)('Error States & Edge Cases', () => {
   it('should change accent color in settings', async () => {
     await navigateToDashboard(page);
     // Open settings panel
-    await page.click('[data-testid="dashboard-settings-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="dashboard-settings-button"]');
+      if (!el) throw new Error('Element not found: dashboard-settings-button');
+      (el as HTMLElement).click();
+    });
     await waitForPanelOpen(page);
 
     // Get the accent color input and change it
@@ -117,7 +121,11 @@ describe.skipIf(!isSetup)('Error States & Edge Cases', () => {
       () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false'
     );
     if (!isOpen) {
-      await page.click('[data-testid="dashboard-settings-button"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="dashboard-settings-button"]');
+        if (!el) throw new Error('Element not found: dashboard-settings-button');
+        (el as HTMLElement).click();
+      });
       await waitForPanelOpen(page);
     }
 

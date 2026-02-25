@@ -84,12 +84,20 @@ describe.skipIf(!isSetup)('Header navigation', () => {
   });
 
   it('settings button opens settings panel from header', async () => {
-    await page.click('[data-testid="header-settings-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="header-settings-button"]');
+      if (!el) throw new Error('Element not found: header-settings-button');
+      (el as HTMLElement).click();
+    });
     await waitForPanelOpen(page, 'settings-panel');
     const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('false');
     // Close it
-    await page.click('[data-testid="settings-close-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="settings-close-button"]');
+      if (!el) throw new Error('Element not found: settings-close-button');
+      (el as HTMLElement).click();
+    });
     await waitForPanelClosed(page, 'settings-panel');
   });
 

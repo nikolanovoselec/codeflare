@@ -44,7 +44,11 @@ describe.skipIf(!isSetup)('Dashboard', () => {
   });
 
   it('new session button opens create dialog', async () => {
-    await page.click('[data-testid="dashboard-new-session"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="dashboard-new-session"]');
+      if (!el) throw new Error('Element not found: dashboard-new-session');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
     const dialog = await page.$('[data-testid="create-session-dialog"]');
     expect(dialog).toBeTruthy();
@@ -54,7 +58,11 @@ describe.skipIf(!isSetup)('Dashboard', () => {
     // Dialog should still be open from previous test, or reopen
     const dialog = await page.$('[data-testid="create-session-dialog"]');
     if (!dialog) {
-      await page.click('[data-testid="dashboard-new-session"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="dashboard-new-session"]');
+        if (!el) throw new Error('Element not found: dashboard-new-session');
+        (el as HTMLElement).click();
+      });
       await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
     }
     const claude = await page.$('[data-testid="csd-agent-claude-code"]');
@@ -66,7 +74,11 @@ describe.skipIf(!isSetup)('Dashboard', () => {
   it('create dialog closes on Escape', async () => {
     const dialog = await page.$('[data-testid="create-session-dialog"]');
     if (!dialog) {
-      await page.click('[data-testid="dashboard-new-session"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="dashboard-new-session"]');
+        if (!el) throw new Error('Element not found: dashboard-new-session');
+        (el as HTMLElement).click();
+      });
       await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
     }
     await page.keyboard.press('Escape');

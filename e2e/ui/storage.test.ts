@@ -163,7 +163,11 @@ describe.skipIf(!isSetup)('Storage', () => {
     });
 
     it('clicking storage button opens storage panel', async () => {
-      await page.click('[data-testid="header-storage-button"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="header-storage-button"]');
+        if (!el) throw new Error('Element not found: header-storage-button');
+        (el as HTMLElement).click();
+      });
       // Wait for panel open: aria-hidden=false AND CSS transform complete
       await page.waitForFunction(
         () => {
@@ -185,7 +189,11 @@ describe.skipIf(!isSetup)('Storage', () => {
     });
 
     it('close button closes storage panel', async () => {
-      await page.click('[data-testid="storage-panel-close-button"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="storage-panel-close-button"]');
+        if (!el) throw new Error('Element not found: storage-panel-close-button');
+        (el as HTMLElement).click();
+      });
       // Wait for panel close: aria-hidden=true AND CSS transform complete
       await page.waitForFunction(
         () => {

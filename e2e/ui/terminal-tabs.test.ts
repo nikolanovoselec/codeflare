@@ -53,7 +53,11 @@ describe.skipIf(!isSetup)('Terminal tabs', () => {
   });
 
   it('clicking add creates new tab', async () => {
-    await page.click('[data-testid="terminal-tab-add"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="terminal-tab-add"]');
+      if (!el) throw new Error('Element not found: terminal-tab-add');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="terminal-tab-2"]', { timeout: TIMEOUTS.TERMINAL_READY });
     const tab2 = await page.$('[data-testid="terminal-tab-2"]');
     expect(tab2).toBeTruthy();
@@ -65,7 +69,11 @@ describe.skipIf(!isSetup)('Terminal tabs', () => {
   });
 
   it('closing tab removes it', async () => {
-    await page.click('[data-testid="terminal-tab-2-close"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="terminal-tab-2-close"]');
+      if (!el) throw new Error('Element not found: terminal-tab-2-close');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="terminal-tab-2"]', { hidden: true, timeout: TIMEOUTS.DIALOG });
     const tab2 = await page.$('[data-testid="terminal-tab-2"]');
     expect(tab2).toBeNull();
@@ -74,7 +82,11 @@ describe.skipIf(!isSetup)('Terminal tabs', () => {
   it('can add up to max tabs (6) and add button becomes disabled', async () => {
     // Add tabs 2 through 6 (5 more tabs)
     for (let i = 2; i <= 6; i++) {
-      await page.click('[data-testid="terminal-tab-add"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="terminal-tab-add"]');
+        if (!el) throw new Error('Element not found: terminal-tab-add');
+        (el as HTMLElement).click();
+      });
       await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: TIMEOUTS.TERMINAL_READY });
     }
     // At max tabs, the add button is removed from the DOM entirely

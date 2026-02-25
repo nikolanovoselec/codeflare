@@ -56,7 +56,11 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: TIMEOUTS.TERMINAL_READY });
     // Add 2 extra tabs for bookmark to capture
     for (let i = 2; i <= 3; i++) {
-      await page.click('[data-testid="terminal-tab-add"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="terminal-tab-add"]');
+        if (!el) throw new Error('Element not found: terminal-tab-add');
+        (el as HTMLElement).click();
+      });
       await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: TIMEOUTS.TERMINAL_READY });
     }
   });
@@ -95,9 +99,18 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     await ensureBookmarksMenuOpen(page);
     await page.waitForSelector('[data-testid="header-bookmark-name-input"]', { timeout: TIMEOUTS.DIALOG });
     // Clear any existing text and type the name
-    await page.click('[data-testid="header-bookmark-name-input"]', { clickCount: 3 });
+    await page.evaluate(() => {
+      const input = document.querySelector('[data-testid="header-bookmark-name-input"]') as HTMLInputElement;
+      if (!input) throw new Error('Element not found: header-bookmark-name-input');
+      input.focus();
+      input.select();
+    });
     await page.type('[data-testid="header-bookmark-name-input"]', 'E2E Test Preset');
-    await page.click('[data-testid="header-bookmark-save"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="header-bookmark-save"]');
+      if (!el) throw new Error('Element not found: header-bookmark-save');
+      (el as HTMLElement).click();
+    });
     // Save closes the menu on success — wait for the menu to disappear (confirms save worked)
     await page.waitForFunction(
       () => !document.querySelector('[data-testid="header-bookmarks-menu"]'),

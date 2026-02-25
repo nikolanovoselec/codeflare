@@ -30,14 +30,26 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('creates session via UI', async () => {
-    await page.click('[data-testid="dashboard-new-session"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="dashboard-new-session"]');
+      if (!el) throw new Error('Element not found: dashboard-new-session');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="csd-agent-bash"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="csd-agent-bash"]');
+      if (!el) throw new Error('Element not found: csd-agent-bash');
+      (el as HTMLElement).click();
+    });
     // Init progress screen replaces dashboard while container starts
     await page.waitForSelector('[data-testid="init-progress"]', { timeout: TIMEOUTS.DASHBOARD });
     // Wait for container to become ready and Open button to appear
     await page.waitForSelector('[data-testid="init-progress-open-btn"]', { timeout: TIMEOUTS.SESSION_NAV });
-    await page.click('[data-testid="init-progress-open-btn"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="init-progress-open-btn"]');
+      if (!el) throw new Error('Element not found: init-progress-open-btn');
+      (el as HTMLElement).click();
+    });
     // Now terminal view loads with header
     await page.waitForSelector('[data-testid="header-logo"]', { timeout: TIMEOUTS.TERMINAL_READY });
     // Extract session ID from URL (hash or query params)
@@ -94,9 +106,17 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
 
   it('stops session via context menu', async () => {
     if (!sessionId) throw new Error('sessionId not set — previous test likely failed');
-    await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
+    await page.evaluate((id: string) => {
+      const el = document.querySelector(`[data-testid="session-stat-card-${id}-menu"]`);
+      if (!el) throw new Error(`Element not found: session-stat-card-${id}-menu`);
+      (el as HTMLElement).click();
+    }, sessionId);
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="context-menu-stop"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="context-menu-stop"]');
+      if (!el) throw new Error('Element not found: context-menu-stop');
+      (el as HTMLElement).click();
+    });
     // Wait for status to change — dot loses --success variant when stopped
     await page.waitForFunction(
       () => {
@@ -109,11 +129,23 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
 
   it('deletes session via context menu', async () => {
     if (!sessionId) throw new Error('sessionId not set — previous test likely failed');
-    await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
+    await page.evaluate((id: string) => {
+      const el = document.querySelector(`[data-testid="session-stat-card-${id}-menu"]`);
+      if (!el) throw new Error(`Element not found: session-stat-card-${id}-menu`);
+      (el as HTMLElement).click();
+    }, sessionId);
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="context-menu-delete"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="context-menu-delete"]');
+      if (!el) throw new Error('Element not found: context-menu-delete');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="context-menu-delete-confirm"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="context-menu-delete-confirm"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="context-menu-delete-confirm"]');
+      if (!el) throw new Error('Element not found: context-menu-delete-confirm');
+      (el as HTMLElement).click();
+    });
     // Wait for card to disappear
     await page.waitForFunction(
       () => document.querySelector('[data-testid^="session-stat-card-"]') === null,

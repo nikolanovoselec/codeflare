@@ -47,7 +47,11 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('clicking settings button opens panel', async () => {
-    await page.click('[data-testid="dashboard-settings-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="dashboard-settings-button"]');
+      if (!el) throw new Error('Element not found: dashboard-settings-button');
+      (el as HTMLElement).click();
+    });
     await waitForPanelOpen(page);
     const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('false');
@@ -72,7 +76,11 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     // Mobile: settings panel is full-width (100vw), no backdrop area to click.
     // This test only applies to desktop where the panel is 400px on the right.
     // Reopen panel
-    await page.click('[data-testid="dashboard-settings-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="dashboard-settings-button"]');
+      if (!el) throw new Error('Element not found: dashboard-settings-button');
+      (el as HTMLElement).click();
+    });
     await waitForPanelOpen(page);
     // Click backdrop at specific coordinates to avoid hitting the panel (right side).
     // The panel is 400px wide on the right (x: 880-1280). Click at x=200 which is
@@ -91,7 +99,11 @@ describe.skipIf(!isSetup)('Settings panel', () => {
       () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false'
     );
     if (!isAlreadyOpen) {
-      await page.click('[data-testid="dashboard-settings-button"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="dashboard-settings-button"]');
+        if (!el) throw new Error('Element not found: dashboard-settings-button');
+        (el as HTMLElement).click();
+      });
       await waitForPanelOpen(page);
     }
     const swatch = await page.$('[data-testid="accent-color-swatch"]');

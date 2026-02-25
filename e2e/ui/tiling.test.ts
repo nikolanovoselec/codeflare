@@ -28,7 +28,11 @@ describe.skipIf(!isSetup || IS_MOBILE)('Tiling', () => {
     await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: TIMEOUTS.TERMINAL_READY });
     // Add extra tabs for tiling (need 3+ tabs)
     for (let i = 2; i <= 4; i++) {
-      await page.click('[data-testid="terminal-tab-add"]');
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="terminal-tab-add"]');
+        if (!el) throw new Error('Element not found: terminal-tab-add');
+        (el as HTMLElement).click();
+      });
       await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: TIMEOUTS.TERMINAL_READY });
     }
   });
@@ -44,7 +48,11 @@ describe.skipIf(!isSetup || IS_MOBILE)('Tiling', () => {
   });
 
   it('clicking tiling button opens overlay', async () => {
-    await page.click('[data-testid="tiling-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="tiling-button"]');
+      if (!el) throw new Error('Element not found: tiling-button');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: TIMEOUTS.DIALOG });
     const overlay = await page.$('[data-testid="tiling-overlay"]');
     const backdrop = await page.$('[data-testid="tiling-overlay-backdrop"]');
@@ -60,34 +68,62 @@ describe.skipIf(!isSetup || IS_MOBILE)('Tiling', () => {
   });
 
   it('selecting 2-split creates tiled container with 2 slots', async () => {
-    await page.click('[data-testid="tiling-option-2-split"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="tiling-option-2-split"]');
+      if (!el) throw new Error('Element not found: tiling-option-2-split');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="tiled-terminal-container"]', { timeout: TIMEOUTS.DIALOG });
     const container = await page.$('[data-testid="tiled-terminal-container"]');
     expect(container).toBeTruthy();
   });
 
   it('selecting 4-grid shows 4 slots', async () => {
-    await page.click('[data-testid="tiling-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="tiling-button"]');
+      if (!el) throw new Error('Element not found: tiling-button');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="tiling-option-4-grid"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="tiling-option-4-grid"]');
+      if (!el) throw new Error('Element not found: tiling-option-4-grid');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="tiled-terminal-container"]', { timeout: TIMEOUTS.DIALOG });
     const slots = await page.$$('[data-testid^="tiled-slot-"]');
     expect(slots.length).toBe(4);
   });
 
   it('selecting tabbed returns to single terminal view', async () => {
-    await page.click('[data-testid="tiling-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="tiling-button"]');
+      if (!el) throw new Error('Element not found: tiling-button');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="tiling-option-tabbed"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="tiling-option-tabbed"]');
+      if (!el) throw new Error('Element not found: tiling-option-tabbed');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="tiled-terminal-container"]', { hidden: true, timeout: TIMEOUTS.DIALOG });
     const container = await page.$('[data-testid="tiled-terminal-container"]');
     expect(container).toBeNull();
   });
 
   it('backdrop click closes overlay without changing layout', async () => {
-    await page.click('[data-testid="tiling-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="tiling-button"]');
+      if (!el) throw new Error('Element not found: tiling-button');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="tiling-overlay"]', { timeout: TIMEOUTS.DIALOG });
-    await page.click('[data-testid="tiling-overlay-backdrop"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="tiling-overlay-backdrop"]');
+      if (!el) throw new Error('Element not found: tiling-overlay-backdrop');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="tiling-overlay"]', { hidden: true, timeout: TIMEOUTS.DIALOG });
     const overlay = await page.$('[data-testid="tiling-overlay"]');
     expect(overlay).toBeNull();

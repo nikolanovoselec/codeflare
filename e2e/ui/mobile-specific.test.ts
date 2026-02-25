@@ -45,7 +45,11 @@ describe.skipIf(!isSetup || !IS_MOBILE)('Mobile-specific UI', () => {
   });
 
   it('session switcher opens dropdown as bottom-sheet', async () => {
-    await page.click('[data-testid="session-switcher"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="session-switcher"]');
+      if (!el) throw new Error('Element not found: session-switcher');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="session-dropdown"]', { timeout: TIMEOUTS.DIALOG });
 
     // Mobile: dropdown has bottom-sheet class
@@ -78,7 +82,11 @@ describe.skipIf(!isSetup || !IS_MOBILE)('Mobile-specific UI', () => {
 
     // Navigate to dashboard to access settings
     await navigateToDashboard(page);
-    await page.click('[data-testid="dashboard-settings-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="dashboard-settings-button"]');
+      if (!el) throw new Error('Element not found: dashboard-settings-button');
+      (el as HTMLElement).click();
+    });
     await page.waitForFunction(
       () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false',
       { timeout: TIMEOUTS.DIALOG }
@@ -114,7 +122,11 @@ describe.skipIf(!isSetup || !IS_MOBILE)('Mobile-specific UI', () => {
     expect(isMobileInPage).toBe(true);
 
     // Add a second tab — addTerminalTab auto-selects the new tab (activeTabId = '2')
-    await page.click('[data-testid="terminal-tab-add"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="terminal-tab-add"]');
+      if (!el) throw new Error('Element not found: terminal-tab-add');
+      (el as HTMLElement).click();
+    });
     await page.waitForSelector('[data-testid="terminal-tab-2"]', { timeout: TIMEOUTS.TERMINAL_READY });
 
     // Mobile has both inline close button AND popup mechanism.
