@@ -7,60 +7,6 @@ const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID!;
 const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
 const SERVICE_AUTH_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
 
-/**
- * Exchange CF Access service token headers for a CF_Authorization cookie JWT.
- *
- * CF Access returns a Set-Cookie: CF_Authorization=<JWT> on the initial request
- * when valid service token headers are present. We use `redirect: 'manual'` to
- * capture the 302 response (which carries the Set-Cookie) before any redirect.
- *
- * Returns the JWT string, or null if the cookie was not returned (e.g. local dev
- * without CF Access in front).
- */
-async function getCfAccessCookie(baseUrl: string): Promise<string | null> {
-  const clientId = process.env.CF_ACCESS_CLIENT_ID;
-  const clientSecret = process.env.CF_ACCESS_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    console.warn('[E2E] CF_ACCESS_CLIENT_ID/SECRET not set — skipping cookie exchange');
-    return null;
-  }
-
-  try {
-    const res = await fetch(baseUrl, {
-      redirect: 'manual',
-      headers: {
-        'CF-Access-Client-Id': clientId,
-        'CF-Access-Client-Secret': clientSecret,
-      },
-    });
-
-    const setCookie = res.headers.get('set-cookie') ?? res.headers.get('Set-Cookie');
-    if (!setCookie) {
-      console.warn('[E2E] No Set-Cookie header in CF Access response — cookie exchange skipped');
-      return null;
-    }
-
-    // Set-Cookie may contain multiple cookies separated by commas (or multiple headers).
-    // Look for CF_Authorization=<value> in the header.
-    const match = setCookie.match(/CF_Authorization=([^;]+)/);
-    if (!match) {
-      console.warn('[E2E] CF_Authorization cookie not found in Set-Cookie header — cookie exchange skipped');
-      return null;
-    }
-
-    console.log('[E2E] Successfully exchanged service token for CF_Authorization cookie');
-    return match[1];
-  } catch (err) {
-    console.warn('[E2E] CF Access cookie exchange failed:', err);
-    return null;
-  }
-}
-
-/** Extract hostname from a URL string (e.g. 'https://codeflare.novoselec.ch' -> 'codeflare.novoselec.ch'). */
-function extractDomain(url: string): string {
-  return new URL(url).hostname;
-}
-
 /** Extract origin from BASE_URL for request interception scope check. */
 const BASE_ORIGIN = new URL(BASE_URL).origin;
 
@@ -83,27 +29,9 @@ export async function createPage(browser: Browser): Promise<Page> {
     'X-Service-Auth': SERVICE_AUTH_SECRET,
   });
 
-  // Exchange service token for CF_Authorization cookie so that page.goto()
-  // navigations pass through CF Access without being intercepted by the login page.
-  // CF Access evaluates Service Auth policies first, so the cookie carries
-  // the service auth identity for subsequent browser requests.
-  const cfJwt = await getCfAccessCookie(BASE_URL);
-  if (cfJwt) {
-    const domain = extractDomain(BASE_URL);
-    await page.setCookie({
-      name: 'CF_Authorization',
-      value: cfJwt,
-      domain,
-      path: '/',
-      httpOnly: true,
-      secure: true,
-    });
-  }
-
   // Request interception: inject CF Access service token headers on EVERY request,
-  // including redirect targets. This is the belt-and-suspenders approach —
-  // setExtraHTTPHeaders may not survive CF Access 302 redirects, but request
-  // interception catches each request individually before it's sent.
+  // including redirect targets. setExtraHTTPHeaders may not survive CF Access 302
+  // redirects, but request interception catches each request individually.
   await page.setRequestInterception(true);
   page.on('request', (request: HTTPRequest) => {
     const url = request.url();
