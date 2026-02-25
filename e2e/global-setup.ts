@@ -1,31 +1,28 @@
 import { apiRequest } from './setup';
 
-export async function setup() {
-  // Clean all sessions before test run
-  const res = await apiRequest('/api/sessions');
-  if (res.ok) {
-    const sessions = await res.json();
-    if (Array.isArray(sessions)) {
-      await Promise.all(
-        sessions.map((s: { id: string }) =>
-          apiRequest(`/api/sessions/${s.id}`, { method: 'DELETE' })
-        )
-      );
+async function deleteAllSessions() {
+  try {
+    const res = await apiRequest('/api/sessions');
+    if (res.ok) {
+      const sessions = await res.json();
+      if (Array.isArray(sessions)) {
+        await Promise.all(
+          sessions.map((s: { id: string }) =>
+            apiRequest(`/api/sessions/${s.id}`, { method: 'DELETE' }).catch(() => {})
+          )
+        );
+      }
     }
+  } catch {
+    // Cleanup is best-effort — don't fail the test run
+    console.warn('E2E global setup: failed to clean sessions (non-fatal)');
   }
 }
 
+export async function setup() {
+  await deleteAllSessions();
+}
+
 export async function teardown() {
-  // Clean all sessions after test run
-  const res = await apiRequest('/api/sessions');
-  if (res.ok) {
-    const sessions = await res.json();
-    if (Array.isArray(sessions)) {
-      await Promise.all(
-        sessions.map((s: { id: string }) =>
-          apiRequest(`/api/sessions/${s.id}`, { method: 'DELETE' })
-        )
-      );
-    }
-  }
+  await deleteAllSessions();
 }

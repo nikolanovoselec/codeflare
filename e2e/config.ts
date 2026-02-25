@@ -11,7 +11,9 @@ function getBaseUrl(): string {
       'Usage: E2E_BASE_URL=https://your-app.example.com npm run test:e2e'
     );
   }
-  return baseUrl.replace(/\/+$/, '');
+  // Auto-prepend https:// if no protocol specified
+  const url = /^https?:\/\//i.test(baseUrl) ? baseUrl : `https://${baseUrl}`;
+  return url.replace(/\/+$/, '');
 }
 
 export const BASE_URL = getBaseUrl();
