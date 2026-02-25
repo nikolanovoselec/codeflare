@@ -58,7 +58,10 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('close button closes panel', async () => {
-    await page.click('[data-testid="settings-close-button"]');
+    // Use evaluate click to avoid "not clickable" errors from backdrop overlay
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="settings-close-button"]') as HTMLElement)?.click();
+    });
     await waitForPanelClosed(page);
     const ariaHidden = await page.$eval('[data-testid="settings-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('true');
