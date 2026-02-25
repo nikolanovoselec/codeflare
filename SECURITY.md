@@ -1,27 +1,15 @@
 # Security Policy
 
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| latest  | :white_check_mark: |
+
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Codeflare, please report it through
-[GitHub Security Advisories](https://github.com/nikolanovoselec/codeflare/security/advisories/new).
+If you discover a security vulnerability, please report it responsibly via GitHub's private vulnerability reporting feature on this repository.
 
 **Do not open a public issue for security vulnerabilities.**
 
-## Response Timeline
-
-- **Acknowledgment**: within 72 hours of report submission
-- **Fix target**: within 30 days of confirmed vulnerability
-
-## Scope
-
-This policy covers the Codeflare application, including:
-
-- Cloudflare Worker backend (`src/`)
-- Container runtime (`host/`, `Dockerfile`, `entrypoint.sh`)
-- Frontend application (`web-ui/`)
-- CI/CD workflows (`.github/workflows/`)
-- Configuration and deployment scripts
-
-## Supported Versions
-
-Only the latest release on the `main` branch is supported with security updates.
+You can expect an initial response within 72 hours. We will work with you to understand the issue and coordinate a fix before any public disclosure.
