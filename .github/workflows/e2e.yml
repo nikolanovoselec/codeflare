@@ -120,23 +120,61 @@ jobs:
             exit 1
           fi
 
-  e2e:
+  e2e-api:
     needs: setup
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     environment: integration
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [api, ui-desktop, ui-mobile]
     env:
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
-      E2E_SUITE: ${{ matrix.suite }}
-      E2E_MOBILE: ${{ matrix.suite == 'ui-mobile' && '1' || '' }}
+      E2E_SUITE: api
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+
+      - name: Cache root node_modules
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        id: cache-root
+        with:
+          path: node_modules
+          key: root-${{ hashFiles('package-lock.json') }}
+
+      - name: Install root dependencies
+        if: steps.cache-root.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run E2E API tests
+        run: npm run test:e2e:api
+
+      - name: Upload E2E artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-api
+          path: |
+            /tmp/e2e-*.png
+            /tmp/e2e-*.html
+          retention-days: 5
+
+  e2e-ui-desktop:
+    needs: [setup, e2e-api]
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: integration
+    timeout-minutes: 15
+    env:
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
+      E2E_SUITE: ui-desktop
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -168,7 +206,6 @@ jobs:
         working-directory: web-ui
 
       - name: Install Chrome and system dependencies
-        if: matrix.suite != 'api'
         run: |
           # Install Chrome via Puppeteer
           npx puppeteer browsers install chrome
@@ -181,14 +218,83 @@ jobs:
             libxfixes3 libx11-xcb1 libxext6 libxi6 libxtst6 libxcursor1 \
             fonts-liberation
 
-      - name: Run E2E tests (${{ matrix.suite }})
-        run: npm run test:e2e:${{ matrix.suite }}
+      - name: Run E2E UI Desktop tests
+        run: npm run test:e2e:ui-desktop
 
       - name: Upload E2E artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-artifacts-${{ matrix.suite }}
+          name: e2e-artifacts-ui-desktop
+          path: |
+            /tmp/e2e-*.png
+            /tmp/e2e-*.html
+          retention-days: 5
+
+  e2e-ui-mobile:
+    needs: [setup, e2e-ui-desktop]
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: integration
+    timeout-minutes: 15
+    env:
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
+      E2E_SUITE: ui-mobile
+      E2E_MOBILE: '1'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+
+      - name: Cache root node_modules
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        id: cache-root
+        with:
+          path: node_modules
+          key: root-${{ hashFiles('package-lock.json') }}
+
+      - name: Cache web-ui node_modules
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        id: cache-webui
+        with:
+          path: web-ui/node_modules
+          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
+
+      - name: Install root dependencies
+        if: steps.cache-root.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Install web-ui dependencies
+        if: steps.cache-webui.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: web-ui
+
+      - name: Install Chrome and system dependencies
+        run: |
+          # Install Chrome via Puppeteer
+          npx puppeteer browsers install chrome
+          # Install all required shared libraries for headless Chrome
+          sudo apt-get update -qq
+          sudo apt-get install -yqq --no-install-recommends \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+            libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 \
+            libgbm1 libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
+            libxfixes3 libx11-xcb1 libxext6 libxi6 libxtst6 libxcursor1 \
+            fonts-liberation
+
+      - name: Run E2E UI Mobile tests
+        run: npm run test:e2e:ui-mobile
+
+      - name: Upload E2E artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-ui-mobile
           path: |
             /tmp/e2e-*.png
             /tmp/e2e-*.html

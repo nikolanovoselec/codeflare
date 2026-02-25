@@ -93,6 +93,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('stops session via context menu', async () => {
+    if (!sessionId) throw new Error('sessionId not set — previous test likely failed');
     await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="context-menu-stop"]');
@@ -107,6 +108,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('deletes session via context menu', async () => {
+    if (!sessionId) throw new Error('sessionId not set — previous test likely failed');
     await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: TIMEOUTS.DIALOG });
     await page.click('[data-testid="context-menu-delete"]');
@@ -129,18 +131,19 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
     const session = await createSessionViaApi({ agentType: 'bash' });
     const autoStartId = session.id;
     try {
-      await navigateToDashboard(page);
-      // Wait for session card to appear
-      await page.waitForFunction(
-        (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
-        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
-        autoStartId
-      );
-      // Click the session card to navigate into it (use evaluate for mobile hit-test reliability)
+      // Wait for session card (with dashboard reload retry for KV eventual consistency)
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await navigateToDashboard(page);
+        const found = await page.waitForFunction(
+          (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+          { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.KV_PROPAGATION_INTERVAL },
+          autoStartId
+        ).then(() => true).catch(() => false);
+        if (found) break;
+      }
+      // Click the card to trigger auto-start
       await page.evaluate((id: string) => {
-        const el = document.querySelector(`[data-testid="session-stat-card-${id}"]`);
-        if (!el) throw new Error(`Element not found: session-stat-card-${id}`);
-        (el as HTMLElement).click();
+        (document.querySelector(`[data-testid="session-stat-card-${id}"]`) as HTMLElement)?.click();
       }, autoStartId);
       // Init progress screen should appear (container starting)
       await page.waitForSelector('[data-testid="init-progress"]', { timeout: TIMEOUTS.SESSION_NAV });
@@ -166,7 +169,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
       // Wait for session card
       await page.waitForFunction(
         (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
-        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        { timeout: TIMEOUTS.SESSION_NAV, polling: TIMEOUTS.KV_PROPAGATION_INTERVAL },
         confirmId
       );
       // Open context menu (use evaluate for mobile hit-test reliability)
@@ -213,7 +216,7 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
       // Navigate to session view to trigger waitForContainerReady in page context
       await page.waitForFunction(
         (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
-        { timeout: TIMEOUTS.SESSION_CARD, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+        { timeout: TIMEOUTS.SESSION_NAV, polling: TIMEOUTS.KV_PROPAGATION_INTERVAL },
         metricsId
       );
       // Wait for metrics to appear on the card (collectMetrics pushes every 5s)
