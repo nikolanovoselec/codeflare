@@ -39,12 +39,13 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
     await page.click('[data-testid="init-progress-open-btn"]');
     // Now terminal view loads with header
     await page.waitForSelector('[data-testid="header-logo"]', { timeout: 30000 });
-    // Extract session ID from URL
+    // Extract session ID from URL (hash or query params)
     const url = page.url();
-    const match = url.match(/[?&]session=([a-z0-9]+)/i) || url.match(/\/session\/([a-z0-9]+)/i);
+    const match = url.match(/[?&#]session=([a-z0-9]+)/i) || url.match(/\/session\/([a-z0-9]+)/i);
     if (match) {
       sessionId = match[1];
     }
+    // If URL didn't contain session ID, we'll extract it from the dashboard card later
     expect(sessionId || url).toBeTruthy();
   });
 
@@ -65,6 +66,16 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
     );
     const cards = await page.$$('[data-testid^="session-stat-card-"]');
     expect(cards.length).toBeGreaterThan(0);
+    // If sessionId wasn't captured from URL, extract from the card's data-testid
+    if (!sessionId) {
+      const testId = await cards[0].evaluate(el => el.getAttribute('data-testid'));
+      // data-testid="session-stat-card-{id}" -> extract id
+      const cardMatch = testId?.match(/^session-stat-card-(.+)$/);
+      if (cardMatch) {
+        sessionId = cardMatch[1];
+      }
+    }
+    expect(sessionId).toBeTruthy();
   });
 
   it('session card shows metrics', async () => {

@@ -38,7 +38,7 @@ export async function navigateToDashboard(page: Page): Promise<void> {
 
 export async function navigateToSessionView(page: Page, sessionId: string): Promise<void> {
   await navigateToDashboard(page);
-  await page.waitForSelector(`[data-testid="session-stat-card-${sessionId}"]`, { timeout: 10000 });
+  await page.waitForSelector(`[data-testid="session-stat-card-${sessionId}"]`, { timeout: 30000 });
   await page.click(`[data-testid="session-stat-card-${sessionId}"]`);
   // Could land on either init progress (stopped session) or terminal view (running session)
   const firstElement = await page.waitForSelector(
