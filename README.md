@@ -174,7 +174,7 @@ All optional. The defaults work out of the box. I respect your time.
 | Backend | ~758 (63 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
 | Frontend | ~1,280 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
 | E2E API | ~47 (10 files) | Vitest + plain fetch |
-| E2E UI | ~157 (8 files, desktop + mobile) | Vitest + Puppeteer |
+| E2E UI | ~73 (10 files, run as desktop + mobile) | Vitest + Puppeteer |
 
 ```bash
 npm test                           # Backend tests
@@ -197,7 +197,6 @@ Six GitHub Actions workflows:
 | `e2e.yml` | Manual | E2E matrix: API, UI desktop, UI mobile |
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
 | `scorecard.yml` | Push to `main`, weekly | OSSF Scorecard |
-| `socket.yml` | Pull requests | Socket.dev supply chain analysis |
 
 See `TECHNICAL.md` Section 15 for full CI/CD documentation.
 
@@ -208,8 +207,9 @@ See `TECHNICAL.md` Section 15 for full CI/CD documentation.
 - Security headers: HSTS, CSP, X-Frame-Options, Referrer-Policy on every response
 - Rate limiting: KV-backed, per-user
 - Input validation: Zod schemas, 64 KiB body limit
-- Supply chain: CodeQL, OSSF Scorecard, Socket.dev, `npm audit`, dependency review
-- See [SECURITY.md](SECURITY.md) for vulnerability reporting and security architecture
+- Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning
+- GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph
+- See [SECURITY.md](SECURITY.md) for full security architecture
 
 ## Docs
 

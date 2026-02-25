@@ -829,7 +829,7 @@ codeflare/
 │   │                         # xml-utils
 │   ├── container/index.ts    # Container DO class
 │   └── __tests__/            # Backend unit tests (63 files)
-├── e2e/                      # E2E tests: 7 API files (26 tests) + 8 UI files (~65 tests, Puppeteer)
+├── e2e/                      # E2E tests: 11 API files (~47 tests) + 10 UI files (~73 tests, Puppeteer)
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
@@ -959,7 +959,7 @@ Base image: Node.js 22 Alpine.
 
 ## 15. CI/CD (GitHub Actions)
 
-Six workflows covering deploy, testing, and supply chain security:
+Five workflows covering deploy, testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
@@ -968,7 +968,6 @@ Six workflows covering deploy, testing, and supply chain security:
 | `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker — matrix strategy: `api`, `ui-desktop`, `ui-mobile` on `ubuntu-latest` |
 | `codeql.yml` | Push to `main`/`develop`, PRs to `main`/`develop`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
-| `socket.yml` | Pull requests to `main` | Socket.dev supply chain analysis — detects malicious or risky dependency changes |
 
 ### GitHub Environments
 
@@ -988,7 +987,6 @@ Six workflows covering deploy, testing, and supply chain security:
 | `RESEND_API_KEY` | Only if `ONBOARDING_LANDING_PAGE=active` | `deploy.yml` |
 | `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` |
 | `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` |
-| `SOCKET_SECURITY_API_KEY` | For Socket.dev | `socket.yml` |
 
 **Variables:**
 
@@ -1052,11 +1050,11 @@ Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/`
 
 ### 16.4 E2E API Tests
 
-**Dir:** `e2e/api/` — 10 test files, ~44 tests (expanding to ~48).
+**Dir:** `e2e/api/` — 11 test files, ~47 tests.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 
-Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `error-responses`.
+Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `error-responses`, `rate-limiting`.
 
 ### 16.5 E2E UI Tests
 

@@ -80,11 +80,26 @@ Multiple layers of automated supply chain analysis:
 |------|----------|---------------|
 | **CodeQL** | `codeql.yml` | Static analysis for JS/TS vulnerabilities (XSS, injection, data flow issues). Runs on push, PRs, and weekly. |
 | **OSSF Scorecard** | `scorecard.yml` | Repository security posture: branch protection, dependency pinning, CI best practices. Runs on push to main and weekly. |
-| **Socket.dev** | `socket.yml` | Supply chain analysis on PRs — detects malicious packages, typosquatting, install scripts, and risky dependency changes. |
 | **Dependency Review** | `test.yml` | `actions/dependency-review-action` blocks PRs that introduce dependencies with known vulnerabilities. |
 | **npm audit** | `test.yml` | `npm audit --audit-level=high` for both backend and frontend. Fails on HIGH+ severity advisories. |
 | **Trivy** | `deploy.yml` | Container image vulnerability scanning (HIGH/CRITICAL severity). Blocks deploy on findings. Uses `.trivyignore` for accepted risks. |
-| **Dependabot** | `.github/dependabot.yml` | Automated dependency update PRs. |
+| **Dependabot** | `.github/dependabot.yml` | Automated dependency update PRs for npm (backend, frontend, host), Docker, and GitHub Actions. |
+
+### GitHub Security Features
+
+Enabled at the repository level (Settings > Code security and analysis):
+
+| Feature | Status | What it does |
+|---------|--------|-------------|
+| **Private vulnerability reporting** | Enabled | Community can report security issues privately to maintainers. |
+| **Dependency graph** | Enabled | Maps all dependencies for vulnerability tracking. |
+| **Dependabot alerts** | Enabled | Notifies of vulnerable dependencies with remediation advice. |
+| **Dependabot security updates** | Enabled | Automatically opens PRs to patch vulnerable dependencies. |
+| **Grouped security updates** | Enabled | Batches Dependabot fix PRs into one per package manager. |
+| **Secret scanning** | Enabled | Detects accidentally committed secrets (API keys, tokens, credentials). |
+| **Push protection** | Enabled | Blocks pushes that contain detected secrets before they reach the repository. |
+| **CodeQL (Advanced setup)** | Enabled | Static analysis with Copilot Autofix for suggested remediation. |
+| **Check runs threshold** | Security: High+, Standard: Errors only | Blocks merges on high-severity security findings. |
 
 ### CORS Policy
 
