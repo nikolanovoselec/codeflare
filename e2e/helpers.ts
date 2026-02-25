@@ -37,42 +37,44 @@ export async function navigateToDashboard(page: Page): Promise<void> {
 }
 
 export async function navigateToSessionView(page: Page, sessionId: string): Promise<void> {
-  // Verify session exists via API before navigating
-  const verifyRes = await apiRequest('/api/sessions');
-  if (verifyRes.ok) {
-    const data = await verifyRes.json();
-    const ids = (data.sessions || []).map((s: { id: string }) => s.id);
-    const found = ids.includes(sessionId);
-    console.log(`[E2E] navigateToSessionView: API has ${ids.length} sessions. Target ${sessionId} ${found ? 'FOUND' : 'NOT FOUND'}. IDs: ${JSON.stringify(ids)}`);
-    if (!found) {
-      throw new Error(`[E2E] navigateToSessionView: session ${sessionId} does not exist in API response`);
+  // Verify session exists via direct GET (avoids KV list eventual consistency).
+  // Retry up to 10 times with 2s intervals (~20s total) to handle KV propagation delay.
+  let verified = false;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const res = await apiRequest(`/api/sessions/${sessionId}`);
+    if (res.ok) {
+      verified = true;
+      console.log(`[E2E] navigateToSessionView: session ${sessionId} verified on attempt ${attempt + 1}`);
+      break;
     }
+    console.log(`[E2E] navigateToSessionView: session ${sessionId} not found (attempt ${attempt + 1}/10, status ${res.status})`);
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  if (!verified) {
+    throw new Error(`[E2E] navigateToSessionView: session ${sessionId} not found after 10 retries (KV propagation timeout)`);
   }
 
-  await navigateToDashboard(page);
-
-  // Wait for any session cards to render (SolidJS loads sessions async)
-  const hasCards = await page.waitForFunction(
-    () => document.querySelectorAll('[data-testid^="session-stat-card-"]').length > 0,
-    { timeout: 15000 }
-  ).then(() => true).catch(() => false);
-
-  if (!hasCards) {
-    // No cards at all — dump page state for debugging
-    const pageUrl = page.url();
-    const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '');
-    throw new Error(`[E2E] navigateToSessionView: no session cards rendered after 15s. URL: ${pageUrl}. Body: ${bodyText}`);
-  }
-
-  // Check if our specific card exists
+  // Navigate to dashboard and wait for our specific session card.
+  // Dashboard polls sessions every 5s, so card should appear within a few polls.
+  // Retry with page reload if card doesn't appear (handles KV list eventual consistency).
   const cardSelector = `[data-testid="session-stat-card-${sessionId}"]`;
-  const specificCard = await page.$(cardSelector);
-  if (!specificCard) {
+  let cardFound = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await navigateToDashboard(page);
+    cardFound = await page.waitForFunction(
+      (sel: string) => !!document.querySelector(sel),
+      { timeout: 20000, polling: 1000 },
+      cardSelector
+    ).then(() => true).catch(() => false);
+    if (cardFound) break;
+    console.log(`[E2E] navigateToSessionView: card for ${sessionId} not found on dashboard (attempt ${attempt + 1}/3), reloading...`);
+  }
+  if (!cardFound) {
     const allCards = await page.evaluate(() => {
       const cards = document.querySelectorAll('[data-testid^="session-stat-card-"]');
       return Array.from(cards).map(c => c.getAttribute('data-testid'));
     });
-    throw new Error(`[E2E] navigateToSessionView: card for ${sessionId} not found. Cards on page: ${JSON.stringify(allCards)}`);
+    throw new Error(`[E2E] navigateToSessionView: card for ${sessionId} not found after 3 page loads. Cards on page: ${JSON.stringify(allCards)}`);
   }
 
   await page.click(cardSelector);

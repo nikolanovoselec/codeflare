@@ -84,13 +84,24 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('shows accent color controls', async () => {
+    // Ensure panel is fully closed before reopening (wait for close transition to complete)
+    await page.waitForFunction(
+      () => {
+        const panel = document.querySelector('[data-testid="settings-panel"]');
+        if (!panel) return true;
+        // Panel must not have 'open' class AND transform must be at translateX(100%)
+        return !panel.classList.contains('open') &&
+          getComputedStyle(panel).transform !== 'none' &&
+          getComputedStyle(panel).transform !== 'matrix(1, 0, 0, 1, 0, 0)';
+      },
+      { timeout: 5000 }
+    );
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
     await page.waitForFunction(
       () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
-      { timeout: 5000 }
+      { timeout: 10000 }
     );
-    await waitForPanelTransition(page);
     const swatch = await page.$('[data-testid="accent-color-swatch"]');
     const input = await page.$('[data-testid="accent-color-input"]');
     const reset = await page.$('[data-testid="accent-color-reset"]');
