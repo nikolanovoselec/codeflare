@@ -151,10 +151,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -yqq --no-install-recommends \
-            libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 \
-            libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+            libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
             libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
-            libcairo2 libasound2t64 libxshmfence1
+            libcairo2 libasound2 libxshmfence1
 
       - name: Install Puppeteer Chrome
         run: npx puppeteer browsers install chrome
