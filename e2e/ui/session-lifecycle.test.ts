@@ -32,7 +32,12 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
     await page.click('[data-testid="dashboard-new-session"]');
     await page.waitForSelector('[data-testid="create-session-dialog"]', { timeout: 5000 });
     await page.click('[data-testid="csd-agent-bash"]');
-    // Wait for navigation to session view
+    // Init progress screen replaces dashboard while container starts
+    await page.waitForSelector('[data-testid="init-progress"]', { timeout: 15000 });
+    // Wait for container to become ready and Open button to appear
+    await page.waitForSelector('[data-testid="init-progress-open-btn"]', { timeout: 90000 });
+    await page.click('[data-testid="init-progress-open-btn"]');
+    // Now terminal view loads with header
     await page.waitForSelector('[data-testid="header-logo"]', { timeout: 30000 });
     // Extract session ID from URL
     const url = page.url();
@@ -41,13 +46,6 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
       sessionId = match[1];
     }
     expect(sessionId || url).toBeTruthy();
-  });
-
-  it('shows init progress during container startup', async () => {
-    const _progress = await page.$('[data-testid="init-progress"]');
-    // Init progress may or may not be visible depending on timing
-    // If container is fast, it may already be ready
-    expect(true).toBe(true); // Non-blocking check
   });
 
   it('terminal becomes ready with tabs', async () => {
@@ -83,10 +81,8 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('stops session via context menu', async () => {
-    // Open context menu via the three-dots menu trigger button (not right-click)
-    const menuBtn = await page.$('[data-testid^="session-stat-card-"] .session-stat-card__menu-trigger');
-    expect(menuBtn).toBeTruthy();
-    await menuBtn!.click();
+    // Click the three-dot menu trigger (not right-click -- no contextmenu handler on card)
+    await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: 5000 });
     await page.click('[data-testid="context-menu-stop"]');
     // Wait for status to change — dot loses --success variant when stopped
@@ -100,10 +96,8 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   });
 
   it('deletes session via context menu', async () => {
-    // Open context menu via the three-dots menu trigger button
-    const menuBtn = await page.$('[data-testid^="session-stat-card-"] .session-stat-card__menu-trigger');
-    expect(menuBtn).toBeTruthy();
-    await menuBtn!.click();
+    // Click the three-dot menu trigger (not right-click -- no contextmenu handler on card)
+    await page.click(`[data-testid="session-stat-card-${sessionId}-menu"]`);
     await page.waitForSelector('[data-testid="session-context-menu"]', { timeout: 5000 });
     await page.click('[data-testid="context-menu-delete"]');
     await page.waitForSelector('[data-testid="context-menu-delete-confirm"]', { timeout: 5000 });

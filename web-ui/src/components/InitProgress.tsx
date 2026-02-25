@@ -212,7 +212,7 @@ const InitProgressComponent: Component<InitProgressProps> = (props) => {
       {/* Open button and total time - shown when complete */}
       <Show when={isComplete()}>
         <div class="init-progress-actions">
-          <button type="button" class="init-progress-open-btn" onClick={props.onOpen}>
+          <button type="button" class="init-progress-open-btn" data-testid="init-progress-open-btn" onClick={props.onOpen}>
             <Icon path={mdiOpenInNew} size={18} />
             <span>Open</span>
           </button>

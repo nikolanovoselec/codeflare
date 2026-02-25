@@ -54,16 +54,13 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     expect(menu).toBeTruthy();
   });
 
-  it('shows Add New button when under max presets', async () => {
-    const addNew = await page.$('[data-testid="header-bookmark-add-new"]');
-    expect(addNew).toBeTruthy();
-  });
-
-  it('clicking Add New shows name input', async () => {
-    await page.click('[data-testid="header-bookmark-add-new"]');
-    await page.waitForSelector('[data-testid="header-bookmark-name-input"]', { timeout: 5000 });
+  it('empty state shows save form directly', async () => {
+    // When no bookmarks exist, the menu shows the create form (input + Save) directly
+    // The "Add New" button only appears when bookmarks already exist
     const input = await page.$('[data-testid="header-bookmark-name-input"]');
+    const save = await page.$('[data-testid="header-bookmark-save"]');
     expect(input).toBeTruthy();
+    expect(save).toBeTruthy();
   });
 
   it('typing name and saving creates bookmark', async () => {
@@ -97,12 +94,15 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     expect(testPreset.tabs).toBeDefined();
   });
 
-  it('clicking bookmark name applies preset', async () => {
-    // Close bookmarks menu first, then reopen
+  it('reopened menu shows bookmark list and Add New button', async () => {
+    // Close bookmarks menu, then reopen — now a bookmark exists
     await page.keyboard.press('Escape');
     await page.click('[data-testid="header-bookmarks-button"]');
     await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 5000 });
-    // Click the preset name to apply it
+    // With bookmarks present, "Add New" button should now be visible
+    const addNew = await page.$('[data-testid="header-bookmark-add-new"]');
+    expect(addNew).toBeTruthy();
+    // Bookmark item should use header-bookmark-item-* prefix
     await page.waitForFunction(
       () => {
         const items = document.querySelectorAll('[data-testid="header-bookmarks-menu"] [data-testid^="header-bookmark-item-"]');

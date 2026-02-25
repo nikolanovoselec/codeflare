@@ -40,7 +40,18 @@ export async function navigateToSessionView(page: Page, sessionId: string): Prom
   await navigateToDashboard(page);
   await page.waitForSelector(`[data-testid="session-stat-card-${sessionId}"]`, { timeout: 10000 });
   await page.click(`[data-testid="session-stat-card-${sessionId}"]`);
-  await page.waitForSelector('[data-testid="header-logo"]', { timeout: 30000 });
+  // Could land on either init progress (stopped session) or terminal view (running session)
+  const firstElement = await page.waitForSelector(
+    '[data-testid="init-progress-open-btn"], [data-testid="header-logo"]',
+    { timeout: 90000 }
+  );
+  if (firstElement) {
+    const testId = await page.evaluate(el => el?.getAttribute('data-testid'), firstElement);
+    if (testId === 'init-progress-open-btn') {
+      await firstElement.click();
+      await page.waitForSelector('[data-testid="header-logo"]', { timeout: 30000 });
+    }
+  }
 }
 
 export async function checkSetupComplete(): Promise<boolean> {

@@ -67,6 +67,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         <button
           type="button"
           class="session-stat-card__menu-trigger"
+          data-testid={`session-stat-card-${props.session.id}-menu`}
           title="Session actions"
           onClick={(e) => {
             e.stopPropagation();

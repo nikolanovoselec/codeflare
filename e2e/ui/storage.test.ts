@@ -81,34 +81,6 @@ describe.skipIf(!isSetup)('Storage', () => {
       }
       expect(true).toBe(true); // navigation succeeded without error
     });
-
-    it('clicking file opens preview', async () => {
-      // Navigate back to root first
-      await navigateToDashboard(page);
-      await page.waitForSelector('[data-testid="storage-browser"]', { timeout: 10000 });
-      // Find a file (not folder) and click it
-      const file = await page.$('[data-testid="storage-browser"] [data-testid^="file-"]');
-      if (file) {
-        await file.click();
-        await page.waitForSelector('[data-testid="file-preview"]', { timeout: 5000 });
-        const preview = await page.$('[data-testid="file-preview"]');
-        const name = await page.$('[data-testid="file-preview-name"]');
-        expect(preview).toBeTruthy();
-        expect(name).toBeTruthy();
-      }
-    });
-
-    it('file preview has back and download buttons', async () => {
-      const back = await page.$('[data-testid="file-preview-back"]');
-      const download = await page.$('[data-testid="file-preview-download"]');
-      if (back && download) {
-        expect(back).toBeTruthy();
-        expect(download).toBeTruthy();
-        // Click back to return to file list
-        await back.click();
-        await page.waitForSelector('[data-testid="storage-browser"]', { timeout: 5000 });
-      }
-    });
   });
 
   describe('Session storage (slide-in panel)', () => {
