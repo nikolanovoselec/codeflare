@@ -76,12 +76,10 @@ describe.skipIf(!isSetup)('Terminal tabs', () => {
       await page.click('[data-testid="terminal-tab-add"]');
       await page.waitForSelector(`[data-testid="terminal-tab-${i}"]`, { timeout: 10000 });
     }
-    // Check add button is disabled
+    // At max tabs, the add button is removed from the DOM entirely
+    // (SolidJS <Show when={canAddTab()}>) rather than being disabled.
+    await page.waitForSelector('[data-testid="terminal-tab-add"]', { hidden: true, timeout: 5000 });
     const addBtn = await page.$('[data-testid="terminal-tab-add"]');
-    const isDisabled = await page.evaluate(
-      (el) => el ? (el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true' : true,
-      addBtn
-    );
-    expect(isDisabled).toBe(true);
+    expect(addBtn).toBeNull();
   });
 });

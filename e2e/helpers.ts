@@ -21,6 +21,13 @@ export async function createPage(browser: Browser): Promise<Page> {
     'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
     'X-Service-Auth': SERVICE_AUTH_SECRET,
   });
+  // Disable CSS animations/transitions in CI to prevent "not clickable" failures
+  // from panel slide-in animations and other CSS transitions.
+  await page.evaluateOnNewDocument(() => {
+    const style = document.createElement('style');
+    style.innerHTML = '*, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }';
+    document.head.appendChild(style);
+  });
   return page;
 }
 
@@ -34,6 +41,20 @@ export async function navigateToDashboard(page: Page): Promise<void> {
     await page.screenshot({ path: `/tmp/e2e-navigate-fail-${Date.now()}.png`, fullPage: true });
     throw err;
   }
+}
+
+async function waitForSessionInBatchStatus(sessionId: string, maxRetries = 30, intervalMs = 2000): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    const res = await apiRequest('/api/sessions/batch-status');
+    if (res.ok) {
+      const data = await res.json();
+      const statuses = data.statuses || data.sessions || data;
+      if (Array.isArray(statuses) && statuses.some((s: any) => s.id === sessionId)) return;
+      if (typeof statuses === 'object' && !Array.isArray(statuses) && sessionId in statuses) return;
+    }
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  throw new Error(`Session ${sessionId} never appeared in batch-status after ${maxRetries * intervalMs / 1000}s`);
 }
 
 export async function navigateToSessionView(page: Page, sessionId: string): Promise<void> {
@@ -53,6 +74,13 @@ export async function navigateToSessionView(page: Page, sessionId: string): Prom
   if (!verified) {
     throw new Error(`[E2E] navigateToSessionView: session ${sessionId} not found after 10 retries (KV propagation timeout)`);
   }
+
+  // Wait for session to appear in batch-status (the source the dashboard actually uses).
+  // This prevents the race where the session exists in KV but hasn't propagated to
+  // the batch-status endpoint that renders dashboard session cards.
+  console.log(`[E2E] navigateToSessionView: waiting for ${sessionId} in batch-status...`);
+  await waitForSessionInBatchStatus(sessionId);
+  console.log(`[E2E] navigateToSessionView: ${sessionId} found in batch-status`);
 
   // Navigate to dashboard and wait for our specific session card.
   // Dashboard polls sessions every 5s, so card should appear within a few polls.

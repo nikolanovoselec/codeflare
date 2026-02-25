@@ -166,3 +166,11 @@ jobs:
         env:
           E2E_BASE_URL: ${{ steps.target.outputs.base_url }}
         run: npm run test:e2e:ui
+
+      - name: Upload E2E artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: /tmp/e2e-*.png
+          retention-days: 5
