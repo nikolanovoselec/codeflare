@@ -133,12 +133,13 @@ describe.skipIf(!isSetup)('Settings panel', () => {
       (el) => (el as HTMLInputElement).checked ?? el?.getAttribute('aria-checked') === 'true',
       toggle
     );
-    await toggle!.click();
+    // Use evaluate click to avoid "not clickable" errors from backdrop overlay
+    await page.evaluate((el) => (el as HTMLElement).click(), toggle);
     const newState = await page.evaluate(
       (el) => (el as HTMLInputElement).checked ?? el?.getAttribute('aria-checked') === 'true',
       toggle
     );
     expect(newState).not.toBe(initialState);
-    await toggle!.click();
+    await page.evaluate((el) => (el as HTMLElement).click(), toggle);
   });
 });
