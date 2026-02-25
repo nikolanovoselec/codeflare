@@ -79,6 +79,10 @@ jobs:
             fi
           fi
 
+          # Wait for KV eventual consistency + worker secret propagation
+          echo "Waiting 15s for KV propagation and worker secret deployment..."
+          sleep 15
+
       - name: Smoke test — verify E2E target is reachable and auth works
         env:
           E2E_BASE_URL: ${{ steps.target.outputs.base_url }}
@@ -97,21 +101,34 @@ jobs:
             exit 1
           fi
 
-          echo "Testing: $BASE/api/sessions"
-          SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
-            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
-          echo "Sessions status: $SESSIONS"
-          cat /tmp/sessions.json 2>/dev/null; echo
+          # Retry sessions endpoint up to 4 times (KV eventual consistency ~60s)
+          echo "Testing: $BASE/api/sessions (with retries for KV propagation)"
+          for i in 1 2 3 4; do
+            SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
+            echo "Attempt $i: Sessions status: $SESSIONS"
+            cat /tmp/sessions.json 2>/dev/null; echo
 
-          if [ "$SESSIONS" = "302" ]; then
-            echo "::error::CF Access returned 302 redirect. The service token is not accepted by the CF Access application protecting $BASE."
-            exit 1
-          fi
+            if [ "$SESSIONS" = "200" ]; then
+              echo "Auth working!"
+              break
+            fi
+
+            if [ "$SESSIONS" = "302" ]; then
+              echo "::error::CF Access returned 302 redirect. The service token is not accepted by the CF Access application protecting $BASE."
+              exit 1
+            fi
+
+            if [ "$i" -lt 4 ]; then
+              echo "Waiting 15s before retry (KV propagation)..."
+              sleep 15
+            fi
+          done
 
           if [ "$SESSIONS" = "401" ] || [ "$SESSIONS" = "403" ]; then
-            echo "::error::Auth failed ($SESSIONS). SERVICE_AUTH_SECRET may not be set on the worker, or the secret doesn't match CF_ACCESS_CLIENT_SECRET."
+            echo "::error::Auth failed ($SESSIONS) after retries. Check SERVICE_AUTH_SECRET and KV user seeding."
             exit 1
           fi
 
