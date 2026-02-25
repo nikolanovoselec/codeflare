@@ -82,9 +82,14 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('shows accent color controls', async () => {
-    // Reopen panel
-    await page.click('[data-testid="dashboard-settings-button"]');
-    await waitForPanelOpen(page);
+    // Ensure panel is open — check current state first to handle toggle behavior
+    const isAlreadyOpen = await page.evaluate(
+      () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false'
+    );
+    if (!isAlreadyOpen) {
+      await page.click('[data-testid="dashboard-settings-button"]');
+      await waitForPanelOpen(page);
+    }
     const swatch = await page.$('[data-testid="accent-color-swatch"]');
     const input = await page.$('[data-testid="accent-color-input"]');
     const reset = await page.$('[data-testid="accent-color-reset"]');

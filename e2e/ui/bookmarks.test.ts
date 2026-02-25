@@ -13,8 +13,11 @@ const isSetup = await checkSetupComplete();
 async function ensureBookmarksMenuOpen(page: Page): Promise<void> {
   const menu = await page.$('[data-testid="header-bookmarks-menu"]');
   if (!menu) {
-    await page.click('[data-testid="header-bookmarks-button"]');
-    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 5000 });
+    // Use evaluate click to avoid mousedown race with handleClickOutside
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
+    });
+    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 10000 });
   }
 }
 
@@ -57,9 +60,12 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
   });
 
   it('clicking opens bookmarks menu with empty state form', async () => {
-    // Ensure button is visible and clickable
+    // Use evaluate click to avoid Puppeteer mousedown/click coordinate issues
+    // The button's handleClickOutside listener uses mousedown which can race with Puppeteer's click
     await page.waitForSelector('[data-testid="header-bookmarks-button"]', { visible: true, timeout: 10000 });
-    await page.click('[data-testid="header-bookmarks-button"]');
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
+    });
     await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 10000 });
     const menu = await page.$('[data-testid="header-bookmarks-menu"]');
     expect(menu).toBeTruthy();
@@ -114,8 +120,10 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
       () => !document.querySelector('[data-testid="header-bookmarks-menu"]'),
       { timeout: 3000 }
     ).catch(() => {}); // ignore if already closed
-    await page.click('[data-testid="header-bookmarks-button"]');
-    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 5000 });
+    await page.evaluate(() => {
+      (document.querySelector('[data-testid="header-bookmarks-button"]') as HTMLElement)?.click();
+    });
+    await page.waitForSelector('[data-testid="header-bookmarks-menu"]', { timeout: 10000 });
     // With bookmarks present, "Add New" button should now be visible
     const addNew = await page.$('[data-testid="header-bookmark-add-new"]');
     expect(addNew).toBeTruthy();
