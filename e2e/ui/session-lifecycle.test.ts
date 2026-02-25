@@ -165,13 +165,16 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
     const session = await createSessionViaApi({ agentType: 'bash' });
     const confirmId = session.id;
     try {
-      await navigateToDashboard(page);
-      // Wait for session card
-      await page.waitForFunction(
-        (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
-        { timeout: TIMEOUTS.SESSION_NAV, polling: TIMEOUTS.KV_PROPAGATION_INTERVAL },
-        confirmId
-      );
+      // Wait for session card (with dashboard reload retry for KV eventual consistency)
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await navigateToDashboard(page);
+        const found = await page.waitForFunction(
+          (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+          { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.KV_PROPAGATION_INTERVAL },
+          confirmId
+        ).then(() => true).catch(() => false);
+        if (found) break;
+      }
       // Open context menu (use evaluate for mobile hit-test reliability)
       await page.evaluate((id: string) => {
         const el = document.querySelector(`[data-testid="session-stat-card-${id}-menu"]`);
@@ -212,13 +215,16 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
     try {
       // Start container via API and wait for ready
       await startContainerViaApi(metricsId);
-      await navigateToDashboard(page);
-      // Navigate to session view to trigger waitForContainerReady in page context
-      await page.waitForFunction(
-        (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
-        { timeout: TIMEOUTS.SESSION_NAV, polling: TIMEOUTS.KV_PROPAGATION_INTERVAL },
-        metricsId
-      );
+      // Wait for session card (with dashboard reload retry for KV eventual consistency)
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await navigateToDashboard(page);
+        const found = await page.waitForFunction(
+          (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"]`),
+          { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.KV_PROPAGATION_INTERVAL },
+          metricsId
+        ).then(() => true).catch(() => false);
+        if (found) break;
+      }
       // Wait for metrics to appear on the card (collectMetrics pushes every 5s)
       await page.waitForFunction(
         (id: string) => {

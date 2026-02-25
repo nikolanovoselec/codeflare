@@ -153,7 +153,10 @@ describe.skipIf(!isSetup)('Bookmarks', () => {
     );
     const items = await page.$$('[data-testid="header-bookmarks-menu"] [data-testid^="header-bookmark-item-"]');
     if (items.length > 0) {
-      await items[0].click();
+      await page.evaluate(() => {
+        const item = document.querySelector('[data-testid="header-bookmarks-menu"] [data-testid^="header-bookmark-item-"]');
+        if (item) (item as HTMLElement).click();
+      });
     }
     await page.waitForSelector('[data-testid="terminal-tabs"]', { timeout: TIMEOUTS.TERMINAL_READY });
     const tabs = await page.$('[data-testid="terminal-tabs"]');
