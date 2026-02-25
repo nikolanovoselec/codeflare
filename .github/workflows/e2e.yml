@@ -94,10 +94,27 @@ jobs:
           echo "Health status: $HEALTH"
           cat /tmp/health.json 2>/dev/null; echo
 
+          echo "Testing: $BASE/api/user (diagnostic)"
+          USER_STATUS=$(curl -sS -o /tmp/user.json -w "%{http_code}" "$BASE/api/user" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
+          echo "User status: $USER_STATUS"
+          cat /tmp/user.json 2>/dev/null; echo
+
           if [ "$HEALTH" = "302" ]; then
             echo "::error::CF Access returned 302 redirect for /health. The service token is not accepted by the CF Access application protecting $BASE."
             exit 1
           fi
+
+          # Verbose single request to debug headers
+          echo "=== Verbose debug request ==="
+          curl -v -sS -o /tmp/debug.json "$BASE/api/sessions" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" 2>&1 | head -40
+          cat /tmp/debug.json 2>/dev/null; echo
+          echo "=== End debug ==="
 
           # Retry sessions endpoint up to 4 times (KV eventual consistency ~60s)
           echo "Testing: $BASE/api/sessions (with retries for KV propagation)"
