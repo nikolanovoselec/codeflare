@@ -94,12 +94,21 @@ describe.skipIf(!isSetup)('Header navigation', () => {
   });
 
   it('storage button opens storage panel', async () => {
-    await page.click('[data-testid="header-storage-button"]');
+    // Use evaluate click to bypass potential hit-test issues from settings panel backdrop transition
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="header-storage-button"]');
+      if (!el) throw new Error('Element not found: header-storage-button');
+      (el as HTMLElement).click();
+    });
     await waitForPanelOpen(page, 'storage-panel');
     const ariaHidden = await page.$eval('[data-testid="storage-panel"]', el => el.getAttribute('aria-hidden'));
     expect(ariaHidden).toBe('false');
     // Close it
-    await page.click('[data-testid="storage-panel-close-button"]');
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="storage-panel-close-button"]');
+      if (!el) throw new Error('Element not found: storage-panel-close-button');
+      (el as HTMLElement).click();
+    });
     await waitForPanelClosed(page, 'storage-panel');
   });
 

@@ -18,14 +18,23 @@ describe('Storage Operations API', () => {
   const testSubFolder = `e2e-subfolder-${Date.now()}`;
 
   beforeAll(async () => {
-    // Create session
-    const sessionRes = await apiRequest('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'E2E Storage Ops Test' }),
-    });
-    const sessionData = await sessionRes.json();
-    sessionId = sessionData.session.id;
+    // Create session (retry on 429 from parallel suites)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const sessionRes = await apiRequest('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'E2E Storage Ops Test' }),
+      });
+      if (sessionRes.status === 429) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 5000));
+        continue;
+      }
+      if (!sessionRes.ok) throw new Error(`Failed to create session: ${sessionRes.status}`);
+      const sessionData = await sessionRes.json();
+      sessionId = sessionData.session.id;
+      break;
+    }
+    if (!sessionId) throw new Error('Failed to create session after 3 retries (rate limited)');
 
     // Start container
     await apiRequest(`/api/container/start?sessionId=${sessionId}`, { method: 'POST' });
