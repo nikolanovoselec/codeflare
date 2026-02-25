@@ -13,7 +13,6 @@ permissions:
 
 jobs:
   test:
-    name: PR Checks
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
