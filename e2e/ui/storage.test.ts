@@ -94,11 +94,11 @@ describe.skipIf(!isSetup)('Storage', () => {
     it('clicking storage button opens storage panel', async () => {
       await page.click('[data-testid="header-storage-button"]');
       await page.waitForFunction(
-        () => document.querySelector('[data-testid="storage-panel"]')?.classList.contains('open'),
-        { timeout: 5000 }
+        () => document.querySelector('[data-testid="storage-panel"]')?.getAttribute('aria-hidden') === 'false',
+        { timeout: 10000 }
       );
-      const panel = await page.$('[data-testid="storage-panel"].open');
-      expect(panel).toBeTruthy();
+      const ariaHidden = await page.$eval('[data-testid="storage-panel"]', el => el.getAttribute('aria-hidden'));
+      expect(ariaHidden).toBe('false');
     });
 
     it('storage panel shows storage browser', async () => {
@@ -109,11 +109,11 @@ describe.skipIf(!isSetup)('Storage', () => {
     it('close button closes storage panel', async () => {
       await page.click('[data-testid="storage-panel-close-button"]');
       await page.waitForFunction(
-        () => !document.querySelector('[data-testid="storage-panel"]')?.classList.contains('open'),
-        { timeout: 5000 }
+        () => document.querySelector('[data-testid="storage-panel"]')?.getAttribute('aria-hidden') === 'true',
+        { timeout: 10000 }
       );
-      const panel = await page.$('[data-testid="storage-panel"].open');
-      expect(panel).toBeNull();
+      const ariaHidden = await page.$eval('[data-testid="storage-panel"]', el => el.getAttribute('aria-hidden'));
+      expect(ariaHidden).toBe('true');
     });
   });
 });

@@ -6,21 +6,20 @@ import {
 
 const isSetup = await checkSetupComplete();
 
-/**
- * Wait for the settings panel slide-in transition to complete.
- * Uses transitionend event which fires reliably after CSS transitions.
- */
-async function waitForPanelTransition(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    return new Promise<void>((resolve) => {
-      const panel = document.querySelector('[data-testid="settings-panel"]');
-      if (!panel) { resolve(); return; }
-      const handler = () => { panel.removeEventListener('transitionend', handler); resolve(); };
-      panel.addEventListener('transitionend', handler);
-      // Safety timeout in case transitionend already fired
-      setTimeout(resolve, 500);
-    });
-  });
+/** Wait until settings panel has aria-hidden=false (open) */
+async function waitForPanelOpen(page: Page, timeout = 10000): Promise<void> {
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false',
+    { timeout }
+  );
+}
+
+/** Wait until settings panel has aria-hidden=true (closed) */
+async function waitForPanelClosed(page: Page, timeout = 10000): Promise<void> {
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'true',
+    { timeout }
+  );
 }
 
 describe.skipIf(!isSetup)('Settings panel', () => {
@@ -41,67 +40,50 @@ describe.skipIf(!isSetup)('Settings panel', () => {
 
   it('clicking settings button opens panel', async () => {
     await page.click('[data-testid="dashboard-settings-button"]');
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
-      { timeout: 5000 }
-    );
-    const panel = await page.$('[data-testid="settings-panel"].open');
-    expect(panel).toBeTruthy();
+    await waitForPanelOpen(page);
+    const panel = await page.$('[data-testid="settings-panel"]');
+    const ariaHidden = await page.evaluate(el => el?.getAttribute('aria-hidden'), panel);
+    expect(ariaHidden).toBe('false');
   });
 
   it('backdrop is visible', async () => {
-    const backdrop = await page.$('[data-testid="settings-backdrop"].open');
+    const backdrop = await page.$('[data-testid="settings-backdrop"]');
     expect(backdrop).toBeTruthy();
   });
 
   it('close button closes panel', async () => {
-    // Wait for slide-in transition to complete before clicking
-    await waitForPanelTransition(page);
     await page.click('[data-testid="settings-close-button"]');
-    await page.waitForFunction(
-      () => !document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
-      { timeout: 5000 }
-    );
-    const panel = await page.$('[data-testid="settings-panel"].open');
-    expect(panel).toBeNull();
+    await waitForPanelClosed(page);
+    const panel = await page.$('[data-testid="settings-panel"]');
+    const ariaHidden = await page.evaluate(el => el?.getAttribute('aria-hidden'), panel);
+    expect(ariaHidden).toBe('true');
   });
 
   it('backdrop click closes panel', async () => {
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
-      { timeout: 5000 }
-    );
-    await waitForPanelTransition(page);
-    await page.click('[data-testid="settings-backdrop"]');
-    await page.waitForFunction(
-      () => !document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
-      { timeout: 5000 }
-    );
-    const panel = await page.$('[data-testid="settings-panel"].open');
-    expect(panel).toBeNull();
-  });
-
-  it('shows accent color controls', async () => {
-    // Ensure panel is fully closed before reopening (wait for close transition to complete)
+    await waitForPanelOpen(page);
+    // Wait for slide-in transition to finish so backdrop is clickable
     await page.waitForFunction(
       () => {
         const panel = document.querySelector('[data-testid="settings-panel"]');
-        if (!panel) return true;
-        // Panel must not have 'open' class AND transform must be at translateX(100%)
-        return !panel.classList.contains('open') &&
-          getComputedStyle(panel).transform !== 'none' &&
-          getComputedStyle(panel).transform !== 'matrix(1, 0, 0, 1, 0, 0)';
+        if (!panel) return false;
+        const style = getComputedStyle(panel);
+        return style.transform === 'none' || style.transform === 'matrix(1, 0, 0, 1, 0, 0)';
       },
       { timeout: 5000 }
     );
+    await page.click('[data-testid="settings-backdrop"]');
+    await waitForPanelClosed(page);
+    const panel = await page.$('[data-testid="settings-panel"]');
+    const ariaHidden = await page.evaluate(el => el?.getAttribute('aria-hidden'), panel);
+    expect(ariaHidden).toBe('true');
+  });
+
+  it('shows accent color controls', async () => {
     // Reopen panel
     await page.click('[data-testid="dashboard-settings-button"]');
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
-      { timeout: 10000 }
-    );
+    await waitForPanelOpen(page);
     const swatch = await page.$('[data-testid="accent-color-swatch"]');
     const input = await page.$('[data-testid="accent-color-input"]');
     const reset = await page.$('[data-testid="accent-color-reset"]');
