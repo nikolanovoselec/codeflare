@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../../types';
-import { ValidationError, SetupError, toError } from '../../lib/error-types';
+import { ValidationError, toError } from '../../lib/error-types';
 import { resetSetupCache } from '../../lib/cache-reset';
 import { listAllKvKeys, emailFromKvKey } from '../../lib/kv-keys';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
@@ -64,7 +64,7 @@ app.use('/prefill', async (c, next) => {
   return next();
 });
 
-// Register simple endpoint handlers (status, detect-token, reset-for-tests, restore-for-tests)
+// Register simple endpoint handlers (status, detect-token, prefill)
 app.route('/', handlers);
 
 /**
@@ -113,7 +113,7 @@ app.post('/configure', async (c) => {
     const steps: SetupStep[] = [];
     const lockKey = 'setup:configuring';
     let lockAcquired = false;
-    let overallSuccess = false;
+    let _overallSuccess = false;
 
     // Helper to run a named step with streaming progress
     const runStep = async <T>(stepName: string, fn: () => Promise<T>): Promise<T> => {
@@ -212,7 +212,7 @@ app.post('/configure', async (c) => {
       });
 
       resetSetupCache();
-      overallSuccess = true;
+      _overallSuccess = true;
 
       const url = new URL(c.req.url);
       const workersDevUrl = `https://${url.host}`;

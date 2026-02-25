@@ -9,14 +9,15 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "oxlint src/ --deny-warnings",
+    "lint:fix": "oxlint src/ --fix"
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
     "@solidjs/router": "^0.15.4",
     "@thisbeyond/solid-dnd": "^0.7.5",
     "@xterm/addon-fit": "^0.10.0",
-
     "@xterm/xterm": "^5.5.0",
     "solid-js": "^1.9.4",
     "zod": "^4.3.6"
@@ -25,6 +26,7 @@
     "@solidjs/testing-library": "^0.8.0",
     "@testing-library/jest-dom": "^6.0.0",
     "jsdom": "^24.0.0",
+    "oxlint": "^1.50.0",
     "typescript": "^5.7.0",
     "vite": "^6.1.0",
     "vite-plugin-solid": "^2.11.0",

@@ -299,7 +299,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
   // Refit on keyboard height change
   createEffect(() => {
-    const kbHeight = getKeyboardHeight();
+    const _kbHeight = getKeyboardHeight();
     if (!isTouchDevice()) return;
     if (!term || !fitAddon) return;
     if (!(props.active || props.alwaysObserveResize)) return;

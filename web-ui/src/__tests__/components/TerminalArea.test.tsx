@@ -31,7 +31,7 @@ vi.mock('../../components/InitProgress', () => ({
 }));
 
 vi.mock('../../components/Dashboard', () => ({
-  default: (props: any) => <div data-testid="dashboard" />
+  default: (_props: any) => <div data-testid="dashboard" />
 }));
 
 vi.mock('../../lib/session-utils', () => ({

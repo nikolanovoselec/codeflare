@@ -93,7 +93,7 @@ describe('Session Store - Tiling Functionality', () => {
 
     it('should maintain tab 1 in first position', () => {
       // Try to reorder with tab 1 not first - should be rejected or corrected
-      const result = sessionStore.reorderTerminalTabs(mockSessionId, ['2', '1', '3']);
+      sessionStore.reorderTerminalTabs(mockSessionId, ['2', '1', '3']);
 
       const terminals = sessionStore.getTerminalsForSession(mockSessionId);
       // Tab 1 should still be first

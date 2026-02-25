@@ -146,7 +146,7 @@ const Layout: Component<LayoutProps> = (props) => {
     sessionStore.dismissInitProgressForSession(sessionId);
   };
 
-  const handleReconnect = (sessionId: string, terminalId: string = '1') => {
+  const _handleReconnect = (sessionId: string, terminalId: string = '1') => {
     terminalStore.reconnect(sessionId, terminalId, setTerminalError);
   };
 

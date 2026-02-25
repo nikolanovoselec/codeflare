@@ -30,9 +30,12 @@ export type AuthVariables = {
  *   app.use('*', authMiddleware);
  */
 export async function authMiddleware(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {
-  const { user, bucketName } = await authenticateRequest(c.req.raw, c.env);
+  const { user, bucketName, authMethod } = await authenticateRequest(c.req.raw, c.env);
   c.set('user', user);
   c.set('bucketName', bucketName);
+  if (authMethod) {
+    c.header('X-Auth-Debug', authMethod);
+  }
   return next();
 }
 

@@ -1,6 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
 import * as storageApi from '../api/storage';
-import type { StoragePreviewResponse } from '../api/storage';
 import { shouldUseMultipart, splitIntoParts, fileToBase64 } from '../lib/file-upload';
 import { STORAGE_BROWSE_RETRY_DELAY_MS, UPLOAD_DISMISS_DELAY_MS } from '../lib/constants';
 import type { FileWithPath } from '../lib/file-upload';

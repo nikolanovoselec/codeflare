@@ -54,11 +54,11 @@ interface WebSocketRouteResult {
  * @param env - Environment bindings
  * @returns Routing result with validation status
  */
-export function validateWebSocketRoute(request: Request, env: Env): WebSocketRouteResult {
+export function validateWebSocketRoute(request: Request, _env: Env): WebSocketRouteResult {
   const url = new URL(request.url);
 
   // Check if this matches the WebSocket terminal route pattern
-  const wsMatch = url.pathname.match(/^\/api\/terminal\/([^\/]+)\/ws$/);
+  const wsMatch = url.pathname.match(/^\/api\/terminal\/([^/]+)\/ws$/);
   const upgradeHeader = request.headers.get('Upgrade');
 
   // Not a WebSocket terminal route
@@ -340,7 +340,7 @@ app.get('/:sessionId/status', async (c) => {
       ptyActive,
       wsUrl: `/api/terminal/${sessionId}/ws`,
     });
-  } catch (err) {
+  } catch (_err) {
     // Container not running
     return c.json({
       session,

@@ -28,7 +28,7 @@ const Terminal: Component<TerminalProps> = (props) => {
     initProgress,
   } = useTerminal(props);
 
-  let containerEl: HTMLDivElement | undefined;
+  let _containerEl: HTMLDivElement | undefined;
 
   return (
     <div
@@ -68,7 +68,7 @@ const Terminal: Component<TerminalProps> = (props) => {
       {/* Text selection prevented via user-select CSS instead of
           e.preventDefault() on pointerdown — preventDefault blocks native scroll */}
       <div
-        ref={(el) => { containerEl = el; containerRef(el); }}
+        ref={(el) => { _containerEl = el; containerRef(el); }}
         class="terminal-container"
         onClick={() => {
           const term = terminal();

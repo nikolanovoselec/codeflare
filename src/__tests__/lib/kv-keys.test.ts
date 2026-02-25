@@ -146,7 +146,7 @@ describe('listAllKvKeys', () => {
   it('handles pagination across multiple list calls', async () => {
     // Simulate paginated KV response
     let callCount = 0;
-    mockKV.list.mockImplementation(async (opts?: { prefix?: string; cursor?: string }) => {
+    mockKV.list.mockImplementation(async (_opts?: { prefix?: string; cursor?: string }) => {
       callCount++;
       if (callCount === 1) {
         return {

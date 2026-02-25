@@ -5,14 +5,6 @@ interface GLFormat {
   format: number;
 }
 
-interface GLExtensions {
-  formatRGBA: GLFormat;
-  formatRG: GLFormat;
-  formatR: GLFormat;
-  halfFloatTexType: number;
-  supportLinearFiltering: any;
-}
-
 export interface FBO {
   texture: WebGLTexture | null;
   fbo: WebGLFramebuffer | null;

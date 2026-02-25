@@ -136,7 +136,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
             layout={activeTiling()!.layout}
             activeTabId={activeTerminals()!.activeTabId}
             onTileClick={props.onTileClick}
-            renderTerminal={(tabId, slotIndex) => {
+            renderTerminal={(tabId, _slotIndex) => {
               const session = activeSession();
               if (!session) return null;
               return (

@@ -24,7 +24,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     try {
       const result = await getUsers();
       setUsers(result);
-    } catch (err) {
+    } catch (_err) {
       setUserError('Failed to load users');
     } finally {
       setUsersLoading(false);

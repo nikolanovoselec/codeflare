@@ -1,0 +1,23 @@
+# Trivy vulnerability suppressions
+# Review monthly and remove entries when upstream fixes are available.
+
+# lazygit v0.59.0 (latest) built with Go 1.25.6 — needs Go 1.25.7+ for fix.
+# Upstream issue: jesseduffield/lazygit hasn't released a rebuild yet.
+# Risk: crypto/tls session resumption — lazygit doesn't expose TLS services.
+CVE-2025-68121
+
+# node-tar transitive dependency in globally-installed npm CLIs
+# (claude-unleashed, @openai/codex, @google/gemini-cli, opencode-ai).
+# These CLIs don't process untrusted tar archives at runtime.
+# Fix available (tar 7.5.3-7.5.8) but upstream packages haven't updated.
+CVE-2026-23745
+CVE-2026-23950
+CVE-2026-24842
+CVE-2026-26960
+
+# glob/minimatch transitive deps in globally-installed npm CLIs.
+# glob 10.4.5 command injection requires malicious filenames — CLIs don't
+# process user-controlled filenames in glob context.
+# minimatch 9.0.5-9.0.6 DoS via crafted patterns — CLIs use hardcoded patterns.
+CVE-2025-64756
+CVE-2026-26996

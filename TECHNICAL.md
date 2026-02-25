@@ -245,7 +245,7 @@ function connect() {
 | `src/lib/cache-reset.ts` | Centralized invalidation of CORS + auth config + JWKS caches. Called by setup wizard after configuration changes. |
 | `src/lib/cf-api.ts` | Cloudflare API client. `parseCfResponse` checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts `JSON.parse` on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails -- this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors. |
 
-**DEV_MODE Gating:** `/api/container/debug/*` restricted to `DEV_MODE = "true"`.
+**DEV_MODE Gating:** `/api/container/debug/*` restricted to `DEV_MODE = "true"`. Note: DEV_MODE only gates debug endpoints and enables localhost CORS — it does NOT bypass CF Access authentication.
 
 ### Setup Wizard Resilience
 
@@ -505,7 +505,7 @@ flowchart TD
     A[Request] --> B[Edge routing]
     B --> C[CORS]
     C --> D[Auth Middleware]
-    D --> E["getUserFromRequest()&lt;br/&gt;JWT / service token / DEV_MODE"]
+    D --> E["getUserFromRequest()&lt;br/&gt;JWT / service token"]
     E --> F[Normalize email]
     F --> G[Check KV allowlist]
     G --> H["getBucketName()"]
@@ -572,6 +572,14 @@ Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSI
 **Backend loose check:** `POST /api/container/start` counts KV sessions with `status === 'running'` under the user's prefix (excluding the current session to allow restarts). Returns 429 `RateLimitError` if at or over the limit. This is a secondary guard -- the frontend prevents most limit violations before they reach the backend.
 
 **`GET /api/sessions/batch-status`** returns `maxSessions` alongside `statuses` so the frontend stays in sync with the server-side limit without hardcoding defaults.
+
+### Path Traversal Prevention
+
+Browse endpoint validates prefix parameter against directory traversal (`..` rejection) and protected path access via `validateKey()` in `src/routes/storage/validation.ts`.
+
+### Container Image Scanning
+
+Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in `deploy.yml`).
 
 ### Protected R2 Paths
 
@@ -821,7 +829,7 @@ codeflare/
 │   │                         # xml-utils
 │   ├── container/index.ts    # Container DO class
 │   └── __tests__/            # Backend unit tests (63 files)
-├── e2e/                      # E2E tests (API + Puppeteer UI)
+├── e2e/                      # E2E tests: 7 API files (26 tests) + 8 UI files (~65 tests, Puppeteer)
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
@@ -836,6 +844,7 @@ codeflare/
 │       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, settings, format, mobile, + others
 │       ├── styles/           # CSS (design tokens, animations, component styles)
 │       └── __tests__/        # Frontend unit tests (64 files)
+├── .oxlintrc.json            # oxlint configuration (root + web-ui)
 ├── scripts/                  # generate-tutorial-seed.mjs, fix-broken-sourcemaps.js
 ├── tutorials/                # Tutorial content (Getting Started, Examples, etc.)
 ├── Dockerfile                # Multi-stage container image
@@ -864,7 +873,7 @@ codeflare/
 
 | Variable | Purpose | Source |
 |----------|---------|--------|
-| `DEV_MODE` | Bypasses CF Access auth | wrangler.toml |
+| `DEV_MODE` | Enables localhost CORS and debug endpoints (does NOT bypass auth) | wrangler.toml |
 | `SERVICE_TOKEN_EMAIL` | Email for service token auth | Optional |
 | `CLOUDFLARE_API_TOKEN` | R2 bucket creation | Wrangler secret |
 | `R2_ACCESS_KEY_ID` | R2 auth for containers | Wrangler secret |
@@ -953,14 +962,17 @@ Base image: Node.js 22 Alpine.
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | Push to main + manual | Full deploy: tests + typecheck + Docker build + wrangler deploy + secrets |
-| `test.yml` | Pull requests + manual | Frontend/backend tests, typecheck, build verification, and security audit |
+| `test.yml` | Pull requests + manual | PR checks: lint (oxlint), tests, typecheck, build verification, security audit |
 | `e2e.yml` | Manual | E2E tests against deployed worker |
+| `codeql.yml` | Push to main, PRs, weekly | CodeQL static analysis for JS/TS vulnerabilities |
+| `scorecard.yml` | Push to main, weekly | OSSF Scorecard security posture assessment |
+| `socket.yml` | Pull requests | Socket.dev supply chain analysis |
 
 ### GitHub Secrets and Variables
 
 **Secrets:** `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RESEND_API_KEY` (onboarding only)
 
-**Variables:** `CLOUDFLARE_WORKER_NAME`, `RUNNER`, `ACCOUNT_SUBDOMAIN` (E2E), `ONBOARDING_LANDING_PAGE`, `RESSOURCE_TIER` (`low`/`high`/unset), `CLAUDE_UNLEASHED_CACHE_BUSTER`
+**Variables:** `CLOUDFLARE_WORKER_NAME`, `RUNNER`, `E2E_BASE_URL` (E2E), `ONBOARDING_LANDING_PAGE`, `RESSOURCE_TIER` (`low`/`high`/unset), `CLAUDE_UNLEASHED_CACHE_BUSTER`
 
 ### Deploy Workflow
 
@@ -978,11 +990,11 @@ Base image: Node.js 22 Alpine.
 
 **Frontend:** `web-ui/vitest.config.ts` with jsdom + SolidJS Testing Library. 64 test files. Run: `cd web-ui && npm test`
 
-**E2E API:** `e2e/` - tests against deployed worker. Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e`
+**E2E API:** `e2e/api/` - 7 test files (26 tests) against deployed worker. Run: `E2E_BASE_URL=https://your-app.example.com npm run test:e2e`
 
-**E2E UI:** `e2e/ui/` - Puppeteer tests (11 test files). Run: `ACCOUNT_SUBDOMAIN=your-subdomain npm run test:e2e:ui`
+**E2E UI:** `e2e/ui/` - Puppeteer tests (8 files, ~65 tests). Run: `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
 
-**E2E Requirements:** `DEV_MODE = "true"` deployed, no CF Access on workers.dev domain. Re-deploy with `DEV_MODE = "false"` after testing. Cleanup via `afterAll` hooks; if tests fail, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
+**E2E Requirements:** CF Access service tokens (`CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` env vars). Tests authenticate via CF Access service token headers. Cleanup via `afterAll` hooks; if tests fail, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
 
 ---
 
@@ -991,6 +1003,8 @@ Base image: Node.js 22 Alpine.
 ```bash
 npm install && cd web-ui && npm install && cd ..
 npm run dev          # Run locally (requires Docker)
+npm run lint         # Lint backend (oxlint)
+npm run lint:fix     # Lint backend with auto-fix
 npm run typecheck    # Type check backend
 npm test             # Backend unit tests
 npm run test:e2e     # E2E API tests

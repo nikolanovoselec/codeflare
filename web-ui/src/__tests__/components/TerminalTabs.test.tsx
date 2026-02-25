@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import TerminalTabs from '../../components/TerminalTabs';
 import { sessionStore } from '../../stores/session';
 

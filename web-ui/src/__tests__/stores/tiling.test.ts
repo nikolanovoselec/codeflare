@@ -146,7 +146,7 @@ describe('Tiling Module - Store Integration', () => {
     });
 
     it('should maintain tab 1 in first position', () => {
-      const result = sessionStore.reorderTerminalTabs(mockSessionId, ['2', '1', '3']);
+      sessionStore.reorderTerminalTabs(mockSessionId, ['2', '1', '3']);
 
       const terminals = sessionStore.getTerminalsForSession(mockSessionId);
       expect(terminals!.tabOrder[0]).toBe('1');

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // We test the internal helper types exported from the module.
 // Since registerMultiLineLinkProvider requires a full xterm Terminal instance,

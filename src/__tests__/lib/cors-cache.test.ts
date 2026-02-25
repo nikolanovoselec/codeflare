@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { isAllowedOrigin, resetCorsOriginsCache } from '../../lib/cors-cache';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';

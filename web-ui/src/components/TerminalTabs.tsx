@@ -185,7 +185,7 @@ const TerminalTabs: Component<TerminalTabsProps> = (props) => {
     }
   };
 
-  const handlePointerDown = (tabId: string) => (e: PointerEvent) => {
+  const handlePointerDown = (tabId: string) => (_e: PointerEvent) => {
     if (!isMobile() || tabId === '1') return;
     clearLongPress();
     longPressTimer = setTimeout(() => {

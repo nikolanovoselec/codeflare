@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createLogger, setLogLevel, LogLevel, Logger } from '../../lib/logger';
+import { createLogger, setLogLevel } from '../../lib/logger';
 
 describe('createLogger', () => {
   let consoleSpy: {

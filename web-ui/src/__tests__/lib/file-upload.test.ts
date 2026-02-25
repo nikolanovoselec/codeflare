@@ -4,7 +4,6 @@ import {
   shouldUseMultipart,
   splitIntoParts,
   fileToBase64,
-  type FileWithPath,
 } from '../../lib/file-upload';
 
 // --- Helpers ---

@@ -160,7 +160,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     let currentState;
     try {
       currentState = await container.getState();
-    } catch (error) {
+    } catch (_error) {
       // Expected: container may not exist yet, treat as needing start
       reqLogger.debug('Could not get container state, treating as unknown');
       currentState = { status: 'unknown' };

@@ -325,7 +325,7 @@ describe('Container Status Routes', () => {
       testState.container!.getState.mockResolvedValue({ status: 'running' });
 
       let callCount = 0;
-      testState.container!.fetch.mockImplementation(async (req: Request) => {
+      testState.container!.fetch.mockImplementation(async (_req: Request) => {
         callCount++;
         if (callCount === 1) {
           // Health check (sync status) - sync complete
@@ -353,7 +353,7 @@ describe('Container Status Routes', () => {
       testState.container!.getState.mockResolvedValue({ status: 'running' });
 
       let callCount = 0;
-      testState.container!.fetch.mockImplementation(async (req: Request) => {
+      testState.container!.fetch.mockImplementation(async (_req: Request) => {
         callCount++;
         if (callCount <= 1) {
           // Health check succeeds (single fetch - redundant second fetch removed)

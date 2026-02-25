@@ -1,6 +1,14 @@
 name: E2E Tests
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        type: choice
+        options:
+          - integration
+          - production
+        default: integration
 
 permissions:
   contents: read
@@ -8,33 +16,138 @@ permissions:
 jobs:
   e2e:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    # Always use integration environment — it holds the CF Access service token
+    # secrets needed for E2E auth. The target worker URL is resolved from the input.
+    environment: integration
     timeout-minutes: 15
     env:
-      ACCOUNT_SUBDOMAIN: ${{ vars.ACCOUNT_SUBDOMAIN }}
-      CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - name: Validate required variables
+      - name: Resolve target worker
+        id: target
         run: |
-          if [ -z "$ACCOUNT_SUBDOMAIN" ]; then
-            echo "::error::ACCOUNT_SUBDOMAIN is not set. Configure it in repository variables."
-            exit 1
+          TARGET="${{ inputs.environment || 'integration' }}"
+          if [ "$TARGET" = "production" ]; then
+            # Production uses custom domain
+            echo "base_url=https://codeflare.novoselec.ch" >> "$GITHUB_OUTPUT"
+            echo "worker_name=codeflare-production" >> "$GITHUB_OUTPUT"
+          else
+            # Integration uses workers.dev subdomain
+            echo "base_url=https://codeflare-integration.nikola-novoselec.workers.dev" >> "$GITHUB_OUTPUT"
+            echo "worker_name=codeflare-integration" >> "$GITHUB_OUTPUT"
           fi
+          echo "Target: $TARGET"
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Verify DEV_MODE prerequisite
-        # E2E tests require DEV_MODE=true to bypass Cloudflare Access auth.
-        # Without it, all API calls return 401 and tests fail silently.
-        # Set DEV_MODE="true" in wrangler.toml [vars] and deploy before running.
-        # See gotcha #47: DEV_MODE lifecycle can break production if not handled correctly.
-        run: |
-          if [ -z "${DEV_MODE:-}" ]; then
-            echo "::warning::DEV_MODE is not set in the workflow environment. E2E tests require DEV_MODE=true in the deployed worker (wrangler.toml [vars]) to bypass Cloudflare Access auth. Ensure the worker was deployed with DEV_MODE=true before running these tests."
-          fi
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
+
+      - name: Ensure SERVICE_AUTH_SECRET is set on target worker
+        run: |
+          if [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
+            echo "::error::CF_ACCESS_CLIENT_SECRET is not set in the integration environment."
+            exit 1
+          fi
+
+          WORKER="${{ steps.target.outputs.worker_name }}"
+          echo "Setting SERVICE_AUTH_SECRET on worker: $WORKER"
+          printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | npx wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>/dev/null
+
+          # Seed E2E service user in KV allowlist
+          # Uses fixed email matching worker's X-Service-Auth identity
+          SERVICE_EMAIL="e2e-service@codeflare.local"
+          echo "Seeding E2E service user: ${SERVICE_EMAIL}"
+
+          KV_TITLE="${WORKER}-kv"
+          KV_ID=$(npx wrangler kv namespace list 2>/dev/null \
+            | sed -n '/^\[/,/^\]/p' \
+            | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
+            | head -1)
+
+          if [ -n "$KV_ID" ]; then
+            KV_VALUE="{\"addedBy\":\"e2e\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
+            npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --namespace-id "$KV_ID" --remote 2>/dev/null || \
+            echo "::warning::Could not seed E2E user in KV (non-fatal)"
+          else
+            echo "::warning::KV namespace not found for worker $WORKER (non-fatal)"
+          fi
+
+          # Wait for KV eventual consistency + worker secret propagation
+          echo "Waiting 15s for KV propagation and worker secret deployment..."
+          sleep 15
+
+      - name: Smoke test — verify E2E target is reachable and auth works
+        env:
+          E2E_BASE_URL: ${{ steps.target.outputs.base_url }}
+        run: |
+          BASE="$E2E_BASE_URL"
+
+          echo "=== Diagnostic: /api/health (includes serviceAuthConfigured) ==="
+          HEALTH=$(curl -sS -D /tmp/health-headers.txt -o /tmp/health.json -w "%{http_code}" "$BASE/api/health" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
+          echo "Health status: $HEALTH"
+          cat /tmp/health.json 2>/dev/null; echo
+          echo "Health response headers:"
+          cat /tmp/health-headers.txt 2>/dev/null; echo
+
+          echo "=== Diagnostic: /api/sessions (response headers with X-Auth-Debug) ==="
+          curl -sS -D /tmp/sessions-headers.txt -o /tmp/sessions-diag.json "$BASE/api/sessions" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true
+          echo "Response headers:"
+          cat /tmp/sessions-headers.txt 2>/dev/null; echo
+          echo "Response body:"
+          cat /tmp/sessions-diag.json 2>/dev/null; echo
+
+          # Also check basic /health
+          HEALTH_BASIC=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/health" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" || true)
+          echo "Basic /health status: $HEALTH_BASIC"
+
+          if [ "$HEALTH" = "302" ] || [ "$HEALTH_BASIC" = "302" ]; then
+            echo "::error::CF Access returned 302 redirect. The service token is not accepted."
+            exit 1
+          fi
+
+          # Retry sessions endpoint up to 4 times (KV eventual consistency ~60s)
+          echo "Testing: $BASE/api/sessions (with retries for KV propagation)"
+          for i in 1 2 3 4; do
+            SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
+            echo "Attempt $i: Sessions status: $SESSIONS"
+            cat /tmp/sessions.json 2>/dev/null; echo
+
+            if [ "$SESSIONS" = "200" ]; then
+              echo "Auth working!"
+              break
+            fi
+
+            if [ "$SESSIONS" = "302" ]; then
+              echo "::error::CF Access returned 302 redirect. The service token is not accepted by the CF Access application protecting $BASE."
+              exit 1
+            fi
+
+            if [ "$i" -lt 4 ]; then
+              echo "Waiting 15s before retry (KV propagation)..."
+              sleep 15
+            fi
+          done
+
+          if [ "$SESSIONS" = "401" ] || [ "$SESSIONS" = "403" ]; then
+            echo "::error::Auth failed ($SESSIONS) after retries. Check SERVICE_AUTH_SECRET and KV user seeding."
+            exit 1
+          fi
 
       - name: Cache root node_modules
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -63,7 +176,11 @@ jobs:
         run: npx puppeteer browsers install chrome
 
       - name: Run E2E API tests
+        env:
+          E2E_BASE_URL: ${{ steps.target.outputs.base_url }}
         run: npm run test:e2e
 
       - name: Run E2E UI tests
+        env:
+          E2E_BASE_URL: ${{ steps.target.outputs.base_url }}
         run: npm run test:e2e:ui

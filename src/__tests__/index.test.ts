@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 
 // Create a minimal Hono app to use as mock route default export
-const mockHonoApp = new Hono();
+const _mockHonoApp = new Hono();
 
 // Mock all route modules to prevent import side effects and provide valid Hono apps
 vi.mock('../routes/terminal', () => ({
