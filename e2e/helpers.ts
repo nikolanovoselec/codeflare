@@ -37,9 +37,45 @@ export async function navigateToDashboard(page: Page): Promise<void> {
 }
 
 export async function navigateToSessionView(page: Page, sessionId: string): Promise<void> {
+  // Verify session exists via API before navigating
+  const verifyRes = await apiRequest('/api/sessions');
+  if (verifyRes.ok) {
+    const data = await verifyRes.json();
+    const ids = (data.sessions || []).map((s: { id: string }) => s.id);
+    const found = ids.includes(sessionId);
+    console.log(`[E2E] navigateToSessionView: API has ${ids.length} sessions. Target ${sessionId} ${found ? 'FOUND' : 'NOT FOUND'}. IDs: ${JSON.stringify(ids)}`);
+    if (!found) {
+      throw new Error(`[E2E] navigateToSessionView: session ${sessionId} does not exist in API response`);
+    }
+  }
+
   await navigateToDashboard(page);
-  await page.waitForSelector(`[data-testid="session-stat-card-${sessionId}"]`, { timeout: 30000 });
-  await page.click(`[data-testid="session-stat-card-${sessionId}"]`);
+
+  // Wait for any session cards to render (SolidJS loads sessions async)
+  const hasCards = await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid^="session-stat-card-"]').length > 0,
+    { timeout: 15000 }
+  ).then(() => true).catch(() => false);
+
+  if (!hasCards) {
+    // No cards at all — dump page state for debugging
+    const pageUrl = page.url();
+    const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '');
+    throw new Error(`[E2E] navigateToSessionView: no session cards rendered after 15s. URL: ${pageUrl}. Body: ${bodyText}`);
+  }
+
+  // Check if our specific card exists
+  const cardSelector = `[data-testid="session-stat-card-${sessionId}"]`;
+  const specificCard = await page.$(cardSelector);
+  if (!specificCard) {
+    const allCards = await page.evaluate(() => {
+      const cards = document.querySelectorAll('[data-testid^="session-stat-card-"]');
+      return Array.from(cards).map(c => c.getAttribute('data-testid'));
+    });
+    throw new Error(`[E2E] navigateToSessionView: card for ${sessionId} not found. Cards on page: ${JSON.stringify(allCards)}`);
+  }
+
+  await page.click(cardSelector);
   // Could land on either init progress (stopped session) or terminal view (running session)
   const firstElement = await page.waitForSelector(
     '[data-testid="init-progress-open-btn"], [data-testid="header-logo"]',

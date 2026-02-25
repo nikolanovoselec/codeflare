@@ -6,6 +6,23 @@ import {
 
 const isSetup = await checkSetupComplete();
 
+/**
+ * Wait for the settings panel slide-in transition to complete.
+ * Uses transitionend event which fires reliably after CSS transitions.
+ */
+async function waitForPanelTransition(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    return new Promise<void>((resolve) => {
+      const panel = document.querySelector('[data-testid="settings-panel"]');
+      if (!panel) { resolve(); return; }
+      const handler = () => { panel.removeEventListener('transitionend', handler); resolve(); };
+      panel.addEventListener('transitionend', handler);
+      // Safety timeout in case transitionend already fired
+      setTimeout(resolve, 500);
+    });
+  });
+}
+
 describe.skipIf(!isSetup)('Settings panel', () => {
   let browser: Browser;
   let page: Page;
@@ -38,13 +55,8 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('close button closes panel', async () => {
-    // Wait for slide-in transition to settle before clicking
-    await page.waitForFunction(() => {
-      const panel = document.querySelector('[data-testid="settings-panel"]');
-      if (!panel) return false;
-      const style = getComputedStyle(panel);
-      return style.transform === 'none' || style.transform === 'matrix(1, 0, 0, 1, 0, 0)';
-    }, { timeout: 5000 });
+    // Wait for slide-in transition to complete before clicking
+    await waitForPanelTransition(page);
     await page.click('[data-testid="settings-close-button"]');
     await page.waitForFunction(
       () => !document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
@@ -61,13 +73,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
       () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
       { timeout: 5000 }
     );
-    // Wait for slide-in transition to settle
-    await page.waitForFunction(() => {
-      const panel = document.querySelector('[data-testid="settings-panel"]');
-      if (!panel) return false;
-      const style = getComputedStyle(panel);
-      return style.transform === 'none' || style.transform === 'matrix(1, 0, 0, 1, 0, 0)';
-    }, { timeout: 5000 });
+    await waitForPanelTransition(page);
     await page.click('[data-testid="settings-backdrop"]');
     await page.waitForFunction(
       () => !document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
@@ -84,13 +90,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
       () => document.querySelector('[data-testid="settings-panel"]')?.classList.contains('open'),
       { timeout: 5000 }
     );
-    // Wait for slide-in transition to settle
-    await page.waitForFunction(() => {
-      const panel = document.querySelector('[data-testid="settings-panel"]');
-      if (!panel) return false;
-      const style = getComputedStyle(panel);
-      return style.transform === 'none' || style.transform === 'matrix(1, 0, 0, 1, 0, 0)';
-    }, { timeout: 5000 });
+    await waitForPanelTransition(page);
     const swatch = await page.$('[data-testid="accent-color-swatch"]');
     const input = await page.$('[data-testid="accent-color-input"]');
     const reset = await page.$('[data-testid="accent-color-reset"]');
