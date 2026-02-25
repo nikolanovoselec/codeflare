@@ -8,11 +8,13 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please report it responsibly via GitHub's private vulnerability reporting feature on this repository.
+If you discover a security vulnerability, please report it responsibly via [GitHub's private vulnerability reporting](https://github.com/nikolanovoselec/codeflare/security/advisories/new).
 
 **Do not open a public issue for security vulnerabilities.**
 
 You can expect an initial response within 72 hours. We will work with you to understand the issue and coordinate a fix before any public disclosure.
+
+For more information, see [GitHub's guide on privately reporting a security vulnerability](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability).
 
 ## Security Architecture
 
