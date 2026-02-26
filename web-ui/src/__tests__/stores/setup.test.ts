@@ -1,7 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-// We need to import fresh each time to reset store state
-let setupStore: typeof import('../../stores/setup').setupStore;
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { setupStore } from '../../stores/setup';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -21,20 +19,9 @@ function ndjsonResponse(...lines: Record<string, unknown>[]): Response {
 }
 
 describe('Setup Store', () => {
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    vi.resetModules();
-
-    // Reset fetch mock
+  beforeEach(() => {
     mockFetch.mockReset();
-
-    // Re-import to get fresh store state
-    const module = await import('../../stores/setup');
-    setupStore = module.setupStore;
-  });
-
-  afterEach(() => {
-    vi.resetModules();
+    setupStore.reset();
   });
 
   describe('initial state', () => {
