@@ -158,7 +158,7 @@ All optional. The defaults work out of the box. I respect your time.
 
 </details>
 
-## Security
+## Security Overview
 
 - Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
 - AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
@@ -168,14 +168,14 @@ All optional. The defaults work out of the box. I respect your time.
 
 ## Testing
 
-~2,300+ tests across four layers:
+~2,200+ tests across four layers:
 
 | Layer | Tests | Framework |
 |-------|-------|-----------|
-| Backend | ~771 (64 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
-| Frontend | ~1,285 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
+| Backend | ~774 (64 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
+| Frontend | ~1,273 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
 | E2E API | ~48 (11 files) | Vitest + plain fetch |
-| E2E UI | ~76 (10 files, run as desktop + mobile) | Vitest + Puppeteer |
+| E2E UI | ~73 (10 files, run as desktop + mobile) | Vitest + Puppeteer |
 
 ```bash
 npm test                           # Backend tests
@@ -198,6 +198,7 @@ Six GitHub Actions workflows:
 | `e2e.yml` | Manual | E2E matrix: API, UI desktop, UI mobile |
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
 | `scorecard.yml` | Push to `main`, weekly | OSSF Scorecard |
+| `fuzz.yml` | Weekly / manual | Property-based fuzzing (fast-check) |
 
 See `TECHNICAL.md` Section 15 for full CI/CD documentation.
 

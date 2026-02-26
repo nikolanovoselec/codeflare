@@ -150,7 +150,7 @@ sequenceDiagram
 
 **File:** `host/server.js` - Node.js server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
-Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (`lastUserInputMs`, `lastAgentFileActivityMs`) for hibernation decisions via `GET /activity`.
+Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (WebSocket connection state: `hasActiveConnections`, `connectedClients`, `disconnectedForMs`) for hibernation decisions via `GET /activity`.
 
 **Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. Paths called via `getTcpPort().fetch()` (which bypasses the DO's `fetch()` override that injects the auth header) must be in the `authExemptPaths` Set at `host/server.js`: `['/health', '/activity']`. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
 
@@ -766,7 +766,7 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 ### Environment Variables
 
-**Global (Dockerfile ENV):** `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`
+**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_CHANNEL=stable`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`
 
 **Prewarm readiness:** All TUI agents are classified in `host/prewarm-config.js` with agent-specific ready patterns. When a `readyPattern` is configured, quiescence-based detection is disabled — only the pattern match or the 20s hard timeout declares readiness. This prevents startup silence (e.g. Node.js V8 compile time) from prematurely firing "ready". Patterns: `cu`/`claude-unleashed` match `/╭/` (Ink TUI welcome box border), `opencode` matches `/>/' (Bubble Tea TUI prompt), `gemini` matches `/Type your message/` (Ink InputPrompt placeholder), `copilot` matches `/Describe a task|Copilot uses/` (Ink welcome box text), `codex` matches `/Codex can make mistakes/` (Rust TUI footer). Shell commands (bash, sh, zsh) use 2000ms quiescence with no pattern.
 
@@ -829,7 +829,7 @@ codeflare/
 │   │                         # xml-utils
 │   ├── container/index.ts    # Container DO class
 │   └── __tests__/            # Backend unit tests (64 files)
-├── e2e/                      # E2E tests: 11 API files (~48 tests) + 10 UI files (~76 desktop + ~81 mobile, Puppeteer)
+├── e2e/                      # E2E tests: 11 API files (~48 tests) + 10 UI files (~73 tests, Puppeteer)
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
@@ -960,7 +960,7 @@ Base image: Node.js 24 Debian (bookworm-slim).
 
 ## 15. CI/CD (GitHub Actions)
 
-Five workflows covering deploy, testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
+Six workflows covering deploy, testing, fuzzing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
@@ -968,6 +968,7 @@ Five workflows covering deploy, testing, and supply chain security. Additionally
 | `test.yml` | Pull requests to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, `npm audit`, dependency review |
 | `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker — matrix strategy: `api`, `ui-desktop`, `ui-mobile` on `ubuntu-latest` |
 | `codeql.yml` | Push to `main`/`develop`, PRs to `main`/`develop`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
+| `fuzz.yml` | Weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
 
 ### GitHub Environments
@@ -1033,7 +1034,7 @@ Two-phase execution:
 ### 16.1 Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` — tests run in real Workers runtime (not Node.js).
-**Count:** 64 test files, ~771 tests.
+**Count:** 64 test files, ~774 tests.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -1041,7 +1042,7 @@ Two-phase execution:
 ### 16.2 Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 64 test files, ~1,285 tests.
+**Count:** 64 test files, ~1,273 tests.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
@@ -1051,7 +1052,7 @@ Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/`
 
 ### 16.4 E2E API Tests
 
-**Dir:** `e2e/api/` — 11 test files, ~47 tests.
+**Dir:** `e2e/api/` — 11 test files, ~48 tests.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 
@@ -1059,7 +1060,7 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 
 ### 16.5 E2E UI Tests
 
-**Dir:** `e2e/ui/` — 10 test files, ~76 desktop + ~81 mobile tests.
+**Dir:** `e2e/ui/` — 10 test files, ~73 tests (run as desktop + mobile).
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
 **Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
 **Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1366x768. Mobile viewport: 375x812 (iPhone-like).
