@@ -50,7 +50,7 @@ Every response from the worker includes the following security headers:
 
 - **Zod schemas** validate all API request bodies and parameters (backend: `src/lib/schemas.ts`, frontend: `web-ui/src/lib/schemas.ts`).
 - **Body size limit:** 64 KiB on all `/api/*` routes. Storage upload routes are exempt for file uploads.
-- **Session ID validation:** `SESSION_ID_PATTERN = /^[a-z0-9]{8,24}$/` — strict alphanumeric, length-bounded.
+- **Session ID validation:** `SESSION_ID_PATTERN = /^[a-z0-9]{8,24}$/` - strict alphanumeric, length-bounded.
 - **CORS enforcement:** `matchesPattern()` enforces domain boundaries with dot-prefix matching. `.workers.dev` matches `x.workers.dev` but NOT `evil-workers.dev`.
 
 ### Container Isolation

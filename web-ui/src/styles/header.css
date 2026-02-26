@@ -33,6 +33,11 @@
           color: var(--color-text-primary);
         }
 
+        .header-logo-text--scramble {
+          font-family: 'JetBrains Mono', monospace;
+          letter-spacing: 0.04em;
+        }
+
         .header-logo--clickable {
           cursor: pointer;
           border-radius: var(--radius-md);

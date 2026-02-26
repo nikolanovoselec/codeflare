@@ -1,8 +1,8 @@
-# Codeflare
+# <img src="docs/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
-You're not sure which AI coding agent is the best. Neither is anyone else. So Codeflare gives you all of them — at the same time. Six agents, six tabs, one browser. No guardrails, no permission prompts, no risk. Every session runs in an isolated container that deletes itself when you're done. Your files persist. Your bad decisions don't.
+You're not sure which AI coding agent is the best. Neither is anyone else. So Codeflare gives you all of them - at the same time. Six agents, six tabs, one browser. No guardrails, no permission prompts, no risk. Every session runs in an isolated container that deletes itself when you're done. Your files persist. Your bad decisions don't.
 
-It runs wherever you happen to find yourself — on the Cloudflare edge that spans the planet, accessible from anything with a browser. Your phone, your tablet, your partner's laptop while they're not looking. Because the best commits in history were made from places without desks.
+It runs wherever you happen to find yourself - on the Cloudflare edge that spans the planet, accessible from anything with a browser. Your phone, your tablet, your partner's laptop while they're not looking. Because the best commits in history were made from places without desks.
 
 ![Codeflare on a foldable tablet](docs/images/mobile-foldable.jpg)
 *Keyboard dismissed: free scrolling through terminal output. Keyboard open: terminal locks in place with full gesture support.*
@@ -37,12 +37,12 @@ It's strongly optimized for mobile - because the best ideas hit while rewatching
 **Try it:** [codeflare.graymatter.ch](https://codeflare.graymatter.ch) (gated behind a waitlist - I'm not an animal)
 
 ![Onboarding](docs/images/onboarding.png)
-*Join the waitlist, get approved, log in. No account creation, no password — Cloudflare Access handles it.*
+*Join the waitlist, get approved, log in. No account creation, no password - Cloudflare Access handles it.*
 
 ## What you get
 
 ![Dashboard](docs/images/dashboard.png)
-*Manage sessions, browse persistent storage, and monitor live resource usage — all from one view.*
+*Manage sessions, browse persistent storage, and monitor live resource usage - all from one view.*
 
 - Browser-native terminal with 6 tabs per session and tiling mode - view 2-4 terminals side by side. Once you tile, you don't go back.
 - One isolated container per session - agents can't escape their sandbox (I checked)
@@ -56,7 +56,7 @@ It's strongly optimized for mobile - because the best ideas hit while rewatching
 ## Architecture
 
 ![Codeflare IDE](docs/images/hero-ide-fullscreen.png)
-*Six terminal tabs, split tiling, and your favorite dev tools — running in a disposable container you didn't have to configure.*
+*Six terminal tabs, split tiling, and your favorite dev tools - running in a disposable container you didn't have to configure.*
 
 ```mermaid
 flowchart LR
@@ -93,7 +93,7 @@ In your fork: `Settings` > `Secrets and variables` > `Actions` > `New repository
 
 Add each as a separate secret. Name goes in the **Name** field, value in **Secret**. Click **Add secret** after each one.
 
-**Secrets** (optional — for E2E testing):
+**Secrets** (optional - for E2E testing):
 - `CF_ACCESS_CLIENT_ID` - CF Access service token client ID
 - `CF_ACCESS_CLIENT_SECRET` - CF Access service token client secret
 
@@ -151,7 +151,7 @@ All optional. The defaults work out of the box. I respect your time.
 | Variable | Default | What it does |
 |---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | `codeflare` | Worker name and Access group prefix |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB RAM) | Container size: `low` (0.25 vCPU, 1 GiB) or `high` (2 vCPU, 6 GiB). Spelling is intentional — matches the Cloudflare API naming. |
+| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB RAM) | Container size: `low` (0.25 vCPU, 1 GiB) or `high` (2 vCPU, 6 GiB). Spelling is intentional - matches the Cloudflare API naming. |
 | `ONBOARDING_LANDING_PAGE` | `inactive` | Set to `active` for a public waitlist at `/` (requires Turnstile + `RESEND_API_KEY` secret) |
 | `RUNNER` | `ubuntu-latest` | GitHub Actions runner |
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | Set to `active` to force-reinstall the AI agent layer on every deploy |

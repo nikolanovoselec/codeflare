@@ -13,6 +13,7 @@ import StorageBrowser from './StorageBrowser';
 import FilePreview from './FilePreview';
 import CreateSessionDialog from './CreateSessionDialog';
 import SessionLimitPopup from './SessionLimitPopup';
+import ScrambleText from './ScrambleText';
 import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
 import { sessionStore } from '../stores/session';
@@ -107,7 +108,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
         <div class="dashboard-panel-header">
           <div class="header-logo">
             <Icon path={mdiXml} size={22} class="header-logo-icon" />
-            <span class="header-logo-text">Codeflare</span>
+            <ScrambleText text="Codeflare" class="header-logo-text header-logo-text--scramble" />
           </div>
           <div class="header-spacer" />
           <div class="header-actions">

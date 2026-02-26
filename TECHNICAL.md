@@ -87,12 +87,12 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 **SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 5-second `collectMetrics` schedule. `onStop()` sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
 
 **`collectMetrics()` Heartbeat (every 5s):**
-1. Checks `this.ctx.container?.running` — returns early (no re-arm) if container is dead
-2. Fetches `/activity` via `getTcpPort()` — if active WS clients, calls `renewActivityTimeout()` (keepalive). If `/activity` fails, renews as safety net (don't kill container on transient errors). Activity/keepalive logs are at `debug` level to reduce noise (was `info` — downgraded once keepalive was confirmed stable).
-3. Fetches `/health` via `getTcpPort()` — reads cpu/mem/hdd/syncStatus
+1. Checks `this.ctx.container?.running` - returns early (no re-arm) if container is dead
+2. Fetches `/activity` via `getTcpPort()` - if active WS clients, calls `renewActivityTimeout()` (keepalive). If `/activity` fails, renews as safety net (don't kill container on transient errors). Activity/keepalive logs are at `debug` level to reduce noise (was `info` - downgraded once keepalive was confirmed stable).
+3. Fetches `/health` via `getTcpPort()` - reads cpu/mem/hdd/syncStatus
 4. Writes metrics to KV session record (`session.metrics`)
 5. Re-arms schedule if container still running
-6. **Zombie DO detection**: When identifiers are missing (post-`destroy()`), returns early WITHOUT re-arming — kills both metrics push and schedule re-arm via if/else pattern
+6. **Zombie DO detection**: When identifiers are missing (post-`destroy()`), returns early WITHOUT re-arming - kills both metrics push and schedule re-arm via if/else pattern
 
 **Zombie DO Detection:** When `collectMetrics` reaches the health-fetch stage but `sessionId` or `bucketName` are missing from DO storage (happens after `destroy()` clears them), it logs `"missing identifiers, not re-arming (zombie DO)"` and returns without scheduling the next cycle. This is the kill switch for orphaned DOs.
 
@@ -250,7 +250,7 @@ function connect() {
 | `src/lib/cache-reset.ts` | Centralized invalidation of CORS + auth config + JWKS caches. Called by setup wizard after configuration changes. |
 | `src/lib/cf-api.ts` | Cloudflare API client. `parseCfResponse` checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts `JSON.parse` on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails -- this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors. |
 
-**DEV_MODE Gating:** `/api/container/debug/*` restricted to `DEV_MODE = "true"`. Note: DEV_MODE only gates debug endpoints and enables localhost CORS — it does NOT bypass CF Access authentication.
+**DEV_MODE Gating:** `/api/container/debug/*` restricted to `DEV_MODE = "true"`. Note: DEV_MODE only gates debug endpoints and enables localhost CORS - it does NOT bypass CF Access authentication.
 
 ### Setup Wizard Resilience
 
@@ -720,7 +720,7 @@ GET `/health`, GET `/api/health`
 
 ### Global NPM Packages
 
-Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` layer invalidation triggers fresh installs on each deploy). The Dockerfile is the source of truth for version pins — versions listed below are approximate and may drift between documentation updates.
+Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` layer invalidation triggers fresh installs on each deploy). The Dockerfile is the source of truth for version pins - versions listed below are approximate and may drift between documentation updates.
 
 | Package | Version | Provides |
 |---------|---------|----------|
@@ -802,7 +802,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 **Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_CHANNEL=stable`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
 
-**Prewarm readiness:** All TUI agents are classified in `host/prewarm-config.js` with agent-specific ready patterns. When a `readyPattern` is configured, quiescence-based detection is disabled — only the pattern match or the 20s hard timeout declares readiness. This prevents startup silence (e.g. Node.js V8 compile time) from prematurely firing "ready". Patterns: `cu`/`claude-unleashed` match `/╭/` (Ink TUI welcome box border), `opencode` matches `/>/' (Bubble Tea TUI prompt), `gemini` matches `/Type your message/` (Ink InputPrompt placeholder), `copilot` matches `/Describe a task|Copilot uses/` (Ink welcome box text), `codex` matches `/Codex can make mistakes/` (Rust TUI footer). The `claude` command (vanilla CLI) also gets 500ms quiescence but has no readyPattern. Shell commands (bash, sh, zsh) use 2000ms quiescence with no pattern.
+**Prewarm readiness:** All TUI agents are classified in `host/prewarm-config.js` with agent-specific ready patterns. When a `readyPattern` is configured, quiescence-based detection is disabled - only the pattern match or the 20s hard timeout declares readiness. This prevents startup silence (e.g. Node.js V8 compile time) from prematurely firing "ready". Patterns: `cu`/`claude-unleashed` match `/╭/` (Ink TUI welcome box border), `opencode` matches `/>/' (Bubble Tea TUI prompt), `gemini` matches `/Type your message/` (Ink InputPrompt placeholder), `copilot` matches `/Describe a task|Copilot uses/` (Ink welcome box text), `codex` matches `/Codex can make mistakes/` (Rust TUI footer). The `claude` command (vanilla CLI) also gets 500ms quiescence but has no readyPattern. Shell commands (bash, sh, zsh) use 2000ms quiescence with no pattern.
 
 **Auto-start flags (.bashrc):** `--silent`, `--no-consent`
 
@@ -1003,7 +1003,7 @@ Six workflows covering deploy, testing, fuzzing, and supply chain security. Addi
 |----------|---------|-------------|
 | `deploy.yml` | Push to `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets |
 | `test.yml` | Push to `develop` + PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, `npm audit`, dependency review |
-| `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker — matrix strategy: `api`, `ui-desktop`, `ui-mobile` on `ubuntu-latest` |
+| `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - matrix strategy: `api`, `ui-desktop`, `ui-mobile` on `ubuntu-latest` |
 | `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
 | `fuzz.yml` | Weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
@@ -1033,7 +1033,7 @@ Six workflows covering deploy, testing, fuzzing, and supply chain security. Addi
 |----------|---------|---------|
 | `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` |
 | `RUNNER` | `ubuntu-latest` | All workflows |
-| `E2E_BASE_URL` | — | `e2e.yml` |
+| `E2E_BASE_URL` | - | `e2e.yml` |
 | `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` |
 | `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB) | `deploy.yml` |
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | `deploy.yml` |
@@ -1056,7 +1056,7 @@ Six workflows covering deploy, testing, fuzzing, and supply chain security. Addi
 
 Two parallel jobs:
 - **test**: Lint (oxlint), build frontend, run backend + frontend tests, typecheck both, `npm audit --audit-level=high` for backend and frontend
-- **dependency-review**: Runs `actions/dependency-review-action` on PRs — blocks merging if new dependencies introduce known vulnerabilities
+- **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
 
 ### E2E Workflow Detail
 
@@ -1070,7 +1070,7 @@ Two-phase execution:
 
 ### 16.1 Backend Tests
 
-**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` — tests run in real Workers runtime (not Node.js).
+**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
 **Count:** 64 test files, ~775 tests.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
@@ -1092,11 +1092,11 @@ Two-phase execution:
 
 ### 16.4 Vitest Version Split
 
-Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v4.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify — the version constraint is real.
+Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v4.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify - the version constraint is real.
 
 ### 16.5 E2E API Tests
 
-**Dir:** `e2e/api/` — 11 test files, ~49 tests.
+**Dir:** `e2e/api/` - 11 test files, ~49 tests.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 
@@ -1104,7 +1104,7 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 
 ### 16.6 E2E UI Tests
 
-**Dir:** `e2e/ui/` — 10 test files, ~74 tests (run as desktop + mobile).
+**Dir:** `e2e/ui/` - 10 test files, ~74 tests (run as desktop + mobile).
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
 **Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
 **Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1366x768. Mobile viewport: 375x812 (iPhone-like).
@@ -1113,7 +1113,7 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 
 ### 16.7 E2E Infrastructure
 
-- **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page — UI tests work around this by intercepting requests.
+- **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page - UI tests work around this by intercepting requests.
 - **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
 - **CSS disable:** UI tests inject `document.querySelectorAll('style, link[rel=stylesheet]').forEach(el => el.remove())` to disable CSS for reliable element positioning in headless Chrome.
 - **Screenshot artifacts:** Failed UI tests capture screenshots to `/tmp/e2e-*.png`. CI uploads these as artifacts with 5-day retention.
@@ -1240,7 +1240,7 @@ sudo apt-get install -yqq --no-install-recommends \
   fonts-liberation
 ```
 
-**Note:** Package names differ between Ubuntu versions — 22.04 uses `libatk1.0-0`, 24.04 uses `libatk1.0-0t64`.
+**Note:** Package names differ between Ubuntu versions - 22.04 uses `libatk1.0-0`, 24.04 uses `libatk1.0-0t64`.
 
 ### Common Failure Modes
 
