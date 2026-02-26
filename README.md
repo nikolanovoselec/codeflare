@@ -197,7 +197,7 @@ Six GitHub Actions workflows:
 | `test.yml` | Pull requests | Lint, tests, typecheck, security audit, dependency review |
 | `e2e.yml` | Manual | E2E matrix: API, UI desktop, UI mobile |
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
-| `scorecard.yml` | Push to `main`, weekly | OSSF Scorecard |
+| `scorecard.yml` | Push to `main`, weekly, manual | OSSF Scorecard |
 | `fuzz.yml` | Weekly / manual | Property-based fuzzing (fast-check) |
 
 See `TECHNICAL.md` Section 15 for full CI/CD documentation.
