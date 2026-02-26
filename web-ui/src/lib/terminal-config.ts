@@ -25,7 +25,6 @@ export const TERMINAL_TAB_CONFIG: Record<string, { name: string; icon: string }>
 const PROCESS_ICON_MAP: Record<string, string> = {
   'claude': mdiFire,
   'cu': mdiFire,
-  'claude-code': mdiRobotOutline,
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
   'opencode': mdiRobotIndustrial,

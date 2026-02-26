@@ -710,14 +710,23 @@ GET `/health`, GET `/api/health`
 | Category | Packages |
 |----------|----------|
 | Sync | rclone |
-| Version Control | git, github-cli (gh), lazygit |
+| Version Control | git, github-cli (gh), lazygit (v0.59.0) |
 | Editors | vim (symlinked to neovim), neovim, nano |
 | Network | curl, openssh-client |
-| Utilities | jq, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
+| Utilities | jq, ripgrep, fd, tree, htop, tmux, yazi (v26.1.22), fzf, zoxide, bat |
 
 ### Global NPM Packages
 
-`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code` (symlinked from claude-unleashed), `@openai/codex`, `@google/gemini-cli`, `@github/copilot`, `opencode-ai`
+Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` layer invalidation triggers fresh installs on each deploy).
+
+| Package | Version | Provides |
+|---------|---------|----------|
+| `claude-unleashed` | Git commit pin | `cu` / `claude-unleashed` commands (wraps `@anthropic-ai/claude-code`) |
+| `@anthropic-ai/claude-code` | _(symlinked from claude-unleashed)_ | `claude` command |
+| `@openai/codex` | 0.105.0 | `codex` command |
+| `@google/gemini-cli` | 0.30.0 | `gemini` command |
+| `opencode-ai` | 1.2.15 | `opencode` command |
+| `@github/copilot` | 0.0.418 | `copilot` command |
 
 ### V8 Compile Cache Warm-Up
 
@@ -766,7 +775,7 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 ### Environment Variables
 
-**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_CHANNEL=stable`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`
+**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_CHANNEL=stable`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
 
 **Prewarm readiness:** All TUI agents are classified in `host/prewarm-config.js` with agent-specific ready patterns. When a `readyPattern` is configured, quiescence-based detection is disabled — only the pattern match or the 20s hard timeout declares readiness. This prevents startup silence (e.g. Node.js V8 compile time) from prematurely firing "ready". Patterns: `cu`/`claude-unleashed` match `/╭/` (Ink TUI welcome box border), `opencode` matches `/>/' (Bubble Tea TUI prompt), `gemini` matches `/Type your message/` (Ink InputPrompt placeholder), `copilot` matches `/Describe a task|Copilot uses/` (Ink welcome box text), `codex` matches `/Codex can make mistakes/` (Rust TUI footer). The `claude` command (vanilla CLI) also gets 500ms quiescence but has no readyPattern. Shell commands (bash, sh, zsh) use 2000ms quiescence with no pattern.
 
@@ -906,6 +915,8 @@ codeflare/
 | `TERMINAL_ID` | Unique ID for this terminal instance | Worker -> DO |
 | `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker -> DO |
 | `MANUAL_TAB` | Set to `1` for user-created tabs to skip autostart | Worker -> DO |
+| `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
+| `BROWSER` | Points to `open-url` shim that exits 1, forcing CLIs to print OAuth URLs as text | Dockerfile ENV (`/usr/local/bin/open-url`) |
 
 ---
 
@@ -1046,11 +1057,18 @@ Two-phase execution:
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
-### 16.3 Vitest Version Split
+### 16.3 Host Tests
+
+**Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
+**Count:** 4 test files, ~40 tests.
+**Run:** `cd host && npm test`
+**Scope:** PTY pre-warm readiness patterns, activity tracker disconnect tracking, WebSocket input classification, server prewarm integration.
+
+### 16.4 Vitest Version Split
 
 Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v4.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify — the version constraint is real.
 
-### 16.4 E2E API Tests
+### 16.5 E2E API Tests
 
 **Dir:** `e2e/api/` — 11 test files, ~48 tests.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
@@ -1058,7 +1076,7 @@ Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/`
 
 Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `error-responses`, `rate-limiting`.
 
-### 16.5 E2E UI Tests
+### 16.6 E2E UI Tests
 
 **Dir:** `e2e/ui/` — 10 test files, ~73 tests (run as desktop + mobile).
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
@@ -1067,7 +1085,7 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 
 Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`, `error-states`, `mobile-specific`.
 
-### 16.6 E2E Infrastructure
+### 16.7 E2E Infrastructure
 
 - **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page — UI tests work around this by intercepting requests.
 - **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
@@ -1075,7 +1093,7 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 - **Screenshot artifacts:** Failed UI tests capture screenshots to `/tmp/e2e-*.png`. CI uploads these as artifacts with 5-day retention.
 - **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier (e.g., `e2e-api-`, `e2e-ui-`) to avoid cross-suite interference when running in parallel.
 
-### 16.7 E2E Service Token Setup
+### 16.8 E2E Service Token Setup
 
 Step-by-step for running E2E tests against a deployed worker:
 
@@ -1096,7 +1114,7 @@ npm run test:e2e:ui     # UI desktop tests only
 E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
 ```
 
-### 16.8 E2E Test Maintenance
+### 16.9 E2E Test Maintenance
 
 **Rule:** When modifying UI components or API routes, review and update corresponding E2E tests.
 

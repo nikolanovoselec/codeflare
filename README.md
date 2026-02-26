@@ -168,18 +168,20 @@ All optional. The defaults work out of the box. I respect your time.
 
 ## Testing
 
-~2,200+ tests across four layers:
+~2,200+ tests across five layers:
 
 | Layer | Tests | Framework |
 |-------|-------|-----------|
 | Backend | ~774 (64 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
 | Frontend | ~1,273 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
+| Host | ~40 (4 files) | Node.js test runner |
 | E2E API | ~48 (11 files) | Vitest + plain fetch |
 | E2E UI | ~73 (10 files, run as desktop + mobile) | Vitest + Puppeteer |
 
 ```bash
 npm test                           # Backend tests
 cd web-ui && npm test              # Frontend tests
+cd host && npm test                # Host tests (prewarm, activity tracker)
 npm run test:e2e:api               # E2E API (requires deployed worker)
 npm run test:e2e:ui                # E2E UI desktop (requires deployed worker)
 E2E_MOBILE=1 npm run test:e2e:ui   # E2E UI mobile
