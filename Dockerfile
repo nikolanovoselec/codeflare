@@ -8,7 +8,7 @@ RUN apk add --no-cache make gcc g++ python3
 
 COPY host/package.json /app/host/
 WORKDIR /app/host
-RUN npm install --production --ignore-scripts
+RUN npm install --production
 
 # ---- Stage 2: Runtime ----
 FROM node:22.13-alpine3.21@sha256:e2b39f7b64281324929257d0f8004fb6cb4bf0fdfb9aa8cedb235a766aec31da
