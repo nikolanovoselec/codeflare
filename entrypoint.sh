@@ -615,7 +615,7 @@ CASE_EOF
             ;;
 CASE_EOF
                     ;;
-                codex|claude|opencode|copilot)
+                codex|claude|opencode)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)
@@ -623,11 +623,19 @@ CASE_EOF
             ;;
 CASE_EOF
                     ;;
+                copilot)
+                    cat >> "$BASHRC_FILE" << CASE_EOF
+        ${key})
+            # ${cmd} (script allocates inner PTY to isolate Ink from musl TTY quirks)
+            script -qefc "${cmd}" /dev/null
+            ;;
+CASE_EOF
+                    ;;
                 gemini)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
-            # ${cmd} (suppress punycode deprecation warning)
-            env NODE_OPTIONS="--disable-warning=DEP0040" ${cmd}
+            # ${cmd} (script allocates inner PTY to isolate Ink from musl TTY quirks)
+            script -qefc "env NODE_OPTIONS='--disable-warning=DEP0040' ${cmd}" /dev/null
             ;;
 CASE_EOF
                     ;;
