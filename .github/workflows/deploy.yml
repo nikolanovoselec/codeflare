@@ -223,8 +223,8 @@ jobs:
 
           npx wrangler containers push "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 | tee /tmp/push-output.txt
 
-          # Extract the registry URI from wrangler output
-          REGISTRY_URI=$(grep -oP 'registry\.cloudflare\.com/\S+' /tmp/push-output.txt | head -1)
+          # Extract the registry URI from the "Pushed image:" line (includes tag)
+          REGISTRY_URI=$(grep -oP '(?<=Pushed image: )registry\.cloudflare\.com/\S+' /tmp/push-output.txt | head -1)
 
           if [ -z "$REGISTRY_URI" ]; then
             echo "::error::Failed to extract registry URI from wrangler containers push output"
