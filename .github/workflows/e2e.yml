@@ -41,7 +41,7 @@ jobs:
           node-version: '22'
 
       - name: Install wrangler
-        run: npm install -g wrangler@latest
+        run: npm install -g wrangler@4.68.1 # Pin updated periodically
 
       - name: Ensure SERVICE_AUTH_SECRET is set on target worker
         run: |

@@ -1,0 +1,33 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: '0 4 * * 0' # Weekly, Sunday 4am UTC
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: Property-based fuzzing
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run fuzz tests (extended iterations)
+        env:
+          FAST_CHECK_NUM_RUNS: '50000'
+        run: npx vitest run src/__tests__/fuzz/ --reporter=verbose
