@@ -36,6 +36,7 @@ export class container extends Container<Env> {
   private _r2AccessKeyId: string | null = null;
   private _r2SecretAccessKey: string | null = null;
   private _workspaceSyncEnabled: boolean = false;
+  private _fastStartEnabled: boolean = true;
   private _tabConfig: TabConfig[] | null = null;
   private _containerAuthToken: string | null = null;
 
@@ -58,6 +59,10 @@ export class container extends Container<Env> {
       const storedWorkspaceSyncEnabled = await this.ctx.storage.get<boolean>('workspaceSyncEnabled');
       if (typeof storedWorkspaceSyncEnabled === 'boolean') {
         this._workspaceSyncEnabled = storedWorkspaceSyncEnabled;
+      }
+      const storedFastStartEnabled = await this.ctx.storage.get<boolean>('fastStartEnabled');
+      if (typeof storedFastStartEnabled === 'boolean') {
+        this._fastStartEnabled = storedFastStartEnabled;
       }
       this._tabConfig = await this.ctx.storage.get<TabConfig[]>('tabConfig') || null;
 
@@ -88,6 +93,7 @@ export class container extends Container<Env> {
     r2AccountId?: string;
     r2Endpoint?: string;
     workspaceSyncEnabled?: boolean;
+    fastStartEnabled?: boolean;
     tabConfig?: TabConfig[];
   }): Promise<void> {
     this._bucketName = name;
@@ -95,6 +101,10 @@ export class container extends Container<Env> {
     if (typeof r2Creds?.workspaceSyncEnabled === 'boolean') {
       this._workspaceSyncEnabled = r2Creds.workspaceSyncEnabled;
       await this.ctx.storage.put('workspaceSyncEnabled', r2Creds.workspaceSyncEnabled);
+    }
+    if (typeof r2Creds?.fastStartEnabled === 'boolean') {
+      this._fastStartEnabled = r2Creds.fastStartEnabled;
+      await this.ctx.storage.put('fastStartEnabled', r2Creds.fastStartEnabled);
     }
 
     // Store tab config if provided
@@ -169,6 +179,7 @@ export class container extends Container<Env> {
       R2_BUCKET_NAME: bucketName,  // User's personal bucket
       R2_ENDPOINT: endpoint,
       WORKSPACE_SYNC_ENABLED: this._workspaceSyncEnabled ? 'true' : 'false',
+      FAST_CLI_START: this._fastStartEnabled ? 'true' : 'false',
       SYNC_MODE: this._workspaceSyncEnabled ? 'full' : 'none',
       // Terminal server port
       TERMINAL_PORT: String(TERMINAL_SERVER_PORT),
@@ -204,7 +215,7 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, tabConfig } =
+      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
@@ -213,6 +224,7 @@ export class container extends Container<Env> {
           r2AccountId?: string;
           r2Endpoint?: string;
           workspaceSyncEnabled?: boolean;
+          fastStartEnabled?: boolean;
           tabConfig?: TabConfig[];
         };
 
@@ -233,6 +245,13 @@ export class container extends Container<Env> {
           await this.ctx.storage.put('workspaceSyncEnabled', workspaceSyncEnabled);
           prefsChanged = true;
           this.logger.info('Updated workspaceSyncEnabled on restart', { workspaceSyncEnabled });
+        }
+
+        if (typeof fastStartEnabled === 'boolean' && fastStartEnabled !== this._fastStartEnabled) {
+          this._fastStartEnabled = fastStartEnabled;
+          await this.ctx.storage.put('fastStartEnabled', fastStartEnabled);
+          prefsChanged = true;
+          this.logger.info('Updated fastStartEnabled on restart', { fastStartEnabled });
         }
 
         if (tabConfig) {
@@ -276,6 +295,12 @@ export class container extends Container<Env> {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (fastStartEnabled !== undefined && typeof fastStartEnabled !== 'boolean') {
+        return new Response(JSON.stringify({ error: 'fastStartEnabled must be a boolean when provided' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (r2AccountId !== undefined && (typeof r2AccountId !== 'string' || r2AccountId.trim() === '')) {
         return new Response(JSON.stringify({ error: 'r2AccountId must be a non-empty string when provided' }), {
           status: 400,
@@ -305,6 +330,7 @@ export class container extends Container<Env> {
         r2AccountId,
         r2Endpoint,
         workspaceSyncEnabled,
+        fastStartEnabled,
         tabConfig,
       });
 
@@ -542,6 +568,7 @@ export class container extends Container<Env> {
       await this.ctx.storage.delete(SESSION_ID_KEY);
       await this.ctx.storage.delete('bucketName');
       await this.ctx.storage.delete('workspaceSyncEnabled');
+      await this.ctx.storage.delete('fastStartEnabled');
       await this.ctx.storage.delete('tabConfig');
       this._bucketName = null;
       this.logger.info('Operational storage cleared');

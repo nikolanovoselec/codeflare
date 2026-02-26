@@ -12,8 +12,8 @@ const AGENT_COMMANDS: Record<AgentType, { command: string; label: string }> = {
   'claude-unleashed': { command: 'cu', label: 'Terminal 1' },
   'claude-code': { command: 'claude', label: 'Terminal 1' },
   'codex': { command: 'codex', label: 'Terminal 1' },
-  'copilot': { command: 'copilot', label: 'Terminal 1' },
-  'gemini': { command: 'gemini', label: 'Terminal 1' },
+  'copilot': { command: 'copilot --yolo', label: 'Terminal 1' },
+  'gemini': { command: 'gemini -y', label: 'Terminal 1' },
   'opencode': { command: 'opencode', label: 'Terminal 1' },
   'bash': { command: '', label: 'Terminal 1' },
 };

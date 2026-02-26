@@ -24,6 +24,7 @@ export interface UserPreferences {
   lastAgentType?: AgentType;
   lastPresetId?: string;
   workspaceSyncEnabled?: boolean;
+  fastStartEnabled?: boolean;
 }
 
 /** Mirrors backend Session type (see src/types.ts). Keep in sync manually. */

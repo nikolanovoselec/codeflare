@@ -82,8 +82,8 @@ describe('getPrewarmConfig', () => {
         { id: '1', command: 'opencode', label: 'OpenCode' },
       ]);
       assert.notEqual(cfg.readyPattern, null);
-      // OpenCode's Bubble Tea TUI shows a ">" prompt when ready
-      assert.ok(cfg.readyPattern.test('>'), 'should match ">" prompt');
+      // OpenCode's Bubble Tea TUI shows "Ask anything" input placeholder when ready
+      assert.ok(cfg.readyPattern.test('Ask anything about your codebase'), 'should match "Ask anything" placeholder');
     });
   });
 

@@ -36,4 +36,32 @@ describe('Preferences API', () => {
     const data = await getRes.json();
     expect(data.workspaceSyncEnabled).toBe(true);
   });
+
+  it('PATCH fastStartEnabled persists across requests', async () => {
+    // Disable fast start
+    const patchRes = await apiRequest('/api/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fastStartEnabled: false }),
+    });
+    expect(patchRes.ok).toBe(true);
+
+    // Confirm persistence via GET
+    const getRes = await apiRequest('/api/preferences');
+    const data = await getRes.json();
+    expect(data.fastStartEnabled).toBe(false);
+
+    // Restore to true
+    const restoreRes = await apiRequest('/api/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fastStartEnabled: true }),
+    });
+    expect(restoreRes.ok).toBe(true);
+
+    // Verify restore
+    const verifyRes = await apiRequest('/api/preferences');
+    const verifyData = await verifyRes.json();
+    expect(verifyData.fastStartEnabled).toBe(true);
+  });
 });

@@ -144,6 +144,13 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     expect(syncHint).toBeTruthy();
   });
 
+  it('shows fast start toggle with hint', async () => {
+    const fastStartToggle = await page.$('[data-testid="settings-fast-start-toggle"]');
+    const fastStartHint = await page.$('[data-testid="settings-fast-start-hint"]');
+    expect(fastStartToggle).toBeTruthy();
+    expect(fastStartHint).toBeTruthy();
+  });
+
   it('shows recreate docs row', async () => {
     const row = await page.$('[data-testid="settings-recreate-docs-row"]');
     const label = await page.$('[data-testid="settings-recreate-docs-label"]');

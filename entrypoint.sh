@@ -33,6 +33,18 @@ echo "[entrypoint] === END R2 ENV STATUS ===" | tee -a /tmp/sync.log
 TERM=xterm-256color
 export TERM
 
+# === Fast Start: control auto-update behavior ===
+if [ "${FAST_CLI_START:-true}" = "false" ]; then
+    # Unset Dockerfile-level vars so tools CAN auto-update
+    unset DISABLE_AUTOUPDATER CLAUDE_UNLEASHED_NO_UPDATE OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS
+else
+    # Ensure all disable vars are set
+    export DISABLE_AUTOUPDATER=1
+    export CLAUDE_UNLEASHED_NO_UPDATE=1
+    export OPENCODE_DISABLE_AUTOUPDATE=1
+    export COPILOT_AUTO_UPDATE=false
+fi
+
 # User directories (local disk)
 USER_HOME="/home/user"
 USER_WORKSPACE="$USER_HOME/workspace"
@@ -615,7 +627,7 @@ CASE_EOF
             ;;
 CASE_EOF
                     ;;
-                codex|claude|opencode|copilot)
+                codex|claude|opencode|copilot*)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)
@@ -623,7 +635,7 @@ CASE_EOF
             ;;
 CASE_EOF
                     ;;
-                gemini)
+                gemini*)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)
@@ -735,6 +747,24 @@ else
     echo '{"bypassPermissionsModeAccepted":true}' > "$USER_CLAUDE_JSON"
 fi
 echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
+
+# === Fast Start: tool-specific config files ===
+if [ "${FAST_CLI_START:-true}" != "false" ]; then
+    # Gemini: merge enableAutoUpdate:false into settings (file may be synced via rclone)
+    mkdir -p "$USER_HOME/.gemini"
+    if [ -f "$USER_HOME/.gemini/settings.json" ]; then
+        jq '. * {"general":{"enableAutoUpdate":false,"enableAutoUpdateNotification":false}}' \
+            "$USER_HOME/.gemini/settings.json" > /tmp/gemini-settings.json 2>/dev/null && \
+            mv /tmp/gemini-settings.json "$USER_HOME/.gemini/settings.json"
+    else
+        echo '{"general":{"enableAutoUpdate":false,"enableAutoUpdateNotification":false}}' \
+            > "$USER_HOME/.gemini/settings.json"
+    fi
+
+    # Codex: dismiss version notification (excluded from rclone sync)
+    mkdir -p "$USER_HOME/.codex"
+    echo '{"dismissed_version":"999.0.0"}' > "$USER_HOME/.codex/version.json"
+fi
 
 # Configure tab auto-start
 configure_tab_autostart

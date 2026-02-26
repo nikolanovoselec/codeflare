@@ -118,5 +118,70 @@ describe('Preferences Routes', () => {
       expect(body.code).toBe('VALIDATION_ERROR');
     });
   });
+
+  describe('fastStartEnabled preference', () => {
+    it('GET returns stored fastStartEnabled', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        lastAgentType: 'codex',
+        fastStartEnabled: true,
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences');
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { lastAgentType?: string; fastStartEnabled?: boolean };
+      expect(body.lastAgentType).toBe('codex');
+      expect(body.fastStartEnabled).toBe(true);
+    });
+
+    it('PATCH updates fastStartEnabled and preserves other fields', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        lastAgentType: 'gemini',
+        workspaceSyncEnabled: true,
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fastStartEnabled: true }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { lastAgentType?: string; workspaceSyncEnabled?: boolean; fastStartEnabled?: boolean };
+      expect(body.lastAgentType).toBe('gemini');
+      expect(body.workspaceSyncEnabled).toBe(true);
+      expect(body.fastStartEnabled).toBe(true);
+    });
+
+    it('PATCH accepts fastStartEnabled: false', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fastStartEnabled: false }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { fastStartEnabled?: boolean };
+      expect(body.fastStartEnabled).toBe(false);
+    });
+
+    it('returns 400 for invalid fastStartEnabled type', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fastStartEnabled: 'yes' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+    });
+  });
 });
 

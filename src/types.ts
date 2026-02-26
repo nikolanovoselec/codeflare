@@ -137,6 +137,7 @@ export interface UserPreferences {
   lastAgentType?: AgentType;
   lastPresetId?: string;
   workspaceSyncEnabled?: boolean;
+  fastStartEnabled?: boolean;
 }
 
 export interface StorageObject {

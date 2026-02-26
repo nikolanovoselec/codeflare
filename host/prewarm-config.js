@@ -24,7 +24,7 @@ const SHELL_COMMANDS = new Set(['bash', 'sh', 'zsh']);
 // When matched against PTY output, the pre-warm resolves immediately.
 // Each pattern targets a string that only appears once the TUI is fully rendered.
 const READY_PATTERNS = {
-  opencode: />/,                            // Bubble Tea TUI shows ">" prompt when ready
+  opencode: /Ask anything/,                 // Bubble Tea TUI input placeholder when ready
   cu: /╭/,                                  // Claude Code Ink TUI renders ╭ as welcome box border
   'claude-unleashed': /╭/,                  // Same TUI as cu (wrapper around Claude Code)
   gemini: /Type your message/,              // Ink InputPrompt placeholder when ready for input

@@ -13,6 +13,7 @@ const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
   lastPresetId: z.string().max(100).optional(),
   workspaceSyncEnabled: z.boolean().optional(),
+  fastStartEnabled: z.boolean().optional(),
 }).strict();
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();

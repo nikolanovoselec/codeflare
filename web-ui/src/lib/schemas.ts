@@ -23,6 +23,7 @@ export const UserPreferencesSchema = z.object({
   lastAgentType: AgentTypeSchema.optional(),
   lastPresetId: z.string().optional(),
   workspaceSyncEnabled: z.boolean().optional(),
+  fastStartEnabled: z.boolean().optional(),
 });
 
 // Preset API response schemas

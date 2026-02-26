@@ -4,6 +4,7 @@ import {
   mdiPaletteOutline,
   mdiCloudSyncOutline,
   mdiCogOutline,
+  mdiFastForward,
   mdiContentPaste,
   mdiGestureTapButton,
   mdiLightbulbOnOutline,
@@ -35,6 +36,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateDocsError, setRecreateDocsError] = createSignal<string | null>(null);
   const isAdmin = () => props.currentUserRole === 'admin';
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled !== false;
+  const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
@@ -69,6 +71,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   const handleWorkspaceSyncToggle = () => {
     void sessionStore.updatePreferences({ workspaceSyncEnabled: !workspaceSyncEnabled() });
+  };
+
+  const handleFastStartToggle = () => {
+    void sessionStore.updatePreferences({ fastStartEnabled: !fastStartEnabled() });
   };
 
   const handleRecreateDocs = async () => {
@@ -360,6 +366,33 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <span class="settings-error" data-testid="settings-recreate-docs-error">{error()}</span>
                 )}
               </Show>
+            </div>
+          </section>
+
+          {/* Agent Startup Section */}
+          <section class="settings-section">
+            <div class="settings-section-header">
+              <Icon path={mdiFastForward} size={16} />
+              <h3 class="settings-section-title">Agent Startup</h3>
+            </div>
+            <div class="setting-row">
+              <label for="settings-fast-start">Fast Start</label>
+              <button
+                type="button"
+                id="settings-fast-start"
+                class={`toggle ${fastStartEnabled() ? 'toggle-on' : ''}`}
+                onClick={handleFastStartToggle}
+                role="switch"
+                aria-checked={fastStartEnabled()}
+                data-testid="settings-fast-start-toggle"
+              >
+                <span class="toggle-thumb" />
+              </button>
+            </div>
+            <div class="setting-row setting-row--column-gap">
+              <span class="settings-hint" data-testid="settings-fast-start-hint">
+                Launch pre-installed CLI versions for instant startup. Turn off to allow tools to auto-update on launch (slower startup, latest features).
+              </span>
             </div>
           </section>
 

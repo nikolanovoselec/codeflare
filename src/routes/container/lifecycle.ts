@@ -74,6 +74,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const preferencesKey = getPreferencesKey(bucketName);
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled !== false;
+    const fastStartEnabled = preferences.fastStartEnabled !== false;
 
     // CRITICAL: Create R2 bucket BEFORE starting container
     // Container sync will fail if bucket doesn't exist
@@ -138,6 +139,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
               r2Endpoint: r2Config.endpoint,
               tabConfig,
               workspaceSyncEnabled,
+              fastStartEnabled,
             }),
           })
         )
@@ -186,6 +188,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
                 r2Endpoint: r2Config.endpoint,
                 tabConfig,
                 workspaceSyncEnabled,
+                fastStartEnabled,
               }),
             })
           )

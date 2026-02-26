@@ -18,6 +18,7 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 8. [API Reference](#8-api-reference)
 9. [Container Image](#9-container-image)
 10. [Container Startup](#10-container-startup)
+    - [Fast Start](#fast-start)
 11. [Claude-Unleashed Integration](#11-claude-unleashed-integration)
 12. [File Structure](#12-file-structure)
 13. [Environment Variables](#13-environment-variables)
@@ -691,6 +692,8 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
+`UserPreferences` fields: `samsungAddressBarTop` (boolean), `clipboardAccess` (boolean), `fastStartEnabled` (boolean, default: `true`). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
+
 ### Public (Onboarding)
 
 GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited)
@@ -762,6 +765,28 @@ flowchart TD
 ```
 
 Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - pre-patched at build time, so the update check is fast (~2s). Users can also update manually via `cu` in any tab.
+
+### Fast Start
+
+**User preference:** `fastStartEnabled` (default: `true`) in `UserPreferences`.
+**Container env var:** `FAST_CLI_START` (default: `'true'`).
+
+When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, eliminating 5-30s of startup delay per tool. Each tool has a different disable mechanism:
+
+| Tool | Disable Mechanism | Type |
+|------|------------------|------|
+| Claude Code | `DISABLE_AUTOUPDATER=1` | Env var |
+| Claude Unleashed | `CLAUDE_UNLEASHED_NO_UPDATE=1` | Env var |
+| OpenCode | `OPENCODE_DISABLE_AUTOUPDATE=1` | Env var |
+| Copilot | `COPILOT_AUTO_UPDATE=false` | Env var |
+| Gemini | `~/.gemini/settings.json` -> `general.enableAutoUpdate: false` | Config file (jq merge) |
+| Codex | `~/.codex/version.json` -> `dismissed_version: "999.0.0"` | Config file (overwrite) |
+
+**Gemini settings.json merge pattern:** Uses `jq '. * {"general":{"enableAutoUpdate":false,"enableAutoUpdateNotification":false}}'` to deep-merge into existing settings. This preserves user customizations since the file is synced via rclone from R2. If the file doesn't exist, creates it with only the auto-update keys.
+
+**Codex dismissed_version hack:** Writes `{"dismissed_version":"999.0.0"}` to trick the Codex version checker into thinking a future version was already dismissed. The `~/.codex/` directory is excluded from rclone sync, so this file is safe to recreate on every container start.
+
+When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`DISABLE_AUTOUPDATER`, `CLAUDE_UNLEASHED_NO_UPDATE`, `OPENCODE_DISABLE_AUTOUPDATE`, `DISABLE_INSTALLATION_CHECKS`) and skips writing config files, allowing all tools to check for updates normally.
 
 ---
 
@@ -915,6 +940,7 @@ codeflare/
 | `TERMINAL_ID` | Unique ID for this terminal instance | Worker -> DO |
 | `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker -> DO |
 | `MANUAL_TAB` | Set to `1` for user-created tabs to skip autostart | Worker -> DO |
+| `FAST_CLI_START` | Disables auto-update for all 6 AI tools when `'true'` (default). Set `'false'` to allow auto-updates. See [Fast Start](#fast-start). | Worker -> DO (from `fastStartEnabled` preference) |
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
 | `BROWSER` | Points to `open-url` shim that exits 1, forcing CLIs to print OAuth URLs as text | Dockerfile ENV (`/usr/local/bin/open-url`) |
 

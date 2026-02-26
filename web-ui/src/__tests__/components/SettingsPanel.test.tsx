@@ -10,7 +10,7 @@ import * as storageApi from '../../api/storage';
 const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false }));
 
 const sessionStoreState = vi.hoisted(() => ({
-  preferences: { workspaceSyncEnabled: false as boolean | undefined },
+  preferences: { workspaceSyncEnabled: false as boolean | undefined, fastStartEnabled: undefined as boolean | undefined },
   updatePreferences: vi.fn(async () => undefined),
 }));
 
@@ -78,7 +78,7 @@ describe('SettingsPanel Component', () => {
       written: ['Getting-Started.md', 'Documentation/README.md'],
       skipped: [],
     });
-    sessionStoreState.preferences = { workspaceSyncEnabled: false };
+    sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
   });
 
@@ -213,6 +213,47 @@ describe('SettingsPanel Component', () => {
 
       const error = await screen.findByTestId('settings-recreate-docs-error');
       expect(error.textContent).toContain('Seed failed');
+    });
+  });
+
+  describe('Agent Startup Settings', () => {
+    it('shows fast start toggle defaulted to ON (undefined treated as true)', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const toggle = screen.getByTestId('settings-fast-start-toggle');
+      expect(toggle).toBeInTheDocument();
+      expect(toggle).toHaveClass('toggle-on');
+      expect(toggle).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('toggles fast start off via sessionStore.updatePreferences', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const toggle = screen.getByTestId('settings-fast-start-toggle');
+      fireEvent.click(toggle);
+
+      expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ fastStartEnabled: false });
+    });
+
+    it('toggles fast start on when currently off', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: false };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const toggle = screen.getByTestId('settings-fast-start-toggle');
+      expect(toggle).not.toHaveClass('toggle-on');
+      fireEvent.click(toggle);
+
+      expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ fastStartEnabled: true });
+    });
+
+    it('shows hint text containing "instant startup" and "auto-update"', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const hint = screen.getByTestId('settings-fast-start-hint');
+      expect(hint.textContent).toContain('instant startup');
+      expect(hint.textContent).toContain('auto-update');
     });
   });
 
