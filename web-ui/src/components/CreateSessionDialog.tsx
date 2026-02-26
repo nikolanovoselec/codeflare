@@ -6,7 +6,7 @@ import {
   mdiConsole,
   mdiFire,
   mdiRobotIndustrial,
-  mdiGithub,
+  // mdiGithub,  // Re-enable with copilot option
 } from '@mdi/js';
 import Icon from './Icon';
 import type { AgentType, TabConfig } from '../types';
