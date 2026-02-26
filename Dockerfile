@@ -42,8 +42,6 @@ RUN apk add --no-cache \
     # Network tools
     curl \
     openssh-client \
-    # glibc compat (copilot CLI ships glibc-linked binary, Alpine uses musl)
-    gcompat \
     # Utilities
     jq \
     ripgrep \
@@ -112,6 +110,15 @@ RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1
     find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64-musl' -type d -exec rm -rf {} + && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
+
+# Copilot Alpine fix: the native binary (@github/copilot-linux-x64) requires glibc (fcntl64).
+# npm-loader.js tries the binary first, then falls back to index.js but gates it behind Node >= 24.
+# Fix: delete the native binary package and create a wrapper that runs the JS bundle directly,
+# bypassing both the binary path and the Node version check.
+RUN rm -rf /usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-linux-x64 && \
+    mv /usr/local/bin/copilot /usr/local/bin/copilot-original && \
+    printf '#!/bin/sh\nexec node /usr/local/lib/node_modules/@github/copilot/index.js "$@"\n' > /usr/local/bin/copilot && \
+    chmod +x /usr/local/bin/copilot
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
