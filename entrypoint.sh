@@ -36,7 +36,7 @@ export TERM
 # === Fast Start: control auto-update behavior ===
 if [ "${FAST_CLI_START:-true}" = "false" ]; then
     # Unset Dockerfile-level vars so tools CAN auto-update
-    unset DISABLE_AUTOUPDATER CLAUDE_UNLEASHED_NO_UPDATE OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS
+    unset DISABLE_AUTOUPDATER CLAUDE_UNLEASHED_NO_UPDATE CLAUDE_UNLEASHED_CHANNEL OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS
 else
     # Ensure all disable vars are set
     export DISABLE_AUTOUPDATER=1
