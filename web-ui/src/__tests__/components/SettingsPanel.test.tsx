@@ -161,7 +161,7 @@ describe('SettingsPanel Component', () => {
     });
 
     it('toggles workspace sync preference via sessionStore', () => {
-      sessionStoreState.preferences = { workspaceSyncEnabled: false };
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: true };
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
       const toggle = screen.getByTestId('settings-workspace-sync-toggle');
