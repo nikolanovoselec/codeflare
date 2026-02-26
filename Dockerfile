@@ -43,7 +43,6 @@ RUN apk add --no-cache \
     curl \
     openssh-client \
     # Utilities
-    util-linux \
     jq \
     ripgrep \
     fd \
