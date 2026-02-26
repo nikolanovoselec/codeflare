@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { apiRequest } from '../setup';
 
 /**
@@ -7,6 +7,17 @@ import { apiRequest } from '../setup';
  */
 describe('Presets API', () => {
   const createdIds: string[] = [];
+
+  beforeAll(async () => {
+    // Clean slate: delete any leftover presets from previous runs
+    const res = await apiRequest('/api/presets');
+    if (res.ok) {
+      const data = await res.json();
+      for (const preset of data.presets ?? []) {
+        await apiRequest(`/api/presets/${preset.id}`, { method: 'DELETE' }).catch(() => {});
+      }
+    }
+  });
 
   afterAll(async () => {
     // Clean up all created presets
