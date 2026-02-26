@@ -9,7 +9,7 @@
   box-shadow: var(--shadow-lg);
   padding: var(--space-2);
   animation: csd-slide-in 150ms ease-out;
-  max-height: 400px;
+  max-height: 460px;
   overflow-y: auto;
   scrollbar-width: none;
 }

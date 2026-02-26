@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
-import { mdiFire, mdiRobotIndustrial } from '@mdi/js';
+import { mdiFire, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
 import CreateSessionDialog from '../../components/CreateSessionDialog';
 
 const sessionStoreState = vi.hoisted(() => ({
@@ -87,7 +87,7 @@ describe('CreateSessionDialog', () => {
   });
 
   describe('Agent type selection', () => {
-    it('renders all 6 visible agent options (copilot hidden pending Node 24)', () => {
+    it('renders all 7 agent options', () => {
       render(() => (
         <CreateSessionDialog
           isOpen={true}
@@ -100,12 +100,12 @@ describe('CreateSessionDialog', () => {
       expect(screen.getByTestId('csd-agent-claude-unleashed')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-codex')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-gemini')).toBeInTheDocument();
-      expect(screen.queryByTestId('csd-agent-copilot')).not.toBeInTheDocument();
+      expect(screen.getByTestId('csd-agent-copilot')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-opencode')).toBeInTheDocument();
       expect(screen.getByTestId('csd-agent-bash')).toBeInTheDocument();
     });
 
-    it('renders exactly 6 agent option buttons', () => {
+    it('renders exactly 7 agent option buttons', () => {
       render(() => (
         <CreateSessionDialog
           isOpen={true}
@@ -115,7 +115,7 @@ describe('CreateSessionDialog', () => {
       ));
 
       const buttons = screen.getByTestId('create-session-dialog').querySelectorAll('.csd-agent-btn');
-      expect(buttons).toHaveLength(6);
+      expect(buttons).toHaveLength(7);
     });
 
     it('renders opencode option with correct label and icon', () => {
@@ -182,6 +182,38 @@ describe('CreateSessionDialog', () => {
       expect(onSelect).toHaveBeenCalledWith('opencode');
     });
 
+    it('renders copilot option with correct label and icon', () => {
+      render(() => (
+        <CreateSessionDialog
+          isOpen={true}
+          onClose={() => {}}
+          onSelect={() => {}}
+        />
+      ));
+
+      const copilot = screen.getByTestId('csd-agent-copilot');
+      expect(copilot).toBeInTheDocument();
+      expect(copilot.textContent).toContain('GitHub Copilot');
+
+      const icon = copilot.querySelector('[data-testid="mock-icon"]');
+      expect(icon).toBeInTheDocument();
+      expect(icon).toHaveAttribute('data-path', mdiGithub);
+    });
+
+    it('calls onSelect with copilot agent type', () => {
+      const onSelect = vi.fn();
+      render(() => (
+        <CreateSessionDialog
+          isOpen={true}
+          onClose={() => {}}
+          onSelect={onSelect}
+        />
+      ));
+
+      fireEvent.click(screen.getByTestId('csd-agent-copilot'));
+      expect(onSelect).toHaveBeenCalledWith('copilot');
+    });
+
     it('lists agents in alphabetical order with Bash last', () => {
       render(() => (
         <CreateSessionDialog
@@ -198,6 +230,7 @@ describe('CreateSessionDialog', () => {
         'csd-agent-claude-unleashed',
         'csd-agent-codex',
         'csd-agent-gemini',
+        'csd-agent-copilot',
         'csd-agent-opencode',
         'csd-agent-bash',
       ]);
@@ -357,14 +390,14 @@ describe('CreateSessionDialog', () => {
       document.body.removeChild(mockAnchor);
     });
 
-    it('uses DIALOG_ESTIMATED_HEIGHT of 380 for positioning calculations', () => {
-      // DIALOG_ESTIMATED_HEIGHT = 380. When anchor is near the bottom,
-      // the dialog flips upward: top = rect.top - GAP - 380
+    it('uses DIALOG_ESTIMATED_HEIGHT of 430 for positioning calculations', () => {
+      // DIALOG_ESTIMATED_HEIGHT = 430. When anchor is near the bottom,
+      // the dialog flips upward: top = rect.top - GAP - 430
       Object.defineProperty(window, 'innerHeight', { value: 500, writable: true });
 
       const mockAnchor = document.createElement('button');
-      // Anchor near bottom: bottom at 490, only 2px space below (not enough for 380)
-      // Space above: top at 450, which is > 380 so it flips upward
+      // Anchor near bottom: bottom at 490, only 2px space below (not enough for 430)
+      // Space above: top at 450, which is > 430 so it flips upward
       Object.defineProperty(mockAnchor, 'getBoundingClientRect', {
         value: () => ({
           top: 450, bottom: 490, left: 50, right: 250,
@@ -384,8 +417,8 @@ describe('CreateSessionDialog', () => {
 
       const dialog = screen.getByTestId('create-session-dialog');
       const topValue = parseInt(dialog.style.top, 10);
-      // Should flip upward: top = 450 - 8 - 380 = 62
-      expect(topValue).toBe(62);
+      // Should flip upward: top = 450 - 8 - 430 = 12
+      expect(topValue).toBe(12);
 
       document.body.removeChild(mockAnchor);
     });
@@ -405,6 +438,7 @@ describe('CreateSessionDialog', () => {
       expect(screen.getByText('Official Claude Code CLI')).toBeInTheDocument();
       expect(screen.getByText('OpenAI Codex agent')).toBeInTheDocument();
       expect(screen.getByText('Google Gemini CLI')).toBeInTheDocument();
+      expect(screen.getByText("GitHub's AI coding agent")).toBeInTheDocument();
       expect(screen.getByText('Multi-model agent')).toBeInTheDocument();
       expect(screen.getByText('Plain terminal session')).toBeInTheDocument();
     });

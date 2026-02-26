@@ -42,6 +42,8 @@ RUN apk add --no-cache \
     # Network tools
     curl \
     openssh-client \
+    # glibc compat (copilot CLI ships glibc-linked binary, Alpine uses musl)
+    gcompat \
     # Utilities
     jq \
     ripgrep \
@@ -119,7 +121,7 @@ RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1
 RUN claude --version 2>&1 || true && \
     codex --version 2>&1 || true && \
     gemini --version 2>&1 || true && \
-    copilot --version 2>&1 || true
+    copilot --version 2>&1
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs
