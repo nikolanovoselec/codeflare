@@ -20,7 +20,17 @@ permissions:
   contents: read
 
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Block production deploys from non-main branches
+        if: github.ref != 'refs/heads/main' && inputs.environment == 'production'
+        run: |
+          echo "::error::Production deploys are only allowed from main. Got branch: ${{ github.ref }}"
+          exit 1
+
   deploy:
+    needs: guard
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     environment: ${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
     timeout-minutes: 20
