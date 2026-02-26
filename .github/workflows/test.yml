@@ -1,7 +1,5 @@
 name: PR Checks
 on:
-  push:
-    branches: [develop]
   pull_request:
     branches: [main]
   workflow_dispatch:
