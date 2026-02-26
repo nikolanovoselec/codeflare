@@ -717,11 +717,11 @@ GET `/health`, GET `/api/health`
 
 ### Global NPM Packages
 
-`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code` (symlinked from claude-unleashed), `@openai/codex`, `@google/gemini-cli`, `@github/copilot-cli`, `opencode-ai`
+`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code` (symlinked from claude-unleashed), `@openai/codex`, `@google/gemini-cli`, `@github/copilot`, `opencode-ai`
 
 ### V8 Compile Cache Warm-Up
 
-Node.js CLIs (claude, codex, gemini) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need this optimization.
+Node.js CLIs (claude, codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need this optimization.
 
 ### OpenCode Database Pre-Initialization
 
@@ -768,7 +768,7 @@ Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - 
 
 **Global (Dockerfile ENV):** `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`
 
-**Prewarm readiness:** `cu`/`claude-unleashed` are classified as TUI agents (not shell commands) in `host/prewarm-config.js`. They use 500ms quiescence (vs 2000ms for shells) and a `readyPattern` of `/╭/` — the first character of Claude Code's ink TUI welcome box. This fires instantly on render, avoiding premature readiness from update silence periods.
+**Prewarm readiness:** All TUI agents are classified in `host/prewarm-config.js` with agent-specific ready patterns. When a `readyPattern` is configured, quiescence-based detection is disabled — only the pattern match or the 20s hard timeout declares readiness. This prevents startup silence (e.g. Node.js V8 compile time) from prematurely firing "ready". Patterns: `cu`/`claude-unleashed` match `/╭/` (Ink TUI welcome box border), `opencode` matches `/>/' (Bubble Tea TUI prompt), `gemini` matches `/Type your message/` (Ink InputPrompt placeholder), `copilot` matches `/Describe a task|Copilot uses/` (Ink welcome box text), `codex` matches `/Codex can make mistakes/` (Rust TUI footer). Shell commands (bash, sh, zsh) use 2000ms quiescence with no pattern.
 
 **Auto-start flags (.bashrc):** `--silent`, `--no-consent`
 
@@ -828,12 +828,13 @@ codeflare/
 │   │                         # session-helpers, tutorial-seed.generated, type-guards,
 │   │                         # xml-utils
 │   ├── container/index.ts    # Container DO class
-│   └── __tests__/            # Backend unit tests (63 files)
-├── e2e/                      # E2E tests: 11 API files (~47 tests) + 10 UI files (~73 tests, Puppeteer)
+│   └── __tests__/            # Backend unit tests (64 files)
+├── e2e/                      # E2E tests: 11 API files (~48 tests) + 10 UI files (~76 desktop + ~81 mobile, Puppeteer)
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
 │   ├── prewarm-config.js     # Agent-aware PTY pre-warm configuration
+│   ├── __tests__/            # Host unit tests (4 files)
 │   └── package.json
 ├── web-ui/
 │   └── src/
@@ -1032,7 +1033,7 @@ Two-phase execution:
 ### 16.1 Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` — tests run in real Workers runtime (not Node.js).
-**Count:** 63 test files, ~758 tests.
+**Count:** 64 test files, ~771 tests.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -1040,7 +1041,7 @@ Two-phase execution:
 ### 16.2 Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 64 test files, ~1,280 tests.
+**Count:** 64 test files, ~1,285 tests.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
@@ -1058,12 +1059,12 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 
 ### 16.5 E2E UI Tests
 
-**Dir:** `e2e/ui/` — 8 test files, ~66 desktop tests (expanding to ~76 desktop + ~81 mobile).
+**Dir:** `e2e/ui/` — 10 test files, ~76 desktop + ~81 mobile tests.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
 **Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
 **Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1366x768. Mobile viewport: 375x812 (iPhone-like).
 
-Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`.
+Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`, `error-states`, `mobile-specific`.
 
 ### 16.6 E2E Infrastructure
 

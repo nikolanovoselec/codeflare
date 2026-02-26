@@ -13,7 +13,7 @@ Every session comes pre-loaded with your choice of AI coding agent:
 | [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) | Claude Code without the guardrails |
 | [Codex](https://github.com/openai/codex) | OpenAI's coding agent |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's terminal agent |
-| [GitHub Copilot](https://github.com/github/copilot-cli) | GitHub's AI coding agent |
+| [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source coding agent |
 | Bash | For the purists |
 
@@ -168,14 +168,14 @@ All optional. The defaults work out of the box. I respect your time.
 
 ## Testing
 
-~2,200+ tests across four layers:
+~2,300+ tests across four layers:
 
 | Layer | Tests | Framework |
 |-------|-------|-----------|
-| Backend | ~758 (63 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
-| Frontend | ~1,280 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
-| E2E API | ~47 (10 files) | Vitest + plain fetch |
-| E2E UI | ~73 (10 files, run as desktop + mobile) | Vitest + Puppeteer |
+| Backend | ~771 (64 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
+| Frontend | ~1,285 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
+| E2E API | ~48 (11 files) | Vitest + plain fetch |
+| E2E UI | ~76 (10 files, run as desktop + mobile) | Vitest + Puppeteer |
 
 ```bash
 npm test                           # Backend tests
