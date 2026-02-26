@@ -2,16 +2,16 @@
 # Uses node-pty for PTY management and rclone for R2 storage sync
 
 # ---- Stage 1: Builder (compile native addons) ----
-FROM node:22.13-alpine3.21@sha256:e2b39f7b64281324929257d0f8004fb6cb4bf0fdfb9aa8cedb235a766aec31da AS builder
+FROM node:24-bookworm-slim AS builder
 
-RUN apk add --no-cache make gcc g++ python3
+RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
 COPY host/package.json /app/host/
 WORKDIR /app/host
 RUN npm install --production
 
 # ---- Stage 2: Runtime ----
-FROM node:22.13-alpine3.21@sha256:e2b39f7b64281324929257d0f8004fb6cb4bf0fdfb9aa8cedb235a766aec31da
+FROM node:24-bookworm-slim
 
 # Suppress npm update nag; configure claude-unleashed for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
@@ -21,49 +21,65 @@ ENV DISABLE_INSTALLATION_CHECKS=1
 ENV CLAUDE_UNLEASHED_NO_UPDATE=1
 ENV IS_SANDBOX=1
 
-# Upgrade base packages to pick up security patches (musl, openssl, etc.)
-RUN apk upgrade --no-cache
+# Upgrade base packages to pick up security patches (libc, openssl, etc.)
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
 # Install runtime packages (no build tools needed - native addons pre-compiled)
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     # System essentials
-    rclone \
     ca-certificates \
     bash \
     # Version control
     git \
-    github-cli \
     # Editors
     nano \
     neovim \
-    ncurses \
-    ncurses-terminfo-base \
-    ncurses-terminfo \
+    ncurses-bin \
+    ncurses-base \
+    ncurses-term \
     # Network tools
     curl \
     openssh-client \
     # Utilities
     jq \
     ripgrep \
-    fd \
+    fd-find \
     tree \
     htop \
     tmux \
     fzf \
-    zoxide \
     # Yazi preview dependencies
     file \
-    p7zip \
+    p7zip-full \
     bat \
-    unzip && \
+    unzip \
+    # GPG for GitHub CLI repo key
+    gpg \
+    && rm -rf /var/lib/apt/lists/* \
+    # Symlinks for Debian-renamed binaries
+    && ln -s "$(which fdfind)" /usr/local/bin/fd \
+    && ln -s "$(which batcat)" /usr/local/bin/bat \
     # Symlink vim → neovim so both `vim` and `nvim` commands work
-    ln -s "$(which nvim)" /usr/local/bin/vim
+    && ln -s "$(which nvim)" /usr/local/bin/vim
 
-# Install yazi and lazygit from GitHub releases (not in Alpine repos for pinned versions)
+# Install rclone from official script (Debian repo version is often outdated)
+RUN curl -fsSL https://rclone.org/install.sh | bash
+
+# Install GitHub CLI from official apt repo (not in Debian default repos)
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install zoxide from GitHub (not in Debian bookworm repos)
+RUN curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash \
+    && mv /root/.local/bin/zoxide /usr/local/bin/zoxide
+
+# Install yazi and lazygit from GitHub releases (pinned versions)
 RUN YAZI_VERSION="26.1.22" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-gnu.zip" -o /tmp/yazi.zip && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
-    mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
+    mv /tmp/yazi/yazi-x86_64-unknown-linux-gnu/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
 RUN LAZYGIT_VERSION="0.59.0" && \
@@ -103,23 +119,14 @@ RUN ln -s /usr/local/lib/node_modules/claude-unleashed/node_modules/@anthropic-a
 # OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
 # Consolidated install allows npm to deduplicate shared dependencies across packages.
 # OpenCode ships 11 platform binaries as optionalDependencies — delete unused ones (~446MB saved).
-# Alpine uses musl libc, so only opencode-linux-x64-musl is needed.
+# Debian uses glibc, so only opencode-linux-x64 is needed.
 # Pin updated periodically — .cache-bust invalidates this layer
-RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1.2.14 @github/copilot@0.0.418 && \
+RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1.2.15 @github/copilot@0.0.418 && \
     cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
-    find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64-musl' -type d -exec rm -rf {} + && \
-    cp -f opencode-linux-x64-musl/bin/opencode ../bin/.opencode && \
+    find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64' -type d -exec rm -rf {} + && \
+    cp -f opencode-linux-x64/bin/opencode ../bin/.opencode && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
-
-# Copilot Alpine fix: the native binary (@github/copilot-linux-x64) requires glibc (fcntl64).
-# npm-loader.js tries the binary first, then falls back to index.js but gates it behind Node >= 24.
-# Fix: delete the native binary package and create a wrapper that runs the JS bundle directly,
-# bypassing both the binary path and the Node version check.
-RUN rm -rf /usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-linux-x64 && \
-    mv /usr/local/bin/copilot /usr/local/bin/copilot-original && \
-    printf '#!/bin/sh\nexec node --no-warnings /usr/local/lib/node_modules/@github/copilot/index.js "$@"\n' > /usr/local/bin/copilot && \
-    chmod +x /usr/local/bin/copilot
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.

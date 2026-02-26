@@ -626,8 +626,8 @@ CASE_EOF
                 gemini)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
-            # ${cmd} (suppress punycode deprecation warning)
-            env NODE_OPTIONS="--disable-warning=DEP0040" ${cmd}
+            # ${cmd} (bash stays as session leader for TTY stability)
+            ${cmd}
             ;;
 CASE_EOF
                     ;;

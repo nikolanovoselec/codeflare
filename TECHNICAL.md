@@ -703,7 +703,7 @@ GET `/health`, GET `/api/health`
 
 ## 9. Container Image
 
-**File:** `Dockerfile` - Base: `node:22.13-alpine3.21`, multi-stage build (builder compiles native addons, runtime has no build tools).
+**File:** `Dockerfile` - Base: `node:24-bookworm-slim`, multi-stage build (builder compiles native addons, runtime has no build tools).
 
 ### Installed Tools
 
@@ -930,7 +930,7 @@ Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGIN
 | default | 1 vCPU, 3 GiB, 4 GB | 10 | Baseline for node-pty + agent CLIs |
 | `high` | 2 vCPU, 6 GiB, 8 GB | 10 | Higher parallelism |
 
-Base image: Node.js 22 Alpine.
+Base image: Node.js 24 Debian (bookworm-slim).
 
 ### API Token Permissions
 
