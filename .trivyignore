@@ -21,3 +21,39 @@ CVE-2026-26960
 # minimatch 9.0.5-9.0.6 DoS via crafted patterns — CLIs use hardcoded patterns.
 CVE-2025-64756
 CVE-2026-26996
+
+# Debian bookworm base image system libraries — no fixes available in bookworm.
+# These are in system packages, not directly exposed to untrusted input.
+
+# glibc 2.36-9+deb12u13: integer overflow in memalign (heap corruption)
+# Container runs trusted code only; no user-controlled allocation sizes.
+CVE-2026-0861
+
+# git 2.39.5: arbitrary code execution + arbitrary file writes
+# Container git is used by AI agents in sandboxed workspace. Users control their own repos.
+CVE-2025-48384
+CVE-2025-48385
+
+# openldap libldap 2.5.13: null pointer dereference in ber_memalloc_x
+# Container doesn't use LDAP; libldap is a transitive dependency.
+CVE-2023-2953
+
+# mbedtls 2.28.3: use-after-free, integer overflow, NULL deref, AESNI race condition
+# Container doesn't use mbedtls directly; it's a dependency of rclone/curl.
+CVE-2025-47917
+CVE-2024-23775
+CVE-2025-48965
+CVE-2025-52496
+
+# sqlite 3.40.1: integer overflow
+# SQLite is used by OpenCode for local DB only (no untrusted SQL input).
+CVE-2025-7458
+
+# p7zip 16.02: ZIP directory traversal (RCE)
+# p7zip is used by yazi for archive preview only on user-owned files.
+CVE-2025-11001
+CVE-2025-11002
+
+# zlib 1.2.13: integer overflow in zipOpenNewFileInZip4_64 (will_not_fix in bookworm)
+# Only affects minizip API for creating ZIP files — container doesn't create ZIPs.
+CVE-2023-45853
