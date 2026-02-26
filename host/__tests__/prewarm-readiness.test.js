@@ -87,19 +87,55 @@ describe('getPrewarmConfig', () => {
     });
   });
 
-  describe('when tab 1 is another TUI agent', () => {
-    it('returns shorter quiescence for gemini', () => {
+  describe('when tab 1 is gemini', () => {
+    it('returns fast quiescence (500 ms)', () => {
       const cfg = getPrewarmConfig([
         { id: '1', command: 'gemini', label: 'Gemini' },
       ]);
       assert.equal(cfg.quiescenceMs, 500);
     });
 
-    it('returns shorter quiescence for codex', () => {
+    it('provides a readyPattern matching input placeholder', () => {
+      const cfg = getPrewarmConfig([
+        { id: '1', command: 'gemini', label: 'Gemini' },
+      ]);
+      assert.notEqual(cfg.readyPattern, null);
+      assert.ok(cfg.readyPattern.test('Type your message or @path/to/file'), 'should match Gemini input placeholder');
+    });
+  });
+
+  describe('when tab 1 is copilot', () => {
+    it('returns fast quiescence (500 ms)', () => {
+      const cfg = getPrewarmConfig([
+        { id: '1', command: 'copilot', label: 'Copilot' },
+      ]);
+      assert.equal(cfg.quiescenceMs, 500);
+    });
+
+    it('provides a readyPattern matching welcome box text', () => {
+      const cfg = getPrewarmConfig([
+        { id: '1', command: 'copilot', label: 'Copilot' },
+      ]);
+      assert.notEqual(cfg.readyPattern, null);
+      assert.ok(cfg.readyPattern.test('Describe a task to get started.'), 'should match wide terminal text');
+      assert.ok(cfg.readyPattern.test('Copilot uses AI. Check for mistakes.'), 'should match narrow terminal text');
+    });
+  });
+
+  describe('when tab 1 is codex', () => {
+    it('returns fast quiescence (500 ms)', () => {
       const cfg = getPrewarmConfig([
         { id: '1', command: 'codex', label: 'Codex' },
       ]);
       assert.equal(cfg.quiescenceMs, 500);
+    });
+
+    it('provides a readyPattern matching footer disclaimer', () => {
+      const cfg = getPrewarmConfig([
+        { id: '1', command: 'codex', label: 'Codex' },
+      ]);
+      assert.notEqual(cfg.readyPattern, null);
+      assert.ok(cfg.readyPattern.test('Codex can make mistakes'), 'should match Codex footer text');
     });
   });
 

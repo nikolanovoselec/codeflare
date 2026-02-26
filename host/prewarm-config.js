@@ -22,10 +22,14 @@ const SHELL_COMMANDS = new Set(['bash', 'sh', 'zsh']);
 
 // Ready-pattern regexes for specific agents.
 // When matched against PTY output, the pre-warm resolves immediately.
+// Each pattern targets a string that only appears once the TUI is fully rendered.
 const READY_PATTERNS = {
-  opencode: />/,  // OpenCode Bubble Tea TUI shows ">" prompt when ready
-  cu: /╭/,  // Claude Code ink TUI renders ╭ as first char of welcome box
-  'claude-unleashed': /╭/,  // Same TUI as cu (wrapper around Claude Code)
+  opencode: />/,                            // Bubble Tea TUI shows ">" prompt when ready
+  cu: /╭/,                                  // Claude Code Ink TUI renders ╭ as welcome box border
+  'claude-unleashed': /╭/,                  // Same TUI as cu (wrapper around Claude Code)
+  gemini: /Type your message/,              // Ink InputPrompt placeholder when ready for input
+  copilot: /Describe a task|Copilot uses/,  // Ink welcome box text (wide or narrow terminal)
+  codex: /Codex can make mistakes/,         // Rust TUI footer disclaimer when interface is ready
 };
 
 /**
