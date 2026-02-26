@@ -618,16 +618,16 @@ CASE_EOF
                 codex|claude|opencode|copilot)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
-            # ${cmd} (direct exec)
-            exec ${cmd}
+            # ${cmd} (bash stays as session leader for TTY stability)
+            ${cmd}
             ;;
 CASE_EOF
                     ;;
                 gemini)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
-            # ${cmd} (direct exec, suppress punycode deprecation warning)
-            exec env NODE_OPTIONS="--disable-warning=DEP0040" ${cmd}
+            # ${cmd} (suppress punycode deprecation warning)
+            env NODE_OPTIONS="--disable-warning=DEP0040" ${cmd}
             ;;
 CASE_EOF
                     ;;

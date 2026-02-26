@@ -108,6 +108,7 @@ RUN ln -s /usr/local/lib/node_modules/claude-unleashed/node_modules/@anthropic-a
 RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1.2.14 @github/copilot@0.0.418 && \
     cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
     find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64-musl' -type d -exec rm -rf {} + && \
+    cp -f opencode-linux-x64-musl/bin/opencode ../bin/.opencode && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
