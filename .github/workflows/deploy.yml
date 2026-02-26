@@ -192,8 +192,15 @@ jobs:
       - name: Use default Docker builder
         run: docker buildx use default
 
-      - name: Build container image for scanning
-        run: docker build -t codeflare:scan .
+      - name: Build container image
+        id: docker-build
+        run: |
+          IMAGE_TAG="${{ github.sha }}"
+          IMAGE_NAME="${WORKER_NAME}-container"
+          docker build --platform linux/amd64 -t "${IMAGE_NAME}:${IMAGE_TAG}" .
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image_name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "local_ref=${IMAGE_NAME}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Free disk space for Trivy scan
         run: docker builder prune -af && rm -rf /tmp/trivy-* || true
@@ -201,12 +208,42 @@ jobs:
       - name: Scan container image for vulnerabilities
         uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
         with:
-          image-ref: codeflare:scan
+          image-ref: ${{ steps.docker-build.outputs.local_ref }}
           severity: HIGH,CRITICAL
           exit-code: 1
           format: table
           scanners: vuln
           trivyignores: .trivyignore
+
+      - name: Push image to Cloudflare registry
+        id: push-image
+        run: |
+          IMAGE_NAME="${{ steps.docker-build.outputs.image_name }}"
+          IMAGE_TAG="${{ steps.docker-build.outputs.image_tag }}"
+
+          npx wrangler containers push "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 | tee /tmp/push-output.txt
+
+          # Extract the registry URI from wrangler output
+          REGISTRY_URI=$(grep -oP 'registry\.cloudflare\.com/\S+' /tmp/push-output.txt | head -1)
+
+          if [ -z "$REGISTRY_URI" ]; then
+            echo "::error::Failed to extract registry URI from wrangler containers push output"
+            cat /tmp/push-output.txt
+            exit 1
+          fi
+
+          echo "Registry URI: ${REGISTRY_URI}"
+          echo "registry_uri=${REGISTRY_URI}" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Point wrangler.toml to pre-pushed image
+        run: |
+          REGISTRY_URI="${{ steps.push-image.outputs.registry_uri }}"
+          sed -i "s|image = \"./Dockerfile\"|image = \"${REGISTRY_URI}\"|" wrangler.toml
+          echo "--- Verifying image config ---"
+          grep 'image =' wrangler.toml
 
       - name: Deploy to Cloudflare
         run: >-

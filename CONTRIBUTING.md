@@ -1,0 +1,119 @@
+# Contributing to Codeflare
+
+Thank you for your interest in contributing to Codeflare. This guide covers everything you need to get started.
+
+## License
+
+Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitting a contribution, you agree that your work will be distributed under the same license. Commercial use, resale, or paid hosted offerings require a separate written license from the maintainer.
+
+## Getting Started
+
+1. **Fork** this repository on GitHub.
+2. **Clone** your fork locally:
+   ```bash
+   git clone https://github.com/<your-username>/codeflare.git
+   cd codeflare
+   ```
+3. **Install dependencies** (both backend and frontend):
+   ```bash
+   npm install
+   cd web-ui && npm install && cd ..
+   ```
+
+## Project Structure
+
+| Directory | Purpose | Technology |
+|-----------|---------|------------|
+| `src/` | Backend (Cloudflare Worker) | TypeScript, Hono, Zod |
+| `web-ui/` | Frontend SPA | SolidJS, xterm.js, Vite |
+| `host/` | Container terminal server | Node.js, node-pty |
+| `e2e/` | End-to-end tests | Vitest, Puppeteer |
+| `.github/workflows/` | CI/CD pipelines | GitHub Actions |
+
+For a full architecture overview, see `TECHNICAL.md`.
+
+## Development
+
+```bash
+npm run dev                        # Run backend locally (requires wrangler)
+cd web-ui && npm run dev           # Frontend dev server (Vite)
+```
+
+## Running Tests
+
+Codeflare has five test layers totaling ~2,200+ tests. Run them with:
+
+```bash
+# Backend unit tests (Vitest + @cloudflare/vitest-pool-workers)
+npm test
+
+# Frontend unit tests (Vitest + jsdom + SolidJS Testing Library)
+cd web-ui && npm test
+
+# Host unit tests (Node.js test runner)
+cd host && npm test
+
+# E2E API tests (requires a deployed worker + CF Access service tokens)
+npm run test:e2e:api
+
+# E2E UI tests (requires a deployed worker + Puppeteer)
+npm run test:e2e:ui                # Desktop
+npm run test:e2e:ui-mobile         # Mobile
+```
+
+### Linting and Type Checking
+
+```bash
+npm run lint                       # Backend (oxlint)
+cd web-ui && npm run lint          # Frontend (oxlint)
+npm run typecheck                  # Backend (tsc --noEmit)
+cd web-ui && npm run typecheck     # Frontend
+```
+
+## Code Style
+
+- **TypeScript** with strict mode enabled across all layers.
+- **Vitest** for all testing (backend uses `@cloudflare/vitest-pool-workers`, frontend uses jsdom).
+- **SolidJS** for the frontend -- not React. Reactivity is signal-based. See `web-ui/src/stores/` for patterns.
+- **Hono** as the backend router on Cloudflare Workers.
+- **Zod** for input validation on both backend (`src/lib/schemas.ts`) and frontend (`web-ui/src/lib/schemas.ts`).
+- **oxlint** for linting. Run `npm run lint` before submitting.
+- No Prettier or ESLint -- oxlint handles it.
+
+## Submitting Changes
+
+### Branch Naming
+
+Use descriptive branch names with a prefix:
+
+- `feat/` -- new features
+- `fix/` -- bug fixes
+- `refactor/` -- code restructuring
+- `test/` -- test additions or fixes
+- `docs/` -- documentation changes
+
+Example: `fix/websocket-reconnect-race-condition`
+
+### Pull Request Process
+
+1. Create a feature branch from `main`.
+2. Make your changes. Write tests for new functionality.
+3. Ensure all tests pass locally (`npm test` and `cd web-ui && npm test` at minimum).
+4. Run linting and type checking -- CI will reject PRs that fail these.
+5. Open a pull request against `main` with a clear description of the change and its motivation.
+6. CI runs automatically on all PRs: lint, tests, typecheck, security audit, dependency review, and CodeQL analysis.
+
+### What Makes a Good PR
+
+- **Focused scope** -- one logical change per PR.
+- **Tests included** -- especially for bug fixes (prove the bug existed, prove it is fixed).
+- **No unrelated changes** -- avoid drive-by refactors or formatting cleanups.
+- **Clear description** -- explain *what* changed and *why*.
+
+## Security
+
+If you discover a security vulnerability, **do not open a public issue**. Report it via [GitHub's private vulnerability reporting](https://github.com/nikolanovoselec/codeflare/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
+
+## Questions
+
+Open an issue for questions about the codebase, architecture, or contribution process.

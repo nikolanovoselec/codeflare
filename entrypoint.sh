@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
-# Build: 2026-02-04.8 - Single port (8080) for all services
-BUILD_VERSION="2026-02-04.8"
+# Build version: ISO timestamp of container start time
+BUILD_VERSION="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # Codeflare Container Entrypoint - rclone bisync version
 # Health metrics now consolidated into terminal server on port 8080
 

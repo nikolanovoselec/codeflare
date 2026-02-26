@@ -33,12 +33,12 @@ Every response from the worker includes the following security headers:
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Enforces HTTPS |
-| `Content-Security-Policy` | Restrictive policy | Prevents XSS and injection |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` | Enforces HTTPS (2-year max-age with preload) |
+| `Content-Security-Policy` | `default-src 'none'` (API responses); `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss:; img-src 'self' data: https://www.gravatar.com; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'` (HTML responses) | Prevents XSS and injection |
 | `X-Frame-Options` | `DENY` | Prevents clickjacking |
 | `X-Content-Type-Options` | `nosniff` | Prevents MIME sniffing |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer leakage |
-| `Permissions-Policy` | Restrictive | Disables unnecessary browser APIs |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), interest-cohort=()` | Disables unnecessary browser APIs |
 
 ### Rate Limiting
 

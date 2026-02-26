@@ -228,6 +228,10 @@ function connect() {
 
 **Terminal Tab Configuration:** `web-ui/src/lib/terminal-config.ts` -- Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, cu, claude-code, codex, gemini, opencode, htop, yazi, lazygit, bash, sh, zsh to MDI icons).
 
+#### Frontend Constants
+
+**File:** `web-ui/src/lib/constants.ts` -- 20 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
+
 ---
 
 ## 3. Backend Libraries
@@ -281,10 +285,6 @@ flowchart TD
 **Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` -- prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
 
 **Session Stop Flow (idle):** `onActivityExpired()` detects no active WS clients -> `this.stop('SIGTERM')` -> `onStop()` fires with identifiers intact -> writes `status: 'stopped'` to KV.
-
-### Frontend Constants
-
-**File:** `web-ui/src/lib/constants.ts` -- 20 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ---
 
@@ -720,7 +720,7 @@ GET `/health`, GET `/api/health`
 
 ### Global NPM Packages
 
-Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` layer invalidation triggers fresh installs on each deploy).
+Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` layer invalidation triggers fresh installs on each deploy). The Dockerfile is the source of truth for version pins — versions listed below are approximate and may drift between documentation updates.
 
 | Package | Version | Provides |
 |---------|---------|----------|
@@ -764,7 +764,7 @@ flowchart TD
     D --> E["Start terminal server (:8080)"]
 ```
 
-Auto-start uses `cu --silent --no-consent` for fast boot. Updates are enabled - pre-patched at build time, so the update check is fast (~2s). Users can also update manually via `cu` in any tab.
+Auto-start uses `cu --silent --no-consent` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#fast-start) below). Users can enable auto-updates via Settings, or update manually via `cu` in any tab.
 
 ### Fast Start
 
@@ -863,12 +863,12 @@ codeflare/
 │   │                         # xml-utils
 │   ├── container/index.ts    # Container DO class
 │   └── __tests__/            # Backend unit tests (64 files)
-├── e2e/                      # E2E tests: 11 API files (~48 tests) + 10 UI files (~73 tests, Puppeteer)
+├── e2e/                      # E2E tests: 11 API files (~49 tests) + 10 UI files (~74 tests, Puppeteer)
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
 │   ├── prewarm-config.js     # Agent-aware PTY pre-warm configuration
-│   ├── __tests__/            # Host unit tests (4 files)
+│   ├── __tests__/            # Host unit tests (4 files, ~33 tests)
 │   └── package.json
 ├── web-ui/
 │   └── src/
@@ -1071,7 +1071,7 @@ Two-phase execution:
 ### 16.1 Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` — tests run in real Workers runtime (not Node.js).
-**Count:** 64 test files, ~774 tests.
+**Count:** 64 test files, ~775 tests.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -1079,14 +1079,14 @@ Two-phase execution:
 ### 16.2 Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 64 test files, ~1,273 tests.
+**Count:** 64 test files, ~1,288 tests.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
 ### 16.3 Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 4 test files, ~40 tests.
+**Count:** 4 test files, ~33 tests.
 **Run:** `cd host && npm test`
 **Scope:** PTY pre-warm readiness patterns, activity tracker disconnect tracking, WebSocket input classification, server prewarm integration.
 
@@ -1096,7 +1096,7 @@ Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/`
 
 ### 16.5 E2E API Tests
 
-**Dir:** `e2e/api/` — 11 test files, ~48 tests.
+**Dir:** `e2e/api/` — 11 test files, ~49 tests.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 
@@ -1104,7 +1104,7 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 
 ### 16.6 E2E UI Tests
 
-**Dir:** `e2e/ui/` — 10 test files, ~73 tests (run as desktop + mobile).
+**Dir:** `e2e/ui/` — 10 test files, ~74 tests (run as desktop + mobile).
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
 **Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
 **Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1366x768. Mobile viewport: 375x812 (iPhone-like).
@@ -1178,7 +1178,7 @@ cd web-ui && npm run build # Frontend production build
 | `default` | 1 vCPU, 3 GiB, 4 GB | ~$56 (reference) |
 | `high` | 2 vCPU, 6 GiB, 8 GB | Higher; check CF pricing |
 
-Cost scales per ACTIVE SESSION (each tab = container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
+Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
 
 **R2:** First 10GB free, $0.015/GB/month after. User config typically <100MB.
 

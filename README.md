@@ -149,7 +149,7 @@ All optional. The defaults work out of the box. I respect your time.
 | Variable | Default | What it does |
 |---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | `codeflare` | Worker name and Access group prefix |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GB RAM) | Container size: `low` (0.25 vCPU, 1 GB) or `high` (2 vCPU, 6 GB) |
+| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB RAM) | Container size: `low` (0.25 vCPU, 1 GiB) or `high` (2 vCPU, 6 GiB). Spelling is intentional — matches the Cloudflare API naming. |
 | `ONBOARDING_LANDING_PAGE` | `inactive` | Set to `active` for a public waitlist at `/` (requires Turnstile + `RESEND_API_KEY` secret) |
 | `RUNNER` | `ubuntu-latest` | GitHub Actions runner |
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | Set to `active` to force-reinstall the AI agent layer on every deploy |
@@ -159,12 +159,17 @@ All optional. The defaults work out of the box. I respect your time.
 
 </details>
 
-## Security Overview
+## Security
 
 - Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
 - AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
-- Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`).
+- Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`) with JWT verification.
 - API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
+- Security headers: HSTS, CSP, X-Frame-Options, Referrer-Policy on every response.
+- Rate limiting: KV-backed, per-user.
+- Input validation: Zod schemas, 64 KiB body limit.
+- Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning.
+- GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph.
 - For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
 ## Testing
@@ -173,11 +178,11 @@ All optional. The defaults work out of the box. I respect your time.
 
 | Layer | Tests | Framework |
 |-------|-------|-----------|
-| Backend | ~774 (64 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
-| Frontend | ~1,273 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
-| Host | ~40 (4 files) | Node.js test runner |
-| E2E API | ~48 (11 files) | Vitest + plain fetch |
-| E2E UI | ~73 (10 files, run as desktop + mobile) | Vitest + Puppeteer |
+| Backend | ~775 (64 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
+| Frontend | ~1,288 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
+| Host | ~33 (4 files) | Node.js test runner |
+| E2E API | ~49 (11 files) | Vitest + plain fetch |
+| E2E UI | ~74 (10 files, desktop + mobile) | Vitest + Puppeteer |
 
 ```bash
 npm test                           # Backend tests
@@ -185,7 +190,8 @@ cd web-ui && npm test              # Frontend tests
 cd host && npm test                # Host tests (prewarm, activity tracker)
 npm run test:e2e:api               # E2E API (requires deployed worker)
 npm run test:e2e:ui                # E2E UI desktop (requires deployed worker)
-E2E_MOBILE=1 npm run test:e2e:ui   # E2E UI mobile
+npm run test:e2e:ui-desktop        # E2E UI desktop (alias)
+npm run test:e2e:ui-mobile         # E2E UI mobile
 ```
 
 E2E tests require a deployed worker and CF Access service tokens. See `TECHNICAL.md` Section 16 for setup details.
@@ -204,17 +210,6 @@ Six GitHub Actions workflows:
 | `fuzz.yml` | Weekly / manual | Property-based fuzzing (fast-check) |
 
 See `TECHNICAL.md` Section 15 for full CI/CD documentation.
-
-## Security
-
-- Container isolation: one per session, no cross-session access
-- Cloudflare Access: gates `/app`, `/api`, `/setup` with JWT verification
-- Security headers: HSTS, CSP, X-Frame-Options, Referrer-Policy on every response
-- Rate limiting: KV-backed, per-user
-- Input validation: Zod schemas, 64 KiB body limit
-- Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning
-- GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph
-- See [SECURITY.md](SECURITY.md) for full security architecture
 
 ## Docs
 

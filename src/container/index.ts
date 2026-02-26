@@ -12,7 +12,7 @@ const SESSION_ID_KEY = '_sessionId';
 /**
  * container - Container Durable Object for user workspaces
  *
- * Each user gets one container that persists their workspace via rclone bisync to R2.
+ * Each session gets one container that persists their workspace via rclone bisync to R2.
  * The container runs a terminal server that handles multiple PTY sessions.
  */
 // Class name must be lowercase 'container' to match wrangler.toml class_name
