@@ -12,6 +12,7 @@ const EXPECTED_COMMANDS: Record<AgentType, { command: string; label: string }> =
   'claude-code': { command: 'claude', label: 'Terminal 1' },
   'claude-unleashed': { command: 'cu', label: 'Terminal 1' },
   'codex': { command: 'codex', label: 'Terminal 1' },
+  'copilot': { command: 'copilot', label: 'Terminal 1' },
   'gemini': { command: 'gemini', label: 'Terminal 1' },
   'opencode': { command: 'opencode', label: 'Terminal 1' },
   'bash': { command: '', label: 'Terminal 1' },
@@ -27,7 +28,7 @@ describe('AGENT_COMMANDS exhaustiveness', () => {
   });
 
   it('schema contains exactly the expected agent types', () => {
-    const expected = ['claude-unleashed', 'claude-code', 'codex', 'gemini', 'opencode', 'bash'];
+    const expected = ['claude-unleashed', 'claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash'];
     expect([...allAgentTypes].sort()).toEqual([...expected].sort());
   });
 
@@ -65,6 +66,11 @@ describe('getDefaultTabConfig', () => {
   it('sets tab 1 to gemini for gemini agent', () => {
     const tabs = getDefaultTabConfig('gemini');
     expect(tabs[0].command).toBe('gemini');
+  });
+
+  it('sets tab 1 to copilot for copilot agent', () => {
+    const tabs = getDefaultTabConfig('copilot');
+    expect(tabs[0].command).toBe('copilot');
   });
 
   it('sets tab 1 to opencode for opencode agent', () => {

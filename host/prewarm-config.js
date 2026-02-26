@@ -15,7 +15,7 @@ const FAST_QUIESCENCE_MS = 500;
 
 // Commands that are TUI agents with busy startup output.
 // These get a shorter quiescence window.
-const TUI_AGENT_COMMANDS = new Set(['opencode', 'codex', 'gemini', 'claude', 'cu', 'claude-unleashed']);
+const TUI_AGENT_COMMANDS = new Set(['opencode', 'codex', 'gemini', 'claude', 'cu', 'claude-unleashed', 'copilot']);
 
 // Commands that use the default (shell-like) quiescence.
 const SHELL_COMMANDS = new Set(['bash', 'sh', 'zsh']);

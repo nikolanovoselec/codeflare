@@ -717,7 +717,7 @@ GET `/health`, GET `/api/health`
 
 ### Global NPM Packages
 
-`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code` (symlinked from claude-unleashed), `@openai/codex`, `@google/gemini-cli`, `opencode-ai`
+`claude-unleashed` (wraps `@anthropic-ai/claude-code`), `@anthropic-ai/claude-code` (symlinked from claude-unleashed), `@openai/codex`, `@google/gemini-cli`, `@github/copilot-cli`, `opencode-ai`
 
 ### V8 Compile Cache Warm-Up
 

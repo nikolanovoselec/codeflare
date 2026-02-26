@@ -8,6 +8,7 @@ import {
   mdiSourceBranch,
   mdiFire,
   mdiRobotIndustrial,
+  mdiGithub,
 } from '@mdi/js';
 
 // Tab configuration: generic defaults, overridden by live process detection
@@ -28,6 +29,7 @@ const PROCESS_ICON_MAP: Record<string, string> = {
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
   'opencode': mdiRobotIndustrial,
+  'copilot': mdiGithub,
   'htop': mdiChartLine,
   'yazi': mdiFolderOutline,
   'lazygit': mdiSourceBranch,
@@ -48,5 +50,6 @@ export const AGENT_ICON_MAP: Record<string, string> = {
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
   'opencode': mdiRobotIndustrial,
+  'copilot': mdiGithub,
   'bash': mdiConsole,
 };

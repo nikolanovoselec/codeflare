@@ -8,14 +8,14 @@ import {
 } from '../../lib/schemas';
 
 describe('AgentTypeSchema', () => {
-  const validAgentTypes = ['claude-unleashed', 'claude-code', 'codex', 'gemini', 'opencode', 'bash'];
+  const validAgentTypes = ['claude-unleashed', 'claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash'];
 
-  it('contains exactly the expected 6 agent types', () => {
+  it('contains exactly the expected 7 agent types', () => {
     expect([...AgentTypeSchema.options].sort()).toEqual([...validAgentTypes].sort());
   });
 
-  it('has exactly 6 options', () => {
-    expect(AgentTypeSchema.options).toHaveLength(6);
+  it('has exactly 7 options', () => {
+    expect(AgentTypeSchema.options).toHaveLength(7);
   });
 
   it.each(validAgentTypes)('accepts "%s" as a valid agent type', (agentType) => {

@@ -13,6 +13,7 @@ Every session comes pre-loaded with your choice of AI coding agent:
 | [Claude Unleashed](https://github.com/nikolanovoselec/claude-unleashed) | Claude Code without the guardrails |
 | [Codex](https://github.com/openai/codex) | OpenAI's coding agent |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's terminal agent |
+| [GitHub Copilot](https://github.com/github/copilot-cli) | GitHub's AI coding agent |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source coding agent |
 | Bash | For the purists |
 

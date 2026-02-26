@@ -56,6 +56,20 @@ describe('Sessions API', () => {
     createdIds.push(data.session.id);
   });
 
+  it('POST /api/sessions with agentType copilot creates copilot session', async () => {
+    const res = await apiRequest('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentType: 'copilot' }),
+    });
+    expect(res.ok).toBe(true);
+    const data = await res.json();
+    expect(data.session.agentType).toBe('copilot');
+    expect(data.session.id).toBeDefined();
+    expect(data.session.createdAt).toBeDefined();
+    createdIds.push(data.session.id);
+  });
+
   it('GET /api/sessions/:id returns specific session', async () => {
     const createRes = await apiRequest('/api/sessions', {
       method: 'POST',
