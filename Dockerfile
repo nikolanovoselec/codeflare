@@ -119,12 +119,11 @@ RUN ln -s /usr/local/lib/node_modules/claude-unleashed/node_modules/@anthropic-a
 # OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
 # Consolidated install allows npm to deduplicate shared dependencies across packages.
 # OpenCode ships 11 platform binaries as optionalDependencies — delete unused ones (~446MB saved).
-# Debian uses glibc, so only opencode-linux-x64 is needed.
+# Debian uses glibc — postinstall correctly hard-links opencode-linux-x64 to bin/.opencode.
 # Pin updated periodically — .cache-bust invalidates this layer
 RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1.2.15 @github/copilot@0.0.418 && \
     cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
     find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64' -type d -exec rm -rf {} + && \
-    cp -f opencode-linux-x64/bin/opencode ../bin/.opencode && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
