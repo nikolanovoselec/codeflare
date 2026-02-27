@@ -114,8 +114,9 @@ ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
     claude-unleashed --silent --no-consent --help > /dev/null 2>&1 || true
 
-# Install Claude Code via native installer (replaces deprecated npm symlink)
-# Native binary: auto-updates, no Node.js dependency, faster startup
+# Install Claude Code native binary (replaces deprecated npm symlink).
+# Downloads latest binary from GCS, verifies checksum, runs `claude install` to set up
+# the launcher at ~/.local/bin/claude. The native binary auto-updates and doesn't need Node.js.
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:$PATH"
 
@@ -136,7 +137,7 @@ RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1
 # This speeds up first-launch of Node.js CLIs (claude, codex, gemini) inside containers
 # by avoiding the compilation overhead on every container start.
 # Note: Go binaries (like opencode) don't need this — they're already natively compiled.
-RUN claude --version 2>&1 || true && \
+RUN claude --version 2>&1 && \
     codex --version 2>&1 || true && \
     gemini --version 2>&1 || true && \
     copilot --version 2>&1
