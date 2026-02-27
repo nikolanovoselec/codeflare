@@ -19,7 +19,7 @@ import { toError } from './error-types';
 
 const logger = createLogger('user-cleanup');
 
-export interface CleanupResult {
+interface CleanupResult {
   deletedSessions: number;
   bucketDeleted: boolean;
   tokenDeleted: boolean;
