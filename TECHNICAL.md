@@ -737,6 +737,7 @@ GET `/health`, GET `/api/health`
 | Version Control | git, github-cli (gh), lazygit (v0.59.0) |
 | Editors | vim (symlinked to neovim), neovim, nano |
 | Network | curl, openssh-client |
+| Process | procps (ps, pgrep) |
 | Utilities | jq, ripgrep, fd, tree, htop, tmux, yazi (v26.1.22), fzf, zoxide, bat |
 
 ### Global NPM Packages
@@ -746,7 +747,7 @@ Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` la
 | Package | Version | Provides |
 |---------|---------|----------|
 | `claude-unleashed` | Git commit pin | `cu` / `claude-unleashed` commands (wraps `@anthropic-ai/claude-code`) |
-| Claude Code (native installer) | _(installed via `curl -fsSL https://claude.ai/install.sh \| bash`)_ | `claude` command at `/root/.local/bin/claude` |
+| Claude Code (native installer) | _(installed via `curl -fsSL https://claude.ai/install.sh \| bash -s -- stable`)_ | `claude` command at `/root/.local/bin/claude`. Stable channel — auto-updates when `DISABLE_AUTOUPDATER` is unset (Fast Start OFF), stays pinned when Fast Start ON. |
 | `@openai/codex` | 0.105.0 | `codex` command |
 | `@google/gemini-cli` | 0.30.0 | `gemini` command |
 | `opencode-ai` | 1.2.15 | `opencode` command |
@@ -754,7 +755,7 @@ Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` la
 
 ### V8 Compile Cache Warm-Up
 
-Node.js CLIs (codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Native binaries (like `claude` and `opencode`) are already compiled and do not need V8 cache warm-up — `claude --version` is run at build time to seed the binary's internal cache instead.
+Node.js CLIs (codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Native binaries (`claude` and `opencode`) are already compiled and do not need V8 cache warm-up. `claude --version` is still run at build time as a verification step (the build fails if the native installer did not work correctly) and to seed any internal caching the binary performs.
 
 ### OpenCode Database Pre-Initialization
 
@@ -787,6 +788,8 @@ flowchart TD
 
 Auto-start uses `cu --silent --no-consent` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#fast-start) below). Users can enable auto-updates via Settings, or update manually via `cu` in any tab.
 
+**PTY PATH:** The `.bashrc` tab autostart block prepends `/root/.local/bin` to `PATH` so that PTY sessions can find the native `claude` binary (installed there by the native installer). This matches the Dockerfile's `ENV PATH="/root/.local/bin:$PATH"` which covers non-interactive contexts.
+
 ### Fast Start
 
 **User preference:** `fastStartEnabled` (default: `true`) in `UserPreferences`.
@@ -796,7 +799,7 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, el
 
 | Tool | Disable Mechanism | Type |
 |------|------------------|------|
-| Claude Code | `DISABLE_AUTOUPDATER=1` | Env var |
+| Claude Code (native, stable channel) | `DISABLE_AUTOUPDATER=1` | Env var |
 | Claude Unleashed | `CLAUDE_UNLEASHED_NO_UPDATE=1`, `CLAUDE_UNLEASHED_CHANNEL=stable` | Env var |
 | OpenCode | `OPENCODE_DISABLE_AUTOUPDATE=1` | Env var |
 | Copilot | `COPILOT_AUTO_UPDATE=false` | Env var |
