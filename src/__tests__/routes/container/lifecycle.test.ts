@@ -6,7 +6,7 @@ import { createMockKV } from '../../helpers/mock-kv';
 
 // ---- Hoisted mocks ----
 
-const mockGetOrCreateScopedR2Token = vi.hoisted(() => vi.fn());
+const mockGetOrCreateR2Credentials = vi.hoisted(() => vi.fn());
 const mockCreateBucketIfNotExists = vi.hoisted(() => vi.fn());
 const mockSeedGettingStartedDocs = vi.hoisted(() => vi.fn());
 const mockGetR2Config = vi.hoisted(() => vi.fn());
@@ -25,7 +25,7 @@ vi.mock('../../../middleware/auth', () => ({
 // Mock r2-admin
 vi.mock('../../../lib/r2-admin', () => ({
   createBucketIfNotExists: mockCreateBucketIfNotExists,
-  getOrCreateScopedR2Token: mockGetOrCreateScopedR2Token,
+  getOrCreateR2Credentials: mockGetOrCreateR2Credentials,
 }));
 
 // Mock r2-seed
@@ -178,7 +178,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     };
   }
 
-  it('should call getOrCreateScopedR2Token to get scoped creds during container start', async () => {
+  it('should call getOrCreateR2Credentials to get derived creds during container start', async () => {
     const app = createTestApp();
 
     // Pre-populate session in KV
@@ -190,10 +190,9 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
       createdAt: '2024-01-01T00:00:00Z',
     } satisfies Partial<Session>);
 
-    mockGetOrCreateScopedR2Token.mockResolvedValue({
+    mockGetOrCreateR2Credentials.mockResolvedValue({
       accessKeyId: 'scoped-ak',
       secretAccessKey: 'scoped-sk',
-      tokenId: 'scoped-tok',
     });
 
     const res = await app.request('/container/start?sessionId=test-session', {
@@ -201,9 +200,8 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(mockGetOrCreateScopedR2Token).toHaveBeenCalledWith(
+    expect(mockGetOrCreateR2Credentials).toHaveBeenCalledWith(
       'test@example.com',
-      'test-account-id',
       'test-api-token',
       'codeflare-test-example-com',
       expect.anything(), // KV namespace
@@ -221,10 +219,9 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
       createdAt: '2024-01-01T00:00:00Z',
     } satisfies Partial<Session>);
 
-    mockGetOrCreateScopedR2Token.mockResolvedValue({
+    mockGetOrCreateR2Credentials.mockResolvedValue({
       accessKeyId: 'scoped-ak',
       secretAccessKey: 'scoped-sk',
-      tokenId: 'scoped-tok',
     });
 
     await app.request('/container/start?sessionId=test-session', {
@@ -258,7 +255,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
       createdAt: '2024-01-01T00:00:00Z',
     } satisfies Partial<Session>);
 
-    mockGetOrCreateScopedR2Token.mockRejectedValue(
+    mockGetOrCreateR2Credentials.mockRejectedValue(
       new Error('Failed to create scoped R2 token for bucket codeflare-test-example-com')
     );
 
@@ -283,7 +280,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
       createdAt: '2024-01-01T00:00:00Z',
     } satisfies Partial<Session>);
 
-    mockGetOrCreateScopedR2Token.mockRejectedValue(
+    mockGetOrCreateR2Credentials.mockRejectedValue(
       new Error('Token creation failed')
     );
 

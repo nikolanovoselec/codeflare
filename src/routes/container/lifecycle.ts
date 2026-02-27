@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences } from '../../types';
-import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
+import { createBucketIfNotExists, getOrCreateR2Credentials } from '../../lib/r2-admin';
 import { seedGettingStartedDocs } from '../../lib/r2-seed';
 import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
@@ -108,18 +108,17 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       }
     }
 
-    // Get scoped R2 credentials for this user's bucket
-    let scopedCreds: { accessKeyId: string; secretAccessKey: string; tokenId: string };
+    // Get R2 S3 credentials (derived from API token, cached in KV)
+    let r2Creds: { accessKeyId: string; secretAccessKey: string };
     try {
-      scopedCreds = await getOrCreateScopedR2Token(
+      r2Creds = await getOrCreateR2Credentials(
         user.email,
-        r2Config.accountId,
         c.env.CLOUDFLARE_API_TOKEN,
         bucketName,
         c.env.KV,
       );
     } catch (error) {
-      reqLogger.error('Failed to create scoped R2 token', toError(error), { bucketName });
+      reqLogger.error('Failed to derive R2 credentials', toError(error), { bucketName });
       throw new ContainerError('r2_credentials', toErrorMessage(error));
     }
 
@@ -148,8 +147,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
             body: JSON.stringify({
               bucketName,
               sessionId,
-              r2AccessKeyId: scopedCreds.accessKeyId,
-              r2SecretAccessKey: scopedCreds.secretAccessKey,
+              r2AccessKeyId: r2Creds.accessKeyId,
+              r2SecretAccessKey: r2Creds.secretAccessKey,
               r2AccountId: r2Config.accountId,
               r2Endpoint: r2Config.endpoint,
               tabConfig,
@@ -197,8 +196,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
               body: JSON.stringify({
                 bucketName,
                 sessionId,
-                r2AccessKeyId: scopedCreds.accessKeyId,
-                r2SecretAccessKey: scopedCreds.secretAccessKey,
+                r2AccessKeyId: r2Creds.accessKeyId,
+                r2SecretAccessKey: r2Creds.secretAccessKey,
                 r2AccountId: r2Config.accountId,
                 r2Endpoint: r2Config.endpoint,
                 tabConfig,
