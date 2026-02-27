@@ -35,7 +35,6 @@ describe('User Profile Routes', () => {
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
-        DEV_MODE: 'false',
         ...envOverrides,
       } as unknown as Env;
       return next();
@@ -113,6 +112,50 @@ describe('User Profile Routes', () => {
       expect(res.status).toBe(401);
       const body = await res.json() as { code: string };
       expect(body.code).toBe('AUTH_ERROR');
+    });
+  });
+
+  // =========================================================================
+  // GET /user/r2-status — R2 scoped token readiness
+  // =========================================================================
+  describe('GET /user/r2-status', () => {
+    it('should return { ready: true } when r2token:{email} exists in KV', async () => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: { email: 'test@example.com', authenticated: true, role: 'user' },
+        bucketName: 'codeflare-abc123',
+      });
+
+      // Populate r2token KV entry
+      mockKV._set('r2token:test@example.com', {
+        accessKeyId: 'ak-123',
+        secretAccessKey: 'sk-456',
+        tokenId: 'tok-789',
+        bucketName: 'codeflare-abc123',
+        createdAt: '2024-01-01T00:00:00Z',
+      });
+
+      const app = createApp();
+      const res = await app.request('/user/r2-status');
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ready: boolean };
+      expect(body.ready).toBe(true);
+    });
+
+    it('should return { ready: false } when no r2token:{email} in KV', async () => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: { email: 'test@example.com', authenticated: true, role: 'user' },
+        bucketName: 'codeflare-abc123',
+      });
+
+      // No r2token entry in KV
+
+      const app = createApp();
+      const res = await app.request('/user/r2-status');
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ready: boolean };
+      expect(body.ready).toBe(false);
     });
   });
 });

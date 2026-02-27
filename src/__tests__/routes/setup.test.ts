@@ -169,7 +169,6 @@ describe('Setup Routes', () => {
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
-        DEV_MODE: 'false',
         CLOUDFLARE_API_TOKEN: TEST_TOKEN,
         CLOUDFLARE_WORKER_NAME: TEST_WORKER_NAME,
         ...envOverrides,

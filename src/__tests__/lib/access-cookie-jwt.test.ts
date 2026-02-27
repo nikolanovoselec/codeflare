@@ -22,7 +22,6 @@ describe('getUserFromRequest cookie JWT fallback', () => {
   function makeEnv(mockKV: ReturnType<typeof createMockKV>): Env {
     return {
       KV: mockKV as unknown as KVNamespace,
-      DEV_MODE: 'false',
     } as Env;
   }
 

@@ -83,16 +83,6 @@ app.use('*', async (c, next) => {
   } else if (await isAllowedOrigin(origin, c.env)) {
     // Check against configurable allowed patterns
     allowedOrigin = origin;
-  } else if (c.env.DEV_MODE === 'true') {
-    // Allow localhost only in development mode
-    try {
-      const originUrl = new URL(origin);
-      if (originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1') {
-        allowedOrigin = origin;
-      }
-    } catch {
-      // Invalid origin URL, skip
-    }
   }
 
   // Handle preflight OPTIONS requests

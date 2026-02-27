@@ -1,4 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
+import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { terminalStore } from './terminal';
@@ -115,6 +116,38 @@ registerSessionStoreAccess(
 registerProcessNameCallback((sessionId, terminalId, processName) => {
   updateTerminalLabel(sessionId, terminalId, processName);
 });
+
+// ============================================================================
+// R2 Scoped Token Readiness
+// ============================================================================
+const [r2Ready, setR2Ready] = createSignal(false);
+let r2PollInterval: ReturnType<typeof setInterval> | null = null;
+const R2_POLL_INTERVAL_MS = 3000;
+
+async function checkR2Status(): Promise<void> {
+  try {
+    const { ready } = await api.getR2Status();
+    if (ready) {
+      setR2Ready(true);
+      stopR2Polling();
+    }
+  } catch {
+    // Silently ignore — background polling
+  }
+}
+
+function startR2Polling(): void {
+  if (r2PollInterval !== null) return;
+  checkR2Status();
+  r2PollInterval = setInterval(checkR2Status, R2_POLL_INTERVAL_MS);
+}
+
+function stopR2Polling(): void {
+  if (r2PollInterval !== null) {
+    clearInterval(r2PollInterval);
+    r2PollInterval = null;
+  }
+}
 
 // Get active session
 function getActiveSession(): SessionWithStatus | undefined {
@@ -657,6 +690,11 @@ export const sessionStore = {
 
   // Context lifecycle
   hasRecentContext,
+
+  // R2 scoped token readiness
+  get r2Ready() { return r2Ready(); },
+  startR2Polling,
+  stopR2Polling,
 
   // @internal -- exposed for tests (AD23)
   updateSessionStatus,

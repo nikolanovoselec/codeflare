@@ -51,7 +51,6 @@ export class container extends Container<Env> {
       ['POST:/_internal/setBucketName', (request) => this.handleSetBucketName(request)],
       ['PUT:/_internal/setSessionId', (request) => this.handleSetSessionId(request)],
       ['GET:/_internal/getBucketName', () => this.handleGetBucketName()],
-      ['GET:/_internal/debugEnvVars', () => this.handleDebugEnvVars()],
     ]);
     // Load bucket name from storage on startup and update envVars
     this.ctx.blockConcurrencyWhile(async () => {
@@ -379,48 +378,6 @@ export class container extends Container<Env> {
    */
   private handleGetBucketName(): Response {
     return new Response(JSON.stringify({ bucketName: this._bucketName }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  /**
-   * Handle GET /_internal/debugEnvVars (DEV_MODE only)
-   */
-  private handleDebugEnvVars(): Response {
-    if (this.env.DEV_MODE !== 'true') {
-      return new Response(JSON.stringify({ error: 'Not found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const debugInfo = {
-      bucketName: this._bucketName,
-      resolvedR2Config: {
-        accountId: this._r2AccountId || 'NOT SET',
-        endpoint: this._r2Endpoint || 'NOT SET',
-        source: this._r2AccountId
-          ? (this.env.R2_ACCOUNT_ID ? 'env' : 'kv')
-          : 'none',
-      },
-      envVars: {
-        R2_BUCKET_NAME: this.envVars?.R2_BUCKET_NAME || 'NOT SET',
-        R2_ENDPOINT: this.envVars?.R2_ENDPOINT || 'NOT SET',
-        R2_ACCOUNT_ID: this.envVars?.R2_ACCOUNT_ID || 'NOT SET',
-        R2_ACCESS_KEY_ID: this.envVars?.R2_ACCESS_KEY_ID ? 'SET' : 'NOT SET',
-        R2_SECRET_ACCESS_KEY: this.envVars?.R2_SECRET_ACCESS_KEY ? 'SET' : 'NOT SET',
-        WORKSPACE_SYNC_ENABLED: this.envVars?.WORKSPACE_SYNC_ENABLED || 'NOT SET',
-        SYNC_MODE: this.envVars?.SYNC_MODE || 'NOT SET',
-        TERMINAL_PORT: this.envVars?.TERMINAL_PORT || 'NOT SET',
-      },
-      workerEnv: {
-        R2_ACCESS_KEY_ID: this.env.R2_ACCESS_KEY_ID ? 'SET' : 'NOT SET',
-        R2_SECRET_ACCESS_KEY: this.env.R2_SECRET_ACCESS_KEY ? 'SET' : 'NOT SET',
-        R2_ACCOUNT_ID: this.env.R2_ACCOUNT_ID || 'NOT SET',
-        R2_ENDPOINT: this.env.R2_ENDPOINT || 'NOT SET',
-      },
-    };
-    return new Response(JSON.stringify(debugInfo, null, 2), {
       headers: { 'Content-Type': 'application/json' },
     });
   }

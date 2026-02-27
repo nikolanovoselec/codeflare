@@ -52,15 +52,18 @@ vi.mock('../../components/SessionLimitPopup', () => ({
 vi.mock('../../stores/session', () => {
   let _isAtLimit = false;
   let _maxSessions = 3;
+  let _r2Ready = true;
   return {
     sessionStore: {
       get sessions() { return []; },
       get maxSessions() { return _maxSessions; },
+      get r2Ready() { return _r2Ready; },
       isAtSessionLimit: () => _isAtLimit,
       _setTestLimit: (atLimit: boolean, max?: number) => {
         _isAtLimit = atLimit;
         if (max !== undefined) _maxSessions = max;
       },
+      _setR2Ready: (ready: boolean) => { _r2Ready = ready; },
     },
   };
 });
@@ -355,5 +358,46 @@ describe('Dashboard', () => {
 
     // Reset
     (sessionStore as any)._setTestLimit(false);
+  });
+
+  // =========================================================================
+  // R2 Readiness Tests
+  // =========================================================================
+  describe('R2 readiness', () => {
+    afterEach(() => {
+      // Reset to default
+      (sessionStore as any)._setR2Ready(true);
+    });
+
+    it('should show loader overlay when r2Ready is false', () => {
+      (sessionStore as any)._setR2Ready(false);
+      render(() => <Dashboard {...defaultProps} />);
+
+      expect(screen.getByTestId('r2-loading-overlay')).toBeInTheDocument();
+    });
+
+    it('should show "Setting up your storage credentials..." message', () => {
+      (sessionStore as any)._setR2Ready(false);
+      render(() => <Dashboard {...defaultProps} />);
+
+      expect(screen.getByText(/Setting up your storage credentials/i)).toBeInTheDocument();
+    });
+
+    it('should disable "+ New Session" button when r2Ready is false', () => {
+      (sessionStore as any)._setR2Ready(false);
+      render(() => <Dashboard {...defaultProps} />);
+
+      const btn = screen.getByTestId('dashboard-new-session');
+      expect(btn).toBeDisabled();
+    });
+
+    it('should remove loader and enable button when r2Ready becomes true', () => {
+      (sessionStore as any)._setR2Ready(true);
+      render(() => <Dashboard {...defaultProps} />);
+
+      expect(screen.queryByTestId('r2-loading-overlay')).not.toBeInTheDocument();
+      const btn = screen.getByTestId('dashboard-new-session');
+      expect(btn).not.toBeDisabled();
+    });
   });
 });

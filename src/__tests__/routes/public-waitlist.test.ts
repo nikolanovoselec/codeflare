@@ -33,7 +33,6 @@ describe('Public waitlist route', () => {
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
-        DEV_MODE: 'false',
         ONBOARDING_LANDING_PAGE: 'inactive',
         ...envOverrides,
       } as Env;

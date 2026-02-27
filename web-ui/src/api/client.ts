@@ -293,6 +293,12 @@ export async function getOnboardingConfig(): Promise<OnboardingConfigResponse> {
   });
 }
 
+// R2 scoped token readiness
+export async function getR2Status(): Promise<{ ready: boolean }> {
+  const data = await fetchApi<{ ready: boolean }>('/user/r2-status', {});
+  return data ?? { ready: false };
+}
+
 // Session ID format: 8-24 lowercase alphanumeric characters (matches backend SESSION_ID_PATTERN)
 const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
 

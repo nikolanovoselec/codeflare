@@ -23,7 +23,11 @@ describe('Container Lifecycle API', () => {
     }
   }, TIMEOUTS.CONTAINER_STARTUP);
 
-  it('POST /api/container/start returns success', async () => {
+  // Container start implicitly tests scoped R2 credentials flow:
+  // The start endpoint now calls getOrCreateScopedR2Token() which provisions
+  // per-user bucket-scoped R2 API tokens before passing them to setBucketName.
+  // If scoped token creation fails, container start will return 500.
+  it('POST /api/container/start returns success (implicitly tests scoped R2 creds)', async () => {
     const res = await apiRequest(`/api/container/start?sessionId=${sessionId}`, {
       method: 'POST',
     });

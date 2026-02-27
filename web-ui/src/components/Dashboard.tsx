@@ -135,6 +135,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
           <div class="dashboard-panel-left" data-testid="dashboard-panel-left">
             <DashboardCard sessions={props.sessions} />
 
+            <Show when={!sessionStore.r2Ready}>
+              <div class="r2-loading-overlay" data-testid="r2-loading-overlay">
+                <div class="r2-loading-message">Setting up your storage credentials. This takes up to 90 seconds on first login...</div>
+              </div>
+            </Show>
+
             <div class="dashboard-new-session-wrapper">
                 <Portal>
                   <CreateSessionDialog
@@ -161,7 +167,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   ref={setNewSessionBtnRef}
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
-                  aria-label={sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
+                  disabled={!sessionStore.r2Ready}
+                  aria-label={!sessionStore.r2Ready ? 'Waiting for storage setup' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
+                  title={!sessionStore.r2Ready ? 'Storage credentials are being set up...' : undefined}
                   onClick={() => {
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());

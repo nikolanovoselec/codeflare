@@ -250,8 +250,6 @@ function connect() {
 | `src/lib/cache-reset.ts` | Centralized invalidation of CORS + auth config + JWKS caches. Called by setup wizard after configuration changes. |
 | `src/lib/cf-api.ts` | Cloudflare API client. `parseCfResponse` checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts `JSON.parse` on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails -- this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors. |
 
-**DEV_MODE Gating:** `/api/container/debug/*` restricted to `DEV_MODE = "true"`. Note: DEV_MODE only gates debug endpoints and enables localhost CORS - it does NOT bypass CF Access authentication.
-
 ### Setup Wizard Resilience
 
 **Directory:** `src/routes/setup/`
@@ -534,6 +532,8 @@ Cloudflare Access protects all authenticated surfaces. One Access application wi
 
 The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
 
+**R2 credential scope limitation:** Currently all containers receive the same account-level R2 credentials (derived from the API token via SHA-256 hash). Any container could theoretically access other users' R2 buckets if it knew the bucket name. Planned fix: per-user bucket-scoped R2 API tokens that restrict each container to only its owner's bucket.
+
 ### Container Auth Token
 
 A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/server.js`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
@@ -584,7 +584,7 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 
 ### Protected R2 Paths
 
-The following paths are excluded from R2 sync and cannot be uploaded/deleted/moved via the storage API: `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json`. Defined in `PROTECTED_PATHS` in `src/lib/constants.ts`.
+Cannot be accessed via the web storage API (browse, upload, delete, move). These paths ARE synced to R2 via rclone for session persistence (credentials, config, plugins). Defined in `PROTECTED_PATHS` in `src/lib/constants.ts`: `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json`.
 
 ---
 
@@ -630,10 +630,6 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | POST | `/api/container/destroy` | Destroy container (SIGKILL) |
 | GET | `/api/container/startup-status` | Poll startup progress |
 | GET | `/api/container/health` | Health check |
-| GET | `/api/container/state` | Container state (DEV_MODE) |
-| GET | `/api/container/debug` | Debug info (DEV_MODE) |
-| GET | `/api/container/sync-log` | Sync log (DEV_MODE) |
-| GET | `/api/container/mount-test` | Mount verification (DEV_MODE) |
 
 ### Terminal
 
@@ -820,7 +816,6 @@ codeflare/
 │   │   │   ├── index.ts      # Route aggregator
 │   │   │   ├── lifecycle.ts  # Start/destroy
 │   │   │   ├── status.ts     # Health, startup-status
-│   │   │   ├── debug.ts      # Debug endpoints (DEV_MODE)
 │   │   │   └── shared.ts     # Shared helpers
 │   │   ├── session/          # Session API
 │   │   │   ├── index.ts      # Route aggregator
@@ -908,7 +903,6 @@ codeflare/
 
 | Variable | Purpose | Source |
 |----------|---------|--------|
-| `DEV_MODE` | Enables localhost CORS and debug endpoints (does NOT bypass auth) | wrangler.toml |
 | `SERVICE_TOKEN_EMAIL` | Email for service token auth | Optional |
 | `CLOUDFLARE_API_TOKEN` | R2 bucket creation | Wrangler secret |
 | `R2_ACCESS_KEY_ID` | R2 auth for containers | Wrangler secret |
@@ -965,7 +959,7 @@ Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGIN
 | Tier | Config | Max Instances | Notes |
 |------|--------|---------------|-------|
 | `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 10 | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 4 GB | 10 | Baseline for node-pty + agent CLIs |
+| default | 1 vCPU, 3 GiB, 6 GB | 10 | Baseline for node-pty + agent CLIs |
 | `high` | 2 vCPU, 6 GiB, 8 GB | 10 | Higher parallelism |
 
 Base image: Node.js 24 Debian (bookworm-slim).
@@ -1002,8 +996,8 @@ Six workflows covering deploy, testing, fuzzing, and supply chain security. Addi
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | Push to `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets |
-| `test.yml` | Push to `develop` + PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, `npm audit`, dependency review |
-| `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - matrix strategy: `api`, `ui-desktop`, `ui-mobile` on `ubuntu-latest` |
+| `test.yml` | PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, `npm audit`, dependency review |
+| `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
 | `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
 | `fuzz.yml` | Weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
@@ -1019,38 +1013,41 @@ Six workflows covering deploy, testing, fuzzing, and supply chain security. Addi
 
 **Secrets (repository-level):**
 
-| Secret | Required | Used by |
-|--------|----------|---------|
-| `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` |
-| `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` |
-| `RESEND_API_KEY` | Only if `ONBOARDING_LANDING_PAGE=active` | `deploy.yml` |
-| `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` |
-| `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` |
+| Secret | Required | Used by | Purpose |
+|--------|----------|---------|---------|
+| `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` | Wrangler CLI auth, KV operations, container push, worker deploy, secret management |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` | Identifies the Cloudflare account for all API operations |
+| `RESEND_API_KEY` | Only if `ONBOARDING_LANDING_PAGE=active` | `deploy.yml` | Waitlist notification emails via Resend |
+| `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token ID for E2E auth |
+| `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token secret; also used as `SERVICE_AUTH_SECRET` worker secret and KV seeding |
 
 **Variables:**
 
-| Variable | Default | Used by |
-|----------|---------|---------|
-| `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` |
-| `RUNNER` | `ubuntu-latest` | All workflows |
-| `E2E_BASE_URL` | - | `e2e.yml` |
-| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB) | `deploy.yml` |
-| `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | `deploy.yml` |
-| `MAX_SESSIONS_USER` | `3` | `deploy.yml` |
-| `MAX_SESSIONS_ADMIN` | `10` | `deploy.yml` |
+| Variable | Default | Used by | Purpose | Default source |
+|----------|---------|---------|---------|----------------|
+| `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` | Worker name for deploy and E2E target resolution | Hardcoded fallback in workflow |
+| `RUNNER` | `ubuntu-latest` | All workflows | GitHub Actions runner label (self-hosted support) | Hardcoded fallback in workflow |
+| `E2E_BASE_URL` | - | `e2e.yml` | Base URL of deployed worker for E2E tests | Set per environment |
+| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` | Enables public waitlist landing page via `--var` | Hardcoded fallback in workflow |
+| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 6 GB) | `deploy.yml` | Container resource tier (low/default/high) | Defaults to `default` in deploy step |
+| `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | `deploy.yml` | When `active`, writes `.cache-bust` to invalidate CU Docker layer | Not set by default |
+| `MAX_SESSIONS_USER` | `3` | `deploy.yml` | Per-user session cap passed via `--var` | Omitted if unset (backend default applies) |
+| `MAX_SESSIONS_ADMIN` | `10` | `deploy.yml` | Per-admin session cap passed via `--var` | Omitted if unset (backend default applies) |
 
 ### Deploy Workflow Detail
 
 1. Install dependencies (cached via `actions/cache`)
 2. Build frontend, run backend + frontend tests, typecheck both
 3. Resolve/create KV namespace, patch `wrangler.toml` with KV ID
-4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU, default=1vCPU/3GiB, high=2vCPU/6GiB)
+4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB)
 5. Optionally generate `.cache-bust` for Claude Unleashed layer
-6. Build Docker image, scan with Trivy (HIGH/CRITICAL severity, `.trivyignore` for exceptions)
-7. Deploy with `npx wrangler deploy` passing `--var` for runtime config
-8. Set worker secrets: `CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET` (E2E), optional `RESEND_API_KEY` (onboarding)
-9. Seed E2E service user in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present
+6. Build Docker image locally
+7. Scan with Trivy (HIGH/CRITICAL severity, `.trivyignore` for exceptions)
+8. Push image to Cloudflare registry via `wrangler containers push`, extract registry URI
+9. Patch `wrangler.toml` `image` field to registry URI (skips Docker rebuild on deploy)
+10. Deploy with `npx wrangler deploy` passing `--var` for runtime config
+11. Set worker secrets: `CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET` (E2E), optional `RESEND_API_KEY`
+12. Seed E2E service user in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present
 
 ### Test Workflow Detail
 
@@ -1060,9 +1057,11 @@ Two parallel jobs:
 
 ### E2E Workflow Detail
 
-Two-phase execution:
+Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile`:
 1. **setup** job: Sets `SERVICE_AUTH_SECRET` on target worker, seeds E2E service user in KV, smoke-tests auth with retry loop (handles KV eventual consistency ~60s)
-2. **e2e** job (matrix): Runs `api`, `ui-desktop`, `ui-mobile` suites in parallel on `ubuntu-latest`. UI suites install Chrome via `npx puppeteer browsers install chrome` + system shared libraries. Failed runs upload screenshots/HTML as artifacts (5-day retention)
+2. **e2e-api** job (depends on `setup`): Runs API test suite
+3. **e2e-ui-desktop** job (depends on `setup` + `e2e-api`): Runs UI desktop tests. Installs Chrome via `npx puppeteer browsers install chrome` + system shared libraries
+4. **e2e-ui-mobile** job (depends on `setup` + `e2e-ui-desktop`): Runs UI mobile tests with `E2E_MOBILE=1`. Failed runs upload screenshots/HTML as artifacts (5-day retention)
 
 ---
 
@@ -1172,15 +1171,23 @@ cd web-ui && npm run build # Frontend production build
 
 ### Per-Container Pricing
 
-| Tier | Specs | Monthly Cost (active) |
-|------|-------|-----------------------|
-| `low` | 0.25 vCPU, 1 GiB, 4 GB | Lower; check CF pricing |
-| `default` | 1 vCPU, 3 GiB, 4 GB | ~$56 (reference) |
-| `high` | 2 vCPU, 6 GiB, 8 GB | Higher; check CF pricing |
+Parameters: 8h/day, 20 days/month = 160h = 576,000s active. Default tier (1 vCPU, 3 GiB, 6 GB). CPU usage: 20% average.
+
+| Resource | Calculation | Free Tier | Billable | Rate | Cost |
+|----------|-------------|-----------|----------|------|------|
+| CPU (active usage) | 0.2 vCPU x 576,000s = 115,200 vCPU-s | 22,500 vCPU-s | 92,700 vCPU-s | $0.000020/vCPU-s | $1.85 |
+| Memory (provisioned) | 3 GiB x 576,000s = 1,728,000 GiB-s | 90,000 GiB-s | 1,638,000 GiB-s | $0.0000025/GiB-s | $4.10 |
+| Disk (provisioned) | 6 GB x 576,000s = 3,456,000 GB-s | 720,000 GB-s | 2,736,000 GB-s | $0.00000007/GB-s | $0.19 |
+| Workers Paid plan | | | | | $5.00 |
+| **Total** | | | | | **~$11.14/user/month** |
+
+Notes:
+- CPU billed on active usage only. Memory + disk billed on provisioned resources.
+- Hibernated containers (after 30m idle) = zero cost
+- R2: First 10 GB free, $0.015/GB/month after
+- Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
 
 Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
-
-**R2:** First 10GB free, $0.015/GB/month after. User config typically <100MB.
 
 ---
 
@@ -1215,7 +1222,7 @@ Terminal server not starting (sync blocking). Check: `GET /api/container/sync-lo
 
 ### Zombie Container
 
-DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via two mechanisms: (1) `collectMetrics` checks `container.running` and returns early if false, (2) the missing-identifiers guard returns early without re-arming. Zombie DOs are harmless (no container process) but may briefly log debug-level warnings.
+DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via three mechanisms: (1) `collectMetrics` checks `container.running` and returns early if false, (2) the missing-identifiers guard returns early without re-arming, (3) the re-arm guard at line 518 checks `container.running` before scheduling the next alarm. Zombie DOs are harmless (no container process) but may briefly log INFO-level log messages.
 
 ### Secrets Lost After Worker Deletion
 
@@ -1223,7 +1230,7 @@ DO alarm loops from `collectMetrics` can persist after `destroy()` since `destro
 
 ### R2 Bucket Cleanup on User Deletion
 
-Non-empty buckets fail to delete silently. Manual R2 cleanup may be needed.
+Non-empty bucket deletion is logged server-side (`logger.warn`) but `DELETE /api/users/:email` still returns `{ success: true }`. Manual R2 cleanup via the Cloudflare dashboard may be needed.
 
 ### Chrome in CI (Ubuntu 22.04)
 
@@ -1281,12 +1288,6 @@ wrangler tail --service codeflare
 wrangler tail --service codeflare --level error
 ```
 
-### Debug Environment Variables (DEV_MODE)
-
-```bash
-curl .../api/container/debug?sessionId=abc12345  # Returns masked env vars
-```
-
 ---
 
 ## 21. Architecture Decisions
@@ -1326,7 +1327,7 @@ CORS origin matching uses `matchesPattern()` with domain-boundary enforcement (n
 - `ALLOWED_ORIGINS` is configurable per deployment -- operators can restrict to exact origins
 - Cloudflare Access JWT validation is the primary auth gate, not CORS
 
-**Mitigation**: Setup adds the specific worker subdomain to KV-based dynamic origins. Operators deploying to custom domains should set `ALLOWED_ORIGINS` to their exact domain.
+**Mitigation**: Setup adds `.workers.dev` suffix and `.{customDomain}` suffix to `setup:allowed_origins` in KV. Any `*.workers.dev` subdomain passes the CORS check. Operators deploying to custom domains should set `ALLOWED_ORIGINS` to their exact domain.
 
 **Future consideration**: Restricting credentialed CORS to exact known hosts (rather than suffix patterns) would tighten the trust surface. This is a low-risk hardening improvement.
 

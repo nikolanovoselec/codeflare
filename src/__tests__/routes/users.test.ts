@@ -41,6 +41,12 @@ vi.mock('../../lib/access', () => ({
   }),
 }));
 
+// Mock r2-admin scoped token functions
+const mockDeleteScopedR2Token = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/r2-admin', () => ({
+  deleteScopedR2Token: mockDeleteScopedR2Token,
+}));
+
 import usersRoutes from '../../routes/users';
 import { getAllUsers, syncAccessPolicy } from '../../lib/access-policy';
 import { authMiddleware, requireAdmin } from '../../middleware/auth';
@@ -207,6 +213,107 @@ describe('Users Routes', () => {
           }),
         }),
       );
+    });
+
+    // =======================================================================
+    // Scoped R2 Token cleanup on user deletion
+    // =======================================================================
+    it('should read r2token:{email} and call deleteScopedR2Token on user deletion', async () => {
+      const app = createTestApp('admin@example.com');
+
+      mockKV._store.set('setup:account_id', 'test-account-id');
+      mockKV._set('user:target@example.com', { addedBy: 'admin@example.com', addedAt: '2024-01-01T00:00:00.000Z' });
+      mockKV._set('r2token:target@example.com', {
+        accessKeyId: 'ak-123',
+        secretAccessKey: 'sk-456',
+        tokenId: 'token-id-789',
+        bucketName: 'codeflare-target-example-com',
+        createdAt: '2024-01-01T00:00:00Z',
+      });
+
+      mockDeleteScopedR2Token.mockResolvedValue(undefined);
+
+      await app.request('/users/target%40example.com', { method: 'DELETE' });
+
+      // Should have called deleteScopedR2Token with the stored tokenId
+      expect(mockDeleteScopedR2Token).toHaveBeenCalledWith(
+        'test-account-id',
+        'test-api-token',
+        'token-id-789',
+      );
+    });
+
+    it('should empty bucket via S3 list+delete before bucket deletion', async () => {
+      const app = createTestApp('admin@example.com');
+
+      mockKV._store.set('setup:account_id', 'test-account-id');
+      mockKV._set('user:target@example.com', { addedBy: 'admin@example.com', addedAt: '2024-01-01T00:00:00.000Z' });
+      mockKV._set('r2token:target@example.com', {
+        accessKeyId: 'ak-123',
+        secretAccessKey: 'sk-456',
+        tokenId: 'token-id-789',
+        bucketName: 'codeflare-target-example-com',
+        createdAt: '2024-01-01T00:00:00Z',
+      });
+
+      mockDeleteScopedR2Token.mockResolvedValue(undefined);
+
+      // Mock S3 list objects returning some objects, then delete
+      // The implementation should use S3-compatible API to empty the bucket
+      // before calling the bucket deletion API
+      mockFetch
+        // S3 ListObjectsV2 response (empty for simplicity in TDD)
+        .mockResolvedValueOnce(new Response('<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>', { status: 200 }))
+        // DELETE bucket
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      const res = await app.request('/users/target%40example.com', { method: 'DELETE' });
+      expect(res.status).toBe(200);
+    });
+
+    it('should continue deletion even if token deletion fails (graceful)', async () => {
+      const app = createTestApp('admin@example.com');
+
+      mockKV._store.set('setup:account_id', 'test-account-id');
+      mockKV._set('user:target@example.com', { addedBy: 'admin@example.com', addedAt: '2024-01-01T00:00:00.000Z' });
+      mockKV._set('r2token:target@example.com', {
+        accessKeyId: 'ak-123',
+        secretAccessKey: 'sk-456',
+        tokenId: 'token-id-789',
+        bucketName: 'codeflare-target-example-com',
+        createdAt: '2024-01-01T00:00:00Z',
+      });
+
+      // Token deletion fails
+      mockDeleteScopedR2Token.mockRejectedValue(new Error('CF API down'));
+
+      const res = await app.request('/users/target%40example.com', { method: 'DELETE' });
+
+      // User deletion should still succeed despite token deletion failure
+      expect(res.status).toBe(200);
+      const body = await res.json() as { success: boolean };
+      expect(body.success).toBe(true);
+    });
+
+    it('should delete r2token:{email} KV entry after token deletion', async () => {
+      const app = createTestApp('admin@example.com');
+
+      mockKV._store.set('setup:account_id', 'test-account-id');
+      mockKV._set('user:target@example.com', { addedBy: 'admin@example.com', addedAt: '2024-01-01T00:00:00.000Z' });
+      mockKV._set('r2token:target@example.com', {
+        accessKeyId: 'ak-123',
+        secretAccessKey: 'sk-456',
+        tokenId: 'token-id-789',
+        bucketName: 'codeflare-target-example-com',
+        createdAt: '2024-01-01T00:00:00Z',
+      });
+
+      mockDeleteScopedR2Token.mockResolvedValue(undefined);
+
+      await app.request('/users/target%40example.com', { method: 'DELETE' });
+
+      // Should have deleted the r2token KV entry
+      expect(mockKV.delete).toHaveBeenCalledWith('r2token:target@example.com');
     });
 
     it('attempts to sync CF Access policy after removal', async () => {

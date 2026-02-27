@@ -11,7 +11,6 @@ enabled = true
 
 # Environment variables
 [vars]
-DEV_MODE = "false"
 ONBOARDING_LANDING_PAGE = "inactive"
 # Allowed CORS origins (comma-separated domain patterns)
 # Additional origins are managed dynamically via KV (setup:custom_domain, setup:allowed_origins)
@@ -28,7 +27,7 @@ binding = "KV"
 id = "placeholder"
 
 # Container configuration (default tier)
-# Default: 1 vCPU, 3 GiB memory, 4 GB disk
+# Default: 1 vCPU, 3 GiB memory, 6 GB disk
 # GitHub Actions deploy can override this via repo variable RESSOURCE_TIER.
 # Required baseline for node-pty + agent CLIs + npm operations.
 [[containers]]

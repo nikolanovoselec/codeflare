@@ -18,4 +18,11 @@ describe('User profile endpoint', () => {
     const data = await res.json();
     expect(typeof data.onboardingActive).toBe('boolean');
   });
+
+  it('GET /api/user/r2-status returns { ready: boolean }', async () => {
+    const res = await apiRequest('/api/user/r2-status');
+    expect(res.ok).toBe(true);
+    const data = await res.json();
+    expect(typeof data.ready).toBe('boolean');
+  });
 });

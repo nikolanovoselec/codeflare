@@ -88,3 +88,170 @@ export async function createBucketIfNotExists(
   logger.info('Bucket created successfully', { bucketName });
   return { success: true, created: true };
 }
+
+// =========================================================================
+// Scoped R2 Tokens
+// =========================================================================
+
+interface ScopedR2TokenResult {
+  accessKeyId: string;
+  secretAccessKey: string;
+  tokenId: string;
+}
+
+interface CachedR2Token extends ScopedR2TokenResult {
+  bucketName: string;
+  createdAt: string;
+}
+
+const MAX_RETRIES = 2;
+
+function isRetryable(status: number): boolean {
+  return status >= 500 || status === 429;
+}
+
+/**
+ * Create a scoped R2 API token with permission boundary for a specific bucket.
+ * Retries 2x with exponential backoff on 5xx/429 errors.
+ */
+export async function createScopedR2Token(
+  accountId: string,
+  apiToken: string,
+  bucketName: string
+): Promise<ScopedR2TokenResult> {
+  const url = `${CF_API_BASE}/accounts/${accountId}/r2/tokens`;
+
+  const body = JSON.stringify({
+    policies: [
+      {
+        permissionGroups: [
+          { id: 'object-read-write' },
+        ],
+        condition: {
+          'r2-bucket': {
+            in: [bucketName],
+          },
+        },
+      },
+    ],
+  });
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await r2AdminCB.execute(() =>
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body,
+          signal: AbortSignal.timeout(10_000),
+        })
+      );
+    } catch (err) {
+      // Network errors are retryable
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt >= MAX_RETRIES) throw lastError;
+      await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
+      continue;
+    }
+
+    if (response.ok) {
+      const data = await response.json() as {
+        success: boolean;
+        result: { id: string; access_key_id: string; secret_access_key: string };
+      };
+
+      if (data.success) {
+        return {
+          accessKeyId: data.result.access_key_id,
+          secretAccessKey: data.result.secret_access_key,
+          tokenId: data.result.id,
+        };
+      }
+    }
+
+    // Non-retryable client error (4xx except 429) — throw immediately
+    if (!isRetryable(response.status)) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`Failed to create scoped R2 token for bucket ${bucketName}: HTTP ${response.status} ${text.slice(0, 200)}`);
+    }
+
+    // Retryable — store error for final throw or retry
+    lastError = new Error(`Failed to create scoped R2 token for bucket ${bucketName}: HTTP ${response.status}`);
+    if (attempt >= MAX_RETRIES) throw lastError;
+
+    await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
+  }
+
+  throw lastError!;
+}
+
+/**
+ * Delete a scoped R2 token. Succeeds silently on 404 (already deleted).
+ */
+export async function deleteScopedR2Token(
+  accountId: string,
+  apiToken: string,
+  tokenId: string
+): Promise<void> {
+  const response = await fetch(
+    `${CF_API_BASE}/accounts/${accountId}/r2/tokens/${tokenId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
+
+  if (response.status === 404) return;
+  if (!response.ok) {
+    throw new Error(`Failed to delete scoped R2 token ${tokenId}: HTTP ${response.status}`);
+  }
+}
+
+/**
+ * Get cached scoped R2 token from KV, or create a new one.
+ * With forceFresh=true, deletes the stale KV entry and creates a fresh token.
+ */
+export async function getOrCreateScopedR2Token(
+  email: string,
+  accountId: string,
+  apiToken: string,
+  bucketName: string,
+  kv: KVNamespace,
+  options?: { forceFresh?: boolean }
+): Promise<ScopedR2TokenResult> {
+  const kvKey = `r2token:${email}`;
+
+  if (options?.forceFresh) {
+    await kv.delete(kvKey);
+  } else {
+    const cached = await kv.get(kvKey);
+    if (cached) {
+      const parsed = JSON.parse(cached) as CachedR2Token;
+      return {
+        accessKeyId: parsed.accessKeyId,
+        secretAccessKey: parsed.secretAccessKey,
+        tokenId: parsed.tokenId,
+      };
+    }
+  }
+
+  const result = await createScopedR2Token(accountId, apiToken, bucketName);
+
+  const kvValue: CachedR2Token = {
+    ...result,
+    bucketName,
+    createdAt: new Date().toISOString(),
+  };
+  await kv.put(kvKey, JSON.stringify(kvValue));
+
+  return result;
+}

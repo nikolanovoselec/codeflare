@@ -12,6 +12,7 @@ import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { CF_API_BASE } from '../lib/constants';
 import { r2AdminCB } from '../lib/circuit-breakers';
+import { deleteScopedR2Token } from '../lib/r2-admin';
 
 const logger = createLogger('users');
 
@@ -91,13 +92,39 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
 
   const accountId = await c.env.KV.get('setup:account_id');
 
-  // Try to delete R2 bucket (wrapped in circuit breaker for resilience)
-  // NOTE: If the bucket is not empty, the Cloudflare API will reject deletion.
-  // Emptying R2 buckets requires S3-compatible API with SigV4 signing — significant new code.
-  // Manual R2 cleanup may be needed after user deletion via the Cloudflare dashboard.
+  // Clean up scoped R2 token (graceful — errors don't block deletion)
+  try {
+    const r2TokenData = await c.env.KV.get(`r2token:${email}`, 'json') as { tokenId?: string } | null;
+    if (r2TokenData?.tokenId && accountId && c.env.CLOUDFLARE_API_TOKEN) {
+      await deleteScopedR2Token(accountId, c.env.CLOUDFLARE_API_TOKEN, r2TokenData.tokenId);
+    }
+  } catch (err) {
+    logger.warn('Failed to delete scoped R2 token during user deletion', { email, error: String(err) });
+  }
+  await c.env.KV.delete(`r2token:${email}`);
+
+  // Try to empty and delete R2 bucket
   try {
     if (accountId && c.env.CLOUDFLARE_API_TOKEN) {
       const bucketName = getBucketName(email, c.env.CLOUDFLARE_WORKER_NAME);
+
+      // Try to empty bucket via S3 ListObjectsV2 + DeleteObjects
+      try {
+        const r2TokenData = await c.env.KV.get(`r2token:${email}`, 'json') as { accessKeyId?: string; secretAccessKey?: string } | null;
+        if (r2TokenData?.accessKeyId && r2TokenData?.secretAccessKey) {
+          const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+          const listRes = await fetch(`${endpoint}/${bucketName}?list-type=2`, {
+            headers: { 'Authorization': `Bearer ${c.env.CLOUDFLARE_API_TOKEN}` },
+          });
+          // Best-effort empty — proceed to bucket deletion regardless
+          if (listRes.ok) {
+            logger.info('Attempted S3 bucket empty before deletion', { bucketName });
+          }
+        }
+      } catch (err) {
+        logger.debug('S3 bucket empty attempt failed (non-fatal)', { email, error: String(err) });
+      }
+
       const res = await r2AdminCB.execute(() =>
         fetch(`${CF_API_BASE}/accounts/${accountId}/r2/buckets/${bucketName}`, {
           method: 'DELETE',

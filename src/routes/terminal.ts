@@ -139,16 +139,7 @@ export async function handleWebSocketUpgrade(
   // Validate Origin header for WebSocket upgrade (S5-14)
   const origin = request.headers.get('Origin');
   if (origin) {
-    const devMode = env.DEV_MODE === 'true';
-    let originAllowed = await isAllowedOrigin(origin, env);
-    if (!originAllowed && devMode) {
-      try {
-        const originUrl = new URL(origin);
-        originAllowed = originUrl.hostname === 'localhost' || originUrl.hostname === '127.0.0.1';
-      } catch {
-        // Invalid origin URL
-      }
-    }
+    const originAllowed = await isAllowedOrigin(origin, env);
     if (!originAllowed) {
       logger.warn('WebSocket upgrade rejected: origin not allowed', { origin });
       return new Response(JSON.stringify({ error: 'Origin not allowed', code: 'ORIGIN_NOT_ALLOWED' }), {

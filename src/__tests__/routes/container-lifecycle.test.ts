@@ -32,6 +32,11 @@ vi.mock('@cloudflare/containers', () => ({
 
 vi.mock('../../lib/r2-admin', () => ({
   createBucketIfNotExists: vi.fn(async () => testState.createBucketResult),
+  getOrCreateScopedR2Token: vi.fn(async () => ({
+    accessKeyId: 'scoped-ak',
+    secretAccessKey: 'scoped-sk',
+    tokenId: 'scoped-tok',
+  })),
 }));
 
 vi.mock('../../lib/r2-seed', () => ({

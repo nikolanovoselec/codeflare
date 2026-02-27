@@ -30,4 +30,14 @@ app.get('/', async (c) => {
   });
 });
 
+/**
+ * GET /api/user/r2-status
+ * Returns whether a scoped R2 token exists for the current user
+ */
+app.get('/r2-status', async (c) => {
+  const user = c.get('user');
+  const token = await c.env.KV.get(`r2token:${user.email}`);
+  return c.json({ ready: !!token });
+});
+
 export default app;

@@ -123,7 +123,6 @@ describe('container DO class', () => {
       R2_ACCESS_KEY_ID: 'test-key',
       R2_SECRET_ACCESS_KEY: 'test-secret',
       KV: {},
-      DEV_MODE: 'false',
     };
   });
 
@@ -199,44 +198,6 @@ describe('container DO class', () => {
       const response = await instance.fetch(request);
       const body = await response.json() as { bucketName: string | null };
       expect(body).toHaveProperty('bucketName');
-    });
-
-    it('dispatches GET /_internal/debugEnvVars to handler', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-
-      const request = new Request('http://container/_internal/debugEnvVars', {
-        method: 'GET',
-      });
-
-      const response = await instance.fetch(request);
-      // DEV_MODE is 'false', so should return 404
-      expect(response.status).toBe(404);
-    });
-
-    it('debugEnvVars returns data when DEV_MODE is true', async () => {
-      mockEnv.DEV_MODE = 'true';
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-
-      const request = new Request('http://container/_internal/debugEnvVars', {
-        method: 'GET',
-      });
-
-      const response = await instance.fetch(request);
-      expect(response.status).toBe(200);
-
-      const body = await response.json() as Record<string, unknown>;
-      expect(body).toHaveProperty('bucketName');
-      expect(body).toHaveProperty('envVars');
     });
 
     it('setBucketName returns 400 for missing bucketName', async () => {

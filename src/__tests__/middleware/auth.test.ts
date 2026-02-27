@@ -21,7 +21,6 @@ describe('Auth Middleware', () => {
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
-        DEV_MODE: 'false',
         ...envOverrides,
       } as Env;
       return next();
@@ -86,35 +85,9 @@ describe('Auth Middleware', () => {
     expect(mockKV.get).toHaveBeenCalledWith(`user:${testEmail}`);
   });
 
-  it('returns 401 in DEV_MODE=true without any auth headers (no auth bypass)', async () => {
-    const app = createTestApp({ DEV_MODE: 'true' } as Partial<Env>);
+  it('returns 401 when unauthenticated (no CF Access headers)', async () => {
+    const app = createTestApp();
 
-    const res = await app.request('/test');
-
-    expect(res.status).toBe(401);
-  });
-
-  it('always checks KV allowlist even in DEV_MODE=true', async () => {
-    const testEmail = 'dev-allowed@example.com';
-    mockKV._store.set(`user:${testEmail}`, JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'user' }));
-
-    const app = createTestApp({ DEV_MODE: 'true' } as Partial<Env>);
-    const res = await app.request('/test', {
-      headers: { 'cf-access-authenticated-user-email': testEmail },
-    });
-
-    expect(res.status).toBe(200);
-    const body = await res.json() as { user: { email: string; authenticated: boolean; role: string }; bucketName: string };
-    expect(body.user.authenticated).toBe(true);
-    expect(body.user.role).toBe('user');
-    // KV IS checked even in DEV_MODE
-    expect(mockKV.get).toHaveBeenCalledWith(`user:${testEmail}`);
-  });
-
-  it('returns 401 when unauthenticated (no CF Access headers, DEV_MODE=false)', async () => {
-    const app = createTestApp({ DEV_MODE: 'false' } as Partial<Env>);
-
-    // No CF Access headers, DEV_MODE is false
     const res = await app.request('/test');
 
     expect(res.status).toBe(401);
@@ -163,23 +136,6 @@ describe('Auth Middleware', () => {
       expect(body.user.role).toBe('user');
     });
 
-    it('resolves role from KV even in DEV_MODE (no admin grant)', async () => {
-      const testEmail = 'dev-role@example.com';
-      mockKV._store.set(
-        `user:${testEmail}`,
-        JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'user' })
-      );
-
-      const app = createTestApp({ DEV_MODE: 'true' } as Partial<Env>);
-
-      const res = await app.request('/test', {
-        headers: { 'cf-access-authenticated-user-email': testEmail },
-      });
-
-      expect(res.status).toBe(200);
-      const body = await res.json() as { user: { email: string; role: string } };
-      expect(body.user.role).toBe('user');
-    });
   });
 
   // =========================================================================
@@ -189,7 +145,6 @@ describe('Auth Middleware', () => {
     function makeEnv(overrides: Partial<Env> = {}): Env {
       return {
         KV: mockKV as unknown as KVNamespace,
-        DEV_MODE: 'false',
         ...overrides,
       } as Env;
     }
@@ -231,12 +186,5 @@ describe('Auth Middleware', () => {
       ).rejects.toThrow(ForbiddenError);
     });
 
-    it('throws AuthError in DEV_MODE without auth headers (no bypass)', async () => {
-      const request = new Request('http://localhost/test');
-
-      await expect(
-        authenticateRequest(request, makeEnv({ DEV_MODE: 'true' } as Partial<Env>))
-      ).rejects.toThrow(AuthError);
-    });
   });
 });

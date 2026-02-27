@@ -37,7 +37,6 @@ function createMockEnv(): { env: Env; mockKV: ReturnType<typeof createMockKV>; m
   const env = {
     KV: mockKV as unknown as KVNamespace,
     ASSETS: mockAssets as unknown as Fetcher,
-    DEV_MODE: 'false',
     ONBOARDING_LANDING_PAGE: 'inactive',
   } as Env;
 

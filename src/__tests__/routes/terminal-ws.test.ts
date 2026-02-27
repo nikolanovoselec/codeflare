@@ -59,7 +59,6 @@ describe('handleWebSocketUpgrade', () => {
     mockEnv = {
       KV: mockKV as unknown as KVNamespace,
       CONTAINER: {} as DurableObjectNamespace,
-      DEV_MODE: 'false',
     } as unknown as Env;
 
     mockCtx = {

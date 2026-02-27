@@ -24,9 +24,6 @@ export interface Env {
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
 
-  // Development mode - set to 'true' to bypass Cloudflare Access
-  DEV_MODE?: string;
-
   // Service token email - when using CF Access service tokens, this email is used
   // Default: service-{clientId}@codeflare.local
   SERVICE_TOKEN_EMAIL?: string;
