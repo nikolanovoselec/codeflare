@@ -285,7 +285,7 @@ describe('Setup Access', () => {
       // Verify the upsertAccessPolicy call does NOT include a user group reference.
       // The policy create call is the 6th fetch call (index 5).
       // After fix: it should only have the admin group in include.
-      const policyCall = mockFetch.mock.calls.find((call: [string | URL | Request, RequestInit | undefined]) => {
+      const policyCall = mockFetch.mock.calls.find((call: any[]) => {
         const url = typeof call[0] === 'string' ? call[0] : '';
         return url.includes('/policies') && call[1]?.method === 'POST';
       });
