@@ -101,7 +101,8 @@ COPY .cache-bust /tmp/.cache-bust
 RUN npm install -g github:nikolanovoselec/claude-unleashed#12ecd6af335285ff459645c07f3d635b76b62e3b && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
-    rm -rf /root/.npm
+    rm -rf /root/.npm && \
+    rm -f /usr/local/bin/claude
 
 # Pre-update claude-code to latest and pre-patch for fast container startup.
 # This does at build-time what cu normally does on first run:
@@ -114,10 +115,12 @@ ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
     claude-unleashed --silent --no-consent --help > /dev/null 2>&1 || true
 
-# Install Claude Code native binary (stable channel).
-# The native binary auto-updates when DISABLE_AUTOUPDATER is unset (Fast Start OFF).
+# Install Claude Code native binary.
+# Installs latest version. Auto-updates when DISABLE_AUTOUPDATER is unset (Fast Start OFF).
 # When Fast Start is ON, DISABLE_AUTOUPDATER=1 keeps the build-time version pinned.
-RUN curl -fsSL https://claude.ai/install.sh | bash -s -- stable
+# The npm-global `claude` from claude-unleashed's dependency is removed above (rm -f /usr/local/bin/claude)
+# so only the native binary at ~/.local/bin/claude is found.
+RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:$PATH"
 
 # Install Codex + Gemini + OpenCode CLIs for multi-agent support (single RUN for npm dedup).
