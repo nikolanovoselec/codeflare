@@ -31,6 +31,10 @@ describe('Container Lifecycle API', () => {
     const res = await apiRequest(`/api/container/start?sessionId=${sessionId}`, {
       method: 'POST',
     });
+    if (!res.ok) {
+      const errorBody = await res.text();
+      console.error(`Container start failed: HTTP ${res.status} ${errorBody.slice(0, 500)}`);
+    }
     expect(res.ok).toBe(true);
     const data = await res.json();
     expect(data.success).toBe(true);
@@ -81,6 +85,10 @@ describe('Container Lifecycle API', () => {
     const res = await apiRequest(`/api/container/start?sessionId=${sessionId}`, {
       method: 'POST',
     });
+    if (!res.ok) {
+      const errorBody = await res.text();
+      console.error(`Container start (idempotent) failed: HTTP ${res.status} ${errorBody.slice(0, 500)}`);
+    }
     expect(res.ok).toBe(true);
     const data = await res.json();
     expect(data.success).toBe(true);
