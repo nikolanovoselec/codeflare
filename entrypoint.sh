@@ -55,6 +55,14 @@ USER_CLAUDE_JSON="$USER_HOME/.claude.json"
 mkdir -p "$USER_HOME" "$USER_WORKSPACE" "$USER_CLAUDE_DIR"
 export HOME="$USER_HOME"
 
+# Link native claude binary from root's install location to user HOME.
+# The native installer runs as root during Docker build (HOME=/root), but at runtime
+# HOME=/home/user. The auto-updater expects the binary at $HOME/.local/bin/claude.
+if [ -f /root/.local/bin/claude ] && [ ! -f "$USER_HOME/.local/bin/claude" ]; then
+    mkdir -p "$USER_HOME/.local/bin"
+    ln -s /root/.local/bin/claude "$USER_HOME/.local/bin/claude"
+fi
+
 # Track sync status
 SYNC_STATUS="pending"
 SYNC_ERROR=""
