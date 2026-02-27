@@ -620,11 +620,24 @@ CASE_EOF
             ;;
 CASE_EOF
                     ;;
-                codex|claude|opencode|copilot*)
+                codex|opencode|copilot*)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)
             ${cmd}
+            ;;
+CASE_EOF
+                    ;;
+                claude)
+                    cat >> "$BASHRC_FILE" << CASE_EOF
+        ${key})
+            # Claude Code native binary — update to latest before launching.
+            # Ephemeral containers reset every session, so build-time version
+            # is all we get unless we update here. Skip when Fast Start is ON.
+            if [ -z "\$DISABLE_AUTOUPDATER" ]; then
+                claude update 2>/dev/null || true
+            fi
+            claude
             ;;
 CASE_EOF
                     ;;
