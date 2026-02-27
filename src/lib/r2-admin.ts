@@ -122,7 +122,7 @@ export async function createScopedR2Token(
   const url = `${CF_API_BASE}/accounts/${accountId}/tokens`;
 
   const body = JSON.stringify({
-    name: `codeflare-${bucketName}`,
+    name: bucketName,
     policies: [
       {
         effect: 'allow',

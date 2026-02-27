@@ -186,7 +186,7 @@ describe('r2-admin', () => {
 
       const callArgs = mockFetch.mock.calls[0];
       const body = JSON.parse(callArgs[1].body);
-      expect(body.name).toBe('codeflare-my-bucket');
+      expect(body.name).toBe('my-bucket');
       expect(body.policies).toHaveLength(1);
       expect(body.policies[0].effect).toBe('allow');
       expect(body.policies[0].permission_groups).toEqual([
