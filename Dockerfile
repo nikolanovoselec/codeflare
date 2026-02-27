@@ -114,10 +114,10 @@ ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
     claude-unleashed --silent --no-consent --help > /dev/null 2>&1 || true
 
-# Install Claude Code native binary (replaces deprecated npm symlink).
-# Downloads latest binary from GCS, verifies checksum, runs `claude install` to set up
-# the launcher at ~/.local/bin/claude. The native binary auto-updates and doesn't need Node.js.
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Install Claude Code native binary (stable channel).
+# The native binary auto-updates when DISABLE_AUTOUPDATER is unset (Fast Start OFF).
+# When Fast Start is ON, DISABLE_AUTOUPDATER=1 keeps the build-time version pinned.
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- stable
 ENV PATH="/root/.local/bin:$PATH"
 
 # Install Codex + Gemini + OpenCode CLIs for multi-agent support (single RUN for npm dedup).
