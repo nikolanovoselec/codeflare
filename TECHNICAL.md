@@ -109,15 +109,13 @@ flowchart TD
     Renew --> FetchHealth["Fetch /health<br/>from container"]
     NoRenew --> FetchHealth
     FetchHealth --> WriteKV["Write metrics to KV"]
-    WriteKV --> FetchFailed{"Fetch failed?"}
-    FetchFailed -->|Yes| ReArm1["Still re-arm<br/>(safety net)"]
-    FetchFailed -->|No| ReArm2["Re-arm setTimeout<br/>(collectMetrics, 5000)"]
+    WriteKV --> ReArm["Re-arm setTimeout<br/>(collectMetrics, 5000)<br/>(unconditional if container.running)"]
 
 ```
 
 **`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected -> `renewActivityTimeout()`. If no clients -> `this.stop('SIGTERM')`. Safety net: renews timeout on any error (network failures, non-OK responses) rather than killing the container.
 
-**`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
+**`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
 **Environment Variables Injection:** R2 credentials flow via two paths: (1) `_internal/setBucketName` request body (primary, from Worker), (2) `this.env` fallback (DO restart). Fallback chain: Worker-provided > `this.env` > empty string.
 
@@ -141,11 +139,11 @@ sequenceDiagram
 
 **Critical: `envVars` must be set as a property assignment**, not as a getter. Cloudflare Containers reads `this.envVars` as a plain property at `start()` time.
 
-**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage -- this ensures `collectMetrics`/`onStop` can find the KV entry even on session restarts (where the DO already has a bucket set but needs the sessionId for the new lifecycle), and that user preference changes take effect without container recreation.
+**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId`, `workspaceSyncEnabled`, `tabConfig`, and `fastStartEnabled` in DO storage -- this ensures `collectMetrics`/`onStop` can find the KV entry even on session restarts (where the DO already has a bucket set but needs the sessionId for the new lifecycle), and that user preference changes take effect without container recreation.
 
 **Lifecycle Route Re-calls `setBucketName` After `destroy()`:** In the `needsBucketUpdate` path (restart with different bucket), `destroy()` wipes DO storage. The lifecycle route must call `setBucketName` again after `destroy()` to re-populate sessionId, bucketName, and R2 credentials. See `src/routes/container/lifecycle.ts`.
 
-**Internal Endpoints:** `/_internal/setBucketName`, `/_internal/setSessionId`, `/_internal/getBucketName`, `/_internal/debugEnvVars`
+**Internal Endpoints:** `/_internal/setBucketName`, `/_internal/setSessionId`, `/_internal/getBucketName`
 
 ### 2.3 Terminal Server (node-pty)
 
@@ -382,7 +380,7 @@ flowchart TD
 
 ```
 
-**Restart (same bucket):** `setBucketName` -> 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, and `tabConfig` in DO storage for KV reconciliation and preference updates) -> `startAndWaitForPorts()` -> `onStart()` re-arms metrics
+**Restart (same bucket):** `setBucketName` -> 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, `tabConfig`, and `fastStartEnabled` in DO storage for KV reconciliation and preference updates) -> `startAndWaitForPorts()` -> `onStart()` re-arms metrics
 
 **Restart (different bucket):** `setBucketName` succeeds -> `destroy()` (wipes DO storage) -> lifecycle route re-calls `setBucketName` (re-populates sessionId + bucketName + R2 creds) -> `startAndWaitForPorts()`
 
@@ -390,7 +388,7 @@ flowchart TD
 flowchart TD
     Start["setBucketName(newBucket)"] --> SameBucket{"Same bucket<br/>already set?"}
 
-    SameBucket -->|"Yes (409 path)"| Store409["Store sessionId +<br/>workspaceSyncEnabled +<br/>tabConfig in DO storage"]
+    SameBucket -->|"Yes (409 path)"| Store409["Store sessionId +<br/>workspaceSyncEnabled +<br/>tabConfig + fastStartEnabled<br/>in DO storage"]
     Store409 --> Start409["startAndWaitForPorts()"]
     Start409 --> OnStart409["onStart() re-arms metrics"]
 
@@ -794,7 +792,7 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, el
 | Tool | Disable Mechanism | Type |
 |------|------------------|------|
 | Claude Code | `DISABLE_AUTOUPDATER=1` | Env var |
-| Claude Unleashed | `CLAUDE_UNLEASHED_NO_UPDATE=1` | Env var |
+| Claude Unleashed | `CLAUDE_UNLEASHED_NO_UPDATE=1`, `CLAUDE_UNLEASHED_CHANNEL=stable` | Env var |
 | OpenCode | `OPENCODE_DISABLE_AUTOUPDATE=1` | Env var |
 | Copilot | `COPILOT_AUTO_UPDATE=false` | Env var |
 | Gemini | `~/.gemini/settings.json` -> `general.enableAutoUpdate: false` | Config file (jq merge) |
@@ -804,7 +802,7 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, el
 
 **Codex dismissed_version hack:** Writes `{"dismissed_version":"999.0.0"}` to trick the Codex version checker into thinking a future version was already dismissed. The `~/.codex/` directory is excluded from rclone sync, so this file is safe to recreate on every container start.
 
-When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`DISABLE_AUTOUPDATER`, `CLAUDE_UNLEASHED_NO_UPDATE`, `OPENCODE_DISABLE_AUTOUPDATE`, `DISABLE_INSTALLATION_CHECKS`) and skips writing config files, allowing all tools to check for updates normally.
+When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the env vars it conditionally sets (`DISABLE_AUTOUPDATER`, `CLAUDE_UNLEASHED_NO_UPDATE`, `CLAUDE_UNLEASHED_CHANNEL`, `OPENCODE_DISABLE_AUTOUPDATE`, `DISABLE_INSTALLATION_CHECKS`) and skips writing config files, allowing all tools to check for updates normally.
 
 ---
 
@@ -1234,7 +1232,7 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 ### Container Stuck at "Waiting for Services"
 
-Terminal server not starting (sync blocking). Check: `GET /api/container/sync-log?sessionId=xxx`. Common causes: missing R2 credentials, bucket doesn't exist, network timeout.
+Terminal server not starting (sync blocking). Check: `GET /api/container/startup-status?sessionId=xxx` (inspect `details.syncError` field). Common causes: missing R2 credentials, bucket doesn't exist, network timeout.
 
 ### R2 Sync Issues
 
@@ -1245,7 +1243,7 @@ Terminal server not starting (sync blocking). Check: `GET /api/container/sync-lo
 
 ### Zombie Container
 
-DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via three mechanisms: (1) `collectMetrics` checks `container.running` and returns early if false, (2) the missing-identifiers guard returns early without re-arming, (3) the re-arm guard at line 518 checks `container.running` before scheduling the next alarm. Zombie DOs are harmless (no container process) but may briefly log INFO-level log messages.
+DO alarm loops from `collectMetrics` can persist after `destroy()` since `destroy()` doesn't cancel alarms. However, zombie DOs self-terminate via three mechanisms: (1) `collectMetrics` checks `container.running` and returns early if false, (2) the missing-identifiers guard returns early without re-arming, (3) the re-arm guard checks `container.running` before scheduling the next alarm. Zombie DOs are harmless (no container process) but may briefly log INFO-level log messages.
 
 ### Secrets Lost After Worker Deletion
 
@@ -1296,7 +1294,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 ```bash
 curl -H "CF-Access-Client-Id: <id>" -H "CF-Access-Client-Secret: <secret>" \
-  https://codeflare.example.com/api/container/state?sessionId=abc12345
+  https://codeflare.example.com/api/container/startup-status?sessionId=abc12345
 ```
 
 ### Verify Secrets
