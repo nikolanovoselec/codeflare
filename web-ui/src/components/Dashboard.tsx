@@ -50,6 +50,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
   onMount(() => {
     storageStore.fetchStats();
+    sessionStore.startR2Polling();
   });
 
   // Double requestAnimationFrame to ensure the browser has painted with --expanded
@@ -135,12 +136,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
           <div class="dashboard-panel-left" data-testid="dashboard-panel-left">
             <DashboardCard sessions={props.sessions} />
 
-            <Show when={!sessionStore.r2Ready}>
-              <div class="r2-loading-overlay" data-testid="r2-loading-overlay">
-                <div class="r2-loading-message">Setting up your storage credentials. This takes up to 90 seconds on first login...</div>
-              </div>
-            </Show>
-
             <div class="dashboard-new-session-wrapper">
                 <Portal>
                   <CreateSessionDialog
@@ -169,7 +164,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   data-testid="dashboard-new-session"
                   disabled={!sessionStore.r2Ready}
                   aria-label={!sessionStore.r2Ready ? 'Waiting for storage setup' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
-                  title={!sessionStore.r2Ready ? 'Storage credentials are being set up...' : undefined}
                   onClick={() => {
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());
@@ -222,8 +216,30 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
           {/* Right Column */}
           <div class="dashboard-panel-right" data-testid="dashboard-panel-right">
-            <Show when={storageStore.previewFile} fallback={<StorageBrowser />}>
-              <FilePreview file={storageStore.previewFile} onBack={handlePreviewBack} onDownload={handlePreviewDownload} />
+            <Show when={sessionStore.r2Ready} fallback={
+              <div class="storage-skeleton" data-testid="storage-skeleton">
+                <div class="storage-skeleton-header">
+                  <div class="storage-skeleton-breadcrumb storage-skeleton-bar" />
+                  <div class="storage-skeleton-toolbar">
+                    <div class="storage-skeleton-btn storage-skeleton-bar" />
+                    <div class="storage-skeleton-btn storage-skeleton-bar" />
+                    <div class="storage-skeleton-btn storage-skeleton-bar" />
+                  </div>
+                </div>
+                <div class="storage-skeleton-rows">
+                  <div class="storage-skeleton-row"><div class="storage-skeleton-icon storage-skeleton-bar" /><div class="storage-skeleton-name storage-skeleton-bar" /><div class="storage-skeleton-size storage-skeleton-bar" /></div>
+                  <div class="storage-skeleton-row"><div class="storage-skeleton-icon storage-skeleton-bar" /><div class="storage-skeleton-name storage-skeleton-bar" style="width: 55%" /><div class="storage-skeleton-size storage-skeleton-bar" /></div>
+                  <div class="storage-skeleton-row"><div class="storage-skeleton-icon storage-skeleton-bar" /><div class="storage-skeleton-name storage-skeleton-bar" style="width: 70%" /><div class="storage-skeleton-size storage-skeleton-bar" /></div>
+                  <div class="storage-skeleton-row"><div class="storage-skeleton-icon storage-skeleton-bar" /><div class="storage-skeleton-name storage-skeleton-bar" style="width: 40%" /><div class="storage-skeleton-size storage-skeleton-bar" /></div>
+                  <div class="storage-skeleton-row"><div class="storage-skeleton-icon storage-skeleton-bar" /><div class="storage-skeleton-name storage-skeleton-bar" style="width: 60%" /><div class="storage-skeleton-size storage-skeleton-bar" /></div>
+                  <div class="storage-skeleton-row"><div class="storage-skeleton-icon storage-skeleton-bar" /><div class="storage-skeleton-name storage-skeleton-bar" style="width: 48%" /><div class="storage-skeleton-size storage-skeleton-bar" /></div>
+                </div>
+                <div class="storage-skeleton-message">Setting up your storage...</div>
+              </div>
+            }>
+              <Show when={storageStore.previewFile} fallback={<StorageBrowser />}>
+                <FilePreview file={storageStore.previewFile} onBack={handlePreviewBack} onDownload={handlePreviewDownload} />
+              </Show>
             </Show>
           </div>
         </div>

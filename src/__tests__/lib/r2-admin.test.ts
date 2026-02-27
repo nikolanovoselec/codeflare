@@ -145,22 +145,28 @@ describe('r2-admin', () => {
   // Scoped R2 Token: createScopedR2Token
   // =========================================================================
   describe('createScopedR2Token', () => {
-    it('should POST to CF API /r2/tokens with bucket permission boundary', async () => {
-      mockFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify({
-          success: true,
-          result: {
-            id: 'token-id-123',
-            access_key_id: 'ak-123',
-            secret_access_key: 'sk-456',
-          },
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-      );
+    // Helper: create a mock successful response for the /tokens endpoint
+    function mockTokenResponse(id = 'token-id-123', value = 'raw-token-value') {
+      return new Response(JSON.stringify({
+        success: true,
+        result: { id, value },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // Helper: compute expected SHA-256 hex of a string (matches Workers crypto.subtle)
+    async function sha256Hex(input: string): Promise<string> {
+      const encoder = new TextEncoder();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(input));
+      return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    it('should POST to CF API /accounts/{id}/tokens (not /r2/tokens)', async () => {
+      mockFetch.mockResolvedValueOnce(mockTokenResponse());
 
       await createScopedR2Token('account-123', 'api-token', 'my-bucket');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/accounts/account-123/r2/tokens'),
+        expect.stringContaining('/accounts/account-123/tokens'),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -168,34 +174,40 @@ describe('r2-admin', () => {
           }),
         }),
       );
-
-      // Verify the body includes bucket permission boundary
-      const callArgs = mockFetch.mock.calls[0];
-      const body = JSON.parse(callArgs[1].body);
-      expect(body.policies).toBeDefined();
-      expect(body.policies[0].permissionGroups).toBeDefined();
-      expect(body.policies[0].condition).toBeDefined();
-      // Condition should scope to the specific bucket
-      expect(JSON.stringify(body.policies[0].condition)).toContain('my-bucket');
+      // Must NOT contain /r2/tokens
+      const calledUrl = mockFetch.mock.calls[0][0] as string;
+      expect(calledUrl).not.toContain('/r2/tokens');
     });
 
-    it('should return { accessKeyId, secretAccessKey, tokenId }', async () => {
-      mockFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify({
-          success: true,
-          result: {
-            id: 'token-id-123',
-            access_key_id: 'ak-123',
-            secret_access_key: 'sk-456',
-          },
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-      );
+    it('should send correct body with name, permission_groups, and resources', async () => {
+      mockFetch.mockResolvedValueOnce(mockTokenResponse());
+
+      await createScopedR2Token('account-123', 'api-token', 'my-bucket');
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.name).toBe('codeflare-my-bucket');
+      expect(body.policies).toHaveLength(1);
+      expect(body.policies[0].effect).toBe('allow');
+      expect(body.policies[0].permission_groups).toEqual([
+        { id: '6a018a9f2fc74eb6b293b0c548f38b39' },
+        { id: '2efd5506f9c8494dacb1fa10a3e7d5b6' },
+      ]);
+      expect(body.policies[0].resources).toEqual({
+        'com.cloudflare.edge.r2.bucket.account-123_default_my-bucket': '*',
+      });
+    });
+
+    it('should return accessKeyId=result.id, secretAccessKey=SHA-256(result.value), tokenId=result.id', async () => {
+      const tokenValue = 'raw-token-value-xyz';
+      mockFetch.mockResolvedValueOnce(mockTokenResponse('token-id-123', tokenValue));
 
       const result = await createScopedR2Token('account-123', 'api-token', 'my-bucket');
 
+      const expectedSecret = await sha256Hex(tokenValue);
       expect(result).toEqual({
-        accessKeyId: 'ak-123',
-        secretAccessKey: 'sk-456',
+        accessKeyId: 'token-id-123',
+        secretAccessKey: expectedSecret,
         tokenId: 'token-id-123',
       });
     });
@@ -205,12 +217,7 @@ describe('r2-admin', () => {
       mockFetch
         .mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }))
         .mockResolvedValueOnce(new Response('Bad Gateway', { status: 502 }))
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({
-            success: true,
-            result: { id: 'tok', access_key_id: 'ak', secret_access_key: 'sk' },
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-        );
+        .mockResolvedValueOnce(mockTokenResponse('tok', 'val'));
 
       const result = await createScopedR2Token('acc', 'tok', 'bucket');
 
@@ -237,12 +244,7 @@ describe('r2-admin', () => {
     it('should retry on 429 errors', async () => {
       mockFetch
         .mockResolvedValueOnce(new Response('Rate limited', { status: 429 }))
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({
-            success: true,
-            result: { id: 'tok', access_key_id: 'ak', secret_access_key: 'sk' },
-          }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-        );
+        .mockResolvedValueOnce(mockTokenResponse('tok', 'val'));
 
       const result = await createScopedR2Token('acc', 'tok', 'bucket');
 
@@ -264,12 +266,7 @@ describe('r2-admin', () => {
     });
 
     it('should use circuit breaker wrapping (r2AdminCB)', async () => {
-      mockFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify({
-          success: true,
-          result: { id: 'tok', access_key_id: 'ak', secret_access_key: 'sk' },
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-      );
+      mockFetch.mockResolvedValueOnce(mockTokenResponse());
 
       await createScopedR2Token('acc', 'tok', 'bucket');
 
@@ -295,13 +292,13 @@ describe('r2-admin', () => {
   // Scoped R2 Token: deleteScopedR2Token
   // =========================================================================
   describe('deleteScopedR2Token', () => {
-    it('should DELETE to CF API /r2/tokens/{tokenId}', async () => {
+    it('should DELETE to CF API /accounts/{id}/tokens/{tokenId} (not /r2/tokens)', async () => {
       mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
 
       await deleteScopedR2Token('account-123', 'api-token', 'token-id-456');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/accounts/account-123/r2/tokens/token-id-456'),
+        expect.stringContaining('/accounts/account-123/tokens/token-id-456'),
         expect.objectContaining({
           method: 'DELETE',
           headers: expect.objectContaining({
@@ -309,6 +306,9 @@ describe('r2-admin', () => {
           }),
         }),
       );
+      // Must NOT contain /r2/tokens
+      const calledUrl = mockFetch.mock.calls[0][0] as string;
+      expect(calledUrl).not.toContain('/r2/tokens');
     });
 
     it('should succeed silently on 404 (already deleted)', async () => {
@@ -372,11 +372,11 @@ describe('r2-admin', () => {
     it('should create new token if KV returns null, write to KV, return creds', async () => {
       mockKV.get.mockResolvedValue(null);
 
-      // Mock the createScopedR2Token call (via fetch)
+      // Mock the createScopedR2Token call (via fetch) — new /tokens format
       mockFetch.mockResolvedValueOnce(
         new Response(JSON.stringify({
           success: true,
-          result: { id: 'new-tok', access_key_id: 'new-ak', secret_access_key: 'new-sk' },
+          result: { id: 'new-tok', value: 'new-raw-value' },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       );
 
@@ -387,13 +387,15 @@ describe('r2-admin', () => {
 
       // Should have created a new token
       expect(mockFetch).toHaveBeenCalled();
-      expect(result.accessKeyId).toBe('new-ak');
-      expect(result.secretAccessKey).toBe('new-sk');
+      // accessKeyId = result.id from the API
+      expect(result.accessKeyId).toBe('new-tok');
+      // secretAccessKey = SHA-256 hex of result.value
+      expect(result.secretAccessKey).toMatch(/^[0-9a-f]{64}$/);
 
       // Should have written to KV
       expect(mockKV.put).toHaveBeenCalledWith(
         'r2token:user@example.com',
-        expect.stringContaining('new-ak'),
+        expect.stringContaining('new-tok'),
       );
     });
 
@@ -403,7 +405,7 @@ describe('r2-admin', () => {
       mockFetch.mockResolvedValueOnce(
         new Response(JSON.stringify({
           success: true,
-          result: { id: 'new-tok', access_key_id: 'new-ak', secret_access_key: 'new-sk' },
+          result: { id: 'new-tok', value: 'new-raw-value' },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       );
 
@@ -416,7 +418,7 @@ describe('r2-admin', () => {
       expect(mockKV.get).toHaveBeenCalledTimes(1);
     });
 
-    it('should self-heal: if cached token exists but R2 returns 403, delete stale KV entry and create fresh token', async () => {
+    it('should self-heal: forceFresh=true deletes stale KV entry and creates fresh token', async () => {
       const staleToken = {
         accessKeyId: 'stale-ak',
         secretAccessKey: 'stale-sk',
@@ -427,18 +429,11 @@ describe('r2-admin', () => {
       };
       mockKV.get.mockResolvedValue(JSON.stringify(staleToken));
 
-      // First call with cached creds results in a 403 (simulated via the selfHeal flag
-      // or by the function detecting staleness — depends on implementation)
-      // For TDD: we expect the function to accept an optional `validate` callback
-      // or check token validity internally. We'll test the full flow:
-      // getOrCreateScopedR2Token should have a mechanism to handle stale tokens.
-      // The implementation will need to validate the cached token.
-
-      // Mock: create new token after stale detection
+      // Mock: create new token after stale detection — new /tokens format
       mockFetch.mockResolvedValueOnce(
         new Response(JSON.stringify({
           success: true,
-          result: { id: 'fresh-tok', access_key_id: 'fresh-ak', secret_access_key: 'fresh-sk' },
+          result: { id: 'fresh-tok', value: 'fresh-raw-value' },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       );
 
@@ -451,12 +446,12 @@ describe('r2-admin', () => {
 
       // Should have deleted the stale KV entry
       expect(mockKV.delete).toHaveBeenCalledWith('r2token:user@example.com');
-      // Should have created a fresh token
-      expect(result.accessKeyId).toBe('fresh-ak');
+      // Should have created a fresh token (accessKeyId = result.id)
+      expect(result.accessKeyId).toBe('fresh-tok');
       // Should have written new token to KV
       expect(mockKV.put).toHaveBeenCalledWith(
         'r2token:user@example.com',
-        expect.stringContaining('fresh-ak'),
+        expect.stringContaining('fresh-tok'),
       );
     });
   });

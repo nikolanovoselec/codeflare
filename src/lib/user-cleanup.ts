@@ -61,11 +61,12 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   // --- Block B: User KV deletion ---
   await env.KV.delete(`user:${email}`);
 
-  // --- Block C: R2 scoped token cleanup ---
+  // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
   const accountId = await env.KV.get('setup:account_id');
+  const r2TokenData = await env.KV.get(`r2token:${email}`, 'json') as { tokenId?: string; accessKeyId?: string; secretAccessKey?: string } | null;
 
+  // --- Block C: R2 scoped token cleanup ---
   try {
-    const r2TokenData = await env.KV.get(`r2token:${email}`, 'json') as { tokenId?: string; accessKeyId?: string; secretAccessKey?: string } | null;
     if (r2TokenData?.tokenId && accountId && env.CLOUDFLARE_API_TOKEN) {
       await deleteScopedR2Token(accountId, env.CLOUDFLARE_API_TOKEN, r2TokenData.tokenId);
       result.tokenDeleted = true;
@@ -80,7 +81,6 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
     if (accountId && env.CLOUDFLARE_API_TOKEN) {
       // Try to empty bucket via S3 ListObjectsV2
       try {
-        const r2TokenData = await env.KV.get(`r2token:${email}`, 'json') as { accessKeyId?: string; secretAccessKey?: string } | null;
         if (r2TokenData?.accessKeyId && r2TokenData?.secretAccessKey) {
           const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
           const listRes = await fetch(`${endpoint}/${bucketName}?list-type=2`, {

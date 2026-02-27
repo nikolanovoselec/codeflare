@@ -119,18 +119,19 @@ export async function createScopedR2Token(
   apiToken: string,
   bucketName: string
 ): Promise<ScopedR2TokenResult> {
-  const url = `${CF_API_BASE}/accounts/${accountId}/r2/tokens`;
+  const url = `${CF_API_BASE}/accounts/${accountId}/tokens`;
 
   const body = JSON.stringify({
+    name: `codeflare-${bucketName}`,
     policies: [
       {
-        permissionGroups: [
-          { id: 'object-read-write' },
+        effect: 'allow',
+        permission_groups: [
+          { id: '6a018a9f2fc74eb6b293b0c548f38b39' }, // R2 Object Read
+          { id: '2efd5506f9c8494dacb1fa10a3e7d5b6' }, // R2 Object Write
         ],
-        condition: {
-          'r2-bucket': {
-            in: [bucketName],
-          },
+        resources: {
+          [`com.cloudflare.edge.r2.bucket.${accountId}_default_${bucketName}`]: '*',
         },
       },
     ],
@@ -163,13 +164,19 @@ export async function createScopedR2Token(
     if (response.ok) {
       const data = await response.json() as {
         success: boolean;
-        result: { id: string; access_key_id: string; secret_access_key: string };
+        result: { id: string; value: string };
       };
 
       if (data.success) {
+        // Derive S3-compatible secret from token value via SHA-256
+        const encoder = new TextEncoder();
+        const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data.result.value));
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const secretAccessKey = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
         return {
-          accessKeyId: data.result.access_key_id,
-          secretAccessKey: data.result.secret_access_key,
+          accessKeyId: data.result.id,
+          secretAccessKey,
           tokenId: data.result.id,
         };
       }
@@ -200,7 +207,7 @@ export async function deleteScopedR2Token(
   tokenId: string
 ): Promise<void> {
   const response = await fetch(
-    `${CF_API_BASE}/accounts/${accountId}/r2/tokens/${tokenId}`,
+    `${CF_API_BASE}/accounts/${accountId}/tokens/${tokenId}`,
     {
       method: 'DELETE',
       headers: {

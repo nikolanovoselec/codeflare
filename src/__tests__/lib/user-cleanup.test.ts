@@ -210,6 +210,43 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`session:${bucketName}:fedcba9876543210`);
   });
 
+  it('reads r2token BEFORE deleting it (Block D can use token data)', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    mockKV._set(`r2token:${email}`, {
+      accessKeyId: 'ak-123',
+      secretAccessKey: 'sk-456',
+      tokenId: 'token-id-789',
+      bucketName,
+      createdAt: '2024-01-01T00:00:00Z',
+    });
+
+    // Track KV call order to verify read happens before delete
+    const kvCallOrder: string[] = [];
+    const origGet = mockKV.get.bind(mockKV);
+    const origDelete = mockKV.delete.bind(mockKV);
+    mockKV.get = vi.fn((...args: unknown[]) => {
+      kvCallOrder.push(`get:${args[0]}`);
+      return origGet(...args);
+    });
+    mockKV.delete = vi.fn((...args: unknown[]) => {
+      kvCallOrder.push(`delete:${args[0]}`);
+      return origDelete(...args);
+    });
+
+    // Mock S3 list + bucket delete
+    mockFetch
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    await cleanupUserData(email, createEnv());
+
+    // r2token must be GET before DELETE
+    const getIdx = kvCallOrder.indexOf(`get:r2token:${email}`);
+    const deleteIdx = kvCallOrder.indexOf(`delete:r2token:${email}`);
+    expect(getIdx).toBeGreaterThanOrEqual(0);
+    expect(deleteIdx).toBeGreaterThan(getIdx);
+  });
+
   it('skips R2 bucket deletion when accountId is missing', async () => {
     // No setup:account_id in KV
 

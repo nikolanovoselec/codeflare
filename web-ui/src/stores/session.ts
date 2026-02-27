@@ -136,8 +136,21 @@ async function checkR2Status(): Promise<void> {
   }
 }
 
-function startR2Polling(): void {
+async function startR2Polling(): Promise<void> {
   if (r2PollInterval !== null) return;
+
+  // Eagerly ensure token exists (backend creates if missing)
+  try {
+    const { ready } = await api.ensureR2Token();
+    if (ready) {
+      setR2Ready(true);
+      return; // Already ready, no need to poll
+    }
+  } catch {
+    // Fall through to polling
+  }
+
+  // Poll for readiness
   checkR2Status();
   r2PollInterval = setInterval(checkR2Status, R2_POLL_INTERVAL_MS);
 }

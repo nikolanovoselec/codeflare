@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { isOnboardingLandingPageActive } from '../lib/onboarding';
+import { getOrCreateScopedR2Token } from '../lib/r2-admin';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -38,6 +39,28 @@ app.get('/r2-status', async (c) => {
   const user = c.get('user');
   const token = await c.env.KV.get(`r2token:${user.email}`);
   return c.json({ ready: !!token });
+});
+
+/**
+ * POST /api/user/ensure-r2-token
+ * Eagerly creates a scoped R2 token for the current user if one doesn't exist.
+ */
+app.post('/ensure-r2-token', async (c) => {
+  const user = c.get('user');
+  const bucketName = c.get('bucketName');
+  const accountId = await c.env.KV.get('setup:account_id');
+
+  if (!accountId || !c.env.CLOUDFLARE_API_TOKEN) {
+    return c.json({ ready: false, error: 'Setup incomplete' }, 503);
+  }
+
+  try {
+    await getOrCreateScopedR2Token(user.email, accountId, c.env.CLOUDFLARE_API_TOKEN, bucketName, c.env.KV);
+    return c.json({ ready: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ ready: false, error: msg }, 500);
+  }
 });
 
 export default app;
