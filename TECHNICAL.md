@@ -276,6 +276,8 @@ flowchart TD
 
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
 
+**Stale user removal during reconfiguration:** When `POST /configure` is re-run with a new `allowedUsers` list, users no longer in the list are removed via `cleanupUserData()` (`src/lib/user-cleanup.ts`). This performs full cleanup identical to `DELETE /api/users/:email`: destroys all active sessions/containers, deletes the R2 scoped token, empties and deletes the R2 bucket, and removes all KV entries. Previously this only deleted the `user:{email}` KV entry, leaving sessions, containers, and R2 buckets as orphans.
+
 ### Session Route Architecture
 
 **Directory:** `src/routes/session/` - Split into `index.ts` (aggregator), `crud.ts` (CRUD), `lifecycle.ts` (start/stop/status/batch-status).
@@ -1230,7 +1232,9 @@ DO alarm loops from `collectMetrics` can persist after `destroy()` since `destro
 
 ### R2 Bucket Cleanup on User Deletion
 
-Non-empty bucket deletion is logged server-side (`logger.warn`) but `DELETE /api/users/:email` still returns `{ success: true }`. Manual R2 cleanup via the Cloudflare dashboard may be needed.
+`DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry, deletes the scoped R2 token, and attempts to empty then delete the R2 bucket.
+
+Non-empty bucket deletion logs `logger.warn` server-side but both endpoints still return `{ success: true }`. Manual R2 cleanup via the Cloudflare dashboard may be needed if the bucket could not be emptied automatically.
 
 ### Chrome in CI (Ubuntu 22.04)
 

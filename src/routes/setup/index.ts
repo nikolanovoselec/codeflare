@@ -4,6 +4,7 @@ import type { Env } from '../../types';
 import { ValidationError, toError } from '../../lib/error-types';
 import { resetSetupCache } from '../../lib/cache-reset';
 import { listAllKvKeys, emailFromKvKey } from '../../lib/kv-keys';
+import { cleanupUserData } from '../../lib/user-cleanup';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { setupRateLimiter, logger, getWorkerNameFromHostname } from './shared';
 import type { SetupStep } from './shared';
@@ -156,16 +157,17 @@ app.post('/configure', async (c) => {
         handleSetSecrets(token, accountId, r2AccessKeyId, r2SecretAccessKey, c.req.url, steps, workerName)
       );
 
-      // Remove stale users not in the new allowedUsers list
+      // Remove stale users not in the new allowedUsers list (full cleanup)
       const allowedSet = new Set(allowedUsers);
       const existingUserKeys = await listAllKvKeys(c.env.KV, 'user:');
-      const staleDeletes = existingUserKeys
+      const staleEmails = existingUserKeys
         .filter(key => !allowedSet.has(emailFromKvKey(key.name)))
-        .map(key => {
-          logger.info('Removed stale user', { email: emailFromKvKey(key.name) });
-          return c.env.KV.delete(key.name);
-        });
-      await Promise.all(staleDeletes);
+        .map(key => emailFromKvKey(key.name));
+
+      for (const staleEmail of staleEmails) {
+        logger.info('Removing stale user with full cleanup', { email: staleEmail });
+        await cleanupUserData(staleEmail, c.env);
+      }
 
       // Store users in KV with role
       const adminSet = new Set(adminUsers);

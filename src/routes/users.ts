@@ -1,18 +1,12 @@
 // users.ts = admin user management (GET/DELETE /api/users). See user.ts for current user identity.
 import { Hono } from 'hono';
-import type { Env, Session } from '../types';
+import type { Env } from '../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getAllUsers, syncAccessPolicy } from '../lib/access-policy';
-import { getBucketName } from '../lib/access';
-import { getSessionPrefix, listAllKvKeys } from '../lib/kv-keys';
-import { getContainerId } from '../lib/container-helpers';
-import { getContainer } from '@cloudflare/containers';
 import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
-import { CF_API_BASE } from '../lib/constants';
-import { r2AdminCB } from '../lib/circuit-breakers';
-import { deleteScopedR2Token } from '../lib/r2-admin';
+import { cleanupUserData } from '../lib/user-cleanup';
 
 const logger = createLogger('users');
 
@@ -69,81 +63,8 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     throw new NotFoundError('User', email);
   }
 
-  // Clean up sessions and containers for this user
-  const bucketName = getBucketName(email, c.env.CLOUDFLARE_WORKER_NAME);
-  const sessionPrefix = getSessionPrefix(bucketName);
-  const sessionKeys = await listAllKvKeys(c.env.KV, sessionPrefix);
-
-  for (const key of sessionKeys) {
-    try {
-      const sessionData = await c.env.KV.get<Session>(key.name, 'json');
-      if (sessionData) {
-        const containerId = getContainerId(bucketName, sessionData.id);
-        const container = getContainer(c.env.CONTAINER, containerId);
-        await container.destroy();
-      }
-    } catch (err) {
-      logger.warn('Failed to destroy container during user deletion', { sessionKey: key.name, error: String(err) });
-    }
-    await c.env.KV.delete(key.name);
-  }
-
-  await c.env.KV.delete(`user:${email}`);
-
-  const accountId = await c.env.KV.get('setup:account_id');
-
-  // Clean up scoped R2 token (graceful — errors don't block deletion)
-  try {
-    const r2TokenData = await c.env.KV.get(`r2token:${email}`, 'json') as { tokenId?: string } | null;
-    if (r2TokenData?.tokenId && accountId && c.env.CLOUDFLARE_API_TOKEN) {
-      await deleteScopedR2Token(accountId, c.env.CLOUDFLARE_API_TOKEN, r2TokenData.tokenId);
-    }
-  } catch (err) {
-    logger.warn('Failed to delete scoped R2 token during user deletion', { email, error: String(err) });
-  }
-  await c.env.KV.delete(`r2token:${email}`);
-
-  // Try to empty and delete R2 bucket
-  try {
-    if (accountId && c.env.CLOUDFLARE_API_TOKEN) {
-      const bucketName = getBucketName(email, c.env.CLOUDFLARE_WORKER_NAME);
-
-      // Try to empty bucket via S3 ListObjectsV2 + DeleteObjects
-      try {
-        const r2TokenData = await c.env.KV.get(`r2token:${email}`, 'json') as { accessKeyId?: string; secretAccessKey?: string } | null;
-        if (r2TokenData?.accessKeyId && r2TokenData?.secretAccessKey) {
-          const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
-          const listRes = await fetch(`${endpoint}/${bucketName}?list-type=2`, {
-            headers: { 'Authorization': `Bearer ${c.env.CLOUDFLARE_API_TOKEN}` },
-          });
-          // Best-effort empty — proceed to bucket deletion regardless
-          if (listRes.ok) {
-            logger.info('Attempted S3 bucket empty before deletion', { bucketName });
-          }
-        }
-      } catch (err) {
-        logger.debug('S3 bucket empty attempt failed (non-fatal)', { email, error: String(err) });
-      }
-
-      const res = await r2AdminCB.execute(() =>
-        fetch(`${CF_API_BASE}/accounts/${accountId}/r2/buckets/${bucketName}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${c.env.CLOUDFLARE_API_TOKEN}` },
-        })
-      );
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        if (body.includes('not empty') || body.includes('BucketNotEmpty')) {
-          logger.warn('R2 bucket not empty, manual cleanup may be needed', { bucketName, email });
-        } else {
-          logger.error('Failed to delete R2 bucket', new Error(`HTTP ${res.status}: ${body}`), { bucketName });
-        }
-      }
-    }
-  } catch (err) {
-    // Non-fatal — circuit breaker open or network error
-    logger.error('Failed to delete R2 bucket', toError(err));
-  }
+  const result = await cleanupUserData(email, c.env);
+  logger.info('User data cleaned up', { email, ...result });
 
   await trySyncAccessPolicy(c.env);
 

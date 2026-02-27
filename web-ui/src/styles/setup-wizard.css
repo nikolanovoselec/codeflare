@@ -3,6 +3,7 @@
           inset: 0;
           display: flex;
           flex-direction: column;
+          align-items: center;
           padding: var(--dashboard-panel-margin);
           background: var(--color-bg-gradient);
           overflow-y: auto;
@@ -11,7 +12,7 @@
         .setup-container {
           width: 100%;
           max-width: 760px;
-          margin: auto;
+          margin-block: auto;
           display: flex;
           flex-direction: column;
           background: var(--glass-bg);
@@ -137,10 +138,15 @@
           .setup-container {
             width: min(760px, calc(100vw - 24px));
             min-height: auto;
+            margin-block: 0;
+            overflow-y: auto;
           }
 
           .setup-header {
             padding: var(--space-3);
+            position: sticky;
+            top: 0;
+            z-index: 3;
           }
 
           .setup-title {
