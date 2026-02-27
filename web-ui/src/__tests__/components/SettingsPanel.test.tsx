@@ -4,7 +4,6 @@ import { within } from '@testing-library/dom';
 import SettingsPanel from '../../components/SettingsPanel';
 import { loadSettings, saveSettings, defaultSettings } from '../../lib/settings';
 import type { Settings } from '../../lib/settings';
-import * as apiClient from '../../api/client';
 import * as storageApi from '../../api/storage';
 
 const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false }));
@@ -19,10 +18,7 @@ vi.mock('../../lib/mobile', () => ({
   get isSamsungBrowser() { return mobileState.samsung; },
 }));
 
-vi.mock('../../api/client', () => ({
-  getUsers: vi.fn(async () => []),
-  removeUser: vi.fn(async () => undefined),
-}));
+vi.mock('../../api/client', () => ({}));
 
 vi.mock('../../api/storage', () => ({
   recreateGettingStartedDocs: vi.fn(async () => ({
@@ -65,13 +61,11 @@ Object.defineProperty(window, 'localStorage', {
 });
 
 describe('SettingsPanel Component', () => {
-  const mockGetUsers = vi.mocked(apiClient.getUsers);
   const mockRecreateGettingStartedDocs = vi.mocked(storageApi.recreateGettingStartedDocs);
 
   beforeEach(() => {
     localStorageMock.clear();
     vi.clearAllMocks();
-    mockGetUsers.mockResolvedValue([]);
     mockRecreateGettingStartedDocs.mockResolvedValue({
       success: true,
       bucketCreated: false,
@@ -387,8 +381,24 @@ describe('SettingsPanel Component', () => {
     });
   });
 
-  describe('Admin-gated User Management', () => {
-    it('should show user management section when currentUserRole is admin', async () => {
+  describe('Group Structure', () => {
+    it('renders "Appearance" group heading', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const heading = screen.getByText('Appearance');
+      expect(heading.tagName).toBe('H3');
+      expect(heading).toHaveClass('settings-group-title');
+    });
+
+    it('renders "Session Defaults" group heading', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const heading = screen.getByText('Session Defaults');
+      expect(heading.tagName).toBe('H3');
+      expect(heading).toHaveClass('settings-group-title');
+    });
+
+    it('renders "Administration" group heading for admins', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -398,11 +408,25 @@ describe('SettingsPanel Component', () => {
         />
       ));
 
-      const section = screen.queryByTestId('settings-user-management');
-      expect(section).toBeInTheDocument();
+      const heading = screen.getByText('Administration');
+      expect(heading.tagName).toBe('H3');
+      expect(heading).toHaveClass('settings-group-title');
     });
 
-    it('should not show add-user form for admin users', () => {
+    it('hides "Administration" group for non-admins', () => {
+      render(() => (
+        <SettingsPanel
+          isOpen={true}
+          onClose={() => {}}
+          currentUserRole="user"
+          currentUserEmail="user@example.com"
+        />
+      ));
+
+      expect(screen.queryByText('Administration')).not.toBeInTheDocument();
+    });
+
+    it('shows "Open Setup & User Management" button text for admins', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -412,51 +436,27 @@ describe('SettingsPanel Component', () => {
         />
       ));
 
-      expect(screen.queryByTestId('settings-new-user-role-select')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('settings-add-user-fields-row')).not.toBeInTheDocument();
-      expect(screen.queryByPlaceholderText('user@example.com')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Open Setup & User Management' })).toBeInTheDocument();
     });
+  });
 
-    it('should hide user management section when currentUserRole is user', () => {
-      render(() => (
-        <SettingsPanel
-          isOpen={true}
-          onClose={() => {}}
-          currentUserRole="user"
-          currentUserEmail="viewer@example.com"
-        />
-      ));
-
-      const section = screen.queryByTestId('settings-user-management');
-      expect(section).not.toBeInTheDocument();
-    });
-
-    it('should hide user management section when no role is provided', () => {
-      render(() => (
-        <SettingsPanel
-          isOpen={true}
-          onClose={() => {}}
-        />
-      ));
-
-      const section = screen.queryByTestId('settings-user-management');
-      expect(section).not.toBeInTheDocument();
-    });
-
-    it('should render user management section', () => {
+  describe('Administration section', () => {
+    it('shows administration section with setup button for admin', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
           onClose={() => {}}
           currentUserRole="admin"
+          currentUserEmail="admin@example.com"
         />
       ));
 
-      const section = screen.getByTestId('settings-user-management');
-      expect(section).toBeInTheDocument();
+      const heading = screen.getByText('Administration');
+      expect(heading).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Open Setup & User Management' })).toBeInTheDocument();
     });
 
-    it('should not request users when currentUserRole is user', () => {
+    it('hides administration for non-admin', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -466,7 +466,20 @@ describe('SettingsPanel Component', () => {
         />
       ));
 
-      expect(mockGetUsers).not.toHaveBeenCalled();
+      expect(screen.queryByText('Administration')).not.toBeInTheDocument();
+    });
+
+    it('does NOT render UserManagement component', () => {
+      render(() => (
+        <SettingsPanel
+          isOpen={true}
+          onClose={() => {}}
+          currentUserRole="admin"
+          currentUserEmail="admin@example.com"
+        />
+      ));
+
+      expect(screen.queryByTestId('settings-user-management')).not.toBeInTheDocument();
     });
   });
 

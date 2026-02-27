@@ -119,6 +119,25 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     expect(reset.asElement()).toBeTruthy();
   });
 
+  it('shows group headings', async () => {
+    // Ensure panel is open
+    const isAlreadyOpen = await page.evaluate(
+      () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false'
+    );
+    if (!isAlreadyOpen) {
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="dashboard-settings-button"]');
+        if (!el) throw new Error('Element not found: dashboard-settings-button');
+        (el as HTMLElement).click();
+      });
+      await waitForPanelOpen(page);
+    }
+    const groupTitles = await page.$$eval('.settings-group-title', els => els.map(el => el.textContent?.trim()));
+    expect(groupTitles).toContain('Appearance');
+    expect(groupTitles).toContain('Session Defaults');
+    // Administration only visible to admins — just check the first two are always present
+  });
+
   it('shows toggle settings', async () => {
     const showTips = await page.$('[data-testid="settings-show-tips-toggle"]');
     expect(showTips).toBeTruthy();

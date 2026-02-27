@@ -11,7 +11,6 @@ import {
 } from '@mdi/js';
 import Icon from './Icon';
 import Button from './ui/Button';
-import UserManagement from './UserManagement';
 import { loadSettings, saveSettings, defaultSettings, applyAccentColor, isValidHex } from '../lib/settings';
 import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
@@ -134,302 +133,306 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
         {/* Content */}
         <div class="settings-content">
-          {/* Accent Color Section */}
-          <section class="settings-section settings-section-accent">
-            <div class="settings-section-header">
-              <Icon path={mdiPaletteOutline} size={16} />
-              <h3 class="settings-section-title">Accent Color</h3>
-            </div>
-            <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
-              Customize the UI accent color
-            </p>
-            <div class="accent-color-row">
-              <span
-                class="accent-color-swatch"
-                style={{
-                  background: accentHexInput() && isValidHex(accentHexInput())
-                    ? (accentHexInput().startsWith('#') ? accentHexInput() : `#${accentHexInput()}`)
-                    : DEFAULT_ACCENT_HEX,
-                }}
-                data-testid="accent-color-swatch"
-              />
-              <input
-                type="text"
-                class="accent-color-input"
-                value={accentHexInput()}
-                placeholder={DEFAULT_ACCENT_HEX}
-                maxLength={7}
-                autocomplete="off"
-                autocorrect="off"
-                autocapitalize="off"
-                spellcheck={false}
-                onInput={(e) => {
-                  const val = e.currentTarget.value;
-                  setAccentHexInput(val);
-                  if (isValidHex(val)) {
-                    const normalized = val.startsWith('#') ? val : `#${val}`;
-                    applyAccentColor(normalized);
-                    updateSetting('accentColor', normalized);
-                  }
-                }}
-                data-testid="accent-color-input"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setAccentHexInput('');
-                  applyAccentColor(undefined);
-                  updateSetting('accentColor', undefined as unknown as Settings['accentColor']);
-                }}
-                data-testid="accent-color-reset"
-              >
-                Reset
-              </Button>
-            </div>
-            <a
-              class="accent-color-link"
-              href="https://htmlcolorcodes.com/color-picker/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Find colors at htmlcolorcodes.com
-            </a>
-          </section>
+          {/* ── Appearance ── */}
+          <div class="settings-group settings-group-1">
+            <h3 class="settings-group-title">Appearance</h3>
 
-          {/* Button Labels Section — only on mobile */}
-          <Show when={isTouchDevice()}>
-          <section class="settings-section">
-            <div class="settings-section-header">
-              <Icon path={mdiGestureTapButton} size={16} />
-              <h3 class="settings-section-title">Mobile Buttons</h3>
-            </div>
-            <div class="setting-row">
-              <label for="settings-button-labels">Show button labels</label>
-              <button
-                type="button"
-                id="settings-button-labels"
-                class={`toggle ${showButtonLabels() ? 'toggle-on' : ''}`}
-                onClick={() => updateSetting('showButtonLabels', !showButtonLabels())}
-                role="switch"
-                aria-checked={showButtonLabels()}
-                data-testid="settings-button-labels-toggle"
-              >
-                <span class="toggle-thumb" />
-              </button>
-            </div>
-            <div class="setting-row setting-row--column-gap">
-              <span class="settings-hint">
-                Briefly show text labels next to floating terminal buttons when the keyboard opens.
-              </span>
-            </div>
-          </section>
-          </Show>
-
-          {/* Samsung Address Bar Section — only on Samsung Internet */}
-          <Show when={isSamsungBrowser}>
-          <section class="settings-section">
-            <div class="settings-section-header">
-              <Icon path={mdiGestureTapButton} size={16} />
-              <h3 class="settings-section-title">Samsung Internet</h3>
-            </div>
-            <div class="setting-row">
-              <label for="settings-samsung-bar-top">Address bar at top</label>
-              <button
-                type="button"
-                id="settings-samsung-bar-top"
-                class={`toggle ${samsungAddressBarTop() ? 'toggle-on' : ''}`}
-                onClick={() => updateSetting('samsungAddressBarTop', !samsungAddressBarTop())}
-                role="switch"
-                aria-checked={samsungAddressBarTop()}
-                data-testid="settings-samsung-bar-top-toggle"
-              >
-                <span class="toggle-thumb" />
-              </button>
-            </div>
-            <div class="setting-row setting-row--column-gap">
-              <span class="settings-hint">
-                Enable if your Samsung Internet address bar is at the top. Fixes keyboard button positioning.
-              </span>
-            </div>
-          </section>
-          </Show>
-
-          {/* Tips & Tricks Section */}
-          <section class="settings-section">
-            <div class="settings-section-header">
-              <Icon path={mdiLightbulbOnOutline} size={16} />
-              <h3 class="settings-section-title">Tips & Tricks</h3>
-            </div>
-            <div class="setting-row">
-              <label for="settings-show-tips">Show tips on dashboard</label>
-              <button
-                type="button"
-                id="settings-show-tips"
-                class={`toggle ${showTips() ? 'toggle-on' : ''}`}
-                onClick={() => updateSetting('showTips', !showTips())}
-                role="switch"
-                aria-checked={showTips()}
-                data-testid="settings-show-tips-toggle"
-              >
-                <span class="toggle-thumb" />
-              </button>
-            </div>
-            <div class="setting-row setting-row--column-gap">
-              <span class="settings-hint">
-                Show rotating tips & tricks on the dashboard. When disabled, a welcome card is shown instead.
-              </span>
-            </div>
-          </section>
-
-          {/* Clipboard Access Section */}
-          <Show when={!isTouchDevice()}>
+            {/* Accent Color */}
             <section class="settings-section">
               <div class="settings-section-header">
-                <Icon path={mdiContentPaste} size={16} />
-                <h3 class="settings-section-title">Clipboard</h3>
+                <Icon path={mdiPaletteOutline} size={16} />
+                <h3 class="settings-section-title">Accent Color</h3>
+              </div>
+              <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+                Customize the UI accent color
+              </p>
+              <div class="accent-color-row">
+                <span
+                  class="accent-color-swatch"
+                  style={{
+                    background: accentHexInput() && isValidHex(accentHexInput())
+                      ? (accentHexInput().startsWith('#') ? accentHexInput() : `#${accentHexInput()}`)
+                      : DEFAULT_ACCENT_HEX,
+                  }}
+                  data-testid="accent-color-swatch"
+                />
+                <input
+                  type="text"
+                  class="accent-color-input"
+                  value={accentHexInput()}
+                  placeholder={DEFAULT_ACCENT_HEX}
+                  maxLength={7}
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  spellcheck={false}
+                  onInput={(e) => {
+                    const val = e.currentTarget.value;
+                    setAccentHexInput(val);
+                    if (isValidHex(val)) {
+                      const normalized = val.startsWith('#') ? val : `#${val}`;
+                      applyAccentColor(normalized);
+                      updateSetting('accentColor', normalized);
+                    }
+                  }}
+                  data-testid="accent-color-input"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setAccentHexInput('');
+                    applyAccentColor(undefined);
+                    updateSetting('accentColor', undefined as unknown as Settings['accentColor']);
+                  }}
+                  data-testid="accent-color-reset"
+                >
+                  Reset
+                </Button>
+              </div>
+              <a
+                class="accent-color-link"
+                href="https://htmlcolorcodes.com/color-picker/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Find colors at htmlcolorcodes.com
+              </a>
+            </section>
+
+            {/* Tips & Tricks */}
+            <section class="settings-section">
+              <div class="settings-section-header">
+                <Icon path={mdiLightbulbOnOutline} size={16} />
+                <h3 class="settings-section-title">Tips & Tricks</h3>
               </div>
               <div class="setting-row">
-                <label for="settings-clipboard-access">Allow paste from clipboard</label>
+                <label for="settings-show-tips">Show tips on dashboard</label>
                 <button
                   type="button"
-                  id="settings-clipboard-access"
-                  class={`toggle ${clipboardAccess() ? 'toggle-on' : ''}`}
-                  onClick={() => updateSetting('clipboardAccess', !clipboardAccess())}
+                  id="settings-show-tips"
+                  class={`toggle ${showTips() ? 'toggle-on' : ''}`}
+                  onClick={() => updateSetting('showTips', !showTips())}
                   role="switch"
-                  aria-checked={clipboardAccess()}
-                  data-testid="settings-clipboard-access-toggle"
+                  aria-checked={showTips()}
+                  data-testid="settings-show-tips-toggle"
                 >
                   <span class="toggle-thumb" />
                 </button>
               </div>
               <div class="setting-row setting-row--column-gap">
                 <span class="settings-hint">
-                  Allow right-click paste from clipboard. Works best in Chrome; unreliable in other browsers. When enabled, your browser may prompt for clipboard permission.
+                  Show rotating tips & tricks on the dashboard. When disabled, a welcome card is shown instead.
                 </span>
               </div>
             </section>
-          </Show>
 
-          {/* R2 Sync Section */}
-          <section class="settings-section settings-section-sync">
-            <div class="settings-section-header">
-              <Icon path={mdiCloudSyncOutline} size={16} />
-              <h3 class="settings-section-title">R2 Sync</h3>
-            </div>
-            <div class="setting-row">
-              <label for="settings-workspace-sync">Sync Workspace Folder</label>
-              <button
-                type="button"
-                id="settings-workspace-sync"
-                class={`toggle ${workspaceSyncEnabled() ? 'toggle-on' : ''}`}
-                onClick={handleWorkspaceSyncToggle}
-                role="switch"
-                aria-checked={workspaceSyncEnabled()}
-                data-testid="settings-workspace-sync-toggle"
-              >
-                <span class="toggle-thumb" />
-              </button>
-            </div>
-            <div class="setting-row setting-row--column-gap">
-              <span class="settings-hint" data-testid="settings-workspace-sync-hint">
-                Workspace sync increases startup time. Prefer cloning repositories fresh inside each session.
-                Restart the session after changing this switch for it to take effect.
-              </span>
-            </div>
-            <div class="setting-row setting-row--column-gap">
-              <div class="setting-row setting-row--split" data-testid="settings-recreate-docs-row">
-                <span class="settings-hint settings-hint--primary" data-testid="settings-recreate-docs-label">
-                  Recreate getting-started documentation
-                </span>
-                <div class="settings-recreate-docs-action">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={recreateDocsLoading()}
-                    onClick={() => { void handleRecreateDocs(); }}
-                  >
-                    Recreate
-                  </Button>
+            {/* Button Labels — mobile only */}
+            <Show when={isTouchDevice()}>
+              <section class="settings-section">
+                <div class="settings-section-header">
+                  <Icon path={mdiGestureTapButton} size={16} />
+                  <h3 class="settings-section-title">Mobile Buttons</h3>
                 </div>
-              </div>
-              <span class="settings-hint" data-testid="settings-recreate-docs-hint">
-                Writes files from the repository `tutorials/` folder into your R2 root.
-              </span>
-              <Show when={recreateDocsMessage()}>
-                {(message) => (
-                  <span class="settings-hint" data-testid="settings-recreate-docs-success">{message()}</span>
-                )}
-              </Show>
-              <Show when={recreateDocsError()}>
-                {(error) => (
-                  <span class="settings-error" data-testid="settings-recreate-docs-error">{error()}</span>
-                )}
-              </Show>
-            </div>
-          </section>
+                <div class="setting-row">
+                  <label for="settings-button-labels">Show button labels</label>
+                  <button
+                    type="button"
+                    id="settings-button-labels"
+                    class={`toggle ${showButtonLabels() ? 'toggle-on' : ''}`}
+                    onClick={() => updateSetting('showButtonLabels', !showButtonLabels())}
+                    role="switch"
+                    aria-checked={showButtonLabels()}
+                    data-testid="settings-button-labels-toggle"
+                  >
+                    <span class="toggle-thumb" />
+                  </button>
+                </div>
+                <div class="setting-row setting-row--column-gap">
+                  <span class="settings-hint">
+                    Briefly show text labels next to floating terminal buttons when the keyboard opens.
+                  </span>
+                </div>
+              </section>
+            </Show>
 
-          {/* Agent Startup Section */}
-          <section class="settings-section">
-            <div class="settings-section-header">
-              <Icon path={mdiFastForward} size={16} />
-              <h3 class="settings-section-title">Agent Startup</h3>
-            </div>
-            <div class="setting-row">
-              <label for="settings-fast-start">Fast Start</label>
-              <button
-                type="button"
-                id="settings-fast-start"
-                class={`toggle ${fastStartEnabled() ? 'toggle-on' : ''}`}
-                onClick={handleFastStartToggle}
-                role="switch"
-                aria-checked={fastStartEnabled()}
-                data-testid="settings-fast-start-toggle"
-              >
-                <span class="toggle-thumb" />
-              </button>
-            </div>
-            <div class="setting-row setting-row--column-gap">
-              <span class="settings-hint" data-testid="settings-fast-start-hint">
-                Launch pre-installed CLI versions for instant startup. Turn off to allow tools to auto-update on launch (slower startup, latest features).
-              </span>
-            </div>
-          </section>
+            {/* Samsung — Samsung only */}
+            <Show when={isSamsungBrowser}>
+              <section class="settings-section">
+                <div class="settings-section-header">
+                  <Icon path={mdiGestureTapButton} size={16} />
+                  <h3 class="settings-section-title">Samsung Internet</h3>
+                </div>
+                <div class="setting-row">
+                  <label for="settings-samsung-bar-top">Address bar at top</label>
+                  <button
+                    type="button"
+                    id="settings-samsung-bar-top"
+                    class={`toggle ${samsungAddressBarTop() ? 'toggle-on' : ''}`}
+                    onClick={() => updateSetting('samsungAddressBarTop', !samsungAddressBarTop())}
+                    role="switch"
+                    aria-checked={samsungAddressBarTop()}
+                    data-testid="settings-samsung-bar-top-toggle"
+                  >
+                    <span class="toggle-thumb" />
+                  </button>
+                </div>
+                <div class="setting-row setting-row--column-gap">
+                  <span class="settings-hint">
+                    Enable if your Samsung Internet address bar is at the top. Fixes keyboard button positioning.
+                  </span>
+                </div>
+              </section>
+            </Show>
+          </div>
 
-          {/* User Management Section (admin only) */}
-          <Show when={isAdmin()}>
-            <UserManagement
-              isOpen={props.isOpen}
-              currentUserEmail={props.currentUserEmail}
-              currentUserRole={props.currentUserRole}
-            />
-          </Show>
+          {/* ── Session Defaults ── */}
+          <div class="settings-group settings-group-2">
+            <h3 class="settings-group-title">Session Defaults</h3>
 
-          {/* Administration Section */}
-          <Show when={isAdmin()}>
-            <section class="settings-section settings-section-4">
+            {/* Agent Startup / Fast Start */}
+            <section class="settings-section">
               <div class="settings-section-header">
-                <Icon path={mdiCogOutline} size={16} />
-                <h3 class="settings-section-title">Administration</h3>
+                <Icon path={mdiFastForward} size={16} />
+                <h3 class="settings-section-title">Agent Startup</h3>
+              </div>
+              <div class="setting-row">
+                <label for="settings-fast-start">Fast Start</label>
+                <button
+                  type="button"
+                  id="settings-fast-start"
+                  class={`toggle ${fastStartEnabled() ? 'toggle-on' : ''}`}
+                  onClick={handleFastStartToggle}
+                  role="switch"
+                  aria-checked={fastStartEnabled()}
+                  data-testid="settings-fast-start-toggle"
+                >
+                  <span class="toggle-thumb" />
+                </button>
               </div>
               <div class="setting-row setting-row--column-gap">
-                <span class="settings-hint">
-                  Re-run the setup wizard to reconfigure domain, users, or secrets
-                </span>
-                <div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => { window.location.href = '/setup'; }}
-                  >
-                    Open Setup
-                  </Button>
-                </div>
-                <span class="settings-hint" data-testid="settings-r2-warning">
-                  Changing your Cloudflare API token requires re-running setup. R2 storage credentials are derived from the API token during setup — without re-running, file sync will break.
+                <span class="settings-hint" data-testid="settings-fast-start-hint">
+                  Launch pre-installed CLI versions for instant startup. Turn off to allow tools to auto-update on launch (slower startup, latest features).
                 </span>
               </div>
             </section>
+
+            {/* R2 Sync */}
+            <section class="settings-section">
+              <div class="settings-section-header">
+                <Icon path={mdiCloudSyncOutline} size={16} />
+                <h3 class="settings-section-title">R2 Sync</h3>
+              </div>
+              <div class="setting-row">
+                <label for="settings-workspace-sync">Sync Workspace Folder</label>
+                <button
+                  type="button"
+                  id="settings-workspace-sync"
+                  class={`toggle ${workspaceSyncEnabled() ? 'toggle-on' : ''}`}
+                  onClick={handleWorkspaceSyncToggle}
+                  role="switch"
+                  aria-checked={workspaceSyncEnabled()}
+                  data-testid="settings-workspace-sync-toggle"
+                >
+                  <span class="toggle-thumb" />
+                </button>
+              </div>
+              <div class="setting-row setting-row--column-gap">
+                <span class="settings-hint" data-testid="settings-workspace-sync-hint">
+                  Workspace sync increases startup time. Prefer cloning repositories fresh inside each session.
+                  Restart the session after changing this switch for it to take effect.
+                </span>
+              </div>
+              <div class="setting-row setting-row--column-gap">
+                <div class="setting-row setting-row--split" data-testid="settings-recreate-docs-row">
+                  <span class="settings-hint settings-hint--primary" data-testid="settings-recreate-docs-label">
+                    Recreate getting-started documentation
+                  </span>
+                  <div class="settings-recreate-docs-action">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={recreateDocsLoading()}
+                      onClick={() => { void handleRecreateDocs(); }}
+                    >
+                      Recreate
+                    </Button>
+                  </div>
+                </div>
+                <span class="settings-hint" data-testid="settings-recreate-docs-hint">
+                  Writes files from the repository `tutorials/` folder into your R2 root.
+                </span>
+                <Show when={recreateDocsMessage()}>
+                  {(message) => (
+                    <span class="settings-hint" data-testid="settings-recreate-docs-success">{message()}</span>
+                  )}
+                </Show>
+                <Show when={recreateDocsError()}>
+                  {(error) => (
+                    <span class="settings-error" data-testid="settings-recreate-docs-error">{error()}</span>
+                  )}
+                </Show>
+              </div>
+            </section>
+
+            {/* Clipboard — desktop only */}
+            <Show when={!isTouchDevice()}>
+              <section class="settings-section">
+                <div class="settings-section-header">
+                  <Icon path={mdiContentPaste} size={16} />
+                  <h3 class="settings-section-title">Clipboard</h3>
+                </div>
+                <div class="setting-row">
+                  <label for="settings-clipboard-access">Allow paste from clipboard</label>
+                  <button
+                    type="button"
+                    id="settings-clipboard-access"
+                    class={`toggle ${clipboardAccess() ? 'toggle-on' : ''}`}
+                    onClick={() => updateSetting('clipboardAccess', !clipboardAccess())}
+                    role="switch"
+                    aria-checked={clipboardAccess()}
+                    data-testid="settings-clipboard-access-toggle"
+                  >
+                    <span class="toggle-thumb" />
+                  </button>
+                </div>
+                <div class="setting-row setting-row--column-gap">
+                  <span class="settings-hint">
+                    Allow right-click paste from clipboard. Works best in Chrome; unreliable in other browsers. When enabled, your browser may prompt for clipboard permission.
+                  </span>
+                </div>
+              </section>
+            </Show>
+          </div>
+
+          {/* ── Administration (admin only) ── */}
+          <Show when={isAdmin()}>
+            <div class="settings-group settings-group-3">
+              <h3 class="settings-group-title">Administration</h3>
+              <section class="settings-section">
+                <div class="settings-section-header">
+                  <Icon path={mdiCogOutline} size={16} />
+                  <h3 class="settings-section-title">Setup</h3>
+                </div>
+                <div class="setting-row setting-row--column-gap">
+                  <span class="settings-hint">
+                    Re-run the setup wizard to reconfigure domain, users, or secrets
+                  </span>
+                  <div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => { window.location.href = '/setup'; }}
+                    >
+                      Open Setup & User Management
+                    </Button>
+                  </div>
+                  <span class="settings-hint" data-testid="settings-r2-warning">
+                    Changing your Cloudflare API token requires re-running setup. R2 storage credentials are derived from the API token during setup — without re-running, file sync will break.
+                  </span>
+                </div>
+              </section>
+            </div>
           </Show>
 
         </div>

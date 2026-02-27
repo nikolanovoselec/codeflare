@@ -77,6 +77,25 @@
   padding: var(--space-4);
 }
 
+/* Group */
+.settings-group {
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.settings-group:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.settings-group-title {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  letter-spacing: 0.02em;
+}
+
 /* Section */
 .settings-section {
   margin-bottom: var(--space-6);
@@ -86,14 +105,10 @@
   margin-bottom: 0;
 }
 
-/* Staggered section animations when panel opens */
-.settings-panel.open .settings-section-3 {
-  animation: fadeInUp 200ms ease-out 150ms backwards;
-}
-
-.settings-panel.open .settings-section-4 {
-  animation: fadeInUp 200ms ease-out 200ms backwards;
-}
+/* Staggered group animations when panel opens */
+.settings-panel.open .settings-group-1 { animation: fadeInUp 200ms ease-out 75ms backwards; }
+.settings-panel.open .settings-group-2 { animation: fadeInUp 200ms ease-out 150ms backwards; }
+.settings-panel.open .settings-group-3 { animation: fadeInUp 200ms ease-out 225ms backwards; }
 
 /* Error message */
 .settings-error {
@@ -286,11 +301,6 @@
   background: var(--color-border-default);
 }
 
-/* Accent Color Section */
-.settings-panel.open .settings-section-accent {
-  animation: fadeInUp 200ms ease-out 75ms backwards;
-}
-
 .accent-color-row {
   display: flex;
   align-items: center;
@@ -432,9 +442,9 @@
     transition: none;
   }
 
-  .settings-panel.open .settings-section-3,
-  .settings-panel.open .settings-section-4,
-  .settings-panel.open .settings-section-accent {
+  .settings-panel.open .settings-group-1,
+  .settings-panel.open .settings-group-2,
+  .settings-panel.open .settings-group-3 {
     animation: none;
   }
 }
