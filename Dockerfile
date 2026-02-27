@@ -40,6 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Network tools
     curl \
     openssh-client \
+    # Process utilities
+    procps \
     # Utilities
     jq \
     ripgrep \
@@ -112,11 +114,10 @@ ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
     claude-unleashed --silent --no-consent --help > /dev/null 2>&1 || true
 
-# Symlink `claude` binary to the claude-code bundled inside claude-unleashed.
-# claude-unleashed already installs @anthropic-ai/claude-code as a dependency —
-# a separate `npm install -g @anthropic-ai/claude-code` would duplicate ~350MB.
-RUN ln -s /usr/local/lib/node_modules/claude-unleashed/node_modules/@anthropic-ai/claude-code/cli.js /usr/local/bin/claude && \
-    chmod +x /usr/local/bin/claude
+# Install Claude Code via native installer (replaces deprecated npm symlink)
+# Native binary: auto-updates, no Node.js dependency, faster startup
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:$PATH"
 
 # Install Codex + Gemini + OpenCode CLIs for multi-agent support (single RUN for npm dedup).
 # OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.

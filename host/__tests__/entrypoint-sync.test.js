@@ -46,34 +46,12 @@ describe('bisync --ignore-checksum flag', () => {
     assert.ok(body.includes('--resync'), 'establish_bisync_baseline should include --resync');
   });
 
-  it('bisync_with_r2() normal bisync includes --ignore-checksum', () => {
+  it('bisync_with_r2() includes --ignore-checksum', () => {
     const body = extractFunction('bisync_with_r2');
     assert.ok(body, 'bisync_with_r2 function should exist');
-
-    // The function has two rclone bisync calls: normal and fallback --resync.
-    // Split on the fallback marker to isolate the normal bisync.
-    const fallbackMarker = 'attempting --resync';
-    const normalSection = body.slice(0, body.indexOf(fallbackMarker));
     assert.ok(
-      normalSection.includes('--ignore-checksum'),
-      'bisync_with_r2 normal bisync should include --ignore-checksum'
-    );
-  });
-
-  it('bisync_with_r2() fallback --resync includes --ignore-checksum', () => {
-    const body = extractFunction('bisync_with_r2');
-    assert.ok(body, 'bisync_with_r2 function should exist');
-
-    // Isolate the fallback section (after "attempting --resync")
-    const fallbackMarker = 'attempting --resync';
-    const fallbackSection = body.slice(body.indexOf(fallbackMarker));
-    assert.ok(
-      fallbackSection.includes('--ignore-checksum'),
-      'bisync_with_r2 fallback --resync should include --ignore-checksum'
-    );
-    assert.ok(
-      fallbackSection.includes('--resync'),
-      'bisync_with_r2 fallback should include --resync'
+      body.includes('--ignore-checksum'),
+      'bisync_with_r2 should include --ignore-checksum'
     );
   });
 });
@@ -165,5 +143,52 @@ describe('RCLONE_FILTERS construction by SYNC_MODE', () => {
       entrypoint.includes('SYNC_MODE="${SYNC_MODE:-none}"'),
       'SYNC_MODE should default to "none"'
     );
+  });
+});
+
+// ============================================================================
+// Test: --max-delete flag on bisync commands
+// ============================================================================
+describe('bisync --max-delete flag', () => {
+  it('establish_bisync_baseline() includes --max-delete 100', () => {
+    const body = extractFunction('establish_bisync_baseline');
+    assert.ok(body.includes('--max-delete'), 'should include --max-delete flag');
+    assert.ok(body.includes('--max-delete 100'), 'should set --max-delete to 100');
+  });
+  it('bisync_with_r2() includes --max-delete 100', () => {
+    const body = extractFunction('bisync_with_r2');
+    assert.ok(body.includes('--max-delete 100'), 'should include --max-delete 100');
+  });
+});
+
+// ============================================================================
+// Test: bisync_with_r2 --resync fallback removed
+// ============================================================================
+describe('bisync_with_r2 --resync fallback removed', () => {
+  it('bisync_with_r2() does not contain --resync', () => {
+    const body = extractFunction('bisync_with_r2');
+    assert.ok(!body.includes('--resync'), 'bisync_with_r2 should not contain --resync fallback');
+  });
+});
+
+// ============================================================================
+// Test: establish_bisync_baseline exit code capture
+// ============================================================================
+describe('establish_bisync_baseline exit code capture', () => {
+  it('does not pipe rclone output through tee (which swallows exit code)', () => {
+    const body = extractFunction('establish_bisync_baseline');
+    const hasPipeTee = /rclone bisync[^;]*\|\s*tee/.test(body);
+    assert.ok(!hasPipeTee, 'should not pipe rclone through tee (swallows exit code)');
+  });
+});
+
+// ============================================================================
+// Test: shutdown_handler PID management
+// ============================================================================
+describe('shutdown_handler PID management', () => {
+  it('uses PID file to kill daemon, not shell variable', () => {
+    const body = extractFunction('shutdown_handler');
+    assert.ok(body.includes('sync-daemon.pid'), 'should use PID file');
+    assert.ok(!body.includes('SYNC_DAEMON_PID'), 'should not reference SYNC_DAEMON_PID variable');
   });
 });

@@ -444,9 +444,11 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 60s, f
 
 1. One-way `rclone sync` from R2 to local (restore data)
 2. All file modifications run (`.claude.json`, `.gemini/settings.json`, `.codex/version.json`, tab autostart) — these complete before bisync starts to avoid hash mismatches
-3. `rclone bisync --resync --ignore-checksum` to establish baseline (background), then start 60-second daemon
+3. `rclone bisync --resync --ignore-checksum --max-delete 100` to establish baseline (background), then start 60-second daemon
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 60s cycle.
+
+`--max-delete 100` allows bisync to propagate bulk deletions (e.g., deleting entire workspace folders). The rclone default of 50% aborts bisync when more than half the files are deleted in one cycle — in a config-heavy sync with few files, even a single folder deletion can exceed this threshold.
 
 ### What's Synced vs Excluded
 
@@ -472,7 +474,7 @@ All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache
 
 ### Conflict Resolution
 
-Newest file wins (`--conflict-resolve newer`). Auto `--resync` on bisync failure. Shutdown handler runs final bisync. All bisync commands use `--ignore-checksum` to prevent false hash-mismatch aborts — rclone v1.73 introduced stricter post-transfer MD5 verification that fails when files change during sync.
+Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handle transient bisync failures (e.g., interrupted transfers, listing mismatches) without losing deletion tracking. The sync daemon retries in 60s on failure. `--max-delete 100` allows bulk workspace deletions to propagate. Shutdown handler runs final bisync. All bisync commands use `--ignore-checksum` to prevent false hash-mismatch aborts — rclone v1.73 introduced stricter post-transfer MD5 verification that fails when files change during sync.
 
 ---
 
@@ -563,7 +565,7 @@ Two types of R2 credentials serve different purposes:
 
 ### Graceful Shutdown
 
-`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon, runs a final `rclone bisync` (with `--ignore-checksum`) to R2, and kills the terminal server. This ensures no data loss on container stop.
+`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon (via PID file at `/tmp/sync-daemon.pid`), runs a final `rclone bisync` (with `--ignore-checksum --max-delete 100`) to R2, and kills the terminal server. This ensures no data loss on container stop.
 
 ### Security Headers
 
@@ -744,7 +746,7 @@ Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` la
 | Package | Version | Provides |
 |---------|---------|----------|
 | `claude-unleashed` | Git commit pin | `cu` / `claude-unleashed` commands (wraps `@anthropic-ai/claude-code`) |
-| `@anthropic-ai/claude-code` | _(symlinked from claude-unleashed)_ | `claude` command |
+| Claude Code (native installer) | _(installed via `curl -fsSL https://claude.ai/install.sh \| bash`)_ | `claude` command at `/root/.local/bin/claude` |
 | `@openai/codex` | 0.105.0 | `codex` command |
 | `@google/gemini-cli` | 0.30.0 | `gemini` command |
 | `opencode-ai` | 1.2.15 | `opencode` command |
@@ -752,7 +754,7 @@ Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` la
 
 ### V8 Compile Cache Warm-Up
 
-Node.js CLIs (claude, codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need this optimization.
+Node.js CLIs (codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Native binaries (like `claude` and `opencode`) are already compiled and do not need V8 cache warm-up — `claude --version` is run at build time to seed the binary's internal cache instead.
 
 ### OpenCode Database Pre-Initialization
 
@@ -1382,6 +1384,18 @@ Each container gets an R2 API token scoped to its user's bucket only, replacing 
 
 **Trade-off**: Requires `API Tokens: Edit` permission on the deploy token, which is a broader permission than ideal. Accepted because the alternative (manual R2 credential management per user) is operationally impractical.
 
+#### AD14: Never auto-`--resync` on bisync failure
+
+`--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses any pending deletions — if side A deleted a file and bisync fails before propagating, `--resync` resurrects the file from side B.
+
+**Instead**: Use `--resilient` + `--recover` for self-healing:
+- `--resilient` allows bisync to continue past non-critical errors (e.g., listing mismatches)
+- `--recover` automatically reconstructs corrupted listing files without losing deletion state
+- `--max-delete 100` allows bulk workspace deletions to propagate (the rclone default of 50% aborts bisync when more than half the files are deleted in one cycle)
+- The sync daemon retries in 60s on any failure
+
+**Manual `--resync`** is still available via `establish_bisync_baseline()` on container startup, where it is safe because the one-way restore (`rclone sync`) runs first to populate the local filesystem.
+
 ---
 
 ## 22. Lessons Learned
@@ -1390,7 +1404,7 @@ Architectural principles and design rationale.
 
 1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
 2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
-3. **Auto-resync on failure** - Automatic `--resync` recovery handles most bisync failures.
+3. **Resilient bisync over auto-resync** - `--resilient` + `--recover` handle transient failures without losing deletion tracking. `--resync` is only used for initial baseline establishment (see AD14).
 4. **SDK-managed lifecycle with heartbeat** - `sleepAfter` with `collectMetrics` heartbeat keeps containers alive during active WS use. The heartbeat compensates for WS frames bypassing `renewActivityTimeout()`.
 5. **`onStop()` must set KV status** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV, otherwise other devices see stale 'running' status.
 6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
@@ -1400,7 +1414,8 @@ Architectural principles and design rationale.
 10. **Downgrade verbose heartbeat logs to debug** - Per-cycle keepalive logs at `info` level generate enormous log volume (every 5s per container). Once keepalive is confirmed stable, downgrade to `debug`.
 11. **Stateless dashboard polling preserves hibernation** - Dashboard status endpoints must be pure KV reads with zero DO contact. Touching DOs resets `sleepAfter` on every poll, preventing containers from ever hibernating.
 12. **Polling interval should match push cadence** - Frontend poll frequency should equal the backend push cycle. Polling faster wastes requests since data doesn't change between pushes.
-13. **rclone version upgrades can break bisync** - The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage.
+13. **rclone version upgrades can break bisync** - The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage. Additionally, `--max-delete 100` is required on all bisync commands — the default 50% threshold aborts syncs when bulk deletions (e.g., deleting a workspace folder) remove more than half the tracked files. **Warning**: `--resync` should never be used as an automatic recovery mechanism — it destroys bisync's deletion tracking (see AD14).
+14. **Never auto-`--resync` on bisync failure** - `--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses any pending deletions — if side A deleted a file and bisync fails before propagating, `--resync` resurrects the file from side B. Use `--resilient` + `--recover` for self-healing: `--resilient` allows bisync to continue past non-critical errors, and `--recover` automatically reconstructs corrupted listing files without losing state. Manual `--resync` is still available via `establish_bisync_baseline()` on container startup (one-way restore runs first, so no data loss).
 
 ---
 

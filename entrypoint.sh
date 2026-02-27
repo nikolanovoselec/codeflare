@@ -297,6 +297,7 @@ establish_bisync_baseline() {
     local BISYNC_TIMEOUT=180  # 3 minutes max for baseline
     echo "[entrypoint] Step 2: Establishing bisync baseline (max ${BISYNC_TIMEOUT}s)..." | tee -a /tmp/sync.log
 
+    BASELINE_OUTPUT=$(mktemp)
     if timeout $BISYNC_TIMEOUT rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
@@ -306,13 +307,17 @@ establish_bisync_baseline() {
         --resilient \
         --recover \
         --ignore-checksum \
+        --max-delete 100 \
         --contimeout 10s \
         --timeout 30s \
-        --transfers 32 --checkers 32 -v 2>&1 | tee -a /tmp/sync.log; then
+        --transfers 32 --checkers 32 -v 2>&1 > "$BASELINE_OUTPUT"; then
         SYNC_RESULT=0
     else
         SYNC_RESULT=$?
     fi
+    cat "$BASELINE_OUTPUT" >> /tmp/sync.log
+    cat "$BASELINE_OUTPUT"
+    rm -f "$BASELINE_OUTPUT"
     if [ $SYNC_RESULT -eq 0 ]; then
         echo "[entrypoint] Step 2 complete: Bisync baseline established"
         touch /tmp/.bisync-initialized
@@ -320,6 +325,7 @@ establish_bisync_baseline() {
         return 0
     elif [ $SYNC_RESULT -eq 124 ]; then
         echo "[entrypoint] WARNING: Bisync baseline timed out after ${BISYNC_TIMEOUT}s"
+        touch /tmp/.bisync-initialized
         SYNC_STATUS="timeout"
         return 0  # Don't fail, just skip daemon
     else
@@ -339,14 +345,8 @@ bisync_with_r2() {
     # Clear stale bisync lock if no bisync is running
     local LOCK_FILE="/home/user/.cache/rclone/bisync/home_user..r2_${R2_BUCKET_NAME}.lck"
     local BISYNC_RUNNING=0
-    if command -v pgrep >/dev/null 2>&1; then
-        if pgrep -f "rclone bisync" >/dev/null 2>&1; then
-            BISYNC_RUNNING=1
-        fi
-    else
-        if ps -ef | grep -v grep | grep -q "rclone bisync"; then
-            BISYNC_RUNNING=1
-        fi
+    if pgrep -f "rclone bisync" >/dev/null 2>&1; then
+        BISYNC_RUNNING=1
     fi
     if [ -f "$LOCK_FILE" ] && [ "$BISYNC_RUNNING" -eq 0 ]; then
         echo "[sync] Removing stale bisync lock: $LOCK_FILE" | tee -a /tmp/sync.log
@@ -356,7 +356,7 @@ bisync_with_r2() {
     # Write output to temp file so we can capture exit code AND log it
     SYNC_OUTPUT=$(mktemp)
 
-    # First try normal bisync (capture exit code without triggering set -e)
+    # Run bisync (capture exit code without triggering set -e)
     if rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
@@ -365,6 +365,7 @@ bisync_with_r2() {
         --resilient \
         --recover \
         --ignore-checksum \
+        --max-delete 100 \
         --transfers 32 --checkers 32 $VERBOSE 2>&1 > "$SYNC_OUTPUT"; then
         RESULT=0
     else
@@ -372,26 +373,6 @@ bisync_with_r2() {
     fi
     cat "$SYNC_OUTPUT" >> /tmp/sync.log
     cat "$SYNC_OUTPUT"
-
-    # If bisync failed (especially due to empty listing), try with --resync
-    if [ $RESULT -ne 0 ]; then
-        echo "[sync] Normal bisync failed (exit $RESULT), attempting --resync..." | tee -a /tmp/sync.log
-        if rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
-            --config "$RCLONE_CONFIG" \
-            "${RCLONE_FILTERS[@]}" \
-            --conflict-resolve newer \
-            --resync \
-            --resilient \
-            --recover \
-            --ignore-checksum \
-            --transfers 32 --checkers 32 $VERBOSE 2>&1 > "$SYNC_OUTPUT"; then
-            RESULT=0
-        else
-            RESULT=$?
-        fi
-        cat "$SYNC_OUTPUT" >> /tmp/sync.log
-        cat "$SYNC_OUTPUT"
-    fi
 
     rm -f "$SYNC_OUTPUT"
 
@@ -446,11 +427,8 @@ start_sync_daemon() {
 shutdown_handler() {
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
 
-    # Kill sync daemon (try PID file first, then variable fallback)
+    # Kill sync daemon via PID file
     kill "$(cat /tmp/sync-daemon.pid 2>/dev/null)" 2>/dev/null || true
-    if [ -n "$SYNC_DAEMON_PID" ]; then
-        kill "$SYNC_DAEMON_PID" 2>/dev/null || true
-    fi
 
     # Perform final bisync to R2 (only if baseline was established)
     echo "[entrypoint] Final bisync to R2..."
