@@ -907,18 +907,25 @@ server.listen(PORT, '0.0.0.0', () => {
   prewarmStartTime = Date.now();
   log('info', 'Pre-warming tab 1 PTY', { command: prewarmConfig.command });
 
-  // Readiness = first PTY output. Works for all agents regardless of auth state.
+  // Readiness = first PTY output + 1.5s settle delay.
+  // The delay lets the agent render its initial UI before the user can click "Open".
+  const PREWARM_SETTLE_MS = 1500;
   let prewarmDataListener = null;
   if (prewarmSession.ptyProcess) {
     prewarmDataListener = prewarmSession.ptyProcess.onData(() => {
       if (!prewarmReady) {
-        prewarmReady = true;
         const elapsed = Date.now() - prewarmStartTime;
-        log('info', 'Pre-warm ready (first output)', { elapsedSec: (elapsed / 1000).toFixed(1), command: prewarmConfig.command });
+        log('info', 'Pre-warm first output detected, settling', { elapsedSec: (elapsed / 1000).toFixed(1), command: prewarmConfig.command });
         if (prewarmDataListener) {
           prewarmDataListener.dispose();
           prewarmDataListener = null;
         }
+        setTimeout(() => {
+          if (!prewarmReady) {
+            prewarmReady = true;
+            log('info', 'Pre-warm ready (settled)', { elapsedSec: ((Date.now() - prewarmStartTime) / 1000).toFixed(1) });
+          }
+        }, PREWARM_SETTLE_MS);
       }
     });
   }
