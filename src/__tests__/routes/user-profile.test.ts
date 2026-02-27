@@ -9,14 +9,14 @@ import { createMockKV } from '../helpers/mock-kv';
 
 // Mock authenticateRequest to control auth behavior
 const mockAuthenticateRequest = vi.hoisted(() => vi.fn());
-const mockGetOrCreateR2Credentials = vi.hoisted(() => vi.fn());
+const mockGetOrCreateScopedR2Token = vi.hoisted(() => vi.fn());
 
 vi.mock('../../lib/access', () => ({
   authenticateRequest: mockAuthenticateRequest,
 }));
 
 vi.mock('../../lib/r2-admin', () => ({
-  getOrCreateR2Credentials: mockGetOrCreateR2Credentials,
+  getOrCreateScopedR2Token: mockGetOrCreateScopedR2Token,
 }));
 
 describe('User Profile Routes', () => {
@@ -168,14 +168,16 @@ describe('User Profile Routes', () => {
   // POST /user/ensure-r2-token — Eagerly create scoped R2 token
   // =========================================================================
   describe('POST /user/ensure-r2-token', () => {
-    it('should return { ready: true } when credentials are derived successfully', async () => {
+    it('should return { ready: true } when token is created successfully', async () => {
       mockAuthenticateRequest.mockResolvedValue({
         user: { email: 'test@example.com', authenticated: true, role: 'user' },
         bucketName: 'codeflare-abc123',
       });
-      mockGetOrCreateR2Credentials.mockResolvedValue({
+      mockKV._store.set('setup:account_id', 'test-account-id');
+      mockGetOrCreateScopedR2Token.mockResolvedValue({
         accessKeyId: 'ak-123',
         secretAccessKey: 'sk-456',
+        tokenId: 'tok-789',
       });
 
       const app = createApp({ CLOUDFLARE_API_TOKEN: 'test-token' } as Partial<Env>);
@@ -184,21 +186,23 @@ describe('User Profile Routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { ready: boolean };
       expect(body.ready).toBe(true);
-      expect(mockGetOrCreateR2Credentials).toHaveBeenCalledWith(
+      expect(mockGetOrCreateScopedR2Token).toHaveBeenCalledWith(
         'test@example.com',
+        'test-account-id',
         'test-token',
         'codeflare-abc123',
         expect.anything(), // KV namespace
       );
     });
 
-    it('should return 503 when CLOUDFLARE_API_TOKEN is missing', async () => {
+    it('should return 503 when setup is incomplete (no account_id)', async () => {
       mockAuthenticateRequest.mockResolvedValue({
         user: { email: 'test@example.com', authenticated: true, role: 'user' },
         bucketName: 'codeflare-abc123',
       });
+      // No setup:account_id in KV
 
-      const app = createApp({ CLOUDFLARE_API_TOKEN: '' } as Partial<Env>);
+      const app = createApp({ CLOUDFLARE_API_TOKEN: 'test-token' } as Partial<Env>);
       const res = await app.request('/user/ensure-r2-token', { method: 'POST' });
 
       expect(res.status).toBe(503);
@@ -207,12 +211,26 @@ describe('User Profile Routes', () => {
       expect(body.error).toBe('Setup incomplete');
     });
 
-    it('should return 500 with error message when credential derivation fails', async () => {
+    it('should return 503 when CLOUDFLARE_API_TOKEN is missing', async () => {
       mockAuthenticateRequest.mockResolvedValue({
         user: { email: 'test@example.com', authenticated: true, role: 'user' },
         bucketName: 'codeflare-abc123',
       });
-      mockGetOrCreateR2Credentials.mockRejectedValue(new Error('Token verification failed'));
+      mockKV._store.set('setup:account_id', 'test-account-id');
+
+      const app = createApp({ CLOUDFLARE_API_TOKEN: '' } as Partial<Env>);
+      const res = await app.request('/user/ensure-r2-token', { method: 'POST' });
+
+      expect(res.status).toBe(503);
+    });
+
+    it('should return 500 with error message when token creation fails', async () => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: { email: 'test@example.com', authenticated: true, role: 'user' },
+        bucketName: 'codeflare-abc123',
+      });
+      mockKV._store.set('setup:account_id', 'test-account-id');
+      mockGetOrCreateScopedR2Token.mockRejectedValue(new Error('CF API returned 403'));
 
       const app = createApp({ CLOUDFLARE_API_TOKEN: 'test-token' } as Partial<Env>);
       const res = await app.request('/user/ensure-r2-token', { method: 'POST' });
@@ -220,7 +238,7 @@ describe('User Profile Routes', () => {
       expect(res.status).toBe(500);
       const body = await res.json() as { ready: boolean; error: string };
       expect(body.ready).toBe(false);
-      expect(body.error).toContain('verification failed');
+      expect(body.error).toContain('403');
     });
   });
 

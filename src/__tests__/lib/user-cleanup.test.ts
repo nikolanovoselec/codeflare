@@ -17,7 +17,10 @@ vi.mock('../../lib/access', () => ({
   }),
 }));
 
-vi.mock('../../lib/r2-admin', () => ({}));
+const mockDeleteScopedR2Token = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/r2-admin', () => ({
+  deleteScopedR2Token: mockDeleteScopedR2Token,
+}));
 
 const containerState = vi.hoisted(() => ({
   destroy: vi.fn(),
@@ -55,6 +58,7 @@ describe('cleanupUserData', () => {
     mockKV = createMockKV();
     globalThis.fetch = mockFetch;
     mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
+    mockDeleteScopedR2Token.mockResolvedValue(undefined);
     mockContainerDestroy.mockResolvedValue(undefined);
   });
 
@@ -88,17 +92,23 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`user:${email}`);
   });
 
-  it('deletes r2token KV cache entry during cleanup', async () => {
+  it('reads r2token, calls deleteScopedR2Token, deletes r2token KV entry', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
     mockKV._set(`r2token:${email}`, {
       accessKeyId: 'ak-123',
       secretAccessKey: 'sk-456',
+      tokenId: 'token-id-789',
       bucketName,
       createdAt: '2024-01-01T00:00:00Z',
     });
 
     const result = await cleanupUserData(email, createEnv());
 
+    expect(mockDeleteScopedR2Token).toHaveBeenCalledWith(
+      'test-account-id',
+      'test-api-token',
+      'token-id-789',
+    );
     expect(result.tokenDeleted).toBe(true);
     expect(mockKV.delete).toHaveBeenCalledWith(`r2token:${email}`);
   });
@@ -159,12 +169,13 @@ describe('cleanupUserData', () => {
     expect(mockGetContainer).not.toHaveBeenCalled();
   });
 
-  it('gracefully handles missing R2 token cache (no token stored)', async () => {
+  it('gracefully handles missing R2 token (no token stored)', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
 
     const result = await cleanupUserData(email, createEnv());
 
-    expect(result.tokenDeleted).toBe(true);
+    expect(result.tokenDeleted).toBe(false);
+    expect(mockDeleteScopedR2Token).not.toHaveBeenCalled();
     // r2token KV entry should still be deleted (cleanup)
     expect(mockKV.delete).toHaveBeenCalledWith(`r2token:${email}`);
   });

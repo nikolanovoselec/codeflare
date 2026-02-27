@@ -41,8 +41,11 @@ vi.mock('../../lib/access', () => ({
   }),
 }));
 
-// Mock r2-admin (no per-user token deletion needed — credentials derived from main token)
-vi.mock('../../lib/r2-admin', () => ({}));
+// Mock r2-admin scoped token functions
+const mockDeleteScopedR2Token = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/r2-admin', () => ({
+  deleteScopedR2Token: mockDeleteScopedR2Token,
+}));
 
 import usersRoutes from '../../routes/users';
 import { getAllUsers, syncAccessPolicy } from '../../lib/access-policy';
@@ -215,7 +218,7 @@ describe('Users Routes', () => {
     // =======================================================================
     // Scoped R2 Token cleanup on user deletion
     // =======================================================================
-    it('should delete r2token:{email} KV entry on user deletion', async () => {
+    it('should read r2token:{email} and call deleteScopedR2Token on user deletion', async () => {
       const app = createTestApp('admin@example.com');
 
       mockKV._store.set('setup:account_id', 'test-account-id');
@@ -228,9 +231,16 @@ describe('Users Routes', () => {
         createdAt: '2024-01-01T00:00:00Z',
       });
 
+      mockDeleteScopedR2Token.mockResolvedValue(undefined);
+
       await app.request('/users/target%40example.com', { method: 'DELETE' });
 
-      expect(mockKV.delete).toHaveBeenCalledWith('r2token:target@example.com');
+      // Should have called deleteScopedR2Token with the stored tokenId
+      expect(mockDeleteScopedR2Token).toHaveBeenCalledWith(
+        'test-account-id',
+        'test-api-token',
+        'token-id-789',
+      );
     });
 
     it('should empty bucket via S3 list+delete before bucket deletion', async () => {
@@ -246,6 +256,8 @@ describe('Users Routes', () => {
         createdAt: '2024-01-01T00:00:00Z',
       });
 
+      mockDeleteScopedR2Token.mockResolvedValue(undefined);
+
       // Mock S3 list objects returning some objects, then delete
       // The implementation should use S3-compatible API to empty the bucket
       // before calling the bucket deletion API
@@ -259,7 +271,7 @@ describe('Users Routes', () => {
       expect(res.status).toBe(200);
     });
 
-    it('should continue deletion even if bucket deletion fails (graceful)', async () => {
+    it('should continue deletion even if token deletion fails (graceful)', async () => {
       const app = createTestApp('admin@example.com');
 
       mockKV._store.set('setup:account_id', 'test-account-id');
@@ -272,18 +284,18 @@ describe('Users Routes', () => {
         createdAt: '2024-01-01T00:00:00Z',
       });
 
-      // Bucket deletion fails
-      mockFetch.mockResolvedValueOnce(new Response('error', { status: 500 }));
+      // Token deletion fails
+      mockDeleteScopedR2Token.mockRejectedValue(new Error('CF API down'));
 
       const res = await app.request('/users/target%40example.com', { method: 'DELETE' });
 
-      // User deletion should still succeed despite bucket deletion failure
+      // User deletion should still succeed despite token deletion failure
       expect(res.status).toBe(200);
       const body = await res.json() as { success: boolean };
       expect(body.success).toBe(true);
     });
 
-    it('should delete r2token:{email} KV entry during cleanup', async () => {
+    it('should delete r2token:{email} KV entry after token deletion', async () => {
       const app = createTestApp('admin@example.com');
 
       mockKV._store.set('setup:account_id', 'test-account-id');
@@ -295,6 +307,8 @@ describe('Users Routes', () => {
         bucketName: 'codeflare-target-example-com',
         createdAt: '2024-01-01T00:00:00Z',
       });
+
+      mockDeleteScopedR2Token.mockResolvedValue(undefined);
 
       await app.request('/users/target%40example.com', { method: 'DELETE' });
 

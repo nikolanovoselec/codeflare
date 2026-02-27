@@ -10,6 +10,7 @@ import { getBucketName } from './access';
 import { getSessionPrefix, listAllKvKeys } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
+import { deleteScopedR2Token } from './r2-admin';
 import { r2AdminCB } from './circuit-breakers';
 import { CF_API_BASE } from './constants';
 import { createLogger } from './logger';
@@ -60,11 +61,20 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   // --- Block B: User KV deletion ---
   await env.KV.delete(`user:${email}`);
 
-  // --- Block C: R2 credential cache cleanup ---
+  // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
   const accountId = await env.KV.get('setup:account_id');
-  const r2TokenData = await env.KV.get(`r2token:${email}`, 'json') as { accessKeyId?: string; secretAccessKey?: string } | null;
+  const r2TokenData = await env.KV.get(`r2token:${email}`, 'json') as { tokenId?: string; accessKeyId?: string; secretAccessKey?: string } | null;
+
+  // --- Block C: R2 scoped token cleanup ---
+  try {
+    if (r2TokenData?.tokenId && accountId && env.CLOUDFLARE_API_TOKEN) {
+      await deleteScopedR2Token(accountId, env.CLOUDFLARE_API_TOKEN, r2TokenData.tokenId);
+      result.tokenDeleted = true;
+    }
+  } catch (err) {
+    logger.warn('Failed to delete scoped R2 token during user deletion', { email, error: String(err) });
+  }
   await env.KV.delete(`r2token:${email}`);
-  result.tokenDeleted = true;
 
   // --- Block D: R2 bucket empty + delete ---
   try {

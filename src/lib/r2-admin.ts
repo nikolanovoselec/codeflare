@@ -90,87 +90,168 @@ export async function createBucketIfNotExists(
 }
 
 // =========================================================================
-// R2 S3 Credentials (derived from API token)
+// Scoped R2 Tokens
 // =========================================================================
 
-interface R2CredentialResult {
+interface ScopedR2TokenResult {
   accessKeyId: string;
   secretAccessKey: string;
+  tokenId: string;
 }
 
-interface CachedR2Token extends R2CredentialResult {
+interface CachedR2Token extends ScopedR2TokenResult {
   bucketName: string;
   createdAt: string;
 }
 
-/**
- * Derive R2 S3-compatible credentials from the Cloudflare API token.
- *
- * Cloudflare R2 S3 API credentials are derived from regular API tokens:
- *   - S3 Access Key ID = API token ID (from /user/tokens/verify)
- *   - S3 Secret Access Key = SHA-256 hash of the API token value
- *
- * This avoids needing "API Tokens Edit" permission to create separate tokens.
- * Same approach as the setup wizard (src/routes/setup/credentials.ts).
- */
-export async function deriveR2Credentials(
-  apiToken: string
-): Promise<R2CredentialResult> {
-  // Get the token ID from the verify endpoint
-  const response = await r2AdminCB.execute(() =>
-    fetch(`${CF_API_BASE}/user/tokens/verify`, {
-      headers: { 'Authorization': `Bearer ${apiToken}` },
-      signal: AbortSignal.timeout(10_000),
-    })
-  );
+const MAX_RETRIES = 2;
 
-  if (!response.ok) {
-    throw new Error(`Failed to verify API token: HTTP ${response.status}`);
-  }
-
-  const data = await response.json() as {
-    success: boolean;
-    result: { id: string; status: string };
-  };
-
-  if (!data.success || !data.result?.id) {
-    throw new Error('API token verification failed: no token ID returned');
-  }
-
-  // Derive S3 Secret Access Key = SHA-256(token value)
-  const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(apiToken));
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const secretAccessKey = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-  return {
-    accessKeyId: data.result.id,
-    secretAccessKey,
-  };
+function isRetryable(status: number): boolean {
+  return status >= 500 || status === 429;
 }
 
 /**
- * Get cached R2 credentials from KV, or derive fresh ones from the API token.
- * Results are cached in KV to avoid repeated /user/tokens/verify calls.
+ * Create a scoped R2 API token with permission boundary for a specific bucket.
+ * Retries 2x with exponential backoff on 5xx/429 errors.
  */
-export async function getOrCreateR2Credentials(
-  email: string,
+export async function createScopedR2Token(
+  accountId: string,
   apiToken: string,
-  bucketName: string,
-  kv: KVNamespace
-): Promise<R2CredentialResult> {
-  const kvKey = `r2token:${email}`;
+  bucketName: string
+): Promise<ScopedR2TokenResult> {
+  const url = `${CF_API_BASE}/accounts/${accountId}/tokens`;
 
-  const cached = await kv.get(kvKey);
-  if (cached) {
-    const parsed = JSON.parse(cached) as CachedR2Token;
-    return {
-      accessKeyId: parsed.accessKeyId,
-      secretAccessKey: parsed.secretAccessKey,
-    };
+  const body = JSON.stringify({
+    name: `codeflare-${bucketName}`,
+    policies: [
+      {
+        effect: 'allow',
+        permission_groups: [
+          { id: '6a018a9f2fc74eb6b293b0c548f38b39' }, // R2 Object Read
+          { id: '2efd5506f9c8494dacb1fa10a3e7d5b6' }, // R2 Object Write
+        ],
+        resources: {
+          [`com.cloudflare.edge.r2.bucket.${accountId}_default_${bucketName}`]: '*',
+        },
+      },
+    ],
+  });
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await r2AdminCB.execute(() =>
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body,
+          signal: AbortSignal.timeout(10_000),
+        })
+      );
+    } catch (err) {
+      // Network errors are retryable
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt >= MAX_RETRIES) throw lastError;
+      await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
+      continue;
+    }
+
+    if (response.ok) {
+      const data = await response.json() as {
+        success: boolean;
+        result: { id: string; value: string };
+      };
+
+      if (data.success) {
+        // Derive S3-compatible secret from token value via SHA-256
+        const encoder = new TextEncoder();
+        const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data.result.value));
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const secretAccessKey = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        return {
+          accessKeyId: data.result.id,
+          secretAccessKey,
+          tokenId: data.result.id,
+        };
+      }
+    }
+
+    // Non-retryable client error (4xx except 429) — throw immediately
+    if (!isRetryable(response.status)) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`Failed to create scoped R2 token for bucket ${bucketName}: HTTP ${response.status} ${text.slice(0, 200)}`);
+    }
+
+    // Retryable — store error for final throw or retry
+    lastError = new Error(`Failed to create scoped R2 token for bucket ${bucketName}: HTTP ${response.status}`);
+    if (attempt >= MAX_RETRIES) throw lastError;
+
+    await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
   }
 
-  const result = await deriveR2Credentials(apiToken);
+  throw lastError!;
+}
+
+/**
+ * Delete a scoped R2 token. Succeeds silently on 404 (already deleted).
+ */
+export async function deleteScopedR2Token(
+  accountId: string,
+  apiToken: string,
+  tokenId: string
+): Promise<void> {
+  const response = await fetch(
+    `${CF_API_BASE}/accounts/${accountId}/tokens/${tokenId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+      },
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
+
+  if (response.status === 404) return;
+  if (!response.ok) {
+    throw new Error(`Failed to delete scoped R2 token ${tokenId}: HTTP ${response.status}`);
+  }
+}
+
+/**
+ * Get cached scoped R2 token from KV, or create a new one.
+ * With forceFresh=true, deletes the stale KV entry and creates a fresh token.
+ */
+export async function getOrCreateScopedR2Token(
+  email: string,
+  accountId: string,
+  apiToken: string,
+  bucketName: string,
+  kv: KVNamespace,
+  options?: { forceFresh?: boolean }
+): Promise<ScopedR2TokenResult> {
+  const kvKey = `r2token:${email}`;
+
+  if (options?.forceFresh) {
+    await kv.delete(kvKey);
+  } else {
+    const cached = await kv.get(kvKey);
+    if (cached) {
+      const parsed = JSON.parse(cached) as CachedR2Token;
+      return {
+        accessKeyId: parsed.accessKeyId,
+        secretAccessKey: parsed.secretAccessKey,
+        tokenId: parsed.tokenId,
+      };
+    }
+  }
+
+  const result = await createScopedR2Token(accountId, apiToken, bucketName);
 
   const kvValue: CachedR2Token = {
     ...result,
