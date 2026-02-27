@@ -1,141 +1,48 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 /**
- * Tests for agent-aware pre-warm readiness detection.
+ * Tests for pre-warm readiness configuration.
  *
- * The pre-warm logic starts tab 1's PTY at server boot so the first client
- * connect is instant.  Current readiness = 2 s of PTY silence (quiescence).
- * This works for bash/Claude Code but causes ~10 s delays for TUI agents
- * like OpenCode that produce continuous spinner output during startup.
- *
- * The fix: expose a helper that, given TAB_CONFIG, returns readiness
- * parameters (quiescence threshold and optional ready-pattern regex).
- * The server's readiness loop uses these instead of hard-coded 2 000 ms.
+ * Readiness is now detected by first PTY output — no more agent-specific
+ * regex patterns or quiescence thresholds. The config just extracts the
+ * command from TAB_CONFIG for logging purposes.
  */
 
-// We test the pure helper extracted from server.js (no PTY / network needed).
-// If the import fails the tests fail RED — that's the point of the RED phase.
 import { getPrewarmConfig } from '../prewarm-config.js';
 
 describe('getPrewarmConfig', () => {
   describe('when TAB_CONFIG is absent or empty', () => {
-    it('returns the default 2000 ms quiescence with no readyPattern', () => {
+    it('returns null command for undefined', () => {
       const cfg = getPrewarmConfig(undefined);
-      assert.equal(cfg.quiescenceMs, 2000);
-      assert.equal(cfg.readyPattern, null);
+      assert.equal(cfg.command, null);
     });
 
-    it('handles an empty array', () => {
+    it('returns null command for empty array', () => {
       const cfg = getPrewarmConfig([]);
-      assert.equal(cfg.quiescenceMs, 2000);
-      assert.equal(cfg.readyPattern, null);
+      assert.equal(cfg.command, null);
     });
   });
 
-  describe('when tab 1 is a shell', () => {
-    it('returns default quiescence for bash', () => {
+  describe('when tab 1 has a command', () => {
+    it('extracts the command name', () => {
+      const cfg = getPrewarmConfig([{ id: '1', command: 'cu', label: 'Claude' }]);
+      assert.equal(cfg.command, 'cu');
+    });
+
+    it('extracts first token from compound commands', () => {
+      const cfg = getPrewarmConfig([{ id: '1', command: 'cu --silent', label: 'Claude' }]);
+      assert.equal(cfg.command, 'cu');
+    });
+
+    it('extracts command for opencode', () => {
+      const cfg = getPrewarmConfig([{ id: '1', command: 'opencode', label: 'OpenCode' }]);
+      assert.equal(cfg.command, 'opencode');
+    });
+
+    it('extracts command for bash', () => {
       const cfg = getPrewarmConfig([{ id: '1', command: 'bash', label: 'Terminal' }]);
-      assert.equal(cfg.quiescenceMs, 2000);
-      assert.equal(cfg.readyPattern, null);
-    });
-  });
-
-  describe('when tab 1 is cu or claude-unleashed (TUI agents)', () => {
-    it('returns fast quiescence (500 ms) for cu', () => {
-      const cfg = getPrewarmConfig([{ id: '1', command: 'cu', label: 'Claude' }]);
-      assert.equal(cfg.quiescenceMs, 500);
-    });
-
-    it('provides a readyPattern matching ╭ for cu', () => {
-      const cfg = getPrewarmConfig([{ id: '1', command: 'cu', label: 'Claude' }]);
-      assert.notEqual(cfg.readyPattern, null);
-      assert.ok(cfg.readyPattern.test('╭'), 'should match ╭ box-drawing character');
-    });
-
-    it('returns fast quiescence (500 ms) for claude-unleashed', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'claude-unleashed', label: 'Claude' },
-      ]);
-      assert.equal(cfg.quiescenceMs, 500);
-    });
-
-    it('provides a readyPattern matching ╭ for claude-unleashed', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'claude-unleashed', label: 'Claude' },
-      ]);
-      assert.notEqual(cfg.readyPattern, null);
-      assert.ok(cfg.readyPattern.test('╭'), 'should match ╭ box-drawing character');
-    });
-  });
-
-  describe('when tab 1 is opencode', () => {
-    it('returns a shorter quiescence (500 ms)', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'opencode', label: 'OpenCode' },
-      ]);
-      assert.equal(cfg.quiescenceMs, 500);
-    });
-
-    it('provides a readyPattern that matches OpenCode prompt output', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'opencode', label: 'OpenCode' },
-      ]);
-      assert.notEqual(cfg.readyPattern, null);
-      // OpenCode's Bubble Tea TUI shows "Ask anything" input placeholder when ready
-      assert.ok(cfg.readyPattern.test('Ask anything about your codebase'), 'should match "Ask anything" placeholder');
-    });
-  });
-
-  describe('when tab 1 is gemini', () => {
-    it('returns fast quiescence (500 ms)', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'gemini', label: 'Gemini' },
-      ]);
-      assert.equal(cfg.quiescenceMs, 500);
-    });
-
-    it('provides a readyPattern matching input placeholder', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'gemini', label: 'Gemini' },
-      ]);
-      assert.notEqual(cfg.readyPattern, null);
-      assert.ok(cfg.readyPattern.test('Type your message or @path/to/file'), 'should match Gemini input placeholder');
-    });
-  });
-
-  describe('when tab 1 is copilot', () => {
-    it('returns fast quiescence (500 ms)', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'copilot', label: 'Copilot' },
-      ]);
-      assert.equal(cfg.quiescenceMs, 500);
-    });
-
-    it('provides a readyPattern matching welcome box text', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'copilot', label: 'Copilot' },
-      ]);
-      assert.notEqual(cfg.readyPattern, null);
-      assert.ok(cfg.readyPattern.test('Describe a task to get started.'), 'should match wide terminal text');
-      assert.ok(cfg.readyPattern.test('Copilot uses AI. Check for mistakes.'), 'should match narrow terminal text');
-    });
-  });
-
-  describe('when tab 1 is codex', () => {
-    it('returns fast quiescence (500 ms)', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'codex', label: 'Codex' },
-      ]);
-      assert.equal(cfg.quiescenceMs, 500);
-    });
-
-    it('provides a readyPattern matching footer disclaimer', () => {
-      const cfg = getPrewarmConfig([
-        { id: '1', command: 'codex', label: 'Codex' },
-      ]);
-      assert.notEqual(cfg.readyPattern, null);
-      assert.ok(cfg.readyPattern.test('Codex can make mistakes'), 'should match Codex footer text');
+      assert.equal(cfg.command, 'bash');
     });
   });
 
@@ -145,9 +52,7 @@ describe('getPrewarmConfig', () => {
         { id: '2', command: 'opencode', label: 'OpenCode' },
         { id: '3', command: 'htop', label: 'Monitor' },
       ]);
-      // No tab 1 → defaults
-      assert.equal(cfg.quiescenceMs, 2000);
-      assert.equal(cfg.readyPattern, null);
+      assert.equal(cfg.command, null);
     });
   });
 });

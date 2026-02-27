@@ -7,11 +7,12 @@
  */
 import type { Env, Session } from '../types';
 import { getBucketName } from './access';
-import { getSessionPrefix, listAllKvKeys } from './kv-keys';
+import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
+import { createR2Client, emptyR2Bucket } from './r2-client';
+import { getR2Config } from './r2-config';
 import { deleteScopedR2Token } from './r2-admin';
-import { r2AdminCB } from './circuit-breakers';
 import { CF_API_BASE } from './constants';
 import { createLogger } from './logger';
 import { toError } from './error-types';
@@ -61,6 +62,13 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   // --- Block B: User KV deletion ---
   await env.KV.delete(`user:${email}`);
 
+  // --- Block B2: Bucket-keyed KV cleanup ---
+  await Promise.all([
+    env.KV.delete(`storage-stats:${bucketName}`),
+    env.KV.delete(getPresetsKey(bucketName)),
+    env.KV.delete(getPreferencesKey(bucketName)),
+  ]);
+
   // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
   const accountId = await env.KV.get('setup:account_id');
   const r2TokenData = await env.KV.get(`r2token:${email}`, 'json') as { tokenId?: string; accessKeyId?: string; secretAccessKey?: string } | null;
@@ -79,33 +87,50 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   // --- Block D: R2 bucket empty + delete ---
   try {
     if (accountId && env.CLOUDFLARE_API_TOKEN) {
-      // Try to empty bucket via S3 ListObjectsV2
+      // Try to empty bucket via S3 API using worker-level R2 credentials
+      let objectsDeleted = 0;
       try {
-        if (r2TokenData?.accessKeyId && r2TokenData?.secretAccessKey) {
-          const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
-          const listRes = await fetch(`${endpoint}/${bucketName}?list-type=2`, {
-            headers: { 'Authorization': `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
-          });
-          if (listRes.ok) {
-            logger.info('Attempted S3 bucket empty before deletion', { bucketName });
+        if (env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY) {
+          const r2Client = createR2Client(env);
+          const { endpoint } = await getR2Config(env);
+          objectsDeleted = await emptyR2Bucket(r2Client, endpoint, bucketName);
+          if (objectsDeleted > 0) {
+            logger.info('Emptied R2 bucket before deletion', { bucketName, deletedCount: objectsDeleted });
           }
         }
       } catch (err) {
-        logger.debug('S3 bucket empty attempt failed (non-fatal)', { email, error: String(err) });
+        logger.debug('R2 bucket empty attempt failed (non-fatal)', { email, error: String(err) });
       }
 
-      const res = await r2AdminCB.execute(() =>
-        fetch(`${CF_API_BASE}/accounts/${accountId}/r2/buckets/${bucketName}`, {
+      // Delete the empty bucket via CF API (retry with delay for R2 eventual consistency)
+      const maxAttempts = objectsDeleted > 0 ? 3 : 1;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        // Wait for R2 to propagate empty state (skip on first attempt or if bucket was already empty)
+        if (attempt > 1) {
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+        }
+
+        const res = await fetch(`${CF_API_BASE}/accounts/${accountId}/r2/buckets/${bucketName}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` },
-        })
-      );
-      if (res.ok) {
-        result.bucketDeleted = true;
-      } else {
+        });
+
+        if (res.ok) {
+          result.bucketDeleted = true;
+          logger.info('Deleted R2 bucket', { bucketName, attempt });
+          break;
+        }
+
         const body = await res.text().catch(() => '');
-        if (body.includes('not empty') || body.includes('BucketNotEmpty')) {
-          logger.warn('R2 bucket not empty, manual cleanup may be needed', { bucketName, email });
+        const notEmpty = body.includes('not empty') || body.includes('BucketNotEmpty');
+
+        if (notEmpty && attempt < maxAttempts) {
+          logger.debug('R2 bucket not yet empty, retrying', { bucketName, attempt, maxAttempts });
+          continue;
+        }
+
+        if (notEmpty) {
+          logger.warn('R2 bucket still not empty after retries', { bucketName, email, attempts: maxAttempts });
         } else {
           logger.error('Failed to delete R2 bucket', new Error(`HTTP ${res.status}: ${body}`), { bucketName });
         }

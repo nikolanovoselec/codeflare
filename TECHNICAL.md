@@ -534,11 +534,31 @@ Cloudflare Access protects all authenticated surfaces. One Access application wi
 
 The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
 
-**R2 credential scope limitation:** Currently all containers receive the same account-level R2 credentials (derived from the API token via SHA-256 hash). Any container could theoretically access other users' R2 buckets if it knew the bucket name. Planned fix: per-user bucket-scoped R2 API tokens that restrict each container to only its owner's bucket.
+**Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `lifecycle.ts`, which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
 
 ### Container Auth Token
 
 A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/server.js`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
+
+### Dual R2 Credential Architecture
+
+Two types of R2 credentials serve different purposes:
+
+**Worker-level R2 credentials** (setup wizard):
+- Created during `POST /configure` step 2 (`handleDeriveR2Credentials`)
+- `R2_ACCESS_KEY_ID` = API token ID (from `/user/tokens/verify`)
+- `R2_SECRET_ACCESS_KEY` = SHA-256(API token value)
+- Stored as worker secrets — used for bucket admin operations (create, empty, delete)
+- If API token rotated, must re-run setup to regenerate
+
+**Per-user scoped R2 tokens** (first login):
+- Created via `getOrCreateScopedR2Token()` in `src/routes/container/lifecycle.ts`
+- Calls `POST /accounts/{accountId}/tokens` with bucket-specific Object Read + Write policy
+- Token ID = S3 Access Key ID, SHA-256(token value) = S3 Secret Access Key
+- Cached in KV as `r2token:{email}` — survives container restarts
+- Passed to container via `setBucketName` → container env vars → rclone config
+- Revoked via `deleteScopedR2Token()` on user deletion
+- Requires `API Tokens: Edit` permission on the deploy token
 
 ### Graceful Shutdown
 
@@ -800,7 +820,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 **Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_CHANNEL=stable`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
 
-**Prewarm readiness:** All TUI agents are classified in `host/prewarm-config.js` with agent-specific ready patterns. When a `readyPattern` is configured, quiescence-based detection is disabled - only the pattern match or the 20s hard timeout declares readiness. This prevents startup silence (e.g. Node.js V8 compile time) from prematurely firing "ready". Patterns: `cu`/`claude-unleashed` match `/╭/` (Ink TUI welcome box border), `opencode` matches `/>/' (Bubble Tea TUI prompt), `gemini` matches `/Type your message/` (Ink InputPrompt placeholder), `copilot` matches `/Describe a task|Copilot uses/` (Ink welcome box text), `codex` matches `/Codex can make mistakes/` (Rust TUI footer). The `claude` command (vanilla CLI) also gets 500ms quiescence but has no readyPattern. Shell commands (bash, sh, zsh) use 2000ms quiescence with no pattern.
+**Prewarm readiness:** Detected by first PTY output — as soon as the agent produces any terminal output, pre-warm is considered ready. This replaced the previous approach of agent-specific regex patterns and quiescence-based detection, which failed when agents weren't logged in (startup output was completely different, patterns didn't match, causing 20s timeout delays). The 20s hard timeout in `server.js` remains as a safety net for the rare case where a PTY produces no output at all. `host/prewarm-config.js` now only extracts the command name from `tabConfig` for logging.
 
 **Auto-start flags (.bashrc):** `--silent`, `--no-consent`
 
@@ -864,7 +884,7 @@ codeflare/
 ├── host/
 │   ├── server.js             # Terminal server (node-pty + WebSocket)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
-│   ├── prewarm-config.js     # Agent-aware PTY pre-warm configuration
+│   ├── prewarm-config.js     # PTY pre-warm configuration (first-output readiness)
 │   ├── __tests__/            # Host unit tests (4 files, ~33 tests)
 │   └── package.json
 ├── web-ui/
@@ -948,7 +968,7 @@ codeflare/
 
 Repository: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optional `RESEND_API_KEY`
 
-Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **R2 credentials are derived from the API token** -- if the token is rotated, setup must be re-run to regenerate R2 credentials.
+Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **Worker-level R2 credentials are derived from the API token** (used for bucket admin operations like create/empty/delete). Per-user scoped R2 tokens are separate — created on first login, independent of the master token but revoked when the API token changes. If the token is rotated, setup must be re-run.
 
 ### CORS
 
@@ -980,6 +1000,7 @@ Base image: Node.js 24 Debian (bookworm-slim).
 | Access: Apps and Policies | Edit | Yes | Managed Access app |
 | Access: Organizations, Identity Providers, and Groups | Edit | Yes | Access groups + auth_domain |
 | Turnstile | Edit | Only if onboarding active | Turnstile widget |
+| API Tokens | Edit | Yes | Create/revoke per-user scoped R2 tokens |
 
 #### Zone Permissions
 
@@ -1089,7 +1110,7 @@ Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop`
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
 **Count:** 4 test files, ~33 tests.
 **Run:** `cd host && npm test`
-**Scope:** PTY pre-warm readiness patterns, activity tracker disconnect tracking, WebSocket input classification, server prewarm integration.
+**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration.
 
 ### 16.4 Vitest Version Split
 
@@ -1232,9 +1253,9 @@ DO alarm loops from `collectMetrics` can persist after `destroy()` since `destro
 
 ### R2 Bucket Cleanup on User Deletion
 
-`DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry, deletes the scoped R2 token, and attempts to empty then delete the R2 bucket.
+`DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), deletes the scoped R2 token, empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials), and deletes the empty bucket via Cloudflare API.
 
-Non-empty bucket deletion logs `logger.warn` server-side but both endpoints still return `{ success: true }`. Manual R2 cleanup via the Cloudflare dashboard may be needed if the bucket could not be emptied automatically.
+If worker-level R2 credentials are not configured (e.g., setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup.
 
 ### Chrome in CI (Ubuntu 22.04)
 
@@ -1348,6 +1369,17 @@ The setup completion lock uses a KV read-then-write pattern: read `setup:complet
 **Mitigation**: Each setup sub-step (CF API calls) is individually idempotent -- duplicate execution produces the same result. The worst case of a race is redundant CF API calls, not corrupted state.
 
 **Future consideration**: Moving the setup lock to a Durable Object would provide strict serialization. The blast radius of changing setup plumbing is non-trivial, so this is deferred until there's evidence of the race occurring in practice.
+
+#### AD13: Per-user scoped R2 tokens
+
+Each container gets an R2 API token scoped to its user's bucket only, replacing the previous shared credential model. Token lifecycle:
+
+1. **Creation**: On first container start, `getOrCreateScopedR2Token()` calls `POST /accounts/{accountId}/tokens` with an Object Read + Write policy restricted to the user's bucket name
+2. **Caching**: Token data (ID, access key, secret key) cached in KV as `r2token:{email}` — survives container restarts without re-creating
+3. **Delivery**: Passed to container via `setBucketName` body → container env vars → rclone config
+4. **Revocation**: `deleteScopedR2Token()` calls `DELETE /accounts/{accountId}/tokens/{tokenId}` on user deletion
+
+**Trade-off**: Requires `API Tokens: Edit` permission on the deploy token, which is a broader permission than ideal. Accepted because the alternative (manual R2 credential management per user) is operationally impractical.
 
 ---
 

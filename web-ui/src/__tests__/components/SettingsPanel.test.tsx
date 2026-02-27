@@ -568,8 +568,8 @@ describe('SettingsPanel Component', () => {
       const warning = screen.getByTestId('settings-r2-warning');
       expect(warning).toBeInTheDocument();
       expect(warning.textContent).toContain('re-running setup');
-      expect(warning.textContent).toContain('R2 storage credentials');
-      expect(warning.textContent).toContain('file sync will break');
+      expect(warning.textContent).toContain('R2 credentials and per-user storage tokens');
+      expect(warning.textContent).toContain('file sync and new sessions will break');
     });
 
     it('hides R2 warning hint for non-admin users', () => {

@@ -2,29 +2,34 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 /**
- * Tests for the quiescence-vs-pattern readiness decision.
+ * Tests for the simplified pre-warm config used by server.js.
  *
- * When a readyPattern is configured (e.g. /╭/ for cu/claude-unleashed),
- * the quiescence fallback must be disabled — otherwise 500ms of startup
- * silence fires "ready" before the TUI actually renders.
+ * Readiness is now first-PTY-output based. The config module only extracts
+ * the command name from TAB_CONFIG for logging — no patterns or quiescence.
  */
 
-import { shouldUseQuiescence } from '../prewarm-config.js';
+import { getPrewarmConfig } from '../prewarm-config.js';
 
-describe('shouldUseQuiescence', () => {
-  it('returns true when no readyPattern is configured (shell commands)', () => {
-    assert.equal(shouldUseQuiescence(null), true);
+describe('getPrewarmConfig (server integration)', () => {
+  it('returns command: null when tabConfig is undefined', () => {
+    const cfg = getPrewarmConfig(undefined);
+    assert.equal(cfg.command, null);
   });
 
-  it('returns true for undefined readyPattern', () => {
-    assert.equal(shouldUseQuiescence(undefined), true);
+  it('returns command: null when tabConfig has no tab 1', () => {
+    const cfg = getPrewarmConfig([{ id: '2', command: 'bash', label: 'Shell' }]);
+    assert.equal(cfg.command, null);
   });
 
-  it('returns false when readyPattern is /╭/ (cu/claude-unleashed)', () => {
-    assert.equal(shouldUseQuiescence(/╭/), false);
+  it('returns the base command for tab 1', () => {
+    const cfg = getPrewarmConfig([{ id: '1', command: 'cu --silent', label: 'Claude' }]);
+    assert.equal(cfg.command, 'cu');
   });
 
-  it('returns false when readyPattern is />/ (opencode)', () => {
-    assert.equal(shouldUseQuiescence(/>/), false);
+  it('does not return quiescenceMs or readyPattern', () => {
+    const cfg = getPrewarmConfig([{ id: '1', command: 'opencode', label: 'OpenCode' }]);
+    assert.equal(cfg.command, 'opencode');
+    assert.equal(cfg.quiescenceMs, undefined);
+    assert.equal(cfg.readyPattern, undefined);
   });
 });

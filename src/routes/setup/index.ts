@@ -164,9 +164,13 @@ app.post('/configure', async (c) => {
         .filter(key => !allowedSet.has(emailFromKvKey(key.name)))
         .map(key => emailFromKvKey(key.name));
 
-      for (const staleEmail of staleEmails) {
-        logger.info('Removing stale user with full cleanup', { email: staleEmail });
-        await cleanupUserData(staleEmail, c.env);
+      if (staleEmails.length > 0) {
+        await runStep('cleanup_stale_users', async () => {
+          for (const staleEmail of staleEmails) {
+            logger.info('Removing stale user with full cleanup', { email: staleEmail });
+            await cleanupUserData(staleEmail, c.env);
+          }
+        });
       }
 
       // Store users in KV with role

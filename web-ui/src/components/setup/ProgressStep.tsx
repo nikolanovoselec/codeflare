@@ -24,6 +24,7 @@ const ProgressStep: Component = () => {
     get_account: 'Verifying account',
     derive_r2_credentials: 'Deriving R2 credentials',
     set_secrets: 'Setting worker secrets',
+    cleanup_stale_users: 'Removing stale users',
     configure_custom_domain: 'Configuring custom domain',
     create_access_app: 'Creating Access application',
     configure_turnstile: 'Configuring waitlist Turnstile',

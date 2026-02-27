@@ -22,6 +22,20 @@ vi.mock('../../lib/r2-admin', () => ({
   deleteScopedR2Token: mockDeleteScopedR2Token,
 }));
 
+const mockEmptyR2Bucket = vi.hoisted(() => vi.fn());
+const mockCreateR2Client = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/r2-client', () => ({
+  emptyR2Bucket: mockEmptyR2Bucket,
+  createR2Client: mockCreateR2Client,
+}));
+
+vi.mock('../../lib/r2-config', () => ({
+  getR2Config: vi.fn().mockResolvedValue({
+    accountId: 'test-account-id',
+    endpoint: 'https://test-account-id.r2.cloudflarestorage.com',
+  }),
+}));
+
 const containerState = vi.hoisted(() => ({
   destroy: vi.fn(),
 }));
@@ -50,6 +64,8 @@ describe('cleanupUserData', () => {
       CONTAINER: {} as unknown as Env['CONTAINER'],
       CLOUDFLARE_API_TOKEN: 'test-api-token',
       CLOUDFLARE_WORKER_NAME: undefined,
+      R2_ACCESS_KEY_ID: 'test-r2-access-key',
+      R2_SECRET_ACCESS_KEY: 'test-r2-secret-key',
       ...overrides,
     } as unknown as Env;
   }
@@ -60,6 +76,8 @@ describe('cleanupUserData', () => {
     mockFetch.mockResolvedValue(new Response('{}', { status: 200 }));
     mockDeleteScopedR2Token.mockResolvedValue(undefined);
     mockContainerDestroy.mockResolvedValue(undefined);
+    mockEmptyR2Bucket.mockResolvedValue(0);
+    mockCreateR2Client.mockReturnValue({});
   });
 
   afterEach(() => {
@@ -92,6 +110,16 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`user:${email}`);
   });
 
+  it('deletes bucket-keyed KV entries (storage-stats, presets, preferences)', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+
+    await cleanupUserData(email, createEnv());
+
+    expect(mockKV.delete).toHaveBeenCalledWith(`storage-stats:${bucketName}`);
+    expect(mockKV.delete).toHaveBeenCalledWith(`presets:${bucketName}`);
+    expect(mockKV.delete).toHaveBeenCalledWith(`user-prefs:${bucketName}`);
+  });
+
   it('reads r2token, calls deleteScopedR2Token, deletes r2token KV entry', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
     mockKV._set(`r2token:${email}`, {
@@ -113,29 +141,41 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`r2token:${email}`);
   });
 
-  it('empties R2 bucket via fetch and deletes bucket via CF API', async () => {
+  it('empties R2 bucket via emptyR2Bucket and deletes bucket via CF API', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
-    mockKV._set(`r2token:${email}`, {
-      accessKeyId: 'ak-123',
-      secretAccessKey: 'sk-456',
-      tokenId: 'token-id-789',
-      bucketName,
-      createdAt: '2024-01-01T00:00:00Z',
-    });
+    mockEmptyR2Bucket.mockResolvedValueOnce(5);
 
-    // Mock S3 list + bucket delete
-    mockFetch
-      .mockResolvedValueOnce(new Response('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>', { status: 200 }))
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
 
     const result = await cleanupUserData(email, createEnv());
 
     expect(result.bucketDeleted).toBe(true);
+    expect(mockCreateR2Client).toHaveBeenCalled();
+    expect(mockEmptyR2Bucket).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('r2.cloudflarestorage.com'),
+      bucketName,
+    );
     // Should have called fetch for bucket deletion (CF API DELETE)
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining(`/r2/buckets/${bucketName}`),
       expect.objectContaining({ method: 'DELETE' }),
     );
+  });
+
+  it('skips R2 emptying when R2 credentials are missing', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const result = await cleanupUserData(email, createEnv({
+      R2_ACCESS_KEY_ID: '',
+      R2_SECRET_ACCESS_KEY: '',
+    } as Partial<Env>));
+
+    expect(result.bucketDeleted).toBe(true);
+    expect(mockCreateR2Client).not.toHaveBeenCalled();
+    expect(mockEmptyR2Bucket).not.toHaveBeenCalled();
   });
 
   it('returns CleanupResult with correct counts', async () => {
@@ -147,9 +187,7 @@ describe('cleanupUserData', () => {
       createdAt: '2024-01-01T00:00:00Z',
     });
 
-    mockFetch
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
 
     const result = await cleanupUserData(email, createEnv());
 
@@ -183,13 +221,31 @@ describe('cleanupUserData', () => {
   it('gracefully handles R2 bucket deletion failure (logged, not thrown)', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
 
-    // Bucket delete returns error
+    // Bucket delete returns error (no objects emptied = only 1 attempt)
     mockFetch.mockResolvedValueOnce(new Response('BucketNotEmpty', { status: 409 }));
 
     const result = await cleanupUserData(email, createEnv());
 
     expect(result.bucketDeleted).toBe(false);
     // Should NOT throw
+  });
+
+  it('retries bucket deletion when objects were emptied and first DELETE returns BucketNotEmpty', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    // emptyR2Bucket deleted objects, triggering retry logic
+    mockEmptyR2Bucket.mockResolvedValueOnce(10);
+
+    // First attempt: still not empty (R2 eventual consistency)
+    // Second attempt: succeeds
+    mockFetch
+      .mockResolvedValueOnce(new Response('BucketNotEmpty', { status: 409 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const result = await cleanupUserData(email, createEnv());
+
+    expect(result.bucketDeleted).toBe(true);
+    // Should have called fetch twice for bucket deletion
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it('gracefully handles container destroy failure (continues with other sessions)', async () => {
@@ -233,10 +289,7 @@ describe('cleanupUserData', () => {
       return origDelete(...args);
     });
 
-    // Mock S3 list + bucket delete
-    mockFetch
-      .mockResolvedValueOnce(new Response('', { status: 200 }))
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
 
     await cleanupUserData(email, createEnv());
 

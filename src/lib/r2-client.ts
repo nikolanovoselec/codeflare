@@ -85,6 +85,70 @@ export function parseInitiateMultipartUploadXml(xml: string): string {
   return match[1];
 }
 
+/** Maximum number of pagination iterations to prevent infinite loops */
+const MAX_EMPTY_ITERATIONS = 100;
+
+/**
+ * Empty an R2 bucket by paginating through all objects and deleting them in batches.
+ * Uses S3-compatible ListObjectsV2 + DeleteObjects (multi-delete) via aws4fetch.
+ * Returns the total number of deleted objects.
+ */
+export async function emptyR2Bucket(
+  client: AwsClient,
+  endpoint: string,
+  bucketName: string
+): Promise<number> {
+  let totalDeleted = 0;
+  let continuationToken: string | undefined;
+  let iterations = 0;
+
+  do {
+    const listUrl = new URL(getR2Url(endpoint, bucketName));
+    listUrl.searchParams.set('list-type', '2');
+    listUrl.searchParams.set('max-keys', '1000');
+    if (continuationToken) {
+      listUrl.searchParams.set('continuation-token', continuationToken);
+    }
+
+    const signed = await client.sign(listUrl.toString());
+    const listRes = await fetch(signed);
+    if (!listRes.ok) {
+      throw new Error(`ListObjectsV2 failed: HTTP ${listRes.status}`);
+    }
+
+    const xml = await listRes.text();
+    const parsed = parseListObjectsXml(xml);
+
+    if (parsed.objects.length > 0) {
+      // Build S3 DeleteObjects XML body
+      const deleteXml = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<Delete><Quiet>true</Quiet>',
+        ...parsed.objects.map((obj) => `<Object><Key>${obj.key}</Key></Object>`),
+        '</Delete>',
+      ].join('');
+
+      const deleteUrl = `${getR2Url(endpoint, bucketName)}?delete`;
+      const deleteSigned = await client.sign(deleteUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/xml' },
+        body: deleteXml,
+      });
+      const deleteRes = await fetch(deleteSigned);
+      if (!deleteRes.ok) {
+        throw new Error(`DeleteObjects failed: HTTP ${deleteRes.status}`);
+      }
+
+      totalDeleted += parsed.objects.length;
+    }
+
+    continuationToken = parsed.isTruncated ? parsed.nextContinuationToken : undefined;
+    iterations++;
+  } while (continuationToken && iterations < MAX_EMPTY_ITERATIONS);
+
+  return totalDeleted;
+}
+
 /** Extract the text content of an XML tag, decoding XML entities. */
 function extractTag(block: string, tag: string): string | undefined {
   const match = block.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));

@@ -1,15 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createR2Client,
   getR2Url,
   parseListObjectsXml,
   parseInitiateMultipartUploadXml,
+  emptyR2Bucket,
 } from '../../lib/r2-client';
+
+const mockSign = vi.hoisted(() => vi.fn());
 
 // Mock aws4fetch
 vi.mock('aws4fetch', () => ({
   AwsClient: vi.fn().mockImplementation((opts: Record<string, string>) => ({
     _options: opts,
+    sign: mockSign,
   })),
 }));
 
@@ -298,6 +302,103 @@ describe('parseInitiateMultipartUploadXml', () => {
 
   it('throws on empty string', () => {
     expect(() => parseInitiateMultipartUploadXml('')).toThrow(/UploadId/i);
+  });
+});
+
+describe('emptyR2Bucket', () => {
+  const endpoint = 'https://abc123.r2.cloudflarestorage.com';
+  const bucketName = 'test-bucket';
+  const originalFetch = globalThis.fetch;
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalThis.fetch = mockFetch;
+    // By default, sign returns a Request-like object that fetch can consume
+    mockSign.mockImplementation((url: string, init?: RequestInit) =>
+      new Request(url, init),
+    );
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function createClient() {
+    return { sign: mockSign } as any;
+  }
+
+  function listXml(keys: string[], truncated = false, nextToken?: string) {
+    const contents = keys
+      .map((k) => `<Contents><Key>${k}</Key><Size>100</Size><LastModified>2024-01-01T00:00:00Z</LastModified></Contents>`)
+      .join('');
+    const tokenTag = nextToken ? `<NextContinuationToken>${nextToken}</NextContinuationToken>` : '';
+    return `<ListBucketResult><IsTruncated>${truncated}</IsTruncated>${tokenTag}${contents}</ListBucketResult>`;
+  }
+
+  it('returns 0 for an empty bucket', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(listXml([]), { status: 200 }));
+
+    const count = await emptyR2Bucket(createClient(), endpoint, bucketName);
+
+    expect(count).toBe(0);
+    // Only one list call, no delete call
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes objects in a single page', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(listXml(['a.txt', 'b.txt']), { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete response
+
+    const count = await emptyR2Bucket(createClient(), endpoint, bucketName);
+
+    expect(count).toBe(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // Verify the delete request was signed with XML body
+    expect(mockSign).toHaveBeenCalledWith(
+      expect.stringContaining('?delete'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/xml' },
+        body: expect.stringContaining('<Key>a.txt</Key>'),
+      }),
+    );
+  });
+
+  it('paginates through multiple pages', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(listXml(['a.txt'], true, 'tok1'), { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 })) // delete page 1
+      .mockResolvedValueOnce(new Response(listXml(['b.txt']), { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete page 2
+
+    const count = await emptyR2Bucket(createClient(), endpoint, bucketName);
+
+    expect(count).toBe(2);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    // Verify second list call includes continuation token
+    expect(mockSign).toHaveBeenCalledWith(
+      expect.stringContaining('continuation-token=tok1'),
+    );
+  });
+
+  it('throws on ListObjectsV2 failure', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('Forbidden', { status: 403 }));
+
+    await expect(emptyR2Bucket(createClient(), endpoint, bucketName)).rejects.toThrow(
+      'ListObjectsV2 failed: HTTP 403',
+    );
+  });
+
+  it('throws on DeleteObjects failure', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(listXml(['a.txt']), { status: 200 }))
+      .mockResolvedValueOnce(new Response('Error', { status: 500 }));
+
+    await expect(emptyR2Bucket(createClient(), endpoint, bucketName)).rejects.toThrow(
+      'DeleteObjects failed: HTTP 500',
+    );
   });
 });
 

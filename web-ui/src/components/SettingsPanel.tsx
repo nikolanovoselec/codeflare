@@ -428,7 +428,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     </Button>
                   </div>
                   <span class="settings-hint" data-testid="settings-r2-warning">
-                    Changing your Cloudflare API token requires re-running setup. R2 storage credentials are derived from the API token during setup — without re-running, file sync will break.
+                    Changing your Cloudflare API token requires re-running setup. R2 credentials and per-user storage tokens depend on the API token — without re-running, file sync and new sessions will break.
                   </span>
                 </div>
               </section>
