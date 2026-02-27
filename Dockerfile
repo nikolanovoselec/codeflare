@@ -62,8 +62,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Symlink vim → neovim so both `vim` and `nvim` commands work
     && ln -s "$(which nvim)" /usr/local/bin/vim
 
-# Install rclone from official script (Debian repo version is often outdated)
-RUN curl -fsSL https://rclone.org/install.sh | bash
+# Install rclone (pinned version — unpinned install.sh broke bisync, see TECHNICAL.md §22.13)
+RUN curl -fsSL https://downloads.rclone.org/v1.73.1/rclone-v1.73.1-linux-amd64.deb -o /tmp/rclone.deb \
+    && dpkg -i /tmp/rclone.deb \
+    && rm /tmp/rclone.deb
 
 # Install GitHub CLI from official apt repo (not in Debian default repos)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

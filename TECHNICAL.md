@@ -443,7 +443,10 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 60s, f
 ### Initial Sync on Startup
 
 1. One-way `rclone sync` from R2 to local (restore data)
-2. `rclone bisync --resync` to establish baseline, then start 60-second daemon
+2. All file modifications run (`.claude.json`, `.gemini/settings.json`, `.codex/version.json`, tab autostart) — these complete before bisync starts to avoid hash mismatches
+3. `rclone bisync --resync --ignore-checksum` to establish baseline (background), then start 60-second daemon
+
+All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 60s cycle.
 
 ### What's Synced vs Excluded
 
@@ -469,7 +472,7 @@ All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache
 
 ### Conflict Resolution
 
-Newest file wins (`--conflict-resolve newer`). Auto `--resync` on bisync failure. Shutdown handler runs final bisync.
+Newest file wins (`--conflict-resolve newer`). Auto `--resync` on bisync failure. Shutdown handler runs final bisync. All bisync commands use `--ignore-checksum` to prevent false hash-mismatch aborts — rclone v1.73 introduced stricter post-transfer MD5 verification that fails when files change during sync.
 
 ---
 
@@ -560,7 +563,7 @@ Two types of R2 credentials serve different purposes:
 
 ### Graceful Shutdown
 
-`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon, runs a final `rclone bisync` to R2, and kills the terminal server. This ensures no data loss on container stop.
+`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon, runs a final `rclone bisync` (with `--ignore-checksum`) to R2, and kills the terminal server. This ensures no data loss on container stop.
 
 ### Security Headers
 
@@ -1397,6 +1400,7 @@ Architectural principles and design rationale.
 10. **Downgrade verbose heartbeat logs to debug** - Per-cycle keepalive logs at `info` level generate enormous log volume (every 5s per container). Once keepalive is confirmed stable, downgrade to `debug`.
 11. **Stateless dashboard polling preserves hibernation** - Dashboard status endpoints must be pure KV reads with zero DO contact. Touching DOs resets `sleepAfter` on every poll, preventing containers from ever hibernating.
 12. **Polling interval should match push cadence** - Frontend poll frequency should equal the backend push cycle. Polling faster wastes requests since data doesn't change between pushes.
+13. **rclone version upgrades can break bisync** - The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage.
 
 ---
 

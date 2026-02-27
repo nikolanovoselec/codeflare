@@ -305,6 +305,7 @@ establish_bisync_baseline() {
         --conflict-resolve newer \
         --resilient \
         --recover \
+        --ignore-checksum \
         --contimeout 10s \
         --timeout 30s \
         --transfers 32 --checkers 32 -v 2>&1 | tee -a /tmp/sync.log; then
@@ -363,6 +364,7 @@ bisync_with_r2() {
         --conflict-resolve newer \
         --resilient \
         --recover \
+        --ignore-checksum \
         --transfers 32 --checkers 32 $VERBOSE 2>&1 > "$SYNC_OUTPUT"; then
         RESULT=0
     else
@@ -381,6 +383,7 @@ bisync_with_r2() {
             --resync \
             --resilient \
             --recover \
+            --ignore-checksum \
             --transfers 32 --checkers 32 $VERBOSE 2>&1 > "$SYNC_OUTPUT"; then
             RESULT=0
         else
@@ -712,19 +715,6 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
         # Ensure workspace directory exists after sync
         mkdir -p "$USER_WORKSPACE"
         update_sync_status "success" "null"
-
-        # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
-        (
-            echo "[entrypoint] Establishing bisync baseline in background..."
-            if establish_bisync_baseline; then
-                echo "[entrypoint] Bisync baseline established, starting daemon..."
-                start_sync_daemon
-            else
-                echo "[entrypoint] Bisync baseline failed, daemon not started"
-            fi
-        ) &
-        BISYNC_INIT_PID=$!
-        echo "[entrypoint] Bisync init running in background (PID $BISYNC_INIT_PID)"
     else
         update_sync_status "failed" "$SYNC_ERROR"
         # Continue anyway - servers should still start
@@ -768,6 +758,23 @@ fi
 
 # Configure tab auto-start
 configure_tab_autostart
+
+# Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
+# Runs AFTER all file modifications (.claude.json, .gemini/settings.json, .codex/version.json,
+# .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
+if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
+    (
+        echo "[entrypoint] Establishing bisync baseline in background..."
+        if establish_bisync_baseline; then
+            echo "[entrypoint] Bisync baseline established, starting daemon..."
+            start_sync_daemon
+        else
+            echo "[entrypoint] Bisync baseline failed, daemon not started"
+        fi
+    ) &
+    BISYNC_INIT_PID=$!
+    echo "[entrypoint] Bisync init running in background (PID $BISYNC_INIT_PID)"
+fi
 
 # ============================================================================
 # Start servers AFTER initial sync completes
