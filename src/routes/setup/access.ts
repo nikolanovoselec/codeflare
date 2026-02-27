@@ -356,11 +356,11 @@ async function upsertAccessPolicy(
   accountId: string,
   appId: string,
   adminGroupId: string,
-  userGroupId: string
+  userGroupId: string | null
 ): Promise<void> {
   const include = [
     { group: { id: adminGroupId } },
-    { group: { id: userGroupId } },
+    ...(userGroupId ? [{ group: { id: userGroupId } }] : []),
   ];
 
   let updated = false;
@@ -506,17 +506,20 @@ export async function handleCreateAccessApp(
       throw new Error(`Could not resolve Access group ${groupNames.admin}`);
     }
 
-    const userGroup = await upsertAccessGroup(
-      token,
-      accountId,
-      groupNames.user,
-      regularUsers,
-      listedGroups,
-      steps,
-      stepIndex
-    );
-    if (!userGroup) {
-      throw new Error(`Could not resolve Access group ${groupNames.user}`);
+    let userGroup: AccessGroupResult | null = null;
+    if (regularUsers.length > 0) {
+      userGroup = await upsertAccessGroup(
+        token,
+        accountId,
+        groupNames.user,
+        regularUsers,
+        listedGroups,
+        steps,
+        stepIndex
+      );
+      if (!userGroup) {
+        throw new Error(`Could not resolve Access group ${groupNames.user}`);
+      }
     }
 
     const listedApps = await listAccessApps(token, accountId);
@@ -539,11 +542,11 @@ export async function handleCreateAccessApp(
     if (appResult.aud) {
       audienceTags.push(appResult.aud);
     }
-    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup.id);
+    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup?.id ?? null);
 
     await storeAccessConfig(token, accountId, kv, audienceTags, groupNames, {
       admin: adminGroup.id,
-      user: userGroup.id,
+      user: userGroup?.id ?? '',
     }, appResult.id);
     steps[stepIndex].status = 'success';
   } catch (error) {

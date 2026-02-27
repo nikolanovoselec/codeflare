@@ -489,7 +489,7 @@ One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/set
 
 ### Access Group Model
 
-Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()`. `GET /api/setup/prefill` reads existing membership for redeploy prefill.
+Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()`. `GET /api/setup/prefill` reads existing membership for redeploy prefill. Admin-only deployments (0 regular users) are supported: the users group is skipped entirely and the Access policy references only the admin group.
 
 ### Root Redirect
 
@@ -681,7 +681,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 - Always returns HTTP 200 -- errors are conveyed within the stream. Validation errors (missing fields) still return HTTP 400 before streaming begins.
 - Frontend reads via `response.body.getReader()` with buffer-based line parsing, updating `configureSteps` progressively so the UI shows real-time step status.
 
-Public before setup; admin-only after. All `adminUsers` must also be in `allowedUsers`.
+Public before setup; admin-only after. All `adminUsers` must also be in `allowedUsers`. Regular users (`allowedUsers` beyond admins) are optional -- admin-only deployments with 0 regular users are fully supported.
 
 ### Storage (R2 File Browser)
 

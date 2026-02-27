@@ -110,14 +110,15 @@ export async function syncAccessPolicy(
         }
       };
 
-      await Promise.all([
-        upsertGroup(adminGroupId!, adminGroupName, adminEmails),
-        upsertGroup(userGroupId!, userGroupName, regularEmails),
-      ]);
+      const groupUpserts = [upsertGroup(adminGroupId!, adminGroupName, adminEmails)];
+      if (regularEmails.length > 0) {
+        groupUpserts.push(upsertGroup(userGroupId!, userGroupName, regularEmails));
+      }
+      await Promise.all(groupUpserts);
 
       include = [
         { group: { id: adminGroupId } },
-        { group: { id: userGroupId } },
+        ...(regularEmails.length > 0 ? [{ group: { id: userGroupId } }] : []),
       ];
     } else {
       logger.warn('syncAccessPolicy: Access group IDs exist but names are unavailable, falling back to email includes');

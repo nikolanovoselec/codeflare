@@ -200,6 +200,98 @@ describe('access-policy.ts', () => {
       ]);
     });
 
+    it('should not send empty include array to users group when all users are admins', async () => {
+      // Bug: when all users are admins, regularEmails is empty.
+      // syncAccessPolicy calls upsertGroup(userGroupId, userGroupName, [])
+      // which sends include: [] to CF API, causing a rejection.
+      mockKV._set('user:admin@example.com', {
+        addedBy: 'setup',
+        addedAt: '2024-01-01T00:00:00Z',
+        role: 'admin',
+      });
+      mockKV._store.set('setup:access_group_admin_id', 'group-admins-123');
+      mockKV._store.set('setup:access_group_user_id', 'group-users-456');
+      mockKV._store.set('setup:access_group_admin_name', TEST_ADMIN_GROUP_NAME);
+      mockKV._store.set('setup:access_group_user_name', TEST_USER_GROUP_NAME);
+
+      const groupPutBodies: Array<{ url: string; body: Record<string, unknown> }> = [];
+      const policyPutBodies: Array<Record<string, unknown>> = [];
+
+      globalThis.fetch = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+        if (urlStr.endsWith('/access/groups') && (!init?.method || init.method === 'GET')) {
+          return Promise.resolve(new Response(
+            JSON.stringify({
+              success: true,
+              result: [
+                { id: 'group-admins-123', name: TEST_ADMIN_GROUP_NAME },
+                { id: 'group-users-456', name: TEST_USER_GROUP_NAME },
+              ],
+            }),
+            { status: 200 }
+          ));
+        }
+
+        if (urlStr.includes('/access/groups/') && init?.method === 'PUT') {
+          groupPutBodies.push({
+            url: urlStr,
+            body: JSON.parse((init.body as string) || '{}') as Record<string, unknown>,
+          });
+          // Simulate CF API rejecting empty include array
+          const body = JSON.parse((init.body as string) || '{}') as { include?: unknown[] };
+          if (!body.include || (body.include as unknown[]).length === 0) {
+            return Promise.resolve(new Response(
+              JSON.stringify({ success: false, errors: [{ message: 'include is required and must contain at least one item' }] }),
+              { status: 400 }
+            ));
+          }
+          return Promise.resolve(new Response('', { status: 200 }));
+        }
+
+        if (urlStr.endsWith('/access/apps') && (!init?.method || init.method === 'GET')) {
+          return Promise.resolve(new Response(
+            JSON.stringify({
+              success: true,
+              result: [{ id: 'app-1', domain: 'claude.example.com/app/*', aud: 'aud-1' }],
+            }),
+            { status: 200 }
+          ));
+        }
+        if (urlStr.endsWith('/access/apps/app-1/policies') && (!init?.method || init.method === 'GET')) {
+          return Promise.resolve(new Response(
+            JSON.stringify({
+              success: true,
+              result: [{ id: 'policy-1', name: 'Allow users', decision: 'allow', include: [], exclude: [] }],
+            }),
+            { status: 200 }
+          ));
+        }
+        if (urlStr.endsWith('/access/apps/app-1/policies/policy-1') && init?.method === 'PUT') {
+          policyPutBodies.push(JSON.parse((init.body as string) || '{}') as Record<string, unknown>);
+          return Promise.resolve(new Response('', { status: 200 }));
+        }
+
+        return Promise.reject(new Error(`Unmocked request: ${init?.method || 'GET'} ${urlStr}`));
+      }) as typeof globalThis.fetch;
+
+      await syncAccessPolicy('token-123', 'acc-123', 'claude.example.com', mockKV as unknown as KVNamespace);
+
+      // After fix: should NOT have attempted to PUT the users group with empty include
+      const userGroupUpdate = groupPutBodies.find((entry) => entry.url.includes('/group-users-456'));
+      expect(userGroupUpdate).toBeUndefined();
+
+      // Admin group should still be updated
+      const adminGroupUpdate = groupPutBodies.find((entry) => entry.url.includes('/group-admins-123'));
+      expect(adminGroupUpdate).toBeDefined();
+      expect(adminGroupUpdate!.body.include).toEqual([{ email: { email: 'admin@example.com' } }]);
+
+      // Policy should only reference admin group, not user group
+      expect(policyPutBodies).toHaveLength(1);
+      expect(policyPutBodies[0].include).toEqual([
+        { group: { id: 'group-admins-123' } },
+      ]);
+    });
+
     it('removes deleted users from Access user group on subsequent sync', async () => {
       mockKV._set('user:admin@example.com', {
         addedBy: 'setup',
@@ -271,9 +363,10 @@ describe('access-policy.ts', () => {
       mockKV._store.delete('user:member@example.com');
       await syncAccessPolicy('token-123', 'acc-123', 'claude.example.com', mockKV as unknown as KVNamespace);
 
-      expect(userGroupIncludeBodies).toHaveLength(2);
+      // First sync: member@example.com is a regular user, so user group is updated
+      // Second sync: member deleted, only admin remains, regularEmails is empty — user group PUT is skipped
+      expect(userGroupIncludeBodies).toHaveLength(1);
       expect(userGroupIncludeBodies[0]).toEqual([{ email: { email: 'member@example.com' } }]);
-      expect(userGroupIncludeBodies[1]).toEqual([]);
     });
   });
 });
