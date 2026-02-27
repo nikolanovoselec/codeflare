@@ -213,6 +213,10 @@ RCLONE_FILTERS_COMMON=(
     # Node modules — restored via npm install, often 100s of MB
     --filter "- **/node_modules/**"
 
+    # Claude Code native binary — installed at build time, auto-updated at runtime
+    --filter "- .local/bin/**"               # native binary launcher + symlink
+    --filter "- .claude/downloads/**"        # native installer download cache
+
     # Claude Code — session-specific ephemeral data, regenerated per session
     --filter "- .claude/cache/**"            # changelog cache
     --filter "- .claude/debug/**"            # debug logs
