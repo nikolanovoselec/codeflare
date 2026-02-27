@@ -513,7 +513,7 @@ PROFILE_EOF
 # Tab 4-6: Plain bash terminal in workspace
 if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
     export TERMINAL_APP_STARTED=1
-    export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+    export PATH="/root/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
     cd "$HOME/workspace" 2>/dev/null || cd "$HOME"
 
@@ -566,7 +566,7 @@ BASHRC_EOF
 # Dynamic tab layout from TAB_CONFIG env var
 if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
     export TERMINAL_APP_STARTED=1
-    export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+    export PATH="/root/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
     cd "$HOME/workspace" 2>/dev/null || cd "$HOME"
 
