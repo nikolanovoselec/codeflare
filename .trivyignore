@@ -21,6 +21,8 @@ CVE-2026-26960
 # minimatch 9.0.5-9.0.6 DoS via crafted patterns — CLIs use hardcoded patterns.
 CVE-2025-64756
 CVE-2026-26996
+CVE-2026-27903
+CVE-2026-27904
 
 # Debian bookworm base image system libraries — no fixes available in bookworm.
 # These are in system packages, not directly exposed to untrusted input.
