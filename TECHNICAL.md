@@ -459,6 +459,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.gitconfig` | Yes | Git configuration |
 | `~/workspace/` | Depends on `SYNC_MODE` | Excluded by default (`none`). Synced when `full` or partially with `metadata`. |
 | `~/.npm/`, `~/.bun/`, `.config/rclone/**`, `.cache/rclone/**`, `.claude/debug/**`, `.claude/plugins/cache/**` | **NO** | Cache/debug, regenerated |
+| `~/.local/bin/**` | **NO** | Native claude binary (build-time artifact) |
+| `~/.claude/downloads/**` | **NO** | Native installer download cache |
 
 ### rclone Sync Modes
 
@@ -468,13 +470,17 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `full` | Entire `workspace/` (minus `node_modules/`) | Persistent storage across stop/resume |
 | `metadata` | Only agent config files (`.claude/`) per repo | Lightweight project context sync |
 
-All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache/rclone/`, `.npm/`, `.bun/`, `.claude/debug/`, `.claude/plugins/cache/`, `**/node_modules/`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
+All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache/rclone/`, `.npm/`, `.bun/`, `.claude/debug/`, `.claude/plugins/cache/`, `.local/bin/`, `.claude/downloads/`, `**/node_modules/`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
 
 **Note:** The `metadata` mode is defined in `entrypoint.sh` but the Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`. The `metadata` mode can be used by setting `SYNC_MODE` directly in the container environment.
 
 ### Conflict Resolution
 
-Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handle transient bisync failures (e.g., interrupted transfers, listing mismatches) without losing deletion tracking. The sync daemon retries in 60s on failure. `--max-delete 100` allows bulk workspace deletions to propagate. Shutdown handler runs final bisync. All bisync commands use `--ignore-checksum` to prevent false hash-mismatch aborts — rclone v1.73 introduced stricter post-transfer MD5 verification that fails when files change during sync.
+Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handle transient bisync failures (e.g., interrupted transfers, listing mismatches) without losing deletion tracking. The sync daemon retries in 60s on failure. `--max-delete 100` on ALL bisync commands (`establish_bisync_baseline` and `bisync_with_r2`) allows bulk workspace deletions to propagate. Shutdown handler runs final bisync. All bisync commands use `--ignore-checksum` to prevent false hash-mismatch aborts — rclone v1.73 introduced stricter post-transfer MD5 verification that fails when files change during sync.
+
+**Bisync exit code handling:** `bisync_with_r2()` uses a temp file approach instead of `| tee` to capture both output and exit code. Piping through `tee` swallows the rclone exit code (the pipe's exit code is `tee`'s, not rclone's), masking bisync failures and breaking error detection in the daemon loop.
+
+**Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the shutdown trap to skip the final bisync — losing any files created during the session.
 
 ---
 
@@ -565,7 +571,7 @@ Two types of R2 credentials serve different purposes:
 
 ### Graceful Shutdown
 
-`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon (via PID file at `/tmp/sync-daemon.pid`), runs a final `rclone bisync` (with `--ignore-checksum --max-delete 100`) to R2, and kills the terminal server. This ensures no data loss on container stop.
+`STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon via PID file at `/tmp/sync-daemon.pid` (PID file is the sole mechanism — no in-memory PID variable fallback), runs a final `rclone bisync` (with `--ignore-checksum --max-delete 100`) to R2, and kills the terminal server. The bisync-initialized flag is touched on the timeout path as well (was previously missing, which caused shutdown to skip final bisync when initial sync timed out). This ensures no data loss on container stop.
 
 ### Security Headers
 
@@ -747,7 +753,7 @@ Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` la
 | Package | Version | Provides |
 |---------|---------|----------|
 | `claude-unleashed` | Git commit pin | `cu` / `claude-unleashed` commands (wraps `@anthropic-ai/claude-code`) |
-| Claude Code (native installer) | _(installed via `curl -fsSL https://claude.ai/install.sh \| bash -s -- stable`)_ | `claude` command at `/root/.local/bin/claude`. Stable channel — auto-updates when `DISABLE_AUTOUPDATER` is unset (Fast Start OFF), stays pinned when Fast Start ON. |
+| Claude Code (native installer) | _(installed via `curl -fsSL https://claude.ai/install.sh \| bash -s -- stable`)_ | `claude` command at `/root/.local/bin/claude`. Stable channel at build time. The npm-global `claude` binary from claude-unleashed's dependency is removed (`rm -f /usr/local/bin/claude`) so only the native binary is found. When Fast Start OFF, channel switched to latest and `claude update` runs silently before launch. When Fast Start ON, `DISABLE_AUTOUPDATER=1` pins to build-time stable version. |
 | `@openai/codex` | 0.105.0 | `codex` command |
 | `@google/gemini-cli` | 0.30.0 | `gemini` command |
 | `opencode-ai` | 1.2.15 | `opencode` command |
@@ -755,7 +761,7 @@ Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` la
 
 ### V8 Compile Cache Warm-Up
 
-Node.js CLIs (codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Native binaries (`claude` and `opencode`) are already compiled and do not need V8 cache warm-up. `claude --version` is still run at build time as a verification step (the build fails if the native installer did not work correctly) and to seed any internal caching the binary performs.
+Node.js CLIs (codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Native binaries (`claude` and `opencode`) are already compiled and do not need V8 cache warm-up. `claude --version` is run at build time as a fail-fast verification step — if the native installer did not work correctly, the Docker build fails immediately (no `|| true` fallback). This also seeds any internal caching the binary performs.
 
 ### OpenCode Database Pre-Initialization
 
@@ -788,7 +794,7 @@ flowchart TD
 
 Auto-start uses `cu --silent --no-consent` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#fast-start) below). Users can enable auto-updates via Settings, or update manually via `cu` in any tab.
 
-**PTY PATH:** The `.bashrc` tab autostart block prepends `/root/.local/bin` to `PATH` so that PTY sessions can find the native `claude` binary (installed there by the native installer). This matches the Dockerfile's `ENV PATH="/root/.local/bin:$PATH"` which covers non-interactive contexts.
+**PTY PATH:** The `.bashrc` tab autostart block and inline export both set `PATH="$HOME/.local/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"` so that PTY sessions can find the native `claude` binary. `$HOME/.local/bin` is listed first because the native binary's auto-updater expects to find it under `$HOME` (which is `/home/user` at runtime, not `/root`). A startup symlink bridges the gap: if `/root/.local/bin/claude` exists and `$HOME/.local/bin/claude` doesn't, a symlink is created. This matches the Dockerfile's `ENV PATH="/root/.local/bin:$PATH"` which covers non-interactive contexts.
 
 ### Fast Start
 
@@ -799,7 +805,7 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, el
 
 | Tool | Disable Mechanism | Type |
 |------|------------------|------|
-| Claude Code (native, stable channel) | `DISABLE_AUTOUPDATER=1` | Env var |
+| Claude Code (native, stable channel) | `DISABLE_AUTOUPDATER=1` (pins to build-time stable version) | Env var |
 | Claude Unleashed | `CLAUDE_UNLEASHED_NO_UPDATE=1`, `CLAUDE_UNLEASHED_CHANNEL=stable` | Env var |
 | OpenCode | `OPENCODE_DISABLE_AUTOUPDATE=1` | Env var |
 | Copilot | `COPILOT_AUTO_UPDATE=false` | Env var |
@@ -810,7 +816,7 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, el
 
 **Codex dismissed_version hack:** Writes `{"dismissed_version":"999.0.0"}` to trick the Codex version checker into thinking a future version was already dismissed. The `~/.codex/` directory is excluded from rclone sync, so this file is safe to recreate on every container start.
 
-When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the env vars it conditionally sets (`DISABLE_AUTOUPDATER`, `CLAUDE_UNLEASHED_NO_UPDATE`, `CLAUDE_UNLEASHED_CHANNEL`, `OPENCODE_DISABLE_AUTOUPDATE`, `DISABLE_INSTALLATION_CHECKS`) and skips writing config files, allowing all tools to check for updates normally.
+When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the env vars it conditionally sets (`DISABLE_AUTOUPDATER`, `CLAUDE_UNLEASHED_NO_UPDATE`, `CLAUDE_UNLEASHED_CHANNEL`, `OPENCODE_DISABLE_AUTOUPDATE`, `DISABLE_INSTALLATION_CHECKS`) and skips writing config files, allowing all tools to check for updates normally. For Claude Code specifically, the `.bashrc` tab autostart block switches the channel to `latest` (via `jq` merge into `~/.claude/settings.json` setting `autoUpdatesChannel: "latest"`) and runs `claude update > /dev/null 2>&1 || true` silently before launching the agent. This upgrades from the stable build-time version to the latest release on each session start, with stdout suppressed to avoid polluting the terminal.
 
 ---
 
@@ -1244,7 +1250,7 @@ Terminal server not starting (sync blocking). Check: `GET /api/container/startup
 
 ### R2 Sync Issues
 
-- **Bisync empty listing**: On-demand sync uses `--resync` by default, handles this case.
+- **Bisync empty listing**: Initial `establish_bisync_baseline()` uses `--resync` to create the baseline, handles this case. The periodic daemon never uses `--resync` (see AD14).
 - **Transfers 0 files**: Filter order indeterminacy from mixed `--include`/`--exclude`. Use `--filter` flags instead.
 - **Slow sync**: Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 - **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.
@@ -1334,6 +1340,7 @@ wrangler tail --service codeflare --level error
 | AD7 | Pre-setup public endpoints | Setup runs once during initial deploy; short exposure window is acceptable risk. Pre-setup auth trusts spoofable email header - bootstrap problem, mitigated by rate limiting and short exposure window. |
 | AD8 | Container runs as root with no internal auth | Network isolation via DO proxy is sufficient; root needed for rclone mount; wildcard CORS is internal-only |
 | AD9 | RESSOURCE_TIER spelling | French/German "ressource" is intentional - consistent across all config, changing would be a breaking API change |
+| AD15 | Native claude binary (stable build, latest runtime) | Stable channel at build time for known-good binary, latest channel at runtime for newest features. npm-global claude removed to avoid conflict. |
 
 #### AD10: Open setup endpoint before first configure
 
@@ -1399,6 +1406,19 @@ Each container gets an R2 API token scoped to its user's bucket only, replacing 
 
 **Manual `--resync`** is still available via `establish_bisync_baseline()` on container startup, where it is safe because the one-way restore (`rclone sync`) runs first to populate the local filesystem.
 
+#### AD15: Native claude binary (stable build, latest runtime)
+
+Claude Code uses the native installer binary (`curl -fsSL https://claude.ai/install.sh | bash -s -- stable`) instead of the npm package. The npm-global `claude` binary from claude-unleashed's `@anthropic-ai/claude-code` dependency is removed at build time (`rm -f /usr/local/bin/claude`) so only the native binary at `/root/.local/bin/claude` is found.
+
+**Two-channel strategy:**
+- **Build time**: Stable channel is installed and verified (`claude --version` with no `|| true` — build fails on installer failure)
+- **Runtime (Fast Start OFF)**: `.bashrc` tab autostart switches to latest channel (`autoUpdatesChannel: "latest"` in settings.json) and runs `claude update > /dev/null 2>&1 || true` silently before launch
+- **Runtime (Fast Start ON)**: `DISABLE_AUTOUPDATER=1` pins to the build-time stable version
+
+**Trade-off**: Stable channel at build time ensures a known-good binary is always available. Latest channel at runtime gives users the newest features without waiting for a new Docker image. The update runs silently (stdout suppressed) to avoid polluting the terminal.
+
+**Symlink bridge**: The native installer puts the binary at `/root/.local/bin/claude`, but the auto-updater expects it at `$HOME/.local/bin/claude` (where `$HOME=/home/user` at runtime). A startup symlink bridges this: if the root binary exists and the user binary doesn't, create `$HOME/.local/bin/claude -> /root/.local/bin/claude`.
+
 ---
 
 ## 22. Lessons Learned
@@ -1419,6 +1439,7 @@ Architectural principles and design rationale.
 12. **Polling interval should match push cadence** - Frontend poll frequency should equal the backend push cycle. Polling faster wastes requests since data doesn't change between pushes.
 13. **rclone version upgrades can break bisync** - The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage. Additionally, `--max-delete 100` is required on all bisync commands — the default 50% threshold aborts syncs when bulk deletions (e.g., deleting a workspace folder) remove more than half the tracked files. **Warning**: `--resync` should never be used as an automatic recovery mechanism — it destroys bisync's deletion tracking (see AD14).
 14. **Never auto-`--resync` on bisync failure** - `--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses any pending deletions — if side A deleted a file and bisync fails before propagating, `--resync` resurrects the file from side B. Use `--resilient` + `--recover` for self-healing: `--resilient` allows bisync to continue past non-critical errors, and `--recover` automatically reconstructs corrupted listing files without losing state. Manual `--resync` is still available via `establish_bisync_baseline()` on container startup (one-way restore runs first, so no data loss).
+15. **Never `docker system prune` in CI deploy workflows** - `docker system prune -af` in the deploy workflow nukes the Docker layer cache on self-hosted runners, causing every subsequent build to pull all layers from scratch. This triggers Docker Hub 429 rate limit errors when base images need re-downloading. Let Docker manage its own cache; only prune manually if disk space is critical.
 
 ---
 
