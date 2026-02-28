@@ -8,7 +8,7 @@ You have a full Linux container in your browser. An AI agent is loaded and waiti
 
 1. **Create a session** from the Dashboard - pick your agent
 2. **Open it** - Tab 1 is ready, no loading screen, no "please wait"
-3. **Clone a repo** in Tab 4 and point your agent at it
+3. **Tell your agent** to clone a repo and start working on it
 4. **Work** - the agent has full root access. It can read, write, build, test, and deploy. Let it cook.
 5. **Stop when you're done** - final sync happens automatically. The container dies. Your files don't.
 
@@ -21,11 +21,11 @@ That's it. The rest of this page is for the curious.
 | Tab | What | Why it's there |
 |-----|------|---------------|
 | 1 | Your AI agent | Pre-warmed during container startup. Already loaded when you click Open. |
-| 2-6 | bash | Five blank canvases. Run servers, tests, scripts, or `cowsay`. I don't judge. |
+| 2-6 | bash | Five blank canvases. Run whatever you want. I don't judge. |
 
-Tabs 2-6 are draggable. Rearrange them however you want - your order is saved.
+Tabs 2-6 are draggable. Rearrange them however you want - save your layout using Bookmarks.
 
-**Tiling mode** - button in the top-right corner. View 2-4 terminals side by side instead of switching tabs. Agent in one pane, dev server in another, htop keeping an eye on things in the third. Once you tile, you don't go back.
+**Tiling mode** - button in the top-right corner. View 2-4 terminals side by side instead of switching tabs. Agent in one pane, lazygit in another, htop keeping an eye on things in the third. Once you tile, you don't go back.
 
 ---
 
@@ -33,7 +33,7 @@ Tabs 2-6 are draggable. Rearrange them however you want - your order is saved.
 
 A daemon syncs your home directory to Cloudflare R2 every 60 seconds. When you stop a session, a final sync runs before the container self-destructs. When you start a new one, everything is restored. Even if a session dies before you remember to `git push`, R2 sync has got your back. Sync conflicts will happen - Codeflare cleans them up automatically on the next cycle. Don't worry about it.
 
-What carries over: `.gitconfig`, `~/.claude/` (settings, project memory), and anything else in your home directory.
+What carries over: `.gitconfig`, agent settings and memory (e.g. `~/.claude/`, `~/.gemini/`, `~/.opencode/`), and anything else in your home directory.
 
 The **R2 File Browser** on the Dashboard lets you browse, upload, download, and delete synced files between sessions - without starting a container.
 
