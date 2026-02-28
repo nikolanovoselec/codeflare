@@ -442,9 +442,9 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 60s, f
 
 ### Initial Sync on Startup
 
-1. One-way `rclone sync` from R2 to local (restore data)
+1. One-way `rclone sync` from R2 to local (restore data) — blocking, container waits for completion (120s timeout)
 2. All file modifications run (`.claude.json`, `.gemini/settings.json`, `.codex/version.json`, tab autostart) — these complete before bisync starts to avoid hash mismatches
-3. `rclone bisync --resync --ignore-checksum --max-delete 100` to establish baseline (blocking — container waits for completion), then start 60-second daemon
+3. `rclone bisync --resync --ignore-checksum --max-delete 100` to establish baseline (non-blocking — runs in background), then start 60-second daemon
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 60s cycle.
 
