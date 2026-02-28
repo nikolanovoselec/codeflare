@@ -632,9 +632,20 @@ CASE_EOF
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # Claude Code native binary — update to latest before launching.
-            # Ephemeral containers reset every session, so build-time version
-            # is all we get unless we update here. Skip when Fast Start is ON.
+            # Build-time installs stable channel for safety. When Fast Start is OFF,
+            # switch to latest channel and update so users get the newest version.
+            # Ephemeral containers reset every session, so this is the only chance.
             if [ -z "\$DISABLE_AUTOUPDATER" ]; then
+                # Set channel to latest (build-time is stable) then update silently
+                SETTINGS="\$HOME/.claude/settings.json"
+                if [ -f "\$SETTINGS" ]; then
+                    # Merge autoUpdatesChannel into existing settings
+                    tmp=\$(mktemp)
+                    jq '.autoUpdatesChannel = "latest"' "\$SETTINGS" > "\$tmp" 2>/dev/null && mv "\$tmp" "\$SETTINGS" || rm -f "\$tmp"
+                else
+                    mkdir -p "\$HOME/.claude"
+                    echo '{"autoUpdatesChannel":"latest"}' > "\$SETTINGS"
+                fi
                 claude update > /dev/null 2>&1 || true
             fi
             claude
