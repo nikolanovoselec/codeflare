@@ -193,9 +193,10 @@ export function getBucketName(email: string, workerName?: string): string {
   const maxLength = 63;
   const maxSanitizedLength = maxLength - prefix.length;
 
-  // Strip trailing hyphens AFTER truncation — substring can reintroduce them
-  const truncated = sanitized.substring(0, maxSanitizedLength).replace(/-+$/, '');
-  return `${prefix}${truncated}`;
+  // Strip trailing hyphens AFTER truncation — substring can reintroduce them.
+  // Also strip from the final result — long workerName can make prefix end with "-" and truncated be empty.
+  const truncated = sanitized.substring(0, Math.max(0, maxSanitizedLength)).replace(/-+$/, '');
+  return `${prefix}${truncated}`.replace(/-+$/, '');
 }
 
 /**

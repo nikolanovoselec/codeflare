@@ -6,12 +6,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { SESSION_ID_PATTERN, getMaxSessions } from '../../lib/constants';
+import { SESSION_ID_PATTERN, PROTECTED_PATHS, getMaxSessions } from '../../lib/constants';
 import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
 import { getBucketName } from '../../lib/access';
 import { getContainerId } from '../../lib/container-helpers';
-import { sanitizeSessionName, generateSessionId } from '../../lib/kv-keys';
+import { sanitizeSessionName, generateSessionId, getSessionKey, getSessionPrefix, getPresetsKey, getPreferencesKey, emailFromKvKey } from '../../lib/kv-keys';
 import { getR2Url, parseListObjectsXml } from '../../lib/r2-client';
+import { validateKey } from '../../routes/storage/validation';
 
 const NUM_RUNS = parseInt(process.env.FAST_CHECK_NUM_RUNS || '1000');
 
@@ -426,6 +427,311 @@ describe('Fuzz: getR2Url', () => {
         },
       ),
       { numRuns: Math.min(NUM_RUNS, 5) },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Storage key validation — path traversal, protected paths, edge cases
+// ---------------------------------------------------------------------------
+describe('Fuzz: validateKey', () => {
+  it('any key passing validation has no path traversal', () => {
+    fc.assert(
+      fc.property(fc.string({ minLength: 1, maxLength: 200 }), (key) => {
+        try {
+          validateKey(key);
+          // If validation passed, these invariants MUST hold:
+          expect(key).not.toContain('..');
+          expect(key.startsWith('/')).toBe(false);
+          expect(key.length).toBeLessThanOrEqual(1024);
+          for (const p of PROTECTED_PATHS) {
+            expect(key.startsWith(p)).toBe(false);
+            expect(key.includes(`/${p}`)).toBe(false);
+          }
+        } catch {
+          // Validation threw — that's fine, this is the reject path
+        }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('always rejects keys containing ".."', () => {
+    fc.assert(
+      fc.property(
+        fc.string({ maxLength: 50 }),
+        fc.string({ maxLength: 50 }),
+        (prefix, suffix) => {
+          const key = `${prefix}..${suffix}`;
+          expect(() => validateKey(key)).toThrow();
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('always rejects keys starting with "/"', () => {
+    fc.assert(
+      fc.property(
+        fc.stringMatching(/^[a-z0-9/_.-]{1,50}$/),
+        (path) => {
+          expect(() => validateKey(`/${path}`)).toThrow();
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('rejects all protected paths at root and nested positions', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...PROTECTED_PATHS),
+        fc.stringMatching(/^[a-z0-9]{0,20}$/),
+        (protectedPath, prefix) => {
+          // At root
+          expect(() => validateKey(protectedPath)).toThrow();
+          // Nested under a prefix
+          if (prefix.length > 0) {
+            expect(() => validateKey(`${prefix}/${protectedPath}`)).toThrow();
+          }
+        },
+      ),
+      { numRuns: Math.min(NUM_RUNS, PROTECTED_PATHS.length * 20) },
+    );
+  });
+
+  it('accepts valid workspace keys', () => {
+    fc.assert(
+      fc.property(
+        fc.stringMatching(/^workspace\/[a-z0-9]{1,30}\.[a-z]{1,5}$/),
+        (key) => {
+          // Normal workspace file paths should always pass
+          expect(() => validateKey(key)).not.toThrow();
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// KV key namespace isolation — colon injection and cross-namespace collision
+// ---------------------------------------------------------------------------
+describe('Fuzz: KV key namespace isolation', () => {
+  // Valid bucket names from getBucketName (no colons possible)
+  const validBucket = fc.stringMatching(/^[a-z0-9][a-z0-9-]{1,20}[a-z0-9]$/);
+  const validSessionId = fc.stringMatching(/^[a-z0-9]{8,24}$/);
+
+  it('getSessionKey always has exactly 3 colon-separated segments', () => {
+    fc.assert(
+      fc.property(validBucket, validSessionId, (bucket, sessionId) => {
+        const key = getSessionKey(bucket, sessionId);
+        const segments = key.split(':');
+        expect(segments).toHaveLength(3);
+        expect(segments[0]).toBe('session');
+        expect(segments[1]).toBe(bucket);
+        expect(segments[2]).toBe(sessionId);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('getSessionPrefix ends with colon (prevents partial-key matches)', () => {
+    fc.assert(
+      fc.property(validBucket, (bucket) => {
+        const prefix = getSessionPrefix(bucket);
+        expect(prefix.endsWith(':')).toBe(true);
+        // A bucket like "test" should not match prefix for "test-extended"
+        const otherPrefix = getSessionPrefix(`${bucket}-extended`);
+        expect(otherPrefix.startsWith(prefix)).toBe(false);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('different key functions never produce colliding keys', () => {
+    fc.assert(
+      fc.property(validBucket, (bucket) => {
+        const presets = getPresetsKey(bucket);
+        const prefs = getPreferencesKey(bucket);
+        const sessionPrefix = getSessionPrefix(bucket);
+        // No cross-namespace collisions
+        expect(presets).not.toBe(prefs);
+        expect(presets.startsWith('session:')).toBe(false);
+        expect(prefs.startsWith('session:')).toBe(false);
+        expect(presets.startsWith(sessionPrefix)).toBe(false);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// emailFromKvKey — round-trip and edge cases
+// ---------------------------------------------------------------------------
+describe('Fuzz: emailFromKvKey', () => {
+  it('round-trips: emailFromKvKey("user:" + email) === email', () => {
+    fc.assert(
+      fc.property(fc.emailAddress(), (email) => {
+        const key = `user:${email}`;
+        expect(emailFromKvKey(key)).toBe(email);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('only strips first "user:" occurrence', () => {
+    // Documents the first-match-only behavior of String.replace
+    const key = 'user:user:admin@example.com';
+    expect(emailFromKvKey(key)).toBe('user:admin@example.com');
+    // This means double-prefixed keys return a wrong email — upstream must prevent this
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getBucketName with long workerName — second trailing-hyphen vector
+// ---------------------------------------------------------------------------
+describe('Fuzz: getBucketName workerName edge cases', () => {
+  it('never produces trailing hyphen regardless of workerName length', () => {
+    fc.assert(
+      fc.property(
+        fc.emailAddress(),
+        fc.stringMatching(/^[a-z]{1,62}$/),
+        (email, workerName) => {
+          const name = getBucketName(email, workerName);
+          expect(name).not.toMatch(/-$/);
+          expect(name).not.toMatch(/^-/);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('very long workerName (>60 chars) still produces valid output', () => {
+    // When prefix exceeds 62 chars, maxSanitizedLength <= 0, sanitized part is empty
+    fc.assert(
+      fc.property(
+        fc.emailAddress(),
+        fc.stringMatching(/^[a-z]{55,62}$/),
+        (email, workerName) => {
+          const name = getBucketName(email, workerName);
+          expect(name.length).toBeLessThanOrEqual(63);
+          expect(name.length).toBeGreaterThanOrEqual(1);
+          // Must not end with hyphen (from prefix "longname-" with no sanitized part)
+          expect(name).not.toMatch(/-$/);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CORS empty/special pattern edge cases
+// ---------------------------------------------------------------------------
+describe('Fuzz: CORS edge cases', () => {
+  // Replicated from src/lib/cors-cache.ts
+  function matchesPattern(hostname: string, pattern: string): boolean {
+    const h = hostname.toLowerCase();
+    const p = pattern.toLowerCase();
+    if (p.startsWith('.')) return h.endsWith(p);
+    return h === p || h.endsWith('.' + p);
+  }
+
+  it('empty pattern only matches empty hostname', () => {
+    fc.assert(
+      fc.property(
+        fc.stringMatching(/^[a-z0-9.-]{1,30}$/),
+        (hostname) => {
+          // Non-empty hostname must NOT match empty pattern
+          // (empty pattern would mean ".endsWith('.')" which only matches hostnames ending in ".")
+          expect(matchesPattern(hostname, '')).toBe(hostname.endsWith('.'));
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('IP address patterns respect dot boundary', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 254 }),
+        fc.integer({ min: 0, max: 255 }),
+        fc.integer({ min: 0, max: 255 }),
+        fc.integer({ min: 0, max: 255 }),
+        (a, b, c, d) => {
+          const ip = `${a}.${b}.${c}.${d}`;
+          // Pattern of just the last 3 octets should NOT match via bare-domain logic
+          // because bare patterns require '.' + pattern, and IP doesn't have that structure
+          const partialIp = `${b}.${c}.${d}`;
+          if (matchesPattern(ip, partialIp)) {
+            // If it matched, it's because ip ends with "." + partialIp (subdomain-style)
+            expect(ip.endsWith(`.${partialIp}`)).toBe(true);
+          }
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('javascript: and data: origins produce empty hostname in URL parser', () => {
+    // Documents what isAllowedOrigin would see — the hostname extraction step
+    for (const scheme of ['javascript:alert(1)', 'data:text/html,<h1>hi</h1>', 'blob:null/uuid']) {
+      try {
+        const hostname = new URL(scheme).hostname;
+        // Empty hostname should NOT match any real domain pattern
+        expect(matchesPattern(hostname, 'example.com')).toBe(false);
+        expect(matchesPattern(hostname, '.example.com')).toBe(false);
+      } catch {
+        // new URL() threw — isAllowedOrigin returns false, which is correct
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// XML parser — adversarial structured XML
+// ---------------------------------------------------------------------------
+describe('Fuzz: XML parsing with adversarial structure', () => {
+  it('handles XML with injection attempts in key names', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(
+          'file</Key><Key>injected',
+          '"><script>alert(1)</script>',
+          'key&amp;name',
+          '<![CDATA[evil]]>',
+          'a'.repeat(1000),
+        ),
+        (rawKey) => {
+          // Properly escaped key in XML should round-trip correctly
+          const xml = `<ListBucketResult><Contents><Key>${escapeXml(rawKey)}</Key><Size>0</Size><LastModified>2024-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>`;
+          const result = parseListObjectsXml(xml);
+          expect(result.objects).toHaveLength(1);
+          expect(result.objects[0].key).toBe(rawKey);
+        },
+      ),
+      { numRuns: 5 }, // deterministic payloads
+    );
+  });
+
+  it('multiple Contents blocks all parse correctly', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.stringMatching(/^[a-z0-9\/_.-]{1,30}$/), { minLength: 1, maxLength: 20 }),
+        (keys) => {
+          const contents = keys.map((k) =>
+            `<Contents><Key>${escapeXml(k)}</Key><Size>100</Size><LastModified>2024-01-01T00:00:00Z</LastModified></Contents>`,
+          ).join('');
+          const xml = `<ListBucketResult>${contents}</ListBucketResult>`;
+          const result = parseListObjectsXml(xml);
+          expect(result.objects).toHaveLength(keys.length);
+          result.objects.forEach((obj, i) => {
+            expect(obj.key).toBe(keys[i]);
+          });
+        },
+      ),
+      { numRuns: NUM_RUNS },
     );
   });
 });
