@@ -498,12 +498,9 @@ configure_tab_autostart() {
     if [ ! -f "$BASH_PROFILE" ] || ! grep -q "source.*bashrc\|\..*bashrc" "$BASH_PROFILE" 2>/dev/null; then
         echo "[entrypoint] Creating .bash_profile to source .bashrc..."
         cat > "$BASH_PROFILE" << 'PROFILE_EOF'
-# .bash_profile - source .bashrc and .profile for login shells
+# .bash_profile - source .bashrc for login shells
 if [ -f "$HOME/.bashrc" ]; then
     source "$HOME/.bashrc"
-fi
-if [ -f "$HOME/.profile" ]; then
-    source "$HOME/.profile"
 fi
 PROFILE_EOF
         echo "[entrypoint] .bash_profile created"
