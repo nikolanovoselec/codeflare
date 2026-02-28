@@ -681,7 +681,7 @@ describe('Fuzz: validateKey encoding tricks', () => {
     expect(() => validateKey('workspace/../secret')).toThrow();
   });
 
-  it('null byte injection — FIXED: null bytes are now stripped before validation', () => {
+  it('null byte injection - FIXED: null bytes are now stripped before validation', () => {
     // FIXED: null bytes are now stripped before validation.
     // Previously, null byte before '.claude/' bypassed the .includes() check
     // because '/\0.claude/' !== '/.claude/'. Now validateKey strips \0 first,
@@ -692,7 +692,7 @@ describe('Fuzz: validateKey encoding tricks', () => {
     expect(() => validateKey(key)).toThrow();
   });
 
-  it('Unicode fullwidth period (．) does not trigger ASCII ".." check', () => {
+  it('Unicode fullwidth period does not trigger ASCII ".." check', () => {
     // Fullwidth period U+FF0E: ．
     // validateKey checks for ASCII '..' only. Fullwidth periods are different codepoints.
     const fullwidthTraversal = 'workspace/\uFF0E\uFF0E/secret';
@@ -710,7 +710,7 @@ describe('Fuzz: validateKey encoding tricks', () => {
     // Document: similar to fullwidth — R2 keys are opaque, so '.\u200B.' != '..'
   });
 
-  it('case sensitivity: .Claude/ vs .claude/ — validateKey is case-sensitive', () => {
+  it('case sensitivity: .Claude/ vs .claude/ - validateKey is case-sensitive', () => {
     // PROTECTED_PATHS includes '.claude/' (lowercase)
     // validateKey.includes() is case-sensitive, matching R2's case-sensitive keys
     expect(() => validateKey('.Claude/config')).not.toThrow();

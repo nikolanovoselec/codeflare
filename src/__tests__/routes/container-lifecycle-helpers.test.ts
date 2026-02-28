@@ -250,7 +250,7 @@ describe('Container lifecycle extracted helpers', () => {
       sessionId: 'session1234',
       scopedCreds: { accessKeyId: 'ak', secretAccessKey: 'sk' },
       r2Config: { accountId: 'acct', endpoint: 'https://r2.example.com' },
-      tabConfig: [{ command: 'claude-code', label: 'Claude' }],
+      tabConfig: [{ id: '1', command: 'claude-code', label: 'Claude' }],
       workspaceSyncEnabled: true,
       fastStartEnabled: false,
       logger: mockLogger as any,
