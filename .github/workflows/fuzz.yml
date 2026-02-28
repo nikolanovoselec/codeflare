@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        run: mkdir -p web-ui/dist
+
       - name: Run fuzz tests (extended iterations)
         env:
           FAST_CHECK_NUM_RUNS: '50000'
