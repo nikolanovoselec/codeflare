@@ -165,7 +165,7 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Layout.tsx` (orchestrates dashboard/terminal views, manages WS disconnect/reconnect lifecycle), `SessionStatCard.tsx` (dashboard card with three-color status dot and metrics), `StorageBrowser.tsx` (R2 browser with toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, `Dashboard.tsx`, `OnboardingLanding.tsx`, `KittScanner.tsx`.
 
-Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling), `storage.ts` (R2 operations), `setup.ts`.
+Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling — also updates storage stats from batch-status via `updateStatsFromBatch()`), `storage.ts` (R2 operations), `setup.ts`.
 
 #### Dashboard WS Disconnect Flow
 
@@ -413,7 +413,7 @@ flowchart TD
 
     subgraph Worker["Worker"]
         B1["GET batch-status<br/>(pure KV read, stateless,<br/>NO DO touch)"]
-        B2["Returns: status, metrics,<br/>lastStartedAt, lastActiveAt"]
+        B2["Returns: status, metrics,<br/>lastStartedAt, lastActiveAt,<br/>storageStats (from KV cache)"]
         B3["KV eventual consistency<br/>~60s for new sessions"]
         B1 --> B2
         B1 -.-> B3
@@ -655,7 +655,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | POST | `/api/sessions/:id/touch` | Update lastAccessedAt |
 | POST | `/api/sessions/:id/stop` | Stop session (KV 'stopped' + container.destroy()) |
 | GET | `/api/sessions/:id/status` | Get session and container status |
-| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions) |
+| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache) |
 
 ### Container Lifecycle
 

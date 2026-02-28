@@ -29,7 +29,7 @@ vi.mock('../../lib/file-upload', () => ({
 
 import * as storageApi from '../../api/storage';
 import { shouldUseMultipart, splitIntoParts } from '../../lib/file-upload';
-import { storageStore, _resetForTests } from '../../stores/storage';
+import { storageStore, _resetForTests, updateStatsFromBatch } from '../../stores/storage';
 
 // Get typed mocks
 const mockBrowseStorage = vi.mocked(storageApi.browseStorage);
@@ -563,6 +563,23 @@ describe('Storage Store', () => {
       await storageStore.refresh();
 
       expect(mockBrowseStorage).toHaveBeenCalledWith('workspace/');
+    });
+  });
+
+  // ==========================================================================
+  // updateStatsFromBatch
+  // ==========================================================================
+  describe('updateStatsFromBatch()', () => {
+    it('updates stats state', () => {
+      expect(storageStore.stats).toBeNull();
+
+      updateStatsFromBatch({ totalFiles: 100, totalFolders: 20, totalSizeBytes: 5000 });
+
+      expect(storageStore.stats).toEqual({
+        totalFiles: 100,
+        totalFolders: 20,
+        totalSizeBytes: 5000,
+      });
     });
   });
 

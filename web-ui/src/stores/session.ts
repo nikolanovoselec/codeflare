@@ -498,6 +498,7 @@ let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
  * Lightweight status refresh — only fetches batch-status and updates
  * existing session statuses in-place. Does NOT replace the sessions
  * array or set loading state, so the dashboard doesn't flicker.
+ * Also updates storage stats when storageStats is present in the batch response.
  */
 async function refreshSessionStatuses(): Promise<void> {
   try {

@@ -55,7 +55,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 /**
  * GET /api/sessions/batch-status
  * Get status for all sessions in a single call (eliminates N+1 on page load)
- * Returns a map of sessionId -> { status, ptyActive }
+ * Returns a map of sessionId -> { status, ptyActive } plus storageStats from KV cache
  *
  * KV-ONLY: This endpoint never contacts Durable Objects or containers.
  * KV is authoritative for session status:

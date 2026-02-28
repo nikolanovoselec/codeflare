@@ -619,6 +619,27 @@ describe('Session Store', () => {
       expect(metrics!.mem).toBe('2GB');
     });
 
+    it('refreshSessionStatuses updates storage stats from batch response', async () => {
+      // First load sessions
+      await sessionStore.loadSessions();
+
+      // Refresh with storageStats in response
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        storageStats: { totalFiles: 50, totalFolders: 5, totalSizeBytes: 2000 },
+      });
+      await sessionStore.refreshSessionStatuses();
+
+      // Verify storage store stats were updated via updateStatsFromBatch
+      const { storageStore } = await import('../../stores/storage');
+      expect(storageStore.stats).toEqual({
+        totalFiles: 50,
+        totalFolders: 5,
+        totalSizeBytes: 2000,
+      });
+    });
+
     it('stopAllPolling should stop all active startup polling', async () => {
       await sessionStore.loadSessions();
       mockGetStartupStatus.mockClear();

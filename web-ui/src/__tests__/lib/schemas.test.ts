@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   AgentTypeSchema,
+  BatchSessionStatusResponseSchema,
   StorageStatsResponseSchema,
   StoragePreviewTextResponseSchema,
   StoragePreviewImageResponseSchema,
@@ -52,6 +53,41 @@ describe('AgentTypeSchema', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error).toBeDefined();
+    }
+  });
+});
+
+describe('BatchSessionStatusResponseSchema storageStats', () => {
+  it('accepts storageStats field', () => {
+    const data = {
+      statuses: {
+        'session-1': { status: 'running', ptyActive: true },
+      },
+      maxSessions: 3,
+      storageStats: { totalFiles: 42, totalFolders: 10, totalSizeBytes: 1048576 },
+    };
+    const result = BatchSessionStatusResponseSchema.safeParse(data);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.storageStats).toEqual({
+        totalFiles: 42,
+        totalFolders: 10,
+        totalSizeBytes: 1048576,
+      });
+    }
+  });
+
+  it('accepts response without storageStats', () => {
+    const data = {
+      statuses: {
+        'session-1': { status: 'stopped', ptyActive: false },
+      },
+      maxSessions: 3,
+    };
+    const result = BatchSessionStatusResponseSchema.safeParse(data);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.storageStats).toBeUndefined();
     }
   });
 });

@@ -448,6 +448,37 @@ describe('Session Lifecycle Routes', () => {
       expect(m!.updatedAt).toBe('2024-01-15T12:30:00.000Z');
     });
 
+    it('includes storageStats when KV cache exists', async () => {
+      const app = createLifecycleApp(mockKV);
+      mockKV._set('storage-stats:test-bucket', {
+        totalFiles: 42,
+        totalFolders: 10,
+        totalSizeBytes: 1048576,
+        cachedAt: Date.now(),
+      });
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number } };
+      expect(body.storageStats).toEqual({
+        totalFiles: 42,
+        totalFolders: 10,
+        totalSizeBytes: 1048576,
+        cachedAt: expect.any(Number),
+      });
+    });
+
+    it('omits storageStats when KV cache is empty', async () => {
+      const app = createLifecycleApp(mockKV);
+
+      const res = await app.request('/sessions/batch-status');
+      expect(res.status).toBe(200);
+
+      const body = await res.json() as { storageStats?: unknown };
+      expect(body.storageStats).toBeUndefined();
+    });
+
     it('returns mixed sessions with and without metrics', async () => {
       const app = createLifecycleApp(mockKV);
       const withMetrics: Session = {
