@@ -635,7 +635,7 @@ CASE_EOF
             # Ephemeral containers reset every session, so build-time version
             # is all we get unless we update here. Skip when Fast Start is ON.
             if [ -z "\$DISABLE_AUTOUPDATER" ]; then
-                claude update 2>/dev/null || true
+                claude update > /dev/null 2>&1 || true
             fi
             claude
             ;;
