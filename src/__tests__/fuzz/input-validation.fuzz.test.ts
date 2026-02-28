@@ -723,7 +723,7 @@ describe('Fuzz: XML parsing with adversarial structure', () => {
   it('multiple Contents blocks all parse correctly', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.stringMatching(/^[a-z0-9\/_.-]{1,30}$/), { minLength: 1, maxLength: 20 }),
+        fc.array(fc.stringMatching(/^[a-z0-9/_.-]{1,30}$/), { minLength: 1, maxLength: 20 }),
         (keys) => {
           const contents = keys.map((k) =>
             `<Contents><Key>${escapeXml(k)}</Key><Size>100</Size><LastModified>2024-01-01T00:00:00Z</LastModified></Contents>`,
@@ -1021,7 +1021,7 @@ describe('Fuzz: stateful session lifecycle model', () => {
   // Command: create a session
   class CreateSessionCommand implements fc.Command<Model, Real> {
     constructor(readonly sessionId: string) {}
-    check(m: Readonly<Model>): boolean {
+    check(_m: Readonly<Model>): boolean {
       return true;
     }
     run(m: Model, r: Real): void {
@@ -1163,7 +1163,7 @@ describe('Fuzz: stateful session lifecycle model', () => {
 
     class SafeCreateCommand implements fc.Command<Model, Real> {
       constructor(readonly sessionId: string) {}
-      check(m: Readonly<Model>): boolean {
+      check(_m: Readonly<Model>): boolean {
         // Block creates for deleted sessions (simulates real system behavior)
         return !deletedIds.has(this.sessionId);
       }
