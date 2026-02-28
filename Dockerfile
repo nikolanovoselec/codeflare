@@ -2,7 +2,7 @@
 # Uses node-pty for PTY management and rclone for R2 storage sync
 
 # ---- Stage 1: Builder (compile native addons) ----
-FROM node:24-bookworm-slim AS builder
+FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -11,7 +11,7 @@ WORKDIR /app/host
 RUN npm install --production
 
 # ---- Stage 2: Runtime ----
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
 
 # Suppress npm update nag; configure claude-unleashed for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
@@ -75,9 +75,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install zoxide from GitHub (not in Debian bookworm repos)
-RUN curl -fsSL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash \
-    && mv /root/.local/bin/zoxide /usr/local/bin/zoxide
+# Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
+RUN ZOXIDE_VERSION="0.9.9" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | \
+    tar xz -C /usr/local/bin zoxide && \
+    chmod +x /usr/local/bin/zoxide
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
 RUN YAZI_VERSION="26.1.22" && \
