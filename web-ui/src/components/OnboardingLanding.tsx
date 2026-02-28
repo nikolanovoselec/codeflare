@@ -1,3 +1,12 @@
+declare global {
+  interface Window {
+    turnstile?: {
+      reset: () => void;
+      render: (...args: unknown[]) => string;
+    };
+  }
+}
+
 import { Component, onMount, createSignal, Show } from 'solid-js';
 import { mdiXml } from '@mdi/js';
 import { getOnboardingConfig, getUser } from '../api/client';
@@ -90,8 +99,8 @@ const OnboardingLanding: Component = () => {
       setMessageType('success');
       setEmail('');
       // Reset Turnstile widget
-      if ((window as any).turnstile?.reset) {
-        (window as any).turnstile.reset();
+      if (window.turnstile?.reset) {
+        window.turnstile.reset();
       }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Submission failed');

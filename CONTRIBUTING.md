@@ -28,6 +28,8 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 | `web-ui/` | Frontend SPA | SolidJS, xterm.js, Vite |
 | `host/` | Container terminal server | Node.js, node-pty |
 | `e2e/` | End-to-end tests | Vitest, Puppeteer |
+| `tutorials/` | Tutorial content seeded into new workspaces | Markdown, assets |
+| `scripts/` | Build and maintenance utilities | Node.js |
 | `.github/workflows/` | CI/CD pipelines | GitHub Actions |
 
 For a full architecture overview, see `TECHNICAL.md`.
@@ -41,7 +43,7 @@ cd web-ui && npm run dev           # Frontend dev server (Vite)
 
 ## Running Tests
 
-Codeflare has five test layers totaling ~2,423 tests. Run them with:
+Codeflare has five test layers totaling ~2,498 tests. Run them with:
 
 ```bash
 # Backend unit tests (Vitest + @cloudflare/vitest-pool-workers)

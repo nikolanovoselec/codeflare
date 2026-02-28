@@ -277,7 +277,7 @@ export function createDoubleFBO(gl: WebGLRenderingContext, w: number, h: number,
   };
 }
 
-function resizeFBO(gl: WebGLRenderingContext, target: FBO, w: number, h: number, internalFormat: number, format: number, type: number, param: number, copyProgram: Program, blit: (target: any, clear?: boolean) => void) {
+function resizeFBO(gl: WebGLRenderingContext, target: FBO, w: number, h: number, internalFormat: number, format: number, type: number, param: number, copyProgram: Program, blit: (target: FBO | null, clear?: boolean) => void) {
   let newFBO = createFBO(gl, w, h, internalFormat, format, type, param);
   copyProgram.bind();
   gl.uniform1i(copyProgram.uniforms.uTexture, target.attach(0));
@@ -285,7 +285,7 @@ function resizeFBO(gl: WebGLRenderingContext, target: FBO, w: number, h: number,
   return newFBO;
 }
 
-export function resizeDoubleFBO(gl: WebGLRenderingContext, target: DoubleFBO, w: number, h: number, internalFormat: number, format: number, type: number, param: number, copyProgram: Program, blit: (target: any, clear?: boolean) => void) {
+export function resizeDoubleFBO(gl: WebGLRenderingContext, target: DoubleFBO, w: number, h: number, internalFormat: number, format: number, type: number, param: number, copyProgram: Program, blit: (target: FBO | null, clear?: boolean) => void) {
   if (target.width === w && target.height === h) return target;
   target.read = resizeFBO(gl, target.read, w, h, internalFormat, format, type, param, copyProgram, blit);
   target.write = createFBO(gl, w, h, internalFormat, format, type, param);
@@ -307,7 +307,7 @@ export function initBlit(gl: WebGLRenderingContext) {
   );
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.enableVertexAttribArray(0);
-  return (target: any, clear = false) => {
+  return (target: FBO | null, clear = false) => {
     if (target == null) {
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);

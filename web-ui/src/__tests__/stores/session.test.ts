@@ -45,6 +45,8 @@ vi.mock('../../api/client', () => ({
   deletePreset: vi.fn(),
   getPreferences: vi.fn().mockResolvedValue({}),
   updatePreferences: vi.fn().mockResolvedValue({}),
+  getR2Status: vi.fn().mockResolvedValue({ ready: false }),
+  ensureR2Token: vi.fn().mockResolvedValue({ ready: false }),
 }));
 
 // Import after mocks
@@ -384,9 +386,9 @@ describe('Session Store', () => {
 
     it('should set status to stopping immediately then stopped after polling', async () => {
       mockStopSession.mockResolvedValue(undefined);
-      // First poll returns 'stopping', second returns 'stopped'
+      // First poll returns 'running' (still shutting down), second returns 'stopped'
       mockGetBatchSessionStatus
-        .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'stopping' as any, ptyActive: false } }, maxSessions: 3 })
+        .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'running', ptyActive: false } }, maxSessions: 3 })
         .mockResolvedValueOnce({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
 
       const stopPromise = sessionStore.stopSession('session-1');

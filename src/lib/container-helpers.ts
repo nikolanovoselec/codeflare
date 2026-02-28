@@ -11,6 +11,11 @@ type ContainerVariables = {
   bucketName: string;
 };
 
+/** DurableObjectStub extended with container getState() method */
+interface ContainerStubWithState extends DurableObjectStub {
+  getState(): Promise<{ status: string }>;
+}
+
 /** Extracts sessionId from query param (?sessionId=). Used by container routes. Session CRUD routes use Hono path params (c.req.param('id')) instead. */
 export function getSessionIdFromQuery(c: Context): string {
   const sessionId = c.req.query('sessionId');
@@ -106,7 +111,7 @@ export async function safeCheckContainerHealth(
   container: DurableObjectStub
 ): Promise<ContainerHealthResult> {
   try {
-    const state = await (container as unknown as { getState(): Promise<{ status: string }> }).getState();
+    const state = await (container as ContainerStubWithState).getState();
     const isUp = state.status === 'running' || state.status === 'healthy';
     if (!isUp) {
       return { healthy: false, status: state.status };

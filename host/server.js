@@ -139,12 +139,8 @@ const sessionManager = new SessionManager(sessionOptions);
  * @returns {boolean}
  */
 function safeTokenCompare(provided, expected) {
-  const providedBuf = Buffer.from(provided, 'utf8');
-  const expectedBuf = Buffer.from(expected, 'utf8');
-  if (providedBuf.length !== expectedBuf.length) {
-    return false;
-  }
-  return crypto.timingSafeEqual(providedBuf, expectedBuf);
+  const h = (s) => crypto.createHash('sha256').update(s).digest();
+  return crypto.timingSafeEqual(h(provided), h(expected));
 }
 
 // Create HTTP server

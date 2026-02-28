@@ -7,11 +7,12 @@ import { getContainer } from '@cloudflare/containers';
 import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
 import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow } from '../../lib/kv-keys';
-import { getMaxSessions } from '../../lib/constants';
+import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
 import { containerSessionsCB } from '../../lib/circuit-breakers';
 import { toApiSession } from '../../lib/session-helpers';
+import { ValidationError } from '../../lib/error-types';
 
 /**
  * Check container health and PTY status for a session.
@@ -106,6 +107,9 @@ app.get('/batch-status', async (c) => {
 app.post('/:id/stop', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    throw new ValidationError('Invalid sessionId format');
+  }
   const key = getSessionKey(bucketName, sessionId);
 
   const session = await getSessionOrThrow(c.env.KV, key);
@@ -132,6 +136,9 @@ app.post('/:id/stop', async (c) => {
 app.get('/:id/status', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    throw new ValidationError('Invalid sessionId format');
+  }
   const key = getSessionKey(bucketName, sessionId);
 
   const session = await getSessionOrThrow(c.env.KV, key);

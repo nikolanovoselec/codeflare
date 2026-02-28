@@ -47,7 +47,7 @@ export const SessionSchema = z.object({
   name: z.string(),
   createdAt: z.string(),
   lastAccessedAt: z.string(),
-  status: z.enum(['stopped', 'running', 'stopping']).optional(),
+  status: z.enum(['stopped', 'running']).optional(),
   agentType: AgentTypeSchema.optional(),
   tabConfig: z.array(TabConfigSchema).optional(),
 });
@@ -99,7 +99,7 @@ export const StartupStatusResponseSchema = z.object({
 // Batch session status response schema
 export const BatchSessionStatusResponseSchema = z.object({
   statuses: z.record(z.string(), z.object({
-    status: z.enum(['running', 'stopped', 'stopping']),
+    status: z.enum(['running', 'stopped']),
     ptyActive: z.boolean(),
     startupStage: z.string().optional(),
     lastStartedAt: z.string().nullable().optional(),

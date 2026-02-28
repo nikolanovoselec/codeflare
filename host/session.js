@@ -281,13 +281,6 @@ export class Session {
   }
 
   /**
-   * Check if session is alive (has PTY or clients)
-   */
-  isAlive() {
-    return this.ptyProcess !== null || this.clients.size > 0;
-  }
-
-  /**
    * Check if PTY process is still running
    */
   isPtyAlive() {

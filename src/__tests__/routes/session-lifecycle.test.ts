@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import lifecycleRoutes from '../../routes/session/lifecycle';
 import type { Env, Session } from '../../types';
-import { NotFoundError } from '../../lib/error-types';
+import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -39,6 +39,9 @@ function createLifecycleApp(mockKV: ReturnType<typeof createMockKV>, bucketName 
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
   app.onError((err, c) => {
+    if (err instanceof ValidationError) {
+      return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+    }
     if (err instanceof NotFoundError) {
       return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
     }
@@ -254,6 +257,40 @@ describe('Session Lifecycle Routes', () => {
       const res = await app.request('/sessions/nonexistent123456/status');
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('session ID validation (FIX-4)', () => {
+    it('rejects invalid sessionId with 400 on POST /:id/stop', async () => {
+      const app = createLifecycleApp(mockKV);
+
+      const res = await app.request('/sessions/INVALID-ID!/stop', { method: 'POST' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects invalid sessionId with 400 on GET /:id/status', async () => {
+      const app = createLifecycleApp(mockKV);
+
+      const res = await app.request('/sessions/INVALID-ID!/status');
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects too-short sessionId on POST /:id/stop', async () => {
+      const app = createLifecycleApp(mockKV);
+
+      const res = await app.request('/sessions/short/stop', { method: 'POST' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects too-short sessionId on GET /:id/status', async () => {
+      const app = createLifecycleApp(mockKV);
+
+      const res = await app.request('/sessions/short/status');
+
+      expect(res.status).toBe(400);
     });
   });
 

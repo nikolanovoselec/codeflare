@@ -139,8 +139,8 @@ describe('Frontend-Backend Contract Tests', () => {
       });
 
       it('should accept session with all backend status values', async () => {
-        // Backend returns 'stopped' | 'running' | 'stopping' in KV. 'initializing' and 'error' are frontend-computed states.
-        const validStatuses = ['stopped', 'running', 'stopping'];
+        // Backend returns 'stopped' | 'running' in KV. 'initializing', 'stopping', and 'error' are frontend-computed states.
+        const validStatuses = ['stopped', 'running'];
 
         for (const status of validStatuses) {
           mockFetch.mockResolvedValueOnce({
@@ -160,6 +160,18 @@ describe('Frontend-Backend Contract Tests', () => {
           const session = await createSession('Test');
           expect(() => SessionSchema.parse(session)).not.toThrow();
         }
+      });
+
+      it('should reject stopping as a backend status (FIX-27)', () => {
+        // 'stopping' is a frontend-only ephemeral state, never returned by the backend API
+        const sessionWithStopping = {
+          id: 'abc123def456789012345678',
+          name: 'Test',
+          createdAt: '2024-01-15T10:30:00Z',
+          lastAccessedAt: '2024-01-15T10:30:00Z',
+          status: 'stopping',
+        };
+        expect(() => SessionSchema.parse(sessionWithStopping)).toThrow();
       });
     });
   });

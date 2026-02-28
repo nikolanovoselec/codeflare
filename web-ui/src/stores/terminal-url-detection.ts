@@ -1,5 +1,6 @@
 import type { Terminal } from '@xterm/xterm';
 import { ACTIONABLE_URL_PATTERNS, URL_CHECK_INTERVAL_MS } from '../lib/constants';
+import { getBufferActive } from '../lib/xterm-internals';
 
 /**
  * URL Detection module — extracted from terminal.ts (L26).
@@ -66,7 +67,7 @@ function isLikelyUrlContinuation(
 }
 
 export function getLastUrlFromBuffer(term: Terminal): string | null {
-  const buffer = (term as any).buffer?.active;
+  const buffer = getBufferActive(term);
   if (!buffer) return null;
 
   const cols: number = term.cols || 80;

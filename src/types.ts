@@ -55,9 +55,6 @@ export interface Env {
   // Optional worker name override for forks (set via wrangler.toml [vars] or GitHub Actions)
   CLOUDFLARE_WORKER_NAME?: string;
 
-  // Enable protected path deletions for storage delete route (set to 'true' to enforce)
-  PROTECTED_PATHS_ENABLED?: string;
-
   // Maximum concurrent running sessions per user role
   MAX_SESSIONS_USER?: string;
   MAX_SESSIONS_ADMIN?: string;

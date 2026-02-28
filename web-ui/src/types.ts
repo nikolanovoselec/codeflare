@@ -34,7 +34,7 @@ export interface Session {
   createdAt: string;
   lastAccessedAt: string;
   /** Backend only sends 'stopped' | 'running'. 'stopping' is a client-only ephemeral state managed by SessionStatus, never returned by the API. */
-  status?: 'stopped' | 'running' | 'stopping';
+  status?: 'stopped' | 'running';
   agentType?: AgentType;
   tabConfig?: TabConfig[];
   /** ISO timestamp of when the session was last started */

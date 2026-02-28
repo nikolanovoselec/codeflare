@@ -7,6 +7,7 @@ import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { loadSettings } from '../lib/settings';
 import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
+import { getIframeInput } from '../lib/xterm-internals';
 import '../styles/floating-terminal-buttons.css';
 
 interface FloatingTerminalButtonsProps {
@@ -45,7 +46,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const refocusTerminal = () => {
     const term = getActiveTerm();
     // On mobile with iframe compositor jail, focus the iframe input instead
-    const iframeInput = (term as any)?.__iframeInput as HTMLInputElement | undefined;
+    const iframeInput = term ? getIframeInput(term) : undefined;
     if (iframeInput) {
       iframeInput.focus({ preventScroll: true });
     } else {

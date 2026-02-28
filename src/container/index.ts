@@ -1,3 +1,24 @@
+/**
+ * Container Durable Object — internal route response shapes
+ *
+ * POST /_internal/setBucketName
+ *   Request:  { bucketName: string; sessionId?: string; r2AccessKeyId?: string;
+ *               r2SecretAccessKey?: string; r2AccountId?: string; r2Endpoint?: string;
+ *               workspaceSyncEnabled?: boolean; fastStartEnabled?: boolean;
+ *               tabConfig?: TabConfig[] }
+ *   Response (200): { success: true; bucketName: string }
+ *   Response (409): { error: "Bucket name already set" }  — idempotent; still stores sessionId/prefs
+ *   Response (400): { error: string }                     — validation failure
+ *   Response (500): { error: "Internal error" }
+ *
+ * PUT /_internal/setSessionId
+ *   Request:  { sessionId?: string }
+ *   Response (200): { success: true }
+ *   Response (500): { error: "Internal error" }
+ *
+ * GET /_internal/getBucketName
+ *   Response (200): { bucketName: string | null }
+ */
 import { Container } from '@cloudflare/containers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Env, Session, TabConfig } from '../types';

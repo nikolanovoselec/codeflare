@@ -663,4 +663,87 @@ describe('Setup Store', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/users', expect.any(Object));
     });
   });
+
+  describe('detectToken batching (FIX-7)', () => {
+    it('should batch setState calls in detectToken for atomic updates', async () => {
+      // Verify that after detectToken completes, all state is consistent
+      // (no intermediate re-renders where tokenDetecting is true but result fields are stale)
+      mockFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({ detected: true, valid: true, account: { id: '123', name: 'Test' } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      await setupStore.detectToken();
+
+      // After completion, tokenDetecting should be false and tokenDetected should be true
+      expect(setupStore.tokenDetecting).toBe(false);
+      expect(setupStore.tokenDetected).toBe(true);
+      expect(setupStore.tokenDetectError).toBeNull();
+      expect(setupStore.accountInfo).toEqual({ id: '123', name: 'Test' });
+    });
+
+    it('should batch error state updates in detectToken', async () => {
+      mockFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({ detected: false, error: 'Token invalid' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      await setupStore.detectToken();
+
+      expect(setupStore.tokenDetecting).toBe(false);
+      expect(setupStore.tokenDetected).toBe(false);
+      expect(setupStore.tokenDetectError).toBe('Token invalid');
+    });
+  });
+
+  describe('customDomain in SetupStatusResponse (FIX-14)', () => {
+    it('should parse customDomain from setup status without type casts', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, tokenDetected: true, customDomain: 'my-app.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/users') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ users: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.customDomain).toBe('my-app.example.com');
+    });
+
+    it('should handle missing customDomain in setup status', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, tokenDetected: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/users') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ users: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      // Should remain as default empty string
+      expect(setupStore.customDomain).toBe('');
+    });
+  });
 });

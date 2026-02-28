@@ -137,7 +137,7 @@ export async function createScopedR2Token(
     ],
   });
 
-  let lastError: Error | null = null;
+  let lastError: Error = new Error('Token creation failed');
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let response: Response;
@@ -195,7 +195,7 @@ export async function createScopedR2Token(
     await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
   }
 
-  throw lastError!;
+  throw lastError;
 }
 
 /**

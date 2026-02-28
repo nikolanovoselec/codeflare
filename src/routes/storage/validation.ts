@@ -6,7 +6,7 @@ import { PROTECTED_PATHS } from '../../lib/constants';
 
 export const MAX_KEY_LENGTH = 1024;
 
-export function validateKey(key: string, label = 'key'): void {
+export function validateKey(key: string, label = 'key'): string {
   if (!key || typeof key !== 'string') {
     throw new ValidationError(`${label} is required`);
   }
@@ -25,4 +25,5 @@ export function validateKey(key: string, label = 'key'): void {
       throw new ValidationError(`Cannot access protected path: ${protected_}`);
     }
   }
+  return key;
 }

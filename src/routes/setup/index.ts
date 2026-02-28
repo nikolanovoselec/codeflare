@@ -40,46 +40,28 @@ const ConfigureBodySchema = z.object({
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 /**
- * Conditional auth middleware for /detect-token:
+ * Conditional auth middleware factory for setup routes (FIX-11).
  * - First-time setup (setup:complete not set): public access (bootstrap)
  * - After setup complete: require admin auth via CF Access
  */
-app.use('/detect-token', async (c, next) => {
-  const isComplete = await c.env.KV.get('setup:complete');
-  if (isComplete === 'true') {
-    return authMiddleware(c, async () => requireAdmin(c, next));
-  }
-  return next();
-});
+function createConditionalSetupAuth() {
+  return async (c: any, next: any) => {
+    const isComplete = await c.env.KV.get('setup:complete');
+    if (isComplete === 'true') {
+      return authMiddleware(c, async () => requireAdmin(c, next));
+    }
+    return next();
+  };
+}
 
-/**
- * Conditional auth middleware for /prefill:
- * - First-time setup (setup:complete not set): public access (bootstrap)
- * - After setup complete: require admin auth via CF Access
- */
-app.use('/prefill', async (c, next) => {
-  const isComplete = await c.env.KV.get('setup:complete');
-  if (isComplete === 'true') {
-    return authMiddleware(c, async () => requireAdmin(c, next));
-  }
-  return next();
-});
+// Apply conditional auth to setup routes
+app.use('/detect-token', createConditionalSetupAuth());
+app.use('/prefill', createConditionalSetupAuth());
 
 // Register simple endpoint handlers (status, detect-token, prefill)
 app.route('/', handlers);
 
-/**
- * Conditional auth middleware for /configure:
- * - First-time setup (setup:complete not set): public access (bootstrap)
- * - After setup complete: require admin auth via CF Access
- */
-app.use('/configure', async (c, next) => {
-  const isComplete = await c.env.KV.get('setup:complete');
-  if (isComplete === 'true') {
-    return authMiddleware(c, async () => requireAdmin(c, next));
-  }
-  return next();
-});
+app.use('/configure', createConditionalSetupAuth());
 
 /**
  * POST /api/setup/configure

@@ -15,13 +15,13 @@ app.get('/', async (c) => {
     throw new ValidationError('Missing required query parameter: key');
   }
 
-  validateKey(key);
+  const sanitizedKey = validateKey(key);
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 
-  const objectUrl = getR2Url(endpoint, bucketName, key);
+  const objectUrl = getR2Url(endpoint, bucketName, sanitizedKey);
 
   // Sign the request for R2 auth and stream the response through the worker.
   // Previously this returned a 302 redirect to a presigned R2 URL, but that
@@ -37,7 +37,7 @@ app.get('/', async (c) => {
     headers: {
       'Content-Type': r2Response.headers.get('Content-Type') || 'application/octet-stream',
       'Content-Disposition': (() => {
-        const rawFilename = key.split('/').pop() || 'download';
+        const rawFilename = sanitizedKey.split('/').pop() || 'download';
         const safeFilename = rawFilename.replace(/[\r\n"\\]/g, '_');
         const encodedFilename = encodeURIComponent(rawFilename).replace(/'/g, '%27');
         return `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`;

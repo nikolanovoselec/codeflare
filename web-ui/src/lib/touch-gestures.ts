@@ -1,4 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
+import { getXtermCore } from './xterm-internals';
 
 // --- Tuning constants ---
 const SWIPE_THRESHOLD = 20; // px minimum delta to qualify as a swipe
@@ -25,7 +26,7 @@ type Direction = 'left' | 'right' | 'up' | 'down';
  * bypasses this and sends raw key data.
  */
 export function sendTerminalKey(terminal: Terminal, sequence: string): void {
-  const core = (terminal as any)._core;
+  const core = getXtermCore(terminal);
   if (core?.coreService?.triggerDataEvent) {
     core.coreService.triggerDataEvent(sequence, false);
   }

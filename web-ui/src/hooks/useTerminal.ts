@@ -10,6 +10,7 @@ import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
+import { getXtermViewport, getIframeInput } from '../lib/xterm-internals';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -139,7 +140,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       textarea.setAttribute('spellcheck', 'false');
       textarea.setAttribute('inputmode', 'text');
       textarea.setAttribute('enterkeyhint', 'enter');
-      (textarea.style as any).webkitUserModify = 'read-write-plaintext-only';
+      textarea.style.setProperty('-webkit-user-modify', 'read-write-plaintext-only');
       textarea.setAttribute('data-gramm', 'false');
       textarea.setAttribute('data-gramm_editor', 'false');
       textarea.setAttribute('data-enable-grammarly', 'false');
@@ -189,7 +190,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   function setupMobileTerminal() {
     if (!term) return;
 
-    const viewport = (term as any)._core?.viewport;
+    const viewport = getXtermViewport(term);
     if (viewport) {
       viewport.handleTouchStart = () => {};
       viewport.handleTouchMove = () => false;
@@ -358,7 +359,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       });
 
       onCleanup(() => {
-        const iframeInput = (term as any)?.__iframeInput as HTMLInputElement | undefined;
+        const iframeInput = term ? getIframeInput(term) : undefined;
         if (iframeInput) iframeInput.blur();
         disableVirtualKeyboardOverlay();
         forceResetKeyboardState();

@@ -112,8 +112,8 @@ describe('Storage Delete Route', () => {
     expect(body.error).toContain('must not start with /');
   });
 
-  it('rejects protected path .claude/ with 400 when enabled', async () => {
-    envOverrides.PROTECTED_PATHS_ENABLED = 'true';
+  it('rejects protected path .claude/ with 400', async () => {
+
     const res = await app.request('/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -126,8 +126,8 @@ describe('Storage Delete Route', () => {
     expect(body.error).toContain('protected path');
   });
 
-  it('rejects protected path .anthropic/ with 400 when enabled', async () => {
-    envOverrides.PROTECTED_PATHS_ENABLED = 'true';
+  it('rejects protected path .anthropic/ with 400', async () => {
+
     const res = await app.request('/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -139,8 +139,8 @@ describe('Storage Delete Route', () => {
     expect(body.code).toBe('VALIDATION_ERROR');
   });
 
-  it('rejects protected path .ssh/ with 400 when enabled', async () => {
-    envOverrides.PROTECTED_PATHS_ENABLED = 'true';
+  it('rejects protected path .ssh/ with 400', async () => {
+
     const res = await app.request('/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -152,8 +152,8 @@ describe('Storage Delete Route', () => {
     expect(body.code).toBe('VALIDATION_ERROR');
   });
 
-  it('rejects nested protected path with 400 when enabled', async () => {
-    envOverrides.PROTECTED_PATHS_ENABLED = 'true';
+  it('rejects nested protected path with 400', async () => {
+
     const res = await app.request('/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

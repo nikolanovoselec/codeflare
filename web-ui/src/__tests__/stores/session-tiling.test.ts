@@ -27,6 +27,8 @@ vi.mock('../../api/client', () => ({
   deletePreset: vi.fn(),
   getPreferences: vi.fn().mockResolvedValue({}),
   updatePreferences: vi.fn().mockResolvedValue({}),
+  getR2Status: vi.fn().mockResolvedValue({ ready: false }),
+  ensureR2Token: vi.fn().mockResolvedValue({ ready: false }),
 }));
 
 // Import after mocks

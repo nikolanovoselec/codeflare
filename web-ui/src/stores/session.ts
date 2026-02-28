@@ -1,5 +1,4 @@
 import { createStore, produce } from 'solid-js/store';
-import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { terminalStore } from './terminal';
@@ -35,6 +34,17 @@ import {
   applyPresetToSession,
 } from './session-presets';
 import { updateStatsFromBatch } from './storage';
+import {
+  registerR2ReadinessDeps,
+  startR2Polling,
+  stopR2Polling,
+  isR2Ready,
+} from './r2-readiness';
+import {
+  registerPreferencesDeps,
+  loadPreferences,
+  updateUserPreferences,
+} from './preferences';
 
 /**
  * Session Store — central facade for session lifecycle management.
@@ -146,50 +156,11 @@ registerProcessNameCallback((sessionId, terminalId, processName) => {
   updateTerminalLabel(sessionId, terminalId, processName);
 });
 
-// ============================================================================
-// R2 Scoped Token Readiness
-// ============================================================================
-const [r2Ready, setR2Ready] = createSignal(false);
-let r2PollInterval: ReturnType<typeof setInterval> | null = null;
-const R2_POLL_INTERVAL_MS = 3000;
-
-async function checkR2Status(): Promise<void> {
-  try {
-    const { ready } = await api.getR2Status();
-    if (ready) {
-      setR2Ready(true);
-      stopR2Polling();
-    }
-  } catch {
-    // Silently ignore — background polling
-  }
-}
-
-async function startR2Polling(): Promise<void> {
-  if (r2PollInterval !== null) return;
-
-  // Eagerly ensure token exists (backend creates if missing)
-  try {
-    const { ready } = await api.ensureR2Token();
-    if (ready) {
-      setR2Ready(true);
-      return; // Already ready, no need to poll
-    }
-  } catch {
-    // Fall through to polling
-  }
-
-  // Poll for readiness
-  checkR2Status();
-  r2PollInterval = setInterval(checkR2Status, R2_POLL_INTERVAL_MS);
-}
-
-function stopR2Polling(): void {
-  if (r2PollInterval !== null) {
-    clearInterval(r2PollInterval);
-    r2PollInterval = null;
-  }
-}
+// Register R2 readiness dependencies (extracted to r2-readiness.ts)
+registerR2ReadinessDeps({
+  getR2Status: api.getR2Status,
+  ensureR2Token: api.ensureR2Token,
+});
 
 // Get active session
 function getActiveSession(): SessionWithStatus | undefined {
@@ -590,27 +561,13 @@ function getMetricsForSession(sessionId: string): SessionMetrics | null {
   return state.sessionMetrics[sessionId] || null;
 }
 
-// ============================================================================
-// User Preferences
-// ============================================================================
-
-async function loadPreferences(): Promise<void> {
-  try {
-    const prefs = await api.getPreferences();
-    setState('preferences', prefs);
-  } catch (err) {
-    logger.warn('[SessionStore] Failed to load preferences:', err);
-  }
-}
-
-async function updatePreferences(prefs: Partial<UserPreferences>): Promise<void> {
-  try {
-    const updated = await api.updatePreferences(prefs);
-    setState('preferences', updated);
-  } catch (err) {
-    logger.warn('[SessionStore] Failed to update preferences:', err);
-  }
-}
+// Register preferences dependencies (extracted to preferences.ts)
+registerPreferencesDeps({
+  api: { getPreferences: api.getPreferences, updatePreferences: api.updatePreferences },
+  logger,
+  setPreferences: (prefs: UserPreferences) => setState('preferences', prefs),
+  getPreferences: () => state.preferences,
+});
 
 /**
  * Check if user has reached the maximum number of concurrent running sessions.
@@ -707,10 +664,10 @@ export const sessionStore = {
   saveBookmarkForSession,
   applyPresetToSession,
 
-  // Preferences
+  // Preferences (delegated to preferences.ts)
   get preferences() { return state.preferences; },
   loadPreferences,
-  updatePreferences,
+  updatePreferences: updateUserPreferences,
 
   // Session limits
   get maxSessions() { return state.maxSessions; },
@@ -719,8 +676,8 @@ export const sessionStore = {
   // Context lifecycle
   hasRecentContext,
 
-  // R2 scoped token readiness
-  get r2Ready() { return r2Ready(); },
+  // R2 scoped token readiness (delegated to r2-readiness.ts)
+  get r2Ready() { return isR2Ready(); },
   startR2Polling,
   stopR2Polling,
 

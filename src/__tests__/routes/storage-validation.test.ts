@@ -57,4 +57,14 @@ describe('validateKey', () => {
     // 'foo\0bar' after stripping becomes 'foobar' which is a valid key
     expect(() => validateKey('foo\0bar')).not.toThrow();
   });
+
+  it('returns the sanitized key string without null bytes', () => {
+    const result = validateKey('foo\0bar');
+    expect(result).toBe('foobar');
+  });
+
+  it('returns the original key when no sanitization needed', () => {
+    const result = validateKey('workspace/file.ts');
+    expect(result).toBe('workspace/file.ts');
+  });
 });

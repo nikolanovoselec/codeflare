@@ -55,14 +55,14 @@ app.post('/', async (c) => {
     throw new ValidationError(parsed.error.issues[0].message);
   }
   const body = parsed.data;
-  validateKey(body.key);
+  const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 
   const binaryContent = Uint8Array.from(atob(body.content), ch => ch.charCodeAt(0));
-  const url = getR2Url(endpoint, bucketName, body.key);
+  const url = getR2Url(endpoint, bucketName, sanitizedKey);
 
   const response = await r2Client.fetch(url, {
     method: 'PUT',
@@ -74,7 +74,7 @@ app.post('/', async (c) => {
     throw new ContainerError('upload', `R2 PutObject failed: ${response.status}`);
   }
 
-  return c.json({ key: body.key, size: binaryContent.length });
+  return c.json({ key: sanitizedKey, size: binaryContent.length });
 });
 
 /**
@@ -88,13 +88,13 @@ app.post('/initiate', async (c) => {
     throw new ValidationError(parsed.error.issues[0].message);
   }
   const body = parsed.data;
-  validateKey(body.key);
+  const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 
-  const url = `${getR2Url(endpoint, bucketName, body.key)}?uploads`;
+  const url = `${getR2Url(endpoint, bucketName, sanitizedKey)}?uploads`;
   const response = await r2Client.fetch(url, { method: 'POST' });
 
   if (!response.ok) {
@@ -104,7 +104,7 @@ app.post('/initiate', async (c) => {
   const xml = await response.text();
   const uploadId = parseInitiateMultipartUploadXml(xml);
 
-  return c.json({ uploadId, key: body.key });
+  return c.json({ uploadId, key: sanitizedKey });
 });
 
 /**
@@ -118,14 +118,14 @@ app.post('/part', async (c) => {
     throw new ValidationError(parsed.error.issues[0].message);
   }
   const body = parsed.data;
-  validateKey(body.key);
+  const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 
   const binaryContent = Uint8Array.from(atob(body.content), ch => ch.charCodeAt(0));
-  const url = `${getR2Url(endpoint, bucketName, body.key)}?partNumber=${body.partNumber}&uploadId=${encodeURIComponent(body.uploadId)}`;
+  const url = `${getR2Url(endpoint, bucketName, sanitizedKey)}?partNumber=${body.partNumber}&uploadId=${encodeURIComponent(body.uploadId)}`;
 
   const response = await r2Client.fetch(url, {
     method: 'PUT',
@@ -151,7 +151,7 @@ app.post('/complete', async (c) => {
     throw new ValidationError(parsed.error.issues[0].message);
   }
   const body = parsed.data;
-  validateKey(body.key);
+  const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
@@ -163,7 +163,7 @@ app.post('/complete', async (c) => {
     .join('');
   const xmlBody = `<CompleteMultipartUpload>${partsXml}</CompleteMultipartUpload>`;
 
-  const url = `${getR2Url(endpoint, bucketName, body.key)}?uploadId=${encodeURIComponent(body.uploadId)}`;
+  const url = `${getR2Url(endpoint, bucketName, sanitizedKey)}?uploadId=${encodeURIComponent(body.uploadId)}`;
 
   const response = await r2Client.fetch(url, {
     method: 'POST',
@@ -175,7 +175,7 @@ app.post('/complete', async (c) => {
     throw new ContainerError('upload', `R2 CompleteMultipartUpload failed: ${response.status}`);
   }
 
-  return c.json({ key: body.key });
+  return c.json({ key: sanitizedKey });
 });
 
 /**
@@ -189,13 +189,13 @@ app.post('/abort', async (c) => {
     throw new ValidationError(parsed.error.issues[0].message);
   }
   const body = parsed.data;
-  validateKey(body.key);
+  const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 
-  const url = `${getR2Url(endpoint, bucketName, body.key)}?uploadId=${encodeURIComponent(body.uploadId)}`;
+  const url = `${getR2Url(endpoint, bucketName, sanitizedKey)}?uploadId=${encodeURIComponent(body.uploadId)}`;
   await r2Client.fetch(url, { method: 'DELETE' });
 
   return c.json({ success: true });

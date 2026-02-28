@@ -3,6 +3,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '../hooks/useTerminal';
 import InitProgress from './InitProgress';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay } from '../lib/mobile';
+import { getRemoveFocusGuard, getIframeInput } from '../lib/xterm-internals';
 import '../styles/terminal.css';
 
 interface TerminalProps {
@@ -73,9 +74,9 @@ const Terminal: Component<TerminalProps> = (props) => {
         onClick={() => {
           const term = terminal();
           if (isTouchDevice() && term) {
-            (term as any).__removeFocusGuard?.();
+            getRemoveFocusGuard(term)?.();
             enableVirtualKeyboardOverlay();
-            const iframeInput = (term as any).__iframeInput as HTMLInputElement | undefined;
+            const iframeInput = getIframeInput(term);
             setTimeout(() => {
               if (iframeInput) {
                 iframeInput.focus({ preventScroll: true });

@@ -1,6 +1,30 @@
 import { createSignal } from 'solid-js';
 import { loadSettings } from './settings';
 
+/** Navigator with non-standard properties used for mobile keyboard detection. */
+interface ExtendedNavigator extends Navigator {
+  virtualKeyboard?: {
+    overlaysContent: boolean;
+    boundingRect: DOMRect;
+    addEventListener: (type: string, listener: () => void) => void;
+    removeEventListener: (type: string, listener: () => void) => void;
+  };
+  userAgentData?: {
+    platform: string;
+    brands: Array<{ brand: string; version: string }>;
+  };
+  connection?: {
+    effectiveType: string;
+    downlink: number;
+    rtt: number;
+  };
+}
+
+/** Module-level typed navigator reference — single cast point for the entire module. */
+const nav: ExtendedNavigator = typeof navigator !== 'undefined'
+  ? navigator as ExtendedNavigator
+  : {} as ExtendedNavigator;
+
 // Module-level singleton signals
 // Guard matchMedia for test environments (jsdom doesn't provide it)
 const mobileQuery = typeof window !== 'undefined' && window.matchMedia
@@ -63,17 +87,16 @@ const [viewportGrowth, setViewportGrowth] = createSignal(0);
 
 
 if (typeof window !== 'undefined') {
-  const nav = navigator as any;
-
   if (nav.virtualKeyboard) {
     // Strategy 1: VirtualKeyboard API
     usingVirtualKeyboardAPI = true;
+    const vk = nav.virtualKeyboard;
 
     const handleGeometryChange = () => {
       // Only update signals when overlaysContent is true (we control layout).
       // When false, the browser handles viewport resizing and boundingRect is 0.
-      if (nav.virtualKeyboard.overlaysContent) {
-        const height = nav.virtualKeyboard.boundingRect.height;
+      if (vk.overlaysContent) {
+        const height = vk.boundingRect.height;
 
         if (height > 0 && isSamsungBrowser) {
           // Samsung: track viewport growth from hidden bottom bar.
@@ -97,7 +120,7 @@ if (typeof window !== 'undefined') {
         setViewportGrowth(0);
       }
     };
-    nav.virtualKeyboard.addEventListener('geometrychange', handleGeometryChange);
+    vk.addEventListener('geometrychange', handleGeometryChange);
     handleGeometryChange();
 
   } else if (window.visualViewport) {
@@ -125,14 +148,12 @@ if (typeof window !== 'undefined') {
 // boundingRect and control layout manually) and disabled when other inputs
 // are focused (so the browser handles viewport resizing normally for forms).
 export function enableVirtualKeyboardOverlay(): void {
-  const nav = navigator as any;
   if (nav.virtualKeyboard) {
     nav.virtualKeyboard.overlaysContent = true;
   }
 }
 
 export function disableVirtualKeyboardOverlay(): void {
-  const nav = navigator as any;
   if (nav.virtualKeyboard) {
     nav.virtualKeyboard.overlaysContent = false;
     // Don't manually reset signals — let the geometrychange handler do it.
@@ -168,7 +189,6 @@ export function getKeyboardHeight(): number {
 // Reads the actual VirtualKeyboard API state and clears signals if the keyboard
 // isn't open. This guarantees correct state on entry without relying on clean exit.
 export function resetKeyboardStateIfStale(): void {
-  const nav = navigator as any;
   if (!nav.virtualKeyboard) return;
 
   const actualHeight = nav.virtualKeyboard.boundingRect.height;
@@ -236,8 +256,6 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     borderBottomRightRadius: '6px',
   });
   document.body.appendChild(overlay);
-
-  const nav = navigator as any;
 
   function updateOverlay() {
     const vv = window.visualViewport;

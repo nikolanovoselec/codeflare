@@ -1,6 +1,7 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
 import { disableVirtualKeyboardOverlay } from './mobile';
 import { logger } from './logger';
+import { getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
 
 interface MobileInputCallbacks {
   /** Called when cursor line needs a refresh */
@@ -23,7 +24,7 @@ export function setupMobileInput(
   props: { active: boolean },
   callbacks: MobileInputCallbacks,
 ): () => void {
-  const core = (terminal as any)._core;
+  const core = getXtermCore(terminal);
   if (core && typeof core._syncTextArea === 'function') {
     try {
       Object.defineProperty(core, '_syncTextArea', {
@@ -101,10 +102,10 @@ export function setupMobileInput(
 
     // Focus guard: start readOnly to prevent keyboard on session reconnect
     input.readOnly = true;
-    (terminal as any).__removeFocusGuard = () => {
+    setRemoveFocusGuard(terminal, () => {
       if (input) input.readOnly = false;
-    };
-    (terminal as any).__iframeInput = input;
+    });
+    setIframeInput(terminal, input);
 
     // Forward keyboard events to xterm via term.input()
     let composing = false;
@@ -191,7 +192,7 @@ export function setupMobileInput(
     });
 
     // Wire up xterm's cursor rendering to the iframe input's focus state.
-    const coreRef = (terminal as any)?._core;
+    const coreRef = getXtermCore(terminal);
     if (coreRef) {
       const ta = terminal?.textarea;
       if (ta) {

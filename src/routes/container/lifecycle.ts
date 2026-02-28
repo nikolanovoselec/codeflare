@@ -16,6 +16,11 @@ import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSession
 import { getSessionKey, getPreferencesKey, listAllKvKeys, getSessionPrefix } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, containerInternalCB, getStoredBucketName } from './shared';
+import type { Logger } from '../../lib/logger';
+
+// ---------------------------------------------------------------------------
+// Extracted helpers (FIX-8)
+// ---------------------------------------------------------------------------
 
 /**
  * Build the JSON body for /_internal/setBucketName requests.
@@ -52,7 +57,7 @@ async function setupR2Credentials(
   userEmail: string,
   r2AccountId: string,
   bucketName: string,
-  logger: ReturnType<typeof containerLogger.child>,
+  logger: Logger,
 ): Promise<{ accessKeyId: string; secretAccessKey: string; tokenId: string }> {
   try {
     return await getOrCreateScopedR2Token(
@@ -67,6 +72,244 @@ async function setupR2Credentials(
     throw new ContainerError('r2_credentials', toErrorMessage(error));
   }
 }
+
+/**
+ * Validate that the session exists and check concurrent session limits.
+ * Returns the session data if valid.
+ *
+ * @throws NotFoundError if session doesn't exist
+ * @throws RateLimitError if session limit exceeded
+ */
+export async function validateSessionAndCheckLimits(params: {
+  env: Env;
+  bucketName: string;
+  sessionId: string;
+  maxSessions: number;
+}): Promise<Session> {
+  const { env, bucketName, sessionId, maxSessions } = params;
+
+  const sessionKey = getSessionKey(bucketName, sessionId);
+  const sessionData = await env.KV.get<Session>(sessionKey, 'json');
+  if (!sessionData) {
+    throw new NotFoundError('Session', sessionId);
+  }
+
+  // Session limit check: enforce max concurrent running sessions per role.
+  const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
+  const sessionResults = await Promise.all(
+    sessionKeys.map(key => env.KV.get<Session>(key.name, 'json'))
+  );
+  const runningCount = sessionResults.filter(
+    (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
+  ).length;
+
+  if (runningCount >= maxSessions) {
+    throw new RateLimitError(
+      `Session limit reached (${runningCount}/${maxSessions}). Stop an existing session to start a new one.`
+    );
+  }
+
+  return sessionData;
+}
+
+/**
+ * Create the R2 bucket if needed and seed starter docs for new buckets.
+ * Returns the R2 config.
+ *
+ * @throws ContainerError if bucket creation fails
+ */
+export async function ensureBucketAndSeed(params: {
+  env: Env;
+  bucketName: string;
+  logger: Logger;
+}): Promise<{ r2Config: { accountId: string; endpoint: string } }> {
+  const { env, bucketName, logger } = params;
+
+  const r2Config = await getR2Config(env);
+  const bucketResult = await createBucketIfNotExists(
+    r2Config.accountId,
+    env.CLOUDFLARE_API_TOKEN,
+    bucketName
+  );
+
+  if (!bucketResult.success) {
+    logger.error('Failed to create bucket', new Error(bucketResult.error || 'Unknown error'), { bucketName });
+    throw new ContainerError('bucket_creation', bucketResult.error);
+  }
+  logger.info('Bucket ready', { bucketName, created: bucketResult.created });
+
+  // Seed starter docs only once, when the bucket is newly created.
+  if (bucketResult.created) {
+    try {
+      const seedResult = await seedGettingStartedDocs(env, bucketName, r2Config.endpoint, { overwrite: false });
+      logger.info('Seeded initial getting-started docs', {
+        bucketName,
+        writtenCount: seedResult.written.length,
+        skippedCount: seedResult.skipped.length,
+      });
+    } catch (error) {
+      logger.warn('Failed to seed initial getting-started docs', {
+        bucketName,
+        error: toErrorMessage(error),
+      });
+    }
+  }
+
+  return { r2Config };
+}
+
+/**
+ * Configure the container Durable Object: set bucket name, R2 creds, and preferences.
+ * Returns whether the bucket name needed an update.
+ *
+ * @throws ContainerError if setBucketName fails on a needed update
+ */
+export async function configureContainerDO(params: {
+  container: { fetch: (req: Request) => Promise<Response> };
+  bucketName: string;
+  sessionId: string;
+  scopedCreds: { accessKeyId: string; secretAccessKey: string };
+  r2Config: { accountId: string; endpoint: string };
+  tabConfig: TabConfig[];
+  workspaceSyncEnabled: boolean;
+  fastStartEnabled: boolean;
+  logger: Logger;
+}): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
+  const { container, bucketName, logger } = params;
+
+  const storedBucketName = await getStoredBucketName(container as any, logger);
+
+  const setBucketBody = buildSetBucketNameBody({
+    bucketName: params.bucketName,
+    sessionId: params.sessionId,
+    scopedCreds: params.scopedCreds,
+    r2Config: params.r2Config,
+    tabConfig: params.tabConfig,
+    workspaceSyncEnabled: params.workspaceSyncEnabled,
+    fastStartEnabled: params.fastStartEnabled,
+  });
+
+  const needsBucketUpdate = storedBucketName !== bucketName;
+
+  try {
+    await containerInternalCB.execute(() =>
+      container.fetch(
+        new Request('http://container/_internal/setBucketName', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: setBucketBody,
+        })
+      )
+    );
+    if (needsBucketUpdate) {
+      await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
+    }
+    logger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
+  } catch (error) {
+    if (needsBucketUpdate) {
+      logger.error('Failed to set bucket name', toError(error));
+      throw new ContainerError('set_bucket_name', toErrorMessage(error));
+    }
+    logger.warn('Failed to store sessionId via setBucketName', { sessionId: params.sessionId });
+  }
+
+  return { needsBucketUpdate, setBucketBody };
+}
+
+/**
+ * Start or restart the container based on current state.
+ * If the container is already running with the correct bucket, returns immediately.
+ * If bucket name changed, destroys and restarts.
+ * Otherwise kicks off a background start.
+ */
+export async function startOrRestartContainer(params: {
+  container: {
+    fetch: (req: Request) => Promise<Response>;
+    destroy: () => Promise<void>;
+    getState: () => Promise<{ status: string }>;
+    startAndWaitForPorts: () => Promise<void>;
+  };
+  needsBucketUpdate: boolean;
+  setBucketBody: string;
+  sessionData: Session;
+  sessionKey: string;
+  env: Env;
+  shortContainerId: string;
+  logger: Logger;
+  waitUntil: (p: Promise<void>) => void;
+}): Promise<{ status: string; containerState?: string }> {
+  const { container, needsBucketUpdate, setBucketBody, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
+
+  // Check current state
+  let currentState;
+  try {
+    currentState = await container.getState();
+  } catch (_error) {
+    logger.debug('Could not get container state, treating as unknown');
+    currentState = { status: 'unknown' };
+  }
+
+  // If container is running but bucket name was wrong or not set, destroy and restart
+  if ((currentState.status === 'running' || currentState.status === 'healthy') && needsBucketUpdate) {
+    logger.info('Bucket name changed, destroying container to restart with correct bucket');
+    try {
+      await container.destroy();
+      await containerInternalCB.execute(() =>
+        container.fetch(
+          new Request('http://container/_internal/setBucketName', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: setBucketBody,
+          })
+        )
+      );
+      currentState = { status: 'stopped' };
+    } catch (error) {
+      logger.error('Failed to destroy container', toError(error));
+    }
+  }
+
+  // Mark session as running in KV
+  if (sessionData.status !== 'running') {
+    sessionData.status = 'running';
+    await env.KV.put(sessionKey, JSON.stringify(sessionData));
+  }
+
+  // If container is already running/healthy with correct bucket, return immediately
+  if (currentState.status === 'running' || currentState.status === 'healthy') {
+    return {
+      status: 'already_running',
+      containerState: currentState.status,
+    };
+  }
+
+  // Kick off container start in background (non-blocking)
+  waitUntil(
+    (async () => {
+      try {
+        await container.startAndWaitForPorts();
+        logger.info('Container started and ports ready', { containerId: shortContainerId });
+      } catch (error) {
+        logger.error('Failed to start container', toError(error), { containerId: shortContainerId });
+        try {
+          const freshSession = await env.KV.get<Session>(sessionKey, 'json');
+          if (freshSession) {
+            freshSession.status = 'stopped';
+            await env.KV.put(sessionKey, JSON.stringify(freshSession));
+          }
+        } catch {
+          // Rollback failure shouldn't propagate
+        }
+      }
+    })()
+  );
+
+  return { status: 'starting' };
+}
+
+// ---------------------------------------------------------------------------
+// Route handlers
+// ---------------------------------------------------------------------------
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -90,35 +333,16 @@ app.post('/start', containerStartRateLimiter, async (c) => {
   try {
     const bucketName = c.get('bucketName');
     const sessionId = getSessionIdFromQuery(c);
-
-    // Verify session exists in KV before creating a container DO
-    const sessionKey = getSessionKey(bucketName, sessionId);
-    const sessionData = await c.env.KV.get<Session>(sessionKey, 'json');
-    if (!sessionData) {
-      throw new NotFoundError('Session', sessionId);
-    }
-
-    // Session limit check: enforce max concurrent running sessions per role.
-    // This is a loose safety net — frontend enforces limits proactively.
-    // TOCTOU note: KV reads are not atomic with the status update below,
-    // so concurrent requests may both pass this check. Acceptable for the
-    // intended use case (small limits, frontend is primary gate).
     const user = c.get('user');
     const maxSessions = getMaxSessions(user.role, c.env);
 
-    const sessionKeys = await listAllKvKeys(c.env.KV, getSessionPrefix(bucketName));
-    const sessionResults = await Promise.all(
-      sessionKeys.map(key => c.env.KV.get<Session>(key.name, 'json'))
-    );
-    const runningCount = sessionResults.filter(
-      (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
-    ).length;
-
-    if (runningCount >= maxSessions) {
-      throw new RateLimitError(
-        `Session limit reached (${runningCount}/${maxSessions}). Stop an existing session to start a new one.`
-      );
-    }
+    // Step 1: Validate session and check limits
+    const sessionData = await validateSessionAndCheckLimits({
+      env: c.env,
+      bucketName,
+      sessionId,
+      maxSessions,
+    });
 
     const containerId = getContainerId(bucketName, sessionId);
     const shortContainerId = containerId.substring(0, CONTAINER_ID_DISPLAY_LENGTH);
@@ -127,157 +351,59 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled !== false;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
 
-    // CRITICAL: Create R2 bucket BEFORE starting container
-    // Container sync will fail if bucket doesn't exist
-    const r2Config = await getR2Config(c.env);
-    const bucketResult = await createBucketIfNotExists(
-      r2Config.accountId,
-      c.env.CLOUDFLARE_API_TOKEN,
-      bucketName
-    );
+    // Step 2: Ensure R2 bucket exists and seed if new
+    const { r2Config } = await ensureBucketAndSeed({
+      env: c.env,
+      bucketName,
+      logger: reqLogger,
+    });
 
-    if (!bucketResult.success) {
-      reqLogger.error('Failed to create bucket', new Error(bucketResult.error || 'Unknown error'), { bucketName });
-      throw new ContainerError('bucket_creation', bucketResult.error);
-    }
-    reqLogger.info('Bucket ready', { bucketName, created: bucketResult.created });
-
-    // Seed starter docs only once, when the bucket is newly created.
-    if (bucketResult.created) {
-      try {
-        const seedResult = await seedGettingStartedDocs(c.env, bucketName, r2Config.endpoint, { overwrite: false });
-        reqLogger.info('Seeded initial getting-started docs', {
-          bucketName,
-          writtenCount: seedResult.written.length,
-          skippedCount: seedResult.skipped.length,
-        });
-      } catch (error) {
-        reqLogger.warn('Failed to seed initial getting-started docs', {
-          bucketName,
-          error: toErrorMessage(error),
-        });
-      }
-    }
-
-    // Get scoped R2 credentials for this user's bucket
+    // Step 3: Get scoped R2 credentials
     const scopedCreds = await setupR2Credentials(c.env, user.email, r2Config.accountId, bucketName, reqLogger);
 
-    // Get container instance for this session
+    // Get container instance
     const container = getContainer(c.env.CONTAINER, containerId);
 
-    // Check if bucket name needs to be set/updated
-    // If container is running with wrong bucket name, we need to restart it
-    const storedBucketName = await getStoredBucketName(container, reqLogger);
-
-    // Resolve tab config: session-level > defaults from agent type > legacy defaults
+    // Resolve tab config
     const tabConfig = sessionData.tabConfig
       || getDefaultTabConfig(sessionData.agentType || 'claude-code');
 
-    // Always call setBucketName — on first call it configures R2 credentials;
-    // on subsequent calls (409) it still stores sessionId in DO storage so
-    // collectMetrics/onStop can find the KV entry. No extra container.fetch()
-    // needed — the 409 path handles sessionId persistence.
-    const needsBucketUpdate = storedBucketName !== bucketName;
-    const setBucketBody = buildSetBucketNameBody({
-      bucketName, sessionId, scopedCreds, r2Config, tabConfig, workspaceSyncEnabled, fastStartEnabled,
+    // Step 4: Configure the container DO
+    const { needsBucketUpdate, setBucketBody } = await configureContainerDO({
+      container,
+      bucketName,
+      sessionId,
+      scopedCreds,
+      r2Config,
+      tabConfig,
+      workspaceSyncEnabled,
+      fastStartEnabled,
+      logger: reqLogger,
     });
-    try {
-      await containerInternalCB.execute(() =>
-        container.fetch(
-          new Request('http://container/_internal/setBucketName', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: setBucketBody,
-          })
-        )
-      );
-      // Small delay only when bucket name is actually being set for the first time
-      if (needsBucketUpdate) {
-        await new Promise(resolve => setTimeout(resolve, BUCKET_NAME_SETTLE_DELAY_MS));
-      }
-      reqLogger.info('Set bucket name', { bucketName, previousBucketName: storedBucketName });
-    } catch (error) {
-      if (needsBucketUpdate) {
-        reqLogger.error('Failed to set bucket name', toError(error));
-        throw new ContainerError('set_bucket_name', toErrorMessage(error));
-      }
-      // Best-effort when bucket already matches — sessionId storage failed but don't block start
-      reqLogger.warn('Failed to store sessionId via setBucketName', { sessionId });
-    }
 
-    // Check current state
-    let currentState;
-    try {
-      currentState = await container.getState();
-    } catch (_error) {
-      // Expected: container may not exist yet, treat as needing start
-      reqLogger.debug('Could not get container state, treating as unknown');
-      currentState = { status: 'unknown' };
-    }
+    // Step 5: Start or restart the container
+    const sessionKey = getSessionKey(bucketName, sessionId);
+    const result = await startOrRestartContainer({
+      container,
+      needsBucketUpdate,
+      setBucketBody,
+      sessionData,
+      sessionKey,
+      env: c.env,
+      shortContainerId,
+      logger: reqLogger,
+      waitUntil: (p) => c.executionCtx.waitUntil(p),
+    });
 
-    // If container is running but bucket name was wrong or not set, destroy and restart
-    if ((currentState.status === 'running' || currentState.status === 'healthy') && needsBucketUpdate) {
-      reqLogger.info('Bucket name changed, destroying container to restart with correct bucket');
-      try {
-        await container.destroy();
-        // Re-populate DO storage after destroy() wiped it (Scenario A race)
-        await containerInternalCB.execute(() =>
-          container.fetch(
-            new Request('http://container/_internal/setBucketName', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: setBucketBody,
-            })
-          )
-        );
-        // Container will be started below
-        currentState = { status: 'stopped' };
-      } catch (error) {
-        reqLogger.error('Failed to destroy container', toError(error));
-      }
-    }
-
-    // Mark session as running in KV so batch-status can include it
-    if (sessionData.status !== 'running') {
-      sessionData.status = 'running';
-      await c.env.KV.put(sessionKey, JSON.stringify(sessionData));
-    }
-
-    // If container is already running/healthy with correct bucket, return immediately
-    if (currentState.status === 'running' || currentState.status === 'healthy') {
+    if (result.status === 'already_running') {
       return c.json({
         success: true,
         containerId: shortContainerId,
         status: 'already_running',
-        containerState: currentState.status,
+        containerState: result.containerState,
       });
     }
 
-    // Kick off container start in background (non-blocking)
-    // We use waitUntil so the worker doesn't terminate before start() completes
-    // Using startAndWaitForPorts() which waits for defaultPort (8080)
-    c.executionCtx.waitUntil(
-      (async () => {
-        try {
-          await container.startAndWaitForPorts();
-          reqLogger.info('Container started and ports ready', { containerId: shortContainerId });
-        } catch (error) {
-          reqLogger.error('Failed to start container', toError(error), { containerId: shortContainerId });
-          // Rollback KV session status to 'stopped' so batch-status doesn't show stale 'running'
-          try {
-            const freshSession = await c.env.KV.get<Session>(sessionKey, 'json');
-            if (freshSession) {
-              freshSession.status = 'stopped';
-              await c.env.KV.put(sessionKey, JSON.stringify(freshSession));
-            }
-          } catch {
-            // Rollback failure shouldn't propagate
-          }
-        }
-      })()
-    );
-
-    // Return immediately - client should poll startup-status for progress
     return c.json({
       success: true,
       containerId: shortContainerId,

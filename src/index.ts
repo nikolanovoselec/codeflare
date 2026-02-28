@@ -39,6 +39,19 @@ const SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy': "default-src 'none'",
 };
 
+/**
+ * Create a redirect response that includes security headers (HSTS, etc.).
+ * Wraps the bare `new Response(null, { status, headers: { Location } })` pattern
+ * so redirect responses aren't missing security headers.
+ */
+export function redirectWithHeaders(location: string, status: 301 | 302 | 307 | 308 = 302): Response {
+  const headers: Record<string, string> = {
+    Location: location,
+    ...SECURITY_HEADERS,
+  };
+  return new Response(null, { status, headers });
+}
+
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 const logger = createLogger('index');
@@ -220,10 +233,7 @@ export default {
         setSetupCompleteCache(status === 'true');
       }
       if (!getSetupCompleteCache()) {
-        return new Response(null, {
-          status: 302,
-          headers: { Location: '/setup' },
-        });
+        return redirectWithHeaders('/setup');
       }
     }
 
@@ -232,20 +242,14 @@ export default {
     // - onboarding mode: serve SPA (OnboardingLanding component handles the UI)
     if (path === '/') {
       if (!onboardingLandingActive) {
-        return new Response(null, {
-          status: 302,
-          headers: { Location: '/app/' },
-        });
+        return redirectWithHeaders('/app/');
       }
 
       try {
         // If this browser already has a valid Access session + allowlist membership,
         // redirect directly to the authenticated app shell.
         await authenticateRequest(request, env);
-        return new Response(null, {
-          status: 302,
-          headers: { Location: '/app/' },
-        });
+        return redirectWithHeaders('/app/');
       } catch {
         // Unauthenticated or not allowlisted users stay on the public landing page.
         // Fall through to serve the SPA which renders the OnboardingLanding component.

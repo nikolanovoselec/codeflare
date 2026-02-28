@@ -1,4 +1,5 @@
 import { createStore, produce } from 'solid-js/store';
+import { batch } from 'solid-js';
 import * as api from '../api/client';
 
 /** Whether loadExistingConfig has already been called (prevents duplicate fetches). */
@@ -50,16 +51,20 @@ const initialState: SetupState = {
 const [state, setState] = createStore<SetupState>({ ...initialState });
 
 async function detectToken(): Promise<void> {
-  setState('tokenDetecting', true);
-  setState('tokenDetectError', null);
+  batch(() => {
+    setState('tokenDetecting', true);
+    setState('tokenDetectError', null);
+  });
   try {
     const data = await api.detectToken();
-    if (data.detected && data.valid) {
-      setState('tokenDetected', true);
-      setState('accountInfo', data.account ?? null);
-    } else {
-      setState('tokenDetectError', data.error || 'Token not detected');
-    }
+    batch(() => {
+      if (data.detected && data.valid) {
+        setState('tokenDetected', true);
+        setState('accountInfo', data.account ?? null);
+      } else {
+        setState('tokenDetectError', data.error || 'Token not detected');
+      }
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to detect token';
     setState('tokenDetectError', msg);
@@ -154,8 +159,8 @@ async function loadExistingConfig(): Promise<void> {
       const usersRes = await api.getUsers();
       setState(
         produce((s) => {
-          if ((statusRes as Record<string, unknown>).customDomain) {
-            s.customDomain = (statusRes as Record<string, unknown>).customDomain as string;
+          if (statusRes.customDomain) {
+            s.customDomain = statusRes.customDomain;
           }
           s.adminUsers = usersRes
             .filter((u) => u.role === 'admin')

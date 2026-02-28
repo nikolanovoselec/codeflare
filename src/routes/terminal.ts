@@ -280,6 +280,10 @@ app.get('/:sessionId/status', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('sessionId');
 
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    return c.json({ error: 'Invalid session ID format', code: 'INVALID_SESSION' }, 400);
+  }
+
   // Validate session
   const sessionKey = getSessionKey(bucketName, sessionId);
   const session = await c.env.KV.get<Session>(sessionKey, 'json');
