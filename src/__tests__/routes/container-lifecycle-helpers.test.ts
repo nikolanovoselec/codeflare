@@ -91,8 +91,6 @@ vi.mock('../../lib/container-helpers', () => ({
 import {
   validateSessionAndCheckLimits,
   ensureBucketAndSeed,
-  configureContainerDO,
-  startOrRestartContainer,
 } from '../../routes/container/lifecycle';
 
 describe('Container lifecycle extracted helpers', () => {
