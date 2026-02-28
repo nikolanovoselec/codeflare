@@ -147,11 +147,6 @@ export const GetUsersResponseSchema = z.object({
   users: z.array(UserEntrySchema),
 });
 
-export const UserMutationResponseSchema = z.object({
-  success: z.boolean(),
-  email: z.string(),
-});
-
 // Storage API schemas
 const StorageObjectSchema = z.object({
   key: z.string(),
