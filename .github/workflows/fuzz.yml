@@ -42,3 +42,11 @@ jobs:
         env:
           FAST_CHECK_NUM_RUNS: '50000'
         run: cd web-ui && npx vitest run src/__tests__/fuzz/ --reporter=verbose
+
+      - name: Install host dependencies
+        run: cd host && npm ci
+
+      - name: Run host fuzz tests
+        env:
+          FAST_CHECK_NUM_RUNS: '50000'
+        run: cd host && node --test __tests__/fuzz-host.test.js

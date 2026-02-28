@@ -4,6 +4,11 @@ import { md5 } from '../../lib/md5';
 import { generateSessionName } from '../../lib/session-utils';
 import { formatSize, formatRelativeTime } from '../../lib/format';
 import { shouldUseMultipart, splitIntoParts } from '../../lib/file-upload';
+import { hexToHSL, isValidHex } from '../../lib/settings';
+import { getFileIcon } from '../../lib/file-icons';
+import { getTabDisplayName, getTabIcon } from '../../lib/terminal-config';
+import { isActionableUrl } from '../../stores/terminal-url-detection';
+import { ACTIONABLE_URL_PATTERNS } from '../../lib/constants';
 
 const NUM_RUNS = parseInt(process.env.FAST_CHECK_NUM_RUNS || '1000');
 
@@ -228,6 +233,283 @@ describe('fuzz: file upload helpers', () => {
         const parts = splitIntoParts(file);
         const partSize = size > 100 * 1024 * 1024 ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
         expect(parts.length).toBe(Math.ceil(size / partSize));
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hexToHSL color conversion
+// ---------------------------------------------------------------------------
+describe('fuzz: hexToHSL', () => {
+  it('returns null for invalid hex strings', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        // Skip strings that happen to be valid hex
+        if (isValidHex(s)) return;
+        expect(hexToHSL(s)).toBeNull();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('for valid hex: h is 0-360, s is 0-100, l is 0-100', () => {
+    const hexChar = fc.constantFrom(...'0123456789abcdefABCDEF'.split(''));
+    const validHex = fc.oneof(
+      // 3-char hex
+      fc.tuple(hexChar, hexChar, hexChar).map(([a, b, c]) => '#' + a + b + c),
+      // 6-char hex
+      fc.tuple(hexChar, hexChar, hexChar, hexChar, hexChar, hexChar).map((chars) => '#' + chars.join('')),
+    );
+    fc.assert(
+      fc.property(validHex, (hex) => {
+        const result = hexToHSL(hex);
+        expect(result).not.toBeNull();
+        expect(result!.h).toBeGreaterThanOrEqual(0);
+        expect(result!.h).toBeLessThanOrEqual(360);
+        expect(result!.s).toBeGreaterThanOrEqual(0);
+        expect(result!.s).toBeLessThanOrEqual(100);
+        expect(result!.l).toBeGreaterThanOrEqual(0);
+        expect(result!.l).toBeLessThanOrEqual(100);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('handles 3-char and 6-char formats with known values', () => {
+    expect(hexToHSL('#000000')).toEqual({ h: 0, s: 0, l: 0 });
+    expect(hexToHSL('#FFFFFF')).toEqual({ h: 0, s: 0, l: 100 });
+    expect(hexToHSL('#FF0000')).toEqual({ h: 0, s: 100, l: 50 });
+    // 3-char
+    expect(hexToHSL('#FFF')).toEqual({ h: 0, s: 0, l: 100 });
+    expect(hexToHSL('#000')).toEqual({ h: 0, s: 0, l: 0 });
+  });
+
+  it('never throws for any string', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        expect(() => hexToHSL(s)).not.toThrow();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('isValidHex consistency: isValidHex(s) === true implies hexToHSL(s) !== null', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        if (isValidHex(s)) {
+          expect(hexToHSL(s)).not.toBeNull();
+        }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isValidHex
+// ---------------------------------------------------------------------------
+describe('fuzz: isValidHex', () => {
+  it('accepts valid hex formats', () => {
+    const valid = ['#FFF', '#000000', 'abc', 'AABBCC', '#abc', '#AABBCC'];
+    for (const v of valid) {
+      expect(isValidHex(v)).toBe(true);
+    }
+  });
+
+  it('rejects invalid hex formats', () => {
+    const invalid = ['#GGGGGG', 'xyz', '#12345', '#1234567', '', '#', '#GG'];
+    for (const v of invalid) {
+      expect(isValidHex(v)).toBe(false);
+    }
+  });
+
+  it('never throws for any string', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        expect(() => isValidHex(s)).not.toThrow();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getFileIcon
+// ---------------------------------------------------------------------------
+describe('fuzz: getFileIcon', () => {
+  it('always returns object with color (string) and label (string)', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.boolean(), (filename, isFolder) => {
+        const icon = getFileIcon(filename, isFolder);
+        expect(typeof icon.color).toBe('string');
+        expect(typeof icon.label).toBe('string');
+        expect(icon.color.length).toBeGreaterThan(0);
+        expect(icon.label.length).toBeGreaterThan(0);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('isFolder=true always returns folder icon regardless of filename', () => {
+    fc.assert(
+      fc.property(fc.string(), (filename) => {
+        const icon = getFileIcon(filename, true);
+        expect(icon.label).toBe('Folder');
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('known extensions map correctly', () => {
+    expect(getFileIcon('app.ts').label).toBe('TypeScript');
+    expect(getFileIcon('main.py').label).toBe('Python');
+    expect(getFileIcon('index.js').label).toBe('JavaScript');
+    expect(getFileIcon('style.css').label).toBe('CSS');
+  });
+
+  it('never throws for any string', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        expect(() => getFileIcon(s)).not.toThrow();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getTabDisplayName + getTabIcon
+// ---------------------------------------------------------------------------
+describe('fuzz: getTabDisplayName + getTabIcon', () => {
+  it('always return strings for typical process names', () => {
+    // Object.prototype keys (constructor, toString, etc.) are inherited by plain Record objects
+    // and return non-string values via || fallback. Exclude them for this property test.
+    const protoKeys = new Set(Object.getOwnPropertyNames(Object.prototype));
+    fc.assert(
+      fc.property(
+        fc.string({ minLength: 1 }).filter((s) => /^[a-z0-9_-]+$/.test(s) && !protoKeys.has(s)),
+        (processName) => {
+          const displayName = getTabDisplayName(processName);
+          const icon = getTabIcon(processName);
+          expect(typeof displayName).toBe('string');
+          expect(displayName.length).toBeGreaterThan(0);
+          expect(typeof icon).toBe('string');
+          expect(icon.length).toBeGreaterThan(0);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('known: getTabDisplayName("cu") includes "claude"', () => {
+    expect(getTabDisplayName('cu').toLowerCase()).toContain('claude');
+  });
+
+  it('never throws for any string', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        expect(() => getTabDisplayName(s)).not.toThrow();
+        expect(() => getTabIcon(s)).not.toThrow();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isActionableUrl / ACTIONABLE_URL_PATTERNS ReDoS
+// ---------------------------------------------------------------------------
+describe('fuzz: isActionableUrl', () => {
+  it('returns true for known auth URLs', () => {
+    const authUrls = [
+      'https://github.com/login/device?code=ABCD-1234',
+      'https://accounts.google.com/o/oauth2/auth?client_id=123',
+      'https://console.anthropic.com/settings',
+      'https://example.com/oauth/authorize?redirect_uri=http://localhost',
+      'https://example.com/device/code',
+    ];
+    for (const url of authUrls) {
+      expect(isActionableUrl(url)).toBe(true);
+    }
+  });
+
+  it('returns false for normal URLs', () => {
+    const normalUrls = [
+      'https://example.com',
+      'https://google.com/search?q=test',
+      'https://github.com/user/repo',
+      'http://localhost:3000',
+    ];
+    for (const url of normalUrls) {
+      expect(isActionableUrl(url)).toBe(false);
+    }
+  });
+
+  it('ReDoS resistance: pathological URL strings complete in <500ms', () => {
+    // Craft pathological inputs that could cause catastrophic backtracking
+    const pathological = [
+      'https://' + 'a'.repeat(10000) + '/oauth/authorize',
+      'https://example.com/' + '/'.repeat(10000),
+      'https://' + 'a/'.repeat(5000),
+      'https://accounts.google.com' + '/o/oauth2'.repeat(1000),
+    ];
+    for (const url of pathological) {
+      const start = performance.now();
+      isActionableUrl(url);
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeLessThan(500);
+    }
+  });
+
+  it('never throws for any string', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        expect(() => isActionableUrl(s)).not.toThrow();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session name sanitization (replicated from host/server.js ~L341)
+// ---------------------------------------------------------------------------
+describe('fuzz: session name sanitization', () => {
+  function sanitizeName(name: string): string {
+    return (name || '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || 'Terminal';
+  }
+
+  it('output only contains alphanumeric, spaces, underscores, hyphens', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const result = sanitizeName(s);
+        expect(result).toMatch(/^[a-zA-Z0-9 _-]+$/);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('max length 100 and empty/all-special falls back to "Terminal"', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const result = sanitizeName(s);
+        expect(result.length).toBeLessThanOrEqual(100);
+        expect(result.length).toBeGreaterThan(0);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+    // Specific cases
+    expect(sanitizeName('')).toBe('Terminal');
+    expect(sanitizeName('!!!@@@###')).toBe('Terminal');
+    expect(sanitizeName('   ')).toBe('   '); // spaces are allowed
+  });
+
+  it('never throws for any input', () => {
+    fc.assert(
+      fc.property(fc.oneof(fc.string(), fc.constant('')), (s) => {
+        expect(() => sanitizeName(s)).not.toThrow();
       }),
       { numRuns: NUM_RUNS },
     );

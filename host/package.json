@@ -10,9 +10,12 @@
     "test": "node --test __tests__/*.test.js"
   },
   "dependencies": {
-    "@xterm/headless": "^5.5.0",
     "@xterm/addon-serialize": "^0.13.0",
+    "@xterm/headless": "^5.5.0",
     "node-pty": "^1.0.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "fast-check": "^4.5.3"
   }
 }
