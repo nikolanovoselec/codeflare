@@ -1234,7 +1234,7 @@ describe('Fuzz: circuit breaker state machine', () => {
     });
   }
 
-  class ExecuteSuccessCommand implements fc.Command<CBModel, CBReal> {
+  class ExecuteSuccessCommand implements fc.AsyncCommand<CBModel, CBReal> {
     check(m: Readonly<CBModel>): boolean {
       // Can only succeed if not OPEN (or OPEN with expired timeout)
       return m.state !== 'OPEN' || Date.now() - m.lastFailureTime >= CB_RESET_TIMEOUT_MS;
@@ -1256,7 +1256,7 @@ describe('Fuzz: circuit breaker state machine', () => {
     }
   }
 
-  class ExecuteFailCommand implements fc.Command<CBModel, CBReal> {
+  class ExecuteFailCommand implements fc.AsyncCommand<CBModel, CBReal> {
     check(_m: Readonly<CBModel>): boolean {
       return true;
     }
@@ -1307,11 +1307,11 @@ describe('Fuzz: circuit breaker state machine', () => {
     }
   }
 
-  class ResetCommand implements fc.Command<CBModel, CBReal> {
+  class ResetCommand implements fc.AsyncCommand<CBModel, CBReal> {
     check(): boolean {
       return true;
     }
-    run(m: CBModel, r: CBReal): void {
+    async run(m: CBModel, r: CBReal): Promise<void> {
       r.cb.reset();
       m.state = 'CLOSED';
       m.failureCount = 0;
