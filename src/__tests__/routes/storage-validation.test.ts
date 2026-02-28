@@ -47,4 +47,14 @@ describe('validateKey', () => {
     expect(() => validateKey('', 'source')).toThrow('source is required');
     expect(() => validateKey('/bad', 'destination')).toThrow('Invalid destination');
   });
+
+  it('rejects null bytes before protected paths', () => {
+    // Null byte before '.claude/' bypasses .includes() check — must be stripped
+    expect(() => validateKey('workspace/\0.claude/secret')).toThrow('Cannot access protected path');
+  });
+
+  it('strips null bytes and validates the cleaned key', () => {
+    // 'foo\0bar' after stripping becomes 'foobar' which is a valid key
+    expect(() => validateKey('foo\0bar')).not.toThrow();
+  });
 });

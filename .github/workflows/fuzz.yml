@@ -30,7 +30,15 @@ jobs:
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         run: mkdir -p web-ui/dist
 
-      - name: Run fuzz tests (extended iterations)
+      - name: Run backend fuzz tests (extended iterations)
         env:
           FAST_CHECK_NUM_RUNS: '50000'
         run: npx vitest run src/__tests__/fuzz/ --reporter=verbose
+
+      - name: Install frontend dependencies
+        run: cd web-ui && npm ci
+
+      - name: Run frontend fuzz tests
+        env:
+          FAST_CHECK_NUM_RUNS: '50000'
+        run: cd web-ui && npx vitest run src/__tests__/fuzz/ --reporter=verbose

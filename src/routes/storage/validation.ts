@@ -10,6 +10,7 @@ export function validateKey(key: string, label = 'key'): void {
   if (!key || typeof key !== 'string') {
     throw new ValidationError(`${label} is required`);
   }
+  key = key.replace(/\0/g, '');
   if (key.length > MAX_KEY_LENGTH) {
     throw new ValidationError(`${label} must be at most ${MAX_KEY_LENGTH} characters`);
   }
