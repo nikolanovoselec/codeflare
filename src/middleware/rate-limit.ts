@@ -38,6 +38,7 @@ interface RateLimitData {
  *
  * Uses Cloudflare KV to track request counts per user/IP.
  * If KV is not available, rate limiting is skipped.
+ * If a KV operation fails, falls back to in-memory rate limiting.
  *
  * @example
  * ```typescript

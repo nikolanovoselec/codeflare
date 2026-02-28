@@ -74,7 +74,7 @@ if (wsRouteResult.isWebSocketRoute) {
 
 **CORS:** Checks static patterns from `env.ALLOWED_ORIGINS` + dynamic origins from KV (cached in memory). Uses `matchesPattern()` with domain-boundary enforcement (dot-prefixed = suffix match, bare domains = exact or subdomain with dot boundary).
 
-**Route Registration:** `/api/user`, `/api/users`, `/api/container`, `/api/sessions`, `/api/terminal`, `/api/setup`, `/api/storage`, `/api/presets`, `/api/preferences`, `/public`
+**Route Registration:** `/health`, `/api/user`, `/api/users`, `/api/container`, `/api/sessions`, `/api/terminal`, `/api/setup`, `/api/storage`, `/api/presets`, `/api/preferences`, `/public`
 
 **Workers Assets Routing Guardrails (`wrangler.toml`):**
 
@@ -104,12 +104,12 @@ flowchart TD
     IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
     IDs -->|Yes| FetchAct["Fetch /activity<br/>from container"]
     FetchAct --> WSClients{"Active WS clients?"}
-    WSClients -->|Yes| Renew["renewTimeout(sleepAfter)<br/>(keepalive)"]
+    WSClients -->|Yes| Renew["renewActivityTimeout()<br/>(keepalive)"]
     WSClients -->|No| NoRenew["Don't renew<br/>(let container idle to sleepAfter)"]
     Renew --> FetchHealth["Fetch /health<br/>from container"]
     NoRenew --> FetchHealth
     FetchHealth --> WriteKV["Write metrics to KV"]
-    WriteKV --> ReArm["Re-arm setTimeout<br/>(collectMetrics, 5000)<br/>(unconditional if container.running)"]
+    WriteKV --> ReArm["schedule(5, 'collectMetrics')<br/>(unconditional if container.running)"]
 
 ```
 
@@ -472,9 +472,9 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 |------|---------------|----------|
 | `none` | Excluded entirely | Default. Settings and config only. |
 | `full` | Entire `workspace/` (minus `node_modules/`) | Persistent storage across stop/resume |
-| `metadata` | Only agent config files (`.claude/`) per repo | Lightweight project context sync |
+| `metadata` | Only agent config files (`.claude/` and `CLAUDE.md`) per repo | Lightweight project context sync |
 
-All modes always exclude: `.bashrc`, `.bash_profile`, `.npm/**`, `.bun/**`, `.cache/**`, `.config/rclone/**`, `**/node_modules/**`, `.local/share/claude/**`, `.copilot/logs/**`, `.copilot/pkg/**`, `.codex/sessions/**`, `.claude/cache/**`, `.claude/debug/**`, `.claude/file-history/**`, `.claude/plugins/cache/**`, `.claude/session-env/**`, `.claude/shell-snapshots/**`, `.claude/stats-cache.json`, `.claude.json.backup.*`, `.codex/log/**`, `.codex/models_cache.json`, `.codex/.personality_migration`, `.codex/shell_snapshots/**`, `.codex/tmp/**`, `.codex/version.json`, `.gemini/tmp/**`, `.local/share/opencode/log/**`, `.local/share/opencode/opencode.db-shm`, `.local/share/opencode/opencode.db-wal`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
+All modes always exclude: `.bashrc`, `.bash_profile`, `.npm/**`, `.bun/**`, `.cache/**`, `.config/rclone/**`, `**/node_modules/**`, `.local/share/claude/**`, `.copilot/logs/**`, `.copilot/pkg/**`, `.copilot/session-state/**`, `.codex/sessions/**`, `.codex/state*.sqlite-shm`, `.codex/state*.sqlite-wal`, `.claude/cache/**`, `.claude/debug/**`, `.claude/file-history/**`, `.claude/plugins/cache/**`, `.claude/plugins/marketplaces/**/.git/**`, `.claude/session-env/**`, `.claude/shell-snapshots/**`, `.claude/stats-cache.json`, `.claude.json.backup.*`, `.codex/log/**`, `.codex/models_cache.json`, `.codex/.personality_migration`, `.codex/shell_snapshots/**`, `.codex/tmp/**`, `.codex/version.json`, `.gemini/tmp/**`, `.local/share/opencode/log/**`, `.local/share/opencode/opencode.db-shm`, `.local/share/opencode/opencode.db-wal`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
 
 **Note:** The `metadata` mode is defined in `entrypoint.sh` but the Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`. The `metadata` mode can be used by setting `SYNC_MODE` directly in the container environment.
 
@@ -484,7 +484,7 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 **Bisync exit code handling:** `bisync_with_r2()` uses a temp file approach instead of `| tee` to capture both output and exit code. Piping through `tee` swallows the rclone exit code (the pipe's exit code is `tee`'s, not rclone's), masking bisync failures and breaking error detection in the daemon loop.
 
-**Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the shutdown trap to skip the final bisync — losing any files created during the session.
+**Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/.bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the shutdown trap to skip the final bisync — losing any files created during the session.
 
 ---
 
@@ -547,7 +547,7 @@ Cloudflare Access protects all authenticated surfaces (see Section 6 for Access 
 
 The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
 
-**Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `lifecycle.ts`, which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
+**Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `r2-admin.ts` (called from `lifecycle.ts`), which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
 
 ### Container Auth Token
 
@@ -670,7 +670,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| WS | `/api/terminal/:sessionId-:terminalId/ws` | Terminal WebSocket |
+| WS | `/api/terminal/:compoundId/ws` | Terminal WebSocket (compoundId format: `sessionId-terminalId`) |
 | GET | `/api/terminal/:sessionId/status` | Connection status |
 
 ### User Management
@@ -723,7 +723,7 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
-`UserPreferences` fields: `samsungAddressBarTop` (boolean), `clipboardAccess` (boolean), `fastStartEnabled` (boolean, default: `true`). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
+`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, optional — workspace sync toggle), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
 
 ### Public (Onboarding)
 
@@ -887,7 +887,7 @@ codeflare/
 │   │                         # cors-cache, error-types, jwt, kv-keys, logger, onboarding,
 │   │                         # r2-admin, r2-client, r2-config, r2-seed, schemas,
 │   │                         # session-helpers, tutorial-seed.generated, type-guards,
-│   │                         # xml-utils
+│   │                         # user-cleanup, xml-utils
 │   │                         #   escapeXml() — sanitizes user input for XML/HTML interpolation
 │   │                         #   decodeXmlEntities() — decodes &amp; &lt; etc. from R2 S3 API responses
 │   │                         #   FIX-39 audit trail in file header tracks all interpolation sites
@@ -957,9 +957,10 @@ codeflare/
 | `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | Optional |
 | `RESEND_API_KEY` | Waitlist notification emails | Optional |
 | `WAITLIST_FROM_EMAIL` | Sender identity for waitlist | Optional |
-| `CLOUDFLARE_WORKER_NAME` | Worker name override for forks | GitHub Actions variable |
+| `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | GitHub Actions variable / Worker runtime env |
 | `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
+| `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | Worker secret (optional) |
 
 ### Container Environment
 
@@ -973,7 +974,7 @@ codeflare/
 | `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) -- see Section 5 | Worker -> DO |
 | `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`). Drives `SYNC_MODE` value. | Worker via `setBucketName` |
 | `TAB_CONFIG` | JSON array of terminal tab configurations | Worker -> DO |
-| `TERMINAL_ID` | Unique ID for this terminal instance | Worker -> DO |
+| `TERMINAL_ID` | Unique ID for this terminal instance | Host terminal server (`session.js`) |
 | `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker -> DO |
 | `MANUAL_TAB` | Set to `1` for user-created tabs to skip autostart | Worker -> DO |
 | `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default). Set `'false'` to allow auto-updates. See [Fast Start](#fast-start). | Worker -> DO (from `fastStartEnabled` preference) |
@@ -1165,10 +1166,10 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 
 ### 16.7 E2E UI Tests
 
-**Dir:** `e2e/ui/` - 10 test files, ~74 tests (run as desktop + mobile).
+**Dir:** `e2e/ui/` - 10 test files, ~75 tests (run as desktop + mobile).
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
 **Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
-**Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1366x768. Mobile viewport: 375x812 (iPhone-like).
+**Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1280x720. Mobile viewport: 390x844 (iPhone-like).
 
 Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`, `error-states`, `mobile-specific`.
 
@@ -1176,9 +1177,9 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 
 - **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page - UI tests work around this by intercepting requests.
 - **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
-- **CSS disable:** UI tests inject `document.querySelectorAll('style, link[rel=stylesheet]').forEach(el => el.remove())` to disable CSS for reliable element positioning in headless Chrome.
+- **CSS disable:** UI tests inject a `<style>` element via `evaluateOnNewDocument` that sets `transition: none !important; animation: none !important; scroll-behavior: auto !important` on all elements (`*, *::before, *::after`), disabling CSS transitions and animations for reliable element positioning in headless Chrome.
 - **Screenshot artifacts:** Failed UI tests capture screenshots to `/tmp/e2e-*.png`. CI uploads these as artifacts with 5-day retention.
-- **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier (e.g., `e2e-api-`, `e2e-ui-`) to avoid cross-suite interference when running in parallel.
+- **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
 
 ### 16.9 E2E Service Token Setup
 

@@ -113,7 +113,7 @@ ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
     claude-unleashed --silent --no-consent --help > /dev/null 2>&1 || true
 
-# Install Codex + Gemini + OpenCode CLIs for multi-agent support (single RUN for npm dedup).
+# Install Codex + Gemini + OpenCode + Copilot CLIs for multi-agent support (single RUN for npm dedup).
 # OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
 # Consolidated install allows npm to deduplicate shared dependencies across packages.
 # OpenCode ships 11 platform binaries as optionalDependencies — delete unused ones (~446MB saved).
@@ -127,7 +127,7 @@ RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
-# This speeds up first-launch of Node.js CLIs (codex, gemini) inside containers
+# This speeds up first-launch of Node.js CLIs (codex, gemini, copilot) inside containers
 # by avoiding the compilation overhead on every container start.
 # Note: Go binaries (like opencode) don't need this — they're already natively compiled.
 RUN codex --version 2>&1 || true && \

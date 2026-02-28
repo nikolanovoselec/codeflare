@@ -85,7 +85,7 @@ app.use('/configure', async (c, next) => {
  * POST /api/setup/configure
  * Main setup endpoint - configures everything using extracted step handlers
  *
- * Body: { customDomain: string, allowedUsers: string[], allowedOrigins?: string[] }
+ * Body: { customDomain: string, allowedUsers: string[], adminUsers: string[], allowedOrigins?: string[] }
  * Token is read from env (CLOUDFLARE_API_TOKEN), not from request body.
  */
 app.use('/configure', setupRateLimiter);

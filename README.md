@@ -209,7 +209,7 @@ Six GitHub Actions workflows:
 | `e2e.yml` | Manual | E2E matrix: API, UI desktop, UI mobile |
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
 | `scorecard.yml` | Push to `main`, weekly, manual | OSSF Scorecard |
-| `fuzz.yml` | Weekly / manual | Property-based fuzzing (fast-check) |
+| `fuzz.yml` | PRs, weekly, manual | Property-based fuzzing (fast-check) |
 
 See `TECHNICAL.md` Section 15 for full CI/CD documentation.
 

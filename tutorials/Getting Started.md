@@ -21,9 +21,7 @@ That's it. The rest of this page is for the curious.
 | Tab | What | Why it's there |
 |-----|------|---------------|
 | 1 | Your AI agent | Pre-warmed during container startup. Already loaded when you click Open. |
-| 2 | htop | Because "why is this slow" is always the first question. |
-| 3 | yazi | Terminal file manager. Like `ls` and `cd` had a baby that actually cares about UX. |
-| 4-6 | bash | Three blank canvases. Run servers, tests, scripts, or `cowsay`. I don't judge. |
+| 2-6 | bash | Five blank canvases. Run servers, tests, scripts, or `cowsay`. I don't judge. |
 
 Tabs 2-6 are draggable. Rearrange them however you want - your order is saved.
 
@@ -50,7 +48,7 @@ Your agent needs a key. Set it once, sync takes care of the rest.
 | Claude Code | `echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.profile` |
 | Codex | `echo 'export OPENAI_API_KEY=sk-...' >> ~/.profile` |
 | Gemini | `echo 'export GEMINI_API_KEY=...' >> ~/.profile` |
-| GitHub Copilot | Run `gh auth login` in any terminal tab — authenticates via GitHub OAuth, no API key needed |
+| GitHub Copilot | Run `copilot` in any terminal tab — authenticates via its own OAuth device-code flow on first run, no API key needed |
 | OpenCode | `echo 'export OPENAI_API_KEY=sk-...' >> ~/.profile` (or configure via `opencode` TUI - supports 75+ providers) |
 
 Next session, the key is already there. Magic. (It's rclone, but magic sounds better.)

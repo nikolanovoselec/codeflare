@@ -21,7 +21,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 // Apply shared auth middleware to all storage routes
 app.use('*', authMiddleware);
 
-// Override body size limit for upload routes (global is 64KB in index.ts:112)
+// Override body size limit for upload routes (global is 64KB in index.ts)
 app.use('/upload/*', bodyLimit({ maxSize: 100 * 1024 * 1024 })); // 100MB for multipart parts
 app.use('/upload', bodyLimit({ maxSize: 10 * 1024 * 1024 }));    // 10MB for simple upload
 

@@ -55,7 +55,7 @@ Create a new GitHub repo called "my-project", clone it into ~/workspace, and set
 
 1. Go to https://github.com/new
 2. Name your repository, choose public or private, click **Create repository**
-3. From a Codeflare terminal (Tab 4, 5, or 6):
+3. From a Codeflare terminal (any terminal tab, Tab 2-6):
 
 ```bash
 cd ~/workspace

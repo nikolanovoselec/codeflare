@@ -1,6 +1,6 @@
 /**
  * Container status routes
- * Handles GET /health, /state, /startup-status
+ * Handles GET /health, /startup-status
  */
 import { Hono } from 'hono';
 import type { Env } from '../../types';
