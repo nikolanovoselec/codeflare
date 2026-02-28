@@ -91,6 +91,8 @@ vi.mock('../../lib/container-helpers', () => ({
 import {
   validateSessionAndCheckLimits,
   ensureBucketAndSeed,
+  configureContainerDO,
+  startOrRestartContainer,
 } from '../../routes/container/lifecycle';
 
 describe('Container lifecycle extracted helpers', () => {
@@ -235,6 +237,135 @@ describe('Container lifecycle extracted helpers', () => {
       });
 
       expect(mockSeedGettingStartedDocs).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('configureContainerDO', () => {
+    const mockContainer = {
+      fetch: vi.fn(),
+    };
+    const baseParams = {
+      container: mockContainer,
+      bucketName: 'test-bucket',
+      sessionId: 'session1234',
+      scopedCreds: { accessKeyId: 'ak', secretAccessKey: 'sk' },
+      r2Config: { accountId: 'acct', endpoint: 'https://r2.example.com' },
+      tabConfig: [{ command: 'claude-code', label: 'Claude' }],
+      workspaceSyncEnabled: true,
+      fastStartEnabled: false,
+      logger: mockLogger as any,
+    };
+
+    beforeEach(() => {
+      mockContainer.fetch.mockResolvedValue(new Response('ok', { status: 200 }));
+    });
+
+    it('calls setBucketName on container and returns needsBucketUpdate=true when bucket differs', async () => {
+      mockGetStoredBucketName.mockResolvedValue('old-bucket');
+
+      const result = await configureContainerDO(baseParams);
+
+      expect(result.needsBucketUpdate).toBe(true);
+      expect(mockContainer.fetch).toHaveBeenCalledTimes(1);
+      const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
+      expect(fetchCall.url).toContain('setBucketName');
+    });
+
+    it('returns needsBucketUpdate=false when stored bucket matches', async () => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+
+      const result = await configureContainerDO(baseParams);
+
+      expect(result.needsBucketUpdate).toBe(false);
+    });
+
+    it('throws ContainerError when setBucketName fails and bucket update needed', async () => {
+      mockGetStoredBucketName.mockResolvedValue('old-bucket');
+      mockContainer.fetch.mockRejectedValue(new Error('network error'));
+
+      await expect(configureContainerDO(baseParams)).rejects.toThrow();
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    it('warns but does not throw when setBucketName fails and bucket already correct', async () => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+      mockContainer.fetch.mockRejectedValue(new Error('network error'));
+
+      const result = await configureContainerDO(baseParams);
+
+      expect(result.needsBucketUpdate).toBe(false);
+      expect(mockLogger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('startOrRestartContainer', () => {
+    const createMockContainer = (state = 'stopped') => ({
+      fetch: vi.fn().mockResolvedValue(new Response('ok')),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      getState: vi.fn().mockResolvedValue({ status: state }),
+      startAndWaitForPorts: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const baseParams = (container: ReturnType<typeof createMockContainer>, overrides = {}) => ({
+      container,
+      needsBucketUpdate: false,
+      setBucketBody: '{}',
+      sessionData: { id: 'session1234', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
+      sessionKey: 'session:bucket:session1234',
+      env: { KV: mockKV as unknown as KVNamespace } as Env,
+      shortContainerId: 'bucket-ses',
+      logger: mockLogger as any,
+      waitUntil: vi.fn((p: Promise<void>) => { p.catch(() => {}); }),
+      ...overrides,
+    });
+
+    it('returns already_running when container is running and no bucket update needed', async () => {
+      const container = createMockContainer('running');
+      const result = await startOrRestartContainer(baseParams(container));
+
+      expect(result.status).toBe('already_running');
+      expect(container.destroy).not.toHaveBeenCalled();
+      expect(container.startAndWaitForPorts).not.toHaveBeenCalled();
+    });
+
+    it('destroys and restarts when running but bucket name changed', async () => {
+      const container = createMockContainer('running');
+      const params = baseParams(container, { needsBucketUpdate: true });
+
+      const result = await startOrRestartContainer(params);
+
+      expect(container.destroy).toHaveBeenCalled();
+      expect(result.status).toBe('starting');
+    });
+
+    it('kicks off background start when container is stopped', async () => {
+      const container = createMockContainer('stopped');
+      const params = baseParams(container);
+
+      const result = await startOrRestartContainer(params);
+
+      expect(result.status).toBe('starting');
+      expect(params.waitUntil).toHaveBeenCalled();
+    });
+
+    it('marks session as running in KV', async () => {
+      const container = createMockContainer('stopped');
+      const params = baseParams(container);
+
+      await startOrRestartContainer(params);
+
+      const stored = await mockKV.get('session:bucket:session1234', 'json') as any;
+      expect(stored.status).toBe('running');
+    });
+
+    it('handles getState failure gracefully and starts container', async () => {
+      const container = createMockContainer('stopped');
+      container.getState.mockRejectedValue(new Error('state unavailable'));
+      const params = baseParams(container);
+
+      const result = await startOrRestartContainer(params);
+
+      expect(result.status).toBe('starting');
     });
   });
 });
