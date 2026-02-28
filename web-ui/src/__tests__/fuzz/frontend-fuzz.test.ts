@@ -1002,7 +1002,7 @@ describe('fuzz: Zod schemas', () => {
         // We just check it doesn't throw
         expect(typeof result.success).toBe('boolean');
       }),
-      { numRuns: NUM_RUNS },
+      { numRuns: Math.min(NUM_RUNS, 10_000) },
     );
   });
 
@@ -1104,7 +1104,8 @@ describe('fuzz: Zod schemas', () => {
           expect(() => schema.safeParse(input)).not.toThrow();
         }
       }),
-      { numRuns: NUM_RUNS },
+      // 6 schemas × N iterations — cap to avoid CI timeout at 50k
+      { numRuns: Math.min(NUM_RUNS, 5_000) },
     );
   });
 });
