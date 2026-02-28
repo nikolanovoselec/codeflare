@@ -853,10 +853,11 @@ describe('fuzz: session metrics helpers', () => {
           cpu: fc.option(fc.string(), { nil: undefined }),
           mem: fc.option(fc.string(), { nil: undefined }),
           hdd: fc.option(fc.string(), { nil: undefined }),
-          syncStatus: fc.option(fc.constantFrom('pending', 'syncing', 'success', 'failed', 'skipped') as fc.Arbitrary<'pending' | 'syncing' | 'success' | 'failed' | 'skipped'>, { nil: undefined }),
+          syncStatus: fc.option(fc.string(), { nil: undefined }),
         }),
         (sessionId, metrics) => {
-          const metricsRecord: Record<string, { bucketName: string; syncStatus: 'pending' | 'syncing' | 'success' | 'failed' | 'skipped'; cpu?: string; mem?: string; hdd?: string }> = {};
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- fuzz with arbitrary strings to test runtime resilience
+          const metricsRecord: Record<string, any> = {};
           applyMetricsUpdate(metricsRecord, sessionId, metrics);
 
           const entry = metricsRecord[sessionId];
@@ -878,10 +879,11 @@ describe('fuzz: session metrics helpers', () => {
           cpu: fc.option(fc.string(), { nil: undefined }),
           mem: fc.option(fc.string(), { nil: undefined }),
           hdd: fc.option(fc.string(), { nil: undefined }),
-          syncStatus: fc.option(fc.constantFrom('pending', 'syncing', 'success', 'failed', 'skipped') as fc.Arbitrary<'pending' | 'syncing' | 'success' | 'failed' | 'skipped'>, { nil: undefined }),
+          syncStatus: fc.option(fc.string(), { nil: undefined }),
         }),
         (sessionId, bucketName, metrics) => {
-          const metricsRecord: Record<string, { bucketName: string; syncStatus: 'pending' | 'syncing' | 'success' | 'failed' | 'skipped'; cpu?: string; mem?: string; hdd?: string }> = {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- fuzz with arbitrary strings to test runtime resilience
+          const metricsRecord: Record<string, any> = {
             [sessionId]: { bucketName, syncStatus: 'pending' },
           };
           applyMetricsUpdate(metricsRecord, sessionId, metrics);
