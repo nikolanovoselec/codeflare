@@ -29,7 +29,7 @@ export class container extends Container<Env> {
   // collectMetrics() heartbeat and onActivityExpired() keep it alive while WS clients are connected.
   override sleepAfter = '30m';
 
-  // Environment variables - dynamically generated via getter
+  // Environment variables - set via property assignment in updateEnvVars()
   private _bucketName: string | null = null;
   private _r2AccountId: string | null = null;
   private _r2Endpoint: string | null = null;

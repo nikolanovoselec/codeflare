@@ -516,7 +516,7 @@ PROFILE_EOF
 
 # terminal-autostart
 # Start different apps based on terminal tab ID:
-# Tab 1: Claude Code (unleashed mode)
+# Tab 1: Claude Code (cu)
 # Tab 2: htop (system monitor)
 # Tab 3: yazi (file manager)
 # Tab 4-6: Plain bash terminal in workspace
@@ -534,7 +534,7 @@ if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
         1)
             # Tab 1: Claude Code (via claude-unleashed)
             # Auto-start: silent + no-consent for non-interactive boot
-            # Updates enabled — pre-patched at build time, so update check is fast (~2s)
+            # Updates enabled (Fast Start is OFF -- tools will check for updates on launch)
             # Manual re-run: just `cu` or `claude-unleashed`
             cu --silent --no-consent
             # If claude exits, drop to bash (don't use exec so PTY survives)

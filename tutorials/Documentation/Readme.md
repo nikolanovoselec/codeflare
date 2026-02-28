@@ -21,10 +21,11 @@ Codeflare isn't tied to any single AI provider. Each session lets you choose whi
 | [Claude Code](https://github.com/nikolanovoselec/claude-unleashed) | Anthropic's Claude Code with root permission bypass (uses claude-unleashed under the hood) |
 | Codex | OpenAI's Codex CLI agent |
 | Gemini | Google's Gemini CLI agent |
+| [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source multi-model AI coding CLI supporting 75+ model providers |
 | Bash | No AI agent - a plain terminal for the purists |
 
-All five are first-class citizens. Pick the one that fits your task, or use Bash if you prefer working without an AI assistant.
+All six are first-class citizens. Pick the one that fits your task, or use Bash if you prefer working without an AI assistant.
 
 ## What You Get
 

@@ -5,11 +5,14 @@
  * One container serves multiple sessions (terminal tabs).
  *
  * Endpoints:
- * - WS /terminal?session=<id> - Connect to terminal session
- * - GET /health - Health check
- * - GET /sessions - List active sessions
- * - POST /sessions - Create new session
- * - DELETE /sessions/:id - Delete session
+ * - WS  /terminal?session=<id> - Connect to terminal session
+ * - GET  /health              - Health check with system metrics
+ * - GET  /activity            - WebSocket connection activity (for idle detection)
+ * - GET  /sessions            - List active sessions
+ * - POST /sessions            - Create new session
+ * - DELETE /sessions/:id      - Delete session
+ * - GET  /ws-events           - Recent WebSocket event log (debugging)
+ * - GET  /sync-log            - rclone sync log
  */
 
 import http from 'http';

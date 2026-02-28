@@ -133,6 +133,7 @@ The minimum permissions for Codeflare to deploy and run. Every scope earns its k
 | Zone | Zone | Read | Discovers your domain for custom domain setup |
 | Zone | DNS | Edit | Adds DNS records for the custom domain |
 | Zone | Workers Routes | Edit | Routes your domain to the Worker |
+| Account | API Tokens | Edit | Creates per-user scoped R2 tokens for bucket access |
 
 ### Optional
 
@@ -179,9 +180,9 @@ All optional. The defaults work out of the box. I respect your time.
 
 | Layer | Tests | Framework |
 |-------|-------|-----------|
-| Backend | ~775 (64 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
+| Backend | ~775 (65 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
 | Frontend | ~1,288 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
-| Host | ~33 (4 files) | Node.js test runner |
+| Host | ~33 (5 files) | Node.js test runner |
 | E2E API | ~49 (11 files) | Vitest + plain fetch |
 | E2E UI | ~74 (10 files, desktop + mobile) | Vitest + Puppeteer |
 

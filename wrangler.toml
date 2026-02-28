@@ -40,7 +40,7 @@ max_instances = 10
 [containers.instance_type]
 vcpu = 1
 memory_mib = 3072
-disk_mb = 4000
+disk_mb = 6000
 
 # Durable Objects binding for the container
 [[durable_objects.bindings]]
