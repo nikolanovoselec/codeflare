@@ -207,14 +207,18 @@ RCLONE_FILTERS_COMMON=(
     # Claude Code native installer artifacts (removed from build, but exclude leftover data)
     --filter "- .local/share/claude/**"      # native installer version binaries (228MB)
 
-    # Copilot — auto-update binary and session logs
+    # Copilot — auto-update binary, session logs, and ephemeral state
     --filter "- .copilot/logs/**"            # session logs
     --filter "- .copilot/pkg/**"             # auto-update binary download (~35MB)
+    --filter "- .copilot/session-state/**"   # per-session checkpoints
 
-    # Codex — session recordings
+    # Codex — session recordings and SQLite temp files
     --filter "- .codex/sessions/**"          # TUI session recordings
+    --filter "- .codex/state*.sqlite-shm"    # SQLite shared memory (ephemeral, corrupt on restore)
+    --filter "- .codex/state*.sqlite-wal"    # SQLite WAL (ephemeral, corrupt on restore)
 
     # Claude Code — session-specific ephemeral data, regenerated per session
+    --filter "- .claude/plugins/marketplaces/**/.git/**"  # marketplace git clones (~2MB each, reinstalled from remote)
     --filter "- .claude/cache/**"            # changelog cache
     --filter "- .claude/debug/**"            # debug logs
     --filter "- .claude/file-history/**"     # per-session file edit history, grows unbounded

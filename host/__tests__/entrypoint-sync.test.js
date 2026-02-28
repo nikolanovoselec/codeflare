@@ -214,6 +214,34 @@ describe('R2 sync exclusion filters', () => {
     );
   });
 
+  it('common filters include .copilot/session-state/** exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .copilot/session-state/**"'),
+      'should exclude .copilot/session-state/** (per-session checkpoints)'
+    );
+  });
+
+  it('common filters include .codex/state*.sqlite-shm exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .codex/state*.sqlite-shm"'),
+      'should exclude .codex/state*.sqlite-shm (SQLite shared memory)'
+    );
+  });
+
+  it('common filters include .codex/state*.sqlite-wal exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .codex/state*.sqlite-wal"'),
+      'should exclude .codex/state*.sqlite-wal (SQLite WAL)'
+    );
+  });
+
+  it('common filters include .claude/plugins/marketplaces/**/.git/** exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .claude/plugins/marketplaces/**/.git/**"'),
+      'should exclude marketplace git clones (reinstalled from remote)'
+    );
+  });
+
   it('common filters do NOT include .local/bin/** exclusion', () => {
     assert.ok(
       !entrypoint.includes('--filter "- .local/bin/**"'),
