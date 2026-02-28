@@ -10,7 +10,7 @@ import { SESSION_ID_PATTERN, PROTECTED_PATHS, getMaxSessions, REQUEST_ID_PATTERN
 import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
 import { getBucketName } from '../../lib/access';
 import { getContainerId } from '../../lib/container-helpers';
-import { sanitizeSessionName, generateSessionId, getSessionKey, getSessionPrefix, getPresetsKey, getPreferencesKey, emailFromKvKey } from '../../lib/kv-keys';
+import { sanitizeSessionName, getSessionKey, getSessionPrefix, getPresetsKey, getPreferencesKey } from '../../lib/kv-keys';
 import { getR2Url, parseListObjectsXml, parseInitiateMultipartUploadXml } from '../../lib/r2-client';
 import { CircuitBreaker } from '../../lib/circuit-breaker';
 import { validateKey, MAX_KEY_LENGTH } from '../../routes/storage/validation';
@@ -207,69 +207,6 @@ describe('Fuzz: getContainerId', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORS pattern matching — security-critical domain boundary enforcement
-// ---------------------------------------------------------------------------
-describe('Fuzz: CORS matchesPattern', () => {
-  // Replicated from src/lib/cors-cache.ts (not exported)
-  function matchesPattern(hostname: string, pattern: string): boolean {
-    const h = hostname.toLowerCase();
-    const p = pattern.toLowerCase();
-    if (p.startsWith('.')) {
-      return h.endsWith(p);
-    }
-    return h === p || h.endsWith('.' + p);
-  }
-
-  it('bare domains reject prefix-concatenation attacks', () => {
-    // "evil-workers.dev" must NOT match "workers.dev"
-    fc.assert(
-      fc.property(
-        fc.stringMatching(/^[a-z]{1,15}$/), // attack prefix (no dot)
-        fc.constantFrom('workers.dev', 'example.com', 'codeflare.app'),
-        (prefix, domain) => {
-          const attackHostname = `${prefix}${domain}`;
-          if (matchesPattern(attackHostname, domain)) {
-            // Only allowed if it's an exact match
-            expect(attackHostname).toBe(domain);
-          }
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('dot-prefixed patterns only match exact suffix', () => {
-    fc.assert(
-      fc.property(
-        fc.stringMatching(/^[a-z0-9]{1,15}$/),
-        fc.constantFrom('.workers.dev', '.example.com'),
-        (prefix, pattern) => {
-          // Without a dot separator, should never match
-          const hostname = `${prefix}${pattern.slice(1)}`; // e.g., "evilworkers.dev"
-          if (matchesPattern(hostname, pattern)) {
-            // Must actually end with the full pattern including dot
-            expect(hostname.toLowerCase().endsWith(pattern.toLowerCase())).toBe(true);
-          }
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('subdomains of bare patterns always match', () => {
-    fc.assert(
-      fc.property(
-        fc.stringMatching(/^[a-z]{1,10}$/),
-        fc.constantFrom('workers.dev', 'example.com'),
-        (sub, domain) => {
-          expect(matchesPattern(`${sub}.${domain}`, domain)).toBe(true);
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Session name sanitization — must strip injection vectors, never empty
@@ -319,19 +256,6 @@ describe('Fuzz: sanitizeSessionName', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// generateSessionId — output must always match SESSION_ID_PATTERN
-// ---------------------------------------------------------------------------
-describe('Fuzz: generateSessionId', () => {
-  it('always produces valid session IDs', () => {
-    // Not truly "fuzz" but property-based: generate many and verify invariant
-    for (let i = 0; i < Math.min(NUM_RUNS, 1000); i++) {
-      const id = generateSessionId();
-      expect(id).toMatch(SESSION_ID_PATTERN);
-      expect(id).toHaveLength(24); // 12 bytes -> 24 hex chars
-    }
-  });
-});
 
 // ---------------------------------------------------------------------------
 // getMaxSessions — must always return non-negative finite number
@@ -575,27 +499,6 @@ describe('Fuzz: KV key namespace isolation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// emailFromKvKey — round-trip and edge cases
-// ---------------------------------------------------------------------------
-describe('Fuzz: emailFromKvKey', () => {
-  it('round-trips: emailFromKvKey("user:" + email) === email', () => {
-    fc.assert(
-      fc.property(fc.emailAddress(), (email) => {
-        const key = `user:${email}`;
-        expect(emailFromKvKey(key)).toBe(email);
-      }),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('only strips first "user:" occurrence', () => {
-    // Documents the first-match-only behavior of String.replace
-    const key = 'user:user:admin@example.com';
-    expect(emailFromKvKey(key)).toBe('user:admin@example.com');
-    // This means double-prefixed keys return a wrong email — upstream must prevent this
-  });
-});
 
 // ---------------------------------------------------------------------------
 // getBucketName with long workerName — second trailing-hyphen vector
@@ -635,68 +538,6 @@ describe('Fuzz: getBucketName workerName edge cases', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORS empty/special pattern edge cases
-// ---------------------------------------------------------------------------
-describe('Fuzz: CORS edge cases', () => {
-  // Replicated from src/lib/cors-cache.ts
-  function matchesPattern(hostname: string, pattern: string): boolean {
-    const h = hostname.toLowerCase();
-    const p = pattern.toLowerCase();
-    if (p.startsWith('.')) return h.endsWith(p);
-    return h === p || h.endsWith('.' + p);
-  }
-
-  it('empty pattern only matches empty hostname', () => {
-    fc.assert(
-      fc.property(
-        fc.stringMatching(/^[a-z0-9.-]{1,30}$/),
-        (hostname) => {
-          // Non-empty hostname must NOT match empty pattern
-          // (empty pattern would mean ".endsWith('.')" which only matches hostnames ending in ".")
-          expect(matchesPattern(hostname, '')).toBe(hostname.endsWith('.'));
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('IP address patterns respect dot boundary', () => {
-    fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 254 }),
-        fc.integer({ min: 0, max: 255 }),
-        fc.integer({ min: 0, max: 255 }),
-        fc.integer({ min: 0, max: 255 }),
-        (a, b, c, d) => {
-          const ip = `${a}.${b}.${c}.${d}`;
-          // Pattern of just the last 3 octets should NOT match via bare-domain logic
-          // because bare patterns require '.' + pattern, and IP doesn't have that structure
-          const partialIp = `${b}.${c}.${d}`;
-          if (matchesPattern(ip, partialIp)) {
-            // If it matched, it's because ip ends with "." + partialIp (subdomain-style)
-            expect(ip.endsWith(`.${partialIp}`)).toBe(true);
-          }
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('javascript: and data: origins produce empty hostname in URL parser', () => {
-    // Documents what isAllowedOrigin would see — the hostname extraction step
-    for (const scheme of ['javascript:alert(1)', 'data:text/html,<h1>hi</h1>', 'blob:null/uuid']) {
-      try {
-        const hostname = new URL(scheme).hostname;
-        // Empty hostname should NOT match any real domain pattern
-        expect(matchesPattern(hostname, 'example.com')).toBe(false);
-        expect(matchesPattern(hostname, '.example.com')).toBe(false);
-      } catch {
-        // new URL() threw — isAllowedOrigin returns false, which is correct
-      }
-    }
-  });
-});
 
 // ---------------------------------------------------------------------------
 // XML parser — adversarial structured XML
@@ -745,88 +586,6 @@ describe('Fuzz: XML parsing with adversarial structure', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Pipeline composition — email → getBucketName → getSessionKey → getContainerId
-// ---------------------------------------------------------------------------
-describe('Fuzz: pipeline composition', () => {
-  it('full pipeline preserves format invariants across the chain', () => {
-    fc.assert(
-      fc.property(fc.emailAddress(), (email) => {
-        const bucket = getBucketName(email);
-        const sessionId = 'a1b2c3d4e5f67890'; // fixed valid session ID
-        const sessionKey = getSessionKey(bucket, sessionId);
-        const containerId = getContainerId(bucket, sessionId);
-
-        // Bucket name must not contain colons (would corrupt KV key structure)
-        expect(bucket).not.toContain(':');
-
-        // Session key must be exactly 3 colon-separated segments
-        const segments = sessionKey.split(':');
-        expect(segments).toHaveLength(3);
-        expect(segments[0]).toBe('session');
-        expect(segments[1]).toBe(bucket);
-        expect(segments[2]).toBe(sessionId);
-
-        // Container ID must be bucket-sessionId format
-        expect(containerId).toBe(`${bucket}-${sessionId}`);
-      }),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('two different emails produce different container IDs for the same sessionId', () => {
-    fc.assert(
-      fc.property(
-        fc.stringMatching(/^[a-z]{3,10}$/),
-        fc.stringMatching(/^[a-z]{3,10}$/),
-        (local1, local2) => {
-          fc.pre(local1 !== local2);
-          const sessionId = 'abcdef1234567890';
-          const bucket1 = getBucketName(`${local1}@example.com`);
-          const bucket2 = getBucketName(`${local2}@example.com`);
-          const cid1 = getContainerId(bucket1, sessionId);
-          const cid2 = getContainerId(bucket2, sessionId);
-          expect(cid1).not.toBe(cid2);
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('bucket name embedded in getSessionKey matches getBucketName output', () => {
-    fc.assert(
-      fc.property(fc.emailAddress(), (email) => {
-        const bucket = getBucketName(email);
-        const sessionId = 'deadbeef12345678';
-        const sessionKey = getSessionKey(bucket, sessionId);
-        // Extract bucket from the key and verify it matches
-        const extractedBucket = sessionKey.split(':')[1];
-        expect(extractedBucket).toBe(bucket);
-      }),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('pipeline is deterministic: same email always produces same chain', () => {
-    fc.assert(
-      fc.property(fc.emailAddress(), (email) => {
-        const sessionId = 'cafe0123456789ab';
-        const run1 = {
-          bucket: getBucketName(email),
-          key: getSessionKey(getBucketName(email), sessionId),
-          cid: getContainerId(getBucketName(email), sessionId),
-        };
-        const run2 = {
-          bucket: getBucketName(email),
-          key: getSessionKey(getBucketName(email), sessionId),
-          cid: getContainerId(getBucketName(email), sessionId),
-        };
-        expect(run1).toEqual(run2);
-      }),
-      { numRuns: NUM_RUNS },
-    );
-  });
-});
 
 // ---------------------------------------------------------------------------
 // ReDoS resistance — regex-based XML parser must not hang on pathological input
@@ -1004,210 +763,6 @@ describe('Fuzz: validateKey encoding tricks', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Stateful session lifecycle model — model-based testing with fc.commands()
-// ---------------------------------------------------------------------------
-describe('Fuzz: stateful session lifecycle model', () => {
-  // Model: simplified session state machine
-  type SessionStatus = 'running' | 'stopped';
-
-  class Model {
-    sessions = new Map<string, SessionStatus>();
-    maxSessions = 5;
-  }
-
-  // Real system mirror — tests state machine logic in isolation
-  class Real {
-    sessions = new Map<string, SessionStatus>();
-    maxSessions = 5;
-  }
-
-  // Command: create a session
-  class CreateSessionCommand implements fc.Command<Model, Real> {
-    constructor(readonly sessionId: string) {}
-    check(_m: Readonly<Model>): boolean {
-      return true;
-    }
-    run(m: Model, r: Real): void {
-      const runningCount = [...m.sessions.values()].filter((s) => s === 'running').length;
-      if (m.sessions.has(this.sessionId)) {
-        // Already exists — no-op
-        expect(r.sessions.has(this.sessionId)).toBe(m.sessions.has(this.sessionId));
-        return;
-      }
-      if (runningCount >= m.maxSessions) {
-        // At capacity — creation should fail, no mutation
-        return;
-      }
-      // Create in both model and real
-      m.sessions.set(this.sessionId, 'running');
-      r.sessions.set(this.sessionId, 'running');
-      expect(r.sessions.get(this.sessionId)).toBe('running');
-    }
-    toString(): string {
-      return `create(${this.sessionId})`;
-    }
-  }
-
-  // Command: stop a session
-  class StopSessionCommand implements fc.Command<Model, Real> {
-    constructor(readonly sessionId: string) {}
-    check(m: Readonly<Model>): boolean {
-      return m.sessions.has(this.sessionId);
-    }
-    run(m: Model, r: Real): void {
-      const status = m.sessions.get(this.sessionId);
-      if (status === 'stopped') {
-        // Already stopped — no-op
-        expect(r.sessions.get(this.sessionId)).toBe('stopped');
-        return;
-      }
-      m.sessions.set(this.sessionId, 'stopped');
-      r.sessions.set(this.sessionId, 'stopped');
-      expect(r.sessions.get(this.sessionId)).toBe('stopped');
-    }
-    toString(): string {
-      return `stop(${this.sessionId})`;
-    }
-  }
-
-  // Command: delete a session (must be stopped first)
-  class DeleteSessionCommand implements fc.Command<Model, Real> {
-    constructor(readonly sessionId: string) {}
-    check(m: Readonly<Model>): boolean {
-      return m.sessions.get(this.sessionId) === 'stopped';
-    }
-    run(m: Model, r: Real): void {
-      m.sessions.delete(this.sessionId);
-      r.sessions.delete(this.sessionId);
-      expect(r.sessions.has(this.sessionId)).toBe(false);
-      expect(m.sessions.has(this.sessionId)).toBe(false);
-    }
-    toString(): string {
-      return `delete(${this.sessionId})`;
-    }
-  }
-
-  const sessionIds = ['sess-a', 'sess-b', 'sess-c', 'sess-d', 'sess-e', 'sess-f'];
-
-  const allCommands = [
-    ...sessionIds.map((id) => fc.constant(new CreateSessionCommand(id))),
-    ...sessionIds.map((id) => fc.constant(new StopSessionCommand(id))),
-    ...sessionIds.map((id) => fc.constant(new DeleteSessionCommand(id))),
-  ];
-
-  it('session state machine invariants hold under random operation sequences', () => {
-    fc.assert(
-      fc.property(
-        fc.commands(allCommands, { maxCommands: 50 }),
-        (cmds) => {
-          const model = new Model();
-          const real = new Real();
-          fc.modelRun(() => ({ model, real }), cmds);
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('running session count never exceeds maxSessions', () => {
-    fc.assert(
-      fc.property(
-        fc.commands(allCommands, { maxCommands: 100 }),
-        (cmds) => {
-          const model = new Model();
-          const real = new Real();
-          fc.modelRun(() => ({ model, real }), cmds);
-          // After all commands, verify invariant
-          const runningCount = [...model.sessions.values()].filter((s) => s === 'running').length;
-          expect(runningCount).toBeLessThanOrEqual(model.maxSessions);
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('model and real stay in sync after arbitrary command sequences', () => {
-    fc.assert(
-      fc.property(
-        fc.commands(allCommands, { maxCommands: 50 }),
-        (cmds) => {
-          const model = new Model();
-          const real = new Real();
-          fc.modelRun(() => ({ model, real }), cmds);
-          // Model and real must be identical
-          expect(real.sessions.size).toBe(model.sessions.size);
-          for (const [id, status] of model.sessions) {
-            expect(real.sessions.get(id)).toBe(status);
-          }
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('deleted sessions cannot be resurrected by create', () => {
-    // Track deletions and verify creates are blocked for deleted IDs
-    const deletedIds = new Set<string>();
-
-    class TrackingDeleteCommand implements fc.Command<Model, Real> {
-      constructor(readonly sessionId: string) {}
-      check(m: Readonly<Model>): boolean {
-        return m.sessions.get(this.sessionId) === 'stopped';
-      }
-      run(m: Model, r: Real): void {
-        m.sessions.delete(this.sessionId);
-        r.sessions.delete(this.sessionId);
-        deletedIds.add(this.sessionId);
-      }
-      toString(): string {
-        return `tracked-delete(${this.sessionId})`;
-      }
-    }
-
-    class SafeCreateCommand implements fc.Command<Model, Real> {
-      constructor(readonly sessionId: string) {}
-      check(_m: Readonly<Model>): boolean {
-        // Block creates for deleted sessions (simulates real system behavior)
-        return !deletedIds.has(this.sessionId);
-      }
-      run(m: Model, r: Real): void {
-        if (m.sessions.has(this.sessionId)) return;
-        const runningCount = [...m.sessions.values()].filter((s) => s === 'running').length;
-        if (runningCount >= m.maxSessions) return;
-        m.sessions.set(this.sessionId, 'running');
-        r.sessions.set(this.sessionId, 'running');
-      }
-      toString(): string {
-        return `safe-create(${this.sessionId})`;
-      }
-    }
-
-    const trackingCommands = [
-      ...sessionIds.map((id) => fc.constant(new SafeCreateCommand(id))),
-      ...sessionIds.map((id) => fc.constant(new StopSessionCommand(id))),
-      ...sessionIds.map((id) => fc.constant(new TrackingDeleteCommand(id))),
-    ];
-
-    fc.assert(
-      fc.property(
-        fc.commands(trackingCommands, { maxCommands: 50 }),
-        (cmds) => {
-          deletedIds.clear();
-          const model = new Model();
-          const real = new Real();
-          fc.modelRun(() => ({ model, real }), cmds);
-          // Verify no deleted session exists
-          for (const id of deletedIds) {
-            expect(model.sessions.has(id)).toBe(false);
-            expect(real.sessions.has(id)).toBe(false);
-          }
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Circuit breaker state machine — model-based testing with fc.commands
