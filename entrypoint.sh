@@ -350,7 +350,7 @@ establish_bisync_baseline() {
 }
 
 # Regular bisync (after baseline is established)
-# Syncs config, credentials - excludes caches and workspace
+# Syncs config, credentials. Workspace included when SYNC_MODE=full; caches always excluded.
 bisync_with_r2() {
     local verbose_flag="${1:--v}"  # Default to -v (verbose); pass "" for quiet
     local verbose_args=()

@@ -86,7 +86,7 @@ export class container extends Container<Env> {
   private _tabConfig: TabConfig[] | null = null;
   private _containerAuthToken: string | null = null;
 
-  // Map-based dispatch for internal routes (AR9)
+  // Map-based dispatch for internal routes
   private readonly internalRoutes: Map<string, (request: Request) => Promise<Response> | Response>;
 
   constructor(ctx: DurableObjectState<Env>, env: Env) {

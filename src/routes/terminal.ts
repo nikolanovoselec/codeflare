@@ -1,12 +1,12 @@
 /**
- * Terminal routes — dual responsibility by design (AD36).
+ * Terminal routes — dual responsibility by design.
  *
  * AUTH: WebSocket authentication for terminal connections.
  * See also: src/index.ts (WebSocket upgrade intercept), src/middleware/auth.ts (HTTP auth)
  *
  * 1. **WebSocket intercept** (`validateWebSocketRoute` + `handleWebSocketUpgrade`):
  *    Called from `src/index.ts` BEFORE the Hono router because Hono cannot
- *    handle WebSocket upgrade requests (AD13). These functions perform their
+ *    handle WebSocket upgrade requests. These functions perform their
  *    own authentication by calling `authenticateRequest()` directly.
  *
  * 2. **Hono status route** (`GET /api/terminal/:sessionId/status`):

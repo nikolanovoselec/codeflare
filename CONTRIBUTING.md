@@ -41,7 +41,7 @@ cd web-ui && npm run dev           # Frontend dev server (Vite)
 
 ## Running Tests
 
-Codeflare has five test layers totaling ~2,200+ tests. Run them with:
+Codeflare has five test layers totaling ~2,395 tests. Run them with:
 
 ```bash
 # Backend unit tests (Vitest + @cloudflare/vitest-pool-workers)

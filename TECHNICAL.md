@@ -165,7 +165,7 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Layout.tsx` (orchestrates dashboard/terminal views, manages WS disconnect/reconnect lifecycle), `SessionStatCard.tsx` (dashboard card with three-color status dot and metrics), `StorageBrowser.tsx` (R2 browser with toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, `Dashboard.tsx`, `OnboardingLanding.tsx`, `KittScanner.tsx`.
 
-Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling — also updates storage stats from batch-status via `updateStatsFromBatch()`), `storage.ts` (R2 operations), `setup.ts`.
+Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `terminal-url-detection.ts` (URL detection signals for floating buttons), `terminal-layout.ts` (terminal layout state), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling — also updates storage stats from batch-status via `updateStatsFromBatch()`), `storage.ts` (R2 operations), `setup.ts`, `tiling.ts` (tiled terminal layout), `session-presets.ts` (preset/bookmark management), `session-tabs.ts` (tab configuration).
 
 #### Dashboard WS Disconnect Flow
 
@@ -893,7 +893,7 @@ codeflare/
 │   │                         #   FIX-39 audit trail in file header tracks all interpolation sites
 │   ├── container/index.ts    # Container DO class
 │   └── __tests__/            # Backend unit tests (65 files)
-├── e2e/                      # E2E tests: 11 API files (~49 tests) + 10 UI files (~74 tests, Puppeteer)
+├── e2e/                      # E2E tests: 11 API files (~50 tests) + 10 UI files (~75 tests, Puppeteer)
 ├── host/
 │   ├── server.js             # HTTP/WS server, auth, routing, prewarm, signal handlers (~496 lines)
 │   ├── session.js            # Session class — PTY management, tab lifecycle (~312 lines)
@@ -901,7 +901,7 @@ codeflare/
 │   ├── metrics.js            # System metrics collection (disk usage, sync status) (~74 lines)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
 │   ├── prewarm-config.js     # PTY pre-warm configuration (first-output readiness)
-│   ├── __tests__/            # Host unit tests (5 files)
+│   ├── __tests__/            # Host unit tests (7 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, fuzz)
 │   └── package.json
 ├── web-ui/
 │   └── src/
@@ -911,7 +911,7 @@ codeflare/
 │       ├── hooks/            # useTerminal.ts, useStageTimings.ts
 │       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, settings, format, mobile, + others
 │       ├── styles/           # CSS (design tokens, animations, component styles)
-│       └── __tests__/        # Frontend unit tests (64 files)
+│       └── __tests__/        # Frontend unit tests (65 files)
 ├── .oxlintrc.json            # oxlint configuration (root + web-ui)
 ├── scripts/                  # generate-tutorial-seed.mjs, fix-broken-sourcemaps.js
 ├── tutorials/                # Tutorial content (Getting Started, Examples, etc.)
@@ -970,7 +970,7 @@ codeflare/
 | `R2_ACCOUNT_ID` / `R2_ENDPOINT` | rclone endpoint | Worker -> DO or `getR2Config()` fallback |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
 | `TERMINAL_PORT` | Always 8080 | Hardcoded |
-| `SYNC_MODE` | Sync strategy (`none` or `full`) -- see Section 5 | Worker -> DO |
+| `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) -- see Section 5 | Worker -> DO |
 | `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`). Drives `SYNC_MODE` value. | Worker via `setBucketName` |
 | `TAB_CONFIG` | JSON array of terminal tab configurations | Worker -> DO |
 | `TERMINAL_ID` | Unique ID for this terminal instance | Worker -> DO |
@@ -1039,7 +1039,7 @@ Six workflows covering deploy, testing, fuzzing, and supply chain security. Addi
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | Push to `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets |
-| `test.yml` | PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, `npm audit`, dependency review |
+| `test.yml` | PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit`, dependency review |
 | `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
 | `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
 | `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
@@ -1095,7 +1095,7 @@ Six workflows covering deploy, testing, fuzzing, and supply chain security. Addi
 ### Test Workflow Detail
 
 Two parallel jobs:
-- **test**: Lint (oxlint), build frontend, run backend + frontend tests, typecheck both, `npm audit --audit-level=high` for backend and frontend
+- **test**: Lint (oxlint), build frontend, run backend + frontend tests, typecheck both, dead code check (knip), `npm audit --audit-level=high` for backend and frontend
 - **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
 
 ### E2E Workflow Detail
@@ -1113,7 +1113,7 @@ Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop`
 ### 16.1 Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
-**Count:** 65 test files, ~775 tests.
+**Count:** 65 test files, ~934 tests.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -1121,16 +1121,16 @@ Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop`
 ### 16.2 Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 64 test files, ~1,288 tests.
+**Count:** 65 test files, ~1,271 tests.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
 ### 16.3 Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 5 test files.
+**Count:** 7 test files, ~65 tests.
 **Run:** `cd host && npm test`
-**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation.
+**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host fuzz tests.
 
 ### 16.4 Property-Based Fuzz Tests
 
@@ -1157,7 +1157,7 @@ Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/`
 
 ### 16.6 E2E API Tests
 
-**Dir:** `e2e/api/` - 11 test files, ~49 tests.
+**Dir:** `e2e/api/` - 11 test files, ~50 tests.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 

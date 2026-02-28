@@ -176,15 +176,15 @@ All optional. The defaults work out of the box. I respect your time.
 
 ## Testing
 
-~2,200+ tests across five layers:
+~2,395 tests across five layers:
 
 | Layer | Tests | Framework |
 |-------|-------|-----------|
-| Backend | ~775 (65 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
-| Frontend | ~1,288 (64 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
-| Host | ~33 (5 files) | Node.js test runner |
-| E2E API | ~49 (11 files) | Vitest + plain fetch |
-| E2E UI | ~74 (10 files, desktop + mobile) | Vitest + Puppeteer |
+| Backend | ~934 (65 files) | Vitest v3 + `@cloudflare/vitest-pool-workers` |
+| Frontend | ~1,271 (65 files) | Vitest v4 + jsdom 28 + SolidJS Testing Library |
+| Host | ~65 (7 files) | Node.js test runner |
+| E2E API | ~50 (11 files) | Vitest + plain fetch |
+| E2E UI | ~75 (10 files, desktop + mobile) | Vitest + Puppeteer |
 
 ```bash
 npm test                           # Backend tests
