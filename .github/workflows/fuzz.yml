@@ -1,6 +1,8 @@
 name: Fuzz
 
 on:
+  pull_request:
+    branches: [main]
   schedule:
     - cron: '0 4 * * 0' # Weekly, Sunday 4am UTC
   workflow_dispatch:

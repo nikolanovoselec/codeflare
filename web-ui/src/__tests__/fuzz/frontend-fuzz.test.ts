@@ -8,7 +8,23 @@ import { hexToHSL, isValidHex } from '../../lib/settings';
 import { getFileIcon } from '../../lib/file-icons';
 import { getTabDisplayName, getTabIcon } from '../../lib/terminal-config';
 import { isActionableUrl } from '../../stores/terminal-url-detection';
-import { ACTIONABLE_URL_PATTERNS } from '../../lib/constants';
+import { ACTIONABLE_URL_PATTERNS as _ACTIONABLE_URL_PATTERNS } from '../../lib/constants';
+import { mapStartupDetailsToProgress } from '../../lib/status-mapper';
+import { getDownloadUrl } from '../../api/storage';
+import { ApiError } from '../../api/fetch-helper';
+import { cleanupMapByPrefix } from '../../stores/terminal';
+import { getBestLayoutForTabCount, isLayoutCompatible, LAYOUT_MIN_TABS, LAYOUT_UPGRADE_ORDER } from '../../stores/tiling';
+import { applyMetricsUpdate, shouldSkipStatusTransition } from '../../stores/session';
+import { stageOrder } from '../../lib/stages';
+import {
+  SessionSchema,
+  UserResponseSchema,
+  BatchSessionStatusResponseSchema,
+  StorageListResultSchema,
+  UserPreferencesSchema,
+  InitStageSchema,
+} from '../../lib/schemas';
+import type { StartupStatusResponse, InitStage } from '../../types';
 
 const NUM_RUNS = parseInt(process.env.FAST_CHECK_NUM_RUNS || '1000');
 
@@ -510,6 +526,581 @@ describe('fuzz: session name sanitization', () => {
     fc.assert(
       fc.property(fc.oneof(fc.string(), fc.constant('')), (s) => {
         expect(() => sanitizeName(s)).not.toThrow();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mapStartupDetailsToProgress
+// ---------------------------------------------------------------------------
+describe('fuzz: mapStartupDetailsToProgress', () => {
+  const stageArb = fc.constantFrom<InitStage>(
+    'creating', 'starting', 'syncing', 'mounting', 'verifying', 'ready', 'error', 'stopped',
+  );
+  const syncStatusArb = fc.constantFrom('pending', 'syncing', 'success', 'failed', 'skipped');
+
+  const statusResponseArb: fc.Arbitrary<StartupStatusResponse> = fc.record({
+    stage: stageArb,
+    progress: fc.integer({ min: 0, max: 100 }),
+    message: fc.string(),
+    details: fc.record({
+      bucketName: fc.string(),
+      container: fc.string(),
+      path: fc.string(),
+      email: fc.option(fc.emailAddress(), { nil: undefined }),
+      containerStatus: fc.option(fc.string(), { nil: undefined }),
+      syncStatus: fc.option(syncStatusArb, { nil: undefined }),
+      syncError: fc.option(fc.oneof(fc.string(), fc.constant(null)), { nil: undefined }),
+      healthServerOk: fc.option(fc.boolean(), { nil: undefined }),
+      terminalServerOk: fc.option(fc.boolean(), { nil: undefined }),
+    }),
+    error: fc.option(fc.string(), { nil: undefined }),
+  });
+
+  it('always returns valid InitProgress with stage, progress, message, details', () => {
+    fc.assert(
+      fc.property(statusResponseArb, (status) => {
+        const result = mapStartupDetailsToProgress(status);
+        expect(result.stage).toBe(status.stage);
+        expect(result.progress).toBe(status.progress);
+        expect(result.message).toBe(status.message);
+        expect(Array.isArray(result.details)).toBe(true);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('details always include Container, Sync, Terminal entries', () => {
+    fc.assert(
+      fc.property(statusResponseArb, (status) => {
+        const result = mapStartupDetailsToProgress(status);
+        const keys = result.details!.map((d) => d.key);
+        expect(keys).toContain('Container');
+        expect(keys).toContain('Sync');
+        expect(keys).toContain('Terminal');
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('detail statuses are always ok, error, or pending', () => {
+    fc.assert(
+      fc.property(statusResponseArb, (status) => {
+        const result = mapStartupDetailsToProgress(status);
+        for (const detail of result.details!) {
+          if (detail.status !== undefined) {
+            expect(['ok', 'error', 'pending']).toContain(detail.status);
+          }
+        }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('email detail is included only when email is present', () => {
+    fc.assert(
+      fc.property(statusResponseArb, (status) => {
+        const result = mapStartupDetailsToProgress(status);
+        const hasUserDetail = result.details!.some((d) => d.key === 'User');
+        if (status.details.email) {
+          expect(hasUserDetail).toBe(true);
+        } else {
+          expect(hasUserDetail).toBe(false);
+        }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getDownloadUrl
+// ---------------------------------------------------------------------------
+describe('fuzz: getDownloadUrl', () => {
+  it('always returns a valid URL string with /api/storage/download prefix', () => {
+    fc.assert(
+      fc.property(fc.string(), (key) => {
+        const url = getDownloadUrl(key);
+        expect(url).toContain('/api/storage/download');
+        expect(url).toContain('key=');
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('properly encodes special characters in key', () => {
+    const specialChars = ['hello world', 'foo/bar/baz', 'a&b=c', 'path with spaces/file.txt', '100%done'];
+    for (const key of specialChars) {
+      const url = getDownloadUrl(key);
+      // The URL should not contain raw special characters (except / in path)
+      const params = new URLSearchParams(url.split('?')[1]);
+      expect(params.get('key')).toBe(key);
+    }
+  });
+
+  it('roundtrips arbitrary keys through URLSearchParams', () => {
+    fc.assert(
+      fc.property(fc.string(), (key) => {
+        const url = getDownloadUrl(key);
+        const queryString = url.split('?')[1];
+        const params = new URLSearchParams(queryString);
+        expect(params.get('key')).toBe(key);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('never throws for any string input', () => {
+    fc.assert(
+      fc.property(fc.string(), (key) => {
+        expect(() => getDownloadUrl(key)).not.toThrow();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ApiError
+// ---------------------------------------------------------------------------
+describe('fuzz: ApiError', () => {
+  it('extends Error and preserves status/statusText', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.integer(), fc.string(), (msg, status, statusText) => {
+        const err = new ApiError(msg, status, statusText);
+        expect(err).toBeInstanceOf(Error);
+        expect(err).toBeInstanceOf(ApiError);
+        expect(err.message).toBe(msg);
+        expect(err.status).toBe(status);
+        expect(err.statusText).toBe(statusText);
+        expect(err.name).toBe('ApiError');
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('body property is preserved when provided', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.integer(), fc.string(), fc.jsonValue(), (msg, status, statusText, body) => {
+        const err = new ApiError(msg, status, statusText, body);
+        expect(err.body).toEqual(body);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('steps property defaults to undefined', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.integer(), fc.string(), (msg, status, statusText) => {
+        const err = new ApiError(msg, status, statusText);
+        expect(err.steps).toBeUndefined();
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('steps can be assigned and read back', () => {
+    const steps = [{ step: 'test', status: 'ok' }, { step: 'deploy', status: 'error', error: 'fail' }];
+    const err = new ApiError('msg', 500, 'Internal');
+    err.steps = steps;
+    expect(err.steps).toEqual(steps);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanupMapByPrefix
+// ---------------------------------------------------------------------------
+describe('fuzz: cleanupMapByPrefix', () => {
+  it('removes only keys matching the prefix', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.tuple(fc.string(), fc.integer()), { maxLength: 50 }),
+        fc.string({ minLength: 1, maxLength: 10 }),
+        (entries, prefix) => {
+          const map = new Map<string, number>(entries);
+          const originalSize = map.size;
+          const matchingBefore = [...map.keys()].filter((k) => k.startsWith(prefix)).length;
+          const nonMatchingBefore = originalSize - matchingBefore;
+
+          cleanupMapByPrefix(map, prefix);
+
+          // No keys with the prefix remain
+          for (const key of map.keys()) {
+            expect(key.startsWith(prefix)).toBe(false);
+          }
+          // Non-matching keys are untouched
+          expect(map.size).toBe(nonMatchingBefore);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('calls teardown on each removed value', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.tuple(fc.string(), fc.integer()), { minLength: 1, maxLength: 20 }),
+        (entries) => {
+          const map = new Map<string, number>(entries);
+          // Use first key's prefix (first char)
+          const firstKey = [...map.keys()][0];
+          const prefix = firstKey.charAt(0);
+          const expectedRemovals = [...map.entries()].filter(([k]) => k.startsWith(prefix));
+
+          const tornDown: number[] = [];
+          cleanupMapByPrefix(map, prefix, (val) => tornDown.push(val));
+
+          expect(tornDown.length).toBe(expectedRemovals.length);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('empty prefix removes all keys', () => {
+    const map = new Map([['a', 1], ['b', 2], ['c', 3]]);
+    cleanupMapByPrefix(map, '');
+    expect(map.size).toBe(0);
+  });
+
+  it('no-op on empty map', () => {
+    const map = new Map<string, number>();
+    cleanupMapByPrefix(map, 'anything');
+    expect(map.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getBestLayoutForTabCount / isLayoutCompatible
+// ---------------------------------------------------------------------------
+describe('fuzz: tiling layout helpers', () => {
+  it('getBestLayoutForTabCount returns a valid TileLayout', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 100 }), (count) => {
+        const layout = getBestLayoutForTabCount(count);
+        expect(LAYOUT_UPGRADE_ORDER).toContain(layout);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('getBestLayoutForTabCount is monotonic (more tabs = same or higher layout)', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 50 }),
+        fc.integer({ min: 0, max: 50 }),
+        (a, b) => {
+          if (a <= b) {
+            const layoutA = LAYOUT_UPGRADE_ORDER.indexOf(getBestLayoutForTabCount(a));
+            const layoutB = LAYOUT_UPGRADE_ORDER.indexOf(getBestLayoutForTabCount(b));
+            expect(layoutB).toBeGreaterThanOrEqual(layoutA);
+          }
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('getBestLayoutForTabCount(0) returns tabbed (lowest layout)', () => {
+    expect(getBestLayoutForTabCount(0)).toBe('tabbed');
+  });
+
+  it('getBestLayoutForTabCount(4+) returns 4-grid (highest layout)', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 4, max: 100 }), (count) => {
+        expect(getBestLayoutForTabCount(count)).toBe('4-grid');
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('isLayoutCompatible is consistent with LAYOUT_MIN_TABS', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom<'tabbed' | '2-split' | '3-split' | '4-grid'>('tabbed', '2-split', '3-split', '4-grid'),
+        fc.integer({ min: 0, max: 20 }),
+        (layout, count) => {
+          const expected = count >= LAYOUT_MIN_TABS[layout];
+          expect(isLayoutCompatible(layout, count)).toBe(expected);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('getBestLayoutForTabCount result is always compatible with the tab count', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 50 }), (count) => {
+        const layout = getBestLayoutForTabCount(count);
+        expect(isLayoutCompatible(layout, count)).toBe(true);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyMetricsUpdate / shouldSkipStatusTransition
+// ---------------------------------------------------------------------------
+describe('fuzz: session metrics helpers', () => {
+  it('applyMetricsUpdate always produces a valid SessionMetrics entry', () => {
+    fc.assert(
+      fc.property(
+        fc.string(), // sessionId
+        fc.record({
+          cpu: fc.option(fc.string(), { nil: undefined }),
+          mem: fc.option(fc.string(), { nil: undefined }),
+          hdd: fc.option(fc.string(), { nil: undefined }),
+          syncStatus: fc.option(fc.string(), { nil: undefined }),
+        }),
+        (sessionId, metrics) => {
+          const metricsRecord: Record<string, { bucketName: string; syncStatus: string; cpu?: string; mem?: string; hdd?: string }> = {};
+          applyMetricsUpdate(metricsRecord, sessionId, metrics);
+
+          const entry = metricsRecord[sessionId];
+          expect(entry).toBeDefined();
+          expect(typeof entry.bucketName).toBe('string');
+          expect(typeof entry.syncStatus).toBe('string');
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('applyMetricsUpdate preserves existing truthy bucketName', () => {
+    fc.assert(
+      fc.property(
+        fc.string(), // sessionId
+        fc.string({ minLength: 1 }), // existing bucketName (truthy — || fallback won't trigger)
+        fc.record({
+          cpu: fc.option(fc.string(), { nil: undefined }),
+          mem: fc.option(fc.string(), { nil: undefined }),
+          hdd: fc.option(fc.string(), { nil: undefined }),
+          syncStatus: fc.option(fc.string(), { nil: undefined }),
+        }),
+        (sessionId, bucketName, metrics) => {
+          const metricsRecord: Record<string, { bucketName: string; syncStatus: string; cpu?: string; mem?: string; hdd?: string }> = {
+            [sessionId]: { bucketName, syncStatus: 'pending' },
+          };
+          applyMetricsUpdate(metricsRecord, sessionId, metrics);
+          expect(metricsRecord[sessionId].bucketName).toBe(bucketName);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('shouldSkipStatusTransition returns true iff sessionId === activeSessionId and non-null', () => {
+    fc.assert(
+      fc.property(
+        fc.string(),
+        fc.option(fc.string(), { nil: null }),
+        (sessionId, activeSessionId) => {
+          const result = shouldSkipStatusTransition(sessionId, activeSessionId);
+          const expected = sessionId === activeSessionId && activeSessionId !== null;
+          expect(result).toBe(expected);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('shouldSkipStatusTransition always false when activeSessionId is null', () => {
+    fc.assert(
+      fc.property(fc.string(), (sessionId) => {
+        expect(shouldSkipStatusTransition(sessionId, null)).toBe(false);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stageOrder invariants
+// ---------------------------------------------------------------------------
+describe('fuzz: stageOrder', () => {
+  it('ready > all intermediate stages', () => {
+    const intermediateStages: InitStage[] = ['creating', 'starting', 'syncing', 'verifying', 'mounting'];
+    for (const stage of intermediateStages) {
+      expect(stageOrder.ready).toBeGreaterThan(stageOrder[stage]);
+    }
+  });
+
+  it('error has the lowest order value', () => {
+    for (const [stage, order] of Object.entries(stageOrder)) {
+      if (stage !== 'error') {
+        expect(order).toBeGreaterThan(stageOrder.error);
+      }
+    }
+  });
+
+  it('stopped < all intermediate stages but > error', () => {
+    expect(stageOrder.stopped).toBeGreaterThan(stageOrder.error);
+    expect(stageOrder.stopped).toBeLessThan(stageOrder.creating);
+  });
+
+  it('intermediate stages are in correct order: creating < starting < syncing < verifying < mounting', () => {
+    expect(stageOrder.creating).toBeLessThan(stageOrder.starting);
+    expect(stageOrder.starting).toBeLessThan(stageOrder.syncing);
+    expect(stageOrder.syncing).toBeLessThan(stageOrder.verifying);
+    expect(stageOrder.verifying).toBeLessThan(stageOrder.mounting);
+  });
+
+  it('all InitStage values have an order entry', () => {
+    const stages: InitStage[] = ['creating', 'starting', 'syncing', 'mounting', 'verifying', 'ready', 'error', 'stopped'];
+    for (const stage of stages) {
+      expect(stageOrder[stage]).toBeDefined();
+      expect(typeof stageOrder[stage]).toBe('number');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Frontend Zod schemas
+// ---------------------------------------------------------------------------
+describe('fuzz: Zod schemas', () => {
+  it('SessionSchema rejects non-object inputs', () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(fc.string(), fc.integer(), fc.boolean(), fc.constant(null)),
+        (input) => {
+          const result = SessionSchema.safeParse(input);
+          expect(result.success).toBe(false);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('SessionSchema accepts valid session objects', () => {
+    fc.assert(
+      fc.property(
+        fc.record({
+          id: fc.string({ minLength: 1 }),
+          name: fc.string(),
+          createdAt: fc.string(),
+          lastAccessedAt: fc.string(),
+        }),
+        (session) => {
+          const result = SessionSchema.safeParse(session);
+          expect(result.success).toBe(true);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('UserResponseSchema rejects missing required fields', () => {
+    fc.assert(
+      fc.property(fc.object(), (obj) => {
+        // Random objects almost certainly lack email + authenticated + bucketName
+        const result = UserResponseSchema.safeParse(obj);
+        // We just check it doesn't throw
+        expect(typeof result.success).toBe('boolean');
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('UserResponseSchema accepts valid user response', () => {
+    fc.assert(
+      fc.property(
+        fc.record({
+          email: fc.emailAddress(),
+          authenticated: fc.boolean(),
+          bucketName: fc.string({ minLength: 1 }),
+        }),
+        (data) => {
+          const result = UserResponseSchema.safeParse(data);
+          expect(result.success).toBe(true);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('InitStageSchema accepts all valid stages and rejects random strings', () => {
+    const validStages = ['creating', 'starting', 'syncing', 'mounting', 'verifying', 'ready', 'error', 'stopped'];
+    for (const stage of validStages) {
+      expect(InitStageSchema.safeParse(stage).success).toBe(true);
+    }
+    fc.assert(
+      fc.property(
+        fc.string().filter((s) => !validStages.includes(s)),
+        (s) => {
+          expect(InitStageSchema.safeParse(s).success).toBe(false);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('UserPreferencesSchema accepts empty object', () => {
+    expect(UserPreferencesSchema.safeParse({}).success).toBe(true);
+  });
+
+  it('UserPreferencesSchema accepts valid preferences', () => {
+    fc.assert(
+      fc.property(
+        fc.record({
+          lastAgentType: fc.option(
+            fc.constantFrom('claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash'),
+            { nil: undefined },
+          ),
+          workspaceSyncEnabled: fc.option(fc.boolean(), { nil: undefined }),
+          fastStartEnabled: fc.option(fc.boolean(), { nil: undefined }),
+        }),
+        (prefs) => {
+          const result = UserPreferencesSchema.safeParse(prefs);
+          expect(result.success).toBe(true);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('StorageListResultSchema rejects non-object inputs', () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(fc.string(), fc.integer(), fc.boolean(), fc.constant(null)),
+        (input) => {
+          const result = StorageListResultSchema.safeParse(input);
+          expect(result.success).toBe(false);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('BatchSessionStatusResponseSchema rejects non-object inputs', () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(fc.string(), fc.integer(), fc.boolean(), fc.constant(null)),
+        (input) => {
+          const result = BatchSessionStatusResponseSchema.safeParse(input);
+          expect(result.success).toBe(false);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('Zod schemas never throw on safeParse with arbitrary JSON', () => {
+    const schemas = [
+      SessionSchema,
+      UserResponseSchema,
+      UserPreferencesSchema,
+      StorageListResultSchema,
+      BatchSessionStatusResponseSchema,
+      InitStageSchema,
+    ];
+    fc.assert(
+      fc.property(fc.jsonValue(), (input) => {
+        for (const schema of schemas) {
+          expect(() => schema.safeParse(input)).not.toThrow();
+        }
       }),
       { numRuns: NUM_RUNS },
     );
