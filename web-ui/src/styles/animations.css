@@ -106,10 +106,6 @@
    ========================================================================== */
 
 /* Fade animations */
-.animate-fadeIn {
-  animation: fadeIn 200ms ease-out;
-}
-
 .animate-fadeInUp {
   animation: fadeInUp 200ms ease-out;
 }

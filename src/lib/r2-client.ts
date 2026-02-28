@@ -1,7 +1,7 @@
 import { AwsClient } from 'aws4fetch';
 import type { Env, StorageListResult } from '../types';
 import { ValidationError } from './error-types';
-import { decodeXmlEntities } from './xml-utils';
+import { decodeXmlEntities, escapeXml } from './xml-utils';
 
 /**
  * Create an AwsClient configured for Cloudflare R2 (S3-compatible).
@@ -41,7 +41,7 @@ export function parseListObjectsXml(xml: string): StorageListResult {
   const isTruncated = /<IsTruncated>true<\/IsTruncated>/i.test(xml);
 
   const tokenMatch = xml.match(/<NextContinuationToken>([^<]*)<\/NextContinuationToken>/);
-  const nextContinuationToken = tokenMatch ? tokenMatch[1] : undefined;
+  const nextContinuationToken = tokenMatch ? decodeXmlEntities(tokenMatch[1]) : undefined;
 
   const objects: StorageListResult['objects'] = [];
   const contentsRegex = /<Contents>([\s\S]*?)<\/Contents>/g;
@@ -67,7 +67,7 @@ export function parseListObjectsXml(xml: string): StorageListResult {
   const prefixRegex = /<CommonPrefixes>\s*<Prefix>([^<]*)<\/Prefix>\s*<\/CommonPrefixes>/g;
   let prefixMatch;
   while ((prefixMatch = prefixRegex.exec(xml)) !== null) {
-    prefixes.push(prefixMatch[1]);
+    prefixes.push(decodeXmlEntities(prefixMatch[1]));
   }
 
   return { objects, prefixes, isTruncated, nextContinuationToken };
@@ -124,7 +124,7 @@ export async function emptyR2Bucket(
       const deleteXml = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Delete><Quiet>true</Quiet>',
-        ...parsed.objects.map((obj) => `<Object><Key>${obj.key}</Key></Object>`),
+        ...parsed.objects.map((obj) => `<Object><Key>${escapeXml(obj.key)}</Key></Object>`),
         '</Delete>',
       ].join('');
 

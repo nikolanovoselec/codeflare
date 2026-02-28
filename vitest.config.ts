@@ -1,7 +1,7 @@
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
 
 // Version note: Root uses vitest ^3.x (required by @cloudflare/vitest-pool-workers
-// for Workers runtime testing), while web-ui uses vitest ^1.x (compatible with
+// for Workers runtime testing), while web-ui uses vitest ^4.x (compatible with
 // vite-plugin-solid and @solidjs/testing-library). These are independent test
 // suites with separate configs and separate node_modules installs.
 export default defineWorkersConfig({

@@ -21,11 +21,8 @@ ENV DISABLE_INSTALLATION_CHECKS=1
 ENV CLAUDE_UNLEASHED_NO_UPDATE=1
 ENV IS_SANDBOX=1
 
-# Upgrade base packages to pick up security patches (libc, openssl, etc.)
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
-
-# Install runtime packages (no build tools needed - native addons pre-compiled)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Upgrade base packages + install runtime packages (single apt-get update layer)
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     # System essentials
     ca-certificates \
     bash \

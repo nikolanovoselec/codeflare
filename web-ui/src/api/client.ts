@@ -13,7 +13,6 @@ import {
   SetupPrefillResponseSchema,
   UserEntrySchema,
   GetUsersResponseSchema,
-  UserMutationResponseSchema,
   PresetsResponseSchema,
   CreatePresetResponseSchema,
   DeletePresetResponseSchema,
@@ -217,11 +216,6 @@ export async function getUsers(): Promise<UserEntry[]> {
   return data.users;
 }
 
-export async function removeUser(email: string): Promise<void> {
-  await fetchApi(`/users/${encodeURIComponent(email)}`, {
-    method: 'DELETE',
-  }, UserMutationResponseSchema);
-}
 
 // Setup API
 export type SetupStatusResponse = z.infer<typeof SetupStatusResponseSchema>;

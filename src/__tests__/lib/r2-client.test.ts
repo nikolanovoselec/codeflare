@@ -400,5 +400,61 @@ describe('emptyR2Bucket', () => {
       'DeleteObjects failed: HTTP 500',
     );
   });
+
+  it('escapes XML special chars in object keys during DeleteObjects', async () => {
+    // S3 XML responses encode special chars as XML entities.
+    // The key 'file<name>&v="1"' would appear in S3 XML as entity-encoded:
+    const encodedKey = 'file&lt;name&gt;&amp;v=&quot;1&quot;';
+    const xml = `<ListBucketResult><IsTruncated>false</IsTruncated>` +
+      `<Contents><Key>${encodedKey}</Key><Size>100</Size>` +
+      `<LastModified>2024-01-01T00:00:00Z</LastModified></Contents>` +
+      `</ListBucketResult>`;
+    mockFetch
+      .mockResolvedValueOnce(new Response(xml, { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete response
+
+    await emptyR2Bucket(createClient(), endpoint, bucketName);
+
+    // The delete XML body should re-escape entities for safe XML interpolation
+    const deleteCall = mockSign.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('?delete'),
+    );
+    expect(deleteCall).toBeDefined();
+    const body = (deleteCall![1] as { body: string }).body;
+    expect(body).toContain('&lt;');
+    expect(body).toContain('&amp;');
+    expect(body).toContain('&quot;');
+    // Raw special chars must NOT appear unescaped in the XML body
+    expect(body).not.toMatch(/<Key>.*<name>.*<\/Key>/);
+  });
+});
+
+describe('parseListObjectsXml - XML entity decoding', () => {
+  it('decodes XML entities in CommonPrefixes', () => {
+    const xml = `<ListBucketResult>
+  <IsTruncated>false</IsTruncated>
+  <CommonPrefixes>
+    <Prefix>folder&amp;name/</Prefix>
+  </CommonPrefixes>
+</ListBucketResult>`;
+
+    const result = parseListObjectsXml(xml);
+    expect(result.prefixes[0]).toBe('folder&name/');
+  });
+
+  it('decodes XML entities in NextContinuationToken', () => {
+    const xml = `<ListBucketResult>
+  <IsTruncated>true</IsTruncated>
+  <NextContinuationToken>tok&amp;en=1&lt;2</NextContinuationToken>
+  <Contents>
+    <Key>file.txt</Key>
+    <Size>100</Size>
+    <LastModified>2024-01-01T00:00:00.000Z</LastModified>
+  </Contents>
+</ListBucketResult>`;
+
+    const result = parseListObjectsXml(xml);
+    expect(result.nextContinuationToken).toBe('tok&en=1<2');
+  });
 });
 

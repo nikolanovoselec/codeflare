@@ -22,7 +22,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { terminalStore, sendInputToTerminal } from '../../stores/terminal';
+import { terminalStore, sendInputToTerminal, cleanupMapByPrefix } from '../../stores/terminal';
 
 // Get mock WebSocket class from global
 const _MockWebSocket = globalThis.WebSocket as unknown as {
@@ -950,6 +950,35 @@ describe('Terminal Store', () => {
       expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('error');
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+  });
+
+  describe('cleanupMapByPrefix', () => {
+    it('cleanupMapByPrefix removes matching keys and calls teardown', () => {
+      const map = new Map<string, number>();
+      map.set('session-1:tab-1', 1);
+      map.set('session-1:tab-2', 2);
+      map.set('session-2:tab-1', 3);
+
+      const teardown = vi.fn();
+      cleanupMapByPrefix(map, 'session-1:', teardown);
+
+      expect(map.size).toBe(1);
+      expect(map.has('session-2:tab-1')).toBe(true);
+      expect(teardown).toHaveBeenCalledTimes(2);
+      expect(teardown).toHaveBeenCalledWith(1);
+      expect(teardown).toHaveBeenCalledWith(2);
+    });
+
+    it('cleanupMapByPrefix preserves non-matching keys', () => {
+      const map = new Map<string, string>();
+      map.set('alpha:1', 'a');
+      map.set('beta:1', 'b');
+      map.set('alpha:2', 'c');
+
+      cleanupMapByPrefix(map, 'gamma:');
+
+      expect(map.size).toBe(3);
     });
   });
 });

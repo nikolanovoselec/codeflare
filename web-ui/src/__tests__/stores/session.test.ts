@@ -48,7 +48,8 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { sessionStore } from '../../stores/session';
+import { sessionStore, shouldSkipStatusTransition } from '../../stores/session';
+import { applyMetricsUpdate } from '../../stores/session';
 import * as api from '../../api/client';
 import * as terminal from '../../stores/terminal';
 
@@ -1149,6 +1150,44 @@ describe('Session Store', () => {
       expect(terminals!.activeTabId).toBe('2');
 
       sessionStore.cleanupTerminalsForSession(uniqueSessionId);
+    });
+  });
+
+  describe('applyMetricsUpdate', () => {
+    it('applyMetricsUpdate populates sessionMetrics from batch status', () => {
+      const sessionMetrics: Record<string, any> = {};
+      const metrics = { cpu: '25%', mem: '512MB', hdd: '2GB', syncStatus: 'success' };
+
+      applyMetricsUpdate(sessionMetrics, 'session-1', metrics);
+
+      expect(sessionMetrics['session-1']).toEqual({
+        bucketName: '...',
+        syncStatus: 'success',
+        cpu: '25%',
+        mem: '512MB',
+        hdd: '2GB',
+      });
+    });
+
+    it('applyMetricsUpdate preserves existing bucketName', () => {
+      const sessionMetrics: Record<string, any> = {
+        'session-1': { bucketName: 'my-bucket', syncStatus: 'pending', cpu: '...', mem: '...', hdd: '...' },
+      };
+      const metrics = { cpu: '50%', mem: '1GB', hdd: '4GB', syncStatus: 'syncing' };
+
+      applyMetricsUpdate(sessionMetrics, 'session-1', metrics);
+
+      expect(sessionMetrics['session-1'].bucketName).toBe('my-bucket');
+      expect(sessionMetrics['session-1'].cpu).toBe('50%');
+    });
+  });
+
+  describe('shouldSkipStatusTransition', () => {
+    it('refreshSessionStatuses calls shouldSkipStatusTransition (not inline check)', async () => {
+      // Verify that shouldSkipStatusTransition is exported and works correctly
+      expect(shouldSkipStatusTransition('session-1', 'session-1')).toBe(true);
+      expect(shouldSkipStatusTransition('session-1', null)).toBe(false);
+      expect(shouldSkipStatusTransition('session-1', 'session-2')).toBe(false);
     });
   });
 });

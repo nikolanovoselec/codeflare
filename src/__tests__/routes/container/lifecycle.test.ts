@@ -178,6 +178,40 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     };
   }
 
+  it('setupR2Credentials returns scoped credentials for bucket (L15)', async () => {
+    const app = createTestApp();
+
+    const sessionKey = 'session:codeflare-test-example-com:test-session';
+    mockKV._set(sessionKey, {
+      id: 'test-session',
+      name: 'Test',
+      status: 'stopped',
+      createdAt: '2024-01-01T00:00:00Z',
+    } satisfies Partial<Session>);
+
+    mockGetOrCreateScopedR2Token.mockResolvedValue({
+      accessKeyId: 'scoped-ak-123',
+      secretAccessKey: 'scoped-sk-456',
+      tokenId: 'scoped-tok-789',
+    });
+
+    const res = await app.request('/container/start?sessionId=test-session', {
+      method: 'POST',
+    });
+
+    expect(res.status).toBe(200);
+    // Verify the scoped creds flow through to the setBucketName call
+    const fetchCalls = mockContainerStub.fetch.mock.calls;
+    const setBucketNameCall = fetchCalls.find((call: any[]) => {
+      const req = call[0] as Request;
+      return req.url.includes('setBucketName');
+    });
+    expect(setBucketNameCall).toBeDefined();
+    const reqBody = await new Request(setBucketNameCall![0]).clone().json() as Record<string, unknown>;
+    expect(reqBody.r2AccessKeyId).toBe('scoped-ak-123');
+    expect(reqBody.r2SecretAccessKey).toBe('scoped-sk-456');
+  });
+
   it('should call getOrCreateScopedR2Token to get scoped creds during container start', async () => {
     const app = createTestApp();
 

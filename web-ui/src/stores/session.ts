@@ -62,6 +62,34 @@ interface SessionMetrics {
   hdd?: string;
 }
 
+/** Batch status entry shape from the backend (L9: named type for inline type) */
+type BatchStatusEntry = {
+  status: 'running' | 'stopped';
+  ptyActive: boolean;
+  startupStage?: string;
+  lastStartedAt?: string;
+  lastActiveAt?: string;
+  metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string };
+};
+
+/**
+ * Populate sessionMetrics from KV-pushed metrics (M5: extracted helper).
+ * Mutates the `sessionMetrics` record in place — designed for use inside `produce()` or direct object mutation.
+ */
+export function applyMetricsUpdate(
+  sessionMetrics: Record<string, SessionMetrics>,
+  sessionId: string,
+  metrics: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string },
+): void {
+  sessionMetrics[sessionId] = {
+    bucketName: sessionMetrics[sessionId]?.bucketName || '...',
+    syncStatus: (metrics.syncStatus as SessionMetrics['syncStatus']) || sessionMetrics[sessionId]?.syncStatus || 'pending',
+    cpu: metrics.cpu || '...',
+    mem: metrics.mem || '...',
+    hdd: metrics.hdd || '...',
+  };
+}
+
 interface SessionState {
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
@@ -181,7 +209,7 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchResponse] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus().catch(() => ({ statuses: {} as Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string; lastActiveAt?: string; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>, maxSessions: state.maxSessions })),
+      api.getBatchSessionStatus().catch(() => ({ statuses: {} as Record<string, BatchStatusEntry>, maxSessions: state.maxSessions })),
     ]);
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
@@ -224,16 +252,10 @@ async function loadSessions(): Promise<void> {
         }
       }
 
-      // Populate sessionMetrics from KV-pushed metrics
+      // Populate sessionMetrics from KV-pushed metrics (M5: use extracted helper)
       if (batchStatus.metrics) {
         setState(produce(s => {
-          s.sessionMetrics[session.id] = {
-            bucketName: s.sessionMetrics[session.id]?.bucketName || '...',
-            syncStatus: (batchStatus.metrics?.syncStatus as SessionMetrics['syncStatus']) || 'pending',
-            cpu: batchStatus.metrics?.cpu || '...',
-            mem: batchStatus.metrics?.mem || '...',
-            hdd: batchStatus.metrics?.hdd || '...',
-          };
+          applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!);
         }));
       }
 
@@ -513,26 +535,15 @@ async function refreshSessionStatuses(): Promise<void> {
         if (remote.lastStartedAt) setState('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
       }
 
-      // Populate sessionMetrics from KV-pushed metrics
+      // Populate sessionMetrics from KV-pushed metrics (M5: use extracted helper)
       if (remote.metrics) {
         setState(produce(s => {
-          s.sessionMetrics[session.id] = {
-            bucketName: s.sessionMetrics[session.id]?.bucketName || '...',
-            syncStatus: (remote.metrics?.syncStatus as SessionMetrics['syncStatus']) || s.sessionMetrics[session.id]?.syncStatus || 'pending',
-            cpu: remote.metrics?.cpu || '...',
-            mem: remote.metrics?.mem || '...',
-            hdd: remote.metrics?.hdd || '...',
-          };
+          applyMetricsUpdate(s.sessionMetrics, session.id, remote.metrics!);
         }));
       }
 
-      // Guard: skip status transitions for the active session. While in
-      // terminal view, session lifecycle is managed by WebSocket and
-      // startup-status (which talk to the DO directly). KV is eventually
-      // consistent (~60-90s) and can report stale 'stopped' that clobbers
-      // the authoritative 'running' state. On dashboard (activeSessionId
-      // === null), KV is the sole authority for all sessions.
-      if (session.id === state.activeSessionId) continue;
+      // Guard: skip status transitions for the active session (L5: use named function)
+      if (shouldSkipStatusTransition(session.id, state.activeSessionId)) continue;
 
       // Guard: skip status transitions for initializing sessions to avoid
       // clobbering the init progress UI with stale KV data. The container

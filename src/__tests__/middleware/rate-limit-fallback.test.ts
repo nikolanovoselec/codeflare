@@ -53,15 +53,23 @@ describe('rate-limit fallback on KV failure', () => {
     const limiter = createRateLimiter(isolatedConfig);
     const c = createMockContext();
     const next = vi.fn().mockResolvedValue(undefined);
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await limiter(c as any, next);
 
     expect(next).toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('KV failed'),
-      expect.any(String),
-    );
+  });
+
+  it('rate-limit KV failure logs once via logger.warn, not console.warn (M7b)', async () => {
+    const isolatedConfig = { windowMs: 60_000, maxRequests: 3, keyPrefix: 'no-console-warn-test' };
+    const limiter = createRateLimiter(isolatedConfig);
+    const c = createMockContext();
+    const next = vi.fn().mockResolvedValue(undefined);
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await limiter(c as any, next);
+
+    // console.warn should NOT be called — only the structured logger is used
+    expect(consoleSpy).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 
@@ -70,7 +78,6 @@ describe('rate-limit fallback on KV failure', () => {
     const isolatedConfig = { windowMs: 60_000, maxRequests: 3, keyPrefix: 'isolated-test' };
     const limiter = createRateLimiter(isolatedConfig);
     const next = vi.fn().mockResolvedValue(undefined);
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     // First 3 requests should pass
     for (let i = 0; i < isolatedConfig.maxRequests; i++) {
@@ -82,8 +89,6 @@ describe('rate-limit fallback on KV failure', () => {
     // 4th request should throw RateLimitError
     const c = createMockContext();
     await expect(limiter(c as any, next)).rejects.toThrow('Rate limit exceeded');
-
-    consoleSpy.mockRestore();
   });
 
   it('skips rate limiting when KV is not available at all', async () => {

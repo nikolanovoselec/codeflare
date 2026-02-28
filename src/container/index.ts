@@ -10,6 +10,52 @@ import { createLogger } from '../lib/logger';
 const SESSION_ID_KEY = '_sessionId';
 
 /**
+ * Validate setBucketName input fields.
+ * Returns an error message string if validation fails, or null if valid.
+ */
+export function validateBucketNameInput(input: {
+  bucketName: unknown;
+  r2AccessKeyId?: unknown;
+  r2SecretAccessKey?: unknown;
+  r2AccountId?: unknown;
+  r2Endpoint?: unknown;
+  workspaceSyncEnabled?: unknown;
+  fastStartEnabled?: unknown;
+}): string | null {
+  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled } = input;
+
+  if (typeof bucketName !== 'string' || bucketName.trim() === '') {
+    return 'bucketName must be a non-empty string';
+  }
+  if (r2AccessKeyId !== undefined && (typeof r2AccessKeyId !== 'string' || r2AccessKeyId.trim() === '')) {
+    return 'r2AccessKeyId must be a non-empty string when provided';
+  }
+  if (r2SecretAccessKey !== undefined && (typeof r2SecretAccessKey !== 'string' || r2SecretAccessKey.trim() === '')) {
+    return 'r2SecretAccessKey must be a non-empty string when provided';
+  }
+  if (workspaceSyncEnabled !== undefined && typeof workspaceSyncEnabled !== 'boolean') {
+    return 'workspaceSyncEnabled must be a boolean when provided';
+  }
+  if (fastStartEnabled !== undefined && typeof fastStartEnabled !== 'boolean') {
+    return 'fastStartEnabled must be a boolean when provided';
+  }
+  if (r2AccountId !== undefined && (typeof r2AccountId !== 'string' || r2AccountId.trim() === '')) {
+    return 'r2AccountId must be a non-empty string when provided';
+  }
+  if (r2Endpoint !== undefined) {
+    if (typeof r2Endpoint !== 'string' || r2Endpoint.trim() === '') {
+      return 'r2Endpoint must be a non-empty string when provided';
+    }
+    try {
+      new URL(r2Endpoint);
+    } catch {
+      return 'r2Endpoint must be a valid URL';
+    }
+  }
+  return null;
+}
+
+/**
  * container - Container Durable Object for user workspaces
  *
  * Each session gets one container that persists their workspace via rclone bisync to R2.
@@ -270,57 +316,15 @@ export class container extends Container<Env> {
       }
 
       // FIX-15: Validate inputs
-      if (typeof bucketName !== 'string' || bucketName.trim() === '') {
-        return new Response(JSON.stringify({ error: 'bucketName must be a non-empty string' }), {
+      const validationError = validateBucketNameInput({
+        bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
+        workspaceSyncEnabled, fastStartEnabled,
+      });
+      if (validationError) {
+        return new Response(JSON.stringify({ error: validationError }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
-      }
-      if (r2AccessKeyId !== undefined && (typeof r2AccessKeyId !== 'string' || r2AccessKeyId.trim() === '')) {
-        return new Response(JSON.stringify({ error: 'r2AccessKeyId must be a non-empty string when provided' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      if (r2SecretAccessKey !== undefined && (typeof r2SecretAccessKey !== 'string' || r2SecretAccessKey.trim() === '')) {
-        return new Response(JSON.stringify({ error: 'r2SecretAccessKey must be a non-empty string when provided' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      if (workspaceSyncEnabled !== undefined && typeof workspaceSyncEnabled !== 'boolean') {
-        return new Response(JSON.stringify({ error: 'workspaceSyncEnabled must be a boolean when provided' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      if (fastStartEnabled !== undefined && typeof fastStartEnabled !== 'boolean') {
-        return new Response(JSON.stringify({ error: 'fastStartEnabled must be a boolean when provided' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      if (r2AccountId !== undefined && (typeof r2AccountId !== 'string' || r2AccountId.trim() === '')) {
-        return new Response(JSON.stringify({ error: 'r2AccountId must be a non-empty string when provided' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      if (r2Endpoint !== undefined) {
-        if (typeof r2Endpoint !== 'string' || r2Endpoint.trim() === '') {
-          return new Response(JSON.stringify({ error: 'r2Endpoint must be a non-empty string when provided' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        try {
-          new URL(r2Endpoint);
-        } catch {
-          return new Response(JSON.stringify({ error: 'r2Endpoint must be a valid URL' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
       }
 
       await this.setBucketName(bucketName, {
@@ -342,7 +346,7 @@ export class container extends Container<Env> {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
-      console.error('setBucketName failed:', toErrorMessage(err));
+      this.logger.error('setBucketName failed', err instanceof Error ? err : new Error(toErrorMessage(err)));
       return new Response(JSON.stringify({ error: 'Internal error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
@@ -365,7 +369,7 @@ export class container extends Container<Env> {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
-      console.error('setSessionId failed:', toErrorMessage(err));
+      this.logger.error('setSessionId failed', err instanceof Error ? err : new Error(toErrorMessage(err)));
       return new Response(JSON.stringify({ error: 'Internal error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },

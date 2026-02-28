@@ -11,6 +11,12 @@ import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
 
+/** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
+export const DECTCEM_CURSOR_PARAM = 25;
+
+/** Debounce delay before refitting terminal after virtual keyboard height changes on mobile */
+export const KEYBOARD_REFIT_DEBOUNCE_MS = 150;
+
 export interface UseTerminalOptions {
   sessionId: string;
   terminalId: string;
@@ -58,9 +64,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     containerEl = el;
   }
 
-  onMount(() => {
-    if (!containerEl) return;
-
+  function initializeTerminal(container: HTMLDivElement): { termBg: string } {
     const rootStyle = getComputedStyle(document.documentElement);
     const termBg = rootStyle.getPropertyValue('--color-terminal-theme-bg').trim() || '#1a2332';
     const termBlack = rootStyle.getPropertyValue('--color-terminal-theme-black').trim() || '#1a2332';
@@ -118,29 +122,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         return origCreateElement.call(document, tagName, options);
       };
       try {
-        term.open(containerEl);
+        term.open(container);
       } finally {
         document.createElement = origCreateElement;
       }
     } else {
-      term.open(containerEl);
-    }
-
-    if (isTouchDevice()) {
-      const viewport = (term as any)._core?.viewport;
-      if (viewport) {
-        viewport.handleTouchStart = () => {};
-        viewport.handleTouchMove = () => false;
-      }
-    }
-
-    if (isTouchDevice()) {
-      const mobileCleanup = setupMobileInput(term, props, {
-        refreshCursorLine: () => {
-          term?.refresh(term.buffer.active.cursorY, term.buffer.active.cursorY);
-        },
-      });
-      onCleanup(mobileCleanup);
+      term.open(container);
     }
 
     // Disable mobile IME composition
@@ -177,11 +164,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     });
 
     // Right-click to paste (like a real terminal).
-    // navigator.clipboard.readText() requires 'clipboard-read' permission.
-    // Some browsers revoke the transient activation after the first async call,
-    // causing subsequent right-click pastes to silently fail. We re-query the
-    // permission state and re-request if needed, and always refocus the terminal.
-    // Right-click to paste (like a real terminal).
     // MUST use bubbling phase (not capture) and MUST NOT stopPropagation —
     // xterm.js needs its own contextmenu handler to run first to manage
     // internal textarea focus. Without that, Chrome's clipboard readText()
@@ -199,11 +181,43 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         // Permission denied or not available
       });
     };
-    containerEl.addEventListener('contextmenu', handleContextMenu);
+    container.addEventListener('contextmenu', handleContextMenu);
 
-    terminalStore.setTerminal(props.sessionId, props.terminalId, term);
-    terminalStore.registerFitAddon(props.sessionId, props.terminalId, fitAddon);
-    setTerminalInstance(term);
+    return { termBg };
+  }
+
+  function setupMobileTerminal() {
+    if (!term) return;
+
+    const viewport = (term as any)._core?.viewport;
+    if (viewport) {
+      viewport.handleTouchStart = () => {};
+      viewport.handleTouchMove = () => false;
+    }
+
+    const mobileCleanup = setupMobileInput(term, props, {
+      refreshCursorLine: () => {
+        term?.refresh(term.buffer.active.cursorY, term.buffer.active.cursorY);
+      },
+    });
+    onCleanup(mobileCleanup);
+  }
+
+  onMount(() => {
+    if (!containerEl) return;
+
+    const { termBg } = initializeTerminal(containerEl);
+    // initializeTerminal guarantees term and fitAddon are set
+    const t = term!;
+    const fa = fitAddon!;
+
+    if (isTouchDevice()) {
+      setupMobileTerminal();
+    }
+
+    terminalStore.setTerminal(props.sessionId, props.terminalId, t);
+    terminalStore.registerFitAddon(props.sessionId, props.terminalId, fa);
+    setTerminalInstance(t);
 
     requestAnimationFrame(() => {
       if (!fitAddon || !containerEl || !term) return;
@@ -242,31 +256,31 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
     };
 
-    bufferChangeDisposable = term.buffer.onBufferChange((buf) => {
+    bufferChangeDisposable = t.buffer.onBufferChange((buf) => {
       isAlternateBuffer = buf.type === 'alternate';
       applyCursorVisibility();
     });
 
-    cursorHideDisposable = term.parser.registerCsiHandler(
+    cursorHideDisposable = t.parser.registerCsiHandler(
       { prefix: '?', final: 'l' },
       (params) => {
-        if (params[0] === 25) { isCursorHidden = true; applyCursorVisibility(); }
+        if (params[0] === DECTCEM_CURSOR_PARAM) { isCursorHidden = true; applyCursorVisibility(); }
         return false;
       },
     );
-    cursorShowDisposable = term.parser.registerCsiHandler(
+    cursorShowDisposable = t.parser.registerCsiHandler(
       { prefix: '?', final: 'h' },
       (params) => {
-        if (params[0] === 25) { isCursorHidden = false; applyCursorVisibility(); }
+        if (params[0] === DECTCEM_CURSOR_PARAM) { isCursorHidden = false; applyCursorVisibility(); }
         return false;
       },
     );
 
-    cleanupGestures = attachSwipeGestures(containerEl, term, isVirtualKeyboardOpen);
+    cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
     // Font loading fix
     if (document.fonts) {
-      const currentFont = term.options.fontFamily;
+      const currentFont = t.options.fontFamily;
       document.fonts.ready.then(() => {
         if (term && currentFont) {
           term.options.fontFamily = currentFont;
@@ -313,7 +327,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
       window.scrollTo(0, 0);
-    }, 150);
+    }, KEYBOARD_REFIT_DEBOUNCE_MS);
     onCleanup(() => clearTimeout(timer));
   });
 

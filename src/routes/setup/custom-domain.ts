@@ -40,7 +40,6 @@ async function resolveZone(
 
     if (!zonesData.success) {
       const cfErrors = zonesData.errors || [];
-      const _errorMessages = cfErrors.map(e => `${e.code}: ${e.message}`).join(', ');
 
       const authError = detectCloudflareAuthError(zonesRes.status, cfErrors);
       if (authError) {

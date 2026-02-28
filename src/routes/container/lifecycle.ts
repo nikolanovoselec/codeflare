@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session, UserPreferences } from '../../types';
+import type { Env, Session, UserPreferences, TabConfig } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs } from '../../lib/r2-seed';
 import { getR2Config } from '../../lib/r2-config';
@@ -16,6 +16,57 @@ import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSession
 import { getSessionKey, getPreferencesKey, listAllKvKeys, getSessionPrefix } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, containerInternalCB, getStoredBucketName } from './shared';
+
+/**
+ * Build the JSON body for /_internal/setBucketName requests.
+ * Extracted to avoid duplication between initial set and post-destroy re-set.
+ */
+function buildSetBucketNameBody(params: {
+  bucketName: string;
+  sessionId: string;
+  scopedCreds: { accessKeyId: string; secretAccessKey: string };
+  r2Config: { accountId: string; endpoint: string };
+  tabConfig: TabConfig[];
+  workspaceSyncEnabled: boolean;
+  fastStartEnabled: boolean;
+}): string {
+  return JSON.stringify({
+    bucketName: params.bucketName,
+    sessionId: params.sessionId,
+    r2AccessKeyId: params.scopedCreds.accessKeyId,
+    r2SecretAccessKey: params.scopedCreds.secretAccessKey,
+    r2AccountId: params.r2Config.accountId,
+    r2Endpoint: params.r2Config.endpoint,
+    tabConfig: params.tabConfig,
+    workspaceSyncEnabled: params.workspaceSyncEnabled,
+    fastStartEnabled: params.fastStartEnabled,
+  });
+}
+
+/**
+ * Get scoped R2 credentials for a user's bucket.
+ * Wraps getOrCreateScopedR2Token with logging and error translation.
+ */
+async function setupR2Credentials(
+  env: Env,
+  userEmail: string,
+  r2AccountId: string,
+  bucketName: string,
+  logger: ReturnType<typeof containerLogger.child>,
+): Promise<{ accessKeyId: string; secretAccessKey: string; tokenId: string }> {
+  try {
+    return await getOrCreateScopedR2Token(
+      userEmail,
+      r2AccountId,
+      env.CLOUDFLARE_API_TOKEN,
+      bucketName,
+      env.KV,
+    );
+  } catch (error) {
+    logger.error('Failed to create scoped R2 token', toError(error), { bucketName });
+    throw new ContainerError('r2_credentials', toErrorMessage(error));
+  }
+}
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -109,19 +160,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     }
 
     // Get scoped R2 credentials for this user's bucket
-    let scopedCreds: { accessKeyId: string; secretAccessKey: string; tokenId: string };
-    try {
-      scopedCreds = await getOrCreateScopedR2Token(
-        user.email,
-        r2Config.accountId,
-        c.env.CLOUDFLARE_API_TOKEN,
-        bucketName,
-        c.env.KV,
-      );
-    } catch (error) {
-      reqLogger.error('Failed to create scoped R2 token', toError(error), { bucketName });
-      throw new ContainerError('r2_credentials', toErrorMessage(error));
-    }
+    const scopedCreds = await setupR2Credentials(c.env, user.email, r2Config.accountId, bucketName, reqLogger);
 
     // Get container instance for this session
     const container = getContainer(c.env.CONTAINER, containerId);
@@ -139,23 +178,16 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     // collectMetrics/onStop can find the KV entry. No extra container.fetch()
     // needed — the 409 path handles sessionId persistence.
     const needsBucketUpdate = storedBucketName !== bucketName;
+    const setBucketBody = buildSetBucketNameBody({
+      bucketName, sessionId, scopedCreds, r2Config, tabConfig, workspaceSyncEnabled, fastStartEnabled,
+    });
     try {
       await containerInternalCB.execute(() =>
         container.fetch(
           new Request('http://container/_internal/setBucketName', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              bucketName,
-              sessionId,
-              r2AccessKeyId: scopedCreds.accessKeyId,
-              r2SecretAccessKey: scopedCreds.secretAccessKey,
-              r2AccountId: r2Config.accountId,
-              r2Endpoint: r2Config.endpoint,
-              tabConfig,
-              workspaceSyncEnabled,
-              fastStartEnabled,
-            }),
+            body: setBucketBody,
           })
         )
       );
@@ -194,17 +226,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
             new Request('http://container/_internal/setBucketName', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                bucketName,
-                sessionId,
-                r2AccessKeyId: scopedCreds.accessKeyId,
-                r2SecretAccessKey: scopedCreds.secretAccessKey,
-                r2AccountId: r2Config.accountId,
-                r2Endpoint: r2Config.endpoint,
-                tabConfig,
-                workspaceSyncEnabled,
-                fastStartEnabled,
-              }),
+              body: setBucketBody,
             })
           )
         );

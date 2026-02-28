@@ -107,7 +107,6 @@ export function createRateLimiter(config: RateLimitConfig): MiddlewareHandler<{ 
         throw err;
       }
       // KV operation failed — use in-memory fallback instead of letting request through (FIX-15)
-      console.warn('[rate-limit] KV failed, activating in-memory fallback for key:', key);
       logger.warn('Rate limit KV operation failed, using in-memory fallback', { key, error: String(err) });
 
       const fallbackNow = Date.now();

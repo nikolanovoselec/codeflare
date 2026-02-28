@@ -352,7 +352,11 @@ establish_bisync_baseline() {
 # Regular bisync (after baseline is established)
 # Syncs config, credentials - excludes caches and workspace
 bisync_with_r2() {
-    local VERBOSE="${1:--v}"  # Default to -v (verbose); pass "" for quiet
+    local verbose_flag="${1:--v}"  # Default to -v (verbose); pass "" for quiet
+    local verbose_args=()
+    if [ -n "$verbose_flag" ]; then
+        verbose_args=("$verbose_flag")
+    fi
     echo "[sync] Running bidirectional sync..." | tee -a /tmp/sync.log
 
     # Clear stale bisync lock if no bisync is running
@@ -379,7 +383,7 @@ bisync_with_r2() {
         --recover \
         --ignore-checksum \
         --max-delete 100 \
-        --transfers 32 --checkers 32 $VERBOSE 2>&1 > "$SYNC_OUTPUT"; then
+        --transfers 32 --checkers 32 "${verbose_args[@]}" 2>&1 > "$SYNC_OUTPUT"; then
         RESULT=0
     else
         RESULT=$?
@@ -465,7 +469,7 @@ shutdown_handler() {
 }
 
 # Set up shutdown trap
-trap shutdown_handler SIGTERM SIGINT
+trap shutdown_handler SIGTERM SIGINT EXIT
 
 # ============================================================================
 # Helper function to update sync status file (read by health server)

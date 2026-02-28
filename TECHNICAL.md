@@ -444,7 +444,7 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 60s, f
 
 1. One-way `rclone sync` from R2 to local (restore data)
 2. All file modifications run (`.claude.json`, `.gemini/settings.json`, `.codex/version.json`, tab autostart) — these complete before bisync starts to avoid hash mismatches
-3. `rclone bisync --resync --ignore-checksum --max-delete 100` to establish baseline (background), then start 60-second daemon
+3. `rclone bisync --resync --ignore-checksum --max-delete 100` to establish baseline (blocking — container waits for completion), then start 60-second daemon
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 60s cycle.
 
@@ -788,11 +788,9 @@ Uses polling with safety timeouts: poll until success OR background process exit
 
 ```mermaid
 flowchart TD
-    A[Container Start] --> B["initial_sync_from_r2() &"]
-    A --> C[Wait for R2 sync]
-    B -.->|Background| C
-    C -->|Data restored| D["configure_tab_autostart()"]
-    D --> E["Start terminal server (:8080)"]
+    A[Container Start] --> B["initial_sync_from_r2()"]
+    B -->|"Blocking — waits for sync to complete"| C["configure_tab_autostart()"]
+    C --> D["Start terminal server (:8080)"]
 ```
 
 Auto-start uses `cu --silent --no-consent` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#fast-start) below). Users can enable auto-updates via Settings, or update manually via `cu` in any tab.
@@ -890,11 +888,17 @@ codeflare/
 │   │                         # r2-admin, r2-client, r2-config, r2-seed, schemas,
 │   │                         # session-helpers, tutorial-seed.generated, type-guards,
 │   │                         # xml-utils
+│   │                         #   escapeXml() — sanitizes user input for XML/HTML interpolation
+│   │                         #   decodeXmlEntities() — decodes &amp; &lt; etc. from R2 S3 API responses
+│   │                         #   FIX-39 audit trail in file header tracks all interpolation sites
 │   ├── container/index.ts    # Container DO class
 │   └── __tests__/            # Backend unit tests (65 files)
 ├── e2e/                      # E2E tests: 11 API files (~49 tests) + 10 UI files (~74 tests, Puppeteer)
 ├── host/
-│   ├── server.js             # Terminal server (node-pty + WebSocket)
+│   ├── server.js             # HTTP/WS server, auth, routing, prewarm, signal handlers (~496 lines)
+│   ├── session.js            # Session class — PTY management, tab lifecycle (~312 lines)
+│   ├── session-manager.js    # SessionManager class, PREWARM_SESSION_ID constant (~177 lines)
+│   ├── metrics.js            # System metrics collection (disk usage, sync status) (~74 lines)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
 │   ├── prewarm-config.js     # PTY pre-warm configuration (first-output readiness)
 │   ├── __tests__/            # Host unit tests (5 files)
@@ -917,6 +921,10 @@ codeflare/
 ├── vitest.config.ts          # Backend test config
 └── vitest.e2e.config.ts      # E2E test config
 ```
+
+### Intentional Schema Duplication (Bundle Boundary)
+
+`src/lib/schemas.ts` (backend) and `web-ui/src/lib/schemas.ts` (frontend) contain similar Zod schemas for API response validation. This is intentional, not a DRY violation. The frontend (`web-ui/`) has its own Vite build pipeline and produces a separate bundle — it cannot import from the backend Workers module. Both schemas validate the same API contract but live in independent build targets.
 
 ### Critical Paths Inside Container
 
@@ -1299,6 +1307,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | Container dies during active use | Auth issue on internal paths | Verify `/activity` in `authExemptPaths` in `host/server.js` |
 | Phantom container on session switch | Reconnect scope issue | Ensure `activeSessionId` filter passed to `reconnectDisconnectedTerminals()` |
 | Character doubling in terminal | Handler not disposed on reconnect | Dispose `inputDisposable` before creating new handler in `connect()` |
+| Container returns 503 on all authenticated endpoints | `CONTAINER_AUTH_TOKEN` not set | Security default-deny. Token is set automatically by the DO via `crypto.randomUUID()` on lifecycle start. If missing, verify DO `updateEnvVars()` runs before `startAndWaitForPorts()` |
 
 ---
 

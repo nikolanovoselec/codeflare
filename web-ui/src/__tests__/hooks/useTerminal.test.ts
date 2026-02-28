@@ -123,7 +123,7 @@ vi.mock('../../lib/settings', () => ({
   loadSettings: vi.fn(() => ({ clipboardAccess: true })),
 }));
 
-import { useTerminal, type UseTerminalOptions } from '../../hooks/useTerminal';
+import { useTerminal, type UseTerminalOptions, DECTCEM_CURSOR_PARAM, KEYBOARD_REFIT_DEBOUNCE_MS } from '../../hooks/useTerminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen } from '../../lib/mobile';
@@ -551,6 +551,65 @@ describe('useTerminal hook', () => {
       // Handlers should remain the original functions
       expect(mockTerminalInstance._core.viewport.handleTouchStart).toBe(originalHandleTouchStart);
       expect(mockTerminalInstance._core.viewport.handleTouchMove).toBe(originalHandleTouchMove);
+
+      dispose();
+    });
+  });
+
+  describe('named constants', () => {
+    it('DECTCEM_CURSOR_PARAM equals 25', () => {
+      expect(DECTCEM_CURSOR_PARAM).toBe(25);
+    });
+
+    it('KEYBOARD_REFIT_DEBOUNCE_MS equals 150', () => {
+      expect(KEYBOARD_REFIT_DEBOUNCE_MS).toBe(150);
+    });
+  });
+
+  describe('extracted functions', () => {
+    it('initializeTerminal creates Terminal with correct options', async () => {
+      const { Terminal } = await import('@xterm/xterm');
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Terminal constructor should have been called with expected options
+      expect(Terminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cursorBlink: false,
+          cursorStyle: 'block',
+          fontSize: 14,
+          lineHeight: 1.2,
+          allowProposedApi: true,
+          convertEol: true,
+          scrollback: 10000,
+        })
+      );
+
+      dispose();
+    });
+
+    it('setupMobileTerminal is called when touch device detected', async () => {
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const { setupMobileInput } = await import('../../lib/terminal-mobile-input');
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // setupMobileInput should be called on mobile devices
+      expect(setupMobileInput).toHaveBeenCalled();
+
+      // Viewport touch handlers should be overridden (replaced with no-ops)
+      const touchStartHandler = mockTerminalInstance._core.viewport.handleTouchStart;
+      expect(touchStartHandler()).toBeUndefined();
 
       dispose();
     });

@@ -65,7 +65,7 @@ vi.mock('@cloudflare/containers', () => ({
 }));
 
 // Now import the container class after mocks are set up
-import { container as ContainerClass } from '../../container/index';
+import { container as ContainerClass, validateBucketNameInput } from '../../container/index';
 
 describe('container DO class', () => {
   let mockStorage: {
@@ -494,6 +494,78 @@ describe('container DO class', () => {
     it('sleepAfter is 30m', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       expect(instance.sleepAfter).toBe('30m');
+    });
+  });
+
+  describe('setBucketName error path uses structured logger (M7)', () => {
+    it('setBucketName error path uses structured logger, not console.error', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      // Send a request with invalid JSON to trigger the catch block
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: 'not-valid-json',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(500);
+      // console.error should NOT be called directly — logger.error is used instead
+      expect(consoleSpy).not.toHaveBeenCalled();
+      consoleSpy.mockRestore();
+    });
+
+    it('setSessionId error path uses structured logger, not console.error', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      // Send a request with invalid JSON to trigger the catch block
+      const request = new Request('http://container/_internal/setSessionId', {
+        method: 'PUT',
+        body: 'not-valid-json',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(500);
+      expect(consoleSpy).not.toHaveBeenCalled();
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('validateBucketNameInput (L10)', () => {
+    it('rejects empty string', () => {
+      expect(validateBucketNameInput({ bucketName: '' })).toBe('bucketName must be a non-empty string');
+    });
+
+    it('rejects non-string input', () => {
+      expect(validateBucketNameInput({ bucketName: 123 })).toBe('bucketName must be a non-empty string');
+      expect(validateBucketNameInput({ bucketName: null })).toBe('bucketName must be a non-empty string');
+      expect(validateBucketNameInput({ bucketName: undefined })).toBe('bucketName must be a non-empty string');
+    });
+
+    it('accepts valid bucket name', () => {
+      expect(validateBucketNameInput({ bucketName: 'my-bucket' })).toBeNull();
+    });
+
+    it('rejects empty r2AccessKeyId', () => {
+      expect(validateBucketNameInput({ bucketName: 'b', r2AccessKeyId: '' }))
+        .toBe('r2AccessKeyId must be a non-empty string when provided');
+    });
+
+    it('rejects invalid r2Endpoint URL', () => {
+      expect(validateBucketNameInput({ bucketName: 'b', r2Endpoint: 'not-a-url' }))
+        .toBe('r2Endpoint must be a valid URL');
+    });
+
+    it('accepts valid r2Endpoint URL', () => {
+      expect(validateBucketNameInput({ bucketName: 'b', r2Endpoint: 'https://r2.example.com' })).toBeNull();
+    });
+
+    it('rejects non-boolean workspaceSyncEnabled', () => {
+      expect(validateBucketNameInput({ bucketName: 'b', workspaceSyncEnabled: 'true' }))
+        .toBe('workspaceSyncEnabled must be a boolean when provided');
     });
   });
 

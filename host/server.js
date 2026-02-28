@@ -17,24 +17,16 @@
 
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import pty from 'node-pty';
 import { parse as parseUrl } from 'url';
-import { parse as parseQuery } from 'querystring';
 import fs from 'fs';
+import crypto from 'crypto';
 import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
+import { getSyncStatus, getSystemMetrics } from './metrics.js';
+import { Session } from './session.js';
+import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 
-const PROCESS_NAME_POLL_MS = 2000;
 const WS_KEEPALIVE_PING_MS = 30000;
-import os from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import HeadlessPkg from '@xterm/headless';
-const { Terminal: HeadlessTerminal } = HeadlessPkg;
-import SerializePkg from '@xterm/addon-serialize';
-const { SerializeAddon } = SerializePkg;
-
-const execFileAsync = promisify(execFile);
 
 // Structured logger — replaces raw console.log/console.error calls
 function log(level, msg, meta) {
@@ -58,55 +50,6 @@ function log(level, msg, meta) {
 // Start time for uptime calculation
 const SERVER_START_TIME = Date.now();
 
-// Helper to get sync status from /tmp/sync-status.json
-function getSyncStatus() {
-  try {
-    const data = fs.readFileSync('/tmp/sync-status.json', 'utf8');
-    return JSON.parse(data);
-  } catch (e) {
-    return { status: 'pending', error: null, userPath: null };
-  }
-}
-
-// Cached disk metrics to avoid shelling out on every health check
-let cachedDiskMetrics = { value: '...', lastUpdated: 0 };
-const DISK_CACHE_TTL = 30000; // 30 seconds
-
-async function getDiskMetrics() {
-  if (Date.now() - cachedDiskMetrics.lastUpdated < DISK_CACHE_TTL) {
-    return cachedDiskMetrics.value;
-  }
-  try {
-    const { stdout } = await execFileAsync('df', ['-h', '/home/user']);
-    const lines = stdout.trim().split('\n');
-    if (lines.length >= 2) {
-      const fields = lines[1].split(/\s+/);
-      cachedDiskMetrics = { value: `${fields[2]}/${fields[1]}`, lastUpdated: Date.now() };
-    }
-  } catch (e) { log('debug', 'Disk metrics fetch failed', { error: e.message }); }
-  return cachedDiskMetrics.value;
-}
-
-// Helper to get system metrics (CPU, MEM, HDD)
-async function getSystemMetrics() {
-  const metrics = { cpu: '...', mem: '...', hdd: '...' };
-  try {
-    const loadAvg = os.loadavg()[0];
-    const cpus = os.cpus().length;
-    metrics.cpu = ((loadAvg / cpus) * 100).toFixed(0) + '%';
-  } catch (e) { log('debug', 'CPU metrics fetch failed', { error: e.message }); }
-  try {
-    const totalMem = os.totalmem();
-    const freeMem = os.freemem();
-    const usedMem = totalMem - freeMem;
-    const usedGB = (usedMem / 1024 / 1024 / 1024).toFixed(1);
-    const totalGB = (totalMem / 1024 / 1024 / 1024).toFixed(1);
-    metrics.mem = usedGB + '/' + totalGB + 'G';
-  } catch (e) { log('debug', 'Memory metrics fetch failed', { error: e.message }); }
-  metrics.hdd = await getDiskMetrics();
-  return metrics;
-}
-
 const PORT = process.env.TERMINAL_PORT || 8080;
 // Spawn a login shell so .bashrc runs and auto-starts the configured agent
 // The .bashrc has agent auto-start logic that only works in interactive login shells
@@ -117,9 +60,6 @@ const WORKSPACE_DEFAULT = process.env.WORKSPACE || '/home/user/workspace';
 // PTY persistence settings
 const PTY_KEEPALIVE_MS = parseInt(process.env.PTY_KEEPALIVE_MS || '2700000', 10); // 45 minutes
 const PTY_CLEANUP_INTERVAL_MS = parseInt(process.env.PTY_CLEANUP_INTERVAL_MS || '60000', 10); // Check every minute
-
-// Session limits
-const MAX_SESSIONS = 20;
 
 // Named constants for magic numbers
 const WS_MAX_PAYLOAD = 64 * 1024;        // 64KB WebSocket max payload
@@ -174,459 +114,38 @@ function logWsEvent(sessionId, type, details) {
 // Activity tracking for smart hibernation (WebSocket disconnect tracking)
 const activityTracker = createActivityTracker();
 
-/**
- * Session represents a PTY terminal instance
- */
-class Session {
-  constructor(id, name = 'Terminal', manual = false) {
-    this.id = id;
-    this.name = name;
-    this.manual = manual;
-    this.ptyProcess = null;
-    this.clients = new Set(); // WebSocket clients attached to this session
-    this.headlessTerminal = new HeadlessTerminal({ cols: 80, rows: 24, allowProposedApi: true });
-    this.serializeAddon = new SerializeAddon();
-    this.headlessTerminal.loadAddon(this.serializeAddon);
-    this.createdAt = new Date().toISOString();
-    this.lastAccessedAt = this.createdAt;
-    this.disconnectedAt = null; // Timestamp when last client disconnected
-    this.keepAliveTimeout = null; // Timer for PTY cleanup after disconnect
-    this.lastProcessName = null; // Track PTY foreground process name
-    this.processNameInterval = null; // Interval for polling process name changes
-    this.orphanTimeout = null; // Timer for killing pre-warmed sessions not adopted by a client
-  }
-
-  /**
-   * Get the terminal ID from the compound session ID (e.g., "abc123-2" -> "2")
-   */
-  get terminalId() {
-    const parts = this.id.split('-');
-    return parts[parts.length - 1];
-  }
-
-  /**
-   * Resolve the display name for the foreground process.
-   * When ptyProcess.process returns a generic name like "node" (because
-   * Node.js-based tools report "node" as the OS process), fall back to
-   * the configured command from TAB_CONFIG.
-   */
-  resolveProcessName() {
-    const rawName = this.ptyProcess ? this.ptyProcess.process : null;
-    if (!rawName) return null;
-
-    // If raw name is generic (shell or node runtime), prefer the configured command
-    const configuredCmd = tabConfigMap[this.terminalId];
-    if (configuredCmd) {
-      const baseName = rawName.split('/').pop(); // "/bin/bash" -> "bash"
-      if (['node', 'nodejs', 'bash', 'sh', 'zsh'].includes(baseName)) {
-        return configuredCmd.split(/\s+/)[0];
-      }
-    }
-
-    // Strip path prefix for display ("/bin/bash" -> "bash")
-    return rawName.split('/').pop() || rawName;
-  }
-
-  /**
-   * Start the PTY process
-   */
-  start(cols = 80, rows = 24) {
-    if (this.ptyProcess) {
-      return; // Already started
-    }
-
-    // Parse command (support both "cmd arg1 arg2" format and separate TERMINAL_ARGS)
-    const [cmd, ...cmdArgs] = TERMINAL_COMMAND.split(' ');
-    // Combine with TERMINAL_ARGS if set (for login shell -l flag)
-    const extraArgs = TERMINAL_ARGS ? TERMINAL_ARGS.split(' ').filter(a => a) : [];
-    const args = [...cmdArgs, ...extraArgs];
-
-    log('info', 'Spawning PTY', { session: this.id.substring(0, 8), cmd, args });
-
-    // Get working directory at spawn time (may change if R2 mounts later)
-    const cwd = getWorkingDirectory();
-
-    // Extract terminal ID from compound session ID (e.g., "abc123-2" -> "2")
-    const terminalId = this.id.includes('-') ? this.id.split('-').pop() : '1';
-
-    const ptyEnv = {
-      ...process.env,
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
-      HOME: process.env.HOME || '/root',
-      TERMINAL_ID: terminalId,
-    };
-    // User-created tabs ("+") get MANUAL_TAB=1 so .bashrc skips autostart
-    if (this.manual) {
-      ptyEnv.MANUAL_TAB = '1';
-    }
-
-    this.ptyProcess = pty.spawn(cmd, args, {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd,
-      env: ptyEnv,
-    });
-
-    this.ptyProcess.onData((data) => {
-      // Feed data into headless terminal for state tracking
-      this.headlessTerminal.write(data);
-
-      // Broadcast to all connected clients - send RAW data (xterm expects raw bytes)
-      for (const client of this.clients) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(data);  // Raw terminal data, NOT JSON wrapped
-        }
-      }
-    });
-
-    this.ptyProcess.onExit(({ exitCode, signal }) => {
-      log('info', 'PTY exited', { session: this.id, exitCode, signal, connectedClients: this.clients.size });
-      logWsEvent(this.id, 'pty_exit', { exitCode, signal, connectedClients: this.clients.size });
-      // Notify clients with exit message as terminal output
-      for (const client of this.clients) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(`\r\n[Process exited with code ${exitCode}]\r\n`);
-        }
-      }
-      this.ptyProcess = null;
-      // Clear process name tracking when PTY exits
-      if (this.processNameInterval) {
-        clearInterval(this.processNameInterval);
-        this.processNameInterval = null;
-      }
-      this.lastProcessName = null;
-    });
-
-    // Track PTY foreground process name changes (poll every 2s)
-    // Use resolveProcessName() to get the display name (handles "node" -> actual tool name)
-    this.lastProcessName = this.resolveProcessName();
-    this.processNameInterval = setInterval(() => {
-      if (!this.ptyProcess) {
-        clearInterval(this.processNameInterval);
-        this.processNameInterval = null;
-        return;
-      }
-      const processName = this.resolveProcessName();
-      if (processName !== this.lastProcessName) {
-        this.lastProcessName = processName;
-        const msg = JSON.stringify({ type: 'process-name', terminalId: this.id, processName });
-        for (const client of this.clients) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(msg);
-          }
-        }
-      }
-    }, PROCESS_NAME_POLL_MS);
-
-    log('info', 'PTY started', { session: this.id.substring(0, 8), pid: this.ptyProcess.pid });
-  }
-
-  /**
-   * Attach a WebSocket client to this session
-   */
-  attach(ws) {
-    this.clients.add(ws);
-    this.lastAccessedAt = new Date().toISOString();
-    activityTracker.recordClientConnected();
-
-    // Cancel any pending keepalive timeout since we have a client again
-    if (this.keepAliveTimeout) {
-      clearTimeout(this.keepAliveTimeout);
-      this.keepAliveTimeout = null;
-      log('info', 'Reconnected, cancelled keepalive timeout', { session: this.id.substring(0, 8) });
-    }
-    this.disconnectedAt = null;
-
-    // Start PTY if not already running
-    if (!this.ptyProcess) {
-      this.start();
-    }
-
-    // Send serialized terminal state for reconnection
-    const state = this.serializeAddon.serialize();
-    if (state) {
-      ws.send(JSON.stringify({ type: 'restore', state }));
-    }
-
-    // Send current process name to new client so tab label is correct immediately
-    if (this.lastProcessName) {
-      ws.send(JSON.stringify({ type: 'process-name', terminalId: this.id, processName: this.lastProcessName }));
-    }
-
-    log('info', 'Client attached', { session: this.id.substring(0, 8), totalClients: this.clients.size });
-  }
-
-  /**
-   * Detach a WebSocket client from this session
-   * @param {SessionManager} sessionManager - Reference to session manager for cleanup
-   */
-  detach(ws, sessionManager = null) {
-    this.clients.delete(ws);
-    log('info', 'Client detached', { session: this.id.substring(0, 8), totalClients: this.clients.size });
-
-    // Track global disconnect for idle detection
-    if (sessionManager && sessionManager.clients.size === 0) {
-      activityTracker.recordAllClientsDisconnected();
-    }
-
-    // If no more clients and PTY is still running, start keepalive timer
-    if (this.clients.size === 0 && this.ptyProcess) {
-      this.disconnectedAt = new Date().toISOString();
-      log('info', 'No clients remaining, PTY kept alive', { session: this.id.substring(0, 8), keepAliveSec: PTY_KEEPALIVE_MS / 1000 });
-
-      // Set timeout to kill PTY if no reconnection
-      this.keepAliveTimeout = setTimeout(() => {
-        if (this.clients.size === 0 && this.ptyProcess) {
-          log('info', 'Keepalive timeout expired, killing PTY', { session: this.id.substring(0, 8) });
-          this.kill();
-          // Optionally remove from session manager
-          if (sessionManager) {
-            sessionManager.sessions.delete(this.id);
-            log('info', 'Removed orphaned session', { session: this.id });
-          }
-        }
-      }, PTY_KEEPALIVE_MS);
-    }
-  }
-
-  /**
-   * Write data to the PTY
-   */
-  write(data) {
-    if (this.ptyProcess) {
-      this.ptyProcess.write(data);
-    }
-  }
-
-  /**
-   * Resize the PTY
-   */
-  resize(cols, rows) {
-    if (this.ptyProcess) {
-      this.ptyProcess.resize(cols, rows);
-    }
-    this.headlessTerminal.resize(cols, rows);
-  }
-
-  /**
-   * Kill the PTY process
-   */
-  kill() {
-    // Clear any keepalive timeout
-    if (this.keepAliveTimeout) {
-      clearTimeout(this.keepAliveTimeout);
-      this.keepAliveTimeout = null;
-    }
-
-    // Clear process name tracking interval
-    if (this.processNameInterval) {
-      clearInterval(this.processNameInterval);
-      this.processNameInterval = null;
-    }
-    this.lastProcessName = null;
-
-    if (this.ptyProcess) {
-      this.ptyProcess.kill();
-      this.ptyProcess = null;
-    }
-    // Clean up headless terminal
-    this.headlessTerminal.dispose();
-    // Close all clients
-    for (const client of this.clients) {
-      client.close(1000, 'Session terminated');
-    }
-    this.clients.clear();
-    this.disconnectedAt = null;
-    log('info', 'Session killed', { session: this.id });
-  }
-
-  /**
-   * Check if session is alive (has PTY or clients)
-   */
-  isAlive() {
-    return this.ptyProcess !== null || this.clients.size > 0;
-  }
-
-  /**
-   * Check if PTY process is still running
-   */
-  isPtyAlive() {
-    return this.ptyProcess !== null;
-  }
-
-  /**
-   * Get session info
-   */
-  toJSON() {
-    return {
-      id: this.id,
-      name: this.name,
-      pid: this.ptyProcess?.pid || null,
-      clients: this.clients.size,
-      createdAt: this.createdAt,
-      lastAccessedAt: this.lastAccessedAt,
-      disconnectedAt: this.disconnectedAt,
-      ptyAlive: this.isPtyAlive(),
-    };
-  }
-}
-
-/**
- * SessionManager handles all PTY sessions
- */
-class SessionManager {
-  constructor() {
-    this.sessions = new Map();
-    this.cleanupInterval = null;
-  }
-
-  /**
-   * Start periodic cleanup of dead sessions
-   */
-  startCleanup() {
-    if (this.cleanupInterval) return;
-
-    this.cleanupInterval = setInterval(() => {
-      this.cleanupDeadSessions();
-    }, PTY_CLEANUP_INTERVAL_MS);
-
-    log('info', 'Started cleanup interval', { intervalSec: PTY_CLEANUP_INTERVAL_MS / 1000 });
-  }
-
-  /**
-   * Stop periodic cleanup
-   */
-  stopCleanup() {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-    }
-  }
-
-  /**
-   * Clean up sessions that have no clients and no PTY
-   */
-  cleanupDeadSessions() {
-    const toDelete = [];
-    for (const [id, session] of this.sessions) {
-      // Remove sessions that have no PTY and no clients
-      if (!session.isPtyAlive() && session.clients.size === 0) {
-        toDelete.push(id);
-      }
-    }
-
-    for (const id of toDelete) {
-      this.sessions.delete(id);
-      log('info', 'Cleaned up dead session', { session: id });
-    }
-
-    if (toDelete.length > 0) {
-      log('info', 'Dead sessions cleanup complete', { cleaned: toDelete.length, active: this.sessions.size });
-    }
-  }
-
-  /**
-   * Get or create a session
-   */
-  getOrCreate(id, name, manual = false) {
-    let session = this.sessions.get(id);
-
-    if (session) {
-      // Session exists - check if PTY is still alive
-      if (session.isPtyAlive()) {
-        log('info', 'Reattaching to existing session', { session: id, pid: session.ptyProcess?.pid });
-      } else {
-        log('info', 'Session exists but PTY is dead, will restart on attach', { session: id });
-      }
-    } else {
-      // Check for pre-warmed session to adopt (tab 1 only)
-      const terminalId = id.includes('-') ? id.split('-').pop() : '1';
-      if (terminalId === '1') {
-        const prewarmed = this.sessions.get('prewarm-1');
-        if (prewarmed && this.sessions.delete('prewarm-1')) {
-          prewarmed.id = id;
-          if (prewarmed.orphanTimeout) {
-            clearTimeout(prewarmed.orphanTimeout);
-            prewarmed.orphanTimeout = null;
-          }
-          this.sessions.set(id, prewarmed);
-          // NOTE: Do NOT set prewarmReady here. The first-output listener
-          // manages prewarmReady independently — adoption just moves the session
-          // from 'prewarm-1' to the real ID.
-          log('info', 'Adopted pre-warmed session', { session: id });
-          return prewarmed;
-        }
-      }
-
-      // Add session cap check (exclude prewarm sessions from count)
-      const activeCount = Array.from(this.sessions.keys()).filter(k => !k.startsWith('prewarm-')).length;
-      if (activeCount >= MAX_SESSIONS) {
-        return null; // Caller must handle null
-      }
-      // Create new session
-      session = new Session(id, name, manual);
-      this.sessions.set(id, session);
-      log('info', 'Created new session', { session: id });
-    }
-
-    return session;
-  }
-
-  /**
-   * Get a session by ID
-   */
-  get(id) {
-    return this.sessions.get(id);
-  }
-
-  /**
-   * Delete a session
-   */
-  delete(id) {
-    const session = this.sessions.get(id);
-    if (session) {
-      session.kill();
-      this.sessions.delete(id);
-      log('info', 'Deleted session', { session: id });
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * List all sessions
-   */
-  list() {
-    return Array.from(this.sessions.values()).map((s) => s.toJSON());
-  }
-
-  /**
-   * Get a Map of all connected WebSocket clients across all sessions.
-   * Used by activityTracker.getActivityInfo() to determine hasActiveConnections.
-   */
-  get clients() {
-    const allClients = new Map();
-    let idx = 0;
-    for (const session of this.sessions.values()) {
-      for (const ws of session.clients) {
-        allClients.set(`${session.id}-${idx++}`, ws);
-      }
-    }
-    return allClients;
-  }
-
-  /**
-   * Get session count
-   */
-  get size() {
-    return this.sessions.size;
-  }
-}
+// Shared options for Session and SessionManager
+const sessionOptions = {
+  tabConfigMap,
+  terminalCommand: TERMINAL_COMMAND,
+  terminalArgs: TERMINAL_ARGS,
+  getWorkingDirectory,
+  log,
+  logWsEvent,
+  activityTracker,
+  ptyKeepaliveMs: PTY_KEEPALIVE_MS,
+  maxSessions: 20,
+  ptyCleanupIntervalMs: PTY_CLEANUP_INTERVAL_MS,
+};
 
 // Initialize session manager
-const sessionManager = new SessionManager();
+const sessionManager = new SessionManager(sessionOptions);
+
+/**
+ * Timing-safe comparison of bearer tokens.
+ * Uses crypto.timingSafeEqual to prevent timing side-channel attacks.
+ * @param {string} provided - The token from the Authorization header
+ * @param {string} expected - The expected CONTAINER_AUTH_TOKEN
+ * @returns {boolean}
+ */
+function safeTokenCompare(provided, expected) {
+  const providedBuf = Buffer.from(provided, 'utf8');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  if (providedBuf.length !== expectedBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(providedBuf, expectedBuf);
+}
 
 // Create HTTP server
 const server = http.createServer(async (req, res) => {
@@ -641,20 +160,27 @@ const server = http.createServer(async (req, res) => {
   if (!authExemptPaths.has(pathname)) {
     // Validate container auth token (internal-only service, no CORS needed)
     const expectedToken = process.env.CONTAINER_AUTH_TOKEN;
-    if (expectedToken) {
-      const authHeader = req.headers['authorization'];
-      if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Unauthorized' }));
-        return;
-      }
+    if (!expectedToken) {
+      // L17: When CONTAINER_AUTH_TOKEN is not set, return 503 (server not ready)
+      // rather than silently skipping auth, which would leave all endpoints unprotected
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server not configured (missing auth token)' }));
+      return;
+    }
+    const authHeader = req.headers['authorization'];
+    const providedToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    // L18: Use timing-safe comparison to prevent timing side-channel attacks
+    if (!providedToken || !safeTokenCompare(providedToken, expectedToken)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
     }
   }
 
   // Health check with full metrics (consolidates separate health server)
   if (pathname === '/health' && method === 'GET') {
     const syncInfo = getSyncStatus();
-    const sysMetrics = await getSystemMetrics();
+    const sysMetrics = await getSystemMetrics(log);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
@@ -757,19 +283,19 @@ const server = http.createServer(async (req, res) => {
     try {
       const MAX_LOG_SIZE = 100 * 1024; // 100KB
       const stat = fs.statSync('/tmp/sync.log');
-      let log;
+      let logContent;
       if (stat.size > MAX_LOG_SIZE) {
         // Read only the last 100KB
         const buffer = Buffer.alloc(MAX_LOG_SIZE);
         const fd = fs.openSync('/tmp/sync.log', 'r');
         fs.readSync(fd, buffer, 0, MAX_LOG_SIZE, stat.size - MAX_LOG_SIZE);
         fs.closeSync(fd);
-        log = '... (truncated)\n' + buffer.toString('utf8');
+        logContent = '... (truncated)\n' + buffer.toString('utf8');
       } else {
-        log = fs.readFileSync('/tmp/sync.log', 'utf8');
+        logContent = fs.readFileSync('/tmp/sync.log', 'utf8');
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ log }));
+      res.end(JSON.stringify({ log: logContent }));
     } catch {
       res.writeHead(404);
       res.end('No sync log found');
@@ -904,8 +430,8 @@ server.listen(PORT, '0.0.0.0', () => {
   sessionManager.startCleanup();
 
   // Pre-warm tab 1 PTY so the first client connect is instant
-  const prewarmSession = new Session('prewarm-1', 'Terminal');
-  sessionManager.sessions.set('prewarm-1', prewarmSession);
+  const prewarmSession = new Session(PREWARM_SESSION_ID, 'Terminal', false, sessionOptions);
+  sessionManager.sessions.set(PREWARM_SESSION_ID, prewarmSession);
   prewarmSession.start();
   prewarmStartTime = Date.now();
   log('info', 'Pre-warming tab 1 PTY', { command: prewarmConfig.command });
@@ -946,27 +472,25 @@ server.listen(PORT, '0.0.0.0', () => {
   }, PREWARM_TIMEOUT_MS);
 
   prewarmSession.orphanTimeout = setTimeout(() => {
-    if (sessionManager.sessions.has('prewarm-1')) {
+    if (sessionManager.sessions.has(PREWARM_SESSION_ID)) {
       log('warn', 'Pre-warm session expired without adoption, killing');
-      sessionManager.delete('prewarm-1');
+      sessionManager.delete(PREWARM_SESSION_ID);
       prewarmReady = true;
     }
   }, PREWARM_ORPHAN_MS);
 });
 
-// Handle shutdown
-process.on('SIGTERM', () => {
-  log('info', 'Received SIGTERM, shutting down');
+// Graceful shutdown helper
+function shutdown(signal) {
+  log('info', `Received ${signal}, shutting down`);
+  // M2: Kill all active sessions before exit to avoid orphaned PTY processes
+  sessionManager.killAll();
   sessionManager.stopCleanup();
   wss.close();
   server.close();
   process.exit(0);
-});
+}
 
-process.on('SIGINT', () => {
-  log('info', 'Received SIGINT, shutting down');
-  sessionManager.stopCleanup();
-  wss.close();
-  server.close();
-  process.exit(0);
-});
+// Handle shutdown
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

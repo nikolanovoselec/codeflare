@@ -267,3 +267,43 @@ describe('shutdown_handler PID management', () => {
     assert.ok(!body.includes('SYNC_DAEMON_PID'), 'should not reference SYNC_DAEMON_PID variable');
   });
 });
+
+// ============================================================================
+// Test: trap includes EXIT signal for crash recovery
+// ============================================================================
+describe('trap signal handling', () => {
+  it('trap includes EXIT signal for crash recovery', () => {
+    assert.ok(
+      entrypoint.includes('trap shutdown_handler SIGTERM SIGINT EXIT'),
+      'trap should include EXIT signal alongside SIGTERM and SIGINT'
+    );
+  });
+});
+
+// ============================================================================
+// Test: bisync_with_r2 uses array expansion for verbose flag
+// ============================================================================
+describe('bisync_with_r2 verbose flag handling', () => {
+  it('bisync_with_r2 uses array expansion for verbose flag', () => {
+    const body = extractFunction('bisync_with_r2');
+    assert.ok(body, 'bisync_with_r2 function should exist');
+    // Should use verbose_args array pattern
+    assert.ok(
+      body.includes('verbose_args'),
+      'bisync_with_r2 should use verbose_args array pattern'
+    );
+    assert.ok(
+      body.includes('"${verbose_args[@]}"'),
+      'bisync_with_r2 should use "${verbose_args[@]}" array expansion'
+    );
+    // Should NOT have bare $VERBOSE in the rclone command line
+    // (the local assignment and conditional check are fine, but it shouldn't be passed directly to rclone)
+    const rcloneCmd = body.match(/rclone bisync[\s\S]*?;/);
+    if (rcloneCmd) {
+      assert.ok(
+        !rcloneCmd[0].includes('$VERBOSE'),
+        'rclone bisync command should not use bare $VERBOSE'
+      );
+    }
+  });
+});

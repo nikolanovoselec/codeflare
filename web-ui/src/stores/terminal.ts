@@ -3,16 +3,29 @@ import { createSignal } from 'solid-js';
 import type { TerminalConnectionState } from '../types';
 import { getTerminalWebSocketUrl } from '../api/client';
 import type { Terminal } from '@xterm/xterm';
-import type { FitAddon } from '@xterm/addon-fit';
 import { logger } from '../lib/logger';
 import {
   MAX_WS_RETRIES,
   WS_RETRY_DELAY_MS,
-  CSS_TRANSITION_DELAY_MS,
   WS_CLOSE_ABNORMAL,
-  URL_CHECK_INTERVAL_MS,
-  ACTIONABLE_URL_PATTERNS,
 } from '../lib/constants';
+import {
+  registerUrlDetectionDeps,
+  startUrlDetection as _startUrlDetection,
+  stopUrlDetection as _stopUrlDetection,
+  getLastUrlFromBuffer as _getLastUrlFromBuffer,
+  isActionableUrl as _isActionableUrl,
+} from './terminal-url-detection';
+import {
+  registerLayoutDeps,
+  registerFitAddon as _registerFitAddon,
+  unregisterFitAddon as _unregisterFitAddon,
+  triggerLayoutResize as _triggerLayoutResize,
+  getLayoutChangeCounter,
+  clearFitAddons,
+  cleanupFitAddonsByPrefix,
+  refitAllTerminalsExported as _refitAllTerminals,
+} from './terminal-layout';
 
 // Callback for process-name messages (avoids circular import with session store)
 let onProcessName: ((sessionId: string, terminalId: string, processName: string) => void) | null = null;
@@ -27,6 +40,21 @@ export function registerProcessNameCallback(
 // Helper to create compound key from sessionId and terminalId
 function makeKey(sessionId: string, terminalId: string): string {
   return `${sessionId}:${terminalId}`;
+}
+
+/**
+ * Remove all entries from a Map whose keys start with `prefix`, optionally
+ * calling `teardown` on each value before deletion (L14: extracted helper).
+ */
+export function cleanupMapByPrefix<T>(map: Map<string, T>, prefix: string, teardown?: (value: T) => void): void {
+  for (const key of [...map.keys()]) {
+    if (key.startsWith(prefix)) {
+      if (teardown) {
+        teardown(map.get(key)!);
+      }
+      map.delete(key);
+    }
+  }
 }
 
 // Use plain objects to store references (Solid.js stores don't track Map mutations well)
@@ -47,63 +75,12 @@ const abortControllers = new Map<string, AbortController>();
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
 
-// Store fitAddon references for triggering resize on layout change
-const fitAddons = new Map<string, FitAddon>();
-
-// Signal to trigger global terminal resize (incremented when tiling layout changes)
-const [layoutChangeCounter, setLayoutChangeCounter] = createSignal(0);
-
-// Refit all registered terminals (fit + send resize to PTY + refresh)
-function refitAllTerminals(): void {
-  for (const [key, fitAddon] of fitAddons) {
-    try {
-      fitAddon.fit();
-      const terminal = terminals.get(key);
-      if (terminal) {
-        const cols = terminal.cols;
-        const rows = terminal.rows;
-        // Send resize to PTY
-        const ws = connections.get(key);
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-        }
-        // Force full terminal refresh to fix garbling/colors in apps like htop
-        terminal.scrollToBottom();
-        terminal.refresh(0, terminal.rows - 1);
-      }
-    } catch (err) {
-      logger.warn(`[Terminal ${key}] Failed to refit on layout change:`, err);
-    }
-  }
-}
-
-// Trigger all terminals to refit (called when tiling layout changes)
-function triggerLayoutResize(): void {
-  setLayoutChangeCounter((c) => c + 1);
-
-  // Primary refit: catches simple/fast layout changes (e.g., tabbed <-> 2-split)
-  setTimeout(() => {
-    requestAnimationFrame(() => refitAllTerminals());
-  }, CSS_TRANSITION_DELAY_MS);
-
-  // Secondary refit: catches complex grid restructuring (e.g., 4-grid <-> 3-split)
-  // where the browser may not have completed CSS grid relayout by the primary pass
-  setTimeout(() => {
-    requestAnimationFrame(() => refitAllTerminals());
-  }, CSS_TRANSITION_DELAY_MS * 4);
-}
-
-// Register a fitAddon for a terminal (for layout change handling)
-function registerFitAddon(sessionId: string, terminalId: string, fitAddon: FitAddon): void {
-  const key = makeKey(sessionId, terminalId);
-  fitAddons.set(key, fitAddon);
-}
-
-// Unregister a fitAddon
-function unregisterFitAddon(sessionId: string, terminalId: string): void {
-  const key = makeKey(sessionId, terminalId);
-  fitAddons.delete(key);
-}
+// L26: FitAddon management and layout resize delegated to terminal-layout.ts
+// Register layout module dependencies at module init
+registerLayoutDeps(
+  () => terminals,
+  () => connections,
+);
 
 // Get connection state
 function getConnectionState(sessionId: string, terminalId: string): TerminalConnectionState {
@@ -431,7 +408,7 @@ function dispose(sessionId: string, terminalId: string): void {
 function disposeSession(sessionId: string): void {
   const prefix = `${sessionId}:`;
 
-  // Find and dispose all terminals for this session
+  // Disconnect all WebSocket connections for this session (handles abort + input disposable cleanup)
   for (const key of [...connections.keys()]) {
     if (key.startsWith(prefix)) {
       const terminalId = key.slice(prefix.length);
@@ -439,42 +416,11 @@ function disposeSession(sessionId: string): void {
     }
   }
 
-  for (const key of [...terminals.keys()]) {
-    if (key.startsWith(prefix)) {
-      const terminal = terminals.get(key);
-      if (terminal) {
-        terminal.dispose();
-      }
-      terminals.delete(key);
-    }
-  }
-
-  // Clean up auxiliary Maps (mirrors disposeAll pattern)
-  for (const key of [...fitAddons.keys()]) {
-    if (key.startsWith(prefix)) {
-      fitAddons.delete(key);
-    }
-  }
-
-  for (const key of [...abortControllers.keys()]) {
-    if (key.startsWith(prefix)) {
-      const controller = abortControllers.get(key);
-      if (controller) {
-        controller.abort();
-      }
-      abortControllers.delete(key);
-    }
-  }
-
-  for (const key of [...inputDisposables.keys()]) {
-    if (key.startsWith(prefix)) {
-      const disposable = inputDisposables.get(key);
-      if (disposable) {
-        disposable.dispose();
-      }
-      inputDisposables.delete(key);
-    }
-  }
+  // L14: Use cleanupMapByPrefix for remaining auxiliary Maps
+  cleanupMapByPrefix(terminals, prefix, (terminal) => terminal.dispose());
+  cleanupFitAddonsByPrefix(prefix);
+  cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
+  cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
 
   // Clean up state
   setState(produce((s) => {
@@ -519,7 +465,7 @@ function disposeAll(): void {
   }
   abortControllers.clear();
 
-  fitAddons.clear();
+  clearFitAddons();
 }
 
 // Reconnect to terminal WebSocket
@@ -554,155 +500,17 @@ export function sendInputToTerminal(sessionId: string, terminalId: string, text:
   return false;
 }
 
-// ─── URL Detection ───────────────────────────────────────────────────────────
-
-/** Strips trailing non-URL characters (TUI border decoration like │, padding) */
-const TRAILING_NON_URL = /[^a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
-/** Strips leading non-URL characters (TUI border decoration like │, padding) */
-const LEADING_NON_URL = /^[^a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/;
-
-/**
- * Checks whether the next buffer line is likely a URL continuation from
- * an application-inserted newline (e.g. ink-based TUIs like Claude Code).
- * When insideUrl=true, strips TUI border decoration (│ etc.) from line
- * boundaries before checking, so Bubble Tea dialogs don't block detection.
- */
-function isLikelyUrlContinuation(
-  currentLineText: string,
-  nextLineText: string,
-  terminalCols: number,
-  insideUrl = false,
-): boolean {
-  // When inside a URL, strip trailing TUI decoration (│, spaces) so border
-  // chars don't prevent continuation detection
-  const effectiveCurrent = insideUrl
-    ? currentLineText.replace(TRAILING_NON_URL, '')
-    : currentLineText;
-  if (!insideUrl && effectiveCurrent.length < terminalCols - 1) return false;
-  const urlChars = /[a-zA-Z0-9\-._~:/?#[\]@!$&'()*+,;=%]/;
-  if (!effectiveCurrent || !urlChars.test(effectiveCurrent.slice(-1))) return false;
-  // When inside a URL, strip leading TUI decoration + whitespace from next line
-  const checkText = insideUrl ? nextLineText.replace(LEADING_NON_URL, '') : nextLineText;
-  if (!checkText || /^\s/.test(checkText)) return false;
-  if (/^[$>#]/.test(checkText)) return false;
-  if (!urlChars.test(checkText[0])) return false;
-  if (/^https?:\/\//i.test(checkText)) return false;
-  // When inside a URL in a bordered TUI dialog, verify continuation content has
-  // no internal spaces. URLs never contain literal spaces (they use %20), while
-  // English text like "Press ENTER to continue" almost always does.
-  if (insideUrl) {
-    const contentOnly = checkText.replace(TRAILING_NON_URL, '');
-    if (/\s/.test(contentOnly)) return false;
-  }
-  return true;
-}
-
-function getLastUrlFromBuffer(term: Terminal): string | null {
-  const buffer = (term as any).buffer?.active;
-  if (!buffer) return null;
-
-  const cols: number = term.cols || 80;
-  const rows: number = term.rows || 24;
-  const urlRegex = /https?:\/\/[^\s"'<>]+/g;
-  let lastUrl: string | null = null;
-  // Only scan visible viewport ±3 lines
-  const viewportY: number = buffer.viewportY ?? Math.max(0, buffer.length - rows);
-  const startLine = Math.max(0, viewportY - 3);
-  const endLine = Math.min(buffer.length, viewportY + rows + 3);
-
-  let i = startLine;
-  while (i < endLine) {
-    const line = buffer.getLine(i);
-    if (!line) { i++; continue; }
-    if (line.isWrapped) { i++; continue; }
-
-    let fullText = line.translateToString(true);
-    let j = i + 1;
-    while (j < endLine) {
-      const nextLine = buffer.getLine(j);
-      if (!nextLine?.isWrapped) break;
-      fullText += nextLine.translateToString(true);
-      j++;
-    }
-
-    let heuristicCount = 0;
-    while (j < endLine && heuristicCount < 10) {
-      const nextLine = buffer.getLine(j);
-      if (!nextLine) break;
-      const nextText = nextLine.translateToString(true);
-      const lastPhysicalLine = buffer.getLine(j - 1)!.translateToString(true);
-      // Strip trailing TUI decoration (│, padding) before checking if we're mid-URL
-      const cleanedForCheck = fullText.replace(TRAILING_NON_URL, '');
-      const midUrl = /https?:\/\/[^\s]*$/.test(cleanedForCheck);
-      if (!isLikelyUrlContinuation(lastPhysicalLine, nextText, cols, midUrl)) break;
-      if (midUrl) {
-        // Strip TUI border decoration from join points
-        fullText = cleanedForCheck;
-        fullText += nextText.replace(LEADING_NON_URL, '').replace(TRAILING_NON_URL, '');
-      } else {
-        fullText += nextText;
-      }
-      j++;
-      heuristicCount++;
-      while (j < endLine) {
-        const wrapped = buffer.getLine(j);
-        if (!wrapped?.isWrapped) break;
-        fullText += wrapped.translateToString(true);
-        j++;
-      }
-    }
-
-    const matches = fullText.match(urlRegex);
-    if (matches) {
-      lastUrl = matches[matches.length - 1];
-    }
-    i = j;
-  }
-
-  return lastUrl;
-}
-
-/** Returns true if the URL matches any pattern in ACTIONABLE_URL_PATTERNS */
-function isActionableUrl(url: string): boolean {
-  return ACTIONABLE_URL_PATTERNS.some((pattern) => pattern.test(url));
-}
-
-// Reactive signals for detected URLs
+// L26: URL detection delegated to terminal-url-detection.ts
+// Reactive signals for detected URLs (kept here for terminalStore API compat)
 const [authUrl, setAuthUrl] = createSignal<string | null>(null);
 const [normalUrl, setNormalUrl] = createSignal<string | null>(null);
 
-/** Classify a detected URL into auth vs normal and update signals */
-function setDetectedUrl(url: string | null): void {
-  if (url && isActionableUrl(url)) {
-    setAuthUrl(url);
-    setNormalUrl(null);
-  } else if (url) {
-    setAuthUrl(null);
-    setNormalUrl(url);
-  } else {
-    setAuthUrl(null);
-    setNormalUrl(null);
-  }
-}
-
-let urlDetectionInterval: ReturnType<typeof setInterval> | null = null;
-
-function startUrlDetection(sessionId: string, terminalId: string): void {
-  stopUrlDetection();
-  urlDetectionInterval = setInterval(() => {
-    const term = getTerminal(sessionId, terminalId);
-    const url = term ? getLastUrlFromBuffer(term) : null;
-    setDetectedUrl(url);
-  }, URL_CHECK_INTERVAL_MS);
-}
-
-function stopUrlDetection(): void {
-  if (urlDetectionInterval) {
-    clearInterval(urlDetectionInterval);
-    urlDetectionInterval = null;
-  }
-  setDetectedUrl(null);
-}
+// Register URL detection module dependencies at module init
+registerUrlDetectionDeps(
+  (sessionId: string, terminalId: string) => getTerminal(sessionId, terminalId),
+  setAuthUrl,
+  setNormalUrl,
+);
 
 // ─── Scheduled Disconnect & Reconnection (Dashboard Sleep Support) ───────────
 //
@@ -828,7 +636,7 @@ export const terminalStore = {
 
   // Layout change signal (for reactive resize in tiled mode)
   get layoutChangeCounter() {
-    return layoutChangeCounter();
+    return getLayoutChangeCounter();
   },
 
   // Actions
@@ -841,15 +649,19 @@ export const terminalStore = {
   disposeSession,
   disposeAll,
 
-  // FitAddon management for layout changes
-  registerFitAddon,
-  unregisterFitAddon,
-  triggerLayoutResize,
+  // FitAddon management for layout changes (L26: delegated to terminal-layout.ts)
+  registerFitAddon: _registerFitAddon,
+  unregisterFitAddon: _unregisterFitAddon,
+  triggerLayoutResize: _triggerLayoutResize,
 
-  // URL detection
-  setDetectedUrl,
-  startUrlDetection,
-  stopUrlDetection,
-  getLastUrlFromBuffer,
-  isActionableUrl,
+  // URL detection (L26: delegated to terminal-url-detection.ts)
+  setDetectedUrl: (url: string | null) => {
+    if (url && _isActionableUrl(url)) { setAuthUrl(url); setNormalUrl(null); }
+    else if (url) { setAuthUrl(null); setNormalUrl(url); }
+    else { setAuthUrl(null); setNormalUrl(null); }
+  },
+  startUrlDetection: _startUrlDetection,
+  stopUrlDetection: _stopUrlDetection,
+  getLastUrlFromBuffer: _getLastUrlFromBuffer,
+  isActionableUrl: _isActionableUrl,
 };

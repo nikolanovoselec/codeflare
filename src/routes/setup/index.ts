@@ -114,7 +114,6 @@ app.post('/configure', async (c) => {
     const steps: SetupStep[] = [];
     const lockKey = 'setup:configuring';
     let lockAcquired = false;
-    let _overallSuccess = false;
 
     // Helper to run a named step with streaming progress
     const runStep = async <T>(stepName: string, fn: () => Promise<T>): Promise<T> => {
@@ -218,7 +217,6 @@ app.post('/configure', async (c) => {
       });
 
       resetSetupCache();
-      _overallSuccess = true;
 
       const url = new URL(c.req.url);
       const workersDevUrl = `https://${url.host}`;
