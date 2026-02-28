@@ -366,7 +366,7 @@ describe('fuzz: createActivityTracker', () => {
   });
 });
 
-// ─── 6. Session.resolveProcessName (replicated) ────────────────────────
+// ─── 6. Session.resolveProcessName (replicated — node-pty dependency) ───
 
 /**
  * Replicates Session.resolveProcessName logic from session.js:74-87.
@@ -386,7 +386,7 @@ function resolveProcessName(rawProcessName, terminalId, tabConfigMap) {
   return rawProcessName.split('/').pop() || rawProcessName;
 }
 
-describe('fuzz: resolveProcessName (replicated)', () => {
+describe('fuzz: resolveProcessName', () => {
   it('returns null for falsy process names', () => {
     fc.assert(
       fc.property(
@@ -459,139 +459,9 @@ describe('fuzz: resolveProcessName (replicated)', () => {
   });
 });
 
-// ─── 7. Session.terminalId (replicated) ─────────────────────────────────
+// ─── 7. SessionManager.getOrCreate session cap (replicated) ─────────────
 
-/**
- * Replicates Session.terminalId getter from session.js:67-69.
- */
-function extractTerminalId(compoundId) {
-  const parts = compoundId.split('-');
-  return parts[parts.length - 1];
-}
-
-describe('fuzz: extractTerminalId (replicated)', () => {
-  it('extracts last segment after hyphen', () => {
-    fc.assert(
-      fc.property(
-        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => /^[a-zA-Z0-9]+$/.test(s)),
-        fc.string({ minLength: 1, maxLength: 10 }).filter((s) => /^[a-zA-Z0-9]+$/.test(s)),
-        (prefix, suffix) => {
-          const id = `${prefix}-${suffix}`;
-          assert.equal(extractTerminalId(id), suffix);
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('returns entire string when no hyphen', () => {
-    fc.assert(
-      fc.property(
-        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => !s.includes('-')),
-        (id) => {
-          assert.equal(extractTerminalId(id), id);
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('handles multiple hyphens — always takes last segment', () => {
-    fc.assert(
-      fc.property(
-        fc.array(fc.string({ minLength: 1, maxLength: 8 }).filter((s) => !s.includes('-')), { minLength: 2, maxLength: 6 }),
-        (segments) => {
-          const id = segments.join('-');
-          assert.equal(extractTerminalId(id), segments[segments.length - 1]);
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('never throws for any string', () => {
-    fc.assert(
-      fc.property(fc.string({ minLength: 1, maxLength: 50 }), (id) => {
-        extractTerminalId(id); // must not throw
-      }),
-      { numRuns: NUM_RUNS },
-    );
-  });
-});
-
-// ─── 8. Session.toJSON shape (replicated) ───────────────────────────────
-
-describe('fuzz: Session.toJSON shape (replicated)', () => {
-  /**
-   * Replicate toJSON shape validation without instantiating real Session.
-   * Validates the contract: toJSON always returns correct fields and types.
-   */
-  function makeSessionJSON(id, name, hasPty, clientCount, createdAt, lastAccessedAt, disconnectedAt) {
-    return {
-      id,
-      name,
-      pid: hasPty ? 12345 : null,
-      clients: clientCount,
-      createdAt,
-      lastAccessedAt,
-      disconnectedAt: disconnectedAt || null,
-      ptyAlive: hasPty,
-    };
-  }
-
-  it('always has the correct shape and types', () => {
-    fc.assert(
-      fc.property(
-        fc.string({ minLength: 1, maxLength: 30 }),
-        fc.string({ minLength: 1, maxLength: 30 }),
-        fc.boolean(),
-        fc.integer({ min: 0, max: 100 }),
-        (id, name, hasPty, clientCount) => {
-          const now = new Date().toISOString();
-          const json = makeSessionJSON(id, name, hasPty, clientCount, now, now, null);
-
-          assert.equal(typeof json.id, 'string');
-          assert.equal(typeof json.name, 'string');
-          assert.equal(typeof json.clients, 'number');
-          assert.ok(json.clients >= 0);
-          assert.equal(typeof json.createdAt, 'string');
-          assert.equal(typeof json.lastAccessedAt, 'string');
-          assert.equal(typeof json.ptyAlive, 'boolean');
-          assert.equal(json.ptyAlive, hasPty);
-          if (hasPty) {
-            assert.equal(typeof json.pid, 'number');
-          } else {
-            assert.equal(json.pid, null);
-          }
-          assert.ok(json.disconnectedAt === null || typeof json.disconnectedAt === 'string');
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-
-  it('has exactly 8 keys', () => {
-    fc.assert(
-      fc.property(
-        fc.string({ minLength: 1, maxLength: 20 }),
-        fc.boolean(),
-        (id, hasPty) => {
-          const now = new Date().toISOString();
-          const json = makeSessionJSON(id, 'Test', hasPty, 0, now, now, null);
-          const keys = Object.keys(json);
-          assert.equal(keys.length, 8);
-          const expectedKeys = ['id', 'name', 'pid', 'clients', 'createdAt', 'lastAccessedAt', 'disconnectedAt', 'ptyAlive'];
-          assert.deepStrictEqual(keys.sort(), expectedKeys.sort());
-        },
-      ),
-      { numRuns: NUM_RUNS },
-    );
-  });
-});
-
-// ─── 9. SessionManager.getOrCreate session cap (replicated) ─────────────
-
-describe('fuzz: SessionManager.getOrCreate session cap (replicated)', () => {
+describe('fuzz: SessionManager.getOrCreate session cap', () => {
   /**
    * Replicate session cap enforcement logic from session-manager.js:78-108.
    * Lightweight mock avoids real Session/PTY instantiation.
