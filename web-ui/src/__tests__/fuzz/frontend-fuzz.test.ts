@@ -568,7 +568,8 @@ describe('fuzz: mapStartupDetailsToProgress', () => {
         expect(result.message).toBe(status.message);
         expect(Array.isArray(result.details)).toBe(true);
       }),
-      { numRuns: NUM_RUNS },
+      // statusResponseArb is a deeply nested record — cap to avoid CI timeout at 50k
+      { numRuns: Math.min(NUM_RUNS, 10_000) },
     );
   });
 
@@ -581,7 +582,8 @@ describe('fuzz: mapStartupDetailsToProgress', () => {
         expect(keys).toContain('Sync');
         expect(keys).toContain('Terminal');
       }),
-      { numRuns: NUM_RUNS },
+      // statusResponseArb is a deeply nested record — cap to avoid CI timeout at 50k
+      { numRuns: Math.min(NUM_RUNS, 10_000) },
     );
   });
 
@@ -595,7 +597,8 @@ describe('fuzz: mapStartupDetailsToProgress', () => {
           }
         }
       }),
-      { numRuns: NUM_RUNS },
+      // statusResponseArb is a deeply nested record — cap to avoid CI timeout at 50k
+      { numRuns: Math.min(NUM_RUNS, 10_000) },
     );
   });
 
@@ -610,7 +613,8 @@ describe('fuzz: mapStartupDetailsToProgress', () => {
           expect(hasUserDetail).toBe(false);
         }
       }),
-      { numRuns: NUM_RUNS },
+      // statusResponseArb is a deeply nested record — cap to avoid CI timeout at 50k
+      { numRuns: Math.min(NUM_RUNS, 10_000) },
     );
   });
 });
