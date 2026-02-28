@@ -216,7 +216,7 @@ See `TECHNICAL.md` Section 15 for full CI/CD documentation.
 ## Docs
 
 - `TECHNICAL.md` - deep dive into architecture, container lifecycle, and sync model
-- `tutorials/Getting Started.md` - what you can do and why you should want to. Tabs, tiling, API keys, file persistence, and three paths forward depending on how much hand-holding you need.
+- `tutorials/Getting Started.md` - what you can do and why you should want to. Tabs, tiling, file persistence, and three paths forward depending on how much hand-holding you need.
 - `tutorials/Examples/` - spec-driven project examples from Hello World to full blog platform. Hand one to your agent and go do something more interesting.
 
 <details>
