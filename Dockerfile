@@ -101,8 +101,7 @@ COPY .cache-bust /tmp/.cache-bust
 RUN npm install -g github:nikolanovoselec/claude-unleashed#12ecd6af335285ff459645c07f3d635b76b62e3b && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
-    rm -rf /root/.npm && \
-    rm -f /usr/local/bin/claude
+    rm -rf /root/.npm
 
 # Pre-update claude-code to latest and pre-patch for fast container startup.
 # This does at build-time what cu normally does on first run:
@@ -114,15 +113,6 @@ RUN npm install -g github:nikolanovoselec/claude-unleashed#12ecd6af335285ff45964
 ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 RUN mkdir -p $NODE_COMPILE_CACHE && \
     claude-unleashed --silent --no-consent --help > /dev/null 2>&1 || true
-
-# Install Claude Code native binary (stable channel).
-# Stable lags behind latest but avoids bleeding-edge regressions.
-# When Fast Start is OFF, `claude update` runs before each session (entrypoint.sh)
-# to pick up the newest stable release. When ON, build-time version stays pinned.
-# The npm-global `claude` from claude-unleashed's dependency is removed above (rm -f /usr/local/bin/claude)
-# so only the native binary at ~/.local/bin/claude is found.
-RUN curl -fsSL https://claude.ai/install.sh | bash -s -- stable
-ENV PATH="/root/.local/bin:$PATH"
 
 # Install Codex + Gemini + OpenCode CLIs for multi-agent support (single RUN for npm dedup).
 # OpenCode (opencode-ai) is an open-source multi-model AI coding CLI supporting 75+ providers.
@@ -138,11 +128,10 @@ RUN npm install -g @openai/codex@0.105.0 @google/gemini-cli@0.30.0 opencode-ai@1
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
-# This speeds up first-launch of Node.js CLIs (claude, codex, gemini) inside containers
+# This speeds up first-launch of Node.js CLIs (codex, gemini) inside containers
 # by avoiding the compilation overhead on every container start.
 # Note: Go binaries (like opencode) don't need this — they're already natively compiled.
-RUN claude --version 2>&1 && \
-    codex --version 2>&1 || true && \
+RUN codex --version 2>&1 || true && \
     gemini --version 2>&1 || true && \
     copilot --version 2>&1
 
@@ -155,9 +144,9 @@ RUN claude --version 2>&1 && \
 RUN ANTHROPIC_API_KEY="" OPENAI_API_KEY="" GEMINI_API_KEY="" GITHUB_TOKEN="" \
     timeout 30 opencode run "hello" 2>&1 || true
 
-# Verify critical tools are installed (including vim→nvim symlink and claude→claude-code symlink)
+# Verify critical tools are installed (including vim→nvim symlink)
 RUN git --version && gh --version && rclone --version && node --version && \
-    claude --version && vim --version && \
+    vim --version && \
     which yazi && which lazygit
 
 # Browser shims: force CLI tools to fall back to displaying auth URLs as text.

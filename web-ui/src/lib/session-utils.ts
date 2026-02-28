@@ -1,7 +1,6 @@
 import type { AgentType } from '../types';
 
 const AGENT_LABELS: Record<AgentType, string> = {
-  'claude-unleashed': 'Claude Unleashed',
   'claude-code': 'Claude Code',
   'codex': 'Codex',
   'copilot': 'GitHub Copilot',
@@ -11,7 +10,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
 };
 
 /**
- * Generate a session name like "Claude Unleashed #1", "Bash #2".
+ * Generate a session name like "Claude Code #1", "Bash #2".
  * N = lowest available number among existing sessions matching that agent's pattern.
  */
 export function generateSessionName(

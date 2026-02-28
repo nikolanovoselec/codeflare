@@ -9,8 +9,7 @@ import { MAX_TABS } from '../../lib/constants';
  * Kept in sync with AGENT_COMMANDS in agent-config.ts.
  */
 const EXPECTED_COMMANDS: Record<AgentType, { command: string; label: string }> = {
-  'claude-code': { command: 'claude', label: 'Terminal 1' },
-  'claude-unleashed': { command: 'cu', label: 'Terminal 1' },
+  'claude-code': { command: 'cu', label: 'Terminal 1' },
   'codex': { command: 'codex', label: 'Terminal 1' },
   'copilot': { command: 'copilot --yolo', label: 'Terminal 1' },
   'gemini': { command: 'gemini -y', label: 'Terminal 1' },
@@ -28,7 +27,7 @@ describe('AGENT_COMMANDS exhaustiveness', () => {
   });
 
   it('schema contains exactly the expected agent types', () => {
-    const expected = ['claude-unleashed', 'claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash'];
+    const expected = ['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash'];
     expect([...allAgentTypes].sort()).toEqual([...expected].sort());
   });
 
@@ -50,12 +49,7 @@ describe('getDefaultTabConfig', () => {
 
   it('sets tab 1 to the agent command for claude-code', () => {
     const tabs = getDefaultTabConfig('claude-code');
-    expect(tabs[0]).toEqual({ id: '1', command: 'claude', label: 'Terminal 1' });
-  });
-
-  it('sets tab 1 to cu for claude-unleashed', () => {
-    const tabs = getDefaultTabConfig('claude-unleashed');
-    expect(tabs[0].command).toBe('cu');
+    expect(tabs[0]).toEqual({ id: '1', command: 'cu', label: 'Terminal 1' });
   });
 
   it('sets tab 1 to codex for codex agent', () => {

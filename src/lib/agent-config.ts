@@ -9,8 +9,7 @@ import { MAX_TABS } from './constants';
  * Primary command for each agent type (tab 1)
  */
 const AGENT_COMMANDS: Record<AgentType, { command: string; label: string }> = {
-  'claude-unleashed': { command: 'cu', label: 'Terminal 1' },
-  'claude-code': { command: 'claude', label: 'Terminal 1' },
+  'claude-code': { command: 'cu', label: 'Terminal 1' },
   'codex': { command: 'codex', label: 'Terminal 1' },
   'copilot': { command: 'copilot --yolo', label: 'Terminal 1' },
   'gemini': { command: 'gemini -y', label: 'Terminal 1' },

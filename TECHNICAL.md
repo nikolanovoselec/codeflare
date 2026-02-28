@@ -19,7 +19,7 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 9. [Container Image](#9-container-image)
 10. [Container Startup](#10-container-startup)
     - [Fast Start](#fast-start)
-11. [Claude-Unleashed Integration](#11-claude-unleashed-integration)
+11. [Claude Code Integration](#11-claude-code-integration)
 12. [File Structure](#12-file-structure)
 13. [Environment Variables](#13-environment-variables)
 14. [Configuration](#14-configuration)
@@ -224,7 +224,7 @@ function connect() {
 
 **Frontend Zod Validation:** `web-ui/src/lib/schemas.ts` -- Zod schemas validate API responses at runtime. Types derived from schemas via `z.infer`.
 
-**Terminal Tab Configuration:** `web-ui/src/lib/terminal-config.ts` -- Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like claude, cu, claude-code, codex, gemini, opencode, htop, yazi, lazygit, bash, sh, zsh to MDI icons).
+**Terminal Tab Configuration:** `web-ui/src/lib/terminal-config.ts` -- Generic "Terminal 1-6" defaults with live process detection via `PROCESS_ICON_MAP` (maps process names like cu, claude-code, codex, gemini, opencode, htop, yazi, lazygit, bash, sh, zsh to MDI icons).
 
 #### Frontend Constants
 
@@ -459,8 +459,9 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.gitconfig` | Yes | Git configuration |
 | `~/workspace/` | Depends on `SYNC_MODE` | Excluded by default (`none`). Synced when `full` or partially with `metadata`. |
 | `~/.npm/`, `~/.bun/`, `.config/rclone/**`, `.cache/rclone/**`, `.claude/debug/**`, `.claude/plugins/cache/**` | **NO** | Cache/debug, regenerated |
-| `~/.local/bin/**` | **NO** | Native claude binary (build-time artifact) |
-| `~/.claude/downloads/**` | **NO** | Native installer download cache |
+| `~/.local/share/claude/**` | **NO** | Native installer version binaries (leftover data, removed from build) |
+| `~/.copilot/logs/**`, `~/.copilot/pkg/**` | **NO** | Copilot session logs and auto-update binary |
+| `~/.codex/sessions/**` | **NO** | Codex TUI session recordings |
 
 ### rclone Sync Modes
 
@@ -470,7 +471,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `full` | Entire `workspace/` (minus `node_modules/`) | Persistent storage across stop/resume |
 | `metadata` | Only agent config files (`.claude/`) per repo | Lightweight project context sync |
 
-All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache/rclone/`, `.npm/`, `.bun/`, `.claude/debug/`, `.claude/plugins/cache/`, `.local/bin/`, `.claude/downloads/`, `**/node_modules/`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
+All modes always exclude: `.bashrc`, `.bash_profile`, `.config/rclone/`, `.cache/**`, `.npm/`, `.bun/`, `.claude/debug/`, `.claude/plugins/cache/`, `.local/share/claude/`, `.copilot/logs/`, `.copilot/pkg/`, `.codex/sessions/`, `**/node_modules/`. All rclone commands use `--filter` flags (NOT `--include`/`--exclude`).
 
 **Note:** The `metadata` mode is defined in `entrypoint.sh` but the Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`. The `metadata` mode can be used by setting `SYNC_MODE` directly in the container environment.
 
@@ -752,8 +753,7 @@ Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` la
 
 | Package | Version | Provides |
 |---------|---------|----------|
-| `claude-unleashed` | Git commit pin | `cu` / `claude-unleashed` commands (wraps `@anthropic-ai/claude-code`) |
-| Claude Code (native installer) | _(installed via `curl -fsSL https://claude.ai/install.sh \| bash -s -- stable`)_ | `claude` command at `/root/.local/bin/claude`. Stable channel at build time. The npm-global `claude` binary from claude-unleashed's dependency is removed (`rm -f /usr/local/bin/claude`) so only the native binary is found. When Fast Start OFF, channel switched to latest and `claude update` runs silently before launch. When Fast Start ON, `DISABLE_AUTOUPDATER=1` pins to build-time stable version. |
+| `claude-unleashed` | Git commit pin | `cu` / `claude-unleashed` commands (wraps `@anthropic-ai/claude-code`). Used as the "Claude Code" agent in the UI -- provides root permission bypass and controlled update mechanism. |
 | `@openai/codex` | 0.105.0 | `codex` command |
 | `@google/gemini-cli` | 0.30.0 | `gemini` command |
 | `opencode-ai` | 1.2.15 | `opencode` command |
@@ -761,7 +761,7 @@ Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` la
 
 ### V8 Compile Cache Warm-Up
 
-Node.js CLIs (codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Native binaries (`claude` and `opencode`) are already compiled and do not need V8 cache warm-up. `claude --version` is run at build time as a fail-fast verification step — if the native installer did not work correctly, the Docker build fails immediately (no `|| true` fallback). This also seeds any internal caching the binary performs.
+Node.js CLIs (codex, gemini, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (like `opencode`) are already natively compiled and do not need V8 cache warm-up. Claude Code is pre-updated and pre-patched at build time via `claude-unleashed --silent --no-consent --help`, which seeds the V8 compile cache.
 
 ### OpenCode Database Pre-Initialization
 
@@ -794,19 +794,18 @@ flowchart TD
 
 Auto-start uses `cu --silent --no-consent` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#fast-start) below). Users can enable auto-updates via Settings, or update manually via `cu` in any tab.
 
-**PTY PATH:** The `.bashrc` tab autostart block and inline export both set `PATH="$HOME/.local/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"` so that PTY sessions can find the native `claude` binary. `$HOME/.local/bin` is listed first because the native binary's auto-updater expects to find it under `$HOME` (which is `/home/user` at runtime, not `/root`). A startup symlink bridges the gap: if `/root/.local/bin/claude` exists and `$HOME/.local/bin/claude` doesn't, a symlink is created. This matches the Dockerfile's `ENV PATH="/root/.local/bin:$PATH"` which covers non-interactive contexts.
+**PTY PATH:** The `.bashrc` tab autostart block sets `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"` so that PTY sessions can find globally installed CLI tools.
 
 ### Fast Start
 
 **User preference:** `fastStartEnabled` (default: `true`) in `UserPreferences`.
 **Container env var:** `FAST_CLI_START` (default: `'true'`).
 
-When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, eliminating 5-30s of startup delay per tool. Each tool has a different disable mechanism:
+When enabled, `entrypoint.sh` disables auto-update checks for all 5 AI tools, eliminating 5-30s of startup delay per tool. Each tool has a different disable mechanism:
 
 | Tool | Disable Mechanism | Type |
 |------|------------------|------|
-| Claude Code (native, stable channel) | `DISABLE_AUTOUPDATER=1` (pins to build-time stable version) | Env var |
-| Claude Unleashed | `CLAUDE_UNLEASHED_NO_UPDATE=1`, `CLAUDE_UNLEASHED_CHANNEL=stable` | Env var |
+| Claude Code (claude-unleashed) | `CLAUDE_UNLEASHED_NO_UPDATE=1`, `CLAUDE_UNLEASHED_CHANNEL=stable` | Env var |
 | OpenCode | `OPENCODE_DISABLE_AUTOUPDATE=1` | Env var |
 | Copilot | `COPILOT_AUTO_UPDATE=false` | Env var |
 | Gemini | `~/.gemini/settings.json` -> `general.enableAutoUpdate: false` | Config file (jq merge) |
@@ -816,17 +815,15 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 6 AI tools, el
 
 **Codex dismissed_version hack:** Writes `{"dismissed_version":"999.0.0"}` to trick the Codex version checker into thinking a future version was already dismissed. The `~/.codex/` directory is excluded from rclone sync, so this file is safe to recreate on every container start.
 
-When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the env vars it conditionally sets (`DISABLE_AUTOUPDATER`, `CLAUDE_UNLEASHED_NO_UPDATE`, `CLAUDE_UNLEASHED_CHANNEL`, `OPENCODE_DISABLE_AUTOUPDATE`, `DISABLE_INSTALLATION_CHECKS`) and skips writing config files, allowing all tools to check for updates normally. For Claude Code specifically, the `.bashrc` tab autostart block switches the channel to `latest` (via `jq` merge into `~/.claude/settings.json` setting `autoUpdatesChannel: "latest"`) and runs `claude update > /dev/null 2>&1 || true` silently before launching the agent. This upgrades from the stable build-time version to the latest release on each session start, with stdout suppressed to avoid polluting the terminal.
+When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the env vars it conditionally sets (`CLAUDE_UNLEASHED_NO_UPDATE`, `CLAUDE_UNLEASHED_CHANNEL`, `OPENCODE_DISABLE_AUTOUPDATE`, `DISABLE_INSTALLATION_CHECKS`) and skips writing config files, allowing all tools to check for updates normally.
 
 ---
 
-## 11. Claude-Unleashed Integration
+## 11. Claude Code Integration
 
-[claude-unleashed](https://github.com/nikolanovoselec/claude-unleashed) enables `--dangerously-skip-permissions` when running as root inside containers (standard CLI prevents this via `process.getuid() === 0` check).
+The "Claude Code" agent in Codeflare uses [claude-unleashed](https://github.com/nikolanovoselec/claude-unleashed) (`cu` command) behind the scenes. claude-unleashed enables `--dangerously-skip-permissions` when running as root inside containers (standard CLI prevents this via `process.getuid() === 0` check), and provides a controlled update mechanism.
 
-**Two separate updaters:** (1) claude-unleashed's updater checks npm for latest `@anthropic-ai/claude-code` - disabled at runtime via `CLAUDE_UNLEASHED_NO_UPDATE=1` to avoid ~25-30s startup delay from `npm view` + `npm install` on every container start. Updates happen at Docker build time instead (via `.cache-bust` layer invalidation). (2) Upstream CLI's internal auto-updater - disabled via `DISABLE_INSTALLATION_CHECKS=1`.
-
-`claude` = vanilla CLI, `cu` = claude-unleashed.
+**Updater:** claude-unleashed's updater checks npm for latest `@anthropic-ai/claude-code` - disabled at runtime via `CLAUDE_UNLEASHED_NO_UPDATE=1` to avoid ~25-30s startup delay from `npm view` + `npm install` on every container start. Updates happen at Docker build time instead (via `.cache-bust` layer invalidation). Upstream CLI's internal auto-updater is disabled via `DISABLE_INSTALLATION_CHECKS=1`.
 
 ### Environment Variables
 
@@ -968,7 +965,7 @@ codeflare/
 | `TERMINAL_ID` | Unique ID for this terminal instance | Worker -> DO |
 | `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker -> DO |
 | `MANUAL_TAB` | Set to `1` for user-created tabs to skip autostart | Worker -> DO |
-| `FAST_CLI_START` | Disables auto-update for all 6 AI tools when `'true'` (default). Set `'false'` to allow auto-updates. See [Fast Start](#fast-start). | Worker -> DO (from `fastStartEnabled` preference) |
+| `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default). Set `'false'` to allow auto-updates. See [Fast Start](#fast-start). | Worker -> DO (from `fastStartEnabled` preference) |
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
 | `BROWSER` | Points to `open-url` shim that exits 1, forcing CLIs to print OAuth URLs as text | Dockerfile ENV (`/usr/local/bin/open-url`) |
 
@@ -1340,7 +1337,6 @@ wrangler tail --service codeflare --level error
 | AD7 | Pre-setup public endpoints | Setup runs once during initial deploy; short exposure window is acceptable risk. Pre-setup auth trusts spoofable email header - bootstrap problem, mitigated by rate limiting and short exposure window. |
 | AD8 | Container runs as root with no internal auth | Network isolation via DO proxy is sufficient; root needed for rclone mount; wildcard CORS is internal-only |
 | AD9 | RESSOURCE_TIER spelling | French/German "ressource" is intentional - consistent across all config, changing would be a breaking API change |
-| AD15 | Native claude binary (stable build, latest runtime) | Stable channel at build time for known-good binary, latest channel at runtime for newest features. npm-global claude removed to avoid conflict. |
 
 #### AD10: Open setup endpoint before first configure
 
@@ -1405,19 +1401,6 @@ Each container gets an R2 API token scoped to its user's bucket only, replacing 
 - The sync daemon retries in 60s on any failure
 
 **Manual `--resync`** is still available via `establish_bisync_baseline()` on container startup, where it is safe because the one-way restore (`rclone sync`) runs first to populate the local filesystem.
-
-#### AD15: Native claude binary (stable build, latest runtime)
-
-Claude Code uses the native installer binary (`curl -fsSL https://claude.ai/install.sh | bash -s -- stable`) instead of the npm package. The npm-global `claude` binary from claude-unleashed's `@anthropic-ai/claude-code` dependency is removed at build time (`rm -f /usr/local/bin/claude`) so only the native binary at `/root/.local/bin/claude` is found.
-
-**Two-channel strategy:**
-- **Build time**: Stable channel is installed and verified (`claude --version` with no `|| true` — build fails on installer failure)
-- **Runtime (Fast Start OFF)**: `.bashrc` tab autostart switches to latest channel (`autoUpdatesChannel: "latest"` in settings.json) and runs `claude update > /dev/null 2>&1 || true` silently before launch
-- **Runtime (Fast Start ON)**: `DISABLE_AUTOUPDATER=1` pins to the build-time stable version
-
-**Trade-off**: Stable channel at build time ensures a known-good binary is always available. Latest channel at runtime gives users the newest features without waiting for a new Docker image. The update runs silently (stdout suppressed) to avoid polluting the terminal.
-
-**Symlink bridge**: The native installer puts the binary at `/root/.local/bin/claude`, but the auto-updater expects it at `$HOME/.local/bin/claude` (where `$HOME=/home/user` at runtime). A startup symlink bridges this: if the root binary exists and the user binary doesn't, create `$HOME/.local/bin/claude -> /root/.local/bin/claude`.
 
 ---
 

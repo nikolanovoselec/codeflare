@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mdiConsole, mdiFire, mdiRobotOutline, mdiCodeBraces, mdiDiamond, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
+import { mdiConsole, mdiRobotOutline, mdiCodeBraces, mdiDiamond, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
 import { TERMINAL_TAB_CONFIG, getTabIcon, AGENT_ICON_MAP } from '../../lib/terminal-config';
 
 describe('terminal-config', () => {
@@ -15,12 +15,9 @@ describe('terminal-config', () => {
   });
 
   describe('getTabIcon', () => {
-    it('returns fire icon for "claude"', () => {
-      expect(getTabIcon('claude')).toBe(mdiFire);
-    });
-
     it('returns fire icon for "cu"', () => {
-      expect(getTabIcon('cu')).toBe(mdiFire);
+      // cu (claude-unleashed) process still exists in containers
+      expect(getTabIcon('cu')).not.toBe(mdiConsole);
     });
 
     it('returns codex icon for "codex"', () => {
@@ -53,7 +50,6 @@ describe('terminal-config', () => {
 
   describe('AGENT_ICON_MAP', () => {
     it('maps agent types to their icons', () => {
-      expect(AGENT_ICON_MAP['claude-unleashed']).toBe(mdiFire);
       expect(AGENT_ICON_MAP['claude-code']).toBe(mdiRobotOutline);
       expect(AGENT_ICON_MAP['codex']).toBe(mdiCodeBraces);
       expect(AGENT_ICON_MAP['gemini']).toBe(mdiDiamond);
@@ -62,13 +58,17 @@ describe('terminal-config', () => {
       expect(AGENT_ICON_MAP['bash']).toBe(mdiConsole);
     });
 
-    it('has entries for all 7 agent types', () => {
-      const expectedAgentTypes = ['claude-unleashed', 'claude-code', 'codex', 'gemini', 'opencode', 'copilot', 'bash'];
+    it('does not have claude-unleashed entry', () => {
+      expect(AGENT_ICON_MAP['claude-unleashed']).toBeUndefined();
+    });
+
+    it('has entries for all 6 agent types', () => {
+      const expectedAgentTypes = ['claude-code', 'codex', 'gemini', 'opencode', 'copilot', 'bash'];
       expect(Object.keys(AGENT_ICON_MAP).sort()).toEqual(expectedAgentTypes.sort());
     });
 
     it('has no extra entries beyond the expected agent types', () => {
-      expect(Object.keys(AGENT_ICON_MAP)).toHaveLength(7);
+      expect(Object.keys(AGENT_ICON_MAP)).toHaveLength(6);
     });
 
     it('every icon value is a non-empty string (valid SVG path)', () => {
@@ -83,7 +83,7 @@ describe('terminal-config', () => {
   describe('PROCESS_ICON_MAP exhaustiveness via getTabIcon', () => {
     it('every agent type command resolves to a non-console icon', () => {
       // Agent commands that should have dedicated icons (not fallback console)
-      const agentProcessNames = ['claude', 'cu', 'codex', 'gemini', 'opencode', 'copilot'];
+      const agentProcessNames = ['cu', 'codex', 'gemini', 'opencode', 'copilot'];
       for (const name of agentProcessNames) {
         const icon = getTabIcon(name);
         expect(icon, `${name} should have a dedicated icon, not fallback`).not.toBe(mdiConsole);

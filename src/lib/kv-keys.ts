@@ -20,7 +20,7 @@ const MAX_KV_LIST_ITERATIONS = 100;
  * Rejects shell metacharacters like $(), |, ;, etc.
  */
 export function sanitizeSessionName(name: string): string {
-  // Allow only alphanumeric, spaces, hyphens, underscores, and # (used in session names like "Claude Unleashed #1")
+  // Allow only alphanumeric, spaces, hyphens, underscores, and # (used in session names like "Claude Code #1")
   return name.replace(/[^a-zA-Z0-9 #_-]/g, '').trim() || 'Untitled';
 }
 

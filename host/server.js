@@ -105,8 +105,8 @@ async function getSystemMetrics() {
 }
 
 const PORT = process.env.TERMINAL_PORT || 8080;
-// Spawn a login shell so .bashrc runs and auto-starts Claude
-// The .bashrc has claude auto-start logic that only works in interactive login shells
+// Spawn a login shell so .bashrc runs and auto-starts the configured agent
+// The .bashrc has agent auto-start logic that only works in interactive login shells
 const TERMINAL_COMMAND = process.env.TERMINAL_COMMAND || '/bin/bash';
 const TERMINAL_ARGS = process.env.TERMINAL_ARGS || '-l';  // Login shell flag
 const WORKSPACE_DEFAULT = process.env.WORKSPACE || '/home/user/workspace';

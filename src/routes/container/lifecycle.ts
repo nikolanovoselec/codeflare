@@ -132,7 +132,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
 
     // Resolve tab config: session-level > defaults from agent type > legacy defaults
     const tabConfig = sessionData.tabConfig
-      || getDefaultTabConfig(sessionData.agentType || 'claude-unleashed');
+      || getDefaultTabConfig(sessionData.agentType || 'claude-code');
 
     // Always call setBucketName — on first call it configures R2 credentials;
     // on subsequent calls (409) it still stores sessionId in DO storage so

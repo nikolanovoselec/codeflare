@@ -3,7 +3,7 @@ import { generateSessionName } from '../../lib/session-utils';
 
 describe('generateSessionName', () => {
   it('should include # separator in session name', () => {
-    expect(generateSessionName('claude-unleashed', [])).toBe('Claude Unleashed #1');
+    expect(generateSessionName('claude-code', [])).toBe('Claude Code #1');
   });
 
   it('should start at #1 with no existing sessions', () => {

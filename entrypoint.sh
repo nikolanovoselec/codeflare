@@ -36,10 +36,9 @@ export TERM
 # === Fast Start: control auto-update behavior ===
 if [ "${FAST_CLI_START:-true}" = "false" ]; then
     # Unset Dockerfile-level vars so tools CAN auto-update
-    unset DISABLE_AUTOUPDATER CLAUDE_UNLEASHED_NO_UPDATE CLAUDE_UNLEASHED_CHANNEL OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS
+    unset CLAUDE_UNLEASHED_NO_UPDATE CLAUDE_UNLEASHED_CHANNEL OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS
 else
     # Ensure all disable vars are set
-    export DISABLE_AUTOUPDATER=1
     export CLAUDE_UNLEASHED_NO_UPDATE=1
     export OPENCODE_DISABLE_AUTOUPDATE=1
     export COPILOT_AUTO_UPDATE=false
@@ -54,14 +53,6 @@ USER_CLAUDE_JSON="$USER_HOME/.claude.json"
 # Create user home directory structure
 mkdir -p "$USER_HOME" "$USER_WORKSPACE" "$USER_CLAUDE_DIR"
 export HOME="$USER_HOME"
-
-# Link native claude binary from root's install location to user HOME.
-# The native installer runs as root during Docker build (HOME=/root), but at runtime
-# HOME=/home/user. The auto-updater expects the binary at $HOME/.local/bin/claude.
-if [ -f /root/.local/bin/claude ] && [ ! -f "$USER_HOME/.local/bin/claude" ]; then
-    mkdir -p "$USER_HOME/.local/bin"
-    ln -s /root/.local/bin/claude "$USER_HOME/.local/bin/claude"
-fi
 
 # Track sync status
 SYNC_STATUS="pending"
@@ -213,9 +204,15 @@ RCLONE_FILTERS_COMMON=(
     # Node modules — restored via npm install, often 100s of MB
     --filter "- **/node_modules/**"
 
-    # Claude Code native binary — installed at build time, auto-updated at runtime
-    --filter "- .local/bin/**"               # native binary launcher + symlink
-    --filter "- .claude/downloads/**"        # native installer download cache
+    # Claude Code native installer artifacts (removed from build, but exclude leftover data)
+    --filter "- .local/share/claude/**"      # native installer version binaries (228MB)
+
+    # Copilot — auto-update binary and session logs
+    --filter "- .copilot/logs/**"            # session logs
+    --filter "- .copilot/pkg/**"             # auto-update binary download (~35MB)
+
+    # Codex — session recordings
+    --filter "- .codex/sessions/**"          # TUI session recordings
 
     # Claude Code — session-specific ephemeral data, regenerated per session
     --filter "- .claude/cache/**"            # changelog cache
@@ -525,7 +522,7 @@ PROFILE_EOF
 # Tab 4-6: Plain bash terminal in workspace
 if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
     export TERMINAL_APP_STARTED=1
-    export PATH="$HOME/.local/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+    export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
     cd "$HOME/workspace" 2>/dev/null || cd "$HOME"
 
@@ -578,7 +575,7 @@ BASHRC_EOF
 # Dynamic tab layout from TAB_CONFIG env var
 if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
     export TERMINAL_APP_STARTED=1
-    export PATH="$HOME/.local/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+    export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
     cd "$HOME/workspace" 2>/dev/null || cd "$HOME"
 
@@ -625,30 +622,6 @@ CASE_EOF
         ${key})
             # ${cmd} (bash stays as session leader for TTY stability)
             ${cmd}
-            ;;
-CASE_EOF
-                    ;;
-                claude)
-                    cat >> "$BASHRC_FILE" << CASE_EOF
-        ${key})
-            # Claude Code native binary — update to latest before launching.
-            # Build-time installs stable channel for safety. When Fast Start is OFF,
-            # switch to latest channel and update so users get the newest version.
-            # Ephemeral containers reset every session, so this is the only chance.
-            if [ -z "\$DISABLE_AUTOUPDATER" ]; then
-                # Set channel to latest (build-time is stable) then update silently
-                SETTINGS="\$HOME/.claude/settings.json"
-                if [ -f "\$SETTINGS" ]; then
-                    # Merge autoUpdatesChannel into existing settings
-                    tmp=\$(mktemp)
-                    jq '.autoUpdatesChannel = "latest"' "\$SETTINGS" > "\$tmp" 2>/dev/null && mv "\$tmp" "\$SETTINGS" || rm -f "\$tmp"
-                else
-                    mkdir -p "\$HOME/.claude"
-                    echo '{"autoUpdatesChannel":"latest"}' > "\$SETTINGS"
-                fi
-                claude update > /dev/null 2>&1 || true
-            fi
-            claude
             ;;
 CASE_EOF
                     ;;

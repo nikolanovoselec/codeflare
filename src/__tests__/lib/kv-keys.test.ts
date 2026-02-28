@@ -55,8 +55,8 @@ describe('sanitizeSessionName', () => {
     expect(sanitizeSessionName('  hello  ')).toBe('hello');
   });
 
-  it('preserves # character in session names like "Claude Unleashed #1"', () => {
-    expect(sanitizeSessionName('Claude Unleashed #1')).toBe('Claude Unleashed #1');
+  it('preserves # character in session names like "Claude Code #1"', () => {
+    expect(sanitizeSessionName('Claude Code #1')).toBe('Claude Code #1');
   });
 
   it('preserves # in various positions', () => {

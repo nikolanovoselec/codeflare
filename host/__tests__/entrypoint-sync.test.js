@@ -183,6 +183,53 @@ describe('establish_bisync_baseline exit code capture', () => {
 });
 
 // ============================================================================
+// Test: R2 sync exclusion filters — native binary removed, new exclusions added
+// ============================================================================
+describe('R2 sync exclusion filters', () => {
+  it('common filters include .local/share/claude/** exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .local/share/claude/**"'),
+      'should exclude .local/share/claude/** (native installer version binaries)'
+    );
+  });
+
+  it('common filters include .copilot/logs/** exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .copilot/logs/**"'),
+      'should exclude .copilot/logs/** (session logs)'
+    );
+  });
+
+  it('common filters include .copilot/pkg/** exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .copilot/pkg/**"'),
+      'should exclude .copilot/pkg/** (auto-update binary download)'
+    );
+  });
+
+  it('common filters include .codex/sessions/** exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .codex/sessions/**"'),
+      'should exclude .codex/sessions/** (TUI session recordings)'
+    );
+  });
+
+  it('common filters do NOT include .local/bin/** exclusion', () => {
+    assert.ok(
+      !entrypoint.includes('--filter "- .local/bin/**"'),
+      'should NOT exclude .local/bin/** (filter removed with native binary)'
+    );
+  });
+
+  it('common filters do NOT include .claude/downloads/** exclusion', () => {
+    assert.ok(
+      !entrypoint.includes('--filter "- .claude/downloads/**"'),
+      'should NOT exclude .claude/downloads/** (filter removed with native binary)'
+    );
+  });
+});
+
+// ============================================================================
 // Test: shutdown_handler PID management
 // ============================================================================
 describe('shutdown_handler PID management', () => {

@@ -23,7 +23,6 @@ export const TERMINAL_TAB_CONFIG: Record<string, { name: string; icon: string }>
 
 // Map process names (from server) to MDI icon paths
 const PROCESS_ICON_MAP: Record<string, string> = {
-  'claude': mdiFire,
   'cu': mdiFire,
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
@@ -44,7 +43,6 @@ export function getTabIcon(processName: string): string {
 
 /** Map agent types to their display icons */
 export const AGENT_ICON_MAP: Record<string, string> = {
-  'claude-unleashed': mdiFire,
   'claude-code': mdiRobotOutline,
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
