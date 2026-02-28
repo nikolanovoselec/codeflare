@@ -49,7 +49,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
   });
 
   onMount(() => {
-    storageStore.fetchStats();
     sessionStore.startR2Polling();
   });
 

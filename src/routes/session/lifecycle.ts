@@ -91,7 +91,11 @@ app.get('/batch-status', async (c) => {
   const user = c.get('user');
   const maxSessions = getMaxSessions(user.role, c.env);
 
-  return c.json({ statuses, maxSessions });
+  // Include cached storage stats (already in KV from /api/storage/stats, 60s TTL)
+  const storageStatsCached = await c.env.KV.get(`storage-stats:${bucketName}`, 'json') as { totalFiles: number; totalFolders: number; totalSizeBytes: number } | null;
+  const storageStats = storageStatsCached || undefined;
+
+  return c.json({ statuses, maxSessions, storageStats });
 });
 
 /**

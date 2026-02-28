@@ -113,6 +113,11 @@ export const BatchSessionStatusResponseSchema = z.object({
     }).optional(),
   })),
   maxSessions: z.number(),
+  storageStats: z.object({
+    totalFiles: z.number(),
+    totalFolders: z.number(),
+    totalSizeBytes: z.number(),
+  }).optional(),
 });
 
 // Setup API schemas — moved from client.ts (strict versions)

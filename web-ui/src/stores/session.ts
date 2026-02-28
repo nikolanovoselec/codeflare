@@ -34,6 +34,7 @@ import {
   saveBookmarkForSession,
   applyPresetToSession,
 } from './session-presets';
+import { updateStatsFromBatch } from './storage';
 
 /**
  * Session Store — central facade for session lifecycle management.
@@ -213,6 +214,7 @@ async function loadSessions(): Promise<void> {
     ]);
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
+    if ('storageStats' in batchResponse && batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
 
     if (thisGen !== loadSessionsGeneration) return;
 
@@ -502,6 +504,7 @@ async function refreshSessionStatuses(): Promise<void> {
     const batchResponse = await api.getBatchSessionStatus();
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
+    if (batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions — they may not appear in batch status yet.

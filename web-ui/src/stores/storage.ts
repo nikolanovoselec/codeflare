@@ -381,6 +381,11 @@ export const storageStore = {
   },
 };
 
+/** Update stats from batch-status polling (avoids separate /storage/stats request) */
+export function updateStatsFromBatch(stats: { totalFiles: number; totalFolders: number; totalSizeBytes: number }): void {
+  setState('stats', stats);
+}
+
 /** @internal test-only */
 export function _resetForTests() {
   setState(produce((s) => {
