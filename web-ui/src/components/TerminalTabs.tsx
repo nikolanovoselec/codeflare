@@ -3,7 +3,7 @@ import { mdiPlus, mdiClose, mdiDragVertical } from '@mdi/js';
 import { DragDropProvider, DragDropSensors, SortableProvider, createSortable, closestCenter, DragEvent } from '@thisbeyond/solid-dnd';
 import Icon from './Icon';
 import { sessionStore } from '../stores/session';
-import { TERMINAL_TAB_CONFIG, getTabIcon } from '../lib/terminal-config';
+import { TERMINAL_TAB_CONFIG, getTabIcon, getTabDisplayName } from '../lib/terminal-config';
 import { MAX_TERMINALS_PER_SESSION } from '../lib/constants';
 import { isMobile } from '../lib/mobile';
 import { LAYOUT_MIN_TABS } from '../stores/tiling';
@@ -18,7 +18,7 @@ function resolveTabLabel(sessionId: string, tabId: string): string {
   // 1. Live processName from store
   const terminals = sessionStore.getTerminalsForSession(sessionId);
   const tab = terminals?.tabs.find(t => t.id === tabId);
-  if (tab?.processName) return tab.processName;
+  if (tab?.processName) return getTabDisplayName(tab.processName);
 
   // 2. Session's tabConfig label
   const session = sessionStore.sessions.find(s => s.id === sessionId);

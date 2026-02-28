@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mdiConsole, mdiRobotOutline, mdiCodeBraces, mdiDiamond, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
-import { TERMINAL_TAB_CONFIG, getTabIcon, AGENT_ICON_MAP } from '../../lib/terminal-config';
+import { TERMINAL_TAB_CONFIG, getTabIcon, getTabDisplayName, AGENT_ICON_MAP } from '../../lib/terminal-config';
 
 describe('terminal-config', () => {
   describe('TERMINAL_TAB_CONFIG', () => {
@@ -15,9 +15,8 @@ describe('terminal-config', () => {
   });
 
   describe('getTabIcon', () => {
-    it('returns fire icon for "cu"', () => {
-      // cu (claude-unleashed) process still exists in containers
-      expect(getTabIcon('cu')).not.toBe(mdiConsole);
+    it('returns robot icon for "cu" (claude code)', () => {
+      expect(getTabIcon('cu')).toBe(mdiRobotOutline);
     });
 
     it('returns codex icon for "codex"', () => {
@@ -45,6 +44,18 @@ describe('terminal-config', () => {
     it('returns console icon as fallback for unknown processes', () => {
       expect(getTabIcon('unknown-process')).toBe(mdiConsole);
       expect(getTabIcon('')).toBe(mdiConsole);
+    });
+  });
+
+  describe('getTabDisplayName', () => {
+    it('maps "cu" to "claude"', () => {
+      expect(getTabDisplayName('cu')).toBe('claude');
+    });
+
+    it('returns process name unchanged for other processes', () => {
+      expect(getTabDisplayName('bash')).toBe('bash');
+      expect(getTabDisplayName('codex')).toBe('codex');
+      expect(getTabDisplayName('gemini')).toBe('gemini');
     });
   });
 

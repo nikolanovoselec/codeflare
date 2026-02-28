@@ -6,7 +6,7 @@ import {
   mdiCodeBraces,
   mdiDiamond,
   mdiSourceBranch,
-  mdiFire,
+
   mdiRobotIndustrial,
   mdiGithub,
 } from '@mdi/js';
@@ -21,9 +21,19 @@ export const TERMINAL_TAB_CONFIG: Record<string, { name: string; icon: string }>
   '6': { name: 'Terminal 6', icon: mdiConsole },
 };
 
+// Map process names to display names (when different from process name)
+const PROCESS_DISPLAY_NAME: Record<string, string> = {
+  'cu': 'claude',
+};
+
+/** Get display name for a process (e.g. 'cu' → 'claude') */
+export function getTabDisplayName(processName: string): string {
+  return PROCESS_DISPLAY_NAME[processName] || processName;
+}
+
 // Map process names (from server) to MDI icon paths
 const PROCESS_ICON_MAP: Record<string, string> = {
-  'cu': mdiFire,
+  'cu': mdiRobotOutline,
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
   'opencode': mdiRobotIndustrial,
