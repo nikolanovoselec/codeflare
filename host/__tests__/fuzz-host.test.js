@@ -101,25 +101,10 @@ describe('fuzz: getPrewarmConfig', () => {
   });
 
   it('never throws for any input', () => {
-    const tabEntry = fc.record({
-      id: fc.string({ minLength: 0, maxLength: 5 }),
-      command: fc.string({ minLength: 0, maxLength: 30 }),
-      label: fc.string({ minLength: 0, maxLength: 20 }),
-    });
     fc.assert(
-      fc.property(
-        fc.oneof(
-          fc.constant(undefined),
-          fc.constant(null),
-          fc.constant(''),
-          fc.integer(),
-          fc.object(),
-          fc.array(tabEntry, { minLength: 0, maxLength: 5 }),
-        ),
-        (input) => {
-          getPrewarmConfig(input); // must not throw
-        },
-      ),
+      fc.property(fc.anything(), (input) => {
+        getPrewarmConfig(input); // must not throw
+      }),
       { numRuns: NUM_RUNS },
     );
   });

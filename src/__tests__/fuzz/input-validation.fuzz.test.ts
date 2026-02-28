@@ -1769,24 +1769,18 @@ describe('Fuzz: getCookieValue (replicated)', () => {
 // toError and toErrorMessage
 // ---------------------------------------------------------------------------
 describe('Fuzz: toError and toErrorMessage', () => {
-  // Use stringifiable inputs — fc.anything() can produce objects that throw on String()
-  const stringifiable = fc.oneof(
-    fc.string(), fc.integer(), fc.boolean(), fc.double(),
-    fc.constant(null), fc.constant(undefined), fc.constant(0), fc.constant(''),
-  );
-
-  it('toError always returns Error instance for stringifiable inputs', () => {
+  it('toError always returns Error instance for any input', () => {
     fc.assert(
-      fc.property(stringifiable, (input) => {
+      fc.property(fc.anything(), (input) => {
         expect(toError(input)).toBeInstanceOf(Error);
       }),
       { numRuns: NUM_RUNS },
     );
   });
 
-  it('toErrorMessage always returns string for stringifiable inputs', () => {
+  it('toErrorMessage always returns string for any input', () => {
     fc.assert(
-      fc.property(stringifiable, (input) => {
+      fc.property(fc.anything(), (input) => {
         expect(typeof toErrorMessage(input)).toBe('string');
       }),
       { numRuns: NUM_RUNS },

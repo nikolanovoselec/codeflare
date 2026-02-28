@@ -23,8 +23,8 @@ export function getPrewarmConfig(tabConfig) {
     return { command: null };
   }
 
-  const tab1 = tabConfig.find((t) => t.id === '1');
-  if (!tab1 || !tab1.command) {
+  const tab1 = tabConfig.find((t) => t && t.id === '1');
+  if (!tab1 || typeof tab1.command !== 'string' || !tab1.command) {
     return { command: null };
   }
 
