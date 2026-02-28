@@ -439,7 +439,7 @@ start_sync_daemon() {
 }
 
 # ============================================================================
-# Shutdown handler - final bisync on SIGTERM
+# Shutdown handler - final bisync on SIGTERM/SIGINT/EXIT
 # ============================================================================
 shutdown_handler() {
     echo "[entrypoint] Received shutdown signal, performing final bisync..."

@@ -1,7 +1,7 @@
 /**
  * In-memory cache for CORS origins loaded from KV.
  * Shared between index.ts (CORS middleware), terminal.ts (WebSocket Origin validation),
- * and setup.ts (cache reset on configure).
+ * and cache-reset.ts (cache invalidation on setup changes).
  */
 
 import type { Env } from '../types';

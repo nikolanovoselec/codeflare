@@ -52,7 +52,7 @@ export async function browseStorage(prefix?: string, continuationToken?: string)
   return storageFetch(`/storage/browse${query ? `?${query}` : ''}`, {}, StorageListResultSchema);
 }
 
-// Upload file (simple, <= 5MB base64)
+// Upload file (simple, <= 5MB original file size, sent as base64)
 export async function uploadFile(key: string, content: string): Promise<{ key: string; size?: number }> {
   return storageFetch('/storage/upload', {
     method: 'POST',

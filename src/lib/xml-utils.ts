@@ -4,7 +4,7 @@
  * Sanitization audit (FIX-39): All XML interpolation sites use this function:
  * - storage/upload.ts: escapeXml(p.etag) in CompleteMultipartUpload
  * - storage/delete.ts: escapeXml(key) in DeleteObjects
- * - public/index.ts: escapeXml(email), escapeXml(ip) in notification HTML
+ * - public/index.ts: escapeXml(submittedEmail), escapeXml(remoteIp) in notification HTML
  * - r2-client.ts: imports decodeXmlEntities() from this file, applied to extractTag output (FIX-18)
  * - r2-client.ts:127 (emptyR2Bucket DeleteObjects): escapeXml(obj.key)
  * No unescaped user input is interpolated into HTML or XML.

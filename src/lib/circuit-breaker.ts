@@ -72,7 +72,8 @@ export class CircuitBreaker {
    *
    * @param fn - Async function to execute
    * @returns The result of the function if successful
-   * @throws Error if circuit is OPEN or if the function throws
+   * @throws CircuitBreakerOpenError if circuit is OPEN
+   * @throws The original error if the wrapped function throws
    */
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     if (this.state === 'OPEN') {

@@ -37,4 +37,4 @@ These examples are meant to be a starting point. For your own projects, use your
 
 A specification defines what the system does, what technology it uses, how components interact, what the data looks like, what edge cases exist, what the tests verify, and what acceptance looks like. It's specific enough that the agent can execute without asking you a single question. If the agent has to guess, the spec isn't done.
 
-Tools like the `superpowers:brainstorming` skill or the `sequential-thinking` MCP server are built for this. Describe what you want to build, let the agent ask the right questions, and iterate until the spec is tight enough that implementation becomes mechanical. The more precise the spec, the less the agent improvises - and improvisation is where things go sideways.
+If your agent supports planning modes (e.g., Claude Code's plan mode via /plan), use those to develop a detailed specification. The more precise the spec, the less the agent improvises - and improvisation is where things go sideways.

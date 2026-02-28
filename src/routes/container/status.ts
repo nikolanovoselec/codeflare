@@ -137,7 +137,7 @@ app.get('/health', async (c) => {
  * Stage progression:
  * 1. stopped (0%) - Container not running
  * 2. starting (10-20%) - Container state is running/healthy but services not ready
- * 3. syncing (30-60%) - Health server responding, R2 sync in progress
+ * 3. syncing (30-45%) - Health server responding, R2 sync in progress
  * 4. verifying (80-85%) - Sync complete, terminal server starting
  * 5. mounting (90%) - Terminal server ready, PTY pre-warming in progress
  * 6. ready (100%) - All services ready

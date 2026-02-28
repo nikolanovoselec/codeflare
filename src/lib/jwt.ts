@@ -240,7 +240,7 @@ export async function verifyAccessJWT(
 }
 
 /**
- * Reset the JWKS cache. Primarily for testing.
+ * Reset the JWKS cache. Called by resetSetupCache() on config changes, and used in tests.
  */
 export function resetJWKSCache(): void {
   cachedJWKS = null;

@@ -33,7 +33,7 @@ Tabs 2-6 are draggable. Rearrange them however you want - your order is saved.
 
 A daemon syncs your home directory to Cloudflare R2 every 60 seconds. When you stop a session, a final sync runs before the container self-destructs. When you start a new one, everything is restored. Even if a session dies before you remember to `git push`, R2 sync has got your back. Sync conflicts will happen - Codeflare cleans them up automatically on the next cycle. Don't worry about it.
 
-What carries over: `.profile`, `.gitconfig`, `~/.claude/` (API keys, settings, project memory), and anything else in your home directory. Set your API key once. It's there forever.
+What carries over: `.bashrc`, `.gitconfig`, `~/.claude/` (API keys, settings, project memory), and anything else in your home directory. Set your API key once. It's there forever.
 
 The **R2 File Browser** on the Dashboard lets you browse, upload, download, and delete synced files between sessions - without starting a container.
 
@@ -45,11 +45,11 @@ Your agent needs a key. Set it once, sync takes care of the rest.
 
 | Agent | First-Time Setup |
 |-------|-----------------|
-| Claude Code | `echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.profile` |
-| Codex | `echo 'export OPENAI_API_KEY=sk-...' >> ~/.profile` |
-| Gemini | `echo 'export GEMINI_API_KEY=...' >> ~/.profile` |
+| Claude Code | `echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.bashrc` |
+| Codex | `echo 'export OPENAI_API_KEY=sk-...' >> ~/.bashrc` |
+| Gemini | `echo 'export GEMINI_API_KEY=...' >> ~/.bashrc` |
 | GitHub Copilot | Run `copilot` in any terminal tab — authenticates via its own OAuth device-code flow on first run, no API key needed |
-| OpenCode | `echo 'export OPENAI_API_KEY=sk-...' >> ~/.profile` (or configure via `opencode` TUI - supports 75+ providers) |
+| OpenCode | `echo 'export OPENAI_API_KEY=sk-...' >> ~/.bashrc` (or configure via `opencode` TUI - supports 75+ providers) |
 
 Next session, the key is already there. Magic. (It's rclone, but magic sounds better.)
 

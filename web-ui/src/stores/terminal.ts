@@ -145,6 +145,7 @@ function getTerminal(sessionId: string, terminalId: string): Terminal | undefine
  * @param terminalId - The terminal tab ID within the session
  * @param terminal - The xterm.js Terminal instance
  * @param onError - Optional callback for error reporting
+ * @param manual - Optional flag indicating user-created terminal tab (appends ?manual=1 to WS URL)
  * @returns Cleanup function to cancel connection and dispose resources
  */
 function connect(

@@ -906,7 +906,7 @@ codeflare/
 ├── web-ui/
 │   └── src/
 │       ├── components/       # SolidJS components (Terminal, Layout, SessionCard, StorageBrowser, etc.)
-│       ├── stores/           # terminal.ts, session.ts, storage.ts, setup.ts, tiling.ts, session-presets.ts, session-tabs.ts
+│       ├── stores/           # terminal.ts, terminal-layout.ts, terminal-url-detection.ts, session.ts, storage.ts, setup.ts, tiling.ts, session-presets.ts, session-tabs.ts
 │       ├── api/              # client.ts, fetch-helper.ts, storage.ts
 │       ├── hooks/            # useTerminal.ts, useStageTimings.ts
 │       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, settings, format, mobile, + others
@@ -1114,7 +1114,7 @@ Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop`
 ### 16.1 Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
-**Count:** 65 test files, ~934 tests.
+**Count:** 65 test files, ~940 tests.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -1122,7 +1122,7 @@ Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop`
 ### 16.2 Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 65 test files, ~1,271 tests.
+**Count:** 65 test files, ~1,293 tests.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
@@ -1178,7 +1178,7 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 - **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page - UI tests work around this by intercepting requests.
 - **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
 - **CSS disable:** UI tests inject a `<style>` element via `evaluateOnNewDocument` that sets `transition: none !important; animation: none !important; scroll-behavior: auto !important` on all elements (`*, *::before, *::after`), disabling CSS transitions and animations for reliable element positioning in headless Chrome.
-- **Screenshot artifacts:** Failed UI tests capture screenshots to `/tmp/e2e-*.png`. CI uploads these as artifacts with 5-day retention.
+- **Screenshot artifacts:** Failed UI tests capture screenshots and HTML dumps to `e2e-artifacts/`. CI uploads these as artifacts with 5-day retention.
 - **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
 
 ### 16.9 E2E Service Token Setup
@@ -1350,8 +1350,8 @@ wrangler secret list
 ### Monitor Logs
 
 ```bash
-wrangler tail --service codeflare
-wrangler tail --service codeflare --level error
+wrangler tail codeflare
+wrangler tail codeflare --status error
 ```
 
 ---

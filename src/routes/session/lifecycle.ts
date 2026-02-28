@@ -1,6 +1,6 @@
 /**
  * Session lifecycle routes
- * Handles start/stop/status endpoints for session containers
+ * Handles stop, status, and batch-status endpoints for session containers
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
@@ -100,9 +100,8 @@ app.get('/batch-status', async (c) => {
 
 /**
  * POST /api/sessions/:id/stop
- * Stop a session (kills the PTY but keeps the container alive for restart)
- * Note: The container will naturally go to sleep after inactivity.
- * Use DELETE to fully destroy the container and remove the session.
+ * Stop a session and destroy its container.
+ * Use DELETE to fully remove the session from KV.
  */
 app.post('/:id/stop', async (c) => {
   const bucketName = c.get('bucketName');
