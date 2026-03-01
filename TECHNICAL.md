@@ -909,7 +909,7 @@ codeflare/
 │   │                         #   FIX-39 audit trail in file header tracks all interpolation sites
 │   ├── container/index.ts    # Container DO class
 │   └── __tests__/            # Backend unit tests (68 files, ~996 tests)
-├── e2e/                      # E2E tests: 11 API files (~50 tests) + 10 UI files (~75 tests, Puppeteer)
+├── e2e/                      # E2E tests: 12 API files (~55 tests) + 10 UI files (~75 tests, Puppeteer)
 ├── host/
 │   ├── server.js             # HTTP/WS server, auth, routing, prewarm, signal handlers (~496 lines)
 │   ├── session.js            # Session class — PTY management, tab lifecycle (~312 lines)
@@ -1175,7 +1175,7 @@ Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/`
 
 ### 16.6 E2E API Tests
 
-**Dir:** `e2e/api/` - 11 test files, ~50 tests.
+**Dir:** `e2e/api/` - 12 test files, ~55 tests.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 

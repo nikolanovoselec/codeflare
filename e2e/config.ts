@@ -28,6 +28,7 @@ export const TIMEOUTS = {
   TERMINAL_READY: 30_000,
   /** Container start -> ready: ~20s typical, 30s max. 45s with margin. */
   CONTAINER_STARTUP: 45_000,
+  CONTAINER_STARTUP_EXTENDED: 120_000,
   /** Full session navigation: card click -> init progress -> Open -> terminal. 45s with margin. */
   SESSION_NAV: 45_000,
   KV_PROPAGATION_INTERVAL: 2_000,

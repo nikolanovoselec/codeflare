@@ -273,3 +273,31 @@ export async function waitForContainerReady(page: Page, sessionId: string): Prom
 export async function stopSessionViaApi(sessionId: string): Promise<void> {
   await apiRequest(`/api/sessions/${sessionId}/stop`, { method: 'POST' });
 }
+
+export async function setPreference(key: string, value: unknown): Promise<void> {
+  const res = await apiRequest('/api/preferences', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ [key]: value }),
+  });
+  if (!res.ok) throw new Error(`Failed to set preference ${key}: ${res.status}`);
+}
+
+export async function waitForContainerReadyViaApi(
+  sessionId: string,
+  timeoutMs: number = TIMEOUTS.CONTAINER_STARTUP
+): Promise<{ elapsed: number; stage: string }> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const res = await apiRequest(`/api/container/startup-status?sessionId=${sessionId}`);
+    if (!res.ok) {
+      await new Promise(r => setTimeout(r, TIMEOUTS.CONTAINER_POLL_INTERVAL));
+      continue;
+    }
+    const data = await res.json();
+    if (data.stage === 'ready') return { elapsed: Date.now() - start, stage: 'ready' };
+    if (data.stage === 'error') throw new Error(`Container startup error for ${sessionId}: ${data.error || data.message}`);
+    await new Promise(r => setTimeout(r, TIMEOUTS.CONTAINER_POLL_INTERVAL));
+  }
+  throw new Error(`Container ${sessionId} did not reach ready within ${timeoutMs}ms`);
+}
