@@ -11,7 +11,7 @@ import { validateKey } from './validation';
  * Sanitizes CRLF and other dangerous characters from the raw filename
  * BEFORE encoding, preventing header injection attacks.
  */
-export function buildContentDisposition(rawFilename: string): string {
+function buildContentDisposition(rawFilename: string): string {
   // Strip CRLF, quotes, and backslashes for the ASCII fallback filename
   const safeFilename = rawFilename.replace(/[\r\n"\\]/g, '_');
   // Strip CRLF before percent-encoding for filename* (RFC 5987)

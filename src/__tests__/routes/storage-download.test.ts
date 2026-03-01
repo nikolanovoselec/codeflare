@@ -213,12 +213,3 @@ describe('Storage Download Routes', () => {
     });
   });
 });
-
-// Test the exported helper directly
-describe('buildContentDisposition', () => {
-  // Import lazily since module was already imported
-  it('is exported as a named function', async () => {
-    const mod = await import('../../routes/storage/download');
-    expect(typeof (mod as any).buildContentDisposition).toBe('function');
-  });
-});
