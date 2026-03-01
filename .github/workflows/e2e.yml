@@ -164,7 +164,6 @@ jobs:
   e2e-ui-desktop:
     needs: [setup, e2e-api]
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    continue-on-error: true
     environment: integration
     timeout-minutes: 15
     env:
@@ -231,7 +230,6 @@ jobs:
   e2e-ui-mobile:
     needs: [setup, e2e-ui-desktop]
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    continue-on-error: true
     environment: integration
     timeout-minutes: 15
     env:
