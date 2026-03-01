@@ -28,10 +28,11 @@ vi.mock('@cloudflare/containers', () => ({
 }));
 
 // Mock circuit breakers to be pass-through
+const passThroughCB = { execute: (fn: () => Promise<unknown>) => fn(), reset: vi.fn() };
 vi.mock('../../lib/circuit-breakers', () => ({
-  containerHealthCB: { execute: (fn: () => Promise<unknown>) => fn(), reset: vi.fn() },
-  containerInternalCB: { execute: (fn: () => Promise<unknown>) => fn(), reset: vi.fn() },
-  containerSessionsCB: { execute: (fn: () => Promise<unknown>) => fn(), reset: vi.fn() },
+  getContainerHealthCB: () => passThroughCB,
+  getContainerInternalCB: () => passThroughCB,
+  getContainerSessionsCB: () => passThroughCB,
 }));
 
 describe('Container Status Routes', () => {

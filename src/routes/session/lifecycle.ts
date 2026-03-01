@@ -10,7 +10,7 @@ import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow } fro
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
-import { containerSessionsCB } from '../../lib/circuit-breakers';
+import { getContainerSessionsCB } from '../../lib/circuit-breakers';
 import { toApiSession } from '../../lib/session-helpers';
 import { ValidationError } from '../../lib/error-types';
 
@@ -20,9 +20,10 @@ import { ValidationError } from '../../lib/error-types';
  */
 async function getContainerSessionStatus(
   container: DurableObjectStub,
-  sessionId: string
+  sessionId: string,
+  containerId: string
 ): Promise<{ status: string; ptyActive: boolean; terminalSessions: { id: string; [key: string]: unknown }[] }> {
-  const healthResult = await safeCheckContainerHealth(container);
+  const healthResult = await safeCheckContainerHealth(container, containerId);
 
   if (!healthResult.healthy) {
     return { status: 'stopped', ptyActive: false, terminalSessions: [] };
@@ -30,7 +31,7 @@ async function getContainerSessionStatus(
 
   let terminalSessions: { id: string; [key: string]: unknown }[] = [];
   try {
-    const sessionsRes = await containerSessionsCB.execute(() =>
+    const sessionsRes = await getContainerSessionsCB(containerId).execute(() =>
       container.fetch(
         new Request('http://container/sessions', { method: 'GET' })
       )
@@ -160,7 +161,7 @@ app.get('/:id/status', async (c) => {
   try {
     const containerId = getContainerId(bucketName, sessionId);
     const container = getContainer(c.env.CONTAINER, containerId);
-    result = await getContainerSessionStatus(container, sessionId);
+    result = await getContainerSessionStatus(container, sessionId, containerId);
   } catch {
     // Container check failed - defaults to stopped
   }

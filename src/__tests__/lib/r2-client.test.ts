@@ -429,6 +429,43 @@ describe('emptyR2Bucket', () => {
   });
 });
 
+describe('R2 error sanitization (FIX-9)', () => {
+  it('emptyR2Bucket error messages do not leak bucket names', async () => {
+    const mockFetchLocal = vi.fn();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetchLocal;
+
+    mockSign.mockImplementation((url: string, init?: RequestInit) =>
+      new Request(url, init),
+    );
+
+    // S3 XML error response that includes internal bucket name
+    const errorXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>AccessDenied</Code><Message>Access Denied for bucket secret-internal-bucket-name</Message></Error>`;
+    mockFetchLocal.mockResolvedValueOnce(new Response(errorXml, { status: 403 }));
+
+    try {
+      await emptyR2Bucket(
+        { sign: mockSign } as any,
+        'https://abc123.r2.cloudflarestorage.com',
+        'secret-internal-bucket-name',
+      );
+      expect.fail('Should have thrown');
+    } catch (err: any) {
+      // Error message should contain the HTTP status but NOT the raw XML body
+      expect(err.message).toContain('HTTP 403');
+      expect(err.message).not.toContain('secret-internal-bucket-name');
+    }
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('createR2Client throws ValidationError (not raw secrets) when credentials missing', () => {
+    const env = { R2_ACCESS_KEY_ID: '', R2_SECRET_ACCESS_KEY: '' } as any;
+    expect(() => createR2Client(env)).toThrow('R2 credentials not configured');
+  });
+});
+
 describe('parseListObjectsXml - XML entity decoding', () => {
   it('decodes XML entities in CommonPrefixes', () => {
     const xml = `<ListBucketResult>

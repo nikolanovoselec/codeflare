@@ -9,10 +9,9 @@ import { AuthVariables } from '../../middleware/auth';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
 import {
   containerLogger,
-  containerHealthCB,
-  containerSessionsCB,
   fetchWithTimeout,
 } from './shared';
+import { getContainerHealthCB, getContainerSessionsCB } from '../../lib/circuit-breakers';
 
 /** Copy cpu/mem/hdd metrics from health data into the response details object */
 function populateMetrics(
@@ -108,7 +107,7 @@ app.get('/health', async (c) => {
   try {
     const { containerId, container } = getContainerContext(c);
 
-    const healthResult = await safeCheckContainerHealth(container);
+    const healthResult = await safeCheckContainerHealth(container, containerId);
 
     if (!healthResult.healthy) {
       reqLogger.error('Container health check failed', new Error(healthResult.error || 'Unknown error'), { containerId });
@@ -221,7 +220,7 @@ app.get('/startup-status', async (c) => {
     // Returns sync status from /tmp/sync-status.json and system metrics (cpu/mem/hdd)
     const healthRequest = new Request('http://container/health', { method: 'GET' });
     const healthRes = await fetchWithTimeout(() =>
-      containerHealthCB.execute(() => container.fetch(healthRequest))
+      getContainerHealthCB(containerId).execute(() => container.fetch(healthRequest))
     );
 
     // Parse health data if available (includes sync status and system metrics)
@@ -258,7 +257,7 @@ app.get('/startup-status', async (c) => {
     //   responding → container is fully ready, sync is just a background data operation
     const sessionsRequest = new Request('http://container/sessions', { method: 'GET' });
     const sessionsRes = await fetchWithTimeout(() =>
-      containerSessionsCB.execute(() => container.fetch(sessionsRequest))
+      getContainerSessionsCB(containerId).execute(() => container.fetch(sessionsRequest))
     );
     const terminalServerReady = sessionsRes != null && sessionsRes.ok;
 

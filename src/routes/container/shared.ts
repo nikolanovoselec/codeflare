@@ -8,11 +8,7 @@ import { isBucketNameResponse } from '../../lib/type-guards';
 import { toErrorMessage } from '../../lib/error-types';
 import { CONTAINER_FETCH_TIMEOUT } from '../../lib/constants';
 
-// Re-export circuit breakers from central location
-export { containerHealthCB, containerInternalCB, containerSessionsCB } from '../../lib/circuit-breakers';
-
-// Local import for use within this module (re-exports aren't local bindings)
-import { containerInternalCB } from '../../lib/circuit-breakers';
+import { getContainerInternalCB } from '../../lib/circuit-breakers';
 
 export const containerLogger = createLogger('container-routes');
 
@@ -38,10 +34,11 @@ export async function fetchWithTimeout(
  */
 export async function getStoredBucketName(
   container: DurableObjectStub,
-  logger: Logger
+  logger: Logger,
+  containerId: string
 ): Promise<string | null> {
   try {
-    const resp = await containerInternalCB.execute(() =>
+    const resp = await getContainerInternalCB(containerId).execute(() =>
       container.fetch(
         new Request('http://container/_internal/getBucketName', { method: 'GET' })
       )

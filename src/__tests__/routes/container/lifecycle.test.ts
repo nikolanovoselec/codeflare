@@ -53,18 +53,16 @@ vi.mock('../../../routes/container/shared', () => ({
       warn: vi.fn(),
     })),
   },
-  containerInternalCB: {
-    execute: vi.fn((fn: () => Promise<any>) => fn()),
-  },
   getStoredBucketName: mockGetStoredBucketName,
 }));
 
 // Mock circuit breakers
+const passThroughCB = { execute: vi.fn((fn: () => Promise<any>) => fn()) };
 vi.mock('../../../lib/circuit-breakers', () => ({
   r2AdminCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
-  containerHealthCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
-  containerInternalCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
-  containerSessionsCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
+  getContainerHealthCB: () => passThroughCB,
+  getContainerInternalCB: () => passThroughCB,
+  getContainerSessionsCB: () => passThroughCB,
 }));
 
 // Mock logger

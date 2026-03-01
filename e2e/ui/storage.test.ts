@@ -80,7 +80,8 @@ describe.skipIf(!isSetup)('Storage', () => {
         await upBtn.click();
         await page.waitForSelector('[data-testid="storage-breadcrumbs"]', { timeout: TIMEOUTS.DIALOG });
       }
-      expect(true).toBe(true); // navigation succeeded without error
+      const breadcrumbs = await page.$('[data-testid="storage-breadcrumbs"]');
+      expect(breadcrumbs).toBeTruthy();
     });
 
     it('should update breadcrumbs when navigating into folder', async () => {
@@ -150,7 +151,8 @@ describe.skipIf(!isSetup)('Storage', () => {
         // Toggle back to restore original state
         await toggle.click();
       }
-      expect(true).toBe(true); // toggle interaction succeeded without error
+      const toggleBtn = await page.$('[data-testid="storage-hidden-toggle"]');
+      expect(toggleBtn).toBeTruthy();
     });
   });
 

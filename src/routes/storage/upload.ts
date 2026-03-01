@@ -61,7 +61,12 @@ app.post('/', async (c) => {
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 
-  const binaryContent = Uint8Array.from(atob(body.content), ch => ch.charCodeAt(0));
+  let binaryContent: Uint8Array;
+  try {
+    binaryContent = Uint8Array.from(atob(body.content), ch => ch.charCodeAt(0));
+  } catch {
+    throw new ValidationError('Invalid base64 content');
+  }
   const url = getR2Url(endpoint, bucketName, sanitizedKey);
 
   const response = await r2Client.fetch(url, {
@@ -124,7 +129,12 @@ app.post('/part', async (c) => {
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 
-  const binaryContent = Uint8Array.from(atob(body.content), ch => ch.charCodeAt(0));
+  let binaryContent: Uint8Array;
+  try {
+    binaryContent = Uint8Array.from(atob(body.content), ch => ch.charCodeAt(0));
+  } catch {
+    throw new ValidationError('Invalid base64 content');
+  }
   const url = `${getR2Url(endpoint, bucketName, sanitizedKey)}?partNumber=${body.partNumber}&uploadId=${encodeURIComponent(body.uploadId)}`;
 
   const response = await r2Client.fetch(url, {

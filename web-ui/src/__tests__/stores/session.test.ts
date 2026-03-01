@@ -1205,6 +1205,22 @@ describe('Session Store', () => {
     });
   });
 
+  describe('loadSessions batch status error handling', () => {
+    it('should log error and set error state when getBatchSessionStatus fails', async () => {
+      mockGetSessions.mockResolvedValue([
+        { id: 'session-1', name: 'Test', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() },
+      ]);
+      mockGetBatchSessionStatus.mockRejectedValue(new Error('Batch status network error'));
+
+      await sessionStore.loadSessions();
+
+      // Sessions should still load (graceful degradation)
+      expect(sessionStore.sessions.length).toBe(1);
+      // Error state should be set
+      expect(sessionStore.error).toBe('Batch status network error');
+    });
+  });
+
   describe('shouldSkipStatusTransition', () => {
     it('refreshSessionStatuses calls shouldSkipStatusTransition (not inline check)', async () => {
       // Verify that shouldSkipStatusTransition is exported and works correctly

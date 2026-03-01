@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fetchWithTimeout, getStoredBucketName } from '../../routes/container/shared';
 import { createLogger } from '../../lib/logger';
 
+const passThroughCB = { execute: (fn: () => Promise<unknown>) => fn() };
 vi.mock('../../lib/circuit-breakers', () => ({
-  containerHealthCB: { execute: (fn: () => Promise<unknown>) => fn() },
-  containerInternalCB: { execute: (fn: () => Promise<unknown>) => fn() },
-  containerSessionsCB: { execute: (fn: () => Promise<unknown>) => fn() },
+  getContainerHealthCB: () => passThroughCB,
+  getContainerInternalCB: () => passThroughCB,
+  getContainerSessionsCB: () => passThroughCB,
 }));
 
 describe('Container Shared Utilities', () => {
@@ -47,6 +48,7 @@ describe('Container Shared Utilities', () => {
 
   describe('getStoredBucketName', () => {
     const logger = createLogger('test');
+    const testContainerId = 'test-container-id';
 
     it('returns bucket name from container response', async () => {
       const container = {
@@ -55,7 +57,7 @@ describe('Container Shared Utilities', () => {
         ),
       };
 
-      const result = await getStoredBucketName(container as any, logger);
+      const result = await getStoredBucketName(container as any, logger, testContainerId);
 
       expect(result).toBe('codeflare-abc123');
     });
@@ -67,7 +69,7 @@ describe('Container Shared Utilities', () => {
         ),
       };
 
-      const result = await getStoredBucketName(container as any, logger);
+      const result = await getStoredBucketName(container as any, logger, testContainerId);
 
       expect(result).toBeNull();
     });
@@ -77,7 +79,7 @@ describe('Container Shared Utilities', () => {
         fetch: vi.fn().mockRejectedValue(new Error('not found')),
       };
 
-      const result = await getStoredBucketName(container as any, logger);
+      const result = await getStoredBucketName(container as any, logger, testContainerId);
 
       expect(result).toBeNull();
     });
@@ -87,7 +89,7 @@ describe('Container Shared Utilities', () => {
         fetch: vi.fn().mockRejectedValue(new Error('Network connection failed')),
       };
 
-      const result = await getStoredBucketName(container as any, logger);
+      const result = await getStoredBucketName(container as any, logger, testContainerId);
 
       expect(result).toBeNull();
     });

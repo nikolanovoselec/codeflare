@@ -15,7 +15,8 @@ import { AppError, ContainerError, NotFoundError, RateLimitError, toError, toErr
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, listAllKvKeys, getSessionPrefix } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
-import { containerLogger, containerInternalCB, getStoredBucketName } from './shared';
+import { containerLogger, getStoredBucketName } from './shared';
+import { getContainerInternalCB } from '../../lib/circuit-breakers';
 import type { Logger } from '../../lib/logger';
 
 // ---------------------------------------------------------------------------
@@ -96,9 +97,12 @@ export async function validateSessionAndCheckLimits(params: {
 
   // Session limit check: enforce max concurrent running sessions per role.
   const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
-  const sessionResults = await Promise.all(
+  const sessionSettled = await Promise.allSettled(
     sessionKeys.map(key => env.KV.get<Session>(key.name, 'json'))
   );
+  const sessionResults = sessionSettled
+    .filter((r): r is PromiseFulfilledResult<Session | null> => r.status === 'fulfilled')
+    .map(r => r.value);
   const runningCount = sessionResults.filter(
     (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
   ).length;
@@ -168,6 +172,7 @@ export async function configureContainerDO(params: {
   container: { fetch: (req: Request) => Promise<Response> };
   bucketName: string;
   sessionId: string;
+  containerId: string;
   scopedCreds: { accessKeyId: string; secretAccessKey: string };
   r2Config: { accountId: string; endpoint: string };
   tabConfig: TabConfig[];
@@ -175,9 +180,9 @@ export async function configureContainerDO(params: {
   fastStartEnabled: boolean;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
-  const { container, bucketName, logger } = params;
+  const { container, bucketName, containerId, logger } = params;
 
-  const storedBucketName = await getStoredBucketName(container as any, logger);
+  const storedBucketName = await getStoredBucketName(container as any, logger, containerId);
 
   const setBucketBody = buildSetBucketNameBody({
     bucketName: params.bucketName,
@@ -192,7 +197,7 @@ export async function configureContainerDO(params: {
   const needsBucketUpdate = storedBucketName !== bucketName;
 
   try {
-    await containerInternalCB.execute(() =>
+    await getContainerInternalCB(containerId).execute(() =>
       container.fetch(
         new Request('http://container/_internal/setBucketName', {
           method: 'POST',
@@ -231,6 +236,7 @@ export async function startOrRestartContainer(params: {
   };
   needsBucketUpdate: boolean;
   setBucketBody: string;
+  containerId: string;
   sessionData: Session;
   sessionKey: string;
   env: Env;
@@ -238,7 +244,7 @@ export async function startOrRestartContainer(params: {
   logger: Logger;
   waitUntil: (p: Promise<void>) => void;
 }): Promise<{ status: string; containerState?: string }> {
-  const { container, needsBucketUpdate, setBucketBody, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
+  const { container, needsBucketUpdate, setBucketBody, containerId, sessionData, sessionKey, env, shortContainerId, logger, waitUntil } = params;
 
   // Check current state
   let currentState;
@@ -254,7 +260,7 @@ export async function startOrRestartContainer(params: {
     logger.info('Bucket name changed, destroying container to restart with correct bucket');
     try {
       await container.destroy();
-      await containerInternalCB.execute(() =>
+      await getContainerInternalCB(containerId).execute(() =>
         container.fetch(
           new Request('http://container/_internal/setBucketName', {
             method: 'POST',
@@ -297,8 +303,8 @@ export async function startOrRestartContainer(params: {
             freshSession.status = 'stopped';
             await env.KV.put(sessionKey, JSON.stringify(freshSession));
           }
-        } catch {
-          // Rollback failure shouldn't propagate
+        } catch (err) {
+          logger.error('KV rollback to stopped failed', toError(err));
         }
       }
     })()
@@ -373,6 +379,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       container,
       bucketName,
       sessionId,
+      containerId,
       scopedCreds,
       r2Config,
       tabConfig,
@@ -387,6 +394,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       container,
       needsBucketUpdate,
       setBucketBody,
+      containerId,
       sessionData,
       sessionKey,
       env: c.env,

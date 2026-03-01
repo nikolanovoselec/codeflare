@@ -3,7 +3,7 @@ import type { Env } from '../types';
 import type { DurableObjectStub } from '@cloudflare/workers-types';
 import { getContainer } from '@cloudflare/containers';
 import { SESSION_ID_PATTERN } from './constants';
-import { containerHealthCB } from './circuit-breakers';
+import { getContainerHealthCB } from './circuit-breakers';
 import { toErrorMessage, ValidationError } from './error-types';
 
 // Type for context variables set by container middleware
@@ -78,10 +78,11 @@ interface ContainerHealthResult {
  * @returns Health check result with status and optional data
  */
 async function checkContainerHealth(
-  container: DurableObjectStub
+  container: DurableObjectStub,
+  containerId: string
 ): Promise<ContainerHealthResult> {
   try {
-    const response = await containerHealthCB.execute(() =>
+    const response = await getContainerHealthCB(containerId).execute(() =>
       container.fetch(new Request('http://container/health', { method: 'GET' }))
     );
 
@@ -108,7 +109,8 @@ async function checkContainerHealth(
  * @returns Health check result with status and optional data
  */
 export async function safeCheckContainerHealth(
-  container: DurableObjectStub
+  container: DurableObjectStub,
+  containerId: string
 ): Promise<ContainerHealthResult> {
   try {
     const state = await (container as ContainerStubWithState).getState();
@@ -121,5 +123,5 @@ export async function safeCheckContainerHealth(
     return { healthy: false, status: 'unknown' };
   }
 
-  return checkContainerHealth(container);
+  return checkContainerHealth(container, containerId);
 }

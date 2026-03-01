@@ -223,9 +223,13 @@ export async function deleteScopedR2Token(
   }
 }
 
+/** In-memory dedup cache to prevent concurrent token creation for the same email. */
+const pendingTokenCreations = new Map<string, Promise<ScopedR2TokenResult>>();
+
 /**
  * Get cached scoped R2 token from KV, or create a new one.
  * With forceFresh=true, deletes the stale KV entry and creates a fresh token.
+ * Concurrent calls for the same email are deduplicated via an in-memory promise cache.
  */
 export async function getOrCreateScopedR2Token(
   email: string,
@@ -238,6 +242,7 @@ export async function getOrCreateScopedR2Token(
   const kvKey = `r2token:${email}`;
 
   if (options?.forceFresh) {
+    pendingTokenCreations.delete(email);
     await kv.delete(kvKey);
   } else {
     const cached = await kv.get(kvKey);
@@ -251,14 +256,29 @@ export async function getOrCreateScopedR2Token(
     }
   }
 
-  const result = await createScopedR2Token(accountId, apiToken, bucketName);
+  // Dedup: if another call for the same email is already in-flight, reuse its promise
+  const pending = pendingTokenCreations.get(email);
+  if (pending) {
+    return pending;
+  }
 
-  const kvValue: CachedR2Token = {
-    ...result,
-    bucketName,
-    createdAt: new Date().toISOString(),
-  };
-  await kv.put(kvKey, JSON.stringify(kvValue));
+  const createPromise = (async () => {
+    try {
+      const result = await createScopedR2Token(accountId, apiToken, bucketName);
 
-  return result;
+      const kvValue: CachedR2Token = {
+        ...result,
+        bucketName,
+        createdAt: new Date().toISOString(),
+      };
+      await kv.put(kvKey, JSON.stringify(kvValue));
+
+      return result;
+    } finally {
+      pendingTokenCreations.delete(email);
+    }
+  })();
+
+  pendingTokenCreations.set(email, createPromise);
+  return createPromise;
 }

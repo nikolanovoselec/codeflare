@@ -92,34 +92,6 @@ export function resetContainerBreakers(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Circuit breaker for container health checks (singleton — backward compat).
- * @deprecated Use getContainerHealthCB(containerId) for per-container isolation.
- */
-export const containerHealthCB = new CircuitBreaker('container-health', {
-  failureThreshold: 5,
-  resetTimeoutMs: 30000,
-  halfOpenMaxAttempts: 2,
-});
-
-/**
- * Circuit breaker for internal container operations (singleton — backward compat).
- * @deprecated Use getContainerInternalCB(containerId) for per-container isolation.
- */
-export const containerInternalCB = new CircuitBreaker('container-internal', {
-  failureThreshold: 3,
-  resetTimeoutMs: 15000,
-});
-
-/**
- * Circuit breaker for container session operations (singleton — backward compat).
- * @deprecated Use getContainerSessionsCB(containerId) for per-container isolation.
- */
-export const containerSessionsCB = new CircuitBreaker('container-sessions', {
-  failureThreshold: 5,
-  resetTimeoutMs: 30000,
-});
-
-/**
  * Circuit breaker for R2 admin API calls
  * Used when checking/creating R2 buckets via Cloudflare API
  */

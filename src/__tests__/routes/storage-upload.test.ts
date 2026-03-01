@@ -186,6 +186,21 @@ describe('Storage Upload Routes', () => {
 
       expect(res.status).toBe(500);
     });
+
+    it('returns 400 ValidationError for invalid base64 content (FIX-10)', async () => {
+      const app = createApp();
+
+      const res = await app.request('/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'test.txt', content: '!!!not-valid-base64!!!' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string; code: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+      expect(body.error).toContain('Invalid base64 content');
+    });
   });
 
   // ── Multipart initiate ─────────────────────────────────────────────
@@ -283,6 +298,26 @@ describe('Storage Upload Routes', () => {
       });
 
       expect(res.status).toBe(400);
+    });
+
+    it('returns 400 ValidationError for invalid base64 content in part upload (FIX-10)', async () => {
+      const app = createApp();
+
+      const res = await app.request('/upload/part', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'workspace/large.zip',
+          uploadId: 'upload-id-123',
+          partNumber: 1,
+          content: '!!!not-valid-base64!!!',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string; code: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+      expect(body.error).toContain('Invalid base64 content');
     });
 
     it('sends partNumber and uploadId in URL', async () => {

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "cd web-ui && npm install && npm run build",
+    "build": "cd web-ui && npm ci && npm run build",
     "deploy": "npm run build && wrangler deploy",
     "generate:tutorial-seed": "node scripts/generate-tutorial-seed.mjs",
     "prebuild": "npm run generate:tutorial-seed",
@@ -30,7 +30,8 @@
     "zod": "^4.3.6"
   },
   "overrides": {
-    "minimatch": ">=10.2.1"
+    "minimatch": ">=10.2.1",
+    "glob": ">=11.0.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.17",

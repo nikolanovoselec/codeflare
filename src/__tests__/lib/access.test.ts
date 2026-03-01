@@ -361,5 +361,25 @@ describe('access.ts', () => {
       expect(user.email).toBe('svc@company.com');
     });
 
+    it('logs console.warn when access_aud_list JSON parse fails (FIX-3)', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      resetAuthConfigCache();
+
+      // Store invalid JSON in setup:access_aud_list
+      mockKV._store.set('setup:access_aud_list', '{not-valid-json');
+
+      const request = new Request('http://localhost/test', {
+        headers: { 'cf-access-authenticated-user-email': 'user@test.com' },
+      });
+      await getUserFromRequest(request, makeEnv());
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Failed to parse access_aud_list',
+        expect.objectContaining({ raw: '{not-valid-json' }),
+      );
+
+      warnSpy.mockRestore();
+    });
+
   });
 });

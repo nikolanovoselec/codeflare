@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { validateWebSocketRoute } from '../../routes/terminal';
-import type { Env } from '../../types';
 
 /**
  * Unit tests for the validateWebSocketRoute function.
@@ -10,7 +9,6 @@ import type { Env } from '../../types';
  * We focus on the pure routing/validation logic that can be tested in isolation.
  */
 describe('validateWebSocketRoute', () => {
-  const mockEnv = {} as Env;
 
   function createRequest(path: string, headers: Record<string, string> = {}): Request {
     return new Request(`https://example.com${path}`, {
@@ -24,7 +22,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(true);
       expect(result.fullSessionId).toBe('abc123def456-1');
@@ -39,7 +37,7 @@ describe('validateWebSocketRoute', () => {
           Upgrade: 'websocket',
         });
 
-        const result = validateWebSocketRoute(request, mockEnv);
+        const result = validateWebSocketRoute(request);
 
         expect(result.isWebSocketRoute).toBe(true);
         expect(result.terminalId).toBe(String(i));
@@ -51,7 +49,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(true);
       expect(result.baseSessionId).toBe('abcdef12');
@@ -63,7 +61,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'WebSocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(true);
     });
@@ -75,7 +73,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(false);
     });
@@ -83,7 +81,7 @@ describe('validateWebSocketRoute', () => {
     it('returns isWebSocketRoute false for missing Upgrade header', () => {
       const request = createRequest('/api/terminal/abcdef12-1/ws');
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(false);
     });
@@ -93,7 +91,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'h2c',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(false);
     });
@@ -101,7 +99,7 @@ describe('validateWebSocketRoute', () => {
     it('returns isWebSocketRoute false for matching path but no Upgrade', () => {
       const request = createRequest('/api/terminal/abcdef12-1/ws', {});
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(false);
     });
@@ -114,7 +112,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(true);
       expect(result.errorResponse).toBeDefined();
@@ -126,7 +124,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(true);
       expect(result.errorResponse).toBeDefined();
@@ -140,7 +138,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(true);
       expect(result.errorResponse).toBeDefined();
@@ -152,7 +150,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
       const body = await result.errorResponse!.json() as { error: string };
 
       expect(body.error).toBe('Invalid session ID format');
@@ -165,7 +163,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       // The regex won't match empty segment due to [^\/]+
       expect(result.isWebSocketRoute).toBe(false);
@@ -177,7 +175,7 @@ describe('validateWebSocketRoute', () => {
         Upgrade: 'websocket',
       });
 
-      const result = validateWebSocketRoute(request, mockEnv);
+      const result = validateWebSocketRoute(request);
 
       expect(result.isWebSocketRoute).toBe(true);
       expect(result.baseSessionId).toBe(sessionId);

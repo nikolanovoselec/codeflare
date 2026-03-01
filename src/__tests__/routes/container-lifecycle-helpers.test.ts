@@ -38,17 +38,15 @@ vi.mock('../../routes/container/shared', () => ({
       warn: vi.fn(),
     })),
   },
-  containerInternalCB: {
-    execute: vi.fn((fn: () => Promise<any>) => fn()),
-  },
   getStoredBucketName: mockGetStoredBucketName,
 }));
 
+const passThroughCB = { execute: vi.fn((fn: () => Promise<any>) => fn()) };
 vi.mock('../../lib/circuit-breakers', () => ({
   r2AdminCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
-  containerHealthCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
-  containerInternalCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
-  containerSessionsCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
+  getContainerHealthCB: () => passThroughCB,
+  getContainerInternalCB: () => passThroughCB,
+  getContainerSessionsCB: () => passThroughCB,
 }));
 
 vi.mock('../../lib/logger', () => ({
@@ -248,6 +246,7 @@ describe('Container lifecycle extracted helpers', () => {
       container: mockContainer,
       bucketName: 'test-bucket',
       sessionId: 'session1234',
+      containerId: 'test-bucket-session1234',
       scopedCreds: { accessKeyId: 'ak', secretAccessKey: 'sk' },
       r2Config: { accountId: 'acct', endpoint: 'https://r2.example.com' },
       tabConfig: [{ id: '1', command: 'claude-code', label: 'Claude' }],
@@ -310,6 +309,7 @@ describe('Container lifecycle extracted helpers', () => {
       container,
       needsBucketUpdate: false,
       setBucketBody: '{}',
+      containerId: 'bucket-session1234',
       sessionData: { id: 'session1234', name: 'Test', status: 'stopped', createdAt: '2024-01-01T00:00:00Z' } as Session,
       sessionKey: 'session:bucket:session1234',
       env: { KV: mockKV as unknown as KVNamespace } as Env,

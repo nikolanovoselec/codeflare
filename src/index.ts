@@ -206,7 +206,7 @@ export default {
 
     // AUTH: WebSocket upgrade handled here before Hono middleware.
     // See also: src/routes/terminal.ts (WebSocket auth), src/middleware/auth.ts (HTTP auth)
-    const wsRouteResult = validateWebSocketRoute(request, env);
+    const wsRouteResult = validateWebSocketRoute(request);
 
     if (wsRouteResult.isWebSocketRoute) {
       // Return early error if validation failed

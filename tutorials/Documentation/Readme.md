@@ -18,7 +18,7 @@ Codeflare isn't tied to any single AI provider. Each session lets you choose whi
 
 | Agent | Description |
 |-------|-------------|
-| [Claude Code](https://github.com/nikolanovoselec/claude-unleashed) | Anthropic's Claude Code with root permission bypass (uses claude-unleashed under the hood) |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic coding tool running directly in the terminal |
 | Codex | OpenAI's Codex CLI agent |
 | Gemini | Google's Gemini CLI agent |
 | [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |

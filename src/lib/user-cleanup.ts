@@ -82,7 +82,11 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   } catch (err) {
     logger.warn('Failed to delete scoped R2 token during user deletion', { email, error: String(err) });
   }
-  await env.KV.delete(`r2token:${email}`);
+  try {
+    await env.KV.delete(`r2token:${email}`);
+  } catch (err) {
+    logger.warn('Failed to delete r2token KV entry', { email, error: String(err) });
+  }
 
   // --- Block D: R2 bucket empty + delete ---
   try {

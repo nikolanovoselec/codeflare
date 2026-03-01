@@ -6,9 +6,9 @@ FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
-COPY host/package.json /app/host/
+COPY host/package.json host/package-lock.json /app/host/
 WORKDIR /app/host
-RUN npm install --production
+RUN npm ci --omit=dev
 
 # ---- Stage 2: Runtime ----
 FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
@@ -63,32 +63,43 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 
 # Install rclone (pinned version — unpinned install.sh broke bisync, see TECHNICAL.md §22.13)
 RUN curl -fsSL https://downloads.rclone.org/v1.73.1/rclone-v1.73.1-linux-amd64.deb -o /tmp/rclone.deb \
+    && echo "4ae039b8ee737bc925a841f6398659584b8b6bdd29c0bb157c40cc234befd732  /tmp/rclone.deb" | sha256sum -c - \
     && dpkg -i /tmp/rclone.deb \
     && rm /tmp/rclone.deb
 
 # Install GitHub CLI from official apt repo (not in Debian default repos)
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-archive-keyring.gpg \
+    && echo "20e0125d6f6e077a9ad46f03371bc26d90b04939fb95170f5a1905099cc6bcc0  /tmp/githubcli-archive-keyring.gpg" | sha256sum -c - \
+    && mv /tmp/githubcli-archive-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
 # Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
 RUN ZOXIDE_VERSION="0.9.9" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | \
-    tar xz -C /usr/local/bin zoxide && \
-    chmod +x /usr/local/bin/zoxide
+    ZOXIDE_SHA256="4ff057d3c4d957946937274c2b8be7af2a9bbae7f90a1b5e9baaa7cb65a20caa" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/zoxide.tar.gz && \
+    echo "${ZOXIDE_SHA256}  /tmp/zoxide.tar.gz" | sha256sum -c - && \
+    tar xzf /tmp/zoxide.tar.gz -C /usr/local/bin zoxide && \
+    chmod +x /usr/local/bin/zoxide && \
+    rm /tmp/zoxide.tar.gz
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
 RUN YAZI_VERSION="26.1.22" && \
+    YAZI_SHA256="a136269b2d5fbb5fb43f3fac3391446e8fbc72aba1c4bb4fae6e6d1556420750" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-gnu.zip" -o /tmp/yazi.zip && \
+    echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-gnu/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
 RUN LAZYGIT_VERSION="0.59.0" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" | \
-    tar xz -C /usr/local/bin lazygit && \
-    chmod +x /usr/local/bin/lazygit
+    LAZYGIT_SHA256="264283f40a40c899d702a338b20622f690221f753f03bac827c1f34e91f516c2" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
+    echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
+    tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
+    chmod +x /usr/local/bin/lazygit && \
+    rm /tmp/lazygit.tar.gz
 
 # Install claude-unleashed globally (wraps Claude Code with permission bypass)
 # Users can update manually by running `cu` or `claude-unleashed` in any terminal tab

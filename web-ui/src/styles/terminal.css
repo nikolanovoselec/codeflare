@@ -39,7 +39,15 @@
           animation: spin 1s linear infinite;
         }
 
-        /* Hide xterm's cursor entirely. The server-side CLI (Claude Code, bash,
+        /* Reserve space for scrollbar to prevent FitAddon column miscalculation.
+   Without this, xterm may measure a 15px fallback scrollbar width at
+   construction time (before global 8px CSS applies), causing columns
+   to be too narrow and text to clip at the right edge. */
+.xterm-viewport {
+  scrollbar-gutter: stable;
+}
+
+/* Hide xterm's cursor entirely. The server-side CLI (Claude Code, bash,
            etc.) renders its own cursor via ANSI escape sequences. xterm's extra
            cursor is a duplicate that gets out of sync (different position/color).
            Theme also sets cursor/cursorAccent to transparent as a belt-and-suspenders. */

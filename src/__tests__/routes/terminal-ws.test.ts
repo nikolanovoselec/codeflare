@@ -32,7 +32,8 @@ vi.mock('../../lib/cors-cache', () => ({
 }));
 
 vi.mock('../../lib/circuit-breakers', () => ({
-  containerSessionsCB: { execute: vi.fn((fn: () => Promise<any>) => fn()) },
+  getContainerSessionsCB: () => ({ execute: vi.fn((fn: () => Promise<any>) => fn()) }),
+  getContainerHealthCB: () => ({ execute: vi.fn((fn: () => Promise<any>) => fn()) }),
 }));
 
 // Workers runtime doesn't allow constructing responses with status 101;
@@ -105,7 +106,7 @@ describe('handleWebSocketUpgrade', () => {
 
   it('authenticates user and forwards to container on success', async () => {
     const request = createRequest();
-    const routeResult = validateWebSocketRoute(request, mockEnv);
+    const routeResult = validateWebSocketRoute(request);
 
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     // The mocked container returns 200 (101 can't be constructed in Workers runtime)
@@ -117,7 +118,7 @@ describe('handleWebSocketUpgrade', () => {
     mockAuthResult.error = new AuthError('Unauthorized');
 
     const request = createRequest();
-    const routeResult = validateWebSocketRoute(request, mockEnv);
+    const routeResult = validateWebSocketRoute(request);
 
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     expect(response.status).toBe(401);
@@ -132,7 +133,7 @@ describe('handleWebSocketUpgrade', () => {
     mockAuthResult.error = new ForbiddenError('Forbidden');
 
     const request = createRequest();
-    const routeResult = validateWebSocketRoute(request, mockEnv);
+    const routeResult = validateWebSocketRoute(request);
 
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     expect(response.status).toBe(403);
@@ -142,7 +143,7 @@ describe('handleWebSocketUpgrade', () => {
     mockKV._clear();
 
     const request = createRequest();
-    const routeResult = validateWebSocketRoute(request, mockEnv);
+    const routeResult = validateWebSocketRoute(request);
 
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     expect(response.status).toBe(404);
@@ -156,7 +157,7 @@ describe('handleWebSocketUpgrade', () => {
     mockKV._clear();
 
     const request = createRequest();
-    const routeResult = validateWebSocketRoute(request, mockEnv);
+    const routeResult = validateWebSocketRoute(request);
 
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     expect(response.headers.get('X-Request-ID')).toBeTruthy();
@@ -166,7 +167,7 @@ describe('handleWebSocketUpgrade', () => {
     mockKV._clear();
 
     const request = createRequest({ 'X-Request-ID': 'my-req-id' });
-    const routeResult = validateWebSocketRoute(request, mockEnv);
+    const routeResult = validateWebSocketRoute(request);
 
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     expect(response.headers.get('X-Request-ID')).toBe('my-req-id');
@@ -177,7 +178,7 @@ describe('handleWebSocketUpgrade', () => {
     vi.mocked(isAllowedOrigin).mockResolvedValueOnce(false);
 
     const request = createRequest({ Origin: 'https://evil.example.com' });
-    const routeResult = validateWebSocketRoute(request, mockEnv);
+    const routeResult = validateWebSocketRoute(request);
 
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     expect(response.status).toBe(403);
@@ -196,7 +197,7 @@ describe('handleWebSocketUpgrade', () => {
         // Note: no Origin header
       }),
     });
-    const routeResult = validateWebSocketRoute(request, mockEnv);
+    const routeResult = validateWebSocketRoute(request);
 
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     expect(response.status).toBe(403);

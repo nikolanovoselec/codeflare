@@ -317,4 +317,30 @@ describe('cleanupUserData', () => {
 
     expect(result.bucketDeleted).toBe(false);
   });
+
+  it('gracefully handles r2token KV delete failure (FIX-2)', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    mockKV._set(`r2token:${email}`, {
+      tokenId: 'tok-1',
+      bucketName,
+      createdAt: '2024-01-01T00:00:00Z',
+    });
+
+    // Make KV.delete throw specifically for the r2token key
+    const origDelete = mockKV.delete.bind(mockKV);
+    mockKV.delete = vi.fn(async (key: string) => {
+      if (key === `r2token:${email}`) {
+        throw new Error('KV delete failed');
+      }
+      return origDelete(key);
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    // Should NOT throw — the r2token KV delete failure is caught
+    const result = await cleanupUserData(email, createEnv());
+
+    // Token API deletion should still have succeeded
+    expect(result.tokenDeleted).toBe(true);
+  });
 });

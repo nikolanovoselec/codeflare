@@ -24,7 +24,7 @@ import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
 import { authenticateRequest } from '../lib/access';
 import { createLogger } from '../lib/logger';
-import { containerSessionsCB } from '../lib/circuit-breakers';
+import { getContainerSessionsCB } from '../lib/circuit-breakers';
 import { isAllowedOrigin } from '../lib/cors-cache';
 import { AuthError, ForbiddenError, NotFoundError, toError, toErrorMessage } from '../lib/error-types';
 
@@ -54,7 +54,7 @@ interface WebSocketRouteResult {
  * @param env - Environment bindings
  * @returns Routing result with validation status
  */
-export function validateWebSocketRoute(request: Request, _env: Env): WebSocketRouteResult {
+export function validateWebSocketRoute(request: Request): WebSocketRouteResult {
   const url = new URL(request.url);
 
   // Check if this matches the WebSocket terminal route pattern
@@ -299,7 +299,7 @@ app.get('/:sessionId/status', async (c) => {
 
     // Check terminal server health (runs on default port 8080)
     // Uses safeCheckContainerHealth to avoid auto-starting stopped containers
-    const healthResult = await safeCheckContainerHealth(container);
+    const healthResult = await safeCheckContainerHealth(container, containerId);
 
     if (!healthResult.healthy) {
       return c.json({
@@ -312,7 +312,7 @@ app.get('/:sessionId/status', async (c) => {
     // Only fetch sessions if the container is healthy — avoids auto-starting via container.fetch()
     let ptyActive = false;
     try {
-      const sessionsResponse = await containerSessionsCB.execute(() =>
+      const sessionsResponse = await getContainerSessionsCB(containerId).execute(() =>
         container.fetch(
           new Request('http://container/sessions', { method: 'GET' })
         )

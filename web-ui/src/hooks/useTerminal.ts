@@ -221,9 +221,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     setTerminalInstance(t);
 
     requestAnimationFrame(() => {
-      if (!fitAddon || !containerEl || !term) return;
-      fitAddon.fit();
-      setDimensions({ cols: term.cols, rows: term.rows });
+      requestAnimationFrame(() => {
+        if (!fitAddon || !containerEl || !term) return;
+        fitAddon.fit();
+        setDimensions({ cols: term.cols, rows: term.rows });
+      });
     });
 
     // Resize observer

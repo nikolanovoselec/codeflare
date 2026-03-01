@@ -178,5 +178,47 @@ describe('Storage Download Routes', () => {
       const res = await app.request('/download?key=path/to/file.txt');
       expect(res.status).toBe(500);
     });
+
+    it('sanitizes CRLF from filename in Content-Disposition header (FIX-1)', async () => {
+      const app = createTestApp();
+
+      // Key whose filename segment contains \r\n (CRLF injection attempt)
+      const res = await app.request('/download?key=path/to/file%0D%0Ainjected.txt');
+      expect(res.status).toBe(200);
+
+      const disposition = res.headers.get('Content-Disposition') || '';
+      // CRLF must NOT appear in the header value
+      expect(disposition).not.toContain('\r');
+      expect(disposition).not.toContain('\n');
+      // The sanitized filename should still be present
+      expect(disposition).toContain('attachment');
+      expect(disposition).toContain('filename=');
+    });
+
+    it('sanitizes CRLF from filename* parameter in Content-Disposition (FIX-1)', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/download?key=path/to/file%0D%0Ainjected.txt');
+      expect(res.status).toBe(200);
+
+      const disposition = res.headers.get('Content-Disposition') || '';
+      // The filename* (RFC 5987) encoded value must not contain raw CRLF
+      // encodeURIComponent encodes \r as %0D and \n as %0A, but since we
+      // sanitize BEFORE encoding, they should be replaced with _
+      expect(disposition).toContain("filename*=UTF-8''");
+      // The encoded part should NOT contain %0D or %0A
+      const encodedPart = disposition.split("filename*=UTF-8''")[1];
+      expect(encodedPart).not.toContain('%0D');
+      expect(encodedPart).not.toContain('%0A');
+    });
+  });
+});
+
+// Test the exported helper directly
+describe('buildContentDisposition', () => {
+  // Import lazily since module was already imported
+  it('is exported as a named function', async () => {
+    const mod = await import('../../routes/storage/download');
+    expect(typeof (mod as any).buildContentDisposition).toBe('function');
   });
 });

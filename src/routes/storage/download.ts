@@ -6,6 +6,20 @@ import { getR2Config } from '../../lib/r2-config';
 import { ValidationError, ContainerError } from '../../lib/error-types';
 import { validateKey } from './validation';
 
+/**
+ * Build a safe Content-Disposition header value.
+ * Sanitizes CRLF and other dangerous characters from the raw filename
+ * BEFORE encoding, preventing header injection attacks.
+ */
+export function buildContentDisposition(rawFilename: string): string {
+  // Strip CRLF, quotes, and backslashes for the ASCII fallback filename
+  const safeFilename = rawFilename.replace(/[\r\n"\\]/g, '_');
+  // Strip CRLF before percent-encoding for filename* (RFC 5987)
+  const sanitizedForEncoding = rawFilename.replace(/[\r\n]/g, '_');
+  const encodedFilename = encodeURIComponent(sanitizedForEncoding).replace(/'/g, '%27');
+  return `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`;
+}
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.get('/', async (c) => {
@@ -33,15 +47,12 @@ app.get('/', async (c) => {
     throw new ContainerError('download', 'R2 fetch failed');
   }
 
+  const filename = sanitizedKey.split('/').pop() || 'download';
+
   return new Response(r2Response.body, {
     headers: {
       'Content-Type': r2Response.headers.get('Content-Type') || 'application/octet-stream',
-      'Content-Disposition': (() => {
-        const rawFilename = sanitizedKey.split('/').pop() || 'download';
-        const safeFilename = rawFilename.replace(/[\r\n"\\]/g, '_');
-        const encodedFilename = encodeURIComponent(rawFilename).replace(/'/g, '%27');
-        return `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`;
-      })(),
+      'Content-Disposition': buildContentDisposition(filename),
       'Content-Length': r2Response.headers.get('Content-Length') || '',
     },
   });

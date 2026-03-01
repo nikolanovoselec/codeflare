@@ -56,7 +56,6 @@ const StoragePanel: Component<StoragePanelProps> = (props) => {
         {/* Content */}
         <div class="storage-panel-content">
           <StorageBrowser />
-          {/* TODO: Wire FilePreview to StorageBrowser file selection */}
         </div>
       </aside>
     </>

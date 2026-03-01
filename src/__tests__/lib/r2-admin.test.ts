@@ -418,6 +418,39 @@ describe('r2-admin', () => {
       expect(mockKV.get).toHaveBeenCalledTimes(1);
     });
 
+    it('should deduplicate concurrent getOrCreateScopedR2Token calls for the same email (FIX-7)', async () => {
+      mockKV.get.mockResolvedValue(null);
+
+      // Mock token creation — should only be called ONCE despite two concurrent calls
+      let createCount = 0;
+      mockFetch.mockImplementation(async () => {
+        createCount++;
+        // Small delay to ensure concurrency
+        await new Promise(r => setTimeout(r, 10));
+        return new Response(JSON.stringify({
+          success: true,
+          result: { id: `tok-${createCount}`, value: 'raw-val' },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+
+      // Fire two concurrent calls for the same email
+      const [result1, result2] = await Promise.all([
+        getOrCreateScopedR2Token(
+          'concurrent@example.com', 'account-123', 'api-token', 'my-bucket',
+          mockKV as unknown as KVNamespace,
+        ),
+        getOrCreateScopedR2Token(
+          'concurrent@example.com', 'account-123', 'api-token', 'my-bucket',
+          mockKV as unknown as KVNamespace,
+        ),
+      ]);
+
+      // Both should get the same token (dedup)
+      expect(result1.accessKeyId).toBe(result2.accessKeyId);
+      // Token creation should only happen once
+      expect(createCount).toBe(1);
+    });
+
     it('should self-heal: forceFresh=true deletes stale KV entry and creates fresh token', async () => {
       const staleToken = {
         accessKeyId: 'stale-ak',

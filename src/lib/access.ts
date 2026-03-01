@@ -80,6 +80,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
             cachedAccessAudList = null;
           }
         } catch {
+          console.warn('Failed to parse access_aud_list', { raw: audListRaw });
           cachedAccessAudList = null;
         }
       } else {
