@@ -4,11 +4,18 @@ You have access to persistent memory via MCP tools (server-memory).
 Memory persists across sessions — anything you save will be available next time.
 
 ## Chat history (IMPORTANT)
-- Periodically summarize the conversation and save it to memory
+- Every ~10-15 messages or at natural breakpoints, spawn a background Haiku agent to summarize
+- The agent should summarize only NEW conversation since the last summary (not the full chat)
 - Use entity name format: `chat-YYYY-MM-DD` (e.g., `chat-2026-03-05`)
-- Save a summary every ~10-15 messages or at natural breakpoints
-- Include: what was discussed, decisions made, problems solved, key outcomes
 - Update the same day's entity with add_observations as the conversation progresses
+- Background agent prompt example:
+  ```
+  Summarize the following conversation excerpt into concise observations.
+  Focus on: what was discussed, decisions made, problems solved, key outcomes.
+  Then call the memory MCP tool add_observations on entity "chat-YYYY-MM-DD"
+  (create it first if it doesn't exist). One observation per distinct topic.
+  Do NOT repeat observations already saved — only add what's new.
+  ```
 
 ## When to save (use create_entities / add_observations):
 - Chat summaries (see above — this is the primary use case)
