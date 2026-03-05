@@ -52,7 +52,7 @@ jobs:
 
           WORKER="${{ steps.target.outputs.worker_name }}"
           echo "Setting SERVICE_AUTH_SECRET on worker: $WORKER"
-          printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | npx wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
+          printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
 
           # Seed E2E service user in KV allowlist
           # Uses fixed email matching worker's X-Service-Auth identity
@@ -60,14 +60,14 @@ jobs:
           echo "Seeding E2E service user: ${SERVICE_EMAIL}"
 
           KV_TITLE="${WORKER}-kv"
-          KV_ID=$(npx wrangler kv namespace list 2>&1 \
+          KV_ID=$(wrangler kv namespace list 2>&1 \
             | sed -n '/^\[/,/^\]/p' \
             | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
             | head -1)
 
           if [ -n "$KV_ID" ]; then
             KV_VALUE="{\"addedBy\":\"e2e\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
-            npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --namespace-id "$KV_ID" --remote 2>&1 || \
+            wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --namespace-id "$KV_ID" --remote 2>&1 || \
             echo "::warning::Could not seed E2E user in KV (non-fatal)"
           else
             echo "::warning::KV namespace not found for worker $WORKER (non-fatal)"
