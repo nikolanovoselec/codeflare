@@ -109,6 +109,7 @@ secret_access_key = PLACEHOLDER_SECRET_KEY
 endpoint = PLACEHOLDER_ENDPOINT
 acl = private
 no_check_bucket = true
+disable_checksum = true
 RCLONE_EOF
     # Validate credentials before sed substitution (delimiter is |, so | in values would break it)
     if echo "$R2_ACCESS_KEY_ID" | grep -qE '[|]'; then
@@ -714,25 +715,29 @@ merge_memory_files() {
         console.log(out.map(o=>JSON.stringify(o)).join('\n'));
     " > "$SESSION_FILE.tmp"
     mv "$SESSION_FILE.tmp" "$SESSION_FILE"
-    # NOTE: Old session files are NOT deleted here. cleanup_old_memory_files()
-    # runs after bisync baseline so deletions propagate correctly to R2.
+    # Old session files are NOT deleted here — cleanup_old_memory_files() runs
+    # after bisync baseline so deletions propagate correctly to R2.
+    # Direct R2 deletion is unsafe: concurrent sessions would lose their active file
+    # when bisync propagates the deletion to the other container.
     echo "[entrypoint] Memory merge complete (old files kept for bisync baseline)"
 }
 
 cleanup_old_memory_files() {
     local MEMORY_DIR="$USER_HOME/.memory"
-    local SESSION_FILE="$MEMORY_DIR/session-${SESSION_ID}.jsonl"
+    local KEEP=10
     local count=0
 
-    while IFS= read -r -d '' f; do
-        if [ "$f" != "$SESSION_FILE" ]; then
-            rm -f "$f"
-            count=$((count + 1))
-        fi
-    done < <(find "$MEMORY_DIR" -name "session-*.jsonl" -type f -print0 2>/dev/null)
+    # Keep the 10 newest session files (by mtime), delete the rest.
+    # 10 >= MAX_SESSIONS_ADMIN, so no active session's file is ever deleted.
+    # Bisync propagates local deletions to R2 on the next cycle.
+    while IFS= read -r f; do
+        rm -f "$f"
+        count=$((count + 1))
+    done < <(find "$MEMORY_DIR" -name "session-*.jsonl" -type f -printf '%T@ %p\n' 2>/dev/null \
+        | sort -rn | tail -n +$((KEEP + 1)) | cut -d' ' -f2-)
 
     if [ $count -gt 0 ]; then
-        echo "[entrypoint] Cleaned up $count old memory files"
+        echo "[entrypoint] Cleaned up $count old memory files (kept $KEEP newest)"
     fi
 }
 

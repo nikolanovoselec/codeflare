@@ -354,9 +354,11 @@ describe('Memory merge functions', () => {
     assert.ok(!body.includes('rm -f'), 'merge_memory_files should NOT delete files (that is cleanup\'s job)');
   });
 
-  it('Cleanup DOES delete old files', () => {
+  it('Cleanup keeps 10 newest and deletes the rest', () => {
     const body = extractFunction('cleanup_old_memory_files');
-    assert.ok(body.includes('rm -f'), 'cleanup_old_memory_files should delete old session files');
+    assert.ok(body.includes('rm -f'), 'cleanup should delete old session files');
+    assert.ok(body.includes('KEEP=10'), 'cleanup should keep 10 newest files');
+    assert.ok(body.includes('sort -rn'), 'cleanup should sort by mtime descending');
   });
 });
 

@@ -499,7 +499,7 @@ Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persist
 
 **Why per-session JSONL:** Multiple concurrent sessions from the same user write to the same R2 bucket. A shared file would cause last-write-wins data loss. Per-session JSONL files eliminate write conflicts — each session owns its own file, and merge-on-boot consolidates them.
 
-**Two-phase merge/cleanup:** The merge runs after R2 sync but before bisync baseline establishment. Cleanup (removing old session files) runs after bisync baseline succeeds, so deletions are tracked as deltas and propagated to R2 — preventing bisync `--resync` from resurrecting deleted files.
+**Two-phase merge/cleanup:** The merge runs after R2 sync but before bisync baseline establishment. Old files are kept so `--resync` doesn't resurrect them. Cleanup (local-only deletion) runs after bisync baseline succeeds, so periodic bisync propagates the deletions to R2. Direct R2 deletion is unsafe for concurrent sessions — another session's bisync would propagate the deletion locally, destroying the active memory file. The rclone config uses `disable_checksum = true` to prevent `BadDigest` errors from files modified during upload (pre-warm PTY race condition).
 
 ---
 
