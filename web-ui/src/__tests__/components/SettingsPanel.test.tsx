@@ -190,7 +190,8 @@ describe('SettingsPanel Component', () => {
     it('recreates getting-started docs via API', async () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const button = screen.getByRole('button', { name: 'Recreate' });
+      const row = screen.getByTestId('settings-recreate-docs-row');
+      const button = within(row).getByRole('button', { name: 'Recreate' });
       await fireEvent.click(button);
 
       expect(mockRecreateGettingStartedDocs).toHaveBeenCalledTimes(1);
@@ -202,7 +203,8 @@ describe('SettingsPanel Component', () => {
       mockRecreateGettingStartedDocs.mockRejectedValueOnce(new Error('Seed failed'));
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const button = screen.getByRole('button', { name: 'Recreate' });
+      const row = screen.getByTestId('settings-recreate-docs-row');
+      const button = within(row).getByRole('button', { name: 'Recreate' });
       await fireEvent.click(button);
 
       const error = await screen.findByTestId('settings-recreate-docs-error');
