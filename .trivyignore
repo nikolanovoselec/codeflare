@@ -59,3 +59,15 @@ CVE-2025-11002
 # zlib 1.2.13: integer overflow in zipOpenNewFileInZip4_64 (will_not_fix in bookworm)
 # Only affects minizip API for creating ZIP files — container doesn't create ZIPs.
 CVE-2023-45853
+
+# p7zip 16.02: integer underflow in Ppmd7.c (no fix in Debian bookworm)
+# p7zip is used by yazi for archive preview only on user-owned files.
+CVE-2023-31102
+
+# docker/cli v29.0.3 bundled in gh CLI: local privilege escalation via plugin search path
+# gh CLI is a dev tool inside sandboxed container — no Docker daemon present.
+CVE-2025-15558
+
+# node-tar 7.5.7: hardlink path traversal via drive-relative linkpath
+# CLIs don't process untrusted tar archives at runtime.
+GHSA-qffp-2rhf-9h96
