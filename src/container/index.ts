@@ -352,6 +352,13 @@ export class container extends Container<Env> {
         });
       }
 
+      // Store sessionId BEFORE setBucketName — updateEnvVars() inside
+      // setBucketName reads this._sessionId to populate SESSION_ID env var
+      if (sessionId) {
+        await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+        this._sessionId = sessionId;
+      }
+
       await this.setBucketName(bucketName, {
         r2AccessKeyId,
         r2SecretAccessKey,
@@ -361,12 +368,6 @@ export class container extends Container<Env> {
         fastStartEnabled,
         tabConfig,
       });
-
-      // Store sessionId for KV reconciliation on self-destruct
-      if (sessionId) {
-        await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
-        this._sessionId = sessionId;
-      }
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
         headers: { 'Content-Type': 'application/json' },
