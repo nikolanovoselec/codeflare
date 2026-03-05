@@ -30,8 +30,8 @@ Memory persists across sessions — anything you save will be available next tim
 - When context seems relevant to a previous session
 
 ## Compaction (when memory grows large)
-- At session start, call read_graph to check entity count
-- If >150 entities, spawn a background Haiku agent to compact:
+- At session start, spawn a background Haiku agent to call read_graph and check entity count
+- If >200 entities, the agent should compact:
   ```
   Read the full memory graph with read_graph. Consolidate it:
   1. Merge chat-* entities older than 7 days into "chat-archive-YYYY-MM"
