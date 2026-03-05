@@ -486,6 +486,22 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 **Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/.bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the shutdown trap to skip the final bisync — losing any files created during the session.
 
+### Memory Persistence
+
+Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persists across sessions using per-session JSONL files synced to R2.
+
+**Lifecycle:**
+1. Container boots, rclone pulls `~/.claude/memory/` from R2 (includes per-session JSONL files)
+2. `entrypoint.sh` runs merge: consolidates all `session-*.jsonl` files into `memory.json`, deduplicating entities and relations
+3. Cleanup removes merged JSONL files (only after merge succeeds, respecting bisync baseline timing)
+4. `server-memory` MCP server reads/writes `memory.json` during the session
+5. On session activity, the current session appends new entities/relations to its own `session-<ID>.jsonl`
+6. rclone bisync syncs changes back to R2 every 60s and on shutdown
+
+**Why per-session JSONL:** Multiple concurrent sessions from the same user write to the same R2 bucket. Writing directly to `memory.json` would cause last-write-wins data loss. Per-session JSONL files eliminate write conflicts — each session owns its own file, and merge-on-boot consolidates them.
+
+**Two-phase merge/cleanup:** The merge runs before bisync baseline establishment. Cleanup (removing merged JSONL files) happens after a delay to ensure bisync has seen the merged state, preventing bisync from interpreting deleted files as "delete from R2."
+
 ---
 
 ## 6. Authentication
@@ -917,7 +933,7 @@ codeflare/
 │   ├── metrics.js            # System metrics collection (disk usage, sync status) (~74 lines)
 │   ├── activity-tracker.js   # WebSocket disconnect tracking for idle detection
 │   ├── prewarm-config.js     # PTY pre-warm configuration (first-output readiness)
-│   ├── __tests__/            # Host unit tests (8 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, host fixes, fuzz)
+│   ├── __tests__/            # Host unit tests (9 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, host fixes, fuzz, memory merge/cleanup)
 │   ├── knip.json             # Dead code detection config for host package
 │   └── package.json
 ├── web-ui/
@@ -1146,9 +1162,9 @@ Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop`
 ### 16.3 Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 8 test files, ~71 tests.
+**Count:** 9 test files, ~86 tests.
 **Run:** `cd host && npm test`
-**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests.
+**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
 
 ### 16.4 Property-Based Fuzz Tests
 

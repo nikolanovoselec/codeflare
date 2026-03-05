@@ -138,6 +138,10 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
+# Install MCP memory server for persistent agent memory across sessions
+RUN npm install -g @modelcontextprotocol/server-memory && \
+    npm cache clean --force && rm -rf /root/.npm
+
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
 # This speeds up first-launch of Node.js CLIs (codex, gemini, copilot) inside containers

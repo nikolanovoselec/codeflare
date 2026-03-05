@@ -106,6 +106,7 @@ export class container extends Container<Env> {
   private _fastStartEnabled: boolean = true;
   private _tabConfig: TabConfig[] | null = null;
   private _containerAuthToken: string | null = null;
+  private _sessionId: string | null = null;
 
   // Map-based dispatch for internal routes
   private readonly internalRoutes: Map<string, (request: Request) => Promise<Response> | Response>;
@@ -131,6 +132,7 @@ export class container extends Container<Env> {
         this._fastStartEnabled = storedFastStartEnabled;
       }
       this._tabConfig = await this.ctx.storage.get<TabConfig[]>('tabConfig') || null;
+      this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
 
       // Resolve R2 config via shared helper (env vars first, KV fallback)
       try {
@@ -251,6 +253,7 @@ export class container extends Container<Env> {
       TERMINAL_PORT: String(TERMINAL_SERVER_PORT),
       // Auth token for container HTTP requests
       CONTAINER_AUTH_TOKEN: this._containerAuthToken ?? '',
+      SESSION_ID: this._sessionId || '',
       // Tab configuration (JSON string for the terminal server to parse)
       ...(this._tabConfig && { TAB_CONFIG: JSON.stringify(this._tabConfig) }),
     };
@@ -300,6 +303,7 @@ export class container extends Container<Env> {
       if (this._bucketName) {
         if (sessionId) {
           await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+          this._sessionId = sessionId;
         }
 
         // Update user preferences on restart even though bucket is already set.
@@ -361,6 +365,7 @@ export class container extends Container<Env> {
       // Store sessionId for KV reconciliation on self-destruct
       if (sessionId) {
         await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+        this._sessionId = sessionId;
       }
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
@@ -385,6 +390,7 @@ export class container extends Container<Env> {
       const { sessionId } = await request.json() as { sessionId?: string };
       if (sessionId) {
         await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
+        this._sessionId = sessionId;
       }
       return new Response(JSON.stringify({ success: true }), {
         headers: { 'Content-Type': 'application/json' },
@@ -553,6 +559,7 @@ export class container extends Container<Env> {
       await this.ctx.storage.delete('fastStartEnabled');
       await this.ctx.storage.delete('tabConfig');
       this._bucketName = null;
+      this._sessionId = null;
       this.logger.info('Operational storage cleared');
     } catch (err) {
       this.logger.error('Failed to clear storage', err instanceof Error ? err : new Error(toErrorMessage(err)));

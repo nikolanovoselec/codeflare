@@ -307,3 +307,126 @@ describe('bisync_with_r2 verbose flag handling', () => {
     }
   });
 });
+
+// ============================================================================
+// Test: Memory merge functions
+// ============================================================================
+describe('Memory merge functions', () => {
+  it('merge_memory_files() function exists', () => {
+    const body = extractFunction('merge_memory_files');
+    assert.ok(body, 'merge_memory_files function should exist');
+  });
+
+  it('cleanup_old_memory_files() function exists', () => {
+    const body = extractFunction('cleanup_old_memory_files');
+    assert.ok(body, 'cleanup_old_memory_files function should exist');
+  });
+
+  it('Creates .memory dir', () => {
+    const body = extractFunction('merge_memory_files');
+    assert.ok(body.includes('mkdir -p'), 'merge should use mkdir -p');
+    assert.ok(body.includes('.memory'), 'merge should reference .memory directory');
+  });
+
+  it('Uses SESSION_ID in filename', () => {
+    const body = extractFunction('merge_memory_files');
+    assert.ok(
+      /session-\$\{?SESSION_ID\}?/.test(body),
+      'merge should use session-${SESSION_ID} in filename'
+    );
+    assert.ok(body.includes('.jsonl'), 'merge should use .jsonl extension');
+  });
+
+  it('Uses Node.js for dedup', () => {
+    const body = extractFunction('merge_memory_files');
+    assert.ok(body.includes('node -e'), 'merge should use node -e for inline script');
+    assert.ok(body.includes('entities'), 'merge should reference entities for dedup');
+  });
+
+  it('Atomic write via .tmp + mv', () => {
+    const body = extractFunction('merge_memory_files');
+    assert.ok(body.includes('.tmp'), 'merge should write to .tmp file first');
+    assert.ok(body.includes('mv '), 'merge should use mv for atomic rename');
+  });
+
+  it('Merge does NOT delete old files', () => {
+    const body = extractFunction('merge_memory_files');
+    assert.ok(!body.includes('rm -f'), 'merge_memory_files should NOT delete files (that is cleanup\'s job)');
+  });
+
+  it('Cleanup DOES delete old files', () => {
+    const body = extractFunction('cleanup_old_memory_files');
+    assert.ok(body.includes('rm -f'), 'cleanup_old_memory_files should delete old session files');
+  });
+});
+
+// ============================================================================
+// Test: Memory merge ordering
+// ============================================================================
+describe('Memory merge ordering', () => {
+  it('Merge runs after sync, before baseline', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+
+    const syncCompleteIdx = main.indexOf('Step 1 complete');
+    const mergeIdx = main.indexOf('merge_memory_files');
+    const bisyncBaselineIdx = main.indexOf('establish_bisync_baseline');
+
+    assert.ok(mergeIdx > -1, 'merge_memory_files should exist in main execution');
+    assert.ok(syncCompleteIdx > -1 || main.indexOf('STEP1_RESULT') > -1,
+      'sync completion should exist in main execution');
+    assert.ok(bisyncBaselineIdx > -1, 'establish_bisync_baseline should exist in main execution');
+
+    assert.ok(
+      mergeIdx > main.indexOf('STEP1_RESULT'),
+      'merge_memory_files must run after sync completion check'
+    );
+    assert.ok(
+      mergeIdx < bisyncBaselineIdx,
+      'merge_memory_files must run before bisync baseline'
+    );
+  });
+
+  it('Cleanup runs AFTER bisync baseline', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+
+    const bisyncBaselineIdx = main.indexOf('establish_bisync_baseline');
+    const cleanupIdx = main.indexOf('cleanup_old_memory_files');
+
+    assert.ok(bisyncBaselineIdx > -1, 'establish_bisync_baseline should exist');
+    assert.ok(cleanupIdx > -1, 'cleanup_old_memory_files should exist');
+    assert.ok(
+      cleanupIdx > bisyncBaselineIdx,
+      'cleanup_old_memory_files must run after establish_bisync_baseline'
+    );
+  });
+});
+
+// ============================================================================
+// Test: Memory MCP configuration
+// ============================================================================
+describe('Memory MCP configuration', () => {
+  it('MCP config references server-memory', () => {
+    assert.ok(
+      entrypoint.includes('server-memory'),
+      'entrypoint should reference server-memory MCP server'
+    );
+    assert.ok(
+      entrypoint.includes('MEMORY_FILE_PATH'),
+      'entrypoint should reference MEMORY_FILE_PATH for memory server config'
+    );
+  });
+
+  it('.memory NOT in rclone exclusions', () => {
+    // Find the RCLONE_FILTERS_COMMON block
+    const filtersStart = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
+    const filtersEnd = entrypoint.indexOf(')', filtersStart);
+    assert.ok(filtersStart > -1, 'RCLONE_FILTERS_COMMON should exist');
+    const filtersBlock = entrypoint.slice(filtersStart, filtersEnd);
+    assert.ok(
+      !filtersBlock.includes('.memory'),
+      '.memory should NOT be in rclone exclusions (memory files must sync to R2)'
+    );
+  });
+});
