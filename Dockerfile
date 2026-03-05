@@ -2,7 +2,7 @@
 # Uses node-pty for PTY management and rclone for R2 storage sync
 
 # ---- Stage 1: Builder (compile native addons) ----
-FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb AS builder
+FROM node:25-bookworm-slim@sha256:5aea649bacdc35e8e20571131c4f3547477dfe66e677d45c005af6dbd1edfaa7 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -11,7 +11,7 @@ WORKDIR /app/host
 RUN npm ci --omit=dev
 
 # ---- Stage 2: Runtime ----
-FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
+FROM node:25-bookworm-slim@sha256:5aea649bacdc35e8e20571131c4f3547477dfe66e677d45c005af6dbd1edfaa7
 
 # Suppress npm update nag; configure claude-unleashed for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
