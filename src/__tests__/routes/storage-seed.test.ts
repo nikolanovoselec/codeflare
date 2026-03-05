@@ -25,13 +25,14 @@ import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
 import seedRoutes from '../../routes/storage/seed';
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  testState.createBucketResult = { success: true, created: false };
+  testState.seedResult = { written: ['Getting-Started.md', 'Documentation/README.md'], skipped: [] };
+  testState.agentSeedResult = { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'], skipped: [] };
+});
+
 describe('Storage Seed Routes', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    testState.createBucketResult = { success: true, created: false };
-    testState.seedResult = { written: ['Getting-Started.md', 'Documentation/README.md'], skipped: [] };
-    testState.agentSeedResult = { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'], skipped: [] };
-  });
 
   function createApp(bucketName = 'test-bucket') {
     return createTestApp({
