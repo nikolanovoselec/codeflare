@@ -24,7 +24,7 @@
     "knip": "knip"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.1.0",
+    "@cloudflare/containers": "^0.1.1",
     "aws4fetch": "^1.0.20",
     "hono": "^4.12.5",
     "zod": "^4.3.6"
