@@ -325,8 +325,18 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const timer = setTimeout(() => {
       kbDebouncePending = false;
       if (!fitAddon || !term) return;
+      // Save scroll position before fit — fit() can reset viewport to top.
+      // Restore after to prevent the "jump to top" bug on mobile keyboards.
+      const buffer = term.buffer.active;
+      const wasAtBottom = buffer.viewportY >= buffer.baseY;
+      const savedViewportY = buffer.viewportY;
       fitAddon.fit();
-      term.scrollToBottom();
+      if (wasAtBottom) {
+        term.scrollToBottom();
+      } else {
+        // Clamp to new baseY in case buffer shrank
+        term.scrollLines(Math.min(savedViewportY, buffer.baseY) - buffer.viewportY);
+      }
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
       window.scrollTo(0, 0);

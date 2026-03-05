@@ -85,6 +85,8 @@ export const isSamsungBrowser = typeof navigator !== 'undefined'
 let baselineInnerHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
 const [viewportGrowth, setViewportGrowth] = createSignal(0);
 
+/** Safety-net timer for keyboard close detection (see disableVirtualKeyboardOverlay). */
+let keyboardCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
 if (typeof window !== 'undefined') {
   if (nav.virtualKeyboard) {
@@ -93,6 +95,12 @@ if (typeof window !== 'undefined') {
     const vk = nav.virtualKeyboard;
 
     const handleGeometryChange = () => {
+      // Clear safety-net timer — the event fired, so we'll handle state here
+      if (keyboardCloseTimer) {
+        clearTimeout(keyboardCloseTimer);
+        keyboardCloseTimer = null;
+      }
+
       // Only update signals when overlaysContent is true (we control layout).
       // When false, the browser handles viewport resizing and boundingRect is 0.
       if (vk.overlaysContent) {
@@ -156,9 +164,22 @@ export function enableVirtualKeyboardOverlay(): void {
 export function disableVirtualKeyboardOverlay(): void {
   if (nav.virtualKeyboard) {
     nav.virtualKeyboard.overlaysContent = false;
-    // Don't manually reset signals — let the geometrychange handler do it.
-    // Resetting immediately would cause a layout jump while the keyboard
-    // is still animating closed.
+    // Safety-net: if geometrychange doesn't fire within 300ms (e.g. Samsung Internet
+    // back-button dismiss, fast gestures), force-reset keyboard signals.
+    // If geometrychange DOES fire, it resets signals via the else branch (overlaysContent
+    // is already false), so the timeout becomes a harmless no-op.
+    if (keyboardCloseTimer) clearTimeout(keyboardCloseTimer);
+    keyboardCloseTimer = setTimeout(() => {
+      keyboardCloseTimer = null;
+      if (!nav.virtualKeyboard!.overlaysContent && vkOpen()) {
+        setVkOpen(false);
+        setKeyboardHeight(0);
+        setViewportGrowth(0);
+        if (isSamsungBrowser) {
+          baselineInnerHeight = window.innerHeight;
+        }
+      }
+    }, 300);
   }
 }
 
@@ -229,6 +250,17 @@ if (typeof window !== 'undefined' && isSamsungBrowser) {
     if (!vkOpen() && delta > 200) {
       baselineInnerHeight = window.innerHeight;
       setViewportGrowth(0);
+    }
+  });
+}
+
+// Reset stale keyboard state when the app regains foreground.
+// Mobile browsers may dismiss the keyboard while backgrounded (e.g. switching apps,
+// receiving a call) without firing geometrychange. On resume, check actual state.
+if (typeof window !== 'undefined' && isTouchDevice()) {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      resetKeyboardStateIfStale();
     }
   });
 }

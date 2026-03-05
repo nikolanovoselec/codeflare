@@ -6,8 +6,9 @@ vi.mock('../../lib/constants', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
-    MAX_WS_RETRIES: 3,
     WS_RETRY_DELAY_MS: 100,
+    WS_RETRY_MAX_DELAY_MS: 500,
+    WS_RECONNECT_WINDOW_MS: 5000, // 5s for tests (not 30 min)
     CSS_TRANSITION_DELAY_MS: 10,
     WS_CLOSE_ABNORMAL: 1006,
   };
@@ -663,7 +664,7 @@ describe('Terminal Store', () => {
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('should show retry attempt in message', async () => {
+    it('should show reconnecting message on retry', async () => {
       const terminal = createMockTerminal();
 
       // Create WebSocket that immediately closes with abnormal code
@@ -710,12 +711,12 @@ describe('Terminal Store', () => {
       // Let first attempt fail
       await vi.advanceTimersByTimeAsync(0);
 
-      // Wait for retry delay
+      // Wait for retry delay (exponential backoff: first retry = 100ms base * 2^0 = 100ms)
       await vi.advanceTimersByTimeAsync(100);
 
-      // Should show retry attempt
+      // Should show reconnecting message (no attempt counter)
       const retryMessage = terminalStore.getRetryMessage(sessionId, terminalId);
-      expect(retryMessage).toMatch(/attempt/i);
+      expect(retryMessage).toBe('Reconnecting...');
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
@@ -892,12 +893,11 @@ describe('Terminal Store', () => {
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('should use single-tier retry with MAX_WS_RETRIES limit', async () => {
+    it('should give up after WS_RECONNECT_WINDOW_MS expires', async () => {
       const terminal = createMockTerminal();
       const onError = vi.fn();
 
       const OriginalWebSocket = globalThis.WebSocket;
-      let connectAttempts = 0;
 
       vi.stubGlobal('WebSocket', class {
         static CONNECTING = 0;
@@ -915,7 +915,6 @@ describe('Terminal Store', () => {
 
         constructor(url: string) {
           this.url = url;
-          connectAttempts++;
           setTimeout(() => {
             this.readyState = 3;
             if (this.onclose) {
@@ -932,21 +931,17 @@ describe('Terminal Store', () => {
 
       terminalStore.connect(sessionId, terminalId, terminal, onError);
 
-      // Run through all retries (MAX_WS_RETRIES=3 in test mock, delay=100ms)
-      // Each attempt: 0ms for WS close + 100ms delay = ~100ms per attempt
-      for (let i = 0; i < 5; i++) {
+      // Advance past the reconnect window (5000ms in test mock)
+      // Each cycle: 0ms for WS close + exponential backoff delay
+      for (let i = 0; i < 20; i++) {
         await vi.advanceTimersByTimeAsync(0);   // WS closes
-        await vi.advanceTimersByTimeAsync(100);  // retry delay
+        await vi.advanceTimersByTimeAsync(500);  // max backoff delay
       }
 
-      // Should have exactly MAX_WS_RETRIES (3) attempts total
-      // (initial + 2 retries, since attemptNumber starts at 1 and retries at attemptNumber < MAX_WS_RETRIES)
-      expect(connectAttempts).toBe(3);
+      // Should have called onError after window expired
+      expect(onError).toHaveBeenCalledWith(expect.stringContaining('Connection lost'));
 
-      // Should have called onError after exhausting retries
-      expect(onError).toHaveBeenCalledWith(expect.stringContaining('Failed to connect'));
-
-      // State should be 'error' (was never connected)
+      // State should be 'error'
       expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('error');
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);

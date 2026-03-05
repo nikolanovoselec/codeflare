@@ -207,11 +207,11 @@ describe('Terminal Component', () => {
     it('should show retry message when available', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
       vi.mocked(terminalStore.getConnectionState).mockReturnValue('connecting');
-      vi.mocked(terminalStore.getRetryMessage).mockReturnValue('Connecting... (attempt 3/45)');
+      vi.mocked(terminalStore.getRetryMessage).mockReturnValue('Reconnecting...');
 
       render(() => <Terminal {...defaultProps} />);
 
-      expect(screen.getByText('Connecting... (attempt 3/45)')).toBeInTheDocument();
+      expect(screen.getByText('Reconnecting...')).toBeInTheDocument();
     });
 
     it('should not show connection overlay when connected', () => {

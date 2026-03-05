@@ -30,8 +30,9 @@ const mockTerminalInstance = {
   rows: 24,
   options: { fontFamily: 'monospace', theme: {} },
   textarea: null,
+  scrollLines: vi.fn(),
   buffer: {
-    active: { length: 0, cursorY: 0, getLine: vi.fn(() => null) },
+    active: { length: 0, cursorY: 0, viewportY: 0, baseY: 0, getLine: vi.fn(() => null) },
     onBufferChange: vi.fn(() => ({ dispose: vi.fn() })),
   },
   parser: {
@@ -473,7 +474,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('keyboard height refit', () => {
-    it('should call scrollToBottom after fit when keyboard height changes on mobile', async () => {
+    it('should preserve scroll position after fit when keyboard height changes on mobile', async () => {
       vi.useFakeTimers();
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
@@ -505,6 +506,8 @@ describe('useTerminal hook', () => {
       await vi.advanceTimersByTimeAsync(200);
 
       expect(mockFit).toHaveBeenCalled();
+      // scrollToBottom is called to restore position when user was at bottom
+      // (mock buffer has viewportY >= baseY by default)
       expect(mockScrollToBottom).toHaveBeenCalled();
 
       dispose();
