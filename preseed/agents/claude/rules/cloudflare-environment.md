@@ -31,6 +31,16 @@ Create new projects inside `~/workspace/<project-name>/`. Never build in `~/work
 
 Never add Co-Authored-By, AI attribution, emoji, or "Generated with Claude" to commits or PRs. Use plain, descriptive commit messages.
 
+## After Every Push
+
+Every time you push code, you MUST monitor CI and fix failures automatically:
+
+1. Get the run ID: `gh run list --branch <branch> --limit 1 --json databaseId --jq '.[0].databaseId'`
+2. Poll until complete (every 15s): `gh run view $RUN_ID --json status,conclusion --jq '[.status, .conclusion] | join(" ")'`
+3. If CI fails: check logs with `gh run view $RUN_ID --log-failed`, fix the issue, commit, push, and monitor again.
+4. Repeat until CI is green. Do not leave a push with failing CI.
+5. Do NOT use `gh run watch` — it can exceed the Bash timeout. Use the polling loop above.
+
 ## Communication
 
 Assume users are non-technical unless they demonstrate otherwise. Avoid jargon. Focus on what the project does, not what technology it uses. Never say "that's not possible" — find the closest achievable version.
