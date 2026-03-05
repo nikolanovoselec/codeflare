@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences, TabConfig } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
-import { seedGettingStartedDocs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
 import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
@@ -153,6 +153,20 @@ export async function ensureBucketAndSeed(params: {
       });
     } catch (error) {
       logger.warn('Failed to seed initial getting-started docs', {
+        bucketName,
+        error: toErrorMessage(error),
+      });
+    }
+
+    try {
+      const agentResult = await seedAgentConfigs(env, bucketName, r2Config.endpoint, { overwrite: false });
+      logger.info('Seeded initial agent configs', {
+        bucketName,
+        writtenCount: agentResult.written.length,
+        skippedCount: agentResult.skipped.length,
+      });
+    } catch (error) {
+      logger.warn('Failed to seed initial agent configs', {
         bucketName,
         error: toErrorMessage(error),
       });

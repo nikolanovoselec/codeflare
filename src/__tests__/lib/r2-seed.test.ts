@@ -22,6 +22,18 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
           content: '# quick start',
         },
       ],
+      agentDocs: [
+        {
+          key: '.claude/rules/cloudflare-environment.md',
+          contentType: 'text/markdown; charset=utf-8',
+          content: '# Environment Rules',
+        },
+        {
+          key: '.claude/skills/ship/SKILL.md',
+          contentType: 'text/markdown; charset=utf-8',
+          content: '# Ship Skill',
+        },
+      ],
     },
   };
 });
@@ -37,7 +49,13 @@ vi.mock('../../lib/tutorial-seed.generated', () => ({
   },
 }));
 
-import { seedGettingStartedDocs } from '../../lib/r2-seed';
+vi.mock('../../lib/agent-seed.generated', () => ({
+  get AGENTS_SEEDED_CONFIGS() {
+    return testState.agentDocs;
+  },
+}));
+
+import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
 
 describe('seedGettingStartedDocs', () => {
   const env = {
@@ -111,6 +129,88 @@ describe('seedGettingStartedDocs', () => {
     );
 
     expect(result.written).toEqual(['Readme.TXT', 'Guides/QuickStart.MD']);
+    expect(result.skipped).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect((mockFetch.mock.calls[0][1] as { method: string }).method).toBe('PUT');
+    expect((mockFetch.mock.calls[1][1] as { method: string }).method).toBe('PUT');
+  });
+});
+
+describe('seedAgentConfigs', () => {
+  const env = {
+    R2_ACCESS_KEY_ID: 'test-key',
+    R2_SECRET_ACCESS_KEY: 'test-secret',
+  } as unknown as Env;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    testState.agentDocs = [
+      {
+        key: '.claude/rules/cloudflare-environment.md',
+        contentType: 'text/markdown; charset=utf-8',
+        content: '# Environment Rules',
+      },
+      {
+        key: '.claude/skills/ship/SKILL.md',
+        contentType: 'text/markdown; charset=utf-8',
+        content: '# Ship Skill',
+      },
+    ];
+  });
+
+  it('seeds only missing agent configs when overwrite=false', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 404 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const result = await seedAgentConfigs(
+      env,
+      'test-bucket',
+      'https://test.r2.cloudflarestorage.com',
+      { overwrite: false }
+    );
+
+    expect(result.written).toEqual(['.claude/skills/ship/SKILL.md']);
+    expect(result.skipped).toEqual(['.claude/rules/cloudflare-environment.md']);
+
+    const calls = mockFetch.mock.calls.map((call) => ({
+      url: call[0] as string,
+      method: (call[1] as { method: string } | undefined)?.method,
+    }));
+
+    expect(calls).toEqual([
+      {
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/rules/cloudflare-environment.md',
+        method: 'HEAD',
+      },
+      {
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/skills/ship/SKILL.md',
+        method: 'HEAD',
+      },
+      {
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/skills/ship/SKILL.md',
+        method: 'PUT',
+      },
+    ]);
+  });
+
+  it('overwrites all agent configs when overwrite=true', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const result = await seedAgentConfigs(
+      env,
+      'test-bucket',
+      'https://test.r2.cloudflarestorage.com',
+      { overwrite: true }
+    );
+
+    expect(result.written).toEqual([
+      '.claude/rules/cloudflare-environment.md',
+      '.claude/skills/ship/SKILL.md',
+    ]);
     expect(result.skipped).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect((mockFetch.mock.calls[0][1] as { method: string }).method).toBe('PUT');

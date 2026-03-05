@@ -15,7 +15,7 @@ import { loadSettings, saveSettings, defaultSettings, applyAccentColor, isValidH
 import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { isTouchDevice, isSamsungBrowser } from '../lib/mobile';
-import { recreateGettingStartedDocs } from '../api/storage';
+import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import '../styles/settings-panel.css';
 
 interface SettingsPanelProps {
@@ -33,6 +33,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateDocsLoading, setRecreateDocsLoading] = createSignal(false);
   const [recreateDocsMessage, setRecreateDocsMessage] = createSignal<string | null>(null);
   const [recreateDocsError, setRecreateDocsError] = createSignal<string | null>(null);
+  const [recreateAgentLoading, setRecreateAgentLoading] = createSignal(false);
+  const [recreateAgentMessage, setRecreateAgentMessage] = createSignal<string | null>(null);
+  const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
   const isAdmin = () => props.currentUserRole === 'admin';
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled !== false;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
@@ -96,6 +99,29 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
       );
     } finally {
       setRecreateDocsLoading(false);
+    }
+  };
+
+  const handleRecreateAgentConfigs = async () => {
+    if (recreateAgentLoading()) return;
+
+    setRecreateAgentLoading(true);
+    setRecreateAgentMessage(null);
+    setRecreateAgentError(null);
+
+    try {
+      const result = await recreateAgentConfigs();
+      setRecreateAgentMessage(
+        `Recreated ${result.written.length} agent config file(s).`
+      );
+    } catch (error) {
+      setRecreateAgentError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to recreate agent configurations.'
+      );
+    } finally {
+      setRecreateAgentLoading(false);
     }
   };
 
@@ -360,7 +386,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   </div>
                 </div>
                 <span class="settings-hint" data-testid="settings-recreate-docs-hint">
-                  Writes files from the repository `tutorials/` folder into your R2 root.
+                  Writes files from the repository `preseed/tutorials/` folder into your R2 root.
                 </span>
                 <Show when={recreateDocsMessage()}>
                   {(message) => (
@@ -370,6 +396,36 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <Show when={recreateDocsError()}>
                   {(error) => (
                     <span class="settings-error" data-testid="settings-recreate-docs-error">{error()}</span>
+                  )}
+                </Show>
+              </div>
+              <div class="setting-row setting-row--column-gap">
+                <div class="setting-row setting-row--split" data-testid="settings-recreate-agent-row">
+                  <span class="settings-hint settings-hint--primary" data-testid="settings-recreate-agent-label">
+                    Recreate AI agent skills & rules
+                  </span>
+                  <div class="settings-recreate-docs-action">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={recreateAgentLoading()}
+                      onClick={() => { void handleRecreateAgentConfigs(); }}
+                    >
+                      Recreate
+                    </Button>
+                  </div>
+                </div>
+                <span class="settings-hint" data-testid="settings-recreate-agent-hint">
+                  Writes AI agent configuration files (skills, rules) into your R2 storage.
+                </span>
+                <Show when={recreateAgentMessage()}>
+                  {(message) => (
+                    <span class="settings-hint" data-testid="settings-recreate-agent-success">{message()}</span>
+                  )}
+                </Show>
+                <Show when={recreateAgentError()}>
+                  {(error) => (
+                    <span class="settings-error" data-testid="settings-recreate-agent-error">{error()}</span>
                   )}
                 </Show>
               </div>

@@ -211,6 +211,13 @@ export const RecreateGettingStartedDocsResponseSchema = z.object({
   skipped: z.array(z.string()),
 });
 
+export const RecreateAgentConfigsResponseSchema = z.object({
+  success: z.boolean(),
+  bucketCreated: z.boolean(),
+  written: z.array(z.string()),
+  skipped: z.array(z.string()),
+});
+
 // Storage preview (discriminated by type)
 export const StoragePreviewTextResponseSchema = z.object({
   type: z.literal('text'),

@@ -9,6 +9,7 @@ import {
   MultipartCompleteResponseSchema,
   StorageStatsResponseSchema,
   RecreateGettingStartedDocsResponseSchema,
+  RecreateAgentConfigsResponseSchema,
   StoragePreviewTextResponseSchema,
   StoragePreviewImageResponseSchema,
   StoragePreviewBinaryResponseSchema,
@@ -123,6 +124,12 @@ type RecreateGettingStartedDocsResponse = z.infer<typeof RecreateGettingStartedD
 
 export async function recreateGettingStartedDocs(): Promise<RecreateGettingStartedDocsResponse> {
   return storageFetch('/storage/seed/getting-started', { method: 'POST' }, RecreateGettingStartedDocsResponseSchema);
+}
+
+type RecreateAgentConfigsResponse = z.infer<typeof RecreateAgentConfigsResponseSchema>;
+
+export async function recreateAgentConfigs(): Promise<RecreateAgentConfigsResponse> {
+  return storageFetch('/storage/seed/agent-configs', { method: 'POST' }, RecreateAgentConfigsResponseSchema);
 }
 
 // Storage preview (discriminated union)

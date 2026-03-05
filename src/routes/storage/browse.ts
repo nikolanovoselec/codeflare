@@ -6,7 +6,7 @@ import { getR2Config } from '../../lib/r2-config';
 import { ValidationError, ContainerError } from '../../lib/error-types';
 import { validateKey } from './validation';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
-import { seedGettingStartedDocs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
 import { createLogger } from '../../lib/logger';
 
 const logger = createLogger('storage-browse');
@@ -72,6 +72,20 @@ app.get('/', async (c) => {
           });
         } catch (error) {
           logger.warn('Failed to seed getting-started docs after auto-create', {
+            bucketName,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+
+        try {
+          const agentResult = await seedAgentConfigs(c.env, bucketName, endpoint, { overwrite: false });
+          logger.info('Seeded initial agent configs after auto-create', {
+            bucketName,
+            writtenCount: agentResult.written.length,
+            skippedCount: agentResult.skipped.length,
+          });
+        } catch (error) {
+          logger.warn('Failed to seed agent configs after auto-create', {
             bucketName,
             error: error instanceof Error ? error.message : String(error),
           });

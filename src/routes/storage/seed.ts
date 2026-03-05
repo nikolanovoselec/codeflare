@@ -3,7 +3,7 @@ import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { getR2Config } from '../../lib/r2-config';
-import { seedGettingStartedDocs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
 import { ContainerError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
 
@@ -42,6 +42,40 @@ app.post('/getting-started', async (c) => {
     });
   } catch (error) {
     throw new ContainerError('seed-documentation', toErrorMessage(error));
+  }
+});
+
+/**
+ * POST /api/storage/seed/agent-configs
+ * Recreate AI agent configuration files (skills, rules), overwriting existing files.
+ */
+app.post('/agent-configs', async (c) => {
+  const bucketName = c.get('bucketName');
+  const { accountId, endpoint } = await getR2Config(c.env);
+
+  const bucketResult = await createBucketIfNotExists(accountId, c.env.CLOUDFLARE_API_TOKEN, bucketName);
+  if (!bucketResult.success) {
+    throw new ContainerError('seed-agent-configs', bucketResult.error || 'Failed to create storage bucket');
+  }
+
+  try {
+    const seedResult = await seedAgentConfigs(c.env, bucketName, endpoint, { overwrite: true });
+
+    logger.info('Recreated agent configs', {
+      bucketName,
+      bucketCreated: bucketResult.created === true,
+      writtenCount: seedResult.written.length,
+      skippedCount: seedResult.skipped.length,
+    });
+
+    return c.json({
+      success: true,
+      bucketCreated: bucketResult.created === true,
+      written: seedResult.written,
+      skipped: seedResult.skipped,
+    });
+  } catch (error) {
+    throw new ContainerError('seed-agent-configs', toErrorMessage(error));
   }
 });
 

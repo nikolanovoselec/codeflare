@@ -19,6 +19,7 @@ import {
   abortMultipartUpload,
   getStats,
   recreateGettingStartedDocs,
+  recreateAgentConfigs,
   getPreview,
   getDownloadUrl,
 } from '../../api/storage';
@@ -335,6 +336,29 @@ describe('Storage API Client', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/storage/seed/getting-started',
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+  });
+
+  // ==========================================================================
+  // recreateAgentConfigs
+  // ==========================================================================
+  describe('recreateAgentConfigs', () => {
+    it('calls POST /api/storage/seed/agent-configs', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          success: true,
+          bucketCreated: false,
+          written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'],
+          skipped: [],
+        })
+      );
+
+      await recreateAgentConfigs();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/storage/seed/agent-configs',
         expect.objectContaining({ method: 'POST' })
       );
     });

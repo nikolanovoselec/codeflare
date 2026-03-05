@@ -11,6 +11,7 @@ const {
   mockParseListObjectsXml,
   mockCreateBucketIfNotExists,
   mockSeedGettingStartedDocs,
+  mockSeedAgentConfigs,
 } = vi.hoisted(() => {
   const mockFetch = vi.fn();
   return {
@@ -20,6 +21,7 @@ const {
     mockParseListObjectsXml: vi.fn(),
     mockCreateBucketIfNotExists: vi.fn(async () => ({ success: true, created: true })),
     mockSeedGettingStartedDocs: vi.fn(async () => ({ written: ['Getting-Started.md'], skipped: [] })),
+    mockSeedAgentConfigs: vi.fn(async () => ({ written: ['.claude/rules/env.md'], skipped: [] })),
   };
 });
 
@@ -41,6 +43,7 @@ vi.mock('../../lib/r2-admin', () => ({
 
 vi.mock('../../lib/r2-seed', () => ({
   seedGettingStartedDocs: mockSeedGettingStartedDocs,
+  seedAgentConfigs: mockSeedAgentConfigs,
 }));
 
 // Import after mocks are set up
@@ -252,6 +255,12 @@ describe('Storage Browse Routes', () => {
       expect(body).toEqual({ objects: [], prefixes: [], isTruncated: false });
       expect(mockCreateBucketIfNotExists).toHaveBeenCalledWith('test-account', 'test-token', 'test-bucket');
       expect(mockSeedGettingStartedDocs).toHaveBeenCalledWith(
+        expect.any(Object),
+        'test-bucket',
+        'https://test.r2.cloudflarestorage.com',
+        { overwrite: false }
+      );
+      expect(mockSeedAgentConfigs).toHaveBeenCalledWith(
         expect.any(Object),
         'test-bucket',
         'https://test.r2.cloudflarestorage.com',

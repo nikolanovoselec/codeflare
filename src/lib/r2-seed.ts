@@ -1,19 +1,27 @@
 import type { Env } from '../types';
 import { createR2Client, getR2Url } from './r2-client';
 import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
+import { AGENTS_SEEDED_CONFIGS } from './agent-seed.generated';
 import { createLogger } from './logger';
 
 const logger = createLogger('r2-seed');
+
+type SeedDocument = {
+  key: string;
+  contentType: string;
+  content: string;
+};
 
 type SeedDocsResult = {
   written: string[];
   skipped: string[];
 };
 
-export async function seedGettingStartedDocs(
+async function seedDocuments(
   env: Env,
   bucketName: string,
   endpoint: string,
+  documents: SeedDocument[],
   options: { overwrite?: boolean } = {}
 ): Promise<SeedDocsResult> {
   const overwrite = options.overwrite === true;
@@ -21,7 +29,7 @@ export async function seedGettingStartedDocs(
   const written: string[] = [];
   const skipped: string[] = [];
 
-  for (const doc of SEEDED_DOCUMENTS) {
+  for (const doc of documents) {
     const url = getR2Url(endpoint, bucketName, doc.key);
 
     if (!overwrite) {
@@ -50,12 +58,41 @@ export async function seedGettingStartedDocs(
     written.push(doc.key);
   }
 
+  return { written, skipped };
+}
+
+export async function seedGettingStartedDocs(
+  env: Env,
+  bucketName: string,
+  endpoint: string,
+  options: { overwrite?: boolean } = {}
+): Promise<SeedDocsResult> {
+  const result = await seedDocuments(env, bucketName, endpoint, SEEDED_DOCUMENTS, options);
+
   logger.info('Seeded getting started docs', {
     bucketName,
-    overwrite,
-    writtenCount: written.length,
-    skippedCount: skipped.length,
+    overwrite: options.overwrite === true,
+    writtenCount: result.written.length,
+    skippedCount: result.skipped.length,
   });
 
-  return { written, skipped };
+  return result;
+}
+
+export async function seedAgentConfigs(
+  env: Env,
+  bucketName: string,
+  endpoint: string,
+  options: { overwrite?: boolean } = {}
+): Promise<SeedDocsResult> {
+  const result = await seedDocuments(env, bucketName, endpoint, AGENTS_SEEDED_CONFIGS, options);
+
+  logger.info('Seeded agent configs', {
+    bucketName,
+    overwrite: options.overwrite === true,
+    writtenCount: result.written.length,
+    skippedCount: result.skipped.length,
+  });
+
+  return result;
 }
