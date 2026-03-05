@@ -30,11 +30,11 @@ describe('validateKey', () => {
     expect(() => validateKey('/foo/bar')).toThrow('must not start with /');
   });
 
-  it('rejects protected paths', () => {
-    expect(() => validateKey('.claude/config')).toThrow('Cannot access protected path');
-    expect(() => validateKey('.ssh/id_rsa')).toThrow('Cannot access protected path');
-    expect(() => validateKey('.anthropic/key')).toThrow('Cannot access protected path');
-    expect(() => validateKey('workspace/.config/test')).toThrow('Cannot access protected path');
+  it('allows previously protected paths (PROTECTED_PATHS is now empty)', () => {
+    expect(() => validateKey('.claude/config')).not.toThrow();
+    expect(() => validateKey('.ssh/id_rsa')).not.toThrow();
+    expect(() => validateKey('.anthropic/key')).not.toThrow();
+    expect(() => validateKey('workspace/.config/test')).not.toThrow();
   });
 
   it('accepts valid keys', () => {
@@ -48,9 +48,9 @@ describe('validateKey', () => {
     expect(() => validateKey('/bad', 'destination')).toThrow('Invalid destination');
   });
 
-  it('rejects null bytes before protected paths', () => {
-    // Null byte before '.claude/' bypasses .includes() check — must be stripped
-    expect(() => validateKey('workspace/\0.claude/secret')).toThrow('Cannot access protected path');
+  it('allows null bytes before previously protected paths (PROTECTED_PATHS is now empty)', () => {
+    // Null bytes are still stripped, but .claude/ is no longer protected
+    expect(() => validateKey('workspace/\0.claude/secret')).not.toThrow();
   });
 
   it('strips null bytes and validates the cleaned key', () => {

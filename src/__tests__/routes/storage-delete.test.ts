@@ -112,7 +112,8 @@ describe('Storage Delete Route', () => {
     expect(body.error).toContain('must not start with /');
   });
 
-  it('rejects protected path .claude/ with 400', async () => {
+  it('allows previously protected path .claude/ (PROTECTED_PATHS is now empty)', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     const res = await app.request('/delete', {
       method: 'POST',
@@ -120,13 +121,11 @@ describe('Storage Delete Route', () => {
       body: JSON.stringify({ keys: ['.claude/settings.json'] }),
     });
 
-    expect(res.status).toBe(400);
-    const body = await res.json() as { error: string; code: string };
-    expect(body.code).toBe('VALIDATION_ERROR');
-    expect(body.error).toContain('protected path');
+    expect(res.status).toBe(200);
   });
 
-  it('rejects protected path .anthropic/ with 400', async () => {
+  it('allows previously protected path .anthropic/ (PROTECTED_PATHS is now empty)', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     const res = await app.request('/delete', {
       method: 'POST',
@@ -134,12 +133,11 @@ describe('Storage Delete Route', () => {
       body: JSON.stringify({ keys: ['.anthropic/config'] }),
     });
 
-    expect(res.status).toBe(400);
-    const body = await res.json() as { code: string };
-    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(res.status).toBe(200);
   });
 
-  it('rejects protected path .ssh/ with 400', async () => {
+  it('allows previously protected path .ssh/ (PROTECTED_PATHS is now empty)', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     const res = await app.request('/delete', {
       method: 'POST',
@@ -147,12 +145,11 @@ describe('Storage Delete Route', () => {
       body: JSON.stringify({ keys: ['.ssh/id_rsa'] }),
     });
 
-    expect(res.status).toBe(400);
-    const body = await res.json() as { code: string };
-    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(res.status).toBe(200);
   });
 
-  it('rejects nested protected path with 400', async () => {
+  it('allows nested previously protected path (PROTECTED_PATHS is now empty)', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     const res = await app.request('/delete', {
       method: 'POST',
@@ -160,9 +157,7 @@ describe('Storage Delete Route', () => {
       body: JSON.stringify({ keys: ['workspace/.claude/secrets'] }),
     });
 
-    expect(res.status).toBe(400);
-    const body = await res.json() as { code: string };
-    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(res.status).toBe(200);
   });
 
   it('rejects more than 1000 keys with 400', async () => {
@@ -182,17 +177,16 @@ describe('Storage Delete Route', () => {
 
   // --- Single delete tests ---
 
-  it('rejects protected paths (protection always on)', async () => {
+  it('allows previously protected paths (PROTECTED_PATHS is now empty)', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
     const res = await app.request('/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ keys: ['.claude/settings.json'] }),
     });
 
-    expect(res.status).toBe(400);
-    const body = await res.json() as { error: string; code: string };
-    expect(body.code).toBe('VALIDATION_ERROR');
-    expect(body.error).toContain('protected');
+    expect(res.status).toBe(200);
   });
 
   it('single delete succeeds and returns key in deleted array', async () => {

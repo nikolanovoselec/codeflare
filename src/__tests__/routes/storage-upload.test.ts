@@ -97,8 +97,9 @@ describe('Storage Upload Routes', () => {
       expect(body.code).toBe('VALIDATION_ERROR');
     });
 
-    it('rejects sensitive paths (.ssh/)', async () => {
+    it('allows previously sensitive paths (.ssh/) (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
 
       const res = await app.request('/upload', {
         method: 'POST',
@@ -106,13 +107,12 @@ describe('Storage Upload Routes', () => {
         body: JSON.stringify({ key: '.ssh/id_rsa', content: btoa('x') }),
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string };
-      expect(body.error).toContain('protected path');
+      expect(res.status).toBe(200);
     });
 
-    it('rejects sensitive paths (.anthropic/)', async () => {
+    it('allows previously sensitive paths (.anthropic/) (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
 
       const res = await app.request('/upload', {
         method: 'POST',
@@ -120,11 +120,12 @@ describe('Storage Upload Routes', () => {
         body: JSON.stringify({ key: '.anthropic/auth.json', content: btoa('x') }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
 
-    it('rejects sensitive paths (.config/)', async () => {
+    it('allows previously sensitive paths (.config/) (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
 
       const res = await app.request('/upload', {
         method: 'POST',
@@ -132,11 +133,12 @@ describe('Storage Upload Routes', () => {
         body: JSON.stringify({ key: 'foo/.config/secrets', content: btoa('x') }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
 
-    it('rejects sensitive paths (.claude.json)', async () => {
+    it('allows previously sensitive paths (.claude.json) (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
 
       const res = await app.request('/upload', {
         method: 'POST',
@@ -144,7 +146,7 @@ describe('Storage Upload Routes', () => {
         body: JSON.stringify({ key: '.claude.json', content: btoa('x') }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
 
     it('rejects key over 1024 characters', async () => {
@@ -283,8 +285,11 @@ describe('Storage Upload Routes', () => {
       expect(body.etag).toBe('abc123'); // quotes stripped
     });
 
-    it('validates key', async () => {
+    it('allows previously protected key (.ssh/) (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
+      mockFetch.mockResolvedValueOnce(
+        new Response('', { status: 200, headers: { etag: '"abc"' } })
+      );
 
       const res = await app.request('/upload/part', {
         method: 'POST',
@@ -297,7 +302,7 @@ describe('Storage Upload Routes', () => {
         }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
 
     it('returns 400 ValidationError for invalid base64 content in part upload (FIX-10)', async () => {
@@ -432,8 +437,9 @@ describe('Storage Upload Routes', () => {
       expect(body.success).toBe(true);
     });
 
-    it('validates key', async () => {
+    it('allows previously protected key (.anthropic/) (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
       const res = await app.request('/upload/abort', {
         method: 'POST',
@@ -444,7 +450,7 @@ describe('Storage Upload Routes', () => {
         }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
 
     it('sends DELETE to R2 with uploadId', async () => {

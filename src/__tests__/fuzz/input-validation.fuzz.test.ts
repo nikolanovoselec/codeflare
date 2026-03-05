@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { SESSION_ID_PATTERN, PROTECTED_PATHS, getMaxSessions, REQUEST_ID_PATTERN } from '../../lib/constants';
+import { SESSION_ID_PATTERN, getMaxSessions, REQUEST_ID_PATTERN } from '../../lib/constants';
 import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
 import { getBucketName } from '../../lib/access';
 import { getContainerId } from '../../lib/container-helpers';
@@ -377,10 +377,7 @@ describe('Fuzz: validateKey', () => {
           expect(key).not.toContain('..');
           expect(key.startsWith('/')).toBe(false);
           expect(key.length).toBeLessThanOrEqual(1024);
-          for (const p of PROTECTED_PATHS) {
-            expect(key.startsWith(p)).toBe(false);
-            expect(key.includes(`/${p}`)).toBe(false);
-          }
+          // PROTECTED_PATHS is now empty — no path restrictions to check
         } catch {
           // Validation threw — that's fine, this is the reject path
         }
@@ -415,21 +412,23 @@ describe('Fuzz: validateKey', () => {
     );
   });
 
-  it('rejects all protected paths at root and nested positions', () => {
+  it('allows previously protected paths at root and nested positions (PROTECTED_PATHS is now empty)', () => {
+    // With PROTECTED_PATHS = [], paths like .claude/, .ssh/, etc. are now allowed
+    const formerlyProtected = ['.claude/', '.anthropic/', '.ssh/', '.config/', '.claude.json'];
     fc.assert(
       fc.property(
-        fc.constantFrom(...PROTECTED_PATHS),
+        fc.constantFrom(...formerlyProtected),
         fc.stringMatching(/^[a-z0-9]{0,20}$/),
-        (protectedPath, prefix) => {
-          // At root
-          expect(() => validateKey(protectedPath)).toThrow();
-          // Nested under a prefix
+        (path, prefix) => {
+          // At root — should now pass
+          expect(() => validateKey(path)).not.toThrow();
+          // Nested under a prefix — should now pass
           if (prefix.length > 0) {
-            expect(() => validateKey(`${prefix}/${protectedPath}`)).toThrow();
+            expect(() => validateKey(`${prefix}/${path}`)).not.toThrow();
           }
         },
       ),
-      { numRuns: Math.min(NUM_RUNS, PROTECTED_PATHS.length * 20) },
+      { numRuns: Math.min(NUM_RUNS, formerlyProtected.length * 20) },
     );
   });
 
@@ -681,15 +680,12 @@ describe('Fuzz: validateKey encoding tricks', () => {
     expect(() => validateKey('workspace/../secret')).toThrow();
   });
 
-  it('null byte injection - FIXED: null bytes are now stripped before validation', () => {
-    // FIXED: null bytes are now stripped before validation.
-    // Previously, null byte before '.claude/' bypassed the .includes() check
-    // because '/\0.claude/' !== '/.claude/'. Now validateKey strips \0 first,
-    // so the key becomes 'workspace/.claude/secret' which correctly triggers
-    // the protected path check.
+  it('null byte injection - null bytes stripped, but .claude/ is no longer protected', () => {
+    // Null bytes are still stripped before validation.
+    // After stripping \0, the key becomes 'workspace/.claude/secret'.
+    // With PROTECTED_PATHS = [], this is now a valid key.
     const key = 'workspace/\0.claude/secret';
-    // After stripping \0, the key contains '/.claude/' and should throw
-    expect(() => validateKey(key)).toThrow();
+    expect(() => validateKey(key)).not.toThrow();
   });
 
   it('Unicode fullwidth period does not trigger ASCII ".." check', () => {
@@ -710,13 +706,11 @@ describe('Fuzz: validateKey encoding tricks', () => {
     // Document: similar to fullwidth — R2 keys are opaque, so '.\u200B.' != '..'
   });
 
-  it('case sensitivity: .Claude/ vs .claude/ - validateKey is case-sensitive', () => {
-    // PROTECTED_PATHS includes '.claude/' (lowercase)
-    // validateKey.includes() is case-sensitive, matching R2's case-sensitive keys
+  it('case sensitivity: .Claude/ vs .claude/ - both allowed (PROTECTED_PATHS is now empty)', () => {
+    // With PROTECTED_PATHS = [], both are valid keys
     expect(() => validateKey('.Claude/config')).not.toThrow();
-    expect(() => validateKey('.claude/config')).toThrow();
-    // This is CORRECT behavior: R2 keys are case-sensitive,
-    // so '.Claude/' and '.claude/' are genuinely different paths
+    expect(() => validateKey('.claude/config')).not.toThrow();
+    // R2 keys are case-sensitive, so these are genuinely different paths
   });
 
   it('keys at exactly MAX_KEY_LENGTH are accepted', () => {
@@ -731,10 +725,11 @@ describe('Fuzz: validateKey encoding tricks', () => {
     expect(() => validateKey(key)).toThrow();
   });
 
-  it('fuzz: random Unicode strings with protected path fragments', () => {
+  it('fuzz: random Unicode strings with formerly protected path fragments (now allowed)', () => {
+    const formerlyProtected = ['.claude/', '.anthropic/', '.ssh/', '.config/', '.claude.json'];
     fc.assert(
       fc.property(
-        fc.constantFrom(...PROTECTED_PATHS),
+        fc.constantFrom(...formerlyProtected),
         fc.string({ minLength: 0, maxLength: 10 }),
         (protectedPath, prefix) => {
           // Prepend various Unicode manipulations
@@ -747,13 +742,13 @@ describe('Fuzz: validateKey encoding tricks', () => {
           for (const variant of variants) {
             try {
               validateKey(variant);
-              // If validation passed, verify the invariants hold
+              // If validation passed, verify the general invariants still hold
               const hasTraversal = variant.includes('..');
               const startsWithSlash = variant.startsWith('/');
               expect(hasTraversal).toBe(false);
               expect(startsWithSlash).toBe(false);
             } catch {
-              // Rejected — correct behavior for paths that match protected patterns
+              // Rejected — still valid for other reasons (traversal, leading slash, etc.)
             }
           }
         },

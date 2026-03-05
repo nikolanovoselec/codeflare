@@ -184,7 +184,7 @@ describe('Storage Move Routes', () => {
       expect(body.error).toContain('path traversal');
     });
 
-    it('rejects source in protected path', async () => {
+    it('allows source in previously protected path (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
 
       const res = await postMove(app, {
@@ -192,13 +192,10 @@ describe('Storage Move Routes', () => {
         destination: 'workspace/settings.json',
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('VALIDATION_ERROR');
-      expect(body.error).toContain('protected path');
+      expect(res.status).toBe(200);
     });
 
-    it('rejects destination in protected path', async () => {
+    it('allows destination in previously protected path (PROTECTED_PATHS is now empty)', async () => {
       const app = createApp();
 
       const res = await postMove(app, {
@@ -206,10 +203,7 @@ describe('Storage Move Routes', () => {
         destination: '.ssh/authorized_keys',
       });
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as { error: string; code: string };
-      expect(body.code).toBe('VALIDATION_ERROR');
-      expect(body.error).toContain('protected path');
+      expect(res.status).toBe(200);
     });
 
     it('rejects same source and destination', async () => {

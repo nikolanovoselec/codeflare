@@ -52,8 +52,22 @@ export const WS_RATE_LIMIT_MAX_CONNECTIONS = 30;
 /** WebSocket rate limit: KV TTL for rate limit entries (seconds) */
 export const WS_RATE_LIMIT_TTL_SECONDS = 120;
 
-/** Protected paths that cannot be uploaded, deleted, or moved */
-export const PROTECTED_PATHS = ['.claude/', '.anthropic/', '.ssh/', '.config/', '.claude.json'];
+/**
+ * Protected paths — blocks browse/upload/download/delete/move via the storage API.
+ * Validated in storage/validation.ts validateKey().
+ *
+ * Use cases:
+ * - Multi-tenant deployments where admins can browse other users' storage
+ * - Preventing accidental exposure of secrets (API keys, SSH keys) in shared-screen scenarios
+ * - Compliance requirements that mandate certain paths are only accessible via terminal
+ *
+ * Deliberately empty today: each user's storage is bucket-scoped and they already have
+ * unrestricted terminal access to the same files. Blocking paths in the UI just forces
+ * users to use the terminal for the same operation.
+ *
+ * To re-enable, add paths like: ['.claude/', '.anthropic/', '.ssh/', '.config/', '.claude.json']
+ */
+export const PROTECTED_PATHS: string[] = [];
 
 /** Default max concurrent running sessions for regular users */
 const DEFAULT_MAX_SESSIONS_USER = 3;
