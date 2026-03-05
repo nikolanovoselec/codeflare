@@ -804,8 +804,7 @@ echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 # MCP servers are configured in ~/.claude.json (not ~/.claude/settings.json)
 # See: https://code.claude.com/docs/en/mcp — "User and local scope: ~/.claude.json"
 if [ -n "${SESSION_ID:-}" ]; then
-    MEMORY_MCP_CONFIG='{"mcpServers":{"memory":{"command":"npx","args":["-y","@modelcontextprotocol/server-memory"],"env":{"MEMORY_FILE_PATH":"/home/user/.memory/session-PLACEHOLDER.jsonl"}}}}'
-    MEMORY_MCP_CONFIG=$(echo "$MEMORY_MCP_CONFIG" | sed "s/PLACEHOLDER/${SESSION_ID}/")
+    MEMORY_MCP_CONFIG="{\"mcpServers\":{\"memory\":{\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-memory\"],\"env\":{\"MEMORY_FILE_PATH\":\"${USER_HOME}/.memory/session-${SESSION_ID}.jsonl\"}}}}"
     if [ -f "$USER_CLAUDE_JSON" ]; then
         # Recursive merge — preserves ALL existing config (bypass consent, other MCP servers, etc.)
         # jq `*` merges objects recursively: only mcpServers.memory is added/updated

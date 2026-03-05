@@ -330,7 +330,7 @@ export class container extends Container<Env> {
           prefsChanged = true;
         }
 
-        if (prefsChanged) {
+        if (prefsChanged || sessionId) {
           this.updateEnvVars();
         }
 

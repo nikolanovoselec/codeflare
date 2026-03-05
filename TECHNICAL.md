@@ -491,16 +491,15 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persists across sessions using per-session JSONL files synced to R2.
 
 **Lifecycle:**
-1. Container boots, rclone pulls `~/.claude/memory/` from R2 (includes per-session JSONL files)
-2. `entrypoint.sh` runs merge: consolidates all `session-*.jsonl` files into `memory.json`, deduplicating entities and relations
-3. Cleanup removes merged JSONL files (only after merge succeeds, respecting bisync baseline timing)
-4. `server-memory` MCP server reads/writes `memory.json` during the session
-5. On session activity, the current session appends new entities/relations to its own `session-<ID>.jsonl`
-6. rclone bisync syncs changes back to R2 every 60s and on shutdown
+1. Container boots, rclone pulls `~/.memory/session-*.jsonl` files from R2
+2. `entrypoint.sh` runs `merge_memory_files()`: consolidates all session files into `session-{SESSION_ID}.jsonl`, deduplicating entities (by name) and relations (by JSON equality)
+3. `server-memory` MCP server reads/writes `session-{SESSION_ID}.jsonl` during the session
+4. rclone bisync syncs changes back to R2 every 60s and on shutdown
+5. `cleanup_old_memory_files()` removes old session files after bisync baseline is established
 
-**Why per-session JSONL:** Multiple concurrent sessions from the same user write to the same R2 bucket. Writing directly to `memory.json` would cause last-write-wins data loss. Per-session JSONL files eliminate write conflicts — each session owns its own file, and merge-on-boot consolidates them.
+**Why per-session JSONL:** Multiple concurrent sessions from the same user write to the same R2 bucket. A shared file would cause last-write-wins data loss. Per-session JSONL files eliminate write conflicts — each session owns its own file, and merge-on-boot consolidates them.
 
-**Two-phase merge/cleanup:** The merge runs before bisync baseline establishment. Cleanup (removing merged JSONL files) happens after a delay to ensure bisync has seen the merged state, preventing bisync from interpreting deleted files as "delete from R2."
+**Two-phase merge/cleanup:** The merge runs after R2 sync but before bisync baseline establishment. Cleanup (removing old session files) runs after bisync baseline succeeds, so deletions are tracked as deltas and propagated to R2 — preventing bisync `--resync` from resurrecting deleted files.
 
 ---
 
