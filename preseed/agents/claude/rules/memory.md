@@ -29,7 +29,21 @@ Memory persists across sessions — anything you save will be available next tim
 - Before architectural decisions — check for prior decisions
 - When context seems relevant to a previous session
 
+## Compaction (when memory grows large)
+- At session start, call read_graph to check entity count
+- If >150 entities, spawn a background Haiku agent to compact:
+  ```
+  Read the full memory graph with read_graph. Consolidate it:
+  1. Merge chat-* entities older than 7 days into "chat-archive-YYYY-MM"
+     (combine observations into high-level summaries, delete originals)
+  2. Merge redundant/overlapping observations on the same entity
+  3. Delete entities that are no longer relevant (stale project facts,
+     resolved bugs, outdated preferences)
+  Use delete_entities and delete_observations to clean up, then
+  create_entities/add_observations for consolidated entries.
+  Target: reduce to under 100 entities.
+  ```
+
 ## Best practices:
 - One fact per observation (atomic)
 - Use descriptive entity names (e.g., "user-project-myapp" not "project")
-- When read_graph shows >200 entities, review and prune stale entries
