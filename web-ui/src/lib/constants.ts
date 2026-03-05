@@ -37,14 +37,6 @@ export const WS_RETRY_MAX_DELAY_MS = 30_000;
 export const CSS_TRANSITION_DELAY_MS = 100;
 
 // =============================================================================
-// WebSocket Close Codes
-// =============================================================================
-
-/** WebSocket close code for abnormal closure (connection failed) */
-export const WS_CLOSE_ABNORMAL = 1006;
-
-
-// =============================================================================
 // Session
 // =============================================================================
 

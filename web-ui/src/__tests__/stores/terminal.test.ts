@@ -10,7 +10,6 @@ vi.mock('../../lib/constants', async (importOriginal) => {
     WS_RETRY_MAX_DELAY_MS: 500,
     WS_RECONNECT_WINDOW_MS: 5000, // 5s for tests (not 30 min)
     CSS_TRANSITION_DELAY_MS: 10,
-    WS_CLOSE_ABNORMAL: 1006,
   };
 });
 
