@@ -801,24 +801,24 @@ fi
 echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 
 # Configure memory MCP server for Claude Code
+# MCP servers are configured in ~/.claude.json (not ~/.claude/settings.json)
+# See: https://code.claude.com/docs/en/mcp — "User and local scope: ~/.claude.json"
 if [ -n "${SESSION_ID:-}" ]; then
-    CLAUDE_SETTINGS="$USER_CLAUDE_DIR/settings.json"
     MEMORY_MCP_CONFIG='{"mcpServers":{"memory":{"command":"npx","args":["-y","@modelcontextprotocol/server-memory"],"env":{"MEMORY_FILE_PATH":"/home/user/.memory/session-PLACEHOLDER.jsonl"}}}}'
     MEMORY_MCP_CONFIG=$(echo "$MEMORY_MCP_CONFIG" | sed "s/PLACEHOLDER/${SESSION_ID}/")
-    if [ -f "$CLAUDE_SETTINGS" ]; then
-        # Recursive merge — preserves ALL existing user config (custom MCP servers, settings, etc.)
+    if [ -f "$USER_CLAUDE_JSON" ]; then
+        # Recursive merge — preserves ALL existing config (bypass consent, other MCP servers, etc.)
         # jq `*` merges objects recursively: only mcpServers.memory is added/updated
-        TMP_SETTINGS=$(mktemp)
-        if jq --argjson mcp "$MEMORY_MCP_CONFIG" '. * $mcp' "$CLAUDE_SETTINGS" > "$TMP_SETTINGS" 2>/dev/null; then
-            mv "$TMP_SETTINGS" "$CLAUDE_SETTINGS"
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$MEMORY_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
         else
             # jq failed (malformed JSON?) — do NOT overwrite, skip instead
-            echo "[entrypoint] WARNING: Could not merge memory MCP config (malformed settings.json?)"
-            rm -f "$TMP_SETTINGS"
+            echo "[entrypoint] WARNING: Could not merge memory MCP config (malformed .claude.json?)"
+            rm -f "$TMP_JSON"
         fi
     else
-        mkdir -p "$USER_CLAUDE_DIR"
-        echo "$MEMORY_MCP_CONFIG" | jq '.' > "$CLAUDE_SETTINGS"
+        echo "$MEMORY_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
     fi
     echo "[entrypoint] Memory MCP server configured for Claude Code"
 fi
