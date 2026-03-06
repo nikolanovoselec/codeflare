@@ -29,6 +29,7 @@ import { isAllowedOrigin } from '../lib/cors-cache';
 import { AuthError, ForbiddenError, NotFoundError, toError, toErrorMessage } from '../lib/error-types';
 
 const logger = createLogger('terminal');
+let wsStressTestWarningLogged = false;
 
 /**
  * Result of WebSocket routing validation
@@ -165,37 +166,44 @@ export async function handleWebSocketUpgrade(
       throw err;
     }
 
-    // WebSocket connection rate limiting: 30 connections/min per user (FIX-21)
-    // Fail-open on KV errors (AD35)
-    try {
-      const wsRateKey = `ws-connect:${user.email}`;
-      const wsRateData = await env.KV.get<{ count: number; windowStart: number }>(wsRateKey, 'json');
-      const now = Date.now();
-
-      let count = 1;
-      let windowStart = now;
-
-      if (wsRateData && wsRateData.windowStart > now - WS_RATE_LIMIT_WINDOW_MS) {
-        count = wsRateData.count + 1;
-        windowStart = wsRateData.windowStart;
+    if (env.STRESS_TEST_MODE === 'active') {
+      if (!wsStressTestWarningLogged) {
+        logger.warn('STRESS_TEST_MODE is active — WebSocket rate limits bypassed');
+        wsStressTestWarningLogged = true;
       }
+    } else {
+      // WebSocket connection rate limiting: 30 connections/min per user (FIX-21)
+      // Fail-open on KV errors (AD35)
+      try {
+        const wsRateKey = `ws-connect:${user.email}`;
+        const wsRateData = await env.KV.get<{ count: number; windowStart: number }>(wsRateKey, 'json');
+        const now = Date.now();
 
-      if (count > WS_RATE_LIMIT_MAX_CONNECTIONS) {
-        const retryAfterSec = Math.ceil((WS_RATE_LIMIT_WINDOW_MS - (now - windowStart)) / 1000);
-        logger.warn('WebSocket rate limit exceeded', { email: user.email, count });
-        return new Response(null, {
-          status: 429,
-          headers: { ...jsonHeaders, 'Retry-After': String(retryAfterSec) },
-          webSocket: undefined,
+        let count = 1;
+        let windowStart = now;
+
+        if (wsRateData && wsRateData.windowStart > now - WS_RATE_LIMIT_WINDOW_MS) {
+          count = wsRateData.count + 1;
+          windowStart = wsRateData.windowStart;
+        }
+
+        if (count > WS_RATE_LIMIT_MAX_CONNECTIONS) {
+          const retryAfterSec = Math.ceil((WS_RATE_LIMIT_WINDOW_MS - (now - windowStart)) / 1000);
+          logger.warn('WebSocket rate limit exceeded', { email: user.email, count });
+          return new Response(null, {
+            status: 429,
+            headers: { ...jsonHeaders, 'Retry-After': String(retryAfterSec) },
+            webSocket: undefined,
+          });
+        }
+
+        await env.KV.put(wsRateKey, JSON.stringify({ count, windowStart }), {
+          expirationTtl: WS_RATE_LIMIT_TTL_SECONDS,
         });
+      } catch (err) {
+        // Fail-open: KV errors should not block WebSocket connections (AD35)
+        logger.warn('WebSocket rate limit KV error, allowing connection', { error: toErrorMessage(err) });
       }
-
-      await env.KV.put(wsRateKey, JSON.stringify({ count, windowStart }), {
-        expirationTtl: WS_RATE_LIMIT_TTL_SECONDS,
-      });
-    } catch (err) {
-      // Fail-open: KV errors should not block WebSocket connections (AD35)
-      logger.warn('WebSocket rate limit KV error, allowing connection', { error: toErrorMessage(err) });
     }
 
     const containerId = getContainerId(bucketName, baseSessionId);

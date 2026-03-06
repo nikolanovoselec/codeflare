@@ -9,6 +9,14 @@ const wsConnections = new Counter('ws_connections_opened');
 const wsErrors = new Counter('ws_errors');
 const rateLimitHits = new Counter('rate_limit_hits');
 
+// Configurable concurrency via STRESS_TEST_CONCURRENCY env var
+// When set, scales VU targets proportionally and reduces think times (rate limits are off)
+const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
+const BASE_VUS = 10;
+const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
+function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
+const HIGH_CONCURRENCY = CONCURRENCY > 100;
+
 const BASE_URL = __ENV.E2E_BASE_URL;
 const WS_URL = BASE_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 const HEADERS = {
@@ -84,16 +92,16 @@ export const options = {
       executor: 'ramping-vus',
       startVUs: 1,
       stages: [
-        { duration: '30s', target: 5 },   // 5 concurrent WebSocket connections
-        { duration: '1m', target: 10 },   // Ramp to 10
-        { duration: '1m', target: 10 },   // Hold
-        { duration: '30s', target: 0 },   // Ramp down
+        { duration: '30s', target: scaled(5) },
+        { duration: '1m', target: scaled(10) },
+        { duration: '1m', target: scaled(10) },
+        { duration: '30s', target: 0 },
       ],
     },
   },
   thresholds: {
-    ws_connect_duration: ['p(95)<10000'], // WS connect under 10s
-    errors: ['rate<0.3'],                 // Allow higher rate (WS rate limit = 30/min)
+    ws_connect_duration: [HIGH_CONCURRENCY ? 'p(95)<20000' : 'p(95)<10000'],
+    errors: [HIGH_CONCURRENCY ? 'rate<0.5' : 'rate<0.3'],
   },
 };
 
@@ -139,7 +147,7 @@ export default function (data) {
     sleep(15); // Back off on rate limit
   }
 
-  sleep(2); // Respect 30 connections/min limit
+  sleep(CONCURRENCY > 0 ? 0.5 : 2);
 }
 
 export function teardown(data) {

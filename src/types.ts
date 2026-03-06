@@ -59,6 +59,9 @@ export interface Env {
   MAX_SESSIONS_USER?: string;
   MAX_SESSIONS_ADMIN?: string;
 
+  // Bypass all rate limits for stress testing (set to 'active' to enable)
+  STRESS_TEST_MODE?: string;
+
 }
 
 /**

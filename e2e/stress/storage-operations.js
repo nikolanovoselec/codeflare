@@ -11,6 +11,14 @@ const deleteDuration = new Trend('delete_duration', true);
 const filesUploaded = new Counter('files_uploaded');
 const rateLimitHits = new Counter('rate_limit_hits');
 
+// Configurable concurrency via STRESS_TEST_CONCURRENCY env var
+// When set, scales VU targets proportionally and reduces think times (rate limits are off)
+const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
+const BASE_VUS = 5;
+const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
+function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
+const HIGH_CONCURRENCY = CONCURRENCY > 100;
+
 const BASE_URL = __ENV.E2E_BASE_URL;
 const HEADERS = {
   'CF-Access-Client-Id': __ENV.CF_ACCESS_CLIENT_ID,
@@ -47,16 +55,16 @@ export const options = {
       executor: 'ramping-vus',
       startVUs: 1,
       stages: [
-        { duration: '30s', target: 3 },
-        { duration: '2m', target: 5 },   // 5 concurrent users doing storage ops
+        { duration: '30s', target: scaled(3) },
+        { duration: '2m', target: scaled(5) },
         { duration: '30s', target: 0 },
       ],
     },
   },
   thresholds: {
-    upload_duration: ['p(95)<10000'],    // Upload under 10s (includes R2 latency)
-    download_duration: ['p(95)<5000'],
-    browse_duration: ['p(95)<3000'],
+    upload_duration: [HIGH_CONCURRENCY ? 'p(95)<20000' : 'p(95)<10000'],
+    download_duration: [HIGH_CONCURRENCY ? 'p(95)<10000' : 'p(95)<5000'],
+    browse_duration: [HIGH_CONCURRENCY ? 'p(95)<8000' : 'p(95)<3000'],
     errors: ['rate<0.15'],
   },
 };
@@ -129,5 +137,5 @@ export default function () {
     deleteDuration.add(deleteRes.timings.duration);
   });
 
-  sleep(2);
+  sleep(CONCURRENCY > 0 ? 0.5 : 2);
 }

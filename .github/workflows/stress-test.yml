@@ -81,6 +81,8 @@ jobs:
           sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
 
       - name: Run API throughput test
+        env:
+          STRESS_TEST_CONCURRENCY: ${{ vars.STRESS_TEST_CONCURRENCY || '0' }}
         run: |
           k6 run e2e/stress/api-throughput.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
@@ -114,6 +116,8 @@ jobs:
           sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
 
       - name: Run session lifecycle test
+        env:
+          STRESS_TEST_CONCURRENCY: ${{ vars.STRESS_TEST_CONCURRENCY || '0' }}
         run: |
           k6 run e2e/stress/session-lifecycle.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
@@ -147,6 +151,8 @@ jobs:
           sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
 
       - name: Run storage operations test
+        env:
+          STRESS_TEST_CONCURRENCY: ${{ vars.STRESS_TEST_CONCURRENCY || '0' }}
         run: |
           k6 run e2e/stress/storage-operations.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
@@ -180,6 +186,8 @@ jobs:
           sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
 
       - name: Run WebSocket concurrency test
+        env:
+          STRESS_TEST_CONCURRENCY: ${{ vars.STRESS_TEST_CONCURRENCY || '0' }}
         run: |
           k6 run e2e/stress/websocket-concurrency.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \

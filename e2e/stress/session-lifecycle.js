@@ -9,6 +9,14 @@ const sessionsCreated = new Counter('sessions_created');
 const sessionsDeleted = new Counter('sessions_deleted');
 const rateLimitHits = new Counter('rate_limit_hits');
 
+// Configurable concurrency via STRESS_TEST_CONCURRENCY env var
+// When set, scales VU targets proportionally and reduces think times (rate limits are off)
+const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
+const BASE_VUS = 3;
+const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
+function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
+const HIGH_CONCURRENCY = CONCURRENCY > 100;
+
 const BASE_URL = __ENV.E2E_BASE_URL;
 const HEADERS = {
   'CF-Access-Client-Id': __ENV.CF_ACCESS_CLIENT_ID,
@@ -30,16 +38,16 @@ export const options = {
       executor: 'ramping-vus',
       startVUs: 1,
       stages: [
-        { duration: '30s', target: 3 },
-        { duration: '2m', target: 3 },  // Steady state
+        { duration: '30s', target: scaled(3) },
+        { duration: '2m', target: scaled(3) },
         { duration: '30s', target: 0 },
       ],
     },
   },
   thresholds: {
-    session_create_duration: ['p(95)<5000'],
-    session_delete_duration: ['p(95)<3000'],
-    errors: ['rate<0.15'], // Allow higher error rate (rate limits expected)
+    session_create_duration: [HIGH_CONCURRENCY ? 'p(95)<10000' : 'p(95)<5000'],
+    session_delete_duration: [HIGH_CONCURRENCY ? 'p(95)<8000' : 'p(95)<3000'],
+    errors: ['rate<0.15'],
   },
 };
 
@@ -115,5 +123,5 @@ export default function () {
     if (deleted) sessionsDeleted.add(1);
   });
 
-  sleep(6); // Respect 10 req/min session rate limit
+  sleep(CONCURRENCY > 0 ? 1 : 6);
 }

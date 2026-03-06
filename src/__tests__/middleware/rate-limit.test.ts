@@ -278,4 +278,93 @@ describe('createRateLimiter', () => {
       expect(storedData.count).toBe(1);
     });
   });
+
+  describe('stress test mode bypass', () => {
+    function createStressTestApp(config: RateLimitConfig, stressTestMode?: string) {
+      const app = new Hono<{ Bindings: Env; Variables: Partial<AuthVariables> }>();
+
+      app.onError((err, c) => {
+        if (err instanceof RateLimitError) {
+          return c.json({ error: err.message }, 429);
+        }
+        return c.json({ error: err.message }, 500);
+      });
+
+      app.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          ...(stressTestMode !== undefined && { STRESS_TEST_MODE: stressTestMode }),
+        } as Env;
+        c.set('bucketName', 'test-user');
+        return next();
+      });
+
+      app.use('/test', createRateLimiter(config));
+      app.get('/test', (c) => c.json({ success: true }));
+
+      return app;
+    }
+
+    it('bypasses rate limit when STRESS_TEST_MODE === "active"', async () => {
+      const app = createStressTestApp(
+        { windowMs: 60000, maxRequests: 1 },
+        'active'
+      );
+
+      for (let i = 0; i < 10; i++) {
+        const res = await app.request('/test');
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('does NOT set X-RateLimit-* headers when bypassed', async () => {
+      const app = createStressTestApp(
+        { windowMs: 60000, maxRequests: 10 },
+        'active'
+      );
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-RateLimit-Limit')).toBeNull();
+      expect(res.headers.get('X-RateLimit-Remaining')).toBeNull();
+    });
+
+    it('does NOT access KV when bypassed', async () => {
+      const app = createStressTestApp(
+        { windowMs: 60000, maxRequests: 10 },
+        'active'
+      );
+
+      await app.request('/test');
+
+      expect(mockKV.get).not.toHaveBeenCalled();
+      expect(mockKV.put).not.toHaveBeenCalled();
+    });
+
+    it('still enforces limits when STRESS_TEST_MODE is unset', async () => {
+      const app = createStressTestApp(
+        { windowMs: 60000, maxRequests: 1 },
+        undefined
+      );
+
+      const first = await app.request('/test');
+      expect(first.status).toBe(200);
+
+      const second = await app.request('/test');
+      expect(second.status).toBe(429);
+    });
+
+    it('still enforces limits when STRESS_TEST_MODE is any value other than "active"', async () => {
+      const app = createStressTestApp(
+        { windowMs: 60000, maxRequests: 1 },
+        'true'
+      );
+
+      const first = await app.request('/test');
+      expect(first.status).toBe(200);
+
+      const second = await app.request('/test');
+      expect(second.status).toBe(429);
+    });
+  });
 });

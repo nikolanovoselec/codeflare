@@ -11,6 +11,7 @@ const logger = createLogger('rate-limit');
 const inMemoryRateLimit = new Map<string, { count: number; windowStart: number }>();
 const CLEANUP_EVERY_N_REQUESTS = 100;
 let fallbackRequestCounter = 0;
+let stressTestWarningLogged = false;
 
 /**
  * Configuration for the rate limiter
@@ -60,6 +61,14 @@ interface RateLimitData {
  */
 export function createRateLimiter(config: RateLimitConfig): MiddlewareHandler<{ Bindings: Env; Variables: Partial<AuthVariables> }> {
   return async (c, next) => {
+    if (c.env.STRESS_TEST_MODE === 'active') {
+      if (!stressTestWarningLogged) {
+        logger.warn('STRESS_TEST_MODE is active — all HTTP rate limits bypassed');
+        stressTestWarningLogged = true;
+      }
+      return next();
+    }
+
     const kv = c.env.KV;
     if (!kv) {
       // Skip rate limiting if KV not available

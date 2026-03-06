@@ -45,6 +45,7 @@ Every response from the worker includes the following security headers:
 - **KV-backed per-user rate limiting** on API endpoints via `src/middleware/rate-limit.ts`.
 - **WebSocket connection rate limiting:** `WS_RATE_LIMIT_WINDOW_MS = 60,000` with `WS_RATE_LIMIT_MAX_CONNECTIONS = 30` per window.
 - **Session caps:** `MAX_SESSIONS_USER = 3` (default), `MAX_SESSIONS_ADMIN = 10` (default). Configurable via worker variables.
+- **Stress test bypass:** When `STRESS_TEST_MODE` is set to `"active"`, all rate limits (HTTP and WebSocket) are bypassed. This variable is **only set on the integration worker** for k6 load testing. Production workers must never have this variable set. The bypass requires the exact string `"active"` — no other value disables rate limiting.
 
 ### Input Validation
 

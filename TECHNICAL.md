@@ -616,6 +616,8 @@ HSTS is also applied to all redirect responses via `secureRedirect()` helper, in
 
 Per-user rate limiting via KV (`src/middleware/rate-limit.ts`). Uses `bucketName` from auth as the rate limit key, with IP fallback for unauthenticated requests. Configurable window and max per route. Adds `X-RateLimit-Limit`, `X-RateLimit-Remaining` response headers. All setup routes (`/detect-token`, `/prefill`, `/configure`) are rate-limited.
 
+**Stress Test Bypass:** When `STRESS_TEST_MODE` is set to `"active"`, all HTTP and WebSocket rate limits are bypassed. This is intended for integration environments only, to allow k6 stress tests with high virtual user counts (1000+) through a single service token identity. The bypass skips all KV rate-limit reads/writes for zero overhead. A one-time warning is logged per isolate when the bypass activates.
+
 ### Content-Disposition Hardening
 
 File download responses use `Content-Disposition: attachment` with sanitized filenames. Special characters are stripped and filenames are truncated to prevent header injection.
@@ -993,6 +995,7 @@ codeflare/
 | `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
 | `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | Worker secret (optional) |
+| `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | Worker env var |
 
 ### Container Environment
 
@@ -1067,7 +1070,7 @@ Base image: Node.js 24 Debian (bookworm-slim).
 
 ## 15. CI/CD (GitHub Actions)
 
-Seven workflows covering deploy, testing, fuzzing, penetration testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
+Eight workflows covering deploy, testing, fuzzing, penetration testing, stress testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
@@ -1078,13 +1081,14 @@ Seven workflows covering deploy, testing, fuzzing, penetration testing, and supp
 | `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
+| `stress-test.yml` | `workflow_dispatch` | k6 stress tests (API throughput, session lifecycle, storage operations, WebSocket concurrency) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
 
 ### GitHub Environments
 
 | Environment | Used by | Trigger |
 |-------------|---------|---------|
 | `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
-| `integration` | `deploy.yml`, `e2e.yml` | Manual dispatch with `integration` selected |
+| `integration` | `deploy.yml`, `e2e.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
 
 ### GitHub Secrets and Variables
 
@@ -1111,6 +1115,7 @@ Seven workflows covering deploy, testing, fuzzing, penetration testing, and supp
 | `MAX_SESSIONS_USER` | `3` | `deploy.yml` | Per-user session cap passed via `--var` | Omitted if unset (backend default applies) |
 | `MAX_SESSIONS_ADMIN` | `10` | `deploy.yml` | Per-admin session cap passed via `--var` | Omitted if unset (backend default applies) |
 | `PENTEST_TARGET` | - | `pentest.yml` | Base URL for penetration tests (e.g., `https://codeflare.graymatter.ch`) | Set per `production` environment |
+| `STRESS_TEST_CONCURRENCY` | `0` (disabled) | `stress-test.yml` | k6 virtual user scaling factor. When >0, scales VU targets proportionally and loosens latency thresholds. | Set per `integration` environment |
 
 ### Deploy Workflow Detail
 
@@ -1432,6 +1437,7 @@ wrangler tail codeflare --status error
 | AD23 | CORS origin pattern validation | <details><summary>Admin is trusted — has full worker access</summary><br>Admin-configured CORS origin patterns stored in KV are not re-validated on every request read. The admin already has full worker access (can deploy code, modify secrets). Validating every KV-sourced pattern adds request overhead for zero additional security.</details> |
 | AD24 | Predictable session IDs ([a-z0-9]{8,24}) | <details><summary>Session IDs are namespace keys, not secrets</summary><br>Session IDs are user-provided identifiers for KV namespacing, not authentication tokens. Security is JWT-based — knowing a session ID without a valid JWT grants zero access. The `SESSION_ID_PATTERN` validates format, not entropy. Randomizing IDs would break user-friendly naming.</details> |
 | AD25 | E2E service email hardcoded | <details><summary><code>e2e-service@codeflare.local</code> is a test identifier</summary><br>The `.local` TLD is RFC 6762 reserved and obviously non-production. The email is a test fixture seeded into KV for E2E authentication, not a secret. Extracting it to an environment variable adds configuration complexity for zero security benefit.</details> |
+| AD26 | Stress test rate-limit bypass | <details><summary>`STRESS_TEST_MODE=active` skips all rate limiting</summary><br>k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` — any other value (including `"true"`) keeps limits enforced. Only set on integration; production must never have this variable.</details> |
 
 ---
 

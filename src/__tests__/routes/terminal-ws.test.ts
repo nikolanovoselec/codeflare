@@ -202,4 +202,53 @@ describe('handleWebSocketUpgrade', () => {
     const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
     expect(response.status).toBe(403);
   });
+
+  describe('stress test mode bypass', () => {
+    it('WebSocket rate limit KV calls skipped when STRESS_TEST_MODE === "active"', async () => {
+      (mockEnv as any).STRESS_TEST_MODE = 'active';
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+      expect(response.status).toBe(200);
+
+      // KV.get IS called for session lookup, but should NOT be called with 'ws-connect:' prefix
+      const getCalls = mockKV.get.mock.calls;
+      const wsConnectGetCalls = getCalls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      expect(wsConnectGetCalls).toHaveLength(0);
+
+      const putCalls = mockKV.put.mock.calls;
+      const wsConnectPutCalls = putCalls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      expect(wsConnectPutCalls).toHaveLength(0);
+    });
+
+    it('WebSocket rate limit enforced when STRESS_TEST_MODE is unset', async () => {
+      // Do not set STRESS_TEST_MODE (it's not set by default in beforeEach)
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+      expect(response.status).toBe(200);
+
+      // KV.get should have been called with a key starting with 'ws-connect:'
+      const getCalls = mockKV.get.mock.calls;
+      const wsConnectGetCalls = getCalls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      expect(wsConnectGetCalls.length).toBeGreaterThan(0);
+
+      // KV.put should have been called with a key starting with 'ws-connect:'
+      const putCalls = mockKV.put.mock.calls;
+      const wsConnectPutCalls = putCalls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      expect(wsConnectPutCalls.length).toBeGreaterThan(0);
+    });
+  });
 });

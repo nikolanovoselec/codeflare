@@ -10,6 +10,14 @@ const userDuration = new Trend('user_duration', true);
 const preferencesGetDuration = new Trend('preferences_get_duration', true);
 const storageBrowseDuration = new Trend('storage_browse_duration', true);
 
+// Configurable concurrency via STRESS_TEST_CONCURRENCY env var
+// When set, scales VU targets proportionally and reduces think times (rate limits are off)
+const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
+const BASE_VUS = 10;
+const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
+function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
+const HIGH_CONCURRENCY = CONCURRENCY > 100;
+
 const BASE_URL = __ENV.E2E_BASE_URL;
 const AUTH_HEADERS = {
   'CF-Access-Client-Id': __ENV.CF_ACCESS_CLIENT_ID,
@@ -24,30 +32,29 @@ export const options = {
       executor: 'ramping-vus',
       startVUs: 1,
       stages: [
-        { duration: '30s', target: 5 },   // Ramp to 5 users
-        { duration: '1m', target: 10 },   // Ramp to 10 users
-        { duration: '2m', target: 10 },   // Hold at 10 users
-        { duration: '30s', target: 0 },   // Ramp down
+        { duration: '30s', target: scaled(5) },
+        { duration: '1m', target: scaled(10) },
+        { duration: '2m', target: scaled(10) },
+        { duration: '30s', target: 0 },
       ],
     },
-    // Spike test — sudden burst
     spike: {
       executor: 'ramping-vus',
       startVUs: 0,
-      startTime: '4m30s', // Start after sustained load finishes
+      startTime: '4m30s',
       stages: [
-        { duration: '10s', target: 20 },  // Spike to 20 users
-        { duration: '30s', target: 20 },  // Hold spike
-        { duration: '10s', target: 0 },   // Drop
+        { duration: '10s', target: scaled(20) },
+        { duration: '30s', target: scaled(20) },
+        { duration: '10s', target: 0 },
       ],
     },
   },
   thresholds: {
-    http_req_duration: ['p(95)<2000'],     // 95% of requests under 2s
-    http_req_failed: ['rate<0.05'],        // Less than 5% errors
-    errors: ['rate<0.1'],                  // Custom error rate under 10%
-    health_duration: ['p(95)<500'],        // Health check fast
-    session_list_duration: ['p(95)<3000'], // Session list under 3s
+    http_req_duration: [HIGH_CONCURRENCY ? 'p(95)<5000' : 'p(95)<2000'],
+    http_req_failed: ['rate<0.05'],
+    errors: ['rate<0.1'],
+    health_duration: [HIGH_CONCURRENCY ? 'p(95)<2000' : 'p(95)<500'],
+    session_list_duration: [HIGH_CONCURRENCY ? 'p(95)<8000' : 'p(95)<3000'],
   },
 };
 
@@ -85,5 +92,5 @@ export default function () {
   // Batch status (lightweight polling endpoint)
   authGet('/api/sessions/batch-status');
 
-  sleep(1); // 1s think time between iterations
+  sleep(CONCURRENCY > 0 ? 0.3 : 1);
 }
