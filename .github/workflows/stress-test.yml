@@ -1,0 +1,243 @@
+name: Stress Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Test suite to run'
+        type: choice
+        options:
+          - all
+          - api-throughput
+          - session-lifecycle
+          - storage-operations
+          - websocket-concurrency
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stress-test
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: Verify target
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: integration
+    timeout-minutes: 5
+    outputs:
+      base_url: ${{ steps.target.outputs.base_url }}
+    env:
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - name: Resolve target and smoke test
+        id: target
+        run: |
+          BASE="${{ vars.E2E_BASE_URL }}"
+          echo "base_url=$BASE" >> "$GITHUB_OUTPUT"
+          echo "Target: $BASE"
+
+          # Health check
+          HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/health" || true)
+          echo "Health: $HEALTH"
+          if [ "$HEALTH" != "200" ]; then
+            echo "::error::Health check failed ($HEALTH)"
+            exit 1
+          fi
+
+          # Auth check
+          SESSIONS=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/api/sessions" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET")
+          echo "Auth: $SESSIONS"
+          if [ "$SESSIONS" != "200" ]; then
+            echo "::error::Auth check failed ($SESSIONS)"
+            exit 1
+          fi
+
+          echo "Target is reachable and auth works"
+
+  api-throughput:
+    name: API throughput
+    needs: setup
+    if: inputs.suite == 'all' || inputs.suite == 'api-throughput'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: integration
+    timeout-minutes: 15
+    env:
+      E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+
+      - name: Run API throughput test
+        run: |
+          k6 run e2e/stress/api-throughput.js \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+            --summary-export=api-throughput-results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: stress-api-throughput
+          path: api-throughput-results.json
+          retention-days: 30
+
+  session-lifecycle:
+    name: Session lifecycle
+    needs: setup
+    if: inputs.suite == 'all' || inputs.suite == 'session-lifecycle'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: integration
+    timeout-minutes: 15
+    env:
+      E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+
+      - name: Run session lifecycle test
+        run: |
+          k6 run e2e/stress/session-lifecycle.js \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+            --summary-export=session-lifecycle-results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: stress-session-lifecycle
+          path: session-lifecycle-results.json
+          retention-days: 30
+
+  storage-operations:
+    name: Storage operations
+    needs: setup
+    if: inputs.suite == 'all' || inputs.suite == 'storage-operations'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: integration
+    timeout-minutes: 15
+    env:
+      E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+
+      - name: Run storage operations test
+        run: |
+          k6 run e2e/stress/storage-operations.js \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+            --summary-export=storage-results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: stress-storage-operations
+          path: storage-results.json
+          retention-days: 30
+
+  websocket-concurrency:
+    name: WebSocket concurrency
+    needs: setup
+    if: inputs.suite == 'all' || inputs.suite == 'websocket-concurrency'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: integration
+    timeout-minutes: 20
+    env:
+      E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+
+      - name: Run WebSocket concurrency test
+        run: |
+          k6 run e2e/stress/websocket-concurrency.js \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+            --summary-export=websocket-results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: stress-websocket-concurrency
+          path: websocket-results.json
+          retention-days: 30
+
+  summary:
+    name: Summary
+    needs: [api-throughput, session-lifecycle, storage-operations, websocket-concurrency]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download all results
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          pattern: stress-*
+          merge-multiple: true
+
+      - name: Print summary
+        run: |
+          echo "## Stress Test Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          for f in *-results.json; do
+            if [ -f "$f" ]; then
+              name=$(echo "$f" | sed 's/-results.json//' | tr '-' ' ')
+              echo "### ${name}" >> "$GITHUB_STEP_SUMMARY"
+              echo '```json' >> "$GITHUB_STEP_SUMMARY"
+              cat "$f" | head -100 >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          echo "Results exported as artifacts (retained 30 days)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check thresholds
+        run: |
+          failed=0
+          for f in *-results.json; do
+            if [ -f "$f" ]; then
+              # k6 summary export includes threshold pass/fail
+              if grep -q '"thresholds"' "$f" 2>/dev/null; then
+                if grep -q '"ok":false' "$f" 2>/dev/null; then
+                  echo "FAIL: Threshold breached in $f"
+                  failed=1
+                else
+                  echo "PASS: All thresholds met in $f"
+                fi
+              fi
+            fi
+          done
+          exit $failed
