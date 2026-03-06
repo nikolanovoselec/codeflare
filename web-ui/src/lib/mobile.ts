@@ -311,6 +311,11 @@ if (typeof window !== 'undefined' && isTouchDevice()) {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       resetKeyboardStateIfStale();
+      // Delayed second check: mobile browsers may not stabilize viewport state
+      // immediately on resume (e.g. Samsung Internet address bar animation,
+      // keyboard dismiss animation still in progress). The first check catches
+      // most cases; this delayed check catches the rest.
+      setTimeout(() => resetKeyboardStateIfStale(), 300);
     }
   });
 }

@@ -146,8 +146,13 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleOpenDashboard = () => {
-    // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
-    // becomes false (via onCleanup in the keyboard lifecycle effect).
+    // Force keyboard dismiss BEFORE starting transition. Without this, the
+    // keyboard may close asynchronously during the animation, and the cleanup
+    // effect (which runs when props.active becomes false after the delay) can
+    // race with browser keyboard dismissal, leaving stale keyboard signals.
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setViewState('collapsing');
     setTimeout(() => {
       sessionStore.setActiveSession(null);

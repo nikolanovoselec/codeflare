@@ -372,7 +372,18 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         if (fitAddon && term) fitAddon.fit();
       });
 
+      // Delayed recheck: enabling the VK overlay can trigger a stale
+      // geometrychange event (e.g. returning from dashboard or background
+      // with the keyboard previously open). The stale event sets vkOpen=true
+      // even though the keyboard is closed, leaving the terminal at half height.
+      // This delayed check reads the actual VK API state and corrects signals.
+      const recheckTimer = setTimeout(() => {
+        resetKeyboardStateIfStale();
+        if (fitAddon && term) fitPreservingScroll();
+      }, 300);
+
       onCleanup(() => {
+        clearTimeout(recheckTimer);
         const iframeInput = term ? getIframeInput(term) : undefined;
         if (iframeInput) iframeInput.blur();
         disableVirtualKeyboardOverlay();

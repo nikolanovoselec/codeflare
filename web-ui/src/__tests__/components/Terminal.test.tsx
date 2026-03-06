@@ -4,6 +4,7 @@ import { createSignal } from 'solid-js';
 import Terminal from '../../components/Terminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
+import type { TerminalConnectionState } from '../../types';
 import { isTouchDevice, enableVirtualKeyboardOverlay, isVirtualKeyboardOpen } from '../../lib/mobile';
 
 // Mock xterm.js and addons
@@ -230,7 +231,7 @@ describe('Terminal Component', () => {
       // Use a SolidJS signal to back the mock so useTerminal's createMemo
       // tracks it and re-evaluates when the signal changes. This lets us
       // simulate reactive state transitions within a single component lifecycle.
-      const [connState, setConnState] = createSignal<string>('connecting');
+      const [connState, setConnState] = createSignal<TerminalConnectionState>('connecting');
       vi.mocked(terminalStore.getConnectionState).mockImplementation(() => connState());
 
       render(() => <Terminal {...defaultProps} />);
