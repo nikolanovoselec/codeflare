@@ -4,9 +4,10 @@ k6-based load testing against the integration worker. Four test suites run in pa
 
 ## Prerequisites
 
-1. **Integration worker deployed** with `STRESS_TEST_MODE=active` (disables all rate limits)
-2. **GitHub `integration` environment** with secrets (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and variables (`E2E_BASE_URL`)
-3. **`STRESS_TEST_CONCURRENCY`** variable set in the `integration` environment (optional, defaults to `0` which uses baseline VU counts)
+1. **Integration worker deployed** with `STRESS_TEST_MODE=active` (disables all rate limits — required because all VUs share one service identity)
+2. **GitHub `integration` environment** with secrets (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and variables (`E2E_BASE_URL`, `CLOUDFLARE_WORKER_NAME`)
+3. **Repository-level secrets** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (used by setup job to push `SERVICE_AUTH_SECRET` and seed KV via wrangler)
+4. **`STRESS_TEST_CONCURRENCY`** variable set in the `integration` environment (optional, defaults to `0` which uses baseline VU counts)
 
 ## Running
 
@@ -145,13 +146,23 @@ Set via `wrangler secret put STRESS_TEST_MODE` or `--var STRESS_TEST_MODE=active
 |----------|---------|---------|
 | `STRESS_TEST_CONCURRENCY` | `0` | k6 virtual user scaling factor |
 | `E2E_BASE_URL` | - | Target worker URL |
+| `CLOUDFLARE_WORKER_NAME` | - | Worker name for wrangler secret/KV operations |
 
-### GitHub secrets (integration environment)
+### GitHub secrets
+
+**Integration environment secrets:**
 
 | Secret | Purpose |
 |--------|---------|
-| `CF_ACCESS_CLIENT_ID` | Service token ID for auth |
-| `CF_ACCESS_CLIENT_SECRET` | Service token secret (also used as `X-Service-Auth`) |
+| `CF_ACCESS_CLIENT_ID` | Service token ID for CF Access |
+| `CF_ACCESS_CLIENT_SECRET` | Service token secret (also pushed as `SERVICE_AUTH_SECRET` and used as `X-Service-Auth` header) |
+
+**Repository-level secrets** (used by setup job for wrangler):
+
+| Secret | Purpose |
+|--------|---------|
+| `CLOUDFLARE_API_TOKEN` | Wrangler API access for `secret put` and KV operations |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account for wrangler commands |
 
 ## Workflow Architecture
 
