@@ -384,7 +384,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (props.active && fitAddon && term) {
       requestAnimationFrame(() => {
         if (!fitAddon || !term) return;
-        fitAddon.fit();
+        // Skip fit() when a keyboard refit is pending — the debounced refit
+        // preserves scroll position, while this immediate fit() does not.
+        // Without this guard, this fit() races with the keyboard refit and
+        // wipes the scroll position (terminal jumps to top on keyboard open).
+        if (!kbDebouncePending) fitAddon.fit();
         if (!isTouchDevice() || !hasInitialScrolled) {
           term.scrollToBottom();
           hasInitialScrolled = true;

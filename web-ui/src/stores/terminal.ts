@@ -571,7 +571,12 @@ export function reconnectDisconnectedTerminals(activeSessionId?: string): void {
     const [sessionId, terminalId] = key.split(':');
     if (activeSessionId && sessionId !== activeSessionId) continue;
     const state = getConnectionState(sessionId, terminalId);
-    if (state === 'disconnected' || state === 'error') {
+    if (state === 'disconnected' || state === 'error' || state === 'connecting') {
+      // Also handle 'connecting' — when the browser is backgrounded and the WS
+      // drops, the retry loop enters 'connecting' with exponential backoff.
+      // Without this, visibilitychange returns find a pending retry timer (up to
+      // 30s away) and the user stares at "Reconnecting..." instead of getting
+      // an immediate fresh connection attempt.
       logger.info(`[Terminal ${key}] ${state}, triggering reconnect`);
       reconnect(sessionId, terminalId);
     }

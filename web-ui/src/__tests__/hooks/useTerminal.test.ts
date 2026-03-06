@@ -513,6 +513,48 @@ describe('useTerminal hook', () => {
       dispose();
       vi.useRealTimers();
     });
+
+    it('should skip fitAddon.fit() in active-state effect when kbDebouncePending is true', async () => {
+      vi.useFakeTimers();
+
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
+
+      // Mobile device
+      isTouchDeviceMock.mockReturnValue(true);
+
+      // Use a SolidJS signal to back the mock so createEffect re-tracks
+      const [kbHeight, setKbHeight] = createSignal(0);
+      getKeyboardHeightMock.mockImplementation(() => kbHeight());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Clear mount-time fit calls
+      mockFit.mockClear();
+
+      // Trigger keyboard height change — sets kbDebouncePending = true
+      setKbHeight(300);
+
+      // At this point kbDebouncePending is true (debounce timer hasn't fired).
+      // The active-state effect runs via requestAnimationFrame (mocked to be sync)
+      // but its fitAddon.fit() call should be skipped because kbDebouncePending is true.
+      // Count fits that happened BEFORE the debounce timer fires.
+      const fitsBeforeDebounce = mockFit.mock.calls.length;
+
+      // Now advance past debounce — kbDebouncePending becomes false, debounced fit runs
+      await vi.advanceTimersByTimeAsync(KEYBOARD_REFIT_DEBOUNCE_MS + 50);
+
+      // The debounce callback should have called fit() exactly once
+      const fitsAfterDebounce = mockFit.mock.calls.length;
+      expect(fitsAfterDebounce - fitsBeforeDebounce).toBe(1);
+
+      dispose();
+      vi.useRealTimers();
+    });
   });
 
   describe('mobile viewport touch handler disable', () => {

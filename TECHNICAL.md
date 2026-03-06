@@ -1500,3 +1500,33 @@ The mobile terminal input system uses several techniques to work around browser/
 4. **`isFocused` getter override** -- Live reference via `iframe.contentDocument?.hasFocus()` avoids stale state
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
 6. **Four-part scroll fix** -- Disables xterm's touch handlers, sets `touch-action: pan-y`, enables momentum scrolling, and manages pointer-events based on keyboard state
+
+### Samsung Internet Keyboard Quirks
+
+Samsung Internet on Android has three interrelated issues with the VirtualKeyboard API:
+
+#### `overlaysContent` Lifecycle
+
+The `overlaysContent` flag must be managed carefully:
+- **Enable** when the terminal textarea is focused (`enableVirtualKeyboardOverlay`)
+- **Disable** on terminal exit (`disableVirtualKeyboardOverlay`) so other inputs get normal browser resizing
+- **Re-enable on visibility return**: When the user backgrounds the browser and returns with the keyboard still open, `overlaysContent` was already set to `false` during cleanup. `resetKeyboardStateIfStale()` detects this case (keyboard `boundingRect.height > 0` but `overlaysContent === false`) and re-enables it so `geometrychange` events fire again.
+
+#### `baselineInnerHeight` / `viewportGrowth` Compensation
+
+Samsung's bottom navigation bar creates a "locked layout viewport" bug:
+- When the keyboard opens, the bottom bar hides, growing `window.innerHeight`
+- The CSS layout viewport does NOT update, creating a gap between terminal content and keyboard
+- `baselineInnerHeight` captures the pre-keyboard `innerHeight` for comparison
+- `viewportGrowth` = `innerHeight - baselineInnerHeight` represents the nav bar space
+- `getKeyboardHeight()` subtracts `viewportGrowth` from `boundingRect.height` (only with bottom address bar, narrow screens)
+- On visibility return with keyboard closed, `baselineInnerHeight` is re-synced to `window.innerHeight` to account for address bar position changes that occurred while backgrounded
+
+#### `kbDebouncePending` Guard Pattern
+
+Two effects can trigger `fitAddon.fit()` simultaneously:
+1. **Keyboard refit** (debounced 150ms, preserves scroll position)
+2. **Active-state effect** (immediate `requestAnimationFrame`, no scroll preservation)
+3. **ResizeObserver** (immediate `requestAnimationFrame`)
+
+The `kbDebouncePending` flag is set `true` when the keyboard refit starts its debounce timer and cleared when the debounced callback fires. Both the active-state effect and ResizeObserver check this flag and skip `fit()` when it's `true`, deferring to the scroll-preserving keyboard refit. This prevents the "terminal jumps to top" bug on keyboard open/close.

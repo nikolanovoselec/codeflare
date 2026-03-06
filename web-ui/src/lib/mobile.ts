@@ -220,8 +220,21 @@ export function resetKeyboardStateIfStale(): void {
     setVkOpen(false);
     setKeyboardHeight(0);
     setViewportGrowth(0);
-    // Re-sync baseline to current viewport state
+    // Re-sync baseline to current viewport state (covers address bar
+    // position changes that happened while backgrounded).
     baselineInnerHeight = window.innerHeight;
+  } else {
+    // Keyboard still open (e.g. user left browser and returned with keyboard up).
+    // Re-enable overlaysContent so geometrychange events fire again — it was
+    // set to false during terminal cleanup (disableVirtualKeyboardOverlay).
+    // Without this, the terminal doesn't know about the open keyboard on return.
+    nav.virtualKeyboard.overlaysContent = true;
+    setVkOpen(true);
+    setKeyboardHeight(actualHeight);
+    if (isSamsungBrowser) {
+      const growth = Math.max(0, window.innerHeight - baselineInnerHeight);
+      setViewportGrowth(growth);
+    }
   }
 }
 
