@@ -267,10 +267,11 @@ export function resetKeyboardStateIfStale(): void {
     setVkOpen(true);
     setKeyboardHeight(actualHeight);
     startKeyboardPolling();
-    if (isSamsungBrowser) {
-      const growth = Math.max(0, window.innerHeight - baselineInnerHeight);
-      setViewportGrowth(growth);
-    }
+    // Do NOT recalculate viewportGrowth here. Samsung Internet's innerHeight is
+    // unreliable during resume (address bar animation in flux), causing wrong
+    // growth values and a gap between terminal and keyboard. The previous
+    // viewportGrowth from the geometrychange handler is still correct — the
+    // keyboard stayed open, so the growth hasn't changed.
   }
 }
 

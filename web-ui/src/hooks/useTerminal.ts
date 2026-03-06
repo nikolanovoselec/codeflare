@@ -369,7 +369,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       resetKeyboardStateIfStale();
       enableVirtualKeyboardOverlay();
       requestAnimationFrame(() => {
-        if (fitAddon && term) fitAddon.fit();
+        if (fitAddon && term) fitPreservingScroll();
       });
 
       // Delayed recheck: enabling the VK overlay can trigger a stale
@@ -421,10 +421,15 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       requestAnimationFrame(() => {
         if (!fitAddon || !term) return;
         // Skip fit() when a keyboard refit is pending — the debounced refit
-        // preserves scroll position, while this immediate fit() does not.
-        // Without this guard, this fit() races with the keyboard refit and
-        // wipes the scroll position (terminal jumps to top on keyboard open).
-        if (!kbDebouncePending) fitAddon.fit();
+        // will handle it. Without this guard, this fit() races with the
+        // keyboard refit and wipes the scroll position.
+        if (!kbDebouncePending) {
+          if (isTouchDevice()) {
+            fitPreservingScroll();
+          } else {
+            fitAddon.fit();
+          }
+        }
         if (!isTouchDevice() || !hasInitialScrolled) {
           term.scrollToBottom();
           hasInitialScrolled = true;
