@@ -137,13 +137,34 @@ describe('mobile.ts', () => {
 
   describe('visibilitychange handler', () => {
     // The visibilitychange listener calls resetKeyboardStateIfStale() when
-    // the page becomes visible again. This verifies the integration.
+    // the page becomes visible again. We test the EFFECT (signal state changes)
+    // rather than spying on the function, because the listener captures the
+    // original function reference at registration time — vi.spyOn on the export
+    // doesn't intercept calls from the closed-over reference.
 
-    it('should call resetKeyboardStateIfStale on visibility return', async () => {
-      // We need a touch device for the handler to be registered
+    let mockVirtualKeyboard: {
+      overlaysContent: boolean;
+      boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => any };
+      addEventListener: ReturnType<typeof vi.fn>;
+      removeEventListener: ReturnType<typeof vi.fn>;
+    };
+
+    it('should reset keyboard signals on visibility return when keyboard is closed', async () => {
+      mockVirtualKeyboard = {
+        overlaysContent: false,
+        boundingRect: { height: 0, width: 0, x: 0, y: 0, top: 0, right: 0, bottom: 0, left: 0, toJSON: () => ({}) },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 2, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
 
-      // Ensure matchMedia returns coarse pointer
       const originalMatchMedia = window.matchMedia;
       window.matchMedia = vi.fn((query: string) => ({
         matches: query === '(pointer: coarse)' ? true : query === '(max-width: 640px)',
@@ -159,18 +180,16 @@ describe('mobile.ts', () => {
       vi.resetModules();
       const mobile = await import('../../lib/mobile');
 
-      // Spy on resetKeyboardStateIfStale after import
-      const resetSpy = vi.spyOn(mobile, 'resetKeyboardStateIfStale');
-
-      // Simulate visibility change to visible
+      // Keyboard closed (boundingRect.height = 0) — signals should be reset
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
 
-      expect(resetSpy).toHaveBeenCalled();
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+      expect(mobile.getKeyboardHeight()).toBe(0);
 
       // Cleanup
       window.matchMedia = originalMatchMedia;
-      resetSpy.mockRestore();
+      delete (navigator as any).virtualKeyboard;
     });
   });
 

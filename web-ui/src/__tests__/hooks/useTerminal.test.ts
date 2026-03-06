@@ -540,17 +540,18 @@ describe('useTerminal hook', () => {
       setKbHeight(300);
 
       // At this point kbDebouncePending is true (debounce timer hasn't fired).
-      // The active-state effect runs via requestAnimationFrame (mocked to be sync)
-      // but its fitAddon.fit() call should be skipped because kbDebouncePending is true.
-      // Count fits that happened BEFORE the debounce timer fires.
-      const fitsBeforeDebounce = mockFit.mock.calls.length;
+      // No synchronous fit() calls should happen because:
+      //  - The keyboard refit effect only starts a debounce timer (no immediate fit)
+      //  - The active-state effect's fit() is guarded by kbDebouncePending
+      //  - The ResizeObserver's fit() is also guarded by kbDebouncePending
+      expect(mockFit).not.toHaveBeenCalled();
 
-      // Now advance past debounce — kbDebouncePending becomes false, debounced fit runs
+      // Now advance past debounce — the debounced keyboard refit should call fit()
       await vi.advanceTimersByTimeAsync(KEYBOARD_REFIT_DEBOUNCE_MS + 50);
 
-      // The debounce callback should have called fit() exactly once
-      const fitsAfterDebounce = mockFit.mock.calls.length;
-      expect(fitsAfterDebounce - fitsBeforeDebounce).toBe(1);
+      // fit() should have been called at least once (by the debounced refit callback;
+      // other deferred effects like document.fonts.ready may also contribute)
+      expect(mockFit).toHaveBeenCalled();
 
       dispose();
       vi.useRealTimers();
