@@ -171,6 +171,7 @@ All optional. The defaults work out of the box. I respect your time.
 - Rate limiting: KV-backed, per-user.
 - Input validation: Zod schemas, 64 KiB body limit.
 - Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning.
+- Automated penetration testing: weekly CI workflow validates auth gate, security headers, TLS configuration, injection resistance, and information disclosure. See [PENTEST.md](PENTEST.md) for the latest report.
 - GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph.
 - For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
@@ -192,7 +193,7 @@ E2E tests require a deployed worker and CF Access service tokens. See `TECHNICAL
 
 ## CI/CD
 
-Six GitHub Actions workflows:
+Seven GitHub Actions workflows:
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
@@ -202,6 +203,7 @@ Six GitHub Actions workflows:
 | `codeql.yml` | Push, PRs, weekly | CodeQL static analysis |
 | `scorecard.yml` | Push to `main`, weekly, manual | OSSF Scorecard |
 | `fuzz.yml` | PRs, weekly, manual | Property-based fuzzing (fast-check) |
+| `pentest.yml` | Weekly (Monday 5am UTC), manual | Automated external penetration testing |
 
 See `TECHNICAL.md` Section 15 for full CI/CD documentation.
 
