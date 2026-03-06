@@ -7,7 +7,7 @@ import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore } from '../stores/session';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
-import { forceResetKeyboardState } from '../lib/mobile';
+import { forceResetKeyboardState, enableVirtualKeyboardOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
@@ -79,6 +79,13 @@ const Layout: Component<LayoutProps> = (props) => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && viewState() !== 'dashboard') {
         forceResetKeyboardState();
+        // Re-enable overlaysContent after Samsung's stale geometrychange events
+        // settle (~200ms). Without this, the user's tap triggers a false→true
+        // toggle which makes Samsung fire a stale cached geometrychange, and
+        // Fix 2's 50ms ignore window eats the real event — leaving a gap.
+        setTimeout(() => {
+          if (viewState() !== 'dashboard') enableVirtualKeyboardOverlay();
+        }, 300);
         reconnectOnVisibilityReturn(untrack(() => sessionStore.activeSessionId) ?? undefined);
       }
     };

@@ -159,14 +159,22 @@ if (typeof window !== 'undefined') {
 // are focused (so the browser handles viewport resizing normally for forms).
 export function enableVirtualKeyboardOverlay(): void {
   if (nav.virtualKeyboard) {
-    overlaysContentChangedAt = Date.now();
+    // Only stamp the stale-event ignore window when actually toggling.
+    // Re-stamping when already true would restart the 50ms window needlessly,
+    // causing Fix 2 to eat the REAL geometrychange from a keyboard open.
+    if (!nav.virtualKeyboard.overlaysContent) {
+      overlaysContentChangedAt = Date.now();
+    }
     nav.virtualKeyboard.overlaysContent = true;
   }
 }
 
 export function disableVirtualKeyboardOverlay(): void {
   if (nav.virtualKeyboard) {
-    overlaysContentChangedAt = Date.now();
+    // Only stamp the stale-event ignore window when actually toggling.
+    if (nav.virtualKeyboard.overlaysContent) {
+      overlaysContentChangedAt = Date.now();
+    }
     nav.virtualKeyboard.overlaysContent = false;
     // Don't manually reset signals — let the geometrychange handler do it.
     // Resetting immediately would cause a layout jump while the keyboard

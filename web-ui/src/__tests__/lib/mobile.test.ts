@@ -147,6 +147,9 @@ describe('mobile.ts', () => {
     });
 
     it('should ignore geometrychange events within 50ms of enableVirtualKeyboardOverlay', async () => {
+      // Start with overlaysContent false to simulate the actual toggle scenario
+      // (Samsung fires stale geometrychange when overlaysContent goes false→true)
+      mockVirtualKeyboard.overlaysContent = false;
       Object.defineProperty(navigator, 'virtualKeyboard', {
         value: mockVirtualKeyboard,
         configurable: true,
@@ -157,7 +160,7 @@ describe('mobile.ts', () => {
       vi.resetModules();
       const mobile = await import('../../lib/mobile');
 
-      // Enable overlay — sets overlaysContentChangedAt = Date.now()
+      // Enable overlay (false→true toggle) — sets overlaysContentChangedAt = Date.now()
       mobile.enableVirtualKeyboardOverlay();
 
       // Simulate stale geometrychange with keyboard height (within 50ms)
@@ -169,6 +172,8 @@ describe('mobile.ts', () => {
     });
 
     it('should accept geometrychange events after 50ms grace period', async () => {
+      // Start with overlaysContent false to simulate the actual toggle scenario
+      mockVirtualKeyboard.overlaysContent = false;
       Object.defineProperty(navigator, 'virtualKeyboard', {
         value: mockVirtualKeyboard,
         configurable: true,
@@ -179,7 +184,7 @@ describe('mobile.ts', () => {
       vi.resetModules();
       const mobile = await import('../../lib/mobile');
 
-      // Enable overlay
+      // Enable overlay (false→true toggle)
       mobile.enableVirtualKeyboardOverlay();
 
       // Advance past 50ms grace period

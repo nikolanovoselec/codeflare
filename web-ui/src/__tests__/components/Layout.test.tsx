@@ -90,6 +90,7 @@ vi.mock('../../stores/terminal', () => ({
 
 vi.mock('../../lib/mobile', () => ({
   forceResetKeyboardState: vi.fn(),
+  enableVirtualKeyboardOverlay: vi.fn(),
 }));
 
 import { forceResetKeyboardState } from '../../lib/mobile';
