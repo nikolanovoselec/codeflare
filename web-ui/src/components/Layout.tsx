@@ -6,7 +6,7 @@ import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore } from '../stores/session';
-import { terminalStore, reconnectDisconnectedTerminals, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
+import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
@@ -77,7 +77,7 @@ const Layout: Component<LayoutProps> = (props) => {
   {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && viewState() !== 'dashboard') {
-        reconnectDisconnectedTerminals(untrack(() => sessionStore.activeSessionId) ?? undefined);
+        reconnectOnVisibilityReturn(untrack(() => sessionStore.activeSessionId) ?? undefined);
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
