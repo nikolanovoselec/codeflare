@@ -14,12 +14,12 @@ Go to **Actions > Stress Test > Run workflow**. Select a suite or leave as `all`
 
 To scale concurrency, set `STRESS_TEST_CONCURRENCY` in **Settings > Environments > integration > Environment variables**:
 
-| Value | Effect |
-|-------|--------|
-| `0` or unset | Baseline VU counts, normal think times, standard thresholds |
-| `100` | 10x baseline VUs, reduced think times, standard thresholds |
-| `200` | 20x baseline VUs, reduced think times, loosened thresholds (>100 triggers HIGH_CONCURRENCY) |
-| `1000` | 100x baseline VUs, minimal think times, loosened thresholds |
+| Value | Effect | Real-user equivalent |
+|-------|--------|---------------------|
+| `0` or unset | Baseline VU counts, normal think times, standard thresholds | ~30-50 users |
+| `50` | 5-17x baseline VUs, reduced think times, loosened thresholds | ~500-1000 users |
+| `200` | 20-67x baseline VUs, minimal think times, loosened thresholds | ~2000-4000 users |
+| `1000` | 100-333x baseline VUs, minimal think times, loosened thresholds | ~10 000+ users |
 
 ## Test Suites
 
@@ -34,7 +34,7 @@ Sustained load + spike test across read-only API endpoints.
 
 **Thresholds:**
 
-| Metric | Standard | High Concurrency (>100 VUs) |
+| Metric | Standard | High Concurrency (>20 VUs) |
 |--------|----------|-----------------------------|
 | `http_req_duration` p95 | <2s | <5s |
 | `http_req_failed` | <5% | <5% |
@@ -95,6 +95,21 @@ Concurrent WebSocket connections to a shared container. Creates a session and st
 
 **Think time:** 2s between iterations. Reduced to 0.5s when concurrency is set.
 
+## VU-to-Real-User Mapping
+
+Each k6 virtual user generates far more traffic than a real Codeflare user. A real user typically loads the dashboard (a few API calls), then works in a terminal (one WebSocket held for minutes), with occasional storage operations — roughly 1 request every 5-10 seconds during active use.
+
+k6 VUs differ because they have near-zero think time (0.3-1s vs 5-30s for real users), hit all endpoints on every iteration, and never idle.
+
+| Suite | Requests per VU per second | Multiplier vs real user |
+|-------|---------------------------|------------------------|
+| API throughput | ~20 (6 endpoints, 0.3s sleep) | ~100-200x |
+| Session lifecycle | ~1 (4 ops + 4s sleeps) | ~5-10x |
+| Storage operations | ~2 (4 ops + 2s sleeps) | ~10-20x |
+| WebSocket concurrency | 1 connection held 10-30s | ~1x (connection count is realistic) |
+
+**Rule of thumb: 50 VUs ≈ 500-1000 concurrent real users** when considering aggregate request volume across all suites running in parallel.
+
 ## Concurrency Scaling
 
 All scripts use the same scaling pattern:
@@ -104,14 +119,14 @@ const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
 const BASE_VUS = <N>;
 const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
 function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
-const HIGH_CONCURRENCY = CONCURRENCY > 100;
+const HIGH_CONCURRENCY = CONCURRENCY > 20;
 ```
 
 When `STRESS_TEST_CONCURRENCY=0` (default), `SCALE=1` and all VU targets remain at baseline. When set to a positive number, VU targets scale proportionally. Example: `STRESS_TEST_CONCURRENCY=500` with `BASE_VUS=10` gives `SCALE=50`, so `scaled(10)=500` VUs.
 
 Think times are reduced when concurrency is set because rate limits are off (`STRESS_TEST_MODE=active` on the worker).
 
-Thresholds loosen automatically when `CONCURRENCY > 100` to account for higher backend load.
+Thresholds loosen automatically when `CONCURRENCY > 20` to account for higher backend load.
 
 ## Rate Limit Bypass
 
