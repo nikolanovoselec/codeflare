@@ -7,8 +7,6 @@ vi.mock('../../lib/constants', async (importOriginal) => {
   return {
     ...actual,
     WS_RETRY_DELAY_MS: 100,
-    WS_RETRY_MAX_DELAY_MS: 500,
-    WS_RECONNECT_WINDOW_MS: 5000, // 5s for tests (not 30 min)
     CSS_TRANSITION_DELAY_MS: 10,
   };
 });
@@ -71,13 +69,6 @@ describe('Terminal Store', () => {
     });
   });
 
-  describe('getRetryMessage', () => {
-    it('should return null for unknown session/terminal', () => {
-      const message = terminalStore.getRetryMessage('unknown', '1');
-      expect(message).toBeNull();
-    });
-  });
-
   describe('setTerminal', () => {
     it('should store terminal instance', () => {
       const terminal = createMockTerminal();
@@ -102,14 +93,6 @@ describe('Terminal Store', () => {
       expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connecting');
     });
 
-    it('should set retry message when connecting', () => {
-      const terminal = createMockTerminal();
-
-      terminalStore.connect(sessionId, terminalId, terminal);
-
-      expect(terminalStore.getRetryMessage(sessionId, terminalId)).toBe('Connecting...');
-    });
-
     it('should return a cleanup function', () => {
       const terminal = createMockTerminal();
 
@@ -127,17 +110,6 @@ describe('Terminal Store', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connected');
-    });
-
-    it('should clear retry message on successful connection', async () => {
-      const terminal = createMockTerminal();
-
-      terminalStore.connect(sessionId, terminalId, terminal);
-
-      // Allow WebSocket to simulate opening
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(terminalStore.getRetryMessage(sessionId, terminalId)).toBeNull();
     });
 
     it('should send initial resize on connection', async () => {
@@ -663,12 +635,11 @@ describe('Terminal Store', () => {
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('should show reconnecting message on retry', async () => {
+    it('retries with flat 1-second delay on abnormal close', async () => {
       const terminal = createMockTerminal();
 
-      // Create WebSocket that immediately closes with abnormal code
       const OriginalWebSocket = globalThis.WebSocket;
-      let _wsInstance: WebSocket & { onclose?: ((event: CloseEvent) => void) | null };
+      const connectTimestamps: number[] = [];
 
       vi.stubGlobal('WebSocket', class {
         static CONNECTING = 0;
@@ -686,7 +657,7 @@ describe('Terminal Store', () => {
 
         constructor(url: string) {
           this.url = url;
-          _wsInstance = this as unknown as WebSocket & { onclose?: ((event: CloseEvent) => void) | null };
+          connectTimestamps.push(Date.now());
           // Simulate immediate failure
           setTimeout(() => {
             this.readyState = 3; // CLOSED
@@ -704,20 +675,96 @@ describe('Terminal Store', () => {
 
       terminalStore.connect(sessionId, terminalId, terminal);
 
-      // First attempt
-      expect(terminalStore.getRetryMessage(sessionId, terminalId)).toBe('Connecting...');
+      // Initial connect attempt
+      expect(connectTimestamps.length).toBe(1);
 
       // Let first attempt fail
       await vi.advanceTimersByTimeAsync(0);
 
-      // Wait for retry delay (exponential backoff: first retry = 100ms base * 2^0 = 100ms)
-      await vi.advanceTimersByTimeAsync(100);
+      // Each retry cycle consists of:
+      //   1. WS_RETRY_DELAY_MS (100ms) until attemptConnection fires
+      //   2. setTimeout(close, 0) inside the WS constructor resolves at +1ms
+      //      in @sinonjs/fake-timers (nested setTimeout(fn, 0) during timer
+      //      processing schedules at currentTime + 1)
+      //   3. The close handler schedules the next retry at +100ms
+      //
+      // So each full cycle is 101ms (100ms retry delay + 1ms close).
+      // To capture exactly 3 retries we advance 3 * 101 = 303ms.
+      await vi.advanceTimersByTimeAsync(303);
 
-      // Should show reconnecting message (no attempt counter)
-      const retryMessage = terminalStore.getRetryMessage(sessionId, terminalId);
-      expect(retryMessage).toBe('Reconnecting...');
+      // Should have 4 total attempts (1 initial + 3 retries)
+      expect(connectTimestamps.length).toBe(4);
+
+      // Verify intervals are constant (flat, not exponentially growing)
+      for (let i = 2; i < connectTimestamps.length; i++) {
+        const interval = connectTimestamps[i] - connectTimestamps[i - 1];
+        // Each interval should be ~101ms (100ms retry delay + 1ms close timer),
+        // never growing (no backoff)
+        expect(interval).toBeLessThanOrEqual(150);
+      }
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('never gives up retrying', async () => {
+      const terminal = createMockTerminal();
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let connectCount = 0;
+
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
+        readyState = 0;
+        url: string;
+        binaryType: BinaryType = 'blob';
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          connectCount++;
+          setTimeout(() => {
+            this.readyState = 3;
+            if (this.onclose) {
+              this.onclose(new CloseEvent('close', { code: 1006 }));
+            }
+          }, 0);
+        }
+
+        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+        close(_code?: number, _reason?: string): void {
+          this.readyState = 3;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+
+      // Simulate many retry cycles well past the old 30-minute window
+      // Old window was 5000ms in test mock. We go 10x past that.
+      for (let i = 0; i < 500; i++) {
+        await vi.advanceTimersByTimeAsync(0);   // WS closes
+        await vi.advanceTimersByTimeAsync(100);  // WS_RETRY_DELAY_MS
+      }
+
+      // Should still be retrying (connecting), never 'error'
+      const state = terminalStore.getConnectionState(sessionId, terminalId);
+      expect(state).toBe('connecting');
+
+      // Should have made many connection attempts (not stopped)
+      expect(connectCount).toBeGreaterThan(100);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('does not export retryMessage', () => {
+      // retryMessage/getRetryMessage should not be part of the public API
+      expect('getRetryMessage' in terminalStore).toBe(false);
     });
   });
 
@@ -769,15 +816,18 @@ describe('Terminal Store', () => {
       terminalStore.connect(sessionId, terminalId, terminal);
       await vi.advanceTimersByTimeAsync(0); // Second WS fails
 
-      // Advance through what would be multiple retry cycles
-      // With MAX_WS_RETRIES=3 and delay=100ms, 3 retries = 300ms
-      // If the bug existed, both loops would retry independently = 6+ connections
+      // Advance through multiple retry cycles.
+      // Retries are unlimited with flat delay. Each cycle is ~101ms
+      // (100ms WS_RETRY_DELAY_MS + 1ms for setTimeout(close, 0) resolution
+      // in @sinonjs/fake-timers). 500ms / 101ms ≈ 5 closes from a single loop.
+      // If the bug existed (both loops running in parallel), we'd see ~10 closes.
       wsCloseCount = 0;
       await vi.advanceTimersByTimeAsync(500);
 
-      // Should have at most MAX_WS_RETRIES (3) retries from the second connect,
-      // NOT double from both loops running in parallel
-      expect(wsCloseCount).toBeLessThanOrEqual(3);
+      // Only ONE retry loop should be active (the second connect's loop).
+      // A single loop produces at most floor(500/101)+1 ≈ 5-6 closes.
+      // Two parallel loops would produce ~10+. Assert single-loop bound.
+      expect(wsCloseCount).toBeLessThanOrEqual(6);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
@@ -892,59 +942,6 @@ describe('Terminal Store', () => {
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('should give up after WS_RECONNECT_WINDOW_MS expires', async () => {
-      const terminal = createMockTerminal();
-      const onError = vi.fn();
-
-      const OriginalWebSocket = globalThis.WebSocket;
-
-      vi.stubGlobal('WebSocket', class {
-        static CONNECTING = 0;
-        static OPEN = 1;
-        static CLOSING = 2;
-        static CLOSED = 3;
-
-        readyState = 0;
-        url: string;
-        binaryType: BinaryType = 'blob';
-        onopen: ((event: Event) => void) | null = null;
-        onclose: ((event: CloseEvent) => void) | null = null;
-        onmessage: ((event: MessageEvent) => void) | null = null;
-        onerror: ((event: Event) => void) | null = null;
-
-        constructor(url: string) {
-          this.url = url;
-          setTimeout(() => {
-            this.readyState = 3;
-            if (this.onclose) {
-              this.onclose(new CloseEvent('close', { code: 1006 }));
-            }
-          }, 0);
-        }
-
-        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
-        close(_code?: number, _reason?: string): void {
-          this.readyState = 3;
-        }
-      } as unknown as typeof WebSocket);
-
-      terminalStore.connect(sessionId, terminalId, terminal, onError);
-
-      // Advance past the reconnect window (5000ms in test mock)
-      // Each cycle: 0ms for WS close + exponential backoff delay
-      for (let i = 0; i < 20; i++) {
-        await vi.advanceTimersByTimeAsync(0);   // WS closes
-        await vi.advanceTimersByTimeAsync(500);  // max backoff delay
-      }
-
-      // Should have called onError after window expired
-      expect(onError).toHaveBeenCalledWith(expect.stringContaining('Connection lost'));
-
-      // State should be 'error'
-      expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('error');
-
-      vi.stubGlobal('WebSocket', OriginalWebSocket);
-    });
   });
 
   describe('cleanupMapByPrefix', () => {

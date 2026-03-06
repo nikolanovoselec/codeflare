@@ -78,7 +78,6 @@ vi.mock('../../stores/terminal', () => ({
     unregisterFitAddon: vi.fn(),
     connect: vi.fn(() => vi.fn()),
     resize: vi.fn(),
-    getRetryMessage: vi.fn(() => null),
     getConnectionState: vi.fn(() => 'disconnected'),
     triggerLayoutResize: vi.fn(),
     startUrlDetection: vi.fn(),
@@ -186,7 +185,6 @@ describe('useTerminal hook', () => {
       expect(result.containerRef).toBeTypeOf('function');
       expect(result.terminal).toBeTypeOf('function');
       expect(result.dimensions).toBeTypeOf('function');
-      expect(result.retryMessage).toBeTypeOf('function');
       expect(result.connectionState).toBeTypeOf('function');
       expect(result.isInitializing).toBeTypeOf('function');
       expect(result.initProgress).toBeTypeOf('function');
@@ -203,21 +201,6 @@ describe('useTerminal hook', () => {
       });
 
       expect(result.dimensions()).toEqual({ cols: 80, rows: 24 });
-
-      dispose();
-    });
-
-    it('should expose retryMessage from terminalStore', () => {
-      vi.mocked(terminalStore.getRetryMessage).mockReturnValue('Retrying...');
-
-      let result!: ReturnType<typeof useTerminal>;
-
-      const dispose = createRoot((dispose) => {
-        result = useTerminal(defaultProps);
-        return dispose;
-      });
-
-      expect(result.retryMessage()).toBe('Retrying...');
 
       dispose();
     });

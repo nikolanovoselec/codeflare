@@ -25,7 +25,6 @@ export interface UseTerminalOptions {
   active: boolean;
   alwaysObserveResize?: boolean;
   hideInitProgress?: boolean;
-  onError?: (error: string) => void;
   onInitComplete?: () => void;
 }
 
@@ -33,7 +32,6 @@ interface UseTerminalResult {
   containerRef: (el: HTMLDivElement) => void;
   terminal: () => Terminal | undefined;
   dimensions: () => { cols: number; rows: number };
-  retryMessage: () => string | null;
   connectionState: () => string;
   isInitializing: () => boolean;
   initProgress: () => ReturnType<typeof sessionStore.getInitProgressForSession>;
@@ -70,7 +68,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
 
-  const retryMessage = createMemo(() => terminalStore.getRetryMessage(props.sessionId, props.terminalId));
   const connectionState = createMemo(() => terminalStore.getConnectionState(props.sessionId, props.terminalId));
   const isInitializing = createMemo(() => sessionStore.isSessionInitializing(props.sessionId));
   const initProgress = createMemo(() => sessionStore.getInitProgressForSession(props.sessionId));
@@ -361,7 +358,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find(t => t.id === props.terminalId);
-      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError, tab?.manual);
+      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, tab?.manual);
       terminalStore.startUrlDetection(props.sessionId, props.terminalId);
     }
   });
@@ -460,7 +457,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     containerRef: setContainerRef,
     terminal: terminalInstance,
     dimensions,
-    retryMessage,
     connectionState,
     isInitializing,
     initProgress,

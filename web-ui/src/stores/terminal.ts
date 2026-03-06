@@ -6,8 +6,6 @@ import type { Terminal } from '@xterm/xterm';
 import { logger } from '../lib/logger';
 import {
   WS_RETRY_DELAY_MS,
-  WS_RETRY_MAX_DELAY_MS,
-  WS_RECONNECT_WINDOW_MS,
 } from '../lib/constants';
 import {
   registerUrlDetectionDeps,
@@ -60,10 +58,8 @@ export function cleanupMapByPrefix<T>(map: Map<string, T>, prefix: string, teard
 // Use plain objects to store references (Solid.js stores don't track Map mutations well)
 const [state, setState] = createStore<{
   connectionStates: Record<string, TerminalConnectionState>;
-  retryMessages: Record<string, string>;
 }>({
   connectionStates: {},
-  retryMessages: {},
 });
 
 // External storage for WebSocket and Terminal instances (keyed by sessionId:terminalId)
@@ -88,12 +84,6 @@ function getConnectionState(sessionId: string, terminalId: string): TerminalConn
   return state.connectionStates[key] || 'disconnected';
 }
 
-// Get retry message (for UI display)
-function getRetryMessage(sessionId: string, terminalId: string): string | null {
-  const key = makeKey(sessionId, terminalId);
-  return state.retryMessages[key] || null;
-}
-
 // Set connection state
 function setConnectionState(
   sessionId: string,
@@ -104,20 +94,6 @@ function setConnectionState(
   setState(
     produce((s) => {
       s.connectionStates[key] = connectionState;
-    })
-  );
-}
-
-// Set retry message
-function setRetryMessage(sessionId: string, terminalId: string, message: string | null): void {
-  const key = makeKey(sessionId, terminalId);
-  setState(
-    produce((s) => {
-      if (message === null) {
-        delete s.retryMessages[key];
-      } else {
-        s.retryMessages[key] = message;
-      }
     })
   );
 }
@@ -144,7 +120,6 @@ function getTerminal(sessionId: string, terminalId: string): Terminal | undefine
  * @param sessionId - The session ID to connect to
  * @param terminalId - The terminal tab ID within the session
  * @param terminal - The xterm.js Terminal instance
- * @param onError - Optional callback for error reporting
  * @param manual - Optional flag indicating user-created terminal tab (appends ?manual=1 to WS URL)
  * @returns Cleanup function to cancel connection and dispose resources
  */
@@ -152,7 +127,6 @@ function connect(
   sessionId: string,
   terminalId: string,
   terminal: Terminal,
-  onError?: (error: string) => void,
   manual?: boolean
 ): () => void {
   const key = makeKey(sessionId, terminalId);
@@ -179,19 +153,9 @@ function connect(
   const signal = controller.signal;
   abortControllers.set(key, controller);
 
-  // Attempt connection with retries (time-based window + exponential backoff)
-  function attemptConnection(startedAt: number, attemptNumber: number): void {
+  // Attempt connection with retries (flat delay, no backoff)
+  function attemptConnection(): void {
     if (signal.aborted) return;
-
-    // Check if we've exceeded the reconnection time window
-    const elapsed = Date.now() - startedAt;
-    if (elapsed > WS_RECONNECT_WINDOW_MS) {
-      logger.warn(`[Terminal ${key}] Reconnection window expired (${Math.round(elapsed / 1000)}s), giving up`);
-      setConnectionState(sessionId, terminalId, 'error');
-      setRetryMessage(sessionId, terminalId, null);
-      onError?.('Connection lost. Click reconnect to try again.');
-      return;
-    }
 
     // Clear any existing retry timeout
     const existingTimeout = retryTimeouts.get(key);
@@ -201,12 +165,6 @@ function connect(
     }
 
     setConnectionState(sessionId, terminalId, 'connecting');
-
-    if (attemptNumber > 1) {
-      setRetryMessage(sessionId, terminalId, 'Reconnecting...');
-    } else {
-      setRetryMessage(sessionId, terminalId, 'Connecting...');
-    }
 
     const url = getTerminalWebSocketUrl(sessionId, terminalId, manual);
     const ws = new WebSocket(url);
@@ -220,7 +178,6 @@ function connect(
       }
       logger.debug(`[Terminal ${key}] WebSocket opened`);
       setConnectionState(sessionId, terminalId, 'connected');
-      setRetryMessage(sessionId, terminalId, null);
 
       // Bug 1 fix: Dispose any existing input handler before creating a new one
       const existingDisposable = inputDisposables.get(key);
@@ -310,30 +267,17 @@ function connect(
       // Normal close (code 1000) without dashboard reason — don't retry
       if (event.code === 1000) {
         setConnectionState(sessionId, terminalId, 'disconnected');
-        setRetryMessage(sessionId, terminalId, null);
         return;
       }
 
-      // Any abnormal close — retry with exponential backoff within the time window
-      const elapsed = Date.now() - startedAt;
-      if (elapsed < WS_RECONNECT_WINDOW_MS && !signal.aborted) {
-        // Exponential backoff: 2s, 4s, 8s, 16s, 30s, 30s, 30s...
-        const delay = Math.min(WS_RETRY_DELAY_MS * Math.pow(2, attemptNumber - 1), WS_RETRY_MAX_DELAY_MS);
-        logger.warn(`[Terminal ${key}] Retrying in ${delay}ms (attempt ${attemptNumber + 1}, elapsed ${Math.round(elapsed / 1000)}s)`);
-        setRetryMessage(sessionId, terminalId, 'Reconnecting...');
+      // Abnormal close — retry with flat delay
+      if (!signal.aborted) {
+        const delay = WS_RETRY_DELAY_MS;
+        logger.warn(`[Terminal ${key}] Retrying in ${delay}ms`);
         setConnectionState(sessionId, terminalId, 'connecting');
-        const timeout = setTimeout(() => {
-          attemptConnection(startedAt, attemptNumber + 1);
-        }, delay);
+        const timeout = setTimeout(() => attemptConnection(), delay);
         retryTimeouts.set(key, timeout);
-        return;
       }
-
-      // Reconnection window expired
-      logger.warn(`[Terminal ${key}] Reconnection window expired, giving up`);
-      setConnectionState(sessionId, terminalId, 'error');
-      setRetryMessage(sessionId, terminalId, null);
-      onError?.('Connection lost. Click reconnect to try again.');
     }
 
     ws.onmessage = handleWebSocketMessage;
@@ -348,7 +292,7 @@ function connect(
   }
 
   // Start first connection attempt
-  attemptConnection(Date.now(), 1);
+  attemptConnection();
 
   // Return cleanup function
   return () => {
@@ -457,11 +401,6 @@ function disposeSession(sessionId: string): void {
         delete s.connectionStates[key];
       }
     }
-    for (const key of Object.keys(s.retryMessages)) {
-      if (key.startsWith(prefix)) {
-        delete s.retryMessages[key];
-      }
-    }
   }));
 }
 
@@ -497,7 +436,7 @@ function disposeAll(): void {
 }
 
 // Reconnect to terminal WebSocket
-function reconnect(sessionId: string, terminalId: string, onError?: (error: string) => void): (() => void) | null {
+function reconnect(sessionId: string, terminalId: string): (() => void) | null {
   const key = makeKey(sessionId, terminalId);
   const terminal = terminals.get(key);
   if (!terminal) {
@@ -514,7 +453,7 @@ function reconnect(sessionId: string, terminalId: string, onError?: (error: stri
 
   // Close existing connection and reconnect
   disconnect(sessionId, terminalId);
-  return connect(sessionId, terminalId, terminal, onError);
+  return connect(sessionId, terminalId, terminal);
 }
 
 // Send input text to a terminal's WebSocket connection
@@ -571,7 +510,7 @@ export function reconnectDisconnectedTerminals(activeSessionId?: string): void {
     const [sessionId, terminalId] = key.split(':');
     if (activeSessionId && sessionId !== activeSessionId) continue;
     const state = getConnectionState(sessionId, terminalId);
-    if (state === 'disconnected' || state === 'error') {
+    if (state === 'disconnected') {
       logger.info(`[Terminal ${key}] ${state}, triggering reconnect`);
       reconnect(sessionId, terminalId);
     }
@@ -589,7 +528,7 @@ export function reconnectOnVisibilityReturn(activeSessionId?: string): void {
     const [sessionId, terminalId] = key.split(':');
     if (activeSessionId && sessionId !== activeSessionId) continue;
     const state = getConnectionState(sessionId, terminalId);
-    if (state === 'disconnected' || state === 'error' || state === 'connecting') {
+    if (state === 'disconnected' || state === 'connecting') {
       logger.info(`[Terminal ${key}] ${state}, triggering reconnect (visibility return)`);
       reconnect(sessionId, terminalId);
     }
@@ -633,10 +572,6 @@ function disconnectAll(): void {
     for (const key of Object.keys(s.connectionStates)) {
       s.connectionStates[key] = 'disconnected';
     }
-    // Clear retry messages
-    for (const key of Object.keys(s.retryMessages)) {
-      delete s.retryMessages[key];
-    }
   }));
 }
 
@@ -669,7 +604,6 @@ export function cancelScheduledDisconnect(): void {
 export const terminalStore = {
   // State accessors
   getConnectionState,
-  getRetryMessage,
   getTerminal,
   isConnected,
 

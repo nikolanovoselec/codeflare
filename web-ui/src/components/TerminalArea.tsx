@@ -1,4 +1,4 @@
-import { Component, Show, For, createMemo, Setter } from 'solid-js';
+import { Component, Show, For, createMemo } from 'solid-js';
 import Terminal from './Terminal';
 import TerminalTabs from './TerminalTabs';
 import TilingButton from './TilingButton';
@@ -24,7 +24,6 @@ interface TerminalAreaProps {
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
-  onTerminalError: Setter<string | null>;
   error: string | null;
   onDismissError: () => void;
   viewState: 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
@@ -147,7 +146,6 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
                   active={true}
                   alwaysObserveResize={true}
                   hideInitProgress={true}
-                  onError={props.onTerminalError}
                   onInitComplete={() => props.onOpenSessionById(session.id)}
                 />
               );
@@ -183,7 +181,6 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
                         terminalId={tab.id}
                         sessionName={session.name}
                         active={isActive()}
-                        onError={props.onTerminalError}
                         onInitComplete={() => props.onOpenSessionById(session.id)}
                       />
                     );

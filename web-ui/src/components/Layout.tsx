@@ -32,7 +32,6 @@ interface LayoutProps {
  * +------------------------------------------------------------------+
  */
 const Layout: Component<LayoutProps> = (props) => {
-  const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
@@ -146,10 +145,6 @@ const Layout: Component<LayoutProps> = (props) => {
     sessionStore.dismissInitProgressForSession(sessionId);
   };
 
-  const _handleReconnect = (sessionId: string, terminalId: string = '1') => {
-    terminalStore.reconnect(sessionId, terminalId, setTerminalError);
-  };
-
   const handleOpenDashboard = () => {
     // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
     // becomes false (via onCleanup in the keyboard lifecycle effect).
@@ -224,7 +219,6 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleDismissError = () => {
     sessionStore.clearError();
-    setTerminalError(null);
   };
 
   return (
@@ -264,8 +258,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onStartSession={handleStartSession}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
-          onTerminalError={setTerminalError}
-          error={sessionStore.error || terminalError()}
+          error={sessionStore.error}
           onDismissError={handleDismissError}
           viewState={viewState()}
           userName={props.userName}

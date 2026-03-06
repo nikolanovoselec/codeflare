@@ -1,4 +1,4 @@
-import { Component, Show } from 'solid-js';
+import { Component, Show, createSignal, createEffect } from 'solid-js';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '../hooks/useTerminal';
 import InitProgress from './InitProgress';
@@ -15,7 +15,6 @@ interface TerminalProps {
   alwaysObserveResize?: boolean;
   /** When true, skip rendering the per-terminal InitProgress overlay (used in tiled mode) */
   hideInitProgress?: boolean;
-  onError?: (error: string) => void;
   onInitComplete?: () => void;
 }
 
@@ -23,11 +22,15 @@ const Terminal: Component<TerminalProps> = (props) => {
   const {
     containerRef,
     terminal,
-    retryMessage,
     connectionState,
     isInitializing,
     initProgress,
   } = useTerminal(props);
+
+  const [hasConnected, setHasConnected] = createSignal(false);
+  createEffect(() => {
+    if (connectionState() === 'connected') setHasConnected(true);
+  });
 
   let _containerEl: HTMLDivElement | undefined;
 
@@ -57,12 +60,12 @@ const Terminal: Component<TerminalProps> = (props) => {
         </div>
       </Show>
 
-      {/* Connection status overlay - show until actually connected (not just during retries) */}
+      {/* Connection status overlay - show until first successful connection */}
       {/* This fixes ghost cursor bug on page reload: covers terminal before WebSocket connects */}
-      <Show when={!isInitializing() && connectionState() !== 'connected'}>
+      <Show when={!isInitializing() && !hasConnected()}>
         <div class="terminal-connection-status">
           <div class="terminal-connection-spinner" />
-          <span>{retryMessage() || 'Connecting...'}</span>
+          <span>Connecting...</span>
         </div>
       </Show>
 

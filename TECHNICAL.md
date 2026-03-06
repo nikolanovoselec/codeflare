@@ -230,7 +230,7 @@ function connect() {
 
 #### Frontend Constants
 
-**File:** `web-ui/src/lib/constants.ts` -- 20 constants for polling intervals, timeouts, retry limits, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
+**File:** `web-ui/src/lib/constants.ts` -- 18 constants for polling intervals, timeouts, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ---
 
