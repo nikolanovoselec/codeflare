@@ -756,6 +756,190 @@ describe('Terminal Store', () => {
     });
   });
 
+  describe('WS retryable close codes (Fix 5)', () => {
+    it('should retry on close code 1001 (Going Away)', async () => {
+      const terminal = createMockTerminal();
+      const OriginalWebSocket = globalThis.WebSocket;
+      let connectCount = 0;
+
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
+        readyState = 0;
+        url: string;
+        binaryType: BinaryType = 'blob';
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          connectCount++;
+          setTimeout(() => {
+            this.readyState = 3;
+            if (this.onclose) {
+              this.onclose(new CloseEvent('close', { code: 1001 }));
+            }
+          }, 0);
+        }
+
+        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+        close(_code?: number, _reason?: string): void { this.readyState = 3; }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);   // First WS closes with 1001
+      await vi.advanceTimersByTimeAsync(100);  // WS_RETRY_DELAY_MS (mocked to 100)
+      await vi.advanceTimersByTimeAsync(0);    // Second WS created
+
+      expect(connectCount).toBeGreaterThanOrEqual(2);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('should retry on close code 1011 (Unexpected Condition)', async () => {
+      const terminal = createMockTerminal();
+      const OriginalWebSocket = globalThis.WebSocket;
+      let connectCount = 0;
+
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
+        readyState = 0;
+        url: string;
+        binaryType: BinaryType = 'blob';
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          connectCount++;
+          setTimeout(() => {
+            this.readyState = 3;
+            if (this.onclose) {
+              this.onclose(new CloseEvent('close', { code: 1011 }));
+            }
+          }, 0);
+        }
+
+        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+        close(_code?: number, _reason?: string): void { this.readyState = 3; }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(connectCount).toBeGreaterThanOrEqual(2);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('should retry on close codes 1012 (Service Restart) and 1013 (Try Again Later)', async () => {
+      const terminal = createMockTerminal();
+      const OriginalWebSocket = globalThis.WebSocket;
+
+      for (const code of [1012, 1013]) {
+        let connectCount = 0;
+
+        vi.stubGlobal('WebSocket', class {
+          static CONNECTING = 0;
+          static OPEN = 1;
+          static CLOSING = 2;
+          static CLOSED = 3;
+
+          readyState = 0;
+          url: string;
+          binaryType: BinaryType = 'blob';
+          onopen: ((event: Event) => void) | null = null;
+          onclose: ((event: CloseEvent) => void) | null = null;
+          onmessage: ((event: MessageEvent) => void) | null = null;
+          onerror: ((event: Event) => void) | null = null;
+
+          constructor(url: string) {
+            this.url = url;
+            connectCount++;
+            setTimeout(() => {
+              this.readyState = 3;
+              if (this.onclose) {
+                this.onclose(new CloseEvent('close', { code }));
+              }
+            }, 0);
+          }
+
+          send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+          close(_code?: number, _reason?: string): void { this.readyState = 3; }
+        } as unknown as typeof WebSocket);
+
+        terminalStore.connect(sessionId, terminalId, terminal);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(100);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(connectCount).toBeGreaterThanOrEqual(2);
+
+        terminalStore.disconnect(sessionId, terminalId);
+        await vi.advanceTimersByTimeAsync(0);
+      }
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('should NOT retry on close code 1000 (Normal Closure)', async () => {
+      const terminal = createMockTerminal();
+      const OriginalWebSocket = globalThis.WebSocket;
+      let connectCount = 0;
+
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+
+        readyState = 0;
+        url: string;
+        binaryType: BinaryType = 'blob';
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          connectCount++;
+          setTimeout(() => {
+            this.readyState = 3;
+            if (this.onclose) {
+              this.onclose(new CloseEvent('close', { code: 1000 }));
+            }
+          }, 0);
+        }
+
+        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
+        close(_code?: number, _reason?: string): void { this.readyState = 3; }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(200);
+
+      // Should NOT have retried — only 1 connection attempt
+      expect(connectCount).toBe(1);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+  });
+
   describe('AbortController-based cancellation', () => {
     it('should cancel previous retry loops when connect() is called again for same key', async () => {
       const terminal = createMockTerminal();

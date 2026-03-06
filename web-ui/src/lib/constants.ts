@@ -37,6 +37,15 @@ export const CSS_TRANSITION_DELAY_MS = 100;
 /** WebSocket close code for abnormal closure (connection failed) */
 export const WS_CLOSE_ABNORMAL = 1006;
 
+/** WebSocket close codes that should trigger automatic reconnection */
+export const WS_RETRYABLE_CLOSE_CODES = new Set([
+  1001,  // Going Away (server shutdown)
+  1006,  // Abnormal Closure (network drop)
+  1011,  // Unexpected Condition (internal error)
+  1012,  // Service Restart
+  1013,  // Try Again Later
+]);
+
 
 // =============================================================================
 // Session

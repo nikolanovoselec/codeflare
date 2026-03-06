@@ -7,7 +7,7 @@ import { logger } from '../lib/logger';
 import {
   MAX_WS_RETRIES,
   WS_RETRY_DELAY_MS,
-  WS_CLOSE_ABNORMAL,
+  WS_RETRYABLE_CLOSE_CODES,
 } from '../lib/constants';
 import {
   registerUrlDetectionDeps,
@@ -298,7 +298,7 @@ function connect(
       }
 
       // Retry on abnormal closure if we haven't exhausted attempts
-      if (event.code === WS_CLOSE_ABNORMAL && attemptNumber < MAX_WS_RETRIES && !signal.aborted) {
+      if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && attemptNumber < MAX_WS_RETRIES && !signal.aborted) {
         logger.warn(`[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}/${MAX_WS_RETRIES}, code=${event.code}`);
         const timeout = setTimeout(() => {
           attemptConnection(attemptNumber + 1);

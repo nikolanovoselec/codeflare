@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { logger } from '../lib/logger';
-import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState } from '../lib/mobile';
+import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState, isSamsungBrowser } from '../lib/mobile';
 import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
@@ -50,7 +50,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorHideDisposable: { dispose: () => void } | undefined;
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let hasInitialScrolled = false;
-  let kbDebouncePending = false;
+  let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
@@ -232,9 +232,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     resizeObserver = new ResizeObserver(() => {
       const shouldResize = props.active || props.alwaysObserveResize;
       if (fitAddon && shouldResize) {
-        if (kbDebouncePending) return;
+        if (kbDebounceTimer !== null) return;
         requestAnimationFrame(() => {
-          if (!fitAddon || !term || kbDebouncePending) return;
+          if (!fitAddon || !term || kbDebounceTimer !== null) return;
           fitAddon.fit();
           const cols = term.cols;
           const rows = term.rows;
@@ -321,9 +321,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (!term || !fitAddon) return;
     if (!(props.active || props.alwaysObserveResize)) return;
 
-    kbDebouncePending = true;
-    const timer = setTimeout(() => {
-      kbDebouncePending = false;
+    if (kbDebounceTimer !== null) clearTimeout(kbDebounceTimer);
+    kbDebounceTimer = setTimeout(() => {
+      kbDebounceTimer = null;
       if (!fitAddon || !term) return;
       fitAddon.fit();
       term.scrollToBottom();
@@ -331,7 +331,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
       window.scrollTo(0, 0);
     }, KEYBOARD_REFIT_DEBOUNCE_MS);
-    onCleanup(() => clearTimeout(timer));
+    onCleanup(() => {
+      if (kbDebounceTimer !== null) {
+        clearTimeout(kbDebounceTimer);
+        kbDebounceTimer = null;
+      }
+    });
   });
 
   // Connect WebSocket: at mounting stage during init (agent loads in background),
@@ -360,7 +365,24 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         if (fitAddon && term) fitAddon.fit();
       });
 
+      // Fix 1: Samsung back-button keyboard dismiss detection via focusout.
+      // Samsung doesn't fire geometrychange when back button dismisses keyboard.
+      let focusoutHandler: (() => void) | undefined;
+      if (isSamsungBrowser) {
+        const inputEl = term ? getIframeInput(term) || term.textarea : undefined;
+        if (inputEl) {
+          focusoutHandler = () => {
+            if (isVirtualKeyboardOpen()) forceResetKeyboardState();
+          };
+          inputEl.addEventListener('focusout', focusoutHandler);
+        }
+      }
+
       onCleanup(() => {
+        if (focusoutHandler) {
+          const inputEl = term ? getIframeInput(term) || term.textarea : undefined;
+          inputEl?.removeEventListener('focusout', focusoutHandler);
+        }
         const iframeInput = term ? getIframeInput(term) : undefined;
         if (iframeInput) iframeInput.blur();
         disableVirtualKeyboardOverlay();

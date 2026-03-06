@@ -122,6 +122,157 @@ describe('mobile.ts', () => {
     });
   });
 
+  describe('stale geometrychange ignore window (Fix 2)', () => {
+    let mockVirtualKeyboard: {
+      overlaysContent: boolean;
+      boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => any };
+      addEventListener: ReturnType<typeof vi.fn>;
+      removeEventListener: ReturnType<typeof vi.fn>;
+    };
+    let geometryHandler: () => void;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      mockVirtualKeyboard = {
+        overlaysContent: true,
+        boundingRect: { height: 0, width: 0, x: 0, y: 0, top: 0, right: 0, bottom: 0, left: 0, toJSON: () => ({}) },
+        addEventListener: vi.fn((_type: string, handler: () => void) => { geometryHandler = handler; }),
+        removeEventListener: vi.fn(),
+      };
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      delete (navigator as any).virtualKeyboard;
+    });
+
+    it('should ignore geometrychange events within 50ms of enableVirtualKeyboardOverlay', async () => {
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Enable overlay — sets overlaysContentChangedAt = Date.now()
+      mobile.enableVirtualKeyboardOverlay();
+
+      // Simulate stale geometrychange with keyboard height (within 50ms)
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler();
+
+      // Should have been ignored — keyboard should NOT be reported as open
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+    });
+
+    it('should accept geometrychange events after 50ms grace period', async () => {
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Enable overlay
+      mobile.enableVirtualKeyboardOverlay();
+
+      // Advance past 50ms grace period
+      vi.advanceTimersByTime(60);
+
+      // Now simulate geometrychange — should be accepted
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler();
+
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+      expect(mobile.getKeyboardHeight()).toBe(300);
+    });
+  });
+
+  describe('baselineInnerHeight bidirectional protection (Fix 4)', () => {
+    let mockVirtualKeyboard: {
+      overlaysContent: boolean;
+      boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => any };
+      addEventListener: ReturnType<typeof vi.fn>;
+      removeEventListener: ReturnType<typeof vi.fn>;
+    };
+    let geometryHandler: () => void;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      mockVirtualKeyboard = {
+        overlaysContent: true,
+        boundingRect: { height: 0, width: 0, x: 0, y: 0, top: 0, right: 0, bottom: 0, left: 0, toJSON: () => ({}) },
+        addEventListener: vi.fn((_type: string, handler: () => void) => { geometryHandler = handler; }),
+        removeEventListener: vi.fn(),
+      };
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      delete (navigator as any).virtualKeyboard;
+    });
+
+    it('should update baseline when innerHeight change is < 100px (address bar toggle)', async () => {
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
+      // Baseline starts at 800
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Open keyboard first to exercise the code path
+      vi.advanceTimersByTime(100);
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler();
+
+      // Now close keyboard, with innerHeight slightly changed (address bar toggled ~48px)
+      (window as any).innerHeight = 848;
+      mockVirtualKeyboard.boundingRect.height = 0;
+      geometryHandler();
+
+      // Baseline should update because |848 - 800| = 48 < 100
+      // Verify by checking getKeyboardHeight returns 0 (not a negative/stale value)
+      expect(mobile.getKeyboardHeight()).toBe(0);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+    });
+
+    it('should NOT update baseline when innerHeight change is >= 100px (transient garbage)', async () => {
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Open keyboard
+      vi.advanceTimersByTime(100);
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler();
+
+      // Close keyboard but with a large transient innerHeight change (keyboard animation artifact)
+      (window as any).innerHeight = 1200;
+      mockVirtualKeyboard.boundingRect.height = 0;
+      geometryHandler();
+
+      // Baseline should NOT update because |1200 - 800| = 400 >= 100
+      // The keyboard should still report closed
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+    });
+  });
+
   describe('enableVirtualKeyboardOverlay / disableVirtualKeyboardOverlay', () => {
     let mockVirtualKeyboard: {
       overlaysContent: boolean;

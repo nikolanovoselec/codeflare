@@ -1503,14 +1503,25 @@ The mobile terminal input system uses several techniques to work around browser/
 
 ### Samsung Internet Keyboard Quirks
 
-Samsung Internet on Android has three interrelated issues with the VirtualKeyboard API:
+Samsung Internet on Android has several quirks with the VirtualKeyboard API. The fixes below are minimal, event-driven patches applied on top of the stable `df1dcfc` baseline (no polling, no timers for state verification, no delayed rechecks).
 
 #### `overlaysContent` Lifecycle
 
 The `overlaysContent` flag must be managed carefully:
 - **Enable** when the terminal textarea is focused (`enableVirtualKeyboardOverlay`)
 - **Disable** on terminal exit (`disableVirtualKeyboardOverlay`) so other inputs get normal browser resizing
-- **Re-enable on visibility return**: When the user backgrounds the browser and returns with the keyboard still open, `overlaysContent` was already set to `false` during cleanup. `resetKeyboardStateIfStale()` detects this case (keyboard `boundingRect.height > 0` but `overlaysContent === false`) and re-enables it so `geometrychange` events fire again.
+
+#### Stale `geometrychange` Ignore Window (Fix 2)
+
+Samsung fires a cached stale `geometrychange` event immediately when `overlaysContent` is toggled. The stale event carries whatever `boundingRect` was last cached, which can leave the terminal at half height on re-entry.
+
+**Solution:** `mobile.ts` tracks `overlaysContentChangedAt = Date.now()` in both `enableVirtualKeyboardOverlay()` and `disableVirtualKeyboardOverlay()`. The `handleGeometryChange` handler ignores events within 50ms of the toggle. Real user-initiated keyboard events arrive well after this window.
+
+#### Samsung Focusout Handler (Fix 1)
+
+Samsung doesn't fire `geometrychange` when the back button dismisses the keyboard. Without detection, keyboard state signals stay stale.
+
+**Solution:** `useTerminal.ts` registers a `focusout` listener on the terminal input element (only on Samsung). When `focusout` fires while `isVirtualKeyboardOpen()` is true, it calls `forceResetKeyboardState()` to zero all signals. The listener is cleaned up on terminal deactivation.
 
 #### `baselineInnerHeight` / `viewportGrowth` Compensation
 
@@ -1520,37 +1531,22 @@ Samsung's bottom navigation bar creates a "locked layout viewport" bug:
 - `baselineInnerHeight` captures the pre-keyboard `innerHeight` for comparison
 - `viewportGrowth` = `innerHeight - baselineInnerHeight` represents the nav bar space
 - `getKeyboardHeight()` subtracts `viewportGrowth` from `boundingRect.height` (only with bottom address bar, narrow screens)
-- On visibility return with keyboard closed, `baselineInnerHeight` is re-synced to `window.innerHeight` — but **only when `vkOpen()` is false**
 
-**Critical invariant:** `baselineInnerHeight` must never be updated while the keyboard is open. When the keyboard is open, `innerHeight` is inflated by the hidden nav bar (~47px). Re-syncing the baseline to this inflated value permanently zeroes `viewportGrowth`, causing `getKeyboardHeight()` to return the full raw `boundingRect` instead of the compensated value — a ~47px gap between terminal and keyboard.
+#### `baselineInnerHeight` Bidirectional Protection (Fix 4)
 
-**Resume transient zero bug:** Samsung's `boundingRect` can transiently report `height=0` during the resume animation even while the keyboard is still visible. Without the `!vkOpen()` guard, the delayed `resetKeyboardStateIfStale()` call (300ms after visibility return) could hit the `height<=0` branch during this transient and poison `baselineInnerHeight`. The guard ensures that a single zero reading is ignored when the keyboard was previously known to be open.
+When the keyboard closes, `baselineInnerHeight` should resync to `window.innerHeight` — but only if the change is small (address bar toggle, ~48px). Large changes (>100px) indicate transient garbage from keyboard animation or resume and must be rejected.
 
-**`viewportGrowth` closed→open gate:** The `geometrychange` handler only recalculates `viewportGrowth` on the closed→open transition (`!vkOpen()` at the time the event fires). While the keyboard stays open, the hidden nav bar space doesn't change, so recalculating on every `geometrychange` is unnecessary and dangerous — Samsung may fire `geometrychange` during resume with transient `innerHeight` values that corrupt the growth calculation.
+**Solution:** `handleGeometryChange` in `mobile.ts` uses `Math.abs(window.innerHeight - baselineInnerHeight) < 100` instead of unconditional or `Math.min`-only updates. This protects against both upward and downward poisoning.
 
-#### `kbDebouncePending` Guard Pattern
+#### `kbDebounceTimer` Guard Pattern (Fix 3)
 
 Two effects can trigger `fitAddon.fit()` simultaneously:
-1. **Keyboard refit** (debounced 150ms, preserves scroll position)
-2. **Active-state effect** (immediate `requestAnimationFrame`, no scroll preservation)
+1. **Keyboard refit** (debounced 150ms)
+2. **Active-state effect** (immediate `requestAnimationFrame`)
 3. **ResizeObserver** (immediate `requestAnimationFrame`)
 
-The `kbDebouncePending` flag is set `true` when the keyboard refit starts its debounce timer and cleared when the debounced callback fires. Both the active-state effect and ResizeObserver check this flag and skip `fit()` when it's `true`, deferring to the scroll-preserving keyboard refit. This prevents the "terminal jumps to top" bug on keyboard open/close.
+A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver and active-state effects. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. Both other effects check `kbDebounceTimer !== null` and skip `fit()` when active. The timer callback sets it back to `null`. Using the timer ID (vs. a boolean flag) prevents a race condition where cleanup of the debounce timer doesn't properly clear the gate.
 
-#### Keyboard Close Polling
+#### WS Retryable Close Codes (Fix 5)
 
-Samsung may dismiss keyboard without `geometrychange` (e.g., back button). A polling mechanism in `mobile.ts` checks `virtualKeyboard.boundingRect.height` every 500ms while `vkOpen()` is true. Two consecutive zero-height readings trigger `forceResetKeyboardState()` + `disableVirtualKeyboardOverlay()`. Polling self-stops when keyboard closes normally (via `geometrychange`) or when it detects close via polling.
-
-#### ResizeObserver Scroll Preservation
-
-Samsung's address bar animation triggers ResizeObserver before `geometrychange` fires. On desktop, ResizeObserver calls `fitAddon.fit()` directly. On mobile (`isTouchDevice()`), ResizeObserver uses `fitPreservingScroll()` — a helper that saves viewport position before fitting and restores it after, preventing the terminal from jumping to scroll position 0.
-
-#### Visibility Return Refit
-
-When the user leaves Samsung Internet and returns, the terminal may show dead space below content because no `fitAddon.fit()` is triggered. A `createEffect` in `useTerminal.ts` listens for `visibilitychange` events on mobile. When the document becomes visible again (and the terminal is active), it triggers a scroll-preserving refit after a 100ms delay to allow Samsung's viewport to stabilize.
-
-#### Dashboard Transition Keyboard Dismiss
-
-Samsung Internet caches the VK `boundingRect` when `overlaysContent` changes. If the keyboard is mid-dismiss animation when terminal cleanup sets `overlaysContent=false`, Samsung caches a stale non-zero height. On return, enabling `overlaysContent` triggers a stale `geometrychange` that leaves the terminal at half height.
-
-Fix in `Layout.tsx`: `handleOpenDashboard()` blurs the active element to dismiss the keyboard, then waits 1000ms before starting the dashboard transition — but only when the keyboard is open (`isVirtualKeyboardOpen()`). This lets the keyboard fully close while `overlaysContent` is still `true`, so Samsung caches `height=0`. No keyboard open = no delay.
+The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.

@@ -72,6 +72,7 @@ describe('TerminalArea', () => {
     onStopSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onCreateSession: vi.fn(),
+    onTerminalError: vi.fn(),
     error: null,
     onDismissError: vi.fn(),
     viewState: 'dashboard' as const,

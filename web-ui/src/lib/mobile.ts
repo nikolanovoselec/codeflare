@@ -85,6 +85,10 @@ export const isSamsungBrowser = typeof navigator !== 'undefined'
 let baselineInnerHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
 const [viewportGrowth, setViewportGrowth] = createSignal(0);
 
+// Stale geometrychange ignore window: Samsung fires a cached stale geometrychange
+// when overlaysContent is toggled. We ignore events within 50ms of the toggle.
+let overlaysContentChangedAt = 0;
+
 
 if (typeof window !== 'undefined') {
   if (nav.virtualKeyboard) {
@@ -93,6 +97,10 @@ if (typeof window !== 'undefined') {
     const vk = nav.virtualKeyboard;
 
     const handleGeometryChange = () => {
+      // Fix 2: Ignore stale events that fire immediately after overlaysContent toggle.
+      // Samsung fires geometrychange with cached stale boundingRect on toggle.
+      if (Date.now() - overlaysContentChangedAt < 50) return;
+
       // Only update signals when overlaysContent is true (we control layout).
       // When false, the browser handles viewport resizing and boundingRect is 0.
       if (vk.overlaysContent) {
@@ -105,9 +113,11 @@ if (typeof window !== 'undefined') {
         } else if (height <= 0) {
           // Keyboard closed — reset growth and update baseline.
           if (isSamsungBrowser) {
-            // Use Math.min to avoid poisoning from transient inflation
-            // (Samsung briefly inflates innerHeight during dismiss animation).
-            baselineInnerHeight = Math.min(baselineInnerHeight, window.innerHeight);
+            // Fix 4: Only update baseline if change is < 100px (covers address bar
+            // ~48px, rejects transient garbage from keyboard animation or resume).
+            if (Math.abs(window.innerHeight - baselineInnerHeight) < 100) {
+              baselineInnerHeight = window.innerHeight;
+            }
           }
           setViewportGrowth(0);
         }
@@ -149,12 +159,14 @@ if (typeof window !== 'undefined') {
 // are focused (so the browser handles viewport resizing normally for forms).
 export function enableVirtualKeyboardOverlay(): void {
   if (nav.virtualKeyboard) {
+    overlaysContentChangedAt = Date.now();
     nav.virtualKeyboard.overlaysContent = true;
   }
 }
 
 export function disableVirtualKeyboardOverlay(): void {
   if (nav.virtualKeyboard) {
+    overlaysContentChangedAt = Date.now();
     nav.virtualKeyboard.overlaysContent = false;
     // Don't manually reset signals — let the geometrychange handler do it.
     // Resetting immediately would cause a layout jump while the keyboard
