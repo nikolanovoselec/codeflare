@@ -373,6 +373,14 @@ wss.on('connection', (ws, req) => {
           return;
         }
 
+        if (msg.type === 'kill') {
+          log('info', 'Kill requested by client', { session: shortId });
+          session.kill();
+          sessionManager.sessions.delete(sessionId);
+          ws.close(1000, 'Session killed');
+          return;
+        }
+
         // Unknown type or wrong field types — fall through to raw input
       } catch {
         // Not valid JSON — treat as raw terminal input

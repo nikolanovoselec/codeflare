@@ -413,9 +413,17 @@ function isConnected(sessionId: string, terminalId: string): boolean {
   return getConnectionState(sessionId, terminalId) === 'connected';
 }
 
-// Dispose terminal and connection
+// Dispose terminal and connection — sends kill to server so PTY is cleaned up immediately
 function dispose(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
+
+  // Send kill message before disconnecting so the server kills the PTY
+  // instead of keeping it alive on the keepalive timer
+  const ws = connections.get(key);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'kill' }));
+  }
+
   disconnect(sessionId, terminalId);
   const terminal = terminals.get(key);
   if (terminal) {
