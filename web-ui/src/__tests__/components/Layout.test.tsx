@@ -88,9 +88,11 @@ vi.mock('../../stores/terminal', () => ({
   cancelScheduledDisconnect: vi.fn(),
 }));
 
+let mockIsSamsungBrowser = false;
 vi.mock('../../lib/mobile', () => ({
   forceResetKeyboardState: vi.fn(),
   enableVirtualKeyboardOverlay: vi.fn(),
+  get isSamsungBrowser() { return mockIsSamsungBrowser; },
 }));
 
 import { forceResetKeyboardState } from '../../lib/mobile';
@@ -114,6 +116,7 @@ describe('Layout Component', () => {
     vi.clearAllMocks();
     mockSessions = [];
     mockActiveSessionId = null;
+    mockIsSamsungBrowser = false;
     delete (window as any).__terminalAreaProps;
   });
 
@@ -469,6 +472,23 @@ describe('Layout Component', () => {
       document.dispatchEvent(new Event('visibilitychange'));
 
       expect(forceResetKeyboardState).not.toHaveBeenCalled();
+    });
+
+    it('Samsung: bounces through dashboard on visibility return to reset keyboard state', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockIsSamsungBrowser = true;
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+
+      render(() => <Layout />);
+
+      vi.mocked(sessionStore.setActiveSession).mockClear();
+
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      // Should deactivate session immediately (dashboard bounce)
+      expect(sessionStore.setActiveSession).toHaveBeenCalledWith(null);
     });
   });
 
