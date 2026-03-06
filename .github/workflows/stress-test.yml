@@ -36,7 +36,8 @@ jobs:
       - name: Resolve target and smoke test
         id: target
         run: |
-          BASE="${{ vars.E2E_BASE_URL }}"
+          RAW="${{ vars.E2E_BASE_URL }}"
+          RAW="${RAW#http://}" && BASE="https://${RAW#https://}"
           echo "base_url=$BASE" >> "$GITHUB_OUTPUT"
           echo "Target: $BASE"
 
