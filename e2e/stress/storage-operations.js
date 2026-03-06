@@ -17,7 +17,7 @@ const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
 const BASE_VUS = 5;
 const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
 function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
-const HIGH_CONCURRENCY = CONCURRENCY > 100;
+const HIGH_CONCURRENCY = CONCURRENCY > 20;
 
 const BASE_URL = __ENV.E2E_BASE_URL;
 const HEADERS = {
