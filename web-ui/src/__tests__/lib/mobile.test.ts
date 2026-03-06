@@ -223,35 +223,35 @@ describe('mobile.ts', () => {
       delete (navigator as any).virtualKeyboard;
     });
 
-    it('should NOT update baseline on keyboard close (innerHeight is still inflated)', async () => {
+    it('should report consistent keyboard height across close/reopen cycles', async () => {
       Object.defineProperty(navigator, 'virtualKeyboard', {
         value: mockVirtualKeyboard,
         configurable: true,
         writable: true,
       });
-      // Baseline starts at 800
       Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
 
       vi.resetModules();
       const mobile = await import('../../lib/mobile');
 
-      // Open keyboard — Samsung hides bottom bar, innerHeight inflates
+      // First open
       vi.advanceTimersByTime(100);
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler();
+      const firstOpenHeight = mobile.getKeyboardHeight();
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+
+      // Close keyboard — innerHeight may be inflated (Samsung bottom bar)
+      (window as any).innerHeight = 847;
+      mockVirtualKeyboard.boundingRect.height = 0;
+      geometryHandler();
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+
+      // Re-open — height must match first open (baseline not corrupted)
       (window as any).innerHeight = 847;
       mockVirtualKeyboard.boundingRect.height = 300;
       geometryHandler();
-
-      // Close keyboard — geometrychange fires before bottom bar returns
-      // so innerHeight is STILL inflated. Baseline must NOT update.
-      mockVirtualKeyboard.boundingRect.height = 0;
-      geometryHandler();
-
-      // Re-open keyboard — vpGrowth should still use original baseline (800)
-      mockVirtualKeyboard.boundingRect.height = 300;
-      geometryHandler();
-
-      // getKeyboardHeight should subtract vpGrowth (47) correctly
-      expect(mobile.getKeyboardHeight()).toBe(253); // 300 - 47
+      expect(mobile.getKeyboardHeight()).toBe(firstOpenHeight);
       expect(mobile.isVirtualKeyboardOpen()).toBe(true);
     });
   });
