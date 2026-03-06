@@ -432,3 +432,147 @@ describe('Memory MCP configuration', () => {
     );
   });
 });
+
+// ============================================================================
+// Test: --check-sync=false flag on bisync commands
+// ============================================================================
+describe('bisync --check-sync=false flag', () => {
+  it('establish_bisync_baseline() includes --check-sync=false', () => {
+    const body = extractFunction('establish_bisync_baseline');
+    assert.ok(body, 'establish_bisync_baseline function should exist');
+    assert.ok(
+      body.includes('--check-sync=false'),
+      'establish_bisync_baseline should include --check-sync=false'
+    );
+  });
+
+  it('bisync_with_r2() includes --check-sync=false', () => {
+    const body = extractFunction('bisync_with_r2');
+    assert.ok(body, 'bisync_with_r2 function should exist');
+    assert.ok(
+      body.includes('--check-sync=false'),
+      'bisync_with_r2 should include --check-sync=false'
+    );
+  });
+});
+
+// ============================================================================
+// Test: --retries flag on bisync commands
+// ============================================================================
+describe('bisync --retries flag', () => {
+  it('establish_bisync_baseline() includes --retries 3 --retries-sleep 10s', () => {
+    const body = extractFunction('establish_bisync_baseline');
+    assert.ok(body, 'establish_bisync_baseline function should exist');
+    assert.ok(
+      body.includes('--retries 3'),
+      'establish_bisync_baseline should include --retries 3'
+    );
+    assert.ok(
+      body.includes('--retries-sleep 10s'),
+      'establish_bisync_baseline should include --retries-sleep 10s'
+    );
+  });
+
+  it('bisync_with_r2() includes --retries 3 --retries-sleep 10s', () => {
+    const body = extractFunction('bisync_with_r2');
+    assert.ok(body, 'bisync_with_r2 function should exist');
+    assert.ok(
+      body.includes('--retries 3'),
+      'bisync_with_r2 should include --retries 3'
+    );
+    assert.ok(
+      body.includes('--retries-sleep 10s'),
+      'bisync_with_r2 should include --retries-sleep 10s'
+    );
+  });
+});
+
+// ============================================================================
+// Test: bisync output redirect order (> file 2>&1, not 2>&1 > file)
+// ============================================================================
+describe('bisync output redirect order', () => {
+  it('establish_bisync_baseline() uses correct redirect order (> file 2>&1)', () => {
+    const body = extractFunction('establish_bisync_baseline');
+    assert.ok(body, 'establish_bisync_baseline function should exist');
+    assert.ok(
+      body.includes('> "$BASELINE_OUTPUT" 2>&1'),
+      'establish_bisync_baseline should use > "$BASELINE_OUTPUT" 2>&1'
+    );
+    assert.ok(
+      !body.includes('2>&1 > "$BASELINE_OUTPUT"'),
+      'establish_bisync_baseline should NOT use 2>&1 > "$BASELINE_OUTPUT" (wrong order)'
+    );
+  });
+
+  it('bisync_with_r2() uses correct redirect order (> file 2>&1)', () => {
+    const body = extractFunction('bisync_with_r2');
+    assert.ok(body, 'bisync_with_r2 function should exist');
+    assert.ok(
+      body.includes('> "$SYNC_OUTPUT" 2>&1'),
+      'bisync_with_r2 should use > "$SYNC_OUTPUT" 2>&1'
+    );
+    assert.ok(
+      !body.includes('2>&1 > "$SYNC_OUTPUT"'),
+      'bisync_with_r2 should NOT use 2>&1 > "$SYNC_OUTPUT" (wrong order)'
+    );
+  });
+});
+
+// ============================================================================
+// Test: sync daemon consecutive failure counter + resync fallback
+// ============================================================================
+describe('sync daemon consecutive failure recovery', () => {
+  it('start_sync_daemon() tracks consecutive failures', () => {
+    const body = extractFunction('start_sync_daemon');
+    assert.ok(body, 'start_sync_daemon function should exist');
+    assert.ok(
+      body.includes('CONSECUTIVE_FAILURES'),
+      'start_sync_daemon should track CONSECUTIVE_FAILURES'
+    );
+  });
+
+  it('start_sync_daemon() resets counter on success', () => {
+    const body = extractFunction('start_sync_daemon');
+    assert.ok(body, 'start_sync_daemon function should exist');
+    // After a successful sync (SYNC_RESULT -eq 0), counter resets
+    assert.ok(
+      body.includes('CONSECUTIVE_FAILURES=0'),
+      'start_sync_daemon should reset CONSECUTIVE_FAILURES to 0 on success'
+    );
+  });
+
+  it('start_sync_daemon() falls back to --resync after 3 consecutive failures', () => {
+    const body = extractFunction('start_sync_daemon');
+    assert.ok(body, 'start_sync_daemon function should exist');
+    assert.ok(
+      body.includes('CONSECUTIVE_FAILURES -ge 3'),
+      'start_sync_daemon should check for >= 3 consecutive failures'
+    );
+    assert.ok(
+      body.includes('establish_bisync_baseline'),
+      'start_sync_daemon should call establish_bisync_baseline as resync fallback'
+    );
+    assert.ok(
+      body.includes('resync'),
+      'start_sync_daemon should mention resync in a log message'
+    );
+  });
+
+  it('start_sync_daemon() resets counter after resync fallback', () => {
+    const body = extractFunction('start_sync_daemon');
+    assert.ok(body, 'start_sync_daemon function should exist');
+    // Inside the >= 3 block, after establish_bisync_baseline, counter resets to 0
+    const geBlock = body.slice(body.indexOf('CONSECUTIVE_FAILURES -ge 3'));
+    assert.ok(geBlock, 'should have the >= 3 consecutive failures block');
+    const baselineIdx = geBlock.indexOf('establish_bisync_baseline');
+    const resetIdx = geBlock.indexOf('CONSECUTIVE_FAILURES=0', baselineIdx);
+    assert.ok(
+      baselineIdx > -1,
+      'establish_bisync_baseline should appear in the >= 3 block'
+    );
+    assert.ok(
+      resetIdx > baselineIdx,
+      'CONSECUTIVE_FAILURES=0 should appear after establish_bisync_baseline in the >= 3 block'
+    );
+  });
+});

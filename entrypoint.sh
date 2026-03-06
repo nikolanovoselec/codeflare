@@ -320,11 +320,11 @@ establish_bisync_baseline() {
         --conflict-resolve newer \
         --resilient \
         --recover \
+        --check-sync=false \
         --ignore-checksum \
         --max-delete 100 \
-        --contimeout 10s \
-        --timeout 30s \
-        --transfers 32 --checkers 32 -v 2>&1 > "$BASELINE_OUTPUT"; then
+        --retries 3 --retries-sleep 10s \
+        --transfers 32 --checkers 32 -v > "$BASELINE_OUTPUT" 2>&1; then
         SYNC_RESULT=0
     else
         SYNC_RESULT=$?
@@ -374,7 +374,7 @@ bisync_with_r2() {
     # Write output to temp file so we can capture exit code AND log it
     SYNC_OUTPUT=$(mktemp)
 
-    # Run bisync (capture exit code without triggering set -e)
+    # Run bisync
     if rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
@@ -382,9 +382,11 @@ bisync_with_r2() {
         --conflict-resolve newer \
         --resilient \
         --recover \
+        --check-sync=false \
         --ignore-checksum \
         --max-delete 100 \
-        --transfers 32 --checkers 32 "${verbose_args[@]}" 2>&1 > "$SYNC_OUTPUT"; then
+        --retries 3 --retries-sleep 10s \
+        --transfers 32 --checkers 32 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
         RESULT=0
     else
         RESULT=$?
@@ -406,6 +408,7 @@ bisync_with_r2() {
 # ============================================================================
 start_sync_daemon() {
     echo "[entrypoint] Starting background bisync daemon (every 60s)..."
+    local CONSECUTIVE_FAILURES=0
 
     while true; do
         sleep 60
@@ -426,11 +429,23 @@ start_sync_daemon() {
         fi
 
         if [ $SYNC_RESULT -eq 0 ]; then
+            CONSECUTIVE_FAILURES=0
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a /tmp/sync.log
             update_sync_status "success" "null"
         else
-            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync failed with exit code $SYNC_RESULT (will retry in 60s)" | tee -a /tmp/sync.log
+            CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
+            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync failed with exit code $SYNC_RESULT (failure $CONSECUTIVE_FAILURES/3)" | tee -a /tmp/sync.log
             update_sync_status "failed" "Bisync exit code $SYNC_RESULT"
+
+            # After 3 consecutive failures (each with 3 internal retries = 9 total attempts),
+            # fall back to --resync to re-establish clean bisync state.
+            # This merges both sides (files on only one side get copied to the other).
+            if [ $CONSECUTIVE_FAILURES -ge 3 ]; then
+                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') 3 consecutive failures — falling back to --resync" | tee -a /tmp/sync.log
+                update_sync_status "failed" "Resync fallback triggered"
+                establish_bisync_baseline
+                CONSECUTIVE_FAILURES=0
+            fi
         fi
     done &
 
