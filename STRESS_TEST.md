@@ -16,10 +16,10 @@ To scale concurrency, set `STRESS_TEST_CONCURRENCY` in **Settings > Environments
 
 | Value | Effect | Real-user equivalent |
 |-------|--------|---------------------|
-| `0` or unset | Baseline VU counts, normal think times, standard thresholds | ~30-50 users |
-| `50` | 5-17x baseline VUs, reduced think times, loosened thresholds | ~500-1000 users |
-| `200` | 20-67x baseline VUs, minimal think times, loosened thresholds | ~2000-4000 users |
-| `1000` | 100-333x baseline VUs, minimal think times, loosened thresholds | ~10 000+ users |
+| `0` or unset | Baseline VU counts, normal think times, standard thresholds | ~50 users |
+| `50` | 5-17x baseline VUs, reduced think times, loosened thresholds | ~1 000 users |
+| `200` | 20-67x baseline VUs, minimal think times, loosened thresholds | ~4 000 users |
+| `1000` | 100-333x baseline VUs, minimal think times, loosened thresholds | ~20 000 users |
 
 ## Test Suites
 
@@ -78,23 +78,6 @@ Upload-browse-download-delete cycle with random file sizes (1 KB, 50 KB, 500 KB)
 
 **Think time:** 2s between iterations. Reduced to 0.5s when concurrency is set.
 
-### WebSocket Concurrency (`websocket-concurrency.js`)
-
-Concurrent WebSocket connections to a shared container. Creates a session and starts a container in `setup()`, cleans up in `teardown()`.
-
-| Scenario | Duration | Base VUs | Operations |
-|----------|----------|----------|------------|
-| `ws_connections` | 3m (ramp up, hold, ramp down) | 10 | WebSocket connect to `/api/terminal/:sessionId-:terminalId/ws`, resize command, hold 10-30s, close |
-
-**Thresholds:**
-
-| Metric | Standard | High Concurrency |
-|--------|----------|------------------|
-| `ws_connect_duration` p95 | <10s | <20s |
-| `errors` | <30% | <50% |
-
-**Think time:** 2s between iterations. Reduced to 0.5s when concurrency is set.
-
 ## VU-to-Real-User Mapping
 
 Each k6 virtual user generates far more traffic than a real Codeflare user. A real user typically loads the dashboard (a few API calls), then works in a terminal (one WebSocket held for minutes), with occasional storage operations — roughly 1 request every 5-10 seconds during active use.
@@ -106,9 +89,8 @@ k6 VUs differ because they have near-zero think time (0.3-1s vs 5-30s for real u
 | API throughput | ~20 (6 endpoints, 0.3s sleep) | ~100-200x |
 | Session lifecycle | ~1 (4 ops + 4s sleeps) | ~5-10x |
 | Storage operations | ~2 (4 ops + 2s sleeps) | ~10-20x |
-| WebSocket concurrency | 1 connection held 10-30s | ~1x (connection count is realistic) |
 
-**Rule of thumb: 50 VUs ≈ 500-1000 concurrent real users** when considering aggregate request volume across all suites running in parallel.
+**Rule of thumb: 1 VU ≈ 20 real users.** At `STRESS_TEST_CONCURRENCY=50`, the three suites running in parallel simulate load equivalent to roughly 1 000 concurrent Codeflare users.
 
 ## Concurrency Scaling
 
@@ -181,12 +163,11 @@ stress-test.yml (workflow_dispatch)
   +--+--+-- api-throughput      (parallel)
   |  |  +-- session-lifecycle   (parallel)
   |  |  +-- storage-operations  (parallel)
-  |  |  +-- websocket-concurrency (parallel)
   |  |
   +--+--+-- summary (aggregate results, check thresholds)
 ```
 
-All 4 test jobs run in parallel after setup. The summary job downloads all result artifacts and fails the workflow if any k6 threshold was breached.
+All 3 test jobs run in parallel after setup. The summary job downloads all result artifacts and fails the workflow if any k6 threshold was breached.
 
 Results are uploaded as artifacts (retained 30 days).
 
@@ -197,9 +178,8 @@ Results are uploaded as artifacts (retained 30 days).
 | `e2e/stress/api-throughput.js` | API endpoint throughput + spike test |
 | `e2e/stress/session-lifecycle.js` | Session CRUD churn test |
 | `e2e/stress/storage-operations.js` | R2 storage upload/download/delete cycle |
-| `e2e/stress/websocket-concurrency.js` | Concurrent WebSocket connections |
 | `.github/workflows/stress-test.yml` | CI workflow |
 | `src/middleware/rate-limit.ts` | HTTP rate-limit bypass (`STRESS_TEST_MODE`) |
 | `src/routes/terminal.ts` | WebSocket rate-limit bypass (`STRESS_TEST_MODE`) |
 | `src/__tests__/middleware/rate-limit.test.ts` | Unit tests for bypass |
-| `src/__tests__/routes/terminal-ws.test.ts` | Unit tests for WS bypass |
+| `src/__tests__/routes/terminal-ws.test.ts` | Unit tests for WS rate-limit bypass |
