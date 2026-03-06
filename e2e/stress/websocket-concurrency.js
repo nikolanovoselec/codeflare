@@ -130,7 +130,7 @@ export default function (data) {
       // Receive messages
     });
 
-    socket.on('error', (e) => {
+    socket.on('error', (_e) => {
       wsErrors.add(1);
       errorRate.add(true);
     });
