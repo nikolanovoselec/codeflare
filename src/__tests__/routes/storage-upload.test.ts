@@ -471,4 +471,53 @@ describe('Storage Upload Routes', () => {
       expect(opts.method).toBe('DELETE');
     });
   });
+
+  // ── Storage-stats cache invalidation ────────────────────────────
+
+  describe('storage-stats cache invalidation', () => {
+    it('invalidates KV cache after successful simple upload', async () => {
+      const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+
+      const res = await app.request('/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'workspace/file.ts', content: btoa('hello') }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
+    });
+
+    it('invalidates KV cache after successful multipart complete', async () => {
+      const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+
+      const res = await app.request('/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'workspace/large.zip',
+          uploadId: 'uid',
+          parts: [{ partNumber: 1, etag: 'a' }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
+    });
+
+    it('does not invalidate cache when simple upload fails', async () => {
+      const app = createApp();
+      mockFetch.mockResolvedValueOnce(new Response('', { status: 500 }));
+
+      await app.request('/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'test.txt', content: btoa('hello') }),
+      });
+
+      expect(mockKV.delete).not.toHaveBeenCalledWith('storage-stats:test-bucket');
+    });
+  });
 });

@@ -110,6 +110,11 @@ app.post('/', async (c) => {
 
   logger.info('Delete operation completed', { deleted: deleted.length, errors: errors.length });
 
+  // Invalidate storage-stats cache so next poll/fetch gets fresh data
+  if (deleted.length > 0) {
+    await c.env.KV.delete(`storage-stats:${bucketName}`);
+  }
+
   return c.json({ deleted, errors });
 });
 

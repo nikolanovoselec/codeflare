@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockR2Config } from '../helpers/mock-factories';
 import { createTestApp } from '../helpers/test-app';
+import { createMockKV } from '../helpers/mock-kv';
 
 const testState = vi.hoisted(() => ({
   createBucketResult: { success: true, created: false } as { success: boolean; created?: boolean; error?: string },
@@ -33,11 +34,16 @@ beforeEach(() => {
 });
 
 describe('Storage Seed Routes', () => {
+  let mockKV: ReturnType<typeof createMockKV>;
+
+  beforeEach(() => {
+    mockKV = createMockKV();
+  });
 
   function createApp(bucketName = 'test-bucket') {
     return createTestApp({
       routes: [{ path: '/seed', handler: seedRoutes }],
-      mockKV: {} as KVNamespace,
+      mockKV,
       bucketName,
       envOverrides: {
         CLOUDFLARE_API_TOKEN: 'test-token',
@@ -82,13 +88,27 @@ describe('Storage Seed Routes', () => {
     const body = await res.json() as { code?: string };
     expect(body.code).toBe('CONTAINER_ERROR');
   });
+
+  it('invalidates storage-stats KV cache after successful getting-started seed', async () => {
+    const app = createApp('my-bucket');
+
+    const res = await app.request('/seed/getting-started', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:my-bucket');
+  });
 });
 
 describe('Agent Config Seed Routes', () => {
+  let mockKV: ReturnType<typeof createMockKV>;
+
+  beforeEach(() => {
+    mockKV = createMockKV();
+  });
+
   function createApp(bucketName = 'test-bucket') {
     return createTestApp({
       routes: [{ path: '/seed', handler: seedRoutes }],
-      mockKV: {} as KVNamespace,
+      mockKV,
       bucketName,
       envOverrides: {
         CLOUDFLARE_API_TOKEN: 'test-token',
@@ -132,5 +152,13 @@ describe('Agent Config Seed Routes', () => {
 
     const body = await res.json() as { code?: string };
     expect(body.code).toBe('CONTAINER_ERROR');
+  });
+
+  it('invalidates storage-stats KV cache after successful agent-configs seed', async () => {
+    const app = createApp('my-bucket');
+
+    const res = await app.request('/seed/agent-configs', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:my-bucket');
   });
 });

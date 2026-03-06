@@ -4,6 +4,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { ValidationError } from '../../lib/error-types';
+import { createMockKV } from '../helpers/mock-kv';
 
 const mockFetch = vi.fn();
 
@@ -25,11 +26,13 @@ describe('Storage Delete Route', () => {
   let app: Hono<{ Bindings: Env; Variables: AuthVariables }>;
   let deleteRoute: typeof import('../../routes/storage/delete').default;
   let envOverrides: Partial<Env>;
+  let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     mockFetch.mockReset();
     envOverrides = {};
+    mockKV = createMockKV();
 
     // Dynamic import to pick up fresh mocks
     const mod = await import('../../routes/storage/delete');
@@ -47,7 +50,7 @@ describe('Storage Delete Route', () => {
 
     // Mock middleware
     app.use('*', async (c, next) => {
-      c.env = { ...envOverrides } as Env;
+      c.env = { KV: mockKV as unknown as KVNamespace, ...envOverrides } as Env;
       c.set('user', { email: 'test@example.com', authenticated: true });
       c.set('bucketName', 'test-bucket');
       return next();
@@ -351,5 +354,34 @@ describe('Storage Delete Route', () => {
     // When no results parsed, assume all succeeded
     expect(body.deleted).toEqual(['workspace/a.ts', 'workspace/b.ts']);
     expect(body.errors).toEqual([]);
+  });
+
+  // --- Cache invalidation tests ---
+
+  it('invalidates storage-stats KV cache after successful single delete', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: ['workspace/file.ts'] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
+  });
+
+  it('invalidates storage-stats KV cache after successful batch delete', async () => {
+    const batchResponseXml = `<DeleteResult><Deleted><Key>workspace/a.ts</Key></Deleted></DeleteResult>`;
+    mockFetch.mockResolvedValueOnce(new Response(batchResponseXml, { status: 200 }));
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: ['workspace/a.ts', 'workspace/b.ts'] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
   });
 });

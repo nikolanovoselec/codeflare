@@ -305,5 +305,17 @@ describe('Storage Move Routes', () => {
       const body = await res.json() as { source: string; destination: string; warning?: string };
       expect(body.warning).toBeUndefined();
     });
+
+    it('invalidates storage-stats KV cache after successful move', async () => {
+      const app = createApp();
+
+      const res = await postMove(app, {
+        source: 'workspace/old.ts',
+        destination: 'workspace/new.ts',
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
+    });
   });
 });

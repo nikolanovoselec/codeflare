@@ -50,6 +50,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
   onMount(() => {
     sessionStore.startR2Polling();
+    storageStore.fetchStats();
   });
 
   // Double requestAnimationFrame to ensure the browser has painted with --expanded

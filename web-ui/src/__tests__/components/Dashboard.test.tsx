@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import { mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { sessionStore } from '../../stores/session';
+import { storageStore } from '../../stores/storage';
 import type { SessionWithStatus } from '../../types';
 
 // Mock child components to isolate Dashboard testing
@@ -133,6 +134,20 @@ describe('Dashboard', () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  // === Initialization Tests ===
+
+  it('calls storageStore.fetchStats on mount', () => {
+    render(() => <Dashboard {...defaultProps} />);
+
+    expect(storageStore.fetchStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls sessionStore.startR2Polling on mount', () => {
+    render(() => <Dashboard {...defaultProps} />);
+
+    expect(sessionStore.startR2Polling).toHaveBeenCalledTimes(1);
   });
 
   // === Structural Tests ===

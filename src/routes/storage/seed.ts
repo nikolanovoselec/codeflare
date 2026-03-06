@@ -34,6 +34,9 @@ app.post('/getting-started', async (c) => {
       skippedCount: seedResult.skipped.length,
     });
 
+    // Invalidate storage-stats cache so next poll/fetch gets fresh data
+    await c.env.KV.delete(`storage-stats:${bucketName}`);
+
     return c.json({
       success: true,
       bucketCreated: bucketResult.created === true,
@@ -67,6 +70,9 @@ app.post('/agent-configs', async (c) => {
       writtenCount: seedResult.written.length,
       skippedCount: seedResult.skipped.length,
     });
+
+    // Invalidate storage-stats cache so next poll/fetch gets fresh data
+    await c.env.KV.delete(`storage-stats:${bucketName}`);
 
     return c.json({
       success: true,

@@ -79,6 +79,9 @@ app.post('/', async (c) => {
     throw new ContainerError('upload', `R2 PutObject failed: ${response.status}`);
   }
 
+  // Invalidate storage-stats cache so next poll/fetch gets fresh data
+  await c.env.KV.delete(`storage-stats:${bucketName}`);
+
   return c.json({ key: sanitizedKey, size: binaryContent.length });
 });
 
@@ -184,6 +187,9 @@ app.post('/complete', async (c) => {
   if (!response.ok) {
     throw new ContainerError('upload', `R2 CompleteMultipartUpload failed: ${response.status}`);
   }
+
+  // Invalidate storage-stats cache so next poll/fetch gets fresh data
+  await c.env.KV.delete(`storage-stats:${bucketName}`);
 
   return c.json({ key: sanitizedKey });
 });

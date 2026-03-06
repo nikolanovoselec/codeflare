@@ -71,6 +71,9 @@ app.post('/', async (c) => {
   };
   if (warning) result.warning = warning;
 
+  // Invalidate storage-stats cache so next poll/fetch gets fresh data
+  await c.env.KV.delete(`storage-stats:${bucketName}`);
+
   return c.json(result);
 });
 
