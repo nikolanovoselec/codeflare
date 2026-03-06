@@ -237,6 +237,9 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/tmp/**"               # temp lock files
     --filter "- .codex/version.json"         # version check cache
 
+    # Perl CPAN cache — created by Perl module installs during build, regenerated
+    --filter "- .cpan/**"
+
     # Gemini CLI — tmp contains a downloaded ripgrep binary (~5MB) and session chat logs
     --filter "- .gemini/tmp/**"
 

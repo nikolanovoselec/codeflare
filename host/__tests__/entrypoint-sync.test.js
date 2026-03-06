@@ -235,6 +235,13 @@ describe('R2 sync exclusion filters', () => {
     );
   });
 
+  it('common filters include .cpan/** exclusion', () => {
+    assert.ok(
+      entrypoint.includes('--filter "- .cpan/**"'),
+      'should exclude .cpan/** (Perl CPAN cache)'
+    );
+  });
+
   it('common filters include .claude/plugins/marketplaces/**/.git/** exclusion', () => {
     assert.ok(
       entrypoint.includes('--filter "- .claude/plugins/marketplaces/**/.git/**"'),
