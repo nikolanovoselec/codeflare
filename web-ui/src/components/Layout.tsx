@@ -9,6 +9,7 @@ import { sessionStore } from '../stores/session';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
+import { isVirtualKeyboardOpen } from '../lib/mobile';
 import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 
@@ -146,18 +147,24 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleOpenDashboard = () => {
-    // Force keyboard dismiss BEFORE starting transition. Without this, the
-    // keyboard may close asynchronously during the animation, and the cleanup
-    // effect (which runs when props.active becomes false after the delay) can
-    // race with browser keyboard dismissal, leaving stale keyboard signals.
+    // Dismiss keyboard and wait for it to close before transitioning.
+    // Samsung Internet caches the VK boundingRect when overlaysContent changes.
+    // If the keyboard is still mid-animation when cleanup sets overlaysContent=false,
+    // Samsung caches a stale non-zero height. On return, enabling overlaysContent
+    // triggers a stale geometrychange that leaves the terminal at half height.
+    // Fix: let the keyboard fully close (300ms) WHILE overlaysContent is still true,
+    // so Samsung caches height=0. No keyboard = no delay.
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
-    setViewState('collapsing');
+    const kbDismissDelay = isVirtualKeyboardOpen() ? 300 : 0;
     setTimeout(() => {
-      sessionStore.setActiveSession(null);
-      setViewState('dashboard');
-    }, VIEW_TRANSITION_DURATION_MS);
+      setViewState('collapsing');
+      setTimeout(() => {
+        sessionStore.setActiveSession(null);
+        setViewState('dashboard');
+      }, VIEW_TRANSITION_DURATION_MS);
+    }, kbDismissDelay);
   };
 
   const handleDashboardSessionSelect = (sessionId: string) => {
