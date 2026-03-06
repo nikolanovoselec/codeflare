@@ -1,5 +1,5 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
-import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, resetKeyboardStateIfStale } from './mobile';
+import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState } from './mobile';
 import { logger } from './logger';
 import { getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
 
@@ -74,8 +74,13 @@ export function setupMobileInput(
   const restoreFocusIfNeeded = () => {
     if (wasInputFocused && iframeInputRef && !iframeInputRef.readOnly && props.active) {
       wasInputFocused = false;
-      resetKeyboardStateIfStale();    // Clear stale signals from backgrounding
-      enableVirtualKeyboardOverlay(); // Re-enable before focus so geometrychange works
+      // Force-zero ALL keyboard signals unconditionally. resetKeyboardStateIfStale()
+      // trusts boundingRect.height which returns stale cached values on browser resume.
+      forceResetKeyboardState();
+      // Re-enable overlaysContent before focus so geometrychange handler takes the
+      // correct branch when the keyboard opens. The 100ms delay ensures the browser
+      // has time to process the overlaysContent change before the keyboard animates.
+      enableVirtualKeyboardOverlay();
       setTimeout(() => {
         if (iframeInputRef) {
           iframeInputRef.focus({ preventScroll: true });

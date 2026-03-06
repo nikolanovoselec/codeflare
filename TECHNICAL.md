@@ -1557,11 +1557,17 @@ When the browser is backgrounded and returned to, keyboard state signals (`keybo
 **Chrome symptom:** Ghost padding at bottom — `keyboardHeight()` stuck non-zero with keyboard closed.
 **Samsung symptom:** No floating buttons + scrollable page — `overlaysContent=false` means `geometrychange` never sets `vkOpen=true` when keyboard reopens.
 
-**Solution:** Two complementary fixes:
-1. `terminal-mobile-input.ts` `restoreFocusIfNeeded()` calls `resetKeyboardStateIfStale()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input. This ensures signals are clean and `overlaysContent` is `true` when the keyboard opens.
-2. `Layout.tsx` visibility handler calls `resetKeyboardStateIfStale()` as fallback for when focus restore doesn't fire (input was not focused when backgrounded, or readOnly guard is active).
+**Solution:** Two complementary fixes using `forceResetKeyboardState()` (unconditional zero) instead of `resetKeyboardStateIfStale()` because `boundingRect.height` returns stale cached values when the browser resumes — `visibilitychange` fires before the compositor updates layout metrics:
+1. `terminal-mobile-input.ts` `restoreFocusIfNeeded()` calls `forceResetKeyboardState()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input. This ensures signals are zeroed and `overlaysContent` is `true` when the keyboard opens.
+2. `Layout.tsx` visibility handler calls `forceResetKeyboardState()` as fallback for when focus restore doesn't fire (input was not focused when backgrounded, or readOnly guard is active).
 
 These bugs were masked before infinite WS retries and `hasConnected` latch because the old retry limit (10 attempts → error state) would show an error overlay, forcing the user to navigate away and back — which triggered full keyboard cleanup.
+
+#### Swipe Gesture Stuck Repeat (Fix 7)
+
+Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` repeat timer that fires every 80ms while the finger is held. `touchstart`/`touchmove` were registered in capture phase, but `touchend`/`touchcancel` were in bubble phase. When xterm.js's internal Gesture handler (on `.xterm-screen`) called `stopPropagation()` on `touchend` during its own gesture processing, the bubble-phase listener on the container never fired, leaving the repeat timer running indefinitely.
+
+**Solution:** Register `touchend`/`touchcancel` in capture phase (`{ capture: true }`) matching `touchstart`/`touchmove`. Our handler now fires before xterm's, guaranteeing the repeat timer is always cleared.
 
 #### WS Retryable Close Codes (Fix 5)
 

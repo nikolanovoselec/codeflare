@@ -89,10 +89,10 @@ vi.mock('../../stores/terminal', () => ({
 }));
 
 vi.mock('../../lib/mobile', () => ({
-  resetKeyboardStateIfStale: vi.fn(),
+  forceResetKeyboardState: vi.fn(),
 }));
 
-import { resetKeyboardStateIfStale } from '../../lib/mobile';
+import { forceResetKeyboardState } from '../../lib/mobile';
 import { reconnectOnVisibilityReturn } from '../../stores/terminal';
 import Layout from '../../components/Layout';
 
@@ -441,33 +441,33 @@ describe('Layout Component', () => {
   // =========================================================================
 
   describe('Visibility Return Keyboard Reset', () => {
-    it('calls resetKeyboardStateIfStale on visibility return in terminal view', () => {
+    it('calls forceResetKeyboardState on visibility return in terminal view', () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
 
       render(() => <Layout />);
 
-      vi.mocked(resetKeyboardStateIfStale).mockClear();
+      vi.mocked(forceResetKeyboardState).mockClear();
       vi.mocked(reconnectOnVisibilityReturn).mockClear();
 
       // Simulate returning from backgrounded browser
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
 
-      expect(resetKeyboardStateIfStale).toHaveBeenCalled();
+      expect(forceResetKeyboardState).toHaveBeenCalled();
       expect(reconnectOnVisibilityReturn).toHaveBeenCalled();
     });
 
-    it('does NOT call resetKeyboardStateIfStale when on dashboard', () => {
+    it('does NOT call forceResetKeyboardState when on dashboard', () => {
       // No active session = dashboard view
       render(() => <Layout />);
 
-      vi.mocked(resetKeyboardStateIfStale).mockClear();
+      vi.mocked(forceResetKeyboardState).mockClear();
 
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
 
-      expect(resetKeyboardStateIfStale).not.toHaveBeenCalled();
+      expect(forceResetKeyboardState).not.toHaveBeenCalled();
     });
   });
 

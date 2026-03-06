@@ -174,14 +174,14 @@ export function attachSwipeGestures(
   // This lets us intercept and block touch scroll when keyboard is open.
   container.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
   container.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
-  container.addEventListener('touchend', onTouchEnd, { passive: true });
-  container.addEventListener('touchcancel', onTouchEnd, { passive: true });
+  container.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+  container.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true });
 
   return () => {
     resetState();
     container.removeEventListener('touchstart', onTouchStart, { capture: true } as EventListenerOptions);
     container.removeEventListener('touchmove', onTouchMove, { capture: true } as EventListenerOptions);
-    container.removeEventListener('touchend', onTouchEnd);
-    container.removeEventListener('touchcancel', onTouchEnd);
+    container.removeEventListener('touchend', onTouchEnd, { capture: true } as EventListenerOptions);
+    container.removeEventListener('touchcancel', onTouchEnd, { capture: true } as EventListenerOptions);
   };
 }
