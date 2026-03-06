@@ -300,8 +300,16 @@ describe('touch-gestures', () => {
           expect.any(Function),
           expect.objectContaining({ capture: true }),
         );
-        expect(removeEventSpy).toHaveBeenCalledWith('touchend', expect.any(Function));
-        expect(removeEventSpy).toHaveBeenCalledWith('touchcancel', expect.any(Function));
+        expect(removeEventSpy).toHaveBeenCalledWith(
+          'touchend',
+          expect.any(Function),
+          expect.objectContaining({ capture: true }),
+        );
+        expect(removeEventSpy).toHaveBeenCalledWith(
+          'touchcancel',
+          expect.any(Function),
+          expect.objectContaining({ capture: true }),
+        );
       });
 
       it('should not fire keys after cleanup', () => {
