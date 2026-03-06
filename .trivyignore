@@ -71,3 +71,4 @@ CVE-2025-15558
 # node-tar 7.5.7: hardlink path traversal via drive-relative linkpath
 # CLIs don't process untrusted tar archives at runtime.
 GHSA-qffp-2rhf-9h96
+CVE-2026-29786
