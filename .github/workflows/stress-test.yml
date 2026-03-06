@@ -98,9 +98,9 @@ jobs:
             exit 1
           fi
 
-          # Auth check with retries (KV eventual consistency)
-          for i in 1 2 3; do
-            SESSIONS=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/api/sessions" \
+          # Auth check with retries (worker secret propagation + KV consistency)
+          for i in 1 2 3 4; do
+            SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
               -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
               -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
               -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
@@ -112,17 +112,25 @@ jobs:
             fi
 
             if [ "$SESSIONS" = "302" ]; then
-              echo "::error::Auth returned 302 — CF Access rejected service token or worker redirected to login"
-              exit 1
+              # Capture redirect target for diagnostics
+              LOCATION=$(curl -sS -o /dev/null -D - "$BASE/api/sessions" \
+                -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+                -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+                -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" 2>/dev/null \
+                | grep -i "^location:" || true)
+              echo "302 redirect location: $LOCATION"
             fi
 
-            if [ "$i" -lt 3 ]; then
-              echo "Waiting 10s for propagation..."
-              sleep 10
+            if [ "$i" -lt 4 ]; then
+              echo "Waiting 15s for worker secret propagation..."
+              sleep 15
             fi
           done
 
-          if [ "$SESSIONS" != "200" ]; then
+          if [ "$SESSIONS" = "302" ] || [ "$SESSIONS" = "401" ] || [ "$SESSIONS" = "403" ]; then
+            echo "::error::Auth failed ($SESSIONS) after retries — check CF Access service token and worker SERVICE_AUTH_SECRET"
+            exit 1
+          elif [ "$SESSIONS" != "200" ]; then
             echo "::error::Auth failed ($SESSIONS) after retries"
             exit 1
           fi
