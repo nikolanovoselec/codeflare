@@ -88,6 +88,10 @@ vi.mock('../../stores/terminal', () => ({
   cancelScheduledDisconnect: vi.fn(),
 }));
 
+vi.mock('../../lib/mobile', () => ({
+  resetKeyboardStateIfStale: vi.fn(),
+}));
+
 import Layout from '../../components/Layout';
 
 // Helper to create a mock session

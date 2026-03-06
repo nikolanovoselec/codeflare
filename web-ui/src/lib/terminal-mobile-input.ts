@@ -1,5 +1,5 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
-import { disableVirtualKeyboardOverlay } from './mobile';
+import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, resetKeyboardStateIfStale } from './mobile';
 import { logger } from './logger';
 import { getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
 
@@ -74,6 +74,8 @@ export function setupMobileInput(
   const restoreFocusIfNeeded = () => {
     if (wasInputFocused && iframeInputRef && !iframeInputRef.readOnly && props.active) {
       wasInputFocused = false;
+      resetKeyboardStateIfStale();    // Clear stale signals from backgrounding
+      enableVirtualKeyboardOverlay(); // Re-enable before focus so geometrychange works
       setTimeout(() => {
         if (iframeInputRef) {
           iframeInputRef.focus({ preventScroll: true });

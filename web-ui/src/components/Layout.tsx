@@ -7,6 +7,7 @@ import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore } from '../stores/session';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
+import { resetKeyboardStateIfStale } from '../lib/mobile';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
@@ -77,6 +78,7 @@ const Layout: Component<LayoutProps> = (props) => {
   {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && viewState() !== 'dashboard') {
+        resetKeyboardStateIfStale();
         reconnectOnVisibilityReturn(untrack(() => sessionStore.activeSessionId) ?? undefined);
       }
     };
