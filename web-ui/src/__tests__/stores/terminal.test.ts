@@ -635,7 +635,7 @@ describe('Terminal Store', () => {
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('retries with 2s delay up to MAX_WS_RETRIES on abnormal close', async () => {
+    it('retries with flat 1s delay on abnormal close (never gives up)', async () => {
       const terminal = createMockTerminal();
 
       const OriginalWebSocket = globalThis.WebSocket;
@@ -686,7 +686,7 @@ describe('Terminal Store', () => {
       // Should have 4 total attempts (1 initial + 3 retries)
       expect(connectTimestamps.length).toBe(4);
 
-      // Verify intervals are constant (flat 100ms delay + 1ms close)
+      // Verify intervals are constant (flat delay)
       for (let i = 2; i < connectTimestamps.length; i++) {
         const interval = connectTimestamps[i] - connectTimestamps[i - 1];
         expect(interval).toBeLessThanOrEqual(150);
@@ -695,7 +695,7 @@ describe('Terminal Store', () => {
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('gives up after MAX_WS_RETRIES attempts and sets error state', async () => {
+    it('never gives up retrying on retryable close codes', async () => {
       const terminal = createMockTerminal();
 
       const OriginalWebSocket = globalThis.WebSocket;
@@ -734,19 +734,18 @@ describe('Terminal Store', () => {
 
       terminalStore.connect(sessionId, terminalId, terminal);
 
-      // Exhaust all retries: MAX_WS_RETRIES = 10, each cycle ~101ms
-      // 10 retries * 101ms = 1010ms, plus initial attempt
+      // Run 15 retry cycles — should NOT give up
       for (let i = 0; i < 15; i++) {
         await vi.advanceTimersByTimeAsync(0);   // WS closes
-        await vi.advanceTimersByTimeAsync(100);  // WS_RETRY_DELAY_MS
+        await vi.advanceTimersByTimeAsync(100);  // WS_RETRY_DELAY_MS (mocked)
       }
 
-      // Should have stopped retrying — state should be 'error' (never connected)
+      // Should still be retrying — NOT in error state
       const state = terminalStore.getConnectionState(sessionId, terminalId);
-      expect(state).toBe('error');
+      expect(state).toBe('connecting');
 
-      // Should have made exactly MAX_WS_RETRIES (10) attempts
-      expect(connectCount).toBe(10);
+      // Should have made more than 10 attempts (proves no limit)
+      expect(connectCount).toBeGreaterThan(10);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

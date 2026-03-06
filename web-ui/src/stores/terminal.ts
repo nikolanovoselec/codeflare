@@ -5,7 +5,6 @@ import { getTerminalWebSocketUrl } from '../api/client';
 import type { Terminal } from '@xterm/xterm';
 import { logger } from '../lib/logger';
 import {
-  MAX_WS_RETRIES,
   WS_RETRY_DELAY_MS,
   WS_RETRYABLE_CLOSE_CODES,
 } from '../lib/constants';
@@ -193,7 +192,7 @@ function connect(
     setConnectionState(sessionId, terminalId, 'connecting');
 
     if (attemptNumber > 1) {
-      setRetryMessage(sessionId, terminalId, `Connecting... (attempt ${attemptNumber}/${MAX_WS_RETRIES})`);
+      setRetryMessage(sessionId, terminalId, `Reconnecting... (attempt ${attemptNumber})`);
     } else {
       setRetryMessage(sessionId, terminalId, 'Connecting...');
     }
@@ -297,9 +296,9 @@ function connect(
         return;
       }
 
-      // Retry on abnormal closure if we haven't exhausted attempts
-      if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && attemptNumber < MAX_WS_RETRIES && !signal.aborted) {
-        logger.warn(`[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}/${MAX_WS_RETRIES}, code=${event.code}`);
+      // Retry on retryable close codes (forever, flat delay)
+      if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
+        logger.warn(`[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}, code=${event.code}`);
         const timeout = setTimeout(() => {
           attemptConnection(attemptNumber + 1);
         }, WS_RETRY_DELAY_MS);
@@ -307,14 +306,9 @@ function connect(
         return;
       }
 
-      // Max retries exhausted or non-abnormal close
-      const wasNeverConnected = getConnectionState(sessionId, terminalId) === 'connecting';
-      logger.warn(`[Terminal ${key}] Max retries reached or normal close, giving up`);
-      setConnectionState(sessionId, terminalId, wasNeverConnected ? 'error' : 'disconnected');
+      // Non-retryable close (normal closure, etc.)
+      setConnectionState(sessionId, terminalId, 'disconnected');
       setRetryMessage(sessionId, terminalId, null);
-      onError?.(wasNeverConnected
-        ? 'Failed to connect to terminal after multiple attempts'
-        : 'Connection lost. Click reconnect to try again.');
     }
 
     ws.onmessage = handleWebSocketMessage;
@@ -397,6 +391,13 @@ function isConnected(sessionId: string, terminalId: string): boolean {
 // Dispose terminal and connection
 function dispose(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
+
+  // Send kill message before disconnecting so the server kills the PTY immediately
+  const ws = connections.get(key);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'kill' }));
+  }
+
   disconnect(sessionId, terminalId);
   const terminal = terminals.get(key);
   if (terminal) {
@@ -545,6 +546,24 @@ export function reconnectDisconnectedTerminals(activeSessionId?: string): void {
     if (activeSessionId && sessionId !== activeSessionId) continue;
     if (getConnectionState(sessionId, terminalId) === 'disconnected') {
       logger.info(`[Terminal ${key}] Disconnected, triggering reconnect`);
+      reconnect(sessionId, terminalId);
+    }
+  }
+}
+
+/**
+ * Reconnect terminals that are in 'disconnected' OR 'connecting' state.
+ * More aggressive than reconnectDisconnectedTerminals — also rescues
+ * terminals stuck in a retry loop (state === 'connecting') after the browser
+ * tab was backgrounded long enough for the retry timers to stall.
+ */
+export function reconnectOnVisibilityReturn(activeSessionId?: string): void {
+  for (const [key] of terminals) {
+    const [sessionId, terminalId] = key.split(':');
+    if (activeSessionId && sessionId !== activeSessionId) continue;
+    const state = getConnectionState(sessionId, terminalId);
+    if (state === 'disconnected' || state === 'connecting') {
+      logger.info(`[Terminal ${key}] ${state}, triggering reconnect (visibility return)`);
       reconnect(sessionId, terminalId);
     }
   }

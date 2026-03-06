@@ -230,7 +230,7 @@ describe('Terminal Component', () => {
       // Connection overlay should not be visible (hidden by init overlay)
     });
 
-    it('should show overlay again when disconnected after previous connection', () => {
+    it('should NOT show overlay after first connection (transparent reconnect via hasConnected latch)', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
 
       // Use a SolidJS signal to back the mock so useTerminal's createMemo
@@ -240,17 +240,17 @@ describe('Terminal Component', () => {
 
       render(() => <Terminal {...defaultProps} />);
 
-      // Phase 1: 'connecting' — overlay should show
+      // Phase 1: 'connecting' — overlay should show (hasConnected is false)
       expect(screen.getByText('Connecting...')).toBeInTheDocument();
 
-      // Phase 2: transition to 'connected' — overlay disappears
+      // Phase 2: transition to 'connected' — overlay disappears, hasConnected latches true
       setConnState('connected');
       expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
 
-      // Phase 3: transition to 'disconnected' — overlay SHOULD reappear
-      // (baseline shows overlay whenever connectionState !== 'connected')
+      // Phase 3: transition to 'disconnected' — overlay should NOT reappear
+      // because hasConnected is a one-way latch (transparent reconnect)
       setConnState('disconnected');
-      expect(screen.getByText('Connecting...')).toBeInTheDocument();
+      expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
     });
   });
 

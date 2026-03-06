@@ -112,12 +112,11 @@ export interface UserInfo {
   onboardingActive?: boolean;
 }
 
-// Terminal connection state
+// Terminal connection state (no 'error' — infinite retries mean we never give up)
 export type TerminalConnectionState =
   | 'disconnected'
   | 'connecting'
-  | 'connected'
-  | 'error';
+  | 'connected';
 
 // Terminal tab within a session (multiple terminals per container)
 export interface TerminalTab {

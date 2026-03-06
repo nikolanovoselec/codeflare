@@ -17,11 +17,8 @@ export const MAX_STARTUP_POLL_ERRORS = 10;
 // Terminal Connection
 // =============================================================================
 
-/** Maximum WebSocket connection retry attempts */
-export const MAX_WS_RETRIES = 10;
-
 /** Delay between WebSocket retry attempts (ms) */
-export const WS_RETRY_DELAY_MS = 2000;
+export const WS_RETRY_DELAY_MS = 1000;
 
 // =============================================================================
 // UI Timing

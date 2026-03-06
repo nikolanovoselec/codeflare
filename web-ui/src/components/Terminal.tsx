@@ -1,4 +1,4 @@
-import { Component, Show } from 'solid-js';
+import { Component, Show, createSignal, createEffect } from 'solid-js';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '../hooks/useTerminal';
 import InitProgress from './InitProgress';
@@ -28,6 +28,13 @@ const Terminal: Component<TerminalProps> = (props) => {
     isInitializing,
     initProgress,
   } = useTerminal(props);
+
+  // Once connected the first time, never show the overlay again.
+  // This enables transparent reconnection without a flash of "Connecting...".
+  const [hasConnected, setHasConnected] = createSignal(false);
+  createEffect(() => {
+    if (connectionState() === 'connected') setHasConnected(true);
+  });
 
   let _containerEl: HTMLDivElement | undefined;
 
@@ -59,7 +66,7 @@ const Terminal: Component<TerminalProps> = (props) => {
 
       {/* Connection status overlay - show until actually connected (not just during retries) */}
       {/* This fixes ghost cursor bug on page reload: covers terminal before WebSocket connects */}
-      <Show when={!isInitializing() && connectionState() !== 'connected'}>
+      <Show when={!isInitializing() && !hasConnected()}>
         <div class="terminal-connection-status">
           <div class="terminal-connection-spinner" />
           <span>{retryMessage() || 'Connecting...'}</span>
