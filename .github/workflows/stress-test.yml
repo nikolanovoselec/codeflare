@@ -49,13 +49,22 @@ jobs:
             exit 1
           fi
 
+          # Verify service token secrets are configured
+          if [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
+            echo "::error::CF_ACCESS_CLIENT_ID or CF_ACCESS_CLIENT_SECRET not set in 'integration' environment secrets"
+            exit 1
+          fi
+
           # Auth check
           SESSIONS=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/api/sessions" \
             -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
             -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET")
           echo "Auth: $SESSIONS"
-          if [ "$SESSIONS" != "200" ]; then
+          if [ "$SESSIONS" = "302" ] || [ "$SESSIONS" = "401" ] || [ "$SESSIONS" = "403" ]; then
+            echo "::error::Auth check failed ($SESSIONS) — service token may be expired or not configured for this app"
+            exit 1
+          elif [ "$SESSIONS" != "200" ]; then
             echo "::error::Auth check failed ($SESSIONS)"
             exit 1
           fi
