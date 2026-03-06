@@ -199,7 +199,7 @@ describe('mobile.ts', () => {
     });
   });
 
-  describe('baselineInnerHeight bidirectional protection (Fix 4)', () => {
+  describe('baselineInnerHeight stability on keyboard close', () => {
     let mockVirtualKeyboard: {
       overlaysContent: boolean;
       boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => any };
@@ -223,7 +223,7 @@ describe('mobile.ts', () => {
       delete (navigator as any).virtualKeyboard;
     });
 
-    it('should update baseline when innerHeight change is < 100px (address bar toggle)', async () => {
+    it('should NOT update baseline on keyboard close (innerHeight is still inflated)', async () => {
       Object.defineProperty(navigator, 'virtualKeyboard', {
         value: mockVirtualKeyboard,
         configurable: true,
@@ -235,46 +235,24 @@ describe('mobile.ts', () => {
       vi.resetModules();
       const mobile = await import('../../lib/mobile');
 
-      // Open keyboard first to exercise the code path
+      // Open keyboard — Samsung hides bottom bar, innerHeight inflates
       vi.advanceTimersByTime(100);
+      (window as any).innerHeight = 847;
       mockVirtualKeyboard.boundingRect.height = 300;
       geometryHandler();
 
-      // Now close keyboard, with innerHeight slightly changed (address bar toggled ~48px)
-      (window as any).innerHeight = 848;
+      // Close keyboard — geometrychange fires before bottom bar returns
+      // so innerHeight is STILL inflated. Baseline must NOT update.
       mockVirtualKeyboard.boundingRect.height = 0;
       geometryHandler();
 
-      // Baseline should update because |848 - 800| = 48 < 100
-      // Verify by checking getKeyboardHeight returns 0 (not a negative/stale value)
-      expect(mobile.getKeyboardHeight()).toBe(0);
-      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
-    });
-
-    it('should NOT update baseline when innerHeight change is >= 100px (transient garbage)', async () => {
-      Object.defineProperty(navigator, 'virtualKeyboard', {
-        value: mockVirtualKeyboard,
-        configurable: true,
-        writable: true,
-      });
-      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
-
-      vi.resetModules();
-      const mobile = await import('../../lib/mobile');
-
-      // Open keyboard
-      vi.advanceTimersByTime(100);
+      // Re-open keyboard — vpGrowth should still use original baseline (800)
       mockVirtualKeyboard.boundingRect.height = 300;
       geometryHandler();
 
-      // Close keyboard but with a large transient innerHeight change (keyboard animation artifact)
-      (window as any).innerHeight = 1200;
-      mockVirtualKeyboard.boundingRect.height = 0;
-      geometryHandler();
-
-      // Baseline should NOT update because |1200 - 800| = 400 >= 100
-      // The keyboard should still report closed
-      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+      // getKeyboardHeight should subtract vpGrowth (47) correctly
+      expect(mobile.getKeyboardHeight()).toBe(253); // 300 - 47
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
     });
   });
 

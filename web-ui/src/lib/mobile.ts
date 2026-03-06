@@ -111,14 +111,9 @@ if (typeof window !== 'undefined') {
           const growth = Math.max(0, window.innerHeight - baselineInnerHeight);
           setViewportGrowth(growth);
         } else if (height <= 0) {
-          // Keyboard closed — reset growth and update baseline.
-          if (isSamsungBrowser) {
-            // Fix 4: Only update baseline if change is < 100px (covers address bar
-            // ~48px, rejects transient garbage from keyboard animation or resume).
-            if (Math.abs(window.innerHeight - baselineInnerHeight) < 100) {
-              baselineInnerHeight = window.innerHeight;
-            }
-          }
+          // Keyboard closed — reset growth. Do NOT update baselineInnerHeight here:
+          // Samsung fires geometrychange before the bottom bar returns, so
+          // window.innerHeight is still inflated and would poison the baseline.
           setViewportGrowth(0);
         }
 
@@ -213,14 +208,9 @@ export function resetKeyboardStateIfStale(): void {
 
   const actualHeight = nav.virtualKeyboard.boundingRect.height;
   if (actualHeight <= 0) {
-    // Keyboard is closed — reset all signals unconditionally.
-    // Previous version only reset when keyboardHeight > 0, which left
-    // viewportGrowth lingering and corrupting subsequent calculations.
     setVkOpen(false);
     setKeyboardHeight(0);
     setViewportGrowth(0);
-    // Re-sync baseline to current viewport state
-    baselineInnerHeight = window.innerHeight;
   }
 }
 
@@ -232,9 +222,6 @@ export function forceResetKeyboardState(): void {
   setVkOpen(false);
   setKeyboardHeight(0);
   setViewportGrowth(0);
-  if (isSamsungBrowser) {
-    baselineInnerHeight = window.innerHeight;
-  }
 }
 
 // Samsung Galaxy Fold screen switch detection.
