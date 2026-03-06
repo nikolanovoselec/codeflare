@@ -20,6 +20,7 @@ const mockTerminalInstance = {
   getSelection: vi.fn(() => ''),
   clearSelection: vi.fn(),
   scrollToBottom: vi.fn(),
+  scrollLines: vi.fn(),
   refresh: vi.fn(),
   focus: vi.fn(),
   dispose: vi.fn(),
@@ -28,6 +29,8 @@ const mockTerminalInstance = {
   buffer: {
     active: {
       length: 0,
+      viewportY: 0,
+      baseY: 0,
       getLine: vi.fn(() => null) as ReturnType<typeof vi.fn>,
     },
     onBufferChange: vi.fn(() => ({ dispose: vi.fn() })),
