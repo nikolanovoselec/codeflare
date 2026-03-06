@@ -119,21 +119,4 @@ Enabled at the repository level (Settings > Code security and analysis):
 
 ### Automated Penetration Testing
 
-A weekly CI workflow (`pentest.yml`) runs external black-box security tests against the production deployment. It validates that the security posture described above actually holds in production.
-
-**What it checks:**
-
-| Job | Tests |
-|-----|-------|
-| `security-headers` | Presence of HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy. Absence of `X-Powered-By`. |
-| `tls` | TLS 1.3 support, TLS 1.0/1.1 rejection, HSTS preload, certificate expiry (fails if <14 days remaining). |
-| `auth-gate` | All `/api/*` endpoints require CF Access authentication. Header spoofing (`cf-access-authenticated-user-email`) is blocked. |
-| `info-disclosure` | No secrets in `/.env`, `/.git/config`, `/api/debug` responses. No stack traces in error pages. |
-| `injection` | Host header injection blocked, `X-Forwarded-Host` has no effect, CL/TE request smuggling rejected, path traversal payloads blocked at auth layer. |
-| `http-methods` | TRACE disabled (405). WebSocket upgrade without auth blocked (302). |
-
-**Running it manually:** Go to `Actions` > `Pentest` > `Run workflow`. The workflow runs six parallel jobs using only `curl` and `openssl` -- no heavy scanning tools.
-
-**Configuration:** The workflow requires a `PENTEST_TARGET` variable (e.g., `https://codeflare.graymatter.ch`) set in the GitHub `production` environment (`Settings` > `Environments` > `production` > `Environment variables`).
-
-**Full report:** See [PENTEST.md](PENTEST.md) for the complete manual penetration test report covering all 13 test categories.
+A weekly CI workflow (`pentest.yml`) runs external black-box security tests against the production deployment, validating security headers, TLS, auth gates, info disclosure, injection resistance, and HTTP methods. Run manually via `Actions` > `Pentest` > `Run workflow`. See [PENTEST.md](PENTEST.md) for the complete report covering all 13 test categories.

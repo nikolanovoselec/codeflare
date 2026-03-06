@@ -661,6 +661,208 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('ResizeObserver scroll preservation', () => {
+    let resizeCallback: (() => void) | undefined;
+    let origResizeObserver: typeof ResizeObserver;
+
+    beforeEach(() => {
+      // Save and replace ResizeObserver to capture the callback
+      origResizeObserver = globalThis.ResizeObserver;
+      (globalThis as any).ResizeObserver = class {
+        constructor(cb: ResizeObserverCallback) {
+          resizeCallback = cb as unknown as () => void;
+        }
+        observe() {}
+        disconnect() {}
+      };
+    });
+
+    afterEach(() => {
+      (globalThis as any).ResizeObserver = origResizeObserver;
+      resizeCallback = undefined;
+    });
+
+    it('preserves scroll position on resize when touch device', async () => {
+      vi.useFakeTimers();
+      // Re-mock requestAnimationFrame since useFakeTimers replaces it
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 0; });
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Advance past keyboard refit debounce to clear kbDebouncePending
+      await vi.advanceTimersByTimeAsync(KEYBOARD_REFIT_DEBOUNCE_MS + 50);
+
+      // Clear mount-time calls
+      mockFit.mockClear();
+      mockScrollToBottom.mockClear();
+      mockTerminalInstance.scrollLines.mockClear();
+
+      // Trigger ResizeObserver
+      resizeCallback?.();
+
+      // fitPreservingScroll should call fit() + scrollToBottom() (since mock buffer viewportY >= baseY)
+      expect(mockFit).toHaveBeenCalled();
+      expect(mockScrollToBottom).toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+
+    it('does NOT preserve scroll on resize for desktop', () => {
+      vi.mocked(isTouchDevice).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Clear mount-time calls
+      mockFit.mockClear();
+      mockScrollToBottom.mockClear();
+      mockTerminalInstance.scrollLines.mockClear();
+
+      // Trigger ResizeObserver
+      resizeCallback?.();
+
+      // Desktop: just fit(), no scroll preservation
+      expect(mockFit).toHaveBeenCalled();
+      expect(mockScrollToBottom).not.toHaveBeenCalled();
+      expect(mockTerminalInstance.scrollLines).not.toHaveBeenCalled();
+
+      dispose();
+    });
+  });
+
+  describe('mobile visibility return refit', () => {
+    it('triggers fit on visibilitychange to visible on mobile when active', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 0; });
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: true });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Advance past keyboard debounce
+      await vi.advanceTimersByTimeAsync(KEYBOARD_REFIT_DEBOUNCE_MS + 50);
+
+      // Clear mount-time calls
+      mockFit.mockClear();
+
+      // Simulate returning from background
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      // Advance past the 100ms delay
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(mockFit).toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+
+    it('does NOT trigger fit on desktop', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 0; });
+      vi.mocked(isTouchDevice).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: true });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Flush microtasks (document.fonts.ready) and any pending timers
+      await vi.advanceTimersByTimeAsync(10);
+
+      // Clear all mount-time calls including fonts.ready fit()
+      mockFit.mockClear();
+
+      // Simulate returning from background
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      // Advance past any delay
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockFit).not.toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+
+    it('does NOT trigger fit when terminal is inactive', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 0; });
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: false });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Advance past keyboard debounce
+      await vi.advanceTimersByTimeAsync(KEYBOARD_REFIT_DEBOUNCE_MS + 50);
+
+      // Clear mount-time calls
+      mockFit.mockClear();
+
+      // Simulate returning from background
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      // Advance past any delay
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockFit).not.toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+
+    it('removes listener on cleanup', async () => {
+      vi.useFakeTimers();
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(0); return 0; });
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, active: true });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Advance past keyboard debounce
+      await vi.advanceTimersByTimeAsync(KEYBOARD_REFIT_DEBOUNCE_MS + 50);
+
+      // Dispose to trigger cleanup
+      dispose();
+
+      // Clear all mocks after dispose
+      mockFit.mockClear();
+
+      // Fire visibilitychange after cleanup
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      // Advance past any delay
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockFit).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+  });
+
   describe('mobile pointer-events toggle on .xterm-screen', () => {
     let screenEl: HTMLDivElement;
 

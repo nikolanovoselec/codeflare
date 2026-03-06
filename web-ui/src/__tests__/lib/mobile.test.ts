@@ -257,4 +257,176 @@ describe('mobile.ts', () => {
       expect(mockVirtualKeyboard.overlaysContent).toBe(false);
     });
   });
+
+  describe('keyboard close polling', () => {
+    let mockVirtualKeyboard: {
+      overlaysContent: boolean;
+      boundingRect: { height: number; width: number; x: number; y: number; top: number; right: number; bottom: number; left: number; toJSON: () => any };
+      addEventListener: ReturnType<typeof vi.fn>;
+      removeEventListener: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      mockVirtualKeyboard = {
+        overlaysContent: true,
+        boundingRect: { height: 300, width: 0, x: 0, y: 0, top: 0, right: 0, bottom: 0, left: 0, toJSON: () => ({}) },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      delete (navigator as any).virtualKeyboard;
+    });
+
+    it('force-resets after 2 consecutive zero readings', async () => {
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Simulate geometrychange firing with keyboard open (triggers startKeyboardPolling)
+      const geometryHandler = mockVirtualKeyboard.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === 'geometrychange'
+      )?.[1] as (() => void) | undefined;
+      expect(geometryHandler).toBeDefined();
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler!();
+
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+
+      // Now simulate Samsung back-button: keyboard dismissed without geometrychange
+      mockVirtualKeyboard.boundingRect.height = 0;
+
+      // First poll — single zero reading, should NOT reset yet
+      vi.advanceTimersByTime(500);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+
+      // Second poll — 2 consecutive zeros, should force-reset
+      vi.advanceTimersByTime(500);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+      expect(mobile.getKeyboardHeight()).toBe(0);
+    });
+
+    it('does NOT reset after single zero reading', async () => {
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Trigger geometrychange to start polling
+      const geometryHandler = mockVirtualKeyboard.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === 'geometrychange'
+      )?.[1] as (() => void) | undefined;
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler!();
+
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+
+      // Keyboard dismissed without event
+      mockVirtualKeyboard.boundingRect.height = 0;
+
+      // Only one poll tick — should still be open
+      vi.advanceTimersByTime(500);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+    });
+
+    it('resets counter on non-zero reading between zeros', async () => {
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Start polling via geometrychange
+      const geometryHandler = mockVirtualKeyboard.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === 'geometrychange'
+      )?.[1] as (() => void) | undefined;
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler!();
+
+      // First zero reading
+      mockVirtualKeyboard.boundingRect.height = 0;
+      vi.advanceTimersByTime(500);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+
+      // Non-zero reading resets counter
+      mockVirtualKeyboard.boundingRect.height = 300;
+      vi.advanceTimersByTime(500);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+
+      // Another zero — only 1 consecutive zero, should NOT reset
+      mockVirtualKeyboard.boundingRect.height = 0;
+      vi.advanceTimersByTime(500);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+    });
+
+    it('self-stops when keyboard closes normally', async () => {
+      Object.defineProperty(navigator, 'virtualKeyboard', {
+        value: mockVirtualKeyboard,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Start polling via geometrychange
+      const geometryHandler = mockVirtualKeyboard.addEventListener.mock.calls.find(
+        (call: any[]) => call[0] === 'geometrychange'
+      )?.[1] as (() => void) | undefined;
+      mockVirtualKeyboard.boundingRect.height = 300;
+      geometryHandler!();
+
+      // Force-reset after 2 zero readings
+      mockVirtualKeyboard.boundingRect.height = 0;
+      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(500);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+
+      // After reset, further ticks should NOT throw or change state
+      // (polling should have stopped)
+      mockVirtualKeyboard.boundingRect.height = 300;
+      vi.advanceTimersByTime(500);
+      // vkOpen should still be false because polling stopped and no geometrychange fired
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+    });
+
+    it('no polling when VirtualKeyboard API unavailable', async () => {
+      // Ensure no virtualKeyboard
+      delete (navigator as any).virtualKeyboard;
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Should not throw — no interval set, no errors
+      vi.advanceTimersByTime(5000);
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+    });
+
+    it('exported constants match expected values', async () => {
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      expect(mobile.KEYBOARD_POLL_INTERVAL_MS).toBe(500);
+      expect(mobile.KEYBOARD_POLL_ZERO_THRESHOLD).toBe(2);
+    });
+  });
 });

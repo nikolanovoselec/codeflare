@@ -53,6 +53,20 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let kbDebouncePending = false;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
 
+  /** Fit terminal preserving scroll position (mobile-safe). */
+  function fitPreservingScroll(): void {
+    if (!fitAddon || !term) return;
+    const buffer = term.buffer.active;
+    const wasAtBottom = buffer.viewportY >= buffer.baseY;
+    const savedViewportY = buffer.viewportY;
+    fitAddon.fit();
+    if (wasAtBottom) {
+      term.scrollToBottom();
+    } else {
+      term.scrollLines(Math.min(savedViewportY, buffer.baseY) - buffer.viewportY);
+    }
+  }
+
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
 
@@ -235,11 +249,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         if (kbDebouncePending) return;
         requestAnimationFrame(() => {
           if (!fitAddon || !term || kbDebouncePending) return;
-          fitAddon.fit();
-          const cols = term.cols;
-          const rows = term.rows;
-          setDimensions({ cols, rows });
-          terminalStore.resize(props.sessionId, props.terminalId, cols, rows);
+          if (isTouchDevice()) {
+            fitPreservingScroll();
+          } else {
+            fitAddon.fit();
+          }
+          setDimensions({ cols: term.cols, rows: term.rows });
+          terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
         });
       }
     });
@@ -325,18 +341,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const timer = setTimeout(() => {
       kbDebouncePending = false;
       if (!fitAddon || !term) return;
-      // Save scroll position before fit — fit() can reset viewport to top.
-      // Restore after to prevent the "jump to top" bug on mobile keyboards.
-      const buffer = term.buffer.active;
-      const wasAtBottom = buffer.viewportY >= buffer.baseY;
-      const savedViewportY = buffer.viewportY;
-      fitAddon.fit();
-      if (wasAtBottom) {
-        term.scrollToBottom();
-      } else {
-        // Clamp to new baseY in case buffer shrank
-        term.scrollLines(Math.min(savedViewportY, buffer.baseY) - buffer.viewportY);
-      }
+      fitPreservingScroll();
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
       window.scrollTo(0, 0);
@@ -377,6 +382,29 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         forceResetKeyboardState();
       });
     }
+  });
+
+  // Refit terminal on mobile visibility return.
+  // Samsung Internet may change viewport dimensions while backgrounded
+  // (address bar animation, orientation change). No existing code triggers
+  // fitAddon.fit() on return — terminal stays at old dimensions.
+  createEffect(() => {
+    if (!props.active || !isTouchDevice()) return;
+
+    const onVisibilityReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!fitAddon || !term) return;
+      // Short delay lets Samsung stabilize viewport after resume
+      setTimeout(() => {
+        if (!fitAddon || !term) return;
+        fitPreservingScroll();
+        setDimensions({ cols: term.cols, rows: term.rows });
+        terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+      }, 100);
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityReturn);
+    onCleanup(() => document.removeEventListener('visibilitychange', onVisibilityReturn));
   });
 
   // Active state changes + cursor bugfix

@@ -1530,3 +1530,15 @@ Two effects can trigger `fitAddon.fit()` simultaneously:
 3. **ResizeObserver** (immediate `requestAnimationFrame`)
 
 The `kbDebouncePending` flag is set `true` when the keyboard refit starts its debounce timer and cleared when the debounced callback fires. Both the active-state effect and ResizeObserver check this flag and skip `fit()` when it's `true`, deferring to the scroll-preserving keyboard refit. This prevents the "terminal jumps to top" bug on keyboard open/close.
+
+#### Keyboard Close Polling
+
+Samsung may dismiss keyboard without `geometrychange` (e.g., back button). A polling mechanism in `mobile.ts` checks `virtualKeyboard.boundingRect.height` every 500ms while `vkOpen()` is true. Two consecutive zero-height readings trigger `forceResetKeyboardState()` + `disableVirtualKeyboardOverlay()`. Polling self-stops when keyboard closes normally (via `geometrychange`) or when it detects close via polling.
+
+#### ResizeObserver Scroll Preservation
+
+Samsung's address bar animation triggers ResizeObserver before `geometrychange` fires. On desktop, ResizeObserver calls `fitAddon.fit()` directly. On mobile (`isTouchDevice()`), ResizeObserver uses `fitPreservingScroll()` — a helper that saves viewport position before fitting and restores it after, preventing the terminal from jumping to scroll position 0.
+
+#### Visibility Return Refit
+
+When the user leaves Samsung Internet and returns, the terminal may show dead space below content because no `fitAddon.fit()` is triggered. A `createEffect` in `useTerminal.ts` listens for `visibilitychange` events on mobile. When the document becomes visible again (and the terminal is active), it triggers a scroll-preserving refit after a 100ms delay to allow Samsung's viewport to stabilize.

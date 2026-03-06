@@ -82,11 +82,45 @@ let usingVirtualKeyboardAPI = false;
 export const isSamsungBrowser = typeof navigator !== 'undefined'
   ? /SamsungBrowser/i.test(navigator.userAgent) : false;
 
+export const KEYBOARD_POLL_INTERVAL_MS = 500;
+export const KEYBOARD_POLL_ZERO_THRESHOLD = 2;
+
 let baselineInnerHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
 const [viewportGrowth, setViewportGrowth] = createSignal(0);
 
 /** Safety-net timer for keyboard close detection (see disableVirtualKeyboardOverlay). */
 let keyboardCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Polling fallback for Samsung Internet back-button keyboard dismiss.
+ *  Samsung Internet dismisses the keyboard via the back button without firing
+ *  geometrychange or blurring the input. This poller checks boundingRect.height
+ *  every KEYBOARD_POLL_INTERVAL_MS while vkOpen() is true. Two consecutive
+ *  zero readings trigger a force-reset of keyboard state. */
+let keyboardPollTimer: ReturnType<typeof setInterval> | null = null;
+let consecutiveZeroReadings = 0;
+
+function stopKeyboardPolling(): void {
+  if (keyboardPollTimer) { clearInterval(keyboardPollTimer); keyboardPollTimer = null; }
+  consecutiveZeroReadings = 0;
+}
+
+function startKeyboardPolling(): void {
+  if (keyboardPollTimer || !nav.virtualKeyboard) return;
+  consecutiveZeroReadings = 0;
+  keyboardPollTimer = setInterval(() => {
+    if (!nav.virtualKeyboard || !vkOpen()) { stopKeyboardPolling(); return; }
+    const height = nav.virtualKeyboard.boundingRect.height;
+    if (height <= 0) {
+      consecutiveZeroReadings++;
+      if (consecutiveZeroReadings >= KEYBOARD_POLL_ZERO_THRESHOLD) {
+        forceResetKeyboardState();
+        disableVirtualKeyboardOverlay();
+      }
+    } else {
+      consecutiveZeroReadings = 0;
+    }
+  }, KEYBOARD_POLL_INTERVAL_MS);
+}
 
 if (typeof window !== 'undefined') {
   if (nav.virtualKeyboard) {
@@ -122,6 +156,7 @@ if (typeof window !== 'undefined') {
 
         setVkOpen(height > 0);
         setKeyboardHeight(height);
+        if (height > 0) startKeyboardPolling();
       } else {
         setVkOpen(false);
         setKeyboardHeight(0);
@@ -231,6 +266,7 @@ export function resetKeyboardStateIfStale(): void {
     nav.virtualKeyboard.overlaysContent = true;
     setVkOpen(true);
     setKeyboardHeight(actualHeight);
+    startKeyboardPolling();
     if (isSamsungBrowser) {
       const growth = Math.max(0, window.innerHeight - baselineInnerHeight);
       setViewportGrowth(growth);
@@ -243,6 +279,7 @@ export function resetKeyboardStateIfStale(): void {
 // zeros all signals. Used when we KNOW the keyboard context is ending (terminal
 // deactivation, navigation away) and don't want to rely on async VK API events.
 export function forceResetKeyboardState(): void {
+  stopKeyboardPolling();
   setVkOpen(false);
   setKeyboardHeight(0);
   setViewportGrowth(0);
