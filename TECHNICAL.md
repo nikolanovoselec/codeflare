@@ -1520,7 +1520,13 @@ Samsung's bottom navigation bar creates a "locked layout viewport" bug:
 - `baselineInnerHeight` captures the pre-keyboard `innerHeight` for comparison
 - `viewportGrowth` = `innerHeight - baselineInnerHeight` represents the nav bar space
 - `getKeyboardHeight()` subtracts `viewportGrowth` from `boundingRect.height` (only with bottom address bar, narrow screens)
-- On visibility return with keyboard closed, `baselineInnerHeight` is re-synced to `window.innerHeight` to account for address bar position changes that occurred while backgrounded
+- On visibility return with keyboard closed, `baselineInnerHeight` is re-synced to `window.innerHeight` — but **only when `vkOpen()` is false**
+
+**Critical invariant:** `baselineInnerHeight` must never be updated while the keyboard is open. When the keyboard is open, `innerHeight` is inflated by the hidden nav bar (~47px). Re-syncing the baseline to this inflated value permanently zeroes `viewportGrowth`, causing `getKeyboardHeight()` to return the full raw `boundingRect` instead of the compensated value — a ~47px gap between terminal and keyboard.
+
+**Resume transient zero bug:** Samsung's `boundingRect` can transiently report `height=0` during the resume animation even while the keyboard is still visible. Without the `!vkOpen()` guard, the delayed `resetKeyboardStateIfStale()` call (300ms after visibility return) could hit the `height<=0` branch during this transient and poison `baselineInnerHeight`. The guard ensures that a single zero reading is ignored when the keyboard was previously known to be open.
+
+**`viewportGrowth` closed→open gate:** The `geometrychange` handler only recalculates `viewportGrowth` on the closed→open transition (`!vkOpen()` at the time the event fires). While the keyboard stays open, the hidden nav bar space doesn't change, so recalculating on every `geometrychange` is unnecessary and dangerous — Samsung may fire `geometrychange` during resume with transient `innerHeight` values that corrupt the growth calculation.
 
 #### `kbDebouncePending` Guard Pattern
 
@@ -1542,3 +1548,9 @@ Samsung's address bar animation triggers ResizeObserver before `geometrychange` 
 #### Visibility Return Refit
 
 When the user leaves Samsung Internet and returns, the terminal may show dead space below content because no `fitAddon.fit()` is triggered. A `createEffect` in `useTerminal.ts` listens for `visibilitychange` events on mobile. When the document becomes visible again (and the terminal is active), it triggers a scroll-preserving refit after a 100ms delay to allow Samsung's viewport to stabilize.
+
+#### Dashboard Transition Keyboard Dismiss
+
+Samsung Internet caches the VK `boundingRect` when `overlaysContent` changes. If the keyboard is mid-dismiss animation when terminal cleanup sets `overlaysContent=false`, Samsung caches a stale non-zero height. On return, enabling `overlaysContent` triggers a stale `geometrychange` that leaves the terminal at half height.
+
+Fix in `Layout.tsx`: `handleOpenDashboard()` blurs the active element to dismiss the keyboard, then waits 1000ms before starting the dashboard transition — but only when the keyboard is open (`isVirtualKeyboardOpen()`). This lets the keyboard fully close while `overlaysContent` is still `true`, so Samsung caches `height=0`. No keyboard open = no delay.
