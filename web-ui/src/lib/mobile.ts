@@ -142,8 +142,14 @@ if (typeof window !== 'undefined') {
 
         if (height > 0 && isSamsungBrowser) {
           // Samsung: track viewport growth from hidden bottom bar.
-          const growth = Math.max(0, window.innerHeight - baselineInnerHeight);
-          setViewportGrowth(growth);
+          // Only recalculate on the closed→open transition. While the keyboard
+          // stays open, the nav bar stays hidden and growth doesn't change.
+          // Recalculating on every geometrychange lets Samsung's transient
+          // resume innerHeight corrupt the value.
+          if (!vkOpen()) {
+            const growth = Math.max(0, window.innerHeight - baselineInnerHeight);
+            setViewportGrowth(growth);
+          }
         } else if (height <= 0) {
           // Keyboard closed — reset growth and update baseline.
           if (isSamsungBrowser) {
@@ -255,9 +261,15 @@ export function resetKeyboardStateIfStale(): void {
     setVkOpen(false);
     setKeyboardHeight(0);
     setViewportGrowth(0);
-    // Re-sync baseline to current viewport state (covers address bar
-    // position changes that happened while backgrounded).
-    baselineInnerHeight = window.innerHeight;
+    // Re-sync baseline — but ONLY if the keyboard wasn't previously known
+    // to be open. On Samsung resume, boundingRect can transiently report 0
+    // while the keyboard is still visible (resume animation). If we re-sync
+    // baselineInnerHeight to the inflated innerHeight (nav bar hidden) during
+    // that transient, viewportGrowth gets permanently zeroed, creating a
+    // ~47px gap between terminal and keyboard.
+    if (!vkOpen()) {
+      baselineInnerHeight = window.innerHeight;
+    }
   } else {
     // Keyboard still open (e.g. user left browser and returned with keyboard up).
     // Re-enable overlaysContent so geometrychange events fire again — it was

@@ -157,7 +157,7 @@ const Layout: Component<LayoutProps> = (props) => {
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
-    const kbDismissDelay = isVirtualKeyboardOpen() ? 300 : 0;
+    const kbDismissDelay = isVirtualKeyboardOpen() ? 1000 : 0;
     setTimeout(() => {
       setViewState('collapsing');
       setTimeout(() => {
