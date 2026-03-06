@@ -26,14 +26,25 @@ jobs:
     name: Verify target
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     environment: integration
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
       base_url: ${{ steps.target.outputs.base_url }}
     env:
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - name: Resolve target and smoke test
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '22'
+
+      - name: Install wrangler
+        run: npm install -g wrangler@4.68.1
+
+      - name: Resolve target
         id: target
         run: |
           RAW="${{ vars.E2E_BASE_URL }}"
@@ -41,7 +52,45 @@ jobs:
           echo "base_url=$BASE" >> "$GITHUB_OUTPUT"
           echo "Target: $BASE"
 
-          # Health check
+      - name: Ensure SERVICE_AUTH_SECRET is set on target worker
+        run: |
+          if [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
+            echo "::error::CF_ACCESS_CLIENT_SECRET is not set in the integration environment."
+            exit 1
+          fi
+
+          WORKER="${{ vars.CLOUDFLARE_WORKER_NAME }}"
+          echo "Setting SERVICE_AUTH_SECRET on worker: $WORKER"
+          printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
+
+          # Seed stress test service user in KV allowlist
+          SERVICE_EMAIL="e2e-service@codeflare.local"
+          echo "Seeding service user: ${SERVICE_EMAIL}"
+
+          KV_TITLE="${WORKER}-kv"
+          KV_ID=$(wrangler kv namespace list 2>&1 \
+            | sed -n '/^\[/,/^\]/p' \
+            | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
+            | head -1)
+
+          if [ -n "$KV_ID" ]; then
+            KV_VALUE="{\"addedBy\":\"stress-test\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
+            wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --namespace-id "$KV_ID" --remote 2>&1 || \
+            echo "::warning::Could not seed service user in KV (non-fatal)"
+          else
+            echo "::warning::KV namespace not found for worker $WORKER (non-fatal)"
+          fi
+
+          echo "Waiting 15s for KV propagation and worker secret deployment..."
+          sleep 15
+
+      - name: Smoke test
+        env:
+          E2E_BASE_URL: ${{ steps.target.outputs.base_url }}
+        run: |
+          BASE="$E2E_BASE_URL"
+
+          # Health check (no auth needed)
           HEALTH=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/health" || true)
           echo "Health: $HEALTH"
           if [ "$HEALTH" != "200" ]; then
@@ -49,27 +98,34 @@ jobs:
             exit 1
           fi
 
-          # Verify service token secrets are configured
-          if [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
-            echo "::error::CF_ACCESS_CLIENT_ID or CF_ACCESS_CLIENT_SECRET not set in 'integration' environment secrets"
+          # Auth check with retries (KV eventual consistency)
+          for i in 1 2 3; do
+            SESSIONS=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/api/sessions" \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
+            echo "Attempt $i: /api/sessions -> $SESSIONS"
+
+            if [ "$SESSIONS" = "200" ]; then
+              echo "Auth working!"
+              break
+            fi
+
+            if [ "$SESSIONS" = "302" ]; then
+              echo "::error::Auth returned 302 — CF Access rejected service token or worker redirected to login"
+              exit 1
+            fi
+
+            if [ "$i" -lt 3 ]; then
+              echo "Waiting 10s for propagation..."
+              sleep 10
+            fi
+          done
+
+          if [ "$SESSIONS" != "200" ]; then
+            echo "::error::Auth failed ($SESSIONS) after retries"
             exit 1
           fi
-
-          # Auth check
-          SESSIONS=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/api/sessions" \
-            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET")
-          echo "Auth: $SESSIONS"
-          if [ "$SESSIONS" = "302" ] || [ "$SESSIONS" = "401" ] || [ "$SESSIONS" = "403" ]; then
-            echo "::error::Auth check failed ($SESSIONS) — service token may be expired or not configured for this app"
-            exit 1
-          elif [ "$SESSIONS" != "200" ]; then
-            echo "::error::Auth check failed ($SESSIONS)"
-            exit 1
-          fi
-
-          echo "Target is reachable and auth works"
 
   api-throughput:
     name: API throughput
