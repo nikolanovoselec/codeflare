@@ -6,10 +6,9 @@ import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore } from '../stores/session';
-import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
+import { terminalStore, reconnectDisconnectedTerminals, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
-import { isVirtualKeyboardOpen } from '../lib/mobile';
 import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 
@@ -33,6 +32,7 @@ interface LayoutProps {
  * +------------------------------------------------------------------+
  */
 const Layout: Component<LayoutProps> = (props) => {
+  const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
@@ -77,7 +77,7 @@ const Layout: Component<LayoutProps> = (props) => {
   {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && viewState() !== 'dashboard') {
-        reconnectOnVisibilityReturn(untrack(() => sessionStore.activeSessionId) ?? undefined);
+        reconnectDisconnectedTerminals(untrack(() => sessionStore.activeSessionId) ?? undefined);
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -146,25 +146,18 @@ const Layout: Component<LayoutProps> = (props) => {
     sessionStore.dismissInitProgressForSession(sessionId);
   };
 
+  const _handleReconnect = (sessionId: string, terminalId: string = '1') => {
+    terminalStore.reconnect(sessionId, terminalId, setTerminalError);
+  };
+
   const handleOpenDashboard = () => {
-    // Dismiss keyboard and wait for it to close before transitioning.
-    // Samsung Internet caches the VK boundingRect when overlaysContent changes.
-    // If the keyboard is still mid-animation when cleanup sets overlaysContent=false,
-    // Samsung caches a stale non-zero height. On return, enabling overlaysContent
-    // triggers a stale geometrychange that leaves the terminal at half height.
-    // Fix: let the keyboard fully close (300ms) WHILE overlaysContent is still true,
-    // so Samsung caches height=0. No keyboard = no delay.
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-    const kbDismissDelay = isVirtualKeyboardOpen() ? 1000 : 0;
+    // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
+    // becomes false (via onCleanup in the keyboard lifecycle effect).
+    setViewState('collapsing');
     setTimeout(() => {
-      setViewState('collapsing');
-      setTimeout(() => {
-        sessionStore.setActiveSession(null);
-        setViewState('dashboard');
-      }, VIEW_TRANSITION_DURATION_MS);
-    }, kbDismissDelay);
+      sessionStore.setActiveSession(null);
+      setViewState('dashboard');
+    }, VIEW_TRANSITION_DURATION_MS);
   };
 
   const handleDashboardSessionSelect = (sessionId: string) => {
@@ -231,6 +224,7 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleDismissError = () => {
     sessionStore.clearError();
+    setTerminalError(null);
   };
 
   return (
@@ -270,7 +264,8 @@ const Layout: Component<LayoutProps> = (props) => {
           onStartSession={handleStartSession}
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
-          error={sessionStore.error}
+          onTerminalError={setTerminalError}
+          error={sessionStore.error || terminalError()}
           onDismissError={handleDismissError}
           viewState={viewState()}
           userName={props.userName}

@@ -25,6 +25,7 @@ export interface UseTerminalOptions {
   active: boolean;
   alwaysObserveResize?: boolean;
   hideInitProgress?: boolean;
+  onError?: (error: string) => void;
   onInitComplete?: () => void;
 }
 
@@ -32,6 +33,7 @@ interface UseTerminalResult {
   containerRef: (el: HTMLDivElement) => void;
   terminal: () => Terminal | undefined;
   dimensions: () => { cols: number; rows: number };
+  retryMessage: () => string | null;
   connectionState: () => string;
   isInitializing: () => boolean;
   initProgress: () => ReturnType<typeof sessionStore.getInitProgressForSession>;
@@ -51,23 +53,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let kbDebouncePending = false;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
 
-  /** Fit terminal preserving scroll position (mobile-safe). */
-  function fitPreservingScroll(): void {
-    if (!fitAddon || !term) return;
-    const buffer = term.buffer.active;
-    const wasAtBottom = buffer.viewportY >= buffer.baseY;
-    const savedViewportY = buffer.viewportY;
-    fitAddon.fit();
-    if (wasAtBottom) {
-      term.scrollToBottom();
-    } else {
-      term.scrollLines(Math.min(savedViewportY, buffer.baseY) - buffer.viewportY);
-    }
-  }
-
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
 
+  const retryMessage = createMemo(() => terminalStore.getRetryMessage(props.sessionId, props.terminalId));
   const connectionState = createMemo(() => terminalStore.getConnectionState(props.sessionId, props.terminalId));
   const isInitializing = createMemo(() => sessionStore.isSessionInitializing(props.sessionId));
   const initProgress = createMemo(() => sessionStore.getInitProgressForSession(props.sessionId));
@@ -246,13 +235,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         if (kbDebouncePending) return;
         requestAnimationFrame(() => {
           if (!fitAddon || !term || kbDebouncePending) return;
-          if (isTouchDevice()) {
-            fitPreservingScroll();
-          } else {
-            fitAddon.fit();
-          }
-          setDimensions({ cols: term.cols, rows: term.rows });
-          terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+          fitAddon.fit();
+          const cols = term.cols;
+          const rows = term.rows;
+          setDimensions({ cols, rows });
+          terminalStore.resize(props.sessionId, props.terminalId, cols, rows);
         });
       }
     });
@@ -338,7 +325,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const timer = setTimeout(() => {
       kbDebouncePending = false;
       if (!fitAddon || !term) return;
-      fitPreservingScroll();
+      fitAddon.fit();
+      term.scrollToBottom();
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
       window.scrollTo(0, 0);
@@ -358,7 +346,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find(t => t.id === props.terminalId);
-      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, tab?.manual);
+      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError, tab?.manual);
       terminalStore.startUrlDetection(props.sessionId, props.terminalId);
     }
   });
@@ -369,21 +357,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       resetKeyboardStateIfStale();
       enableVirtualKeyboardOverlay();
       requestAnimationFrame(() => {
-        if (fitAddon && term) fitPreservingScroll();
+        if (fitAddon && term) fitAddon.fit();
       });
 
-      // Delayed recheck: enabling the VK overlay can trigger a stale
-      // geometrychange event (e.g. returning from dashboard or background
-      // with the keyboard previously open). The stale event sets vkOpen=true
-      // even though the keyboard is closed, leaving the terminal at half height.
-      // This delayed check reads the actual VK API state and corrects signals.
-      const recheckTimer = setTimeout(() => {
-        resetKeyboardStateIfStale();
-        if (fitAddon && term) fitPreservingScroll();
-      }, 300);
-
       onCleanup(() => {
-        clearTimeout(recheckTimer);
         const iframeInput = term ? getIframeInput(term) : undefined;
         if (iframeInput) iframeInput.blur();
         disableVirtualKeyboardOverlay();
@@ -392,44 +369,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
   });
 
-  // Refit terminal on mobile visibility return.
-  // Samsung Internet may change viewport dimensions while backgrounded
-  // (address bar animation, orientation change). No existing code triggers
-  // fitAddon.fit() on return — terminal stays at old dimensions.
-  createEffect(() => {
-    if (!props.active || !isTouchDevice()) return;
-
-    const onVisibilityReturn = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (!fitAddon || !term) return;
-      // Short delay lets Samsung stabilize viewport after resume
-      setTimeout(() => {
-        if (!fitAddon || !term) return;
-        fitPreservingScroll();
-        setDimensions({ cols: term.cols, rows: term.rows });
-        terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
-      }, 100);
-    };
-
-    document.addEventListener('visibilitychange', onVisibilityReturn);
-    onCleanup(() => document.removeEventListener('visibilitychange', onVisibilityReturn));
-  });
-
   // Active state changes + cursor bugfix
   createEffect(() => {
     if (props.active && fitAddon && term) {
       requestAnimationFrame(() => {
         if (!fitAddon || !term) return;
-        // Skip fit() when a keyboard refit is pending — the debounced refit
-        // will handle it. Without this guard, this fit() races with the
-        // keyboard refit and wipes the scroll position.
-        if (!kbDebouncePending) {
-          if (isTouchDevice()) {
-            fitPreservingScroll();
-          } else {
-            fitAddon.fit();
-          }
-        }
+        fitAddon.fit();
         if (!isTouchDevice() || !hasInitialScrolled) {
           term.scrollToBottom();
           hasInitialScrolled = true;
@@ -473,6 +418,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     containerRef: setContainerRef,
     terminal: terminalInstance,
     dimensions,
+    retryMessage,
     connectionState,
     isInitializing,
     initProgress,

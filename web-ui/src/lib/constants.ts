@@ -17,8 +17,11 @@ export const MAX_STARTUP_POLL_ERRORS = 10;
 // Terminal Connection
 // =============================================================================
 
-/** Delay between WebSocket retry attempts (ms). Flat interval, no backoff. */
-export const WS_RETRY_DELAY_MS = 1000;
+/** Maximum WebSocket connection retry attempts */
+export const MAX_WS_RETRIES = 10;
+
+/** Delay between WebSocket retry attempts (ms) */
+export const WS_RETRY_DELAY_MS = 2000;
 
 // =============================================================================
 // UI Timing
@@ -26,6 +29,14 @@ export const WS_RETRY_DELAY_MS = 1000;
 
 /** Delay for CSS transitions to settle before layout operations (ms) */
 export const CSS_TRANSITION_DELAY_MS = 100;
+
+// =============================================================================
+// WebSocket Close Codes
+// =============================================================================
+
+/** WebSocket close code for abnormal closure (connection failed) */
+export const WS_CLOSE_ABNORMAL = 1006;
+
 
 // =============================================================================
 // Session

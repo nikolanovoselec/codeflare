@@ -69,6 +69,7 @@ vi.mock('@xterm/addon-fit', () => {
 vi.mock('../../stores/terminal', () => ({
   terminalStore: {
     getConnectionState: vi.fn(),
+    getRetryMessage: vi.fn(() => null),
     getTerminal: vi.fn(),
     setTerminal: vi.fn(),
     connect: vi.fn(() => vi.fn()),
@@ -228,12 +229,11 @@ describe('Terminal Component', () => {
       // Connection overlay should not be visible (hidden by init overlay)
     });
 
-    it('should NOT show overlay after first connection (transparent reconnect)', () => {
+    it('should show overlay again when disconnected after previous connection', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
 
       // Use a SolidJS signal to back the mock so useTerminal's createMemo
-      // tracks it and re-evaluates when the signal changes. This lets us
-      // simulate reactive state transitions within a single component lifecycle.
+      // tracks it and re-evaluates when the signal changes.
       const [connState, setConnState] = createSignal<TerminalConnectionState>('connecting');
       vi.mocked(terminalStore.getConnectionState).mockImplementation(() => connState());
 
@@ -242,14 +242,14 @@ describe('Terminal Component', () => {
       // Phase 1: 'connecting' — overlay should show
       expect(screen.getByText('Connecting...')).toBeInTheDocument();
 
-      // Phase 2: transition to 'connected' — overlay disappears, hasConnected latches true
+      // Phase 2: transition to 'connected' — overlay disappears
       setConnState('connected');
       expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
 
-      // Phase 3: transition to 'disconnected' — overlay should NOT reappear
-      // because hasConnected is a one-way latch (never reset to false)
+      // Phase 3: transition to 'disconnected' — overlay SHOULD reappear
+      // (baseline shows overlay whenever connectionState !== 'connected')
       setConnState('disconnected');
-      expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
+      expect(screen.getByText('Connecting...')).toBeInTheDocument();
     });
   });
 

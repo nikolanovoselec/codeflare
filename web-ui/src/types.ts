@@ -116,7 +116,8 @@ export interface UserInfo {
 export type TerminalConnectionState =
   | 'disconnected'
   | 'connecting'
-  | 'connected';
+  | 'connected'
+  | 'error';
 
 // Terminal tab within a session (multiple terminals per container)
 export interface TerminalTab {

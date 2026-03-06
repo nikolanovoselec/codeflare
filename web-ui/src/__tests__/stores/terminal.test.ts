@@ -635,7 +635,7 @@ describe('Terminal Store', () => {
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('retries with flat 1-second delay on abnormal close', async () => {
+    it('retries with 2s delay up to MAX_WS_RETRIES on abnormal close', async () => {
       const terminal = createMockTerminal();
 
       const OriginalWebSocket = globalThis.WebSocket;
@@ -658,9 +658,8 @@ describe('Terminal Store', () => {
         constructor(url: string) {
           this.url = url;
           connectTimestamps.push(Date.now());
-          // Simulate immediate failure
           setTimeout(() => {
-            this.readyState = 3; // CLOSED
+            this.readyState = 3;
             if (this.onclose) {
               this.onclose(new CloseEvent('close', { code: 1006 }));
             }
@@ -675,38 +674,28 @@ describe('Terminal Store', () => {
 
       terminalStore.connect(sessionId, terminalId, terminal);
 
-      // Initial connect attempt
       expect(connectTimestamps.length).toBe(1);
 
       // Let first attempt fail
       await vi.advanceTimersByTimeAsync(0);
 
-      // Each retry cycle consists of:
-      //   1. WS_RETRY_DELAY_MS (100ms) until attemptConnection fires
-      //   2. setTimeout(close, 0) inside the WS constructor resolves at +1ms
-      //      in @sinonjs/fake-timers (nested setTimeout(fn, 0) during timer
-      //      processing schedules at currentTime + 1)
-      //   3. The close handler schedules the next retry at +100ms
-      //
-      // So each full cycle is 101ms (100ms retry delay + 1ms close).
-      // To capture exactly 3 retries we advance 3 * 101 = 303ms.
+      // Each retry cycle: WS_RETRY_DELAY_MS (100ms mocked) + 1ms close timer
+      // Advance through 3 retry cycles
       await vi.advanceTimersByTimeAsync(303);
 
       // Should have 4 total attempts (1 initial + 3 retries)
       expect(connectTimestamps.length).toBe(4);
 
-      // Verify intervals are constant (flat, not exponentially growing)
+      // Verify intervals are constant (flat 100ms delay + 1ms close)
       for (let i = 2; i < connectTimestamps.length; i++) {
         const interval = connectTimestamps[i] - connectTimestamps[i - 1];
-        // Each interval should be ~101ms (100ms retry delay + 1ms close timer),
-        // never growing (no backoff)
         expect(interval).toBeLessThanOrEqual(150);
       }
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('never gives up retrying', async () => {
+    it('gives up after MAX_WS_RETRIES attempts and sets error state', async () => {
       const terminal = createMockTerminal();
 
       const OriginalWebSocket = globalThis.WebSocket;
@@ -745,26 +734,25 @@ describe('Terminal Store', () => {
 
       terminalStore.connect(sessionId, terminalId, terminal);
 
-      // Simulate many retry cycles well past the old 30-minute window
-      // Old window was 5000ms in test mock. We go 10x past that.
-      for (let i = 0; i < 500; i++) {
+      // Exhaust all retries: MAX_WS_RETRIES = 10, each cycle ~101ms
+      // 10 retries * 101ms = 1010ms, plus initial attempt
+      for (let i = 0; i < 15; i++) {
         await vi.advanceTimersByTimeAsync(0);   // WS closes
         await vi.advanceTimersByTimeAsync(100);  // WS_RETRY_DELAY_MS
       }
 
-      // Should still be retrying (connecting), never 'error'
+      // Should have stopped retrying — state should be 'error' (never connected)
       const state = terminalStore.getConnectionState(sessionId, terminalId);
-      expect(state).toBe('connecting');
+      expect(state).toBe('error');
 
-      // Should have made many connection attempts (not stopped)
-      expect(connectCount).toBeGreaterThan(100);
+      // Should have made exactly MAX_WS_RETRIES (10) attempts
+      expect(connectCount).toBe(10);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('does not export retryMessage', () => {
-      // retryMessage/getRetryMessage should not be part of the public API
-      expect('getRetryMessage' in terminalStore).toBe(false);
+    it('exports getRetryMessage in the store API', () => {
+      expect('getRetryMessage' in terminalStore).toBe(true);
     });
   });
 
