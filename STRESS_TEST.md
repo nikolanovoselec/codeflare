@@ -79,6 +79,21 @@ Upload-browse-download-delete cycle with random file sizes (1 KB, 50 KB, 500 KB)
 
 **Think time:** 2s between iterations. Reduced to 0.5s when concurrency is set.
 
+### Stress Test with Rate Limits (`rate-limit-validation.js`)
+
+Validates that rate limits ARE enforced when `STRESS_TEST_MODE` is **not** set. Runs a single VU that bursts session creates past the configured limit and verifies 429 responses.
+
+**Must be run separately** — select `rate-limit-validation` from the suite dropdown. Not included in `all` because the load test suites require rate limits to be off.
+
+| Check | Pass condition |
+|-------|---------------|
+| Rate limit enforced | At least one 429 returned |
+| Requests succeed before limit | Some 201s before hitting cap |
+| Cap not exceeded | Successful creates ≤ rate limit cap |
+| No server errors | Unexpected error rate < 5% |
+
+**Prerequisite:** `STRESS_TEST_MODE` must NOT be set on the worker (or set to anything other than `"active"`).
+
 ## VU-to-Real-User Mapping
 
 Each k6 virtual user generates far more traffic than a real Codeflare user. A real user typically loads the dashboard (a few API calls), then works in a terminal (one WebSocket held for minutes), with occasional storage operations — roughly 1 request every 5-10 seconds during active use.
@@ -189,6 +204,7 @@ Results are uploaded as artifacts (retained 30 days).
 | `e2e/stress/api-throughput.js` | API endpoint throughput + spike test |
 | `e2e/stress/session-lifecycle.js` | Session CRUD churn test |
 | `e2e/stress/storage-operations.js` | R2 storage upload/download/delete cycle |
+| `e2e/stress/rate-limit-validation.js` | Rate limit enforcement validation |
 | `.github/workflows/stress-test.yml` | CI workflow |
 | `src/middleware/rate-limit.ts` | HTTP rate-limit bypass (`STRESS_TEST_MODE`) |
 | `src/routes/terminal.ts` | WebSocket rate-limit bypass (`STRESS_TEST_MODE`) |

@@ -11,6 +11,7 @@ on:
           - api-throughput
           - session-lifecycle
           - storage-operations
+          - rate-limit-validation
         default: all
 
 permissions:
@@ -239,9 +240,42 @@ jobs:
           path: storage-results.json
           retention-days: 30
 
+  rate-limit-validation:
+    name: Stress Test with Rate Limits
+    needs: setup
+    if: inputs.suite == 'rate-limit-validation'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    environment: integration
+    timeout-minutes: 10
+    env:
+      E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
+
+      - name: Validate rate limits are enforced
+        run: |
+          k6 run e2e/stress/rate-limit-validation.js \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
+            --summary-export=rate-limit-results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: stress-rate-limit-validation
+          path: rate-limit-results.json
+          retention-days: 30
+
   summary:
     name: Summary
-    needs: [api-throughput, session-lifecycle, storage-operations]
+    needs: [api-throughput, session-lifecycle, storage-operations, rate-limit-validation]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
