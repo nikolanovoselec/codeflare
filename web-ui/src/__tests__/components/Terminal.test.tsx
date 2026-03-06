@@ -117,6 +117,7 @@ vi.mock('../../lib/mobile', () => ({
   disableVirtualKeyboardOverlay: vi.fn(),
   resetKeyboardStateIfStale: vi.fn(),
   forceResetKeyboardState: vi.fn(),
+  isSamsungBrowser: false,
 }));
 
 vi.mock('../../lib/touch-gestures', () => ({
