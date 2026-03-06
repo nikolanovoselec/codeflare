@@ -92,6 +92,8 @@ vi.mock('../../lib/mobile', () => ({
   resetKeyboardStateIfStale: vi.fn(),
 }));
 
+import { resetKeyboardStateIfStale } from '../../lib/mobile';
+import { reconnectOnVisibilityReturn } from '../../stores/terminal';
 import Layout from '../../components/Layout';
 
 // Helper to create a mock session
@@ -428,6 +430,44 @@ describe('Layout Component', () => {
         value: originalLocation,
         writable: true,
       });
+    });
+  });
+
+  // =========================================================================
+  // Visibility Return: Keyboard State Reset
+  //
+  // When the browser tab regains focus, stale keyboard signals from
+  // backgrounding must be cleared before WS reconnection.
+  // =========================================================================
+
+  describe('Visibility Return Keyboard Reset', () => {
+    it('calls resetKeyboardStateIfStale on visibility return in terminal view', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+
+      render(() => <Layout />);
+
+      vi.mocked(resetKeyboardStateIfStale).mockClear();
+      vi.mocked(reconnectOnVisibilityReturn).mockClear();
+
+      // Simulate returning from backgrounded browser
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(resetKeyboardStateIfStale).toHaveBeenCalled();
+      expect(reconnectOnVisibilityReturn).toHaveBeenCalled();
+    });
+
+    it('does NOT call resetKeyboardStateIfStale when on dashboard', () => {
+      // No active session = dashboard view
+      render(() => <Layout />);
+
+      vi.mocked(resetKeyboardStateIfStale).mockClear();
+
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(resetKeyboardStateIfStale).not.toHaveBeenCalled();
     });
   });
 

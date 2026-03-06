@@ -1547,6 +1547,22 @@ Two effects can trigger `fitAddon.fit()` simultaneously:
 
 A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver and active-state effects. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. Both other effects check `kbDebounceTimer !== null` and skip `fit()` when active. The timer callback sets it back to `null`. Using the timer ID (vs. a boolean flag) prevents a race condition where cleanup of the debounce timer doesn't properly clear the gate.
 
+#### Visibility Return Keyboard Reset (Fix 6)
+
+When the browser is backgrounded and returned to, keyboard state signals (`keyboardHeight`, `vkOpen`, `viewportGrowth`) can be stale because:
+- `disableVirtualKeyboardOverlay()` fires on blur (backgrounding) but does NOT reset signals
+- `geometrychange` events are frozen or fall within the 50ms stale-ignore window
+- On Samsung, `forceResetKeyboardState()` zeros signals on `focusout`, but `overlaysContent` stays `false`
+
+**Chrome symptom:** Ghost padding at bottom — `keyboardHeight()` stuck non-zero with keyboard closed.
+**Samsung symptom:** No floating buttons + scrollable page — `overlaysContent=false` means `geometrychange` never sets `vkOpen=true` when keyboard reopens.
+
+**Solution:** Two complementary fixes:
+1. `terminal-mobile-input.ts` `restoreFocusIfNeeded()` calls `resetKeyboardStateIfStale()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input. This ensures signals are clean and `overlaysContent` is `true` when the keyboard opens.
+2. `Layout.tsx` visibility handler calls `resetKeyboardStateIfStale()` as fallback for when focus restore doesn't fire (input was not focused when backgrounded, or readOnly guard is active).
+
+These bugs were masked before infinite WS retries and `hasConnected` latch because the old retry limit (10 attempts → error state) would show an error overlay, forcing the user to navigate away and back — which triggered full keyboard cleanup.
+
 #### WS Retryable Close Codes (Fix 5)
 
 The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.
