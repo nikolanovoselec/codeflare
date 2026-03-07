@@ -35,7 +35,12 @@ DELTA=$((CURRENT_COUNT - last_count))
 [[ $DELTA -lt 15 ]] && exit 0
 
 LOCK_FILE="$COUNTER_DIR/${SESSION_ID}.lock"
-[[ -f "$LOCK_FILE" ]] && exit 0
+if [[ -f "$LOCK_FILE" ]]; then
+    # Stale lock guard: if lock is older than 2 minutes, agent likely crashed — remove and proceed
+    LOCK_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0) ))
+    [[ $LOCK_AGE -lt 120 ]] && exit 0
+    rm -f "$LOCK_FILE"
+fi
 
 TODAY=$(date +%Y-%m-%d)
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
