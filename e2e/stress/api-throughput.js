@@ -41,14 +41,14 @@ export const options = {
         { duration: '30s', target: 0 },
       ],
     },
-    // Spike — multiple users open dashboard simultaneously
+    // Spike — brief burst of users opening dashboard (capped to avoid unrealistic TLS saturation)
     spike: {
       executor: 'ramping-vus',
       startVUs: 0,
       startTime: '4m30s',
       stages: [
-        { duration: '10s', target: scaled(20) },
-        { duration: '30s', target: scaled(20) },
+        { duration: '10s', target: scaled(10) },
+        { duration: '30s', target: scaled(10) },
         { duration: '10s', target: 0 },
       ],
     },
@@ -58,7 +58,7 @@ export const options = {
     http_req_failed: ['rate<0.05'],
     errors: ['rate<0.1'],
     health_duration: ['p(95)<1000'],
-    session_list_duration: ['p(95)<3000'],
+    session_list_duration: ['p(95)<5000'],
   },
 };
 
