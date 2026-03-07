@@ -66,12 +66,14 @@ describe('startup ordering: file modifications before bisync baseline', () => {
 
     // These file-modifying operations must appear BEFORE the bisync baseline launch
     const claudeJsonIdx = main.indexOf('bypassPermissionsModeAccepted');
+    const settingsJsonIdx = main.indexOf('Claude Code hooks configured');
     const geminiIdx = main.indexOf('enableAutoUpdate');
     const codexIdx = main.indexOf('dismissed_version');
     const tabAutostartIdx = main.indexOf('configure_tab_autostart');
     const bisyncBaselineIdx = main.indexOf('establish_bisync_baseline');
 
     assert.ok(claudeJsonIdx > -1, '.claude.json modification should exist in main execution');
+    assert.ok(settingsJsonIdx > -1, '.claude/settings.json hooks merge should exist in main execution');
     assert.ok(geminiIdx > -1, '.gemini/settings.json modification should exist in main execution');
     assert.ok(codexIdx > -1, '.codex/version.json modification should exist in main execution');
     assert.ok(tabAutostartIdx > -1, 'configure_tab_autostart should exist in main execution');
@@ -80,6 +82,10 @@ describe('startup ordering: file modifications before bisync baseline', () => {
     assert.ok(
       claudeJsonIdx < bisyncBaselineIdx,
       '.claude.json modification must run before bisync baseline'
+    );
+    assert.ok(
+      settingsJsonIdx < bisyncBaselineIdx,
+      '.claude/settings.json hooks merge must run before bisync baseline'
     );
     assert.ok(
       geminiIdx < bisyncBaselineIdx,
@@ -427,15 +433,21 @@ describe('Memory MCP configuration', () => {
     );
   });
 
-  it('.memory NOT in rclone exclusions', () => {
+  it('.memory/** NOT in rclone exclusions (only .memory/counter/** is excluded)', () => {
     // Find the RCLONE_FILTERS_COMMON block
     const filtersStart = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
     const filtersEnd = entrypoint.indexOf(')', filtersStart);
     assert.ok(filtersStart > -1, 'RCLONE_FILTERS_COMMON should exist');
     const filtersBlock = entrypoint.slice(filtersStart, filtersEnd);
+    // .memory/counter/** should be excluded (ephemeral per-session counters)
     assert.ok(
-      !filtersBlock.includes('.memory'),
-      '.memory should NOT be in rclone exclusions (memory files must sync to R2)'
+      filtersBlock.includes('.memory/counter/**'),
+      '.memory/counter/** should be excluded (ephemeral counters)'
+    );
+    // .memory/** as a whole should NOT be excluded (JSONL files must sync)
+    assert.ok(
+      !filtersBlock.includes('"- .memory/**"'),
+      '.memory/** should NOT be broadly excluded (memory JSONL files must sync to R2)'
     );
   });
 });

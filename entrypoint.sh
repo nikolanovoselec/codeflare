@@ -237,6 +237,9 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/tmp/**"               # temp lock files
     --filter "- .codex/version.json"         # version check cache
 
+    # Memory capture counters — per-session ephemeral state, not worth syncing
+    --filter "- .memory/counter/**"
+
     # Perl CPAN cache — created by Perl module installs during build, regenerated
     --filter "- .cpan/**"
 
@@ -843,7 +846,27 @@ if [ -n "${SESSION_ID:-}" ]; then
         echo "$MEMORY_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
     fi
     echo "[entrypoint] Memory MCP server configured for Claude Code"
+
+    # Create counter directory for memory capture hook
+    mkdir -p "$USER_HOME/.memory/counter"
 fi
+
+# Configure Claude Code hooks in ~/.claude/settings.json
+# Hooks: PreToolUse (block attributed commits), Stop (async memory capture)
+HOOKS_CONFIG='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/block-attributed-commits.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/memory-capture.sh","async":true,"timeout":10}]}]}}'
+SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
+if [ -f "$SETTINGS_FILE" ]; then
+    TMP_SETTINGS=$(mktemp)
+    if jq --argjson cfg "$HOOKS_CONFIG" '. * $cfg' "$SETTINGS_FILE" > "$TMP_SETTINGS" 2>/dev/null; then
+        mv "$TMP_SETTINGS" "$SETTINGS_FILE"
+    else
+        echo "[entrypoint] WARNING: Could not merge hooks config (malformed settings.json?)"
+        rm -f "$TMP_SETTINGS"
+    fi
+else
+    echo "$HOOKS_CONFIG" | jq '.' > "$SETTINGS_FILE"
+fi
+echo "[entrypoint] Claude Code hooks configured in settings.json"
 
 # === Fast Start: tool-specific config files ===
 if [ "${FAST_CLI_START:-true}" != "false" ]; then
@@ -867,8 +890,8 @@ fi
 configure_tab_autostart
 
 # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
-# Runs AFTER all file modifications (.claude.json, .gemini/settings.json, .codex/version.json,
-# .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
+# Runs AFTER all file modifications (.claude.json, .claude/settings.json, .gemini/settings.json,
+# .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
 if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
     (
         echo "[entrypoint] Establishing bisync baseline in background..."

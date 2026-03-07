@@ -32,6 +32,7 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 21. [Architecture Decisions](#21-architecture-decisions)
 22. [Lessons Learned](#22-lessons-learned)
 23. [Mobile Terminal Design](#23-mobile-terminal-design)
+24. [Automatic Memory Capture](#24-automatic-memory-capture)
 
 **Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by CF Access). The workers.dev URL should then be gated behind one-click Access in the Cloudflare dashboard.
 
@@ -1612,3 +1613,70 @@ Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` 
 #### WS Retryable Close Codes (Fix 5)
 
 The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.
+
+---
+
+## 24. Automatic Memory Capture
+
+Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 15 user messages. Zero manual intervention required.
+
+### Architecture
+
+```
+Stop hook (async, ~150ms)               Background claude CLI (sonnet)
+    |                                        |
+    +-- read stdin JSON (transcript_path)    |
+    +-- jq: count user messages              |
+    +-- check counter at ~/.memory/counter/  |
+    +-- delta < 15? exit                     |
+    +-- lock exists? exit                    |
+    +-- create lock + spawn ───────────────> read transcript from line offset
+    +-- exit (main session free)               summarize new exchanges
+                                               write to MCP memory (add_observations)
+                                               update counter file
+                                               remove lock
+```
+
+### Hook Mechanics
+
+The `memory-capture.sh` script runs as an **async Stop hook** — it fires when the Claude session pauses (after each assistant turn completes) but does not block the main session.
+
+1. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript (~150ms on a 13MB file).
+2. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits immediately.
+3. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If another agent is already running, exits to avoid duplicate work.
+4. **Background agent**: Spawns `claude --model sonnet --max-turns 5 --print` with a prompt that reads the transcript from the saved offset, filters for user/assistant content, and writes concise observations to MCP memory entity `chat-YYYY-MM-DD`.
+
+### Counter Storage
+
+```
+~/.memory/counter/
+├── {session_id}        # Two lines: last_count, last_line_offset
+└── {session_id}.lock   # Exists only while background agent is running
+```
+
+- Counter files are **per-session ephemeral state** — excluded from rclone sync via `--filter "- .memory/counter/**"`.
+- The `.memory/` directory itself IS synced (it contains the MCP memory JSONL files used across sessions).
+
+### Preseed Deployment
+
+Hook scripts are deployed via the preseed pipeline:
+
+1. Source files in `preseed/agents/claude/hooks/`
+2. `scripts/generate-agent-seed.mjs` bakes them into `src/lib/agent-seed.generated.ts`
+3. On first bucket creation: `seedAgentConfigs(overwrite: false)` writes to R2
+4. On "Recreate skills & rules" button: `seedAgentConfigs(overwrite: true)` overwrites in R2
+5. Bisync pulls from R2 to container `~/.claude/hooks/`
+
+### Settings.json Merge
+
+`entrypoint.sh` merges hook configuration into `~/.claude/settings.json` using the same `jq '. * $cfg'` recursive merge pattern as the MCP config. Handles three cases:
+
+- **File doesn't exist**: Creates with hook config
+- **File exists**: Recursive merge preserving user's existing settings (statusLine, permissions, etc.)
+- **File malformed**: Skips with warning, does not overwrite
+
+### Troubleshooting
+
+- **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
+- **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup.
+- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured. Verify the transcript has 15+ user messages since last capture. Check that `claude` CLI is on PATH.

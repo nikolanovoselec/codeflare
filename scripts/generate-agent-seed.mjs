@@ -28,6 +28,8 @@ function inferContentType(filePath) {
       return 'text/html; charset=utf-8';
     case '.svg':
       return 'image/svg+xml';
+    case '.sh':
+      return 'application/x-shellscript; charset=utf-8';
     default:
       return 'application/octet-stream';
   }
