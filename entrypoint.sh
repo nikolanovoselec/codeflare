@@ -237,8 +237,9 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/tmp/**"               # temp lock files
     --filter "- .codex/version.json"         # version check cache
 
-    # Memory capture counters — per-session ephemeral state, not worth syncing
-    --filter "- .memory/counter/**"
+    # Memory capture — persist counter files (2 lines each, needed for --resume), exclude ephemeral lock/vars
+    --filter "- .memory/counter/*.lock"
+    --filter "- .memory/counter/*.vars"
 
     # Perl CPAN cache — created by Perl module installs during build, regenerated
     --filter "- .cpan/**"
@@ -852,8 +853,8 @@ if [ -n "${SESSION_ID:-}" ]; then
 fi
 
 # Configure Claude Code hooks in ~/.claude/settings.json
-# Hooks: PreToolUse (block attributed commits), Stop (async memory capture)
-HOOKS_CONFIG='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/block-attributed-commits.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/memory-capture.sh","async":true,"timeout":10}]}]}}'
+# Hooks: PreToolUse (block attributed commits), Stop (memory capture — must NOT be async, hook uses exit 2 to deliver prompt)
+HOOKS_CONFIG='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/block-attributed-commits.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/memory-capture.sh","timeout":10}]}]}}'
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)

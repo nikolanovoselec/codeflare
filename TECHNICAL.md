@@ -1632,40 +1632,56 @@ Stop hook (~150ms)                       Main agent                    Backgroun
     +-- jq: count user messages              |                              |
     +-- check counter (delta < 15?) → exit   |                              |
     +-- check lock → exit                    |                              |
-    +-- output reminder ──────────────> create lock                         |
-                                        spawn Task agent ───────────> read transcript from line offset
-                                             |                         summarize into MCP memory
-                                        (continues normally)           write counter file
+    +-- write .vars JSON file                |                              |
+    +-- output JSON + exit 2 ─────────> create lock                         |
+                                        spawn Task agent ───────────> read prompt .md + .vars JSON
+                                             |                         read transcript from line offset
+                                        (continues normally)           summarize into MCP memory
+                                                                       compaction check (>300 → ~100)
+                                                                       write counter file
                                                                        rm lock file
 ```
 
 ### Hook Mechanics
 
-The `memory-capture.sh` script runs as a **Stop hook** that outputs a reminder message to the main Claude agent when the threshold is met.
+The `memory-capture.sh` script runs as a **Stop hook** that uses the `{"decision":"block","reason":"..."}` + `exit 2` protocol to deliver a short instruction to the main agent.
 
 1. **Loop guard**: Checks `stop_hook_active` — if `true`, the hook already triggered continuation on a previous stop, so exit to prevent infinite loops.
 2. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
 3. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
 4. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits silently.
 5. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits.
-6. **Reminder output**: Outputs a message telling the main agent to create the lock file and spawn a background Task agent (haiku model) to read the transcript delta, summarize into MCP memory entity `chat-YYYY-MM-DD`, write the counter, and remove the lock.
+6. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the reason string short.
+7. **JSON output + exit 2**: Outputs `{"decision":"block","reason":"..."}` with a short instruction pointing to the prompt file and vars file, then exits with code 2 to block the stop and deliver the reason to the main agent.
+
+**Important**: The Stop hook must NOT have `async: true` in settings.json — async discards stdout, so the agent never sees the instruction. The hook uses exit code 2 (block) to deliver its message.
+
+### Prompt File
+
+The background agent's full instructions live in `~/.claude/hooks/memory-agent-prompt.md` (preseeded alongside the hook script). This keeps the hook's reason string short (~200 chars) while providing detailed instructions for:
+
+- Observation quality (merge related facts, skip trivial events, max 5-8 per window)
+- MCP memory entity naming (`chat-YYYY-MM-DD`)
+- **Automatic compaction**: When total observations exceed 300, compact to ~100 by archiving old chat entities (>3 days) into `chat-archive-YYYY-MM`, merging redundant observations, and deleting stale data.
 
 ### Counter Storage
 
 ```
 ~/.memory/counter/
-├── {session_id}        # Two lines: last_count, last_line_offset
-└── {session_id}.lock   # Exists only while background agent is running
+├── {session_id}        # Two lines: last_count, last_line_offset (synced to R2)
+├── {session_id}.lock   # Exists only while background agent is running (excluded from sync)
+└── {session_id}.vars   # Variables JSON for current hook invocation (excluded from sync)
 ```
 
-- Counter files are **per-session ephemeral state** — excluded from rclone sync via `--filter "- .memory/counter/**"`.
+- Counter files are **persisted to R2** — survives container restarts, needed for `--resume` to avoid re-summarizing the entire transcript.
+- Lock and vars files are **excluded from sync** via `--filter "- .memory/counter/*.lock"` and `--filter "- .memory/counter/*.vars"` — they are ephemeral per-invocation state.
 - The `.memory/` directory itself IS synced (it contains the MCP memory JSONL files used across sessions).
 
 ### Preseed Deployment
 
-Hook scripts are deployed via the preseed pipeline:
+Hook scripts and prompt are deployed via the preseed pipeline:
 
-1. Source files in `preseed/agents/claude/hooks/`
+1. Source files in `preseed/agents/claude/hooks/` (includes `memory-capture.sh` and `memory-agent-prompt.md`)
 2. `scripts/generate-agent-seed.mjs` bakes them into `src/lib/agent-seed.generated.ts`
 3. On first bucket creation: `seedAgentConfigs(overwrite: false)` writes to R2
 4. On "Recreate skills & rules" button: `seedAgentConfigs(overwrite: true)` overwrites in R2
@@ -1673,7 +1689,7 @@ Hook scripts are deployed via the preseed pipeline:
 
 ### Settings.json Merge
 
-`entrypoint.sh` merges hook configuration into `~/.claude/settings.json` using the same `jq '. * $cfg'` recursive merge pattern as the MCP config. Handles three cases:
+`entrypoint.sh` merges hook configuration into `~/.claude/settings.json` using the same `jq '. * $cfg'` recursive merge pattern as the MCP config. The Stop hook is configured **without `async`** and with a 10-second timeout. Handles three cases:
 
 - **File doesn't exist**: Creates with hook config
 - **File exists**: Recursive merge preserving user's existing settings (statusLine, permissions, etc.)
@@ -1683,4 +1699,4 @@ Hook scripts are deployed via the preseed pipeline:
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup.
-- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured. Verify the transcript has 15+ user messages since last capture.
+- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured **without `async: true`**. Verify the transcript has 15+ user messages since last capture. Verify the hook outputs JSON (not plain text) and exits with code 2.

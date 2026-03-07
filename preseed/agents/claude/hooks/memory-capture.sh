@@ -40,9 +40,21 @@ LOCK_FILE="$COUNTER_DIR/${SESSION_ID}.lock"
 TODAY=$(date +%Y-%m-%d)
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
 
-# Tell the main agent to spawn a background task for memory capture
-cat << EOF
-Spawn a background haiku Task agent to summarize this conversation into MCP memory.
-Tell it: read ${TRANSCRIPT} from line ${last_line}, summarize into entity chat-${TODAY}, then write ${CURRENT_COUNT} and ${TOTAL_LINES} to ${COUNTER_FILE} (one per line).
-Create ${LOCK_FILE} before spawning. Agent must rm -f ${LOCK_FILE} when done.
-EOF
+# Write variables to file so the reason string stays short
+VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
+jq -n \
+  --arg transcript "$TRANSCRIPT" \
+  --arg last_line "$last_line" \
+  --arg today "$TODAY" \
+  --arg current_count "$CURRENT_COUNT" \
+  --arg total_lines "$TOTAL_LINES" \
+  --arg counter_file "$COUNTER_FILE" \
+  --arg lock_file "$LOCK_FILE" \
+  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,lock_file:$lock_file}' \
+  > "$VARS_FILE"
+
+# Stop hooks must output JSON {"decision":"block","reason":"..."} and exit 2
+REASON="Spawn a background haiku Task agent. Create ${LOCK_FILE} before spawning. Agent must read ${USER_HOME}/.claude/hooks/memory-agent-prompt.md and ${VARS_FILE}, then execute."
+
+jq -n --arg reason "$REASON" '{"decision":"block","reason":$reason}'
+exit 2
