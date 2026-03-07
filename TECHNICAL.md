@@ -1623,28 +1623,30 @@ Conversation context (decisions, debugging insights, solutions) is automatically
 ### Architecture
 
 ```
-Stop hook (async, ~150ms)               Background claude-unleashed CLI (sonnet)
-    |                                        |
-    +-- read stdin JSON (transcript_path)    |
-    +-- jq: count user messages              |
-    +-- check counter at ~/.memory/counter/  |
-    +-- delta < 15? exit                     |
-    +-- lock exists? exit                    |
-    +-- create lock + spawn ───────────────> read transcript from line offset
-    +-- exit (main session free)               summarize new exchanges
-                                               write to MCP memory (add_observations)
-                                               update counter file
-                                               remove lock
+Stop hook (~150ms)                       Main agent                    Background Task agent (haiku)
+    |                                        |                              |
+    +-- read stdin JSON                      |                              |
+    +-- check stop_hook_active → exit        |                              |
+    +-- jq: count user messages              |                              |
+    +-- check counter (delta < 15?) → exit   |                              |
+    +-- check lock → exit                    |                              |
+    +-- output reminder ──────────────> create lock                         |
+                                        spawn Task agent ───────────> read transcript from line offset
+                                             |                         summarize into MCP memory
+                                        (continues normally)           write counter file
+                                                                       rm lock file
 ```
 
 ### Hook Mechanics
 
-The `memory-capture.sh` script runs as an **async Stop hook** — it fires when the Claude session pauses (after each assistant turn completes) but does not block the main session.
+The `memory-capture.sh` script runs as a **Stop hook** that outputs a reminder message to the main Claude agent when the threshold is met.
 
-1. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript (~150ms on a 13MB file).
-2. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits immediately.
-3. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If another agent is already running, exits to avoid duplicate work.
-4. **Background agent**: Spawns `claude-unleashed --model sonnet --max-turns 5 --print` with a prompt that reads the transcript from the saved offset, filters for user/assistant content, and writes concise observations to MCP memory entity `chat-YYYY-MM-DD`.
+1. **Loop guard**: Checks `stop_hook_active` — if `true`, the hook already triggered continuation on a previous stop, so exit to prevent infinite loops.
+2. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
+3. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
+4. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits silently.
+5. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits.
+6. **Reminder output**: Outputs a message telling the main agent to create the lock file and spawn a background Task agent (haiku model) to read the transcript delta, summarize into MCP memory entity `chat-YYYY-MM-DD`, write the counter, and remove the lock.
 
 ### Counter Storage
 
@@ -1679,4 +1681,4 @@ Hook scripts are deployed via the preseed pipeline:
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup.
-- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured. Verify the transcript has 15+ user messages since last capture. Check that `claude-unleashed` CLI is on PATH.
+- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured. Verify the transcript has 15+ user messages since last capture.
