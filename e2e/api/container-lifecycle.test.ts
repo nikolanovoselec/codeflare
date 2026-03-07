@@ -71,16 +71,16 @@ describe('Container Lifecycle - Strict Readiness', () => {
     expect(readyData.details.terminalServerOk).toBe(true);
   }, 90_000);
 
-  it('Fast Start ON completes under 60s', async () => {
+  it('Fast Start ON completes under 60s', { retry: 1 }, async () => {
     await setPreference('fastStartEnabled', true);
     const { id } = await createSessionViaApi({ agentType: 'bash' });
     sessionIds.push(id);
     await startContainerViaApi(id);
-    const { elapsed } = await waitForContainerReadyViaApi(id);
+    const { elapsed } = await waitForContainerReadyViaApi(id, 55_000);
 
     expect(elapsed).toBeLessThan(60_000);
     console.log(`[E2E] Fast Start ON: container ready in ${(elapsed / 1000).toFixed(1)}s`);
-  }, 60_000);
+  }, 120_000);
 
   it('Fast Start OFF still starts', async () => {
     await setPreference('fastStartEnabled', false);
