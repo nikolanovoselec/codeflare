@@ -30,14 +30,14 @@ describe('settings.json hooks merge', () => {
     );
   });
 
-  it('configures Stop hook for memory-capture.sh', () => {
+  it('configures UserPromptSubmit hook for memory-capture.sh', () => {
     assert.ok(
       entrypoint.includes('memory-capture.sh'),
       'entrypoint should reference memory-capture.sh hook script'
     );
     assert.ok(
-      entrypoint.includes('Stop'),
-      'entrypoint should configure Stop hook event'
+      entrypoint.includes('UserPromptSubmit'),
+      'entrypoint should configure UserPromptSubmit hook event'
     );
   });
 
@@ -52,11 +52,15 @@ describe('settings.json hooks merge', () => {
     );
   });
 
-  it('marks memory-capture hook as async', () => {
-    // The hook config should include async:true for memory capture
+  it('does not mark memory-capture hook as async', () => {
+    // UserPromptSubmit hooks deliver additionalContext via exit 0 — async is not needed
+    // Check that the hooks config block does not contain "async"
+    const hooksStart = entrypoint.indexOf('"hooks":{');
+    const hooksEnd = entrypoint.indexOf('}}\'\n', hooksStart);
+    const hooksBlock = entrypoint.slice(hooksStart, hooksEnd);
     assert.ok(
-      entrypoint.includes('"async"'),
-      'memory-capture hook should be configured as async'
+      !hooksBlock.includes('"async"'),
+      'memory-capture hook should not be configured as async'
     );
   });
 

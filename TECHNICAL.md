@@ -1625,36 +1625,33 @@ Conversation context (decisions, debugging insights, solutions) is automatically
 ### Architecture
 
 ```
-Stop hook (~150ms)                       Main agent                    Background Task agent (haiku)
+UserPromptSubmit hook (~150ms)           Main agent                    Background Task agent (haiku)
     |                                        |                              |
     +-- read stdin JSON                      |                              |
-    +-- check stop_hook_active → exit        |                              |
     +-- jq: count user messages              |                              |
     +-- check counter (delta < 30?) → exit   |                              |
     +-- check lock → exit                    |                              |
     +-- write .vars JSON file                |                              |
-    +-- output JSON + exit 2 ─────────> create lock                         |
+    +-- output JSON + exit 0 ─────────> receive additionalContext           |
+                                        create lock                         |
                                         spawn Task agent ───────────> read prompt .md + .vars JSON
                                              |                         read transcript from line offset
                                         (continues normally)           summarize into MCP memory
-                                                                       compaction check (>300 → ~100)
+                                                                       compaction check (>1000 → ~300)
                                                                        write counter file
                                                                        rm lock file
 ```
 
 ### Hook Mechanics
 
-The `memory-capture.sh` script runs as a **Stop hook** that uses the `{"decision":"block","reason":"..."}` + `exit 2` protocol to deliver a short instruction to the main agent.
+The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0` protocol to inject a short instruction into the main agent's context on each user message.
 
-1. **Loop guard**: Checks `stop_hook_active` — if `true`, the hook already triggered continuation on a previous stop, so exit to prevent infinite loops.
-2. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
-3. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
-4. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 30, exits silently.
-5. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits.
-6. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the reason string short.
-7. **JSON output + exit 2**: Outputs `{"decision":"block","reason":"..."}` with a short instruction pointing to the prompt file and vars file, then exits with code 2 to block the stop and deliver the reason to the main agent.
-
-**Important**: The Stop hook must NOT have `async: true` in settings.json — async discards stdout, so the agent never sees the instruction. The hook uses exit code 2 (block) to deliver its message.
+1. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
+2. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
+3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 30, exits silently.
+4. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits. Stale locks (>2 minutes) are removed automatically.
+5. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the context string short.
+6. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. Exits with code 0 — no blocking, no loop guard needed.
 
 ### Prompt File
 
@@ -1662,7 +1659,7 @@ The background agent's full instructions live in `~/.claude/hooks/memory-agent-p
 
 - Observation quality (merge related facts, skip trivial events, max 5-8 per window)
 - MCP memory entity naming (`chat-YYYY-MM-DD`)
-- **Automatic compaction**: When total observations exceed 300, compact to ~100 by archiving old chat entities (>3 days) into `chat-archive-YYYY-MM`, merging redundant observations, and deleting stale data.
+- **Automatic compaction**: When total observations exceed 1000, compact to ~300 by archiving old chat entities (>3 days) into `chat-archive-YYYY-MM`, merging redundant observations, and deleting stale data.
 
 ### Counter Storage
 
@@ -1689,7 +1686,7 @@ Hook scripts and prompt are deployed via the preseed pipeline:
 
 ### Settings.json Merge
 
-`entrypoint.sh` merges hook configuration into `~/.claude/settings.json` using the same `jq '. * $cfg'` recursive merge pattern as the MCP config. The Stop hook is configured **without `async`** and with a 10-second timeout. Handles three cases:
+`entrypoint.sh` merges hook configuration into `~/.claude/settings.json` using the same `jq '. * $cfg'` recursive merge pattern as the MCP config. The UserPromptSubmit hook is non-blocking (exit 0) so no special timeout or async configuration is needed. Handles three cases:
 
 - **File doesn't exist**: Creates with hook config
 - **File exists**: Recursive merge preserving user's existing settings (statusLine, permissions, etc.)
@@ -1698,5 +1695,5 @@ Hook scripts and prompt are deployed via the preseed pipeline:
 ### Troubleshooting
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
-- **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup.
-- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured **without `async: true`**. Verify the transcript has 30+ user messages since last capture. Verify the hook outputs JSON (not plain text) and exits with code 2.
+- **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
+- **Agent not firing**: Check `~/.claude/settings.json` has the `UserPromptSubmit` hook configured for `memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Verify the hook outputs `hookSpecificOutput` JSON and exits with code 0.

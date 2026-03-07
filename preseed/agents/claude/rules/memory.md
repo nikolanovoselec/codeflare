@@ -3,7 +3,7 @@
 You have access to persistent memory via MCP tools (server-memory).
 Memory persists across sessions — anything you save will be available next time.
 
-Chat history is summarized automatically by the memory-capture Stop hook — do not summarize manually.
+Chat history is summarized automatically by the memory-capture UserPromptSubmit hook — do not summarize manually.
 
 ## When to save (use create_entities / add_observations):
 - Project facts: tech stack, architecture, database versions

@@ -11,10 +11,10 @@ const hookScript = readFileSync(
 );
 
 describe('memory-capture.sh hook script', () => {
-  it('exits early when stop_hook_active is true (prevents loops)', () => {
+  it('does not use stop_hook_active guard (not needed for UserPromptSubmit)', () => {
     assert.ok(
-      hookScript.includes('stop_hook_active'),
-      'hook should check stop_hook_active to prevent infinite loops'
+      !hookScript.includes('stop_hook_active'),
+      'hook should not contain stop_hook_active — UserPromptSubmit does not need a loop guard'
     );
   });
 
@@ -54,6 +54,43 @@ describe('memory-capture.sh hook script', () => {
     assert.ok(hookScript.includes('.lock'));
   });
 
+  it('outputs hookSpecificOutput with additionalContext (UserPromptSubmit protocol)', () => {
+    assert.ok(
+      hookScript.includes('hookSpecificOutput'),
+      'hook should output hookSpecificOutput JSON'
+    );
+    assert.ok(
+      hookScript.includes('additionalContext'),
+      'hook should include additionalContext in output'
+    );
+    assert.ok(
+      hookScript.includes('UserPromptSubmit'),
+      'hook should reference UserPromptSubmit in output'
+    );
+  });
+
+  it('exits with code 0 (not code 2)', () => {
+    // Should end with exit 0, not exit 2
+    const lines = hookScript.trim().split('\n');
+    const lastLine = lines[lines.length - 1].trim();
+    assert.equal(lastLine, 'exit 0', 'hook should exit with code 0');
+    assert.ok(
+      !hookScript.includes('exit 2'),
+      'hook should not use exit 2 (Stop hook protocol)'
+    );
+  });
+
+  it('does not use Stop hook decision:block protocol', () => {
+    assert.ok(
+      !hookScript.includes('"decision"'),
+      'hook should not output decision JSON (Stop hook protocol)'
+    );
+    assert.ok(
+      !hookScript.includes('"block"'),
+      'hook should not use block decision'
+    );
+  });
+
   it('outputs a reminder for the main agent (not spawning its own process)', () => {
     // Should NOT contain nohup or claude-unleashed
     assert.ok(
@@ -63,11 +100,6 @@ describe('memory-capture.sh hook script', () => {
     assert.ok(
       !hookScript.includes('claude-unleashed'),
       'hook should not spawn claude-unleashed — main agent handles it'
-    );
-    // Should output instructions via cat/echo
-    assert.ok(
-      hookScript.includes('cat <<') || hookScript.includes('echo'),
-      'hook should output a reminder message for the main agent'
     );
   });
 

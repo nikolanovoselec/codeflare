@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Stop hook — triggers main agent to summarize conversation into MCP memory.
-# Outputs a reminder when 30+ new user messages since last summary.
+# UserPromptSubmit hook — triggers main agent to summarize conversation into MCP memory.
+# Injects additionalContext when 30+ new user messages since last summary.
 # The main agent spawns a background Task agent to do the actual work.
 set -e
 
@@ -9,10 +9,6 @@ COUNTER_DIR="$USER_HOME/.memory/counter"
 mkdir -p "$COUNTER_DIR"
 
 INPUT=$(cat)
-
-# Don't loop — if we already triggered a summary, let Claude stop
-STOP_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null) || true
-[[ "$STOP_ACTIVE" == "true" ]] && exit 0
 
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null) || true
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
@@ -58,8 +54,8 @@ jq -n \
   '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,lock_file:$lock_file}' \
   > "$VARS_FILE"
 
-# Stop hooks must output JSON {"decision":"block","reason":"..."} and exit 2
-REASON="Spawn a background haiku Task agent. Create ${LOCK_FILE} before spawning. Agent must read ${USER_HOME}/.claude/hooks/memory-agent-prompt.md and ${VARS_FILE}, then execute."
+# UserPromptSubmit: exit 0 with additionalContext (no blocking)
+CONTEXT="Spawn a background haiku Task agent. Create ${LOCK_FILE} before spawning. Agent must read ${USER_HOME}/.claude/hooks/memory-agent-prompt.md and ${VARS_FILE}, then execute."
 
-jq -n --arg reason "$REASON" '{"decision":"block","reason":$reason}'
-exit 2
+jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
+exit 0

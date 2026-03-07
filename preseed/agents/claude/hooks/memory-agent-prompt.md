@@ -16,7 +16,7 @@ You are a memory summarization agent. Execute these steps using the provided var
 
 ### 1. Summarize
 
-Read `TRANSCRIPT` from line `LAST_LINE` (use Read tool with offset). Summarize NEW content into concise observations:
+Read `TRANSCRIPT` from line `LAST_LINE` using the Read tool with `offset` and `limit: 500`. If the file has more lines, continue reading in 500-line chunks until `TOTAL_LINES`. Summarize NEW content into concise observations:
 
 - One observation per distinct topic
 - Merge related facts into single observations

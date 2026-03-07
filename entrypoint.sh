@@ -853,8 +853,8 @@ if [ -n "${SESSION_ID:-}" ]; then
 fi
 
 # Configure Claude Code hooks in ~/.claude/settings.json
-# Hooks: PreToolUse (block attributed commits), Stop (memory capture — must NOT be async, hook uses exit 2 to deliver prompt)
-HOOKS_CONFIG='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/block-attributed-commits.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/memory-capture.sh","timeout":10}]}]}}'
+# Hooks: PreToolUse (block attributed commits), UserPromptSubmit (memory capture)
+HOOKS_CONFIG='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/block-attributed-commits.sh"}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/memory-capture.sh"}]}]}}'
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
