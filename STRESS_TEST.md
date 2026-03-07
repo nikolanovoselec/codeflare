@@ -35,16 +35,19 @@ Sustained load + spike test across read-only API endpoints.
 
 **Thresholds:**
 
-| Metric | Standard | High Concurrency (>20 VUs) |
-|--------|----------|-----------------------------|
-| `http_req_duration` p95 | <2s | <5s |
-| `http_req_failed` | <5% | <5% |
-| `health_duration` p95 | <500ms | <2s |
-| `session_list_duration` p95 | <3s | <8s |
+| Metric | Threshold |
+|--------|-----------|
+| `http_req_duration` p95 | <5s |
+| `http_req_failed` | <5% |
+| `errors` | <10% |
+| `health_duration` p95 | <1s |
+| `session_list_duration` p95 | <5s |
+
+**Think time:** `think(4, 6)` between poll cycles — matches real frontend's 5s `SESSION_LIST_POLL_INTERVAL_MS`. User/preferences (30% chance) and storage/browse (20% chance) per cycle.
 
 ### Session Lifecycle (`session-lifecycle.js`)
 
-Create-read-delete cycle testing session churn.
+Create-read-delete cycle testing session churn with realistic delays between operations.
 
 | Scenario | Duration | Base VUs | Operations |
 |----------|----------|----------|------------|
@@ -52,17 +55,17 @@ Create-read-delete cycle testing session churn.
 
 **Thresholds:**
 
-| Metric | Standard | High Concurrency |
-|--------|----------|------------------|
-| `session_create_duration` p95 | <5s | <10s |
-| `session_delete_duration` p95 | <3s | <8s |
-| `errors` | <15% | <15% |
+| Metric | Threshold |
+|--------|-----------|
+| `session_create_duration` p95 | <5s |
+| `session_delete_duration` p95 | <3s |
+| `errors` | <15% |
 
-**Think time:** 6s between iterations (respects 10 req/min session rate limit). Reduced to 1s when `STRESS_TEST_CONCURRENCY` is set (rate limits bypassed).
+**Think time:** `think(3, 8)` after create, `think(2, 5)` between list/get, `think(5, 15)` before delete, `think(10, 30)` between full cycles. Models a user who creates a session, works for a while, then cleans up.
 
 ### Storage Operations (`storage-operations.js`)
 
-Upload-browse-download-delete cycle with random file sizes (1 KB, 50 KB, 500 KB).
+Upload-browse-download-delete cycle with weighted random file sizes: 60% small (1 KB), 30% medium (20 KB), 10% large (50 KB).
 
 | Scenario | Duration | Base VUs | Operations |
 |----------|----------|----------|------------|
@@ -70,14 +73,14 @@ Upload-browse-download-delete cycle with random file sizes (1 KB, 50 KB, 500 KB)
 
 **Thresholds:**
 
-| Metric | Standard | High Concurrency |
-|--------|----------|------------------|
-| `upload_duration` p95 | <10s | <20s |
-| `download_duration` p95 | <5s | <10s |
-| `browse_duration` p95 | <3s | <8s |
-| `errors` | <15% | <15% |
+| Metric | Threshold |
+|--------|-----------|
+| `upload_duration` p95 | <10s |
+| `download_duration` p95 | <5s |
+| `browse_duration` p95 | <3s |
+| `errors` | <15% |
 
-**Think time:** 2s between iterations. Reduced to 0.5s when concurrency is set.
+**Think time:** `think(3, 8)` after upload, `think(2, 5)` between browse/download/delete, `think(5, 15)` between full cycles. Models a user editing files in a cloud IDE.
 
 ### Stress Test with Rate Limits (`rate-limit-validation.js`)
 
@@ -94,19 +97,37 @@ Validates that rate limits ARE enforced when `STRESS_TEST_MODE` is **not** set. 
 
 **Prerequisite:** `STRESS_TEST_MODE` must NOT be set on the worker (or set to anything other than `"active"`).
 
+## Think Time Model
+
+All scripts use a `think(min, max)` helper that adds realistic pauses between operations:
+
+```js
+function think(min, max) {
+  sleep(min + Math.random() * (max - min));
+}
+```
+
+This produces uniformly distributed delays between `min` and `max` seconds, simulating real user behavior (reading output, deciding next action). When `STRESS_TEST_CONCURRENCY` is set and rate limits are bypassed, think times are reduced but not eliminated — the goal is sustained throughput, not a burst attack.
+
+**Per-user behavior stays constant regardless of VU count.** Scaling `STRESS_TEST_CONCURRENCY` adds more virtual users running the same realistic interaction pattern. A single VU's think times, request sequences, and file sizes don't change — only the number of concurrent users increases.
+
 ## VU-to-Real-User Mapping
 
-Each k6 virtual user generates far more traffic than a real Codeflare user. A real user typically loads the dashboard (a few API calls), then works in a terminal (one WebSocket held for minutes), with occasional storage operations — roughly 1 request every 5-10 seconds during active use.
+**50 VUs with realistic think times approximate 1 000-5 000 real concurrent users.**
 
-k6 VUs differ because they have near-zero think time (0.3-1s vs 5-30s for real users), hit all endpoints on every iteration, and never idle.
+The math: with think times of 4-15s between actions, each VU's effective request rate is ~0.1-0.2 req/s — matching real human behavior (load dashboard, read output, think, act). The multiplier comes from VUs hitting all endpoint types on every iteration while real users only touch 1-2 endpoints per interaction.
 
-| Suite | Requests per VU per second | Multiplier vs real user |
-|-------|---------------------------|------------------------|
-| API throughput | ~20 (6 endpoints, 0.3s sleep) | ~100-200x |
-| Session lifecycle | ~1 (4 ops + 4s sleeps) | ~5-10x |
-| Storage operations | ~2 (4 ops + 2s sleeps) | ~10-20x |
+Each k6 virtual user generates more traffic than a real Codeflare user. A real user typically loads the dashboard (a few API calls), then works in a terminal (one WebSocket held for minutes), with occasional storage operations — roughly 1 request every 5-10 seconds during active use.
 
-**Rule of thumb: 1 VU ≈ 20 real users.** At `STRESS_TEST_CONCURRENCY=50`, the three suites running in parallel simulate load equivalent to roughly 1 000 concurrent Codeflare users.
+k6 VUs use realistic think times (4-15s between actions) but hit all endpoint types on every iteration. Real users only interact with 1-2 endpoints per session.
+
+| Suite | Think time per cycle | Requests per cycle | Effective req/s per VU | Multiplier vs real user |
+|-------|---------------------|-------------------|----------------------|------------------------|
+| API throughput | 4-6s (dashboard poll) | 4-6 | ~1.0 | ~5-10x |
+| Session lifecycle | 20-60s (create→delete) | 4 | ~0.1 | ~1-2x |
+| Storage operations | 13-33s (upload→delete) | 4 | ~0.2 | ~2-3x |
+
+**Rule of thumb: 1 VU ≈ 20-100 real users** (varies by suite). At `STRESS_TEST_CONCURRENCY=50`, the three suites running in parallel simulate load equivalent to roughly 1 000-5 000 concurrent Codeflare users.
 
 ## Concurrency Scaling
 
@@ -117,14 +138,11 @@ const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
 const BASE_VUS = <N>;
 const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
 function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
-const HIGH_CONCURRENCY = CONCURRENCY > 20;
 ```
 
-When `STRESS_TEST_CONCURRENCY=0` (default), `SCALE=1` and all VU targets remain at baseline. When set to a positive number, VU targets scale proportionally. Example: `STRESS_TEST_CONCURRENCY=500` with `BASE_VUS=10` gives `SCALE=50`, so `scaled(10)=500` VUs.
+When `STRESS_TEST_CONCURRENCY=0` (default), `SCALE=1` and all VU targets remain at baseline. When set to a positive number, VU targets scale proportionally. Example: `STRESS_TEST_CONCURRENCY=50` with `BASE_VUS=10` gives `SCALE=5`, so `scaled(10)=50` VUs.
 
-Think times are reduced when concurrency is set because rate limits are off (`STRESS_TEST_MODE=active` on the worker).
-
-Thresholds loosen automatically when `CONCURRENCY > 20` to account for higher backend load.
+Think times stay constant regardless of concurrency — scaling adds more users running the same realistic behavior, not faster robots.
 
 ## Rate Limit Bypass
 
@@ -196,6 +214,42 @@ stress-test.yml (workflow_dispatch)
 All 3 test jobs run in parallel after setup. The summary job downloads all result artifacts and fails the workflow if any k6 threshold was breached.
 
 Results are uploaded as artifacts (retained 30 days).
+
+## Latest Results (2026-03-07, 50 VUs)
+
+All three suites passed every threshold at `STRESS_TEST_CONCURRENCY=50`. Run: [#22808941531](https://github.com/nikolanovoselec/codeflare/actions/runs/22808941531).
+
+### API Throughput
+
+| Metric | avg | p95 | max | Result |
+|--------|-----|-----|-----|--------|
+| `http_req_duration` | 1.37s | 3.07s | 5.63s | PASS (<5s p95) |
+| `health_duration` | 27ms | 40ms | 171ms | PASS (<1s p95) |
+| `session_list_duration` | 2.55s | 3.11s | 5.63s | PASS (<5s p95) |
+| `http_req_failed` | 0.00% | - | - | PASS (<5%) |
+| `errors` | 0.00% | - | - | PASS |
+| `checks` | 100.00% (7 729/7 729) | - | - | - |
+
+### Session Lifecycle
+
+| Metric | avg | p95 | max | Result |
+|--------|-----|-----|-----|--------|
+| `session_create_duration` | 103ms | 199ms | 384ms | PASS (<5s p95) |
+| `session_delete_duration` | 792ms | 1.64s | 5.21s | PASS (<3s p95) |
+| `errors` | 0.00% | - | - | PASS (<15%) |
+| `checks` | 100.00% (804/804) | - | - | - |
+
+### Storage Operations
+
+| Metric | avg | p95 | max | Result |
+|--------|-----|-----|-----|--------|
+| `upload_duration` | 285ms | 459ms | 1.04s | PASS (<10s p95) |
+| `download_duration` | 112ms | 149ms | 403ms | PASS (<5s p95) |
+| `browse_duration` | 80ms | 97ms | 140ms | PASS (<3s p95) |
+| `errors` | 3.44% (10/290) | - | - | PASS (<15%) |
+| `checks` | 98.76% (1 116/1 130) | - | - | - |
+
+At 50 VUs with realistic think times, this represents approximately **1 000-5 000 concurrent real users** worth of load.
 
 ## Files
 

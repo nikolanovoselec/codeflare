@@ -2,8 +2,19 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
+import { createRateLimiter } from '../middleware/rate-limit';
 import { isOnboardingLandingPageActive } from '../lib/onboarding';
 import { getOrCreateScopedR2Token } from '../lib/r2-admin';
+
+/**
+ * Rate limiter for ensure-r2-token
+ * Limits to 5 requests per minute per user
+ */
+const ensureR2TokenRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 5,
+  keyPrefix: 'ensure-r2-token',
+});
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -45,7 +56,7 @@ app.get('/r2-status', async (c) => {
  * POST /api/user/ensure-r2-token
  * Eagerly creates a scoped R2 token for the current user if one doesn't exist.
  */
-app.post('/ensure-r2-token', async (c) => {
+app.post('/ensure-r2-token', ensureR2TokenRateLimiter, async (c) => {
   const user = c.get('user');
   const bucketName = c.get('bucketName');
   const accountId = await c.env.KV.get('setup:account_id');

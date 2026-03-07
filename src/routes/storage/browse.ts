@@ -7,13 +7,21 @@ import { ValidationError, ContainerError } from '../../lib/error-types';
 import { validateKey } from './validation';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 
 const logger = createLogger('storage-browse');
 
+const storageBrowseRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 30,
+  keyPrefix: 'storage-browse',
+});
+
 const EMPTY_LISTING = { objects: [], prefixes: [], isTruncated: false };
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+app.use('*', storageBrowseRateLimiter);
 
 app.get('/', async (c) => {
   const bucketName = c.get('bucketName');

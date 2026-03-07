@@ -3,6 +3,7 @@ import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { ValidationError, ContainerError } from '../../lib/error-types';
 import { validateKey } from './validation';
 
@@ -11,6 +12,12 @@ import { validateKey } from './validation';
  * Sanitizes CRLF and other dangerous characters from the raw filename
  * BEFORE encoding, preventing header injection attacks.
  */
+const storageDownloadRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 120,
+  keyPrefix: 'storage-download',
+});
+
 function buildContentDisposition(rawFilename: string): string {
   // Strip CRLF, quotes, and backslashes for the ASCII fallback filename
   const safeFilename = rawFilename.replace(/[\r\n"\\]/g, '_');
@@ -21,6 +28,7 @@ function buildContentDisposition(rawFilename: string): string {
 }
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+app.use('*', storageDownloadRateLimiter);
 
 app.get('/', async (c) => {
   const key = c.req.query('key');

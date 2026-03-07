@@ -5,10 +5,17 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { ValidationError, ContainerError } from '../../lib/error-types';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 import { validateKey, MAX_KEY_LENGTH } from './validation';
 
 const logger = createLogger('storage-move');
+
+const storageMoveRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 20,
+  keyPrefix: 'storage-move',
+});
 
 const MoveBodySchema = z.object({
   source: z.string({ error: 'source is required' }).min(1, 'source is required').max(MAX_KEY_LENGTH, `source must be at most ${MAX_KEY_LENGTH} characters`),
@@ -16,6 +23,7 @@ const MoveBodySchema = z.object({
 });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+app.use('*', storageMoveRateLimiter);
 
 app.post('/', async (c) => {
   const raw = await c.req.json();

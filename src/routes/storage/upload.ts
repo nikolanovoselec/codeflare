@@ -6,11 +6,18 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { createR2Client, getR2Url, parseInitiateMultipartUploadXml } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { ValidationError, ContainerError } from '../../lib/error-types';
 import { escapeXml } from '../../lib/xml-utils';
 import { validateKey, MAX_KEY_LENGTH } from './validation';
+
+const storageUploadRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 60,
+  keyPrefix: 'storage-upload',
+});
 
 const SimpleUploadSchema = z.object({
   key: z.string().min(1).max(MAX_KEY_LENGTH),
@@ -43,6 +50,7 @@ const AbortUploadSchema = z.object({
 });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+app.use('*', storageUploadRateLimiter);
 
 /**
  * POST /

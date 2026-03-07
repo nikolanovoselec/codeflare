@@ -3,10 +3,17 @@ import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url, parseListObjectsXml } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { ContainerError } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
 
 const logger = createLogger('storage-stats');
+
+const storageStatsRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 10,
+  keyPrefix: 'rl-storage-stats',
+});
 
 const CACHE_TTL_MS = 60_000; // 60 seconds
 const EMPTY_STATS = { totalFiles: 0, totalFolders: 0, totalSizeBytes: 0 };
@@ -19,6 +26,7 @@ interface CachedStats {
 }
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+app.use('*', storageStatsRateLimiter);
 
 app.get('/', async (c) => {
   const bucketName = c.get('bucketName');

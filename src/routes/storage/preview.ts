@@ -4,10 +4,17 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { ValidationError, ContainerError } from '../../lib/error-types';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 import { validateKey } from './validation';
 
 const logger = createLogger('storage-preview');
+
+const storagePreviewRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 120,
+  keyPrefix: 'storage-preview',
+});
 
 const MAX_TEXT_SIZE = 1_048_576; // 1MB
 const PRESIGN_EXPIRY_SECONDS = 900; // 15 minutes
@@ -29,6 +36,7 @@ function isImageContentType(contentType: string): boolean {
 }
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+app.use('*', storagePreviewRateLimiter);
 
 app.get('/', async (c) => {
   const key = c.req.query('key');

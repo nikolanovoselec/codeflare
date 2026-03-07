@@ -9,6 +9,7 @@ import type { Env, Session } from '../../types';
 import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow } from '../../lib/kv-keys';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
 import { getContainerSessionsCB } from '../../lib/circuit-breakers';
 import { toApiSession } from '../../lib/session-helpers';
@@ -51,6 +52,16 @@ async function getContainerSessionStatus(
   const ptyActive = terminalSessions.some((s) => s.id === sessionId || s.id.startsWith(sessionId + '-'));
   return { status: 'running', ptyActive, terminalSessions };
 }
+
+/**
+ * Rate limiter for session stop
+ * Limits to 10 stop requests per minute per user
+ */
+const sessionStopRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 10,
+  keyPrefix: 'session-stop',
+});
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -105,7 +116,7 @@ app.get('/batch-status', async (c) => {
  * Stop a session and destroy its container.
  * Use DELETE to fully remove the session from KV.
  */
-app.post('/:id/stop', async (c) => {
+app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
   if (!SESSION_ID_PATTERN.test(sessionId)) {

@@ -39,6 +39,16 @@ const sessionCreateRateLimiter = createRateLimiter({
   keyPrefix: 'session-create',
 });
 
+/**
+ * Rate limiter for session deletion
+ * Limits to 10 session deletions per minute per user
+ */
+const sessionDeleteRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 10,
+  keyPrefix: 'session-delete',
+});
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 /**
@@ -165,7 +175,7 @@ app.patch('/:id', async (c) => {
  * DELETE /api/sessions/:id
  * Delete a session
  */
-app.delete('/:id', async (c) => {
+app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   const reqLogger = logger.child({ requestId: c.get('requestId') });
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');

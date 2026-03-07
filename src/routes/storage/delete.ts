@@ -5,11 +5,18 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { ValidationError } from '../../lib/error-types';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
 import { validateKey } from './validation';
 
 const logger = createLogger('storage-delete');
+
+const storageDeleteRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 20,
+  keyPrefix: 'storage-delete',
+});
 
 const MAX_DELETE_KEYS = 1000;
 
@@ -18,6 +25,7 @@ const DeleteBodySchema = z.object({
 });
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+app.use('*', storageDeleteRateLimiter);
 
 app.post('/', async (c) => {
   const raw = await c.req.json();

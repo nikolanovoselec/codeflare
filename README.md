@@ -168,7 +168,7 @@ All optional. The defaults work out of the box. I respect your time.
 - Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`) with JWT verification.
 - API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
 - Security headers: HSTS, CSP, X-Frame-Options, Referrer-Policy on every response.
-- Rate limiting: KV-backed, per-user.
+- Rate limiting: KV-backed, per-user limits on session creation, container starts, and WebSocket connections. Returns 429 with `Retry-After` header when exceeded.
 - Input validation: Zod schemas, 64 KiB body limit.
 - Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning.
 - Automated penetration testing: weekly CI workflow validates auth gate, security headers, TLS configuration, injection resistance, and information disclosure. See [PENTEST.md](PENTEST.md) for the latest report.

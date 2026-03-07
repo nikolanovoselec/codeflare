@@ -4,12 +4,20 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { getR2Config } from '../../lib/r2-config';
 import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
+import { createRateLimiter } from '../../middleware/rate-limit';
 import { ContainerError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
 
 const logger = createLogger('storage-seed');
 
+const storageSeedRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 3,
+  keyPrefix: 'storage-seed',
+});
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+app.use('*', storageSeedRateLimiter);
 
 /**
  * POST /api/storage/seed/getting-started

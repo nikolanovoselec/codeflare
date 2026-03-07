@@ -63,6 +63,16 @@ npm run test:e2e:ui                # Desktop
 npm run test:e2e:ui-mobile         # Mobile
 ```
 
+### Rate Limit Tests
+
+If you add or modify API endpoints that should be rate-limited, run:
+
+```bash
+npx vitest run src/__tests__/routes/rate-limits.test.ts
+```
+
+See `src/middleware/rate-limit.ts` for the rate limiting implementation and `STRESS_TEST.md` for load testing details.
+
 ### Linting and Type Checking
 
 ```bash

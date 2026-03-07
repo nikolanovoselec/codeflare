@@ -624,7 +624,57 @@ HSTS is also applied to all redirect responses via `secureRedirect()` helper, in
 
 ### Rate Limiting
 
-Per-user rate limiting via KV (`src/middleware/rate-limit.ts`). Uses `bucketName` from auth as the rate limit key, with IP fallback for unauthenticated requests. Configurable window and max per route. Adds `X-RateLimit-Limit`, `X-RateLimit-Remaining` response headers. All setup routes (`/detect-token`, `/prefill`, `/configure`) are rate-limited.
+Per-user rate limiting via `createRateLimiter()` factory in `src/middleware/rate-limit.ts`. Keyed by `bucketName` (user identifier set by auth middleware), falls back to `CF-Connecting-IP` for unauthenticated requests.
+
+**Storage:** Primary storage is Cloudflare KV with automatic TTL expiry (window duration + 60s buffer). When KV operations fail, falls back to an in-memory `Map` with periodic cleanup every 100 requests to prevent unbounded growth.
+
+**Response Headers:** All rate-limited responses include:
+- `X-RateLimit-Limit`: Maximum requests per window
+- `X-RateLimit-Remaining`: Remaining requests in current window
+
+When the limit is exceeded: HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: "Rate limit exceeded. Try again in N seconds." }`
+
+**KV Key Pattern:** `{keyPrefix}:{userId}` — e.g., `storage-upload:codeflare-user-john-example-com`. Use `rl-` prefix when the key prefix would collide with application cache keys (e.g., `storage-stats` collides with the stats cache key `storage-stats:{bucketName}`, so the rate limiter uses `rl-storage-stats`).
+
+**Rate limits per endpoint:**
+
+| Endpoint | Method | Limit | Key Prefix |
+|----------|--------|-------|-----------|
+| `/api/storage/upload/*` | POST | 60/min | `storage-upload` |
+| `/api/storage/delete` | POST | 20/min | `storage-delete` |
+| `/api/storage/move` | POST | 20/min | `storage-move` |
+| `/api/storage/seed/*` | POST | 3/min | `storage-seed` |
+| `/api/storage/download` | GET | 120/min | `storage-download` |
+| `/api/storage/preview` | GET | 120/min | `storage-preview` |
+| `/api/storage/browse` | GET | 30/min | `storage-browse` |
+| `/api/storage/stats` | GET | 10/min | `rl-storage-stats` |
+| `/api/sessions/:id` | DELETE | 10/min | `session-delete` |
+| `/api/sessions/:id/stop` | POST | 10/min | `session-stop` |
+| `/api/user/ensure-r2-token` | POST | 5/min | `ensure-r2-token` |
+| `/api/sessions` | POST | 10/min | `session-create` |
+| `/api/container/start` | POST | 10/min | `container-start` |
+| `/api/users/:email` | DELETE | 20/min | `user-mutation` |
+| `/api/setup/detect-token` | POST | 5/min | `setup` |
+| `/api/setup/prefill` | POST | 5/min | `setup` |
+| `/api/setup/configure` | POST | 5/min | `setup` |
+
+**Adding a new rate limiter:**
+
+```typescript
+import { createRateLimiter } from '../../middleware/rate-limit';
+
+const myRateLimiter = createRateLimiter({
+  windowMs: 60_000,    // 1 minute window
+  maxRequests: 10,     // max 10 requests per window
+  keyPrefix: 'my-route', // KV key prefix (must not collide with app cache keys)
+});
+
+// Apply to all routes in a sub-app:
+app.use('*', myRateLimiter);
+
+// Or apply to a specific route inline:
+app.post('/endpoint', myRateLimiter, async (c) => { ... });
+```
 
 **Stress Test Bypass:** When `STRESS_TEST_MODE` is set to `"active"`, all HTTP and WebSocket rate limits are bypassed. This is intended for integration environments only, to allow k6 stress tests with high virtual user counts (1000+) through a single service token identity. The bypass skips all KV rate-limit reads/writes for zero overhead. A one-time warning is logged per isolate when the bypass activates.
 
