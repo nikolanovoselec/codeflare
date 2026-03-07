@@ -249,6 +249,7 @@ jobs:
           --var CLOUDFLARE_WORKER_NAME:${WORKER_NAME}
           ${{ vars.MAX_SESSIONS_USER && format('--var MAX_SESSIONS_USER:{0}', vars.MAX_SESSIONS_USER) || '' }}
           ${{ vars.MAX_SESSIONS_ADMIN && format('--var MAX_SESSIONS_ADMIN:{0}', vars.MAX_SESSIONS_ADMIN) || '' }}
+          ${{ vars.STRESS_TEST_MODE && format('--var STRESS_TEST_MODE:{0}', vars.STRESS_TEST_MODE) || '' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
