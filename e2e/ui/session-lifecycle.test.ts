@@ -107,9 +107,14 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
 
   it('stops session via context menu', async () => {
     if (!sessionId) throw new Error('sessionId not set — previous test likely failed');
-    // Wait for session to show as running (green dot) before attempting stop
+    // Wait for session to show as running (green or yellow dot) before attempting stop.
+    // After full-page navigateToDashboard, no WS connection exists so the dot is yellow (--warning), not green (--success).
     await page.waitForFunction(
-      (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"] .session-stat-card__dot--success`),
+      (id: string) => {
+        const card = document.querySelector(`[data-testid="session-stat-card-${id}"]`);
+        if (!card) return false;
+        return !!card.querySelector('.session-stat-card__dot--success') || !!card.querySelector('.session-stat-card__dot--warning');
+      },
       { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
       sessionId
     );
@@ -124,11 +129,11 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
       if (!el) throw new Error('Element not found: context-menu-stop');
       (el as HTMLElement).click();
     });
-    // Wait for THIS session's dot to lose --success variant when stopped
+    // Wait for THIS session's dot to lose running variants (--success / --warning) when stopped
     await page.waitForFunction(
       (id: string) => {
         const dot = document.querySelector(`[data-testid="session-stat-card-${id}"] .session-stat-card__dot`);
-        return dot && !dot.classList.contains('session-stat-card__dot--success');
+        return dot && !dot.classList.contains('session-stat-card__dot--success') && !dot.classList.contains('session-stat-card__dot--warning');
       },
       { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
       sessionId
