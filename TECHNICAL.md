@@ -1517,6 +1517,10 @@ Samsung fires a cached stale `geometrychange` event immediately when `overlaysCo
 
 **Solution:** `mobile.ts` tracks `overlaysContentChangedAt = Date.now()` in both `enableVirtualKeyboardOverlay()` and `disableVirtualKeyboardOverlay()`. The `handleGeometryChange` handler ignores events within 50ms of the toggle. Real user-initiated keyboard events arrive well after this window.
 
+**CRITICAL: Guard on actual toggle only.** The timestamp must ONLY be stamped when `overlaysContent` actually changes value (e.g., `false→true`). If `enableVirtualKeyboardOverlay()` is called when `overlaysContent` is already `true` (a no-op), it must NOT restamp `overlaysContentChangedAt`. Restamping on no-ops restarts the 50ms ignore window, which eats the REAL `geometrychange` event that follows the stale one — leaving `keyboardHeight` at 0 with the keyboard visually open (the "gap" bug).
+
+This was the root cause of a persistent Samsung bug where the dashboard→terminal path worked but visibility return didn't: on dashboard entry, the keyboard lifecycle effect sets `overlaysContent=true` well before the user taps, so `enableVirtualKeyboardOverlay()` is a no-op (no stamp, no window). On visibility return, `overlaysContent` was `false` (from blur), so the enable call was a real toggle — stamping the window and eating both stale and real events.
+
 #### Samsung Focusout Handler (Fix 1)
 
 Samsung doesn't fire `geometrychange` when the back button dismisses the keyboard. Without detection, keyboard state signals stay stale.
@@ -1532,11 +1536,33 @@ Samsung's bottom navigation bar creates a "locked layout viewport" bug:
 - `viewportGrowth` = `innerHeight - baselineInnerHeight` represents the nav bar space
 - `getKeyboardHeight()` subtracts `viewportGrowth` from `boundingRect.height` (only with bottom address bar, narrow screens)
 
-#### `baselineInnerHeight` Bidirectional Protection (Fix 4)
+#### `baselineInnerHeight` Immutability (Fix 4, revised)
 
-When the keyboard closes, `baselineInnerHeight` should resync to `window.innerHeight` — but only if the change is small (address bar toggle, ~48px). Large changes (>100px) indicate transient garbage from keyboard animation or resume and must be rejected.
+`baselineInnerHeight` captures `window.innerHeight` at module initialization (page load). It must NEVER be updated during keyboard close, force resets, or stale-state checks. The only exception is the Galaxy Fold screen-switch resize handler (delta > 200px).
 
-**Solution:** `handleGeometryChange` in `mobile.ts` uses `Math.abs(window.innerHeight - baselineInnerHeight) < 100` instead of unconditional or `Math.min`-only updates. This protects against both upward and downward poisoning.
+**Why:** Samsung fires `geometrychange` with `height=0` (keyboard closed) BEFORE the bottom navigation bar returns to the screen. At this point, `window.innerHeight` is still inflated by ~47px (the space the bottom bar occupied). Any code that updates `baselineInnerHeight` during keyboard close grabs this inflated value, which poisons `viewportGrowth` to 0 on all subsequent keyboard opens — producing a persistent ~47px gap between the terminal and keyboard.
+
+**Diagnosed via debug overlay:**
+```
+First keyboard open (correct):   baselineInnerH=1009, vpGrowth=47, getKbHeight=436
+Second keyboard open (broken):   baselineInnerH=1105, vpGrowth=0,  getKbHeight=483
+```
+The 47px gap (483 - 436) is exactly the missing `viewportGrowth` compensation.
+
+**Previous attempts that failed:**
+1. `Math.min(baselineInnerHeight, window.innerHeight)` — prevents upward poisoning but doesn't handle all cases
+2. `Math.abs(...) < 100` threshold — still corrupts because the 47px bar change is under 100px
+3. Updating baseline in `forceResetKeyboardState()` — same corruption risk on visibility return
+4. Updating baseline in `resetKeyboardStateIfStale()` — same corruption risk
+
+**Final solution:** Removed ALL `baselineInnerHeight` updates from:
+- `handleGeometryChange` keyboard-close branch (was the primary corruption source)
+- `forceResetKeyboardState()` (called on visibility return, terminal exit)
+- `resetKeyboardStateIfStale()` (called on terminal re-entry)
+
+Baseline now only changes at:
+1. Module initialization: `let baselineInnerHeight = window.innerHeight`
+2. Galaxy Fold screen-switch resize handler: `if (!vkOpen() && delta > 200)` — this handles genuine physical screen changes (folded ↔ unfolded, ~800px delta) that cannot be confused with keyboard/bar transitions
 
 #### `kbDebounceTimer` Guard Pattern (Fix 3)
 
@@ -1557,11 +1583,25 @@ When the browser is backgrounded and returned to, keyboard state signals (`keybo
 **Chrome symptom:** Ghost padding at bottom — `keyboardHeight()` stuck non-zero with keyboard closed.
 **Samsung symptom:** No floating buttons + scrollable page — `overlaysContent=false` means `geometrychange` never sets `vkOpen=true` when keyboard reopens.
 
-**Solution:** Two complementary fixes using `forceResetKeyboardState()` (unconditional zero) instead of `resetKeyboardStateIfStale()` because `boundingRect.height` returns stale cached values when the browser resumes — `visibilitychange` fires before the compositor updates layout metrics:
-1. `terminal-mobile-input.ts` `restoreFocusIfNeeded()` calls `forceResetKeyboardState()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input. This ensures signals are zeroed and `overlaysContent` is `true` when the keyboard opens.
-2. `Layout.tsx` visibility handler calls `forceResetKeyboardState()` as fallback for when focus restore doesn't fire (input was not focused when backgrounded, or readOnly guard is active).
+**Why `forceResetKeyboardState()` instead of `resetKeyboardStateIfStale()`:** `boundingRect.height` returns stale cached values when the browser resumes — the `visibilitychange` event fires before the compositor updates layout metrics. A conditional check (is keyboard closed?) always passes because the stale cache says height=0, but the signals may already be wrong in other ways. Unconditional zeroing is the only reliable approach.
 
-These bugs were masked before infinite WS retries and `hasConnected` latch because the old retry limit (10 attempts → error state) would show an error overlay, forcing the user to navigate away and back — which triggered full keyboard cleanup.
+**Solution (Chrome):** Two complementary fixes:
+1. `terminal-mobile-input.ts` `restoreFocusIfNeeded()` calls `forceResetKeyboardState()` + `enableVirtualKeyboardOverlay()` BEFORE refocusing the input. This ensures signals are zeroed and `overlaysContent` is `true` when the keyboard opens.
+2. `Layout.tsx` visibility handler calls `forceResetKeyboardState()` as fallback for when focus restore doesn't fire (input was not focused when backgrounded, or readOnly guard is active). Then delays `enableVirtualKeyboardOverlay()` by 300ms so Samsung's stale events settle before the toggle.
+
+**Solution (Samsung — Dashboard Bounce):** Samsung's VirtualKeyboard compositor state is fundamentally unreliable on browser resume. No combination of signal resets, delayed toggles, or stale-event windows reliably fixes it. The only path that consistently works is deactivating and reactivating the session — this triggers the full Terminal keyboard lifecycle cleanup (onCleanup effects, `disableVirtualKeyboardOverlay`) and re-initialization (onMount effects, `enableVirtualKeyboardOverlay`).
+
+`Layout.tsx` visibility handler detects Samsung via `isSamsungBrowser` and performs an automatic "dashboard bounce":
+1. `forceResetKeyboardState()` — zero all signals immediately
+2. `sessionStore.setActiveSession(null)` + `setViewState('dashboard')` — deactivate session (triggers Terminal cleanup)
+3. After 50ms: `sessionStore.setActiveSession(sessionId)` + `setViewState('terminal')` — reactivate (triggers Terminal re-init)
+4. `reconnectOnVisibilityReturn()` — reconnect any dropped WebSockets
+
+The 50ms delay gives SolidJS time to process the null state and run cleanup effects before re-initialization begins. The user doesn't see the dashboard (50ms is below perception threshold).
+
+**Samsung-specific input resume:** `terminal-mobile-input.ts` `restoreFocusIfNeeded()` does NOT auto-focus on Samsung (which would open the keyboard and trigger stale `geometrychange` events). Instead, it delays `enableVirtualKeyboardOverlay()` by 300ms so the compositor settles, then leaves the keyboard closed for the user to tap when ready. The 300ms delay ensures Samsung's delayed stale `geometrychange` events (which can arrive up to ~200ms after toggle) are caught by Fix 2's 50ms ignore window from the delayed toggle.
+
+**Historical context:** These bugs were masked before infinite WS retries and `hasConnected` latch because the old retry limit (10 attempts → error state) would show an error overlay, forcing the user to navigate away and back — which triggered full keyboard cleanup.
 
 #### Swipe Gesture Stuck Repeat (Fix 7)
 
