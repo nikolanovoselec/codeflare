@@ -256,6 +256,157 @@ describe('mobile.ts', () => {
     });
   });
 
+  describe('visualViewport fallback (iOS Safari, Firefox)', () => {
+    // Tests for Strategy 2: when VirtualKeyboard API is NOT available,
+    // keyboard detection falls back to visualViewport resize events.
+    // Calculates: clientHeight - visualViewport.height > 100px threshold.
+
+    let resizeHandler: (() => void) | undefined;
+    let scrollHandler: (() => void) | undefined;
+    let mockVisualViewport: {
+      height: number;
+      width: number;
+      addEventListener: ReturnType<typeof vi.fn>;
+      removeEventListener: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(() => {
+      resizeHandler = undefined;
+      scrollHandler = undefined;
+      mockVisualViewport = {
+        height: 800,
+        width: 400,
+        addEventListener: vi.fn((type: string, handler: () => void) => {
+          if (type === 'resize') resizeHandler = handler;
+          if (type === 'scroll') scrollHandler = handler;
+        }),
+        removeEventListener: vi.fn(),
+      };
+    });
+
+    afterEach(() => {
+      delete (navigator as any).virtualKeyboard;
+    });
+
+    it('should detect keyboard open when clientHeight - visualViewport.height > 100px', async () => {
+      // No VirtualKeyboard API — forces fallback path
+      delete (navigator as any).virtualKeyboard;
+
+      Object.defineProperty(window, 'visualViewport', {
+        value: mockVisualViewport,
+        configurable: true,
+        writable: true,
+      });
+      // clientHeight is the stable layout viewport baseline on iOS
+      Object.defineProperty(document.documentElement, 'clientHeight', {
+        value: 800,
+        configurable: true,
+      });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Simulate keyboard opening — visualViewport shrinks
+      mockVisualViewport.height = 400;
+      resizeHandler!();
+
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+      expect(mobile.getKeyboardHeight()).toBe(400);
+    });
+
+    it('should NOT detect keyboard when diff is below 100px threshold', async () => {
+      delete (navigator as any).virtualKeyboard;
+
+      Object.defineProperty(window, 'visualViewport', {
+        value: mockVisualViewport,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(document.documentElement, 'clientHeight', {
+        value: 800,
+        configurable: true,
+      });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Address bar change — small diff, under threshold
+      mockVisualViewport.height = 750;
+      resizeHandler!();
+
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+      expect(mobile.getKeyboardHeight()).toBe(0);
+    });
+
+    it('should detect keyboard close when visualViewport grows back', async () => {
+      delete (navigator as any).virtualKeyboard;
+
+      Object.defineProperty(window, 'visualViewport', {
+        value: mockVisualViewport,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(document.documentElement, 'clientHeight', {
+        value: 800,
+        configurable: true,
+      });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // Open keyboard
+      mockVisualViewport.height = 400;
+      resizeHandler!();
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+
+      // Close keyboard — visualViewport returns to full height
+      mockVisualViewport.height = 800;
+      resizeHandler!();
+      expect(mobile.isVirtualKeyboardOpen()).toBe(false);
+      expect(mobile.getKeyboardHeight()).toBe(0);
+    });
+
+    it('should also respond to scroll events on visualViewport', async () => {
+      delete (navigator as any).virtualKeyboard;
+
+      Object.defineProperty(window, 'visualViewport', {
+        value: mockVisualViewport,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(document.documentElement, 'clientHeight', {
+        value: 800,
+        configurable: true,
+      });
+
+      vi.resetModules();
+      const mobile = await import('../../lib/mobile');
+
+      // iOS fires scroll events when the visual viewport shifts
+      mockVisualViewport.height = 350;
+      scrollHandler!();
+
+      expect(mobile.isVirtualKeyboardOpen()).toBe(true);
+      expect(mobile.getKeyboardHeight()).toBe(450);
+    });
+
+    it('should register both resize and scroll listeners on visualViewport', async () => {
+      delete (navigator as any).virtualKeyboard;
+
+      Object.defineProperty(window, 'visualViewport', {
+        value: mockVisualViewport,
+        configurable: true,
+        writable: true,
+      });
+
+      vi.resetModules();
+      await import('../../lib/mobile');
+
+      expect(mockVisualViewport.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
+      expect(mockVisualViewport.addEventListener).toHaveBeenCalledWith('scroll', expect.any(Function));
+    });
+  });
+
   describe('enableVirtualKeyboardOverlay / disableVirtualKeyboardOverlay', () => {
     let mockVirtualKeyboard: {
       overlaysContent: boolean;

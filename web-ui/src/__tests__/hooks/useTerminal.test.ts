@@ -460,41 +460,116 @@ describe('useTerminal hook', () => {
   });
 
   describe('keyboard height refit', () => {
-    it('should preserve scroll position after fit when keyboard height changes on mobile', async () => {
+    it('should scroll to bottom when keyboard opens (closed→open transition)', async () => {
       vi.useFakeTimers();
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
       const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
 
-      // Start as mobile device with keyboard closed
       isTouchDeviceMock.mockReturnValue(true);
 
-      // Use a SolidJS signal to back the mock so createEffect re-tracks
       const [kbHeight, setKbHeight] = createSignal(0);
+      const [kbOpen, setKbOpen] = createSignal(false);
       getKeyboardHeightMock.mockImplementation(() => kbHeight());
-
-      let result!: ReturnType<typeof useTerminal>;
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
 
       const dispose = createRoot((dispose) => {
-        result = useTerminal(defaultProps);
+        const result = useTerminal(defaultProps);
         result.containerRef(containerEl);
         return dispose;
       });
 
-      // Clear any calls from initial mount
       mockScrollToBottom.mockClear();
       mockFit.mockClear();
 
-      // Simulate keyboard opening by changing keyboard height
+      // Simulate keyboard opening (closed→open)
       setKbHeight(300);
+      setKbOpen(true);
 
-      // Advance past the 150ms debounce
       await vi.advanceTimersByTimeAsync(200);
 
       expect(mockFit).toHaveBeenCalled();
-      // scrollToBottom is called to restore position when user was at bottom
-      // (mock buffer has viewportY >= baseY by default)
       expect(mockScrollToBottom).toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+
+    it('should NOT scroll to bottom when keyboard closes (open→closed transition)', async () => {
+      vi.useFakeTimers();
+
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbHeight, setKbHeight] = createSignal(0);
+      const [kbOpen, setKbOpen] = createSignal(false);
+      getKeyboardHeightMock.mockImplementation(() => kbHeight());
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Open keyboard first
+      setKbHeight(300);
+      setKbOpen(true);
+      await vi.advanceTimersByTimeAsync(200);
+
+      mockScrollToBottom.mockClear();
+      mockFit.mockClear();
+
+      // Close keyboard
+      setKbHeight(0);
+      setKbOpen(false);
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockFit).toHaveBeenCalled();
+      expect(mockScrollToBottom).not.toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+
+    it('should NOT scroll to bottom on mid-animation height adjustments while keyboard stays open', async () => {
+      vi.useFakeTimers();
+
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbHeight, setKbHeight] = createSignal(0);
+      const [kbOpen, setKbOpen] = createSignal(false);
+      getKeyboardHeightMock.mockImplementation(() => kbHeight());
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Open keyboard
+      setKbHeight(300);
+      setKbOpen(true);
+      await vi.advanceTimersByTimeAsync(200);
+
+      mockScrollToBottom.mockClear();
+      mockFit.mockClear();
+
+      // Height adjustment while keyboard stays open (e.g. Samsung address bar)
+      setKbHeight(350);
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockFit).toHaveBeenCalled();
+      expect(mockScrollToBottom).not.toHaveBeenCalled();
 
       dispose();
       vi.useRealTimers();

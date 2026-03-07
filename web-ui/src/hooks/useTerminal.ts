@@ -51,6 +51,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let wasKeyboardOpen = false;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
@@ -285,7 +286,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (document.fonts) {
       const currentFont = t.options.fontFamily;
       document.fonts.ready.then(() => {
-        if (term && currentFont) {
+        if (term?.element && currentFont) {
           term.options.fontFamily = currentFont;
           fitAddon?.fit();
         }
@@ -317,6 +318,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   // Refit on keyboard height change
   createEffect(() => {
     const _kbHeight = getKeyboardHeight();
+    const kbOpen = isVirtualKeyboardOpen();
     if (!isTouchDevice()) return;
     if (!term || !fitAddon) return;
     if (!(props.active || props.alwaysObserveResize)) return;
@@ -326,7 +328,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       kbDebounceTimer = null;
       if (!fitAddon || !term) return;
       fitAddon.fit();
-      term.scrollToBottom();
+      // Scroll to bottom only when keyboard transitions closed→open (user wants
+      // to see the prompt). On close or mid-animation height adjustments, preserve
+      // scroll position so users don't lose their place in scrollback.
+      if (kbOpen && !wasKeyboardOpen) {
+        term.scrollToBottom();
+      }
+      wasKeyboardOpen = kbOpen;
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
       window.scrollTo(0, 0);

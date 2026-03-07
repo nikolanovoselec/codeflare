@@ -1572,7 +1572,9 @@ Two effects can trigger `fitAddon.fit()` simultaneously:
 2. **Active-state effect** (immediate `requestAnimationFrame`)
 3. **ResizeObserver** (immediate `requestAnimationFrame`)
 
-A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver and active-state effects. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. Both other effects check `kbDebounceTimer !== null` and skip `fit()` when active. The timer callback sets it back to `null`. Using the timer ID (vs. a boolean flag) prevents a race condition where cleanup of the debounce timer doesn't properly clear the gate.
+A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. The ResizeObserver checks `kbDebounceTimer !== null` and skips `fit()` when active. The timer callback sets it back to `null`. Using the timer ID (vs. a boolean flag) prevents a race condition where cleanup of the debounce timer doesn't properly clear the gate.
+
+The keyboard refit effect also tracks the `closed→open` keyboard transition via a `wasKeyboardOpen` flag. `scrollToBottom()` is called only when the keyboard opens (so the user sees the prompt), not on close or mid-animation height adjustments. This preserves scroll position when users are reading scrollback and the keyboard closes or the height adjusts (e.g. Samsung address bar animation).
 
 #### Visibility Return Keyboard Reset (Fix 6)
 
