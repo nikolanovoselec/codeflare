@@ -1623,7 +1623,7 @@ Conversation context (decisions, debugging insights, solutions) is automatically
 ### Architecture
 
 ```
-Stop hook (async, ~150ms)               Background claude CLI (sonnet)
+Stop hook (async, ~150ms)               Background claude-unleashed CLI (sonnet)
     |                                        |
     +-- read stdin JSON (transcript_path)    |
     +-- jq: count user messages              |
@@ -1644,7 +1644,7 @@ The `memory-capture.sh` script runs as an **async Stop hook** — it fires when 
 1. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript (~150ms on a 13MB file).
 2. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits immediately.
 3. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If another agent is already running, exits to avoid duplicate work.
-4. **Background agent**: Spawns `claude --model sonnet --max-turns 5 --print` with a prompt that reads the transcript from the saved offset, filters for user/assistant content, and writes concise observations to MCP memory entity `chat-YYYY-MM-DD`.
+4. **Background agent**: Spawns `claude-unleashed --model sonnet --max-turns 5 --print` with a prompt that reads the transcript from the saved offset, filters for user/assistant content, and writes concise observations to MCP memory entity `chat-YYYY-MM-DD`.
 
 ### Counter Storage
 
@@ -1679,4 +1679,4 @@ Hook scripts are deployed via the preseed pipeline:
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup.
-- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured. Verify the transcript has 15+ user messages since last capture. Check that `claude` CLI is on PATH.
+- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured. Verify the transcript has 15+ user messages since last capture. Check that `claude-unleashed` CLI is on PATH.

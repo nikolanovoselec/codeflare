@@ -102,23 +102,23 @@ describe('memory-capture.sh hook script', () => {
   });
 
   it('creates lock file before spawning background agent', () => {
-    // Lock creation must appear before claude CLI spawn
+    // Lock creation must appear before claude-unleashed CLI spawn
     const lockCreateIdx = hookScript.indexOf('touch') !== -1
       ? hookScript.indexOf('touch')
       : hookScript.search(/>\s*.*\.lock/);
-    const claudeIdx = hookScript.indexOf('claude');
+    const claudeIdx = hookScript.indexOf('claude-unleashed');
     assert.ok(lockCreateIdx > -1, 'hook should create lock file');
-    assert.ok(claudeIdx > -1, 'hook should invoke claude CLI');
+    assert.ok(claudeIdx > -1, 'hook should invoke claude-unleashed CLI');
     assert.ok(
       lockCreateIdx < claudeIdx,
-      'lock file creation must occur before claude CLI spawn'
+      'lock file creation must occur before claude-unleashed CLI spawn'
     );
   });
 
-  it('spawns claude CLI with sonnet model and --print flag', () => {
+  it('spawns claude-unleashed CLI with sonnet model and --print flag', () => {
     assert.ok(
-      hookScript.includes('--model sonnet'),
-      'hook should use sonnet model'
+      hookScript.includes('claude-unleashed --model sonnet'),
+      'hook should invoke claude-unleashed with sonnet model'
     );
     assert.ok(
       hookScript.includes('--print'),
@@ -140,11 +140,14 @@ describe('memory-capture.sh hook script', () => {
     );
   });
 
-  it('runs claude agent in background (& operator)', () => {
-    // The claude command should be backgrounded
+  it('runs claude-unleashed agent in background (nohup + &)', () => {
     assert.ok(
-      /claude[^&]*&/.test(hookScript) || hookScript.includes('nohup'),
-      'hook should run claude in background'
+      /nohup\s+claude-unleashed\b/.test(hookScript),
+      'hook should run claude-unleashed via nohup'
+    );
+    assert.ok(
+      /claude-unleashed[^&]*&/.test(hookScript),
+      'hook should background the claude-unleashed process'
     );
   });
 

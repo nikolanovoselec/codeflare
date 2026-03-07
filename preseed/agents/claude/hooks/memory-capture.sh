@@ -67,6 +67,6 @@ Instructions:
 6. If anything fails, just remove the lock file $LOCK_FILE and exit."
 
 # Spawn background agent — main session is not blocked (async hook)
-nohup claude --model sonnet --max-turns 5 --print -p "$PROMPT" > /dev/null 2>&1 &
+nohup claude-unleashed --model sonnet --max-turns 5 --print -p "$PROMPT" > /dev/null 2>&1 &
 
 exit 0
