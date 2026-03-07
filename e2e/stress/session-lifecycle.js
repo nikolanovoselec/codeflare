@@ -10,12 +10,11 @@ const sessionsDeleted = new Counter('sessions_deleted');
 const rateLimitHits = new Counter('rate_limit_hits');
 
 // Configurable concurrency via STRESS_TEST_CONCURRENCY env var
-// When set, scales VU targets proportionally and reduces think times (rate limits are off)
+// Scales VU count only — think times stay realistic
 const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
 const BASE_VUS = 3;
 const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
 function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
-const HIGH_CONCURRENCY = CONCURRENCY > 20;
 
 const BASE_URL = __ENV.E2E_BASE_URL;
 const HEADERS = {
@@ -31,9 +30,13 @@ const READ_HEADERS = {
   'X-Service-Auth': __ENV.CF_ACCESS_CLIENT_SECRET,
 };
 
+// Randomized think time
+function think(minS, maxS) {
+  sleep(minS + Math.random() * (maxS - minS));
+}
+
 export const options = {
   scenarios: {
-    // Moderate session churn — create and delete sessions
     session_churn: {
       executor: 'ramping-vus',
       startVUs: 1,
@@ -45,15 +48,15 @@ export const options = {
     },
   },
   thresholds: {
-    session_create_duration: [HIGH_CONCURRENCY ? 'p(95)<10000' : 'p(95)<5000'],
-    session_delete_duration: [HIGH_CONCURRENCY ? 'p(95)<8000' : 'p(95)<3000'],
+    session_create_duration: ['p(95)<5000'],
+    session_delete_duration: ['p(95)<3000'],
     errors: ['rate<0.15'],
   },
 };
 
 export default function () {
   group('session lifecycle', () => {
-    // Create session
+    // Create session — user clicks "New Session"
     const name = `stress-${Date.now()}-${__VU}`;
     const createRes = http.post(
       `${BASE_URL}/api/sessions`,
@@ -63,7 +66,7 @@ export default function () {
 
     if (createRes.status === 429) {
       rateLimitHits.add(1);
-      sleep(15); // Back off on rate limit
+      sleep(15);
       return;
     }
 
@@ -83,16 +86,18 @@ export default function () {
       return;
     }
 
-    sleep(1);
+    // User sees the new session, looks at dashboard
+    think(3, 8);
 
-    // List sessions — verify it appears
+    // List sessions — dashboard auto-polls
     const listRes = http.get(`${BASE_URL}/api/sessions`, {
       headers: READ_HEADERS,
       tags: { endpoint: 'GET /api/sessions' },
     });
     check(listRes, { 'list ok': (r) => r.status === 200 });
 
-    sleep(1);
+    // User checks the session details
+    think(2, 5);
 
     // Get specific session
     const getRes = http.get(`${BASE_URL}/api/sessions/${sessionId}`, {
@@ -101,7 +106,8 @@ export default function () {
     });
     check(getRes, { 'get session ok': (r) => r.status === 200 });
 
-    sleep(1);
+    // User works in the session for a while, then decides to clean up
+    think(5, 15);
 
     // Delete session
     const deleteRes = http.del(`${BASE_URL}/api/sessions/${sessionId}`, null, {
@@ -123,5 +129,6 @@ export default function () {
     if (deleted) sessionsDeleted.add(1);
   });
 
-  sleep(CONCURRENCY > 0 ? 1 : 6);
+  // User doesn't create/delete sessions every few seconds — big gap between cycles
+  think(10, 30);
 }

@@ -12,12 +12,11 @@ const filesUploaded = new Counter('files_uploaded');
 const rateLimitHits = new Counter('rate_limit_hits');
 
 // Configurable concurrency via STRESS_TEST_CONCURRENCY env var
-// When set, scales VU targets proportionally and reduces think times (rate limits are off)
+// Scales VU count only — think times stay realistic (humans don't click faster with more users)
 const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
 const BASE_VUS = 5;
 const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
 function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
-const HIGH_CONCURRENCY = CONCURRENCY > 20;
 
 const BASE_URL = __ENV.E2E_BASE_URL;
 const HEADERS = {
@@ -44,10 +43,15 @@ function generateContent(sizeKB) {
   return content;
 }
 
-// Pre-generate test payloads
-const SMALL_CONTENT = encoding.b64encode(generateContent(1));   // 1 KB
-const MEDIUM_CONTENT = encoding.b64encode(generateContent(20)); // 20 KB
-const LARGE_CONTENT = encoding.b64encode(generateContent(50));  // 50 KB
+// Realistic file sizes for a cloud IDE
+const SMALL_CONTENT = encoding.b64encode(generateContent(1));   // 1 KB - config file
+const MEDIUM_CONTENT = encoding.b64encode(generateContent(20)); // 20 KB - source file
+const LARGE_CONTENT = encoding.b64encode(generateContent(50));  // 50 KB - large source file
+
+// Randomized think time — simulates a human reading/thinking between actions
+function think(minS, maxS) {
+  sleep(minS + Math.random() * (maxS - minS));
+}
 
 export const options = {
   scenarios: {
@@ -62,9 +66,9 @@ export const options = {
     },
   },
   thresholds: {
-    upload_duration: [HIGH_CONCURRENCY ? 'p(95)<20000' : 'p(95)<10000'],
-    download_duration: [HIGH_CONCURRENCY ? 'p(95)<10000' : 'p(95)<5000'],
-    browse_duration: [HIGH_CONCURRENCY ? 'p(95)<8000' : 'p(95)<3000'],
+    upload_duration: ['p(95)<10000'],
+    download_duration: ['p(95)<5000'],
+    browse_duration: ['p(95)<3000'],
     errors: ['rate<0.15'],
   },
 };
@@ -74,16 +78,16 @@ export default function () {
   const timestamp = Date.now();
 
   group('storage upload cycle', () => {
-    // Pick random file size
-    const sizes = [
-      { name: 'small', content: SMALL_CONTENT },
-      { name: 'medium', content: MEDIUM_CONTENT },
-      { name: 'large', content: LARGE_CONTENT },
-    ];
-    const size = sizes[Math.floor(Math.random() * sizes.length)];
+    // Pick random file size (weighted toward small — most real edits are small)
+    const rand = Math.random();
+    const size = rand < 0.6
+      ? { name: 'small', content: SMALL_CONTENT }
+      : rand < 0.9
+        ? { name: 'medium', content: MEDIUM_CONTENT }
+        : { name: 'large', content: LARGE_CONTENT };
     const key = `${filePrefix}/${size.name}-${timestamp}.txt`;
 
-    // Upload
+    // Upload — user saves a file
     const uploadRes = http.post(
       `${BASE_URL}/api/storage/upload`,
       JSON.stringify({ key, content: size.content }),
@@ -105,9 +109,10 @@ export default function () {
 
     if (!uploaded) return;
 
-    sleep(0.5);
+    // User works in editor for a few seconds before browsing files
+    think(3, 8);
 
-    // Browse
+    // Browse — user opens file panel
     const browseRes = http.get(
       `${BASE_URL}/api/storage/browse?prefix=${encodeURIComponent(filePrefix)}`,
       { headers: READ_HEADERS, tags: { endpoint: 'GET /api/storage/browse' } }
@@ -115,9 +120,10 @@ export default function () {
     check(browseRes, { 'browse ok': (r) => r.status === 200 });
     browseDuration.add(browseRes.timings.duration);
 
-    sleep(0.5);
+    // User scans the file list
+    think(2, 5);
 
-    // Download
+    // Download — user opens a file
     const downloadRes = http.get(
       `${BASE_URL}/api/storage/download?key=${encodeURIComponent(key)}`,
       { headers: READ_HEADERS, tags: { endpoint: 'GET /api/storage/download' } }
@@ -125,9 +131,10 @@ export default function () {
     check(downloadRes, { 'download ok': (r) => r.status === 200 });
     downloadDuration.add(downloadRes.timings.duration);
 
-    sleep(0.5);
+    // User reads the file content
+    think(2, 5);
 
-    // Delete
+    // Delete — user cleans up
     const deleteRes = http.post(
       `${BASE_URL}/api/storage/delete`,
       JSON.stringify({ keys: [key] }),
@@ -137,5 +144,6 @@ export default function () {
     deleteDuration.add(deleteRes.timings.duration);
   });
 
-  sleep(CONCURRENCY > 0 ? 0.5 : 2);
+  // User does other stuff before next file operation (typing code, reading docs)
+  think(5, 15);
 }

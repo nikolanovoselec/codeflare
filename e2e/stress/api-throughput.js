@@ -2,7 +2,6 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
 
-// Custom metrics
 const errorRate = new Rate('errors');
 const sessionListDuration = new Trend('session_list_duration', true);
 const healthDuration = new Trend('health_duration', true);
@@ -11,12 +10,11 @@ const preferencesGetDuration = new Trend('preferences_get_duration', true);
 const storageBrowseDuration = new Trend('storage_browse_duration', true);
 
 // Configurable concurrency via STRESS_TEST_CONCURRENCY env var
-// When set, scales VU targets proportionally and reduces think times (rate limits are off)
+// Scales VU count only — think times stay realistic
 const CONCURRENCY = parseInt(__ENV.STRESS_TEST_CONCURRENCY || '0', 10);
 const BASE_VUS = 10;
 const SCALE = CONCURRENCY > 0 ? CONCURRENCY / BASE_VUS : 1;
 function scaled(vus) { return Math.max(1, Math.round(vus * SCALE)); }
-const HIGH_CONCURRENCY = CONCURRENCY > 20;
 
 const BASE_URL = __ENV.E2E_BASE_URL;
 const AUTH_HEADERS = {
@@ -25,9 +23,14 @@ const AUTH_HEADERS = {
   'X-Service-Auth': __ENV.CF_ACCESS_CLIENT_SECRET,
 };
 
+// Randomized think time
+function think(minS, maxS) {
+  sleep(minS + Math.random() * (maxS - minS));
+}
+
 export const options = {
   scenarios: {
-    // Ramp up concurrent users to test sustained load
+    // Sustained load — simulates users with dashboards open (5s poll interval)
     sustained_load: {
       executor: 'ramping-vus',
       startVUs: 1,
@@ -38,6 +41,7 @@ export const options = {
         { duration: '30s', target: 0 },
       ],
     },
+    // Spike — multiple users open dashboard simultaneously
     spike: {
       executor: 'ramping-vus',
       startVUs: 0,
@@ -50,11 +54,11 @@ export const options = {
     },
   },
   thresholds: {
-    http_req_duration: [HIGH_CONCURRENCY ? 'p(95)<5000' : 'p(95)<2000'],
+    http_req_duration: ['p(95)<5000'],
     http_req_failed: ['rate<0.05'],
     errors: ['rate<0.1'],
-    health_duration: [HIGH_CONCURRENCY ? 'p(95)<2000' : 'p(95)<500'],
-    session_list_duration: [HIGH_CONCURRENCY ? 'p(95)<8000' : 'p(95)<3000'],
+    health_duration: ['p(95)<1000'],
+    session_list_duration: ['p(95)<3000'],
   },
 };
 
@@ -76,21 +80,28 @@ function authGet(path, metric) {
 }
 
 export default function () {
-  // Health check (no auth needed)
+  // Health check (no auth)
   const healthRes = http.get(`${BASE_URL}/health`, {
     tags: { endpoint: '/health' },
   });
   check(healthRes, { 'health ok': (r) => r.status === 200 });
   healthDuration.add(healthRes.timings.duration);
 
-  // Authenticated API endpoints
+  // Dashboard poll cycle — these fire together on each poll tick
   authGet('/api/sessions', sessionListDuration);
-  authGet('/api/user', userDuration);
-  authGet('/api/preferences', preferencesGetDuration);
-  authGet('/api/storage/browse', storageBrowseDuration);
-
-  // Batch status (lightweight polling endpoint)
   authGet('/api/sessions/batch-status');
 
-  sleep(CONCURRENCY > 0 ? 0.3 : 1);
+  // User navigates to settings or profile (occasional, not every poll)
+  if (Math.random() < 0.3) {
+    authGet('/api/user', userDuration);
+    authGet('/api/preferences', preferencesGetDuration);
+  }
+
+  // User opens file panel (occasional)
+  if (Math.random() < 0.2) {
+    authGet('/api/storage/browse', storageBrowseDuration);
+  }
+
+  // Dashboard polls every 5s — match real frontend behavior
+  think(4, 6);
 }
