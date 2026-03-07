@@ -1,5 +1,4 @@
 import { apiRequest } from './setup';
-import { SUITE_PREFIX } from './config';
 
 async function deleteAllSessions() {
   try {
@@ -8,12 +7,9 @@ async function deleteAllSessions() {
       const data = await res.json();
       const sessions = data.sessions;
       if (Array.isArray(sessions)) {
-        // Only delete sessions with matching prefix (or all if prefix is 'default')
-        const toDelete = SUITE_PREFIX === 'default'
-          ? sessions
-          : sessions.filter((s: { name?: string }) => s.name?.startsWith(SUITE_PREFIX));
-        // Delete sequentially with delays and 429 handling
-        for (const s of toDelete) {
+        // Delete ALL sessions — suites run sequentially so this is safe.
+        // Prevents stale sessions from accumulating across runs.
+        for (const s of sessions) {
           for (let retry = 0; retry < 3; retry++) {
             try {
               const res = await apiRequest(`/api/sessions/${s.id}`, { method: 'DELETE' });

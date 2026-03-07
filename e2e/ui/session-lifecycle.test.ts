@@ -94,18 +94,25 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
   it('session card shows metrics', async () => {
     // Metrics may take a few seconds to populate via collectMetrics heartbeat
     await page.waitForFunction(
-      () => {
-        const el = document.querySelector('[data-testid^="session-stat-card-"][data-testid$="-metric-cpu"]');
+      (id: string) => {
+        const el = document.querySelector(`[data-testid="session-stat-card-${id}-metric-cpu"]`);
         return el !== null;
       },
-      { timeout: TIMEOUTS.TERMINAL_READY }
+      { timeout: TIMEOUTS.TERMINAL_READY },
+      sessionId
     );
-    const cpu = await page.$('[data-testid^="session-stat-card-"][data-testid$="-metric-cpu"]');
+    const cpu = await page.$(`[data-testid="session-stat-card-${sessionId}-metric-cpu"]`);
     expect(cpu).toBeTruthy();
   });
 
   it('stops session via context menu', async () => {
     if (!sessionId) throw new Error('sessionId not set — previous test likely failed');
+    // Wait for session to show as running (green dot) before attempting stop
+    await page.waitForFunction(
+      (id: string) => !!document.querySelector(`[data-testid="session-stat-card-${id}"] .session-stat-card__dot--success`),
+      { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+      sessionId
+    );
     await page.evaluate((id: string) => {
       const el = document.querySelector(`[data-testid="session-stat-card-${id}-menu"]`);
       if (!el) throw new Error(`Element not found: session-stat-card-${id}-menu`);
@@ -117,13 +124,14 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
       if (!el) throw new Error('Element not found: context-menu-stop');
       (el as HTMLElement).click();
     });
-    // Wait for status to change — dot loses --success variant when stopped
+    // Wait for THIS session's dot to lose --success variant when stopped
     await page.waitForFunction(
-      () => {
-        const dot = document.querySelector('[data-testid^="session-stat-card-"] .session-stat-card__dot');
+      (id: string) => {
+        const dot = document.querySelector(`[data-testid="session-stat-card-${id}"] .session-stat-card__dot`);
         return dot && !dot.classList.contains('session-stat-card__dot--success');
       },
-      { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL }
+      { timeout: TIMEOUTS.TERMINAL_READY, polling: TIMEOUTS.CONTAINER_POLL_INTERVAL },
+      sessionId
     );
   });
 
@@ -146,16 +154,17 @@ describe.skipIf(!isSetup)('Session lifecycle', () => {
       if (!el) throw new Error('Element not found: context-menu-delete-confirm');
       (el as HTMLElement).click();
     });
-    // Wait for card to disappear
+    // Wait for THIS session's card to disappear
     await page.waitForFunction(
-      () => document.querySelector('[data-testid^="session-stat-card-"]') === null,
-      { timeout: TIMEOUTS.DASHBOARD }
+      (id: string) => document.querySelector(`[data-testid="session-stat-card-${id}"]`) === null,
+      { timeout: TIMEOUTS.DASHBOARD },
+      sessionId
     );
   });
 
-  it('dashboard returns to empty state', async () => {
-    const cards = await page.$$('[data-testid^="session-stat-card-"]');
-    expect(cards.length).toBe(0);
+  it('session is fully removed from dashboard', async () => {
+    const card = await page.$(`[data-testid="session-stat-card-${sessionId}"]`);
+    expect(card).toBeNull();
   });
 
   it('should auto-start container when clicking stopped session', { retry: 2 }, async () => {
