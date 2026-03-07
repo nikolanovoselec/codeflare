@@ -78,7 +78,7 @@ export default function () {
 
     let sessionId;
     try {
-      sessionId = createRes.json('id');
+      sessionId = createRes.json('session.id');
     } catch {
       return;
     }

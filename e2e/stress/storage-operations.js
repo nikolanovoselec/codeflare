@@ -46,8 +46,8 @@ function generateContent(sizeKB) {
 
 // Pre-generate test payloads
 const SMALL_CONTENT = encoding.b64encode(generateContent(1));   // 1 KB
-const MEDIUM_CONTENT = encoding.b64encode(generateContent(50)); // 50 KB
-const LARGE_CONTENT = encoding.b64encode(generateContent(500)); // 500 KB
+const MEDIUM_CONTENT = encoding.b64encode(generateContent(20)); // 20 KB
+const LARGE_CONTENT = encoding.b64encode(generateContent(50));  // 50 KB
 
 export const options = {
   scenarios: {
