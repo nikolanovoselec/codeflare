@@ -1620,7 +1620,7 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ## 24. Automatic Memory Capture
 
-Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 15 user messages. Zero manual intervention required.
+Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 30 user messages. Zero manual intervention required.
 
 ### Architecture
 
@@ -1630,7 +1630,7 @@ Stop hook (~150ms)                       Main agent                    Backgroun
     +-- read stdin JSON                      |                              |
     +-- check stop_hook_active → exit        |                              |
     +-- jq: count user messages              |                              |
-    +-- check counter (delta < 15?) → exit   |                              |
+    +-- check counter (delta < 30?) → exit   |                              |
     +-- check lock → exit                    |                              |
     +-- write .vars JSON file                |                              |
     +-- output JSON + exit 2 ─────────> create lock                         |
@@ -1649,7 +1649,7 @@ The `memory-capture.sh` script runs as a **Stop hook** that uses the `{"decision
 1. **Loop guard**: Checks `stop_hook_active` — if `true`, the hook already triggered continuation on a previous stop, so exit to prevent infinite loops.
 2. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
 3. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
-4. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits silently.
+4. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 30, exits silently.
 5. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits.
 6. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the reason string short.
 7. **JSON output + exit 2**: Outputs `{"decision":"block","reason":"..."}` with a short instruction pointing to the prompt file and vars file, then exits with code 2 to block the stop and deliver the reason to the main agent.
@@ -1699,4 +1699,4 @@ Hook scripts and prompt are deployed via the preseed pipeline:
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup.
-- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured **without `async: true`**. Verify the transcript has 15+ user messages since last capture. Verify the hook outputs JSON (not plain text) and exits with code 2.
+- **Agent not firing**: Check `~/.claude/settings.json` has the Stop hook configured **without `async: true`**. Verify the transcript has 30+ user messages since last capture. Verify the hook outputs JSON (not plain text) and exits with code 2.
