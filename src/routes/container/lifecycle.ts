@@ -96,21 +96,24 @@ export async function validateSessionAndCheckLimits(params: {
   }
 
   // Session limit check: enforce max concurrent running sessions per role.
-  const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
-  const sessionSettled = await Promise.allSettled(
-    sessionKeys.map(key => env.KV.get<Session>(key.name, 'json'))
-  );
-  const sessionResults = sessionSettled
-    .filter((r): r is PromiseFulfilledResult<Session | null> => r.status === 'fulfilled')
-    .map(r => r.value);
-  const runningCount = sessionResults.filter(
-    (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
-  ).length;
-
-  if (runningCount >= maxSessions) {
-    throw new RateLimitError(
-      `Session limit reached (${runningCount}/${maxSessions}). Stop an existing session to start a new one.`
+  // Bypass when stress testing so E2E suites can start unlimited containers.
+  if (env.STRESS_TEST_MODE !== 'active') {
+    const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
+    const sessionSettled = await Promise.allSettled(
+      sessionKeys.map(key => env.KV.get<Session>(key.name, 'json'))
     );
+    const sessionResults = sessionSettled
+      .filter((r): r is PromiseFulfilledResult<Session | null> => r.status === 'fulfilled')
+      .map(r => r.value);
+    const runningCount = sessionResults.filter(
+      (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
+    ).length;
+
+    if (runningCount >= maxSessions) {
+      throw new RateLimitError(
+        `Session limit reached (${runningCount}/${maxSessions}). Stop an existing session to start a new one.`
+      );
+    }
   }
 
   return sessionData;

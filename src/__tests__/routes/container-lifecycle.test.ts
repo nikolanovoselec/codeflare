@@ -573,6 +573,45 @@ describe('Container Lifecycle Routes', () => {
       // Should use default limit of 3, so 3 running = 429
       expect(res.status).toBe(429);
     });
+
+    it('bypasses session limit when STRESS_TEST_MODE is active', async () => {
+      const app = createTestApp({
+        routes: [{ path: '/container', handler: lifecycleRoutes }],
+        mockKV,
+        bucketName: 'test-bucket',
+        envOverrides: { CLOUDFLARE_API_TOKEN: 'test-token', STRESS_TEST_MODE: 'active' } as Partial<Env>,
+      });
+
+      const fetchStress = (path: string, init?: RequestInit) => {
+        const req = new Request(`http://localhost${path}`, init);
+        return app.fetch(req, {} as Env, mockExecutionCtx as unknown as ExecutionContext);
+      };
+
+      container().getState.mockResolvedValue({ status: 'stopped' });
+      container().fetch.mockResolvedValue(
+        new Response(JSON.stringify({ bucketName: null }), { status: 200 })
+      );
+
+      // Seed 5 running sessions (above default limit of 3)
+      for (let i = 1; i <= 5; i++) {
+        const id = `runningsession${String(i).padStart(8, '0')}`;
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: `Running ${i}`,
+          userId: 'test-bucket',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        });
+      }
+
+      const res = await fetchStress('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+
+      // STRESS_TEST_MODE bypasses session limit — should succeed despite 5 running
+      expect(res.status).toBe(200);
+    });
   });
 
   // =========================================================================

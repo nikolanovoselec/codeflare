@@ -109,7 +109,8 @@ describe('Container Lifecycle API', () => {
     const res = await apiRequest(`/api/container/startup-status?sessionId=${sessionId}`);
     expect(res.ok).toBe(true);
     const data = await res.json();
-    // Container may show stopped, starting (if auto-restarting), or error
-    expect(['stopped', 'starting', 'error']).toContain(data.stage);
+    // Container may show any non-ready stage: stopped, starting, syncing,
+    // mounting (PTY pre-warm), verifying, or error depending on restart timing
+    expect(['stopped', 'starting', 'syncing', 'mounting', 'verifying', 'error']).toContain(data.stage);
   });
 });
