@@ -42,8 +42,8 @@ describe('Container Lifecycle - Strict Readiness', () => {
     const data = await res.json();
     expect(data.stage).toBe('ready');
     expect(data.details.terminalServerOk).toBe(true);
-    expect(typeof data.details.cpuPercent).toBe('number');
-    expect(typeof data.details.memoryMb).toBe('number');
+    expect(typeof data.details.cpu).toBe('string');
+    expect(typeof data.details.mem).toBe('string');
   }, 45_000);
 
   it('stops and restarts to ready', async () => {
