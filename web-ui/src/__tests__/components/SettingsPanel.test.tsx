@@ -18,12 +18,16 @@ vi.mock('../../lib/mobile', () => ({
   get isSamsungBrowser() { return mobileState.samsung; },
 }));
 
-const mockGetLlmKeys = vi.hoisted(() => vi.fn<[], Promise<Record<string, unknown>>>(async () => ({})));
-const mockUpdateLlmKeys = vi.hoisted(() => vi.fn<[Record<string, unknown>], Promise<Record<string, unknown>>>(async () => ({})));
+const mockGetLlmKeys = vi.hoisted(() => vi.fn());
+const mockUpdateLlmKeys = vi.hoisted(() => vi.fn());
+
+// Defaults
+mockGetLlmKeys.mockResolvedValue({});
+mockUpdateLlmKeys.mockResolvedValue({});
 
 vi.mock('../../api/client', () => ({
   getLlmKeys: () => mockGetLlmKeys(),
-  updateLlmKeys: (body: Record<string, unknown>) => mockUpdateLlmKeys(body),
+  updateLlmKeys: (body: unknown) => mockUpdateLlmKeys(body),
 }));
 
 vi.mock('../../api/storage', () => ({
