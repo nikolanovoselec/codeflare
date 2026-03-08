@@ -18,7 +18,13 @@ vi.mock('../../lib/mobile', () => ({
   get isSamsungBrowser() { return mobileState.samsung; },
 }));
 
-vi.mock('../../api/client', () => ({}));
+const mockGetLlmKeys = vi.hoisted(() => vi.fn(async () => ({})));
+const mockUpdateLlmKeys = vi.hoisted(() => vi.fn(async () => ({})));
+
+vi.mock('../../api/client', () => ({
+  getLlmKeys: (...args: any[]) => mockGetLlmKeys(...args),
+  updateLlmKeys: (...args: any[]) => mockUpdateLlmKeys(...args),
+}));
 
 vi.mock('../../api/storage', () => ({
   recreateGettingStartedDocs: vi.fn(async () => ({
@@ -74,6 +80,8 @@ describe('SettingsPanel Component', () => {
     });
     sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
+    mockGetLlmKeys.mockResolvedValue({});
+    mockUpdateLlmKeys.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -553,6 +561,125 @@ describe('SettingsPanel Component', () => {
       const toggle = screen.queryByTestId('settings-clipboard-access-toggle');
       expect(toggle).not.toBeInTheDocument();
       mobileState.mobile = false;
+    });
+  });
+
+  describe('LLM API Keys', () => {
+    it('renders LLM API Keys group heading', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const heading = screen.getByText('LLM API Keys');
+      expect(heading.tagName).toBe('H3');
+      expect(heading).toHaveClass('settings-group-title');
+    });
+
+    it('renders OpenAI and Gemini key inputs', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const openaiInput = screen.getByTestId('settings-llm-openai-key');
+      const geminiInput = screen.getByTestId('settings-llm-gemini-key');
+      expect(openaiInput).toBeInTheDocument();
+      expect(geminiInput).toBeInTheDocument();
+      expect(openaiInput).toHaveAttribute('type', 'password');
+      expect(geminiInput).toHaveAttribute('type', 'password');
+    });
+
+    it('renders Save Keys button', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      expect(saveButton).toBeInTheDocument();
+    });
+
+    it('loads masked keys on mount', async () => {
+      mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234', geminiApiKey: '****abcd' });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      // Wait for async load
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const openaiInput = screen.getByTestId('settings-llm-openai-key') as HTMLInputElement;
+      const geminiInput = screen.getByTestId('settings-llm-gemini-key') as HTMLInputElement;
+      expect(openaiInput.value).toBe('****1234');
+      expect(geminiInput.value).toBe('****abcd');
+    });
+
+    it('calls updateLlmKeys API on save', async () => {
+      mockUpdateLlmKeys.mockResolvedValue({ openaiApiKey: '****test' });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const openaiInput = screen.getByTestId('settings-llm-openai-key');
+      fireEvent.input(openaiInput, { target: { value: 'sk-newkey-test' } });
+
+      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      await fireEvent.click(saveButton);
+
+      expect(mockUpdateLlmKeys).toHaveBeenCalledTimes(1);
+      const callArgs = mockUpdateLlmKeys.mock.calls[0][0];
+      expect(callArgs.openaiApiKey).toBe('sk-newkey-test');
+    });
+
+    it('shows success message after save', async () => {
+      mockUpdateLlmKeys.mockResolvedValue({});
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      await fireEvent.click(saveButton);
+
+      const success = await screen.findByTestId('settings-llm-keys-success');
+      expect(success.textContent).toContain('Keys saved');
+    });
+
+    it('shows error message on save failure', async () => {
+      mockUpdateLlmKeys.mockRejectedValueOnce(new Error('Network error'));
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      await fireEvent.click(saveButton);
+
+      const error = await screen.findByTestId('settings-llm-keys-error');
+      expect(error.textContent).toContain('Network error');
+    });
+
+    it('skips re-sending masked values on save', async () => {
+      mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
+      mockUpdateLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      // Wait for load
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      await fireEvent.click(saveButton);
+
+      expect(mockUpdateLlmKeys).toHaveBeenCalledTimes(1);
+      const callArgs = mockUpdateLlmKeys.mock.calls[0][0];
+      // Masked value should NOT be sent
+      expect(callArgs).not.toHaveProperty('openaiApiKey');
+    });
+
+    it('sends null when field is cleared', async () => {
+      mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
+      mockUpdateLlmKeys.mockResolvedValue({});
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const openaiInput = screen.getByTestId('settings-llm-openai-key');
+      fireEvent.input(openaiInput, { target: { value: '' } });
+
+      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      await fireEvent.click(saveButton);
+
+      const callArgs = mockUpdateLlmKeys.mock.calls[0][0];
+      expect(callArgs.openaiApiKey).toBeNull();
+    });
+
+    it('shows hint about next session start', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const hint = screen.getByTestId('settings-llm-keys-hint');
+      expect(hint.textContent).toContain('next session start');
     });
   });
 

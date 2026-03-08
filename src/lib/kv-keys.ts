@@ -79,6 +79,13 @@ export function getPreferencesKey(bucketName: string): string {
 }
 
 /**
+ * Get KV key for user LLM API keys
+ */
+export function getLlmKeysKey(bucketName: string): string {
+  return `llm-keys:${bucketName}`;
+}
+
+/**
  * List all KV keys with a given prefix, handling pagination.
  * KV returns max 1000 keys per call; this loops until all are fetched.
  * Capped at {@link MAX_KV_LIST_ITERATIONS} iterations to prevent infinite loops.

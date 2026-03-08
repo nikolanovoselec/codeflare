@@ -105,6 +105,8 @@ export class container extends Container<Env> {
   private _workspaceSyncEnabled: boolean = false;
   private _fastStartEnabled: boolean = true;
   private _tabConfig: TabConfig[] | null = null;
+  private _openaiApiKey: string | null = null;
+  private _geminiApiKey: string | null = null;
   private _containerAuthToken: string | null = null;
   private _sessionId: string | null = null;
 
@@ -163,6 +165,8 @@ export class container extends Container<Env> {
     workspaceSyncEnabled?: boolean;
     fastStartEnabled?: boolean;
     tabConfig?: TabConfig[];
+    openaiApiKey?: string;
+    geminiApiKey?: string;
   }): Promise<void> {
     this._bucketName = name;
     await this.ctx.storage.put('bucketName', name);
@@ -180,6 +184,10 @@ export class container extends Container<Env> {
       this._tabConfig = r2Creds.tabConfig;
       await this.ctx.storage.put('tabConfig', r2Creds.tabConfig);
     }
+
+    // Store LLM API keys (not persisted to DO storage — read fresh from KV each start)
+    if (r2Creds?.openaiApiKey) this._openaiApiKey = r2Creds.openaiApiKey;
+    if (r2Creds?.geminiApiKey) this._geminiApiKey = r2Creds.geminiApiKey;
 
     // Use Worker-provided R2 credentials (most reliable — Worker definitely has secrets)
     if (r2Creds?.r2AccessKeyId) this._r2AccessKeyId = r2Creds.r2AccessKeyId;
@@ -256,6 +264,9 @@ export class container extends Container<Env> {
       SESSION_ID: this._sessionId || '',
       // Tab configuration (JSON string for the terminal server to parse)
       ...(this._tabConfig && { TAB_CONFIG: JSON.stringify(this._tabConfig) }),
+      // LLM API keys (injected for consult-llm-mcp MCP server)
+      ...(this._openaiApiKey && { OPENAI_API_KEY: this._openaiApiKey }),
+      ...(this._geminiApiKey && { GEMINI_API_KEY: this._geminiApiKey }),
     };
   }
 
@@ -284,7 +295,7 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig } =
+      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
@@ -295,6 +306,8 @@ export class container extends Container<Env> {
           workspaceSyncEnabled?: boolean;
           fastStartEnabled?: boolean;
           tabConfig?: TabConfig[];
+          openaiApiKey?: string;
+          geminiApiKey?: string;
         };
 
       // FIX-28: Idempotency — once bucket name is set, reject subsequent calls.
@@ -327,6 +340,16 @@ export class container extends Container<Env> {
         if (tabConfig) {
           this._tabConfig = tabConfig;
           await this.ctx.storage.put('tabConfig', tabConfig);
+          prefsChanged = true;
+        }
+
+        // Always update LLM keys on restart (read fresh from KV each start)
+        if (openaiApiKey !== undefined) {
+          this._openaiApiKey = openaiApiKey || null;
+          prefsChanged = true;
+        }
+        if (geminiApiKey !== undefined) {
+          this._geminiApiKey = geminiApiKey || null;
           prefsChanged = true;
         }
 
@@ -367,6 +390,8 @@ export class container extends Container<Env> {
         workspaceSyncEnabled,
         fastStartEnabled,
         tabConfig,
+        openaiApiKey,
+        geminiApiKey,
       });
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
@@ -561,6 +586,8 @@ export class container extends Container<Env> {
       await this.ctx.storage.delete('tabConfig');
       this._bucketName = null;
       this._sessionId = null;
+      this._openaiApiKey = null;
+      this._geminiApiKey = null;
       this.logger.info('Operational storage cleared');
     } catch (err) {
       this.logger.error('Failed to clear storage', err instanceof Error ? err : new Error(toErrorMessage(err)));

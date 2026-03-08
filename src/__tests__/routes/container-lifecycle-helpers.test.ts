@@ -295,6 +295,34 @@ describe('Container lifecycle extracted helpers', () => {
       expect(result.needsBucketUpdate).toBe(false);
       expect(mockLogger.warn).toHaveBeenCalled();
     });
+
+    it('includes LLM keys in setBucketName body when provided', async () => {
+      mockGetStoredBucketName.mockResolvedValue('old-bucket');
+
+      const paramsWithLlm = {
+        ...baseParams,
+        openaiApiKey: 'sk-test123',
+        geminiApiKey: 'AIzaSy-test456',
+      };
+
+      await configureContainerDO(paramsWithLlm);
+
+      const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
+      const body = await fetchCall.json();
+      expect(body.openaiApiKey).toBe('sk-test123');
+      expect(body.geminiApiKey).toBe('AIzaSy-test456');
+    });
+
+    it('omits LLM keys from body when not provided', async () => {
+      mockGetStoredBucketName.mockResolvedValue('old-bucket');
+
+      await configureContainerDO(baseParams);
+
+      const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
+      const body = await fetchCall.json();
+      expect(body).not.toHaveProperty('openaiApiKey');
+      expect(body).not.toHaveProperty('geminiApiKey');
+    });
   });
 
   describe('startOrRestartContainer', () => {

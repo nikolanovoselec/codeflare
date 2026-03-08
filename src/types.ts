@@ -137,6 +137,14 @@ export interface UserPreferences {
   fastStartEnabled?: boolean;
 }
 
+/**
+ * User-scoped LLM API keys stored in KV
+ */
+export interface LlmKeys {
+  openaiApiKey?: string;
+  geminiApiKey?: string;
+}
+
 export interface StorageObject {
   key: string;
   size: number;

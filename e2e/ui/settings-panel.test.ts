@@ -177,6 +177,30 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     expect(label).toBeTruthy();
   });
 
+  it('shows LLM API Keys section with inputs and save button', async () => {
+    // Ensure panel is open
+    const isAlreadyOpen = await page.evaluate(
+      () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false'
+    );
+    if (!isAlreadyOpen) {
+      await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="dashboard-settings-button"]');
+        if (!el) throw new Error('Element not found: dashboard-settings-button');
+        (el as HTMLElement).click();
+      });
+      await waitForPanelOpen(page);
+    }
+    const groupTitles = await page.$$eval('.settings-group-title', els => els.map(el => el.textContent?.trim()));
+    expect(groupTitles).toContain('LLM API Keys');
+
+    const openaiInput = await page.$('[data-testid="settings-llm-openai-key"]');
+    const geminiInput = await page.$('[data-testid="settings-llm-gemini-key"]');
+    const saveButton = await page.$('[data-testid="settings-llm-keys-save"]');
+    expect(openaiInput).toBeTruthy();
+    expect(geminiInput).toBeTruthy();
+    expect(saveButton).toBeTruthy();
+  });
+
   it('toggling a boolean setting auto-saves', async () => {
     const toggle = await page.$('[data-testid="settings-show-tips-toggle"]');
     expect(toggle).toBeTruthy();

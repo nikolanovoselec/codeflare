@@ -17,6 +17,7 @@ import {
   CreatePresetResponseSchema,
   DeletePresetResponseSchema,
   UserPreferencesSchema,
+  LlmKeysResponseSchema,
   OnboardingConfigResponseSchema,
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
@@ -274,6 +275,26 @@ export async function updatePreferences(prefs: Partial<UserPreferences>): Promis
     method: 'PATCH',
     body: JSON.stringify(prefs),
   }, UserPreferencesSchema);
+}
+
+// LLM Keys API
+export type LlmKeysResponse = z.infer<typeof LlmKeysResponseSchema>;
+
+export async function getLlmKeys(): Promise<LlmKeysResponse> {
+  return fetchApi('/llm-keys', {}, LlmKeysResponseSchema);
+}
+
+export async function updateLlmKeys(keys: { openaiApiKey?: string | null; geminiApiKey?: string | null }): Promise<LlmKeysResponse> {
+  return fetchApi('/llm-keys', {
+    method: 'PUT',
+    body: JSON.stringify(keys),
+  }, LlmKeysResponseSchema);
+}
+
+export async function deleteLlmKeys(): Promise<void> {
+  await fetchApi('/llm-keys', {
+    method: 'DELETE',
+  });
 }
 
 // Onboarding API (public - no auth required)

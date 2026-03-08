@@ -240,6 +240,12 @@ export const StoragePreviewBinaryResponseSchema = z.object({
   lastModified: z.string(),
 });
 
+// LLM API keys response schema
+export const LlmKeysResponseSchema = z.object({
+  openaiApiKey: z.string().optional(),
+  geminiApiKey: z.string().optional(),
+});
+
 // Onboarding config schema (public endpoint)
 export const OnboardingConfigResponseSchema = z.object({
   active: z.boolean(),

@@ -15,6 +15,9 @@ import {
   startSession,
   stopSession,
   getTerminalWebSocketUrl,
+  getLlmKeys,
+  updateLlmKeys,
+  deleteLlmKeys,
 } from '../../api/client';
 
 describe('API Client', () => {
@@ -1176,6 +1179,61 @@ describe('API Client', () => {
       const url = getTerminalWebSocketUrl('session123abc');
 
       expect(url).toMatch(/\/api\/terminal\/session123abc-1\/ws/);
+    });
+  });
+
+  // ==========================================================================
+  // LLM Keys API Tests
+  // ==========================================================================
+  describe('LLM Keys API', () => {
+    it('getLlmKeys calls GET /api/llm-keys', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ openaiApiKey: '****1234' }),
+        headers: new Headers({ 'content-type': 'application/json' }),
+      });
+
+      const result = await getLlmKeys();
+      expect(result.openaiApiKey).toBe('****1234');
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/llm-keys',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      );
+    });
+
+    it('updateLlmKeys calls PUT /api/llm-keys with body', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ openaiApiKey: '****test' }),
+        headers: new Headers({ 'content-type': 'application/json' }),
+      });
+
+      const result = await updateLlmKeys({ openaiApiKey: 'sk-new-key', geminiApiKey: null });
+      expect(result.openaiApiKey).toBe('****test');
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/llm-keys',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ openaiApiKey: 'sk-new-key', geminiApiKey: null }),
+        }),
+      );
+    });
+
+    it('deleteLlmKeys calls DELETE /api/llm-keys', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true }),
+        headers: new Headers({ 'content-type': 'application/json' }),
+      });
+
+      await deleteLlmKeys();
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/llm-keys',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
     });
   });
 });

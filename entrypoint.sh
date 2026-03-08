@@ -852,6 +852,32 @@ if [ -n "${SESSION_ID:-}" ]; then
     mkdir -p "$USER_HOME/.memory/counter"
 fi
 
+# Configure consult-llm-mcp MCP server when LLM API keys are present
+if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
+    # Build env object with only the keys that are set
+    LLM_ENV="{}"
+    if [ -n "${OPENAI_API_KEY:-}" ]; then
+        LLM_ENV=$(echo "$LLM_ENV" | jq --arg k "$OPENAI_API_KEY" '. + {"OPENAI_API_KEY": $k}')
+    fi
+    if [ -n "${GEMINI_API_KEY:-}" ]; then
+        LLM_ENV=$(echo "$LLM_ENV" | jq --arg k "$GEMINI_API_KEY" '. + {"GEMINI_API_KEY": $k}')
+    fi
+
+    LLM_MCP_CONFIG=$(jq -n --argjson env "$LLM_ENV" '{"mcpServers":{"consult-llm":{"command":"npx","args":["-y","consult-llm-mcp"],"env":$env}}}')
+    if [ -f "$USER_CLAUDE_JSON" ]; then
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$LLM_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+        else
+            echo "[entrypoint] WARNING: Could not merge consult-llm MCP config (malformed .claude.json?)"
+            rm -f "$TMP_JSON"
+        fi
+    else
+        echo "$LLM_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+    fi
+    echo "[entrypoint] consult-llm MCP server configured for Claude Code"
+fi
+
 # Configure Claude Code hooks in ~/.claude/settings.json
 # Hooks: PreToolUse (block attributed commits), UserPromptSubmit (memory capture)
 HOOKS_CONFIG='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/block-attributed-commits.sh"}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/memory-capture.sh"}]}]}}'

@@ -8,6 +8,7 @@ import {
   mdiContentPaste,
   mdiGestureTapButton,
   mdiLightbulbOnOutline,
+  mdiKeyVariant,
 } from '@mdi/js';
 import Icon from './Icon';
 import Button from './ui/Button';
@@ -16,6 +17,7 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { isTouchDevice, isSamsungBrowser } from '../lib/mobile';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
+import { getLlmKeys, updateLlmKeys } from '../api/client';
 import '../styles/settings-panel.css';
 
 interface SettingsPanelProps {
@@ -36,6 +38,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentLoading, setRecreateAgentLoading] = createSignal(false);
   const [recreateAgentMessage, setRecreateAgentMessage] = createSignal<string | null>(null);
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
+  const [llmOpenaiKey, setLlmOpenaiKey] = createSignal('');
+  const [llmGeminiKey, setLlmGeminiKey] = createSignal('');
+  const [llmKeysSaving, setLlmKeysSaving] = createSignal(false);
+  const [llmKeysMessage, setLlmKeysMessage] = createSignal<string | null>(null);
+  const [llmKeysError, setLlmKeysError] = createSignal<string | null>(null);
   const isAdmin = () => props.currentUserRole === 'admin';
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled !== false;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
@@ -50,6 +57,14 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     const loaded = loadSettings();
     setSettings(loaded);
     setAccentHexInput(loaded.accentColor || '');
+
+    // Load masked LLM keys
+    getLlmKeys()
+      .then((keys) => {
+        if (keys.openaiApiKey) setLlmOpenaiKey(keys.openaiApiKey);
+        if (keys.geminiApiKey) setLlmGeminiKey(keys.geminiApiKey);
+      })
+      .catch(() => { /* ignore — keys not loaded */ });
   });
 
   // Save settings whenever they change (deferred to skip initial mount)
@@ -122,6 +137,45 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
       );
     } finally {
       setRecreateAgentLoading(false);
+    }
+  };
+
+  const handleSaveLlmKeys = async () => {
+    if (llmKeysSaving()) return;
+
+    setLlmKeysSaving(true);
+    setLlmKeysMessage(null);
+    setLlmKeysError(null);
+
+    try {
+      const payload: { openaiApiKey?: string | null; geminiApiKey?: string | null } = {};
+
+      // Skip masked values (already stored) — only send changes
+      const openai = llmOpenaiKey();
+      if (openai === '') {
+        payload.openaiApiKey = null; // clear
+      } else if (!openai.startsWith('****')) {
+        payload.openaiApiKey = openai; // new value
+      }
+
+      const gemini = llmGeminiKey();
+      if (gemini === '') {
+        payload.geminiApiKey = null; // clear
+      } else if (!gemini.startsWith('****')) {
+        payload.geminiApiKey = gemini; // new value
+      }
+
+      const result = await updateLlmKeys(payload);
+      // Update inputs with masked values from server
+      setLlmOpenaiKey(result.openaiApiKey || '');
+      setLlmGeminiKey(result.geminiApiKey || '');
+      setLlmKeysMessage('Keys saved. Takes effect on next session start.');
+    } catch (error) {
+      setLlmKeysError(
+        error instanceof Error ? error.message : 'Failed to save LLM keys.'
+      );
+    } finally {
+      setLlmKeysSaving(false);
     }
   };
 
@@ -461,9 +515,71 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </Show>
           </div>
 
+          {/* ── LLM API Keys ── */}
+          <div class="settings-group settings-group-3">
+            <h3 class="settings-group-title">LLM API Keys</h3>
+
+            <section class="settings-section">
+              <div class="settings-section-header">
+                <Icon path={mdiKeyVariant} size={16} />
+                <h3 class="settings-section-title">Provider Keys</h3>
+              </div>
+              <div class="setting-row setting-row--column-gap">
+                <label for="settings-llm-openai-key">OpenAI API Key</label>
+                <input
+                  type="password"
+                  id="settings-llm-openai-key"
+                  class="llm-key-input"
+                  value={llmOpenaiKey()}
+                  placeholder="sk-..."
+                  autocomplete="off"
+                  onInput={(e) => setLlmOpenaiKey(e.currentTarget.value)}
+                  data-testid="settings-llm-openai-key"
+                />
+              </div>
+              <div class="setting-row setting-row--column-gap">
+                <label for="settings-llm-gemini-key">Gemini API Key</label>
+                <input
+                  type="password"
+                  id="settings-llm-gemini-key"
+                  class="llm-key-input"
+                  value={llmGeminiKey()}
+                  placeholder="AI..."
+                  autocomplete="off"
+                  onInput={(e) => setLlmGeminiKey(e.currentTarget.value)}
+                  data-testid="settings-llm-gemini-key"
+                />
+              </div>
+              <div class="setting-row setting-row--column-gap">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={llmKeysSaving()}
+                  onClick={() => { void handleSaveLlmKeys(); }}
+                  data-testid="settings-llm-keys-save"
+                >
+                  Save Keys
+                </Button>
+                <span class="settings-hint" data-testid="settings-llm-keys-hint">
+                  Keys take effect on next session start. Used by the consult-llm MCP tool.
+                </span>
+                <Show when={llmKeysMessage()}>
+                  {(message) => (
+                    <span class="settings-hint" data-testid="settings-llm-keys-success">{message()}</span>
+                  )}
+                </Show>
+                <Show when={llmKeysError()}>
+                  {(error) => (
+                    <span class="settings-error" data-testid="settings-llm-keys-error">{error()}</span>
+                  )}
+                </Show>
+              </div>
+            </section>
+          </div>
+
           {/* ── Administration (admin only) ── */}
           <Show when={isAdmin()}>
-            <div class="settings-group settings-group-3">
+            <div class="settings-group settings-group-4">
               <h3 class="settings-group-title">Administration</h3>
               <section class="settings-section">
                 <div class="settings-section-header">
