@@ -18,12 +18,12 @@ vi.mock('../../lib/mobile', () => ({
   get isSamsungBrowser() { return mobileState.samsung; },
 }));
 
-const mockGetLlmKeys = vi.hoisted(() => vi.fn(async () => ({})));
-const mockUpdateLlmKeys = vi.hoisted(() => vi.fn(async () => ({})));
+const mockGetLlmKeys = vi.hoisted(() => vi.fn<[], Promise<Record<string, unknown>>>(async () => ({})));
+const mockUpdateLlmKeys = vi.hoisted(() => vi.fn<[Record<string, unknown>], Promise<Record<string, unknown>>>(async () => ({})));
 
 vi.mock('../../api/client', () => ({
-  getLlmKeys: (...args: any[]) => mockGetLlmKeys(...args),
-  updateLlmKeys: (...args: any[]) => mockUpdateLlmKeys(...args),
+  getLlmKeys: (...args: unknown[]) => mockGetLlmKeys(),
+  updateLlmKeys: (body: Record<string, unknown>) => mockUpdateLlmKeys(body),
 }));
 
 vi.mock('../../api/storage', () => ({
@@ -615,7 +615,7 @@ describe('SettingsPanel Component', () => {
       await fireEvent.click(saveButton);
 
       expect(mockUpdateLlmKeys).toHaveBeenCalledTimes(1);
-      const callArgs = mockUpdateLlmKeys.mock.calls[0][0];
+      const callArgs = mockUpdateLlmKeys.mock.calls[0]![0];
       expect(callArgs.openaiApiKey).toBe('sk-newkey-test');
     });
 
@@ -653,7 +653,7 @@ describe('SettingsPanel Component', () => {
       await fireEvent.click(saveButton);
 
       expect(mockUpdateLlmKeys).toHaveBeenCalledTimes(1);
-      const callArgs = mockUpdateLlmKeys.mock.calls[0][0];
+      const callArgs = mockUpdateLlmKeys.mock.calls[0]![0];
       // Masked value should NOT be sent
       expect(callArgs).not.toHaveProperty('openaiApiKey');
     });
@@ -671,7 +671,7 @@ describe('SettingsPanel Component', () => {
       const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       await fireEvent.click(saveButton);
 
-      const callArgs = mockUpdateLlmKeys.mock.calls[0][0];
+      const callArgs = mockUpdateLlmKeys.mock.calls[0]![0];
       expect(callArgs.openaiApiKey).toBeNull();
     });
 
