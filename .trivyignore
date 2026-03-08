@@ -72,3 +72,18 @@ CVE-2025-15558
 # CLIs don't process untrusted tar archives at runtime.
 GHSA-qffp-2rhf-9h96
 CVE-2026-29786
+
+# cpython 3.11 (Debian bookworm): python3 added for ECC observe hooks (stdlib only).
+# No network services, no untrusted input — hooks run locally on tool-use events.
+# http.client buffering DoS
+CVE-2025-13836
+# IMAP command injection
+CVE-2025-15366
+# POP3 command injection
+CVE-2025-15367
+# python-markdown DoS via malformed HTML
+CVE-2025-69534
+# tarfile infinite loop
+CVE-2025-8194
+# email header injection via unquoted newlines
+CVE-2026-1299
