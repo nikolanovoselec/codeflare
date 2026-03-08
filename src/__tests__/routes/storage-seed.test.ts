@@ -28,7 +28,7 @@ vi.mock('../../lib/r2-config', () => ({
 }));
 
 import { createBucketIfNotExists } from '../../lib/r2-admin';
-import { seedGettingStartedDocs, seedAgentConfigs, reconcileAgentConfigs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
 import seedRoutes from '../../routes/storage/seed';
 
 beforeEach(() => {
