@@ -80,8 +80,8 @@
 
 /* Group */
 .settings-group {
-  margin-bottom: var(--space-8, 2rem);
-  padding-bottom: var(--space-6);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .settings-group:last-child {
@@ -100,7 +100,7 @@
 
 /* Section */
 .settings-section {
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-3);
 }
 
 .settings-section:last-child {
@@ -109,7 +109,7 @@
 
 .settings-section + .settings-section {
   border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-6);
+  padding-top: var(--space-3);
 }
 
 /*
@@ -139,7 +139,7 @@
   padding: var(--space-1) 0;
   background: none;
   border: none;
-  color: inherit;
+  color: var(--color-text-primary);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -208,7 +208,7 @@
 }
 
 .accordion-body-inner > :first-child {
-  margin-top: var(--space-3);
+  margin-top: var(--space-1);
 }
 
 /* LLM Keys explanation */
@@ -257,7 +257,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-1);
   color: var(--color-text-muted);
 }
 
@@ -274,7 +274,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-2) 0;
+  padding: var(--space-1) 0;
 }
 
 /* Clickable toggle row — entire row triggers toggle */
@@ -282,7 +282,7 @@
   cursor: pointer;
   border-radius: var(--radius-md);
   margin: 0 calc(-1 * var(--space-2));
-  padding: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   transition: background var(--transition-fast);
 }
 
@@ -531,8 +531,8 @@
   }
 
   .accordion-header {
-    min-height: 48px;
-    padding: var(--space-3) 0;
+    min-height: 40px;
+    padding: var(--space-2) 0;
   }
 
   .setting-row select {
