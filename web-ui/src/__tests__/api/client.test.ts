@@ -1190,8 +1190,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ openaiApiKey: '****1234' }),
-        headers: new Headers({ 'content-type': 'application/json' }),
+        text: () => Promise.resolve(JSON.stringify({ openaiApiKey: '****1234' })),
       });
 
       const result = await getLlmKeys();
@@ -1206,8 +1205,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ openaiApiKey: '****test' }),
-        headers: new Headers({ 'content-type': 'application/json' }),
+        text: () => Promise.resolve(JSON.stringify({ openaiApiKey: '****test' })),
       });
 
       const result = await updateLlmKeys({ openaiApiKey: 'sk-new-key', geminiApiKey: null });
@@ -1225,8 +1223,7 @@ describe('API Client', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ success: true }),
-        headers: new Headers({ 'content-type': 'application/json' }),
+        text: () => Promise.resolve(JSON.stringify({ success: true })),
       });
 
       await deleteLlmKeys();

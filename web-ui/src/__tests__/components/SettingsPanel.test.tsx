@@ -587,7 +587,7 @@ describe('SettingsPanel Component', () => {
     it('renders Save Keys button', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       expect(saveButton).toBeInTheDocument();
     });
 
@@ -611,7 +611,7 @@ describe('SettingsPanel Component', () => {
       const openaiInput = screen.getByTestId('settings-llm-openai-key');
       fireEvent.input(openaiInput, { target: { value: 'sk-newkey-test' } });
 
-      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       await fireEvent.click(saveButton);
 
       expect(mockUpdateLlmKeys).toHaveBeenCalledTimes(1);
@@ -623,7 +623,7 @@ describe('SettingsPanel Component', () => {
       mockUpdateLlmKeys.mockResolvedValue({});
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       await fireEvent.click(saveButton);
 
       const success = await screen.findByTestId('settings-llm-keys-success');
@@ -634,7 +634,7 @@ describe('SettingsPanel Component', () => {
       mockUpdateLlmKeys.mockRejectedValueOnce(new Error('Network error'));
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       await fireEvent.click(saveButton);
 
       const error = await screen.findByTestId('settings-llm-keys-error');
@@ -649,7 +649,7 @@ describe('SettingsPanel Component', () => {
       // Wait for load
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       await fireEvent.click(saveButton);
 
       expect(mockUpdateLlmKeys).toHaveBeenCalledTimes(1);
@@ -668,7 +668,7 @@ describe('SettingsPanel Component', () => {
       const openaiInput = screen.getByTestId('settings-llm-openai-key');
       fireEvent.input(openaiInput, { target: { value: '' } });
 
-      const saveButton = screen.getByTestId('settings-llm-keys-save');
+      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       await fireEvent.click(saveButton);
 
       const callArgs = mockUpdateLlmKeys.mock.calls[0][0];
