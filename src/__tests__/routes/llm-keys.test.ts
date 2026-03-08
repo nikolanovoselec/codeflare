@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env, LlmKeys } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
+import { AppError } from '../../lib/error-types';
 
 // Hoisted mocks
 vi.mock('../../lib/logger', () => ({
@@ -25,6 +26,12 @@ describe('LLM Keys routes', () => {
 
   function createTestApp() {
     const app = new Hono<{ Bindings: Env }>();
+    app.onError((err, c) => {
+      if (err instanceof AppError) {
+        return c.json(err.toJSON(), err.statusCode as any);
+      }
+      return c.json({ error: 'Unexpected error' }, 500);
+    });
     app.use('*', async (c, next) => {
       (c.env as any) = { KV: mockKV };
       return next();
