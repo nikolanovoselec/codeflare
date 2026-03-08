@@ -490,6 +490,51 @@
 }
 
 
+/* Session Mode Segmented Control */
+.session-mode-control {
+  display: flex;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  overflow: hidden;
+  margin-bottom: var(--space-2);
+}
+
+.session-mode-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-base);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  user-select: none;
+}
+
+.session-mode-option input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.session-mode-option + .session-mode-option {
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.session-mode-option--selected {
+  background: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.session-mode-option:not(.session-mode-option--selected):hover {
+  background: var(--color-bg-muted);
+}
+
 /* LLM Key Input */
 .llm-key-input {
   width: 100%;

@@ -27,11 +27,13 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
           key: '.claude/rules/cloudflare-environment.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Environment Rules',
+          modes: ['default', 'advanced'],
         },
         {
           key: '.claude/skills/ship/SKILL.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Ship Skill',
+          modes: ['default', 'advanced'],
         },
       ],
     },
@@ -149,11 +151,13 @@ describe('seedAgentConfigs', () => {
         key: '.claude/rules/cloudflare-environment.md',
         contentType: 'text/markdown; charset=utf-8',
         content: '# Environment Rules',
+        modes: ['default', 'advanced'],
       },
       {
         key: '.claude/skills/ship/SKILL.md',
         contentType: 'text/markdown; charset=utf-8',
         content: '# Ship Skill',
+        modes: ['default', 'advanced'],
       },
     ];
   });

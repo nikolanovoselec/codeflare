@@ -64,4 +64,39 @@ describe('Preferences API', () => {
     const verifyData = await verifyRes.json();
     expect(verifyData.fastStartEnabled).toBe(true);
   });
+
+  it('PATCH sessionMode to "default" persists across GET', async () => {
+    const patchRes = await apiRequest('/api/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionMode: 'default' }),
+    });
+    expect(patchRes.ok).toBe(true);
+
+    const getRes = await apiRequest('/api/preferences');
+    const data = await getRes.json();
+    expect(data.sessionMode).toBe('default');
+  });
+
+  it('PATCH sessionMode to "advanced" persists across GET', async () => {
+    const patchRes = await apiRequest('/api/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionMode: 'advanced' }),
+    });
+    expect(patchRes.ok).toBe(true);
+
+    const getRes = await apiRequest('/api/preferences');
+    const data = await getRes.json();
+    expect(data.sessionMode).toBe('advanced');
+  });
+
+  it('PATCH rejects invalid sessionMode', async () => {
+    const patchRes = await apiRequest('/api/preferences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionMode: 'expert' }),
+    });
+    expect(patchRes.status).toBe(400);
+  });
 });

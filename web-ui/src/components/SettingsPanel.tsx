@@ -137,6 +137,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const isAdmin = () => props.currentUserRole === 'admin';
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled !== false;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
+  const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
@@ -183,6 +184,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   const handleFastStartToggle = () => {
     void sessionStore.updatePreferences({ fastStartEnabled: !fastStartEnabled() });
+  };
+
+  const handleSessionModeChange = (mode: 'default' | 'advanced') => {
+    if (mode === currentSessionMode()) return;
+    void sessionStore.updatePreferences({ sessionMode: mode });
   };
 
   const handleRecreateDocs = async () => {
@@ -463,6 +469,55 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             isOpen={openGroup() === 'session'}
             onToggle={() => handleAccordionClick('session')}
           >
+            {/* Session Mode */}
+            <section class="settings-section">
+              <div class="settings-section-header">
+                <h3 class="settings-section-title">Session Mode</h3>
+              </div>
+              <div
+                class="session-mode-control"
+                role="radiogroup"
+                aria-label="Session mode"
+                data-testid="session-mode-control"
+              >
+                <label
+                  class={`session-mode-option ${currentSessionMode() === 'default' ? 'session-mode-option--selected' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="session-mode"
+                    value="default"
+                    checked={currentSessionMode() === 'default'}
+                    onChange={() => handleSessionModeChange('default')}
+                    role="radio"
+                    aria-checked={currentSessionMode() === 'default'}
+                    data-testid="session-mode-default"
+                  />
+                  Default
+                </label>
+                <label
+                  class={`session-mode-option ${currentSessionMode() === 'advanced' ? 'session-mode-option--selected' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="session-mode"
+                    value="advanced"
+                    checked={currentSessionMode() === 'advanced'}
+                    onChange={() => handleSessionModeChange('advanced')}
+                    role="radio"
+                    aria-checked={currentSessionMode() === 'advanced'}
+                    data-testid="session-mode-advanced"
+                  />
+                  Advanced
+                </label>
+              </div>
+              <div class="setting-row setting-row--column-gap">
+                <span class="settings-hint" data-testid="session-mode-hint">
+                  Controls which AI skills and rules are preseeded. Click "Recreate" below to apply.
+                </span>
+              </div>
+            </section>
+
             {/* Agent Startup / Fast Start */}
             <section class="settings-section">
               <div class="settings-section-header">

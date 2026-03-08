@@ -68,10 +68,18 @@ type SeedDocument = {
   key: string;
   contentType: string;
   content: string;
+  modes: ('default' | 'advanced')[];
 };
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ${serializedDocuments};
 `;
+}
+
+function validateManifestPath(p) {
+  if (p.includes('..')) throw new Error(`Path traversal in manifest: ${p}`);
+  if (p.startsWith('/')) throw new Error(`Leading slash in manifest path: ${p}`);
+  if (p.startsWith('.')) throw new Error(`Leading dot in manifest path: ${p}`);
+  if (p.includes('\\')) throw new Error(`Backslash in manifest path: ${p}`);
 }
 
 async function generate() {
@@ -86,23 +94,65 @@ async function generate() {
     throw new Error(`Expected preseed/agents/ path to be a directory: ${agentsDir}`);
   }
 
+  // Load manifest
+  const claudeDir = path.join(agentsDir, 'claude');
+  const manifestPath = path.join(claudeDir, 'manifest.json');
+  const manifestRaw = await fs.readFile(manifestPath, 'utf8');
+  const manifest = JSON.parse(manifestRaw);
+
+  // Validate manifest paths
+  for (const manifestKey of Object.keys(manifest)) {
+    validateManifestPath(manifestKey);
+    const entry = manifest[manifestKey];
+    if (!Array.isArray(entry.modes) || entry.modes.length === 0) {
+      throw new Error(`Manifest entry "${manifestKey}" has empty or missing modes`);
+    }
+    for (const mode of entry.modes) {
+      if (mode !== 'default' && mode !== 'advanced') {
+        throw new Error(`Manifest entry "${manifestKey}" has invalid mode: ${mode}`);
+      }
+    }
+  }
+
   const relativePaths = await collectRelativeFilePaths(agentsDir);
   const documents = [];
 
   for (const relativePath of relativePaths) {
+    // Skip manifest.json from seeding
+    if (relativePath === 'claude/manifest.json') continue;
+
     const absolutePath = path.join(agentsDir, relativePath);
     const content = await fs.readFile(absolutePath, 'utf8');
 
-    const firstSlash = relativePath.indexOf('/');
-    const key = firstSlash === -1
-      ? `.${relativePath}`
-      : `.${relativePath.slice(0, firstSlash)}${relativePath.slice(firstSlash)}`;
+    // Use explicit .claude/ prefix
+    // relativePath is like "claude/hooks/foo.sh" — strip the "claude/" prefix and re-add as ".claude/"
+    const withinClaude = relativePath.slice('claude/'.length);
+    const key = `.claude/${withinClaude}`;
+
+    // Look up modes from manifest
+    const manifestEntry = manifest[withinClaude];
+    if (!manifestEntry) {
+      throw new Error(`File "${withinClaude}" exists on disk but has no manifest entry`);
+    }
 
     documents.push({
       key,
       contentType: inferContentType(relativePath),
       content,
+      modes: manifestEntry.modes,
     });
+  }
+
+  // Validate manifest doesn't reference missing files
+  const collectedWithinClaude = new Set(
+    relativePaths
+      .filter((p) => p !== 'claude/manifest.json')
+      .map((p) => p.slice('claude/'.length))
+  );
+  for (const manifestKey of Object.keys(manifest)) {
+    if (!collectedWithinClaude.has(manifestKey)) {
+      throw new Error(`Manifest references "${manifestKey}" but file does not exist`);
+    }
   }
 
   const source = toGeneratedModuleSource(documents);

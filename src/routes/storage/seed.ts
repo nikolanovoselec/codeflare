@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
-import type { Env } from '../../types';
+import type { Env, UserPreferences } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { getR2Config } from '../../lib/r2-config';
-import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { ContainerError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
+import { getPreferencesKey } from '../../lib/kv-keys';
+import { resolveSessionMode } from '../../lib/session-mode';
 
 const logger = createLogger('storage-seed');
 
@@ -59,6 +61,7 @@ app.post('/getting-started', async (c) => {
 /**
  * POST /api/storage/seed/agent-configs
  * Recreate AI agent configuration files (skills, rules), overwriting existing files.
+ * Respects the user's session mode preference — cleans up files not in the current mode.
  */
 app.post('/agent-configs', async (c) => {
   const bucketName = c.get('bucketName');
@@ -70,13 +73,22 @@ app.post('/agent-configs', async (c) => {
   }
 
   try {
-    const seedResult = await seedAgentConfigs(c.env, bucketName, endpoint, { overwrite: true });
+    // Resolve session mode from user preferences
+    const preferencesKey = getPreferencesKey(bucketName);
+    const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json');
+    const mode = resolveSessionMode(preferences ?? null);
+
+    const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, mode, {
+      overwrite: true,
+      cleanup: true,
+    });
 
     logger.info('Recreated agent configs', {
       bucketName,
+      mode,
       bucketCreated: bucketResult.created === true,
-      writtenCount: seedResult.written.length,
-      skippedCount: seedResult.skipped.length,
+      writtenCount: result.written.length,
+      deletedCount: result.deleted.length,
     });
 
     // Invalidate storage-stats cache so next poll/fetch gets fresh data
@@ -85,8 +97,10 @@ app.post('/agent-configs', async (c) => {
     return c.json({
       success: true,
       bucketCreated: bucketResult.created === true,
-      written: seedResult.written,
-      skipped: seedResult.skipped,
+      written: result.written,
+      skipped: result.skipped,
+      deleted: result.deleted,
+      warnings: result.warnings,
     });
   } catch (error) {
     throw new ContainerError('seed-agent-configs', toErrorMessage(error));

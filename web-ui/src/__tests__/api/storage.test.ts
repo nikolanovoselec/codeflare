@@ -362,6 +362,24 @@ describe('Storage API Client', () => {
         expect.objectContaining({ method: 'POST' })
       );
     });
+
+    it('handles response with deleted and warnings arrays', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          success: true,
+          bucketCreated: false,
+          written: ['.claude/rules/cloudflare-environment.md'],
+          skipped: [],
+          deleted: ['.claude/hooks/block-attributed-commits.sh', '.claude/skills/consult-llm/SKILL.md'],
+          warnings: [],
+        })
+      );
+
+      const result = await recreateAgentConfigs();
+      expect(result.written).toHaveLength(1);
+      expect(result.deleted).toHaveLength(2);
+      expect(result.warnings).toEqual([]);
+    });
   });
 
   // ==========================================================================

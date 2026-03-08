@@ -4,9 +4,10 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session, UserPreferences, LlmKeys, TabConfig } from '../../types';
+import type { Env, Session, SessionMode, UserPreferences, LlmKeys, TabConfig } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
-import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
+import { resolveSessionMode } from '../../lib/session-mode';
 import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
@@ -132,9 +133,10 @@ export async function validateSessionAndCheckLimits(params: {
 export async function ensureBucketAndSeed(params: {
   env: Env;
   bucketName: string;
+  sessionMode: SessionMode;
   logger: Logger;
 }): Promise<{ r2Config: { accountId: string; endpoint: string } }> {
-  const { env, bucketName, logger } = params;
+  const { env, bucketName, sessionMode, logger } = params;
 
   const r2Config = await getR2Config(env);
   const bucketResult = await createBucketIfNotExists(
@@ -166,9 +168,13 @@ export async function ensureBucketAndSeed(params: {
     }
 
     try {
-      const agentResult = await seedAgentConfigs(env, bucketName, r2Config.endpoint, { overwrite: false });
+      const agentResult = await reconcileAgentConfigs(env, bucketName, r2Config.endpoint, sessionMode, {
+        overwrite: false,
+        cleanup: false,
+      });
       logger.info('Seeded initial agent configs', {
         bucketName,
+        mode: sessionMode,
         writtenCount: agentResult.written.length,
         skippedCount: agentResult.skipped.length,
       });
@@ -381,6 +387,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled !== false;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
+    const sessionMode = resolveSessionMode(preferences);
 
     // Read LLM API keys (if any) to inject into container env vars
     const llmKeysKey = getLlmKeysKey(bucketName);
@@ -390,6 +397,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const { r2Config } = await ensureBucketAndSeed({
       env: c.env,
       bucketName,
+      sessionMode,
       logger: reqLogger,
     });
 

@@ -95,6 +95,16 @@ export default function () {
   if (Math.random() < 0.3) {
     authGet('/api/user', userDuration);
     authGet('/api/preferences', preferencesGetDuration);
+
+    // Occasionally toggle session mode preference
+    if (Math.random() < 0.2) {
+      const mode = Math.random() < 0.5 ? 'default' : 'advanced';
+      http.patch(
+        `${BASE_URL}/api/preferences`,
+        JSON.stringify({ sessionMode: mode }),
+        { headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' }, tags: { endpoint: 'PATCH /api/preferences' } }
+      );
+    }
   }
 
   // User opens file panel (occasional)

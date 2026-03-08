@@ -231,6 +231,108 @@ describe('SettingsPanel Component', () => {
     });
   });
 
+  describe('Session Mode', () => {
+    it('renders segmented control with "Default" and "Advanced" options', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(screen.getByTestId('session-mode-control')).toBeInTheDocument();
+      expect(screen.getByTestId('session-mode-default')).toBeInTheDocument();
+      expect(screen.getByTestId('session-mode-advanced')).toBeInTheDocument();
+    });
+
+    it('"Default" selected when sessionMode is undefined', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(screen.getByTestId('session-mode-default')).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByTestId('session-mode-advanced')).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('"Default" selected when sessionMode is "default"', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: 'default' } as typeof sessionStoreState.preferences;
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(screen.getByTestId('session-mode-default')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('"Advanced" selected when sessionMode is "advanced"', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: 'advanced' } as typeof sessionStoreState.preferences;
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      expect(screen.getByTestId('session-mode-advanced')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('clicking "Advanced" calls updatePreferences with sessionMode "advanced"', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      fireEvent.click(screen.getByTestId('session-mode-advanced'));
+      expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ sessionMode: 'advanced' });
+    });
+
+    it('clicking "Default" calls updatePreferences with sessionMode "default"', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: 'advanced' } as typeof sessionStoreState.preferences;
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      fireEvent.click(screen.getByTestId('session-mode-default'));
+      expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ sessionMode: 'default' });
+    });
+
+    it('clicking already-selected mode is a no-op', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      fireEvent.click(screen.getByTestId('session-mode-default'));
+      expect(sessionStoreState.updatePreferences).not.toHaveBeenCalled();
+    });
+
+    it('segmented control visible inside Session Defaults accordion', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      const panel = screen.getByTestId('accordion-panel-session');
+      const control = within(panel).getByTestId('session-mode-control');
+      expect(control).toBeInTheDocument();
+    });
+
+    it('has accessible role="radiogroup" with aria-label', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      const control = screen.getByTestId('session-mode-control');
+      expect(control).toHaveAttribute('role', 'radiogroup');
+      expect(control).toHaveAttribute('aria-label', 'Session mode');
+    });
+
+    it('each option has role="radio" with correct aria-checked', () => {
+      sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: 'advanced' } as typeof sessionStoreState.preferences;
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      const defaultOpt = screen.getByTestId('session-mode-default');
+      const advancedOpt = screen.getByTestId('session-mode-advanced');
+      expect(defaultOpt).toHaveAttribute('role', 'radio');
+      expect(advancedOpt).toHaveAttribute('role', 'radio');
+      expect(defaultOpt).toHaveAttribute('aria-checked', 'false');
+      expect(advancedOpt).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('hint text contains "Recreate" wording', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      const hint = screen.getByTestId('session-mode-hint');
+      expect(hint.textContent).toContain('Recreate');
+    });
+  });
+
   describe('Agent Startup Settings', () => {
     it('shows fast start toggle defaulted to ON (undefined treated as true)', () => {
       sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };

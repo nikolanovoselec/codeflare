@@ -22,6 +22,7 @@ import { TabConfigSchema } from '../../lib/schemas';
 import { createLogger, setLogLevel } from '../../lib/logger';
 import { toApiSession } from '../../lib/session-helpers';
 import { getSetupCompleteCache, setSetupCompleteCache, resetSetupCache } from '../../lib/cache-reset';
+import { getConfigsForMode, getPreseedKeysNotInMode } from '../../lib/r2-seed';
 
 const NUM_RUNS = parseInt(process.env.FAST_CHECK_NUM_RUNS || '1000');
 
@@ -2234,6 +2235,50 @@ describe('Fuzz: isTextContentType / isImageContentType', () => {
         },
       ),
       { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session mode — agent config filtering invariants
+// ---------------------------------------------------------------------------
+describe('Session mode config filtering', () => {
+  it('filtering by any valid mode always returns non-empty', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom('default' as const, 'advanced' as const),
+        (mode) => {
+          const configs = getConfigsForMode(mode);
+          expect(configs.length).toBeGreaterThan(0);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('"advanced" filtered count >= "default" filtered count', () => {
+    fc.assert(
+      fc.property(
+        fc.constant(null),
+        () => {
+          const defaultCount = getConfigsForMode('default').length;
+          const advancedCount = getConfigsForMode('advanced').length;
+          expect(advancedCount).toBeGreaterThanOrEqual(defaultCount);
+        },
+      ),
+      { numRuns: 10 },
+    );
+  });
+
+  it('getPreseedKeysNotInMode("advanced") is always empty', () => {
+    fc.assert(
+      fc.property(
+        fc.constant(null),
+        () => {
+          expect(getPreseedKeysNotInMode('advanced')).toEqual([]);
+        },
+      ),
+      { numRuns: 10 },
     );
   });
 });

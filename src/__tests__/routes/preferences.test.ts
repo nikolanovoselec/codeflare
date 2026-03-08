@@ -183,5 +183,143 @@ describe('Preferences Routes', () => {
       expect(body.code).toBe('VALIDATION_ERROR');
     });
   });
+
+  describe('sessionMode preference', () => {
+    it('GET returns stored sessionMode', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        lastAgentType: 'codex',
+        sessionMode: 'advanced',
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences');
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { sessionMode?: string };
+      expect(body.sessionMode).toBe('advanced');
+    });
+
+    it('PATCH updates sessionMode to "default" and preserves other fields', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        lastAgentType: 'gemini',
+        sessionMode: 'advanced',
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'default' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { lastAgentType?: string; sessionMode?: string };
+      expect(body.lastAgentType).toBe('gemini');
+      expect(body.sessionMode).toBe('default');
+    });
+
+    it('PATCH updates sessionMode to "advanced"', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { sessionMode?: string };
+      expect(body.sessionMode).toBe('advanced');
+    });
+
+    it('returns 400 for invalid sessionMode "expert"', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'expert' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 400 for invalid sessionMode 123', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 123 }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 400 for sessionMode null', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: null }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('malformed JSON and unknown fields', () => {
+    it('PATCH with malformed JSON body returns 400', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{not valid json',
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('PATCH with empty {} is a 200 no-op merge', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        lastAgentType: 'gemini',
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { lastAgentType?: string };
+      expect(body.lastAgentType).toBe('gemini');
+    });
+
+    it('PATCH with unknown fields returns 400 (strict schema)', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unknownField: true }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+    });
+  });
 });
 

@@ -44,6 +44,7 @@ vi.mock('../../lib/r2-admin', () => ({
 vi.mock('../../lib/r2-seed', () => ({
   seedGettingStartedDocs: mockSeedGettingStartedDocs,
   seedAgentConfigs: mockSeedAgentConfigs,
+  reconcileAgentConfigs: vi.fn().mockResolvedValue({ written: [], skipped: [], deleted: [], warnings: [] }),
 }));
 
 // Import after mocks are set up

@@ -41,6 +41,7 @@ vi.mock('../../lib/r2-admin', () => ({
 vi.mock('../../lib/r2-seed', () => ({
   seedGettingStartedDocs: vi.fn().mockResolvedValue({ written: [], skipped: [] }),
   seedAgentConfigs: vi.fn().mockResolvedValue({ written: [], skipped: [] }),
+  reconcileAgentConfigs: vi.fn().mockResolvedValue({ written: [], skipped: [], deleted: [], warnings: [] }),
 }));
 
 // ── Container mocks (session stop/delete need these) ─────────────────

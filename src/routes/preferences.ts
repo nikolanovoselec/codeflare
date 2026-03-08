@@ -4,17 +4,25 @@
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { AgentTypeSchema, type Env, type UserPreferences } from '../types';
+import { AgentTypeSchema, SessionModeSchema, type Env, type UserPreferences } from '../types';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
+import { createRateLimiter } from '../middleware/rate-limit';
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
   lastPresetId: z.string().max(100).optional(),
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
+  sessionMode: SessionModeSchema.optional(),
 }).strict();
+
+const preferencesPatchRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 20,
+  keyPrefix: 'preferences-patch',
+});
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -35,9 +43,16 @@ app.get('/', async (c) => {
  * PATCH /api/preferences
  * Update user preferences (merge)
  */
-app.patch('/', async (c) => {
+app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
-  const raw = await c.req.json();
+
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    throw new ValidationError('Invalid JSON body');
+  }
+
   const parsed = UpdatePreferencesBody.safeParse(raw);
   if (!parsed.success) {
     throw new ValidationError(parsed.error.issues[0].message);

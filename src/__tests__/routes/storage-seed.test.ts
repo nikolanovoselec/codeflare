@@ -16,6 +16,11 @@ vi.mock('../../lib/r2-admin', () => ({
 vi.mock('../../lib/r2-seed', () => ({
   seedGettingStartedDocs: vi.fn(async () => testState.seedResult),
   seedAgentConfigs: vi.fn(async () => testState.agentSeedResult),
+  reconcileAgentConfigs: vi.fn(async () => ({
+    ...testState.agentSeedResult,
+    deleted: [],
+    warnings: [],
+  })),
 }));
 
 vi.mock('../../lib/r2-config', () => ({
@@ -23,7 +28,7 @@ vi.mock('../../lib/r2-config', () => ({
 }));
 
 import { createBucketIfNotExists } from '../../lib/r2-admin';
-import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, seedAgentConfigs, reconcileAgentConfigs } from '../../lib/r2-seed';
 import seedRoutes from '../../routes/storage/seed';
 
 beforeEach(() => {
@@ -135,11 +140,12 @@ describe('Agent Config Seed Routes', () => {
     expect(body.bucketCreated).toBe(false);
     expect(body.written).toEqual(['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md']);
     expect(createBucketIfNotExists).toHaveBeenCalledWith('test-account', 'test-token', 'my-bucket');
-    expect(seedAgentConfigs).toHaveBeenCalledWith(
+    expect(reconcileAgentConfigs).toHaveBeenCalledWith(
       expect.any(Object),
       'my-bucket',
       'https://test.r2.cloudflarestorage.com',
-      { overwrite: true }
+      'default',
+      { overwrite: true, cleanup: true }
     );
   });
 

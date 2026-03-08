@@ -18,12 +18,16 @@ const TabPresetSchema = z.object({
   createdAt: z.string(),
 });
 
+// Session mode enum
+export const SessionModeSchema = z.enum(['default', 'advanced']);
+
 // User preferences schema
 export const UserPreferencesSchema = z.object({
   lastAgentType: AgentTypeSchema.optional(),
   lastPresetId: z.string().optional(),
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
+  sessionMode: SessionModeSchema.optional(),
 });
 
 // Preset API response schemas
@@ -217,6 +221,8 @@ export const RecreateAgentConfigsResponseSchema = z.object({
   bucketCreated: z.boolean(),
   written: z.array(z.string()),
   skipped: z.array(z.string()),
+  deleted: z.array(z.string()).optional(),
+  warnings: z.array(z.string()).optional(),
 });
 
 // Storage preview (discriminated by type)

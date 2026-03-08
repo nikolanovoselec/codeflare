@@ -108,6 +108,9 @@ export interface Session {
 export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'gemini', 'opencode', 'bash']);
 export type AgentType = z.infer<typeof AgentTypeSchema>;
 
+export const SessionModeSchema = z.enum(['default', 'advanced']);
+export type SessionMode = z.infer<typeof SessionModeSchema>;
+
 /**
  * Configuration for a single terminal tab
  */
@@ -135,6 +138,7 @@ export interface UserPreferences {
   lastPresetId?: string;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
+  sessionMode?: SessionMode;
 }
 
 /**

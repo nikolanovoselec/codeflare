@@ -1750,14 +1750,38 @@ The background agent's full instructions live in `~/.claude/hooks/memory-agent-p
 - Lock and vars files are **excluded from sync** via `--filter "- .memory/counter/*.lock"` and `--filter "- .memory/counter/*.vars"` — they are ephemeral per-invocation state.
 - The `.memory/` directory itself IS synced (it contains the MCP memory JSONL files used across sessions).
 
+### Session Modes
+
+Users can choose between **Default** and **Advanced** session modes via Settings > Session Defaults. The mode controls which preseed files are deployed on Recreate or new bucket creation.
+
+| Content | Default | Advanced |
+|---------|---------|----------|
+| Memory hooks & prompt | Yes | Yes |
+| CI monitoring, environment, no-local-builds rules | Yes | Yes |
+| Cloudflare stack, ship, ship references skills | Yes | Yes |
+| `consult-llm` skill | No | Yes |
+| `block-attributed-commits` hook | No | Yes |
+
+**Storage**: `sessionMode?: 'default' | 'advanced'` in `UserPreferences` (KV). Undefined = `'default'`.
+
+**Manifest**: `preseed/agents/claude/manifest.json` — object-per-entry with `{ "modes": ["default", "advanced"] }` tags. The generator (`scripts/generate-agent-seed.mjs`) reads the manifest and embeds `modes` into each `SeedDocument`.
+
+**Resolver**: `resolveSessionMode(prefs)` in `src/lib/session-mode.ts` — single source of truth for the `?? 'default'` fallback.
+
+**When mode takes effect**: Only on explicit "Recreate AI agent skills & rules" click or new bucket creation. Existing users keep all their current R2 files until they Recreate.
+
+**Cleanup on Recreate**: `reconcileAgentConfigs()` seeds mode-appropriate files then deletes preseed-managed files not in the current mode. Strictly scoped to keys from `AGENTS_SEEDED_CONFIGS` — no bucket listing, no prefix scans, never touches user-created files. Partial delete failures return `warnings` without failing the overall operation.
+
+**No migration**: Existing users are unaffected. Changes only happen on explicit action.
+
 ### Preseed Deployment
 
 Hook scripts and prompt are deployed via the preseed pipeline:
 
 1. Source files in `preseed/agents/claude/hooks/` (includes `memory-capture.sh` and `memory-agent-prompt.md`)
-2. `scripts/generate-agent-seed.mjs` bakes them into `src/lib/agent-seed.generated.ts`
-3. On first bucket creation: `seedAgentConfigs(overwrite: false)` writes to R2
-4. On "Recreate skills & rules" button: `seedAgentConfigs(overwrite: true)` overwrites in R2
+2. `scripts/generate-agent-seed.mjs` reads `manifest.json` for mode tags, bakes them into `src/lib/agent-seed.generated.ts`
+3. On first bucket creation: `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes to R2
+4. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes non-mode files
 5. Bisync pulls from R2 to container `~/.claude/hooks/`
 
 ### Settings.json Merge

@@ -26,6 +26,9 @@ const READ_HEADERS = {
 const SESSION_CREATE_LIMIT = 10; // per minute
 const BURST_SIZE = SESSION_CREATE_LIMIT + 5; // send more than the limit
 
+const PREFERENCES_PATCH_LIMIT = 20; // per minute
+const PREFERENCES_BURST_SIZE = PREFERENCES_PATCH_LIMIT + 5;
+
 export const options = {
   scenarios: {
     // Single VU to get deterministic rate limit behavior
@@ -34,6 +37,16 @@ export const options = {
       vus: 1,
       iterations: 1,
       maxDuration: '3m',
+      exec: 'sessionLimitTest',
+    },
+    // Validate PATCH /api/preferences rate limit
+    validate_preferences_limit: {
+      executor: 'shared-iterations',
+      vus: 1,
+      iterations: 1,
+      maxDuration: '2m',
+      startTime: '3m10s',
+      exec: 'preferencesLimitTest',
     },
   },
   thresholds: {
@@ -44,7 +57,7 @@ export const options = {
   },
 };
 
-export default function () {
+export function sessionLimitTest() {
   let successCount = 0;
   let limitedCount = 0;
 
@@ -113,4 +126,41 @@ export default function () {
       // ignore cleanup errors
     }
   }
+}
+
+export function preferencesLimitTest() {
+  let successCount = 0;
+  let limitedCount = 0;
+
+  // Burst: send PREFERENCES_BURST_SIZE PATCH requests rapidly
+  for (let i = 0; i < PREFERENCES_BURST_SIZE; i++) {
+    const mode = i % 2 === 0 ? 'default' : 'advanced';
+    const res = http.patch(
+      `${BASE_URL}/api/preferences`,
+      JSON.stringify({ sessionMode: mode }),
+      { headers: HEADERS, tags: { endpoint: 'PATCH /api/preferences' } }
+    );
+
+    if (res.status === 200) {
+      successCount++;
+    } else if (res.status === 429) {
+      limitedCount++;
+      rateLimitHits.add(1);
+    } else {
+      unexpectedErrors.add(true);
+      console.error(`Preferences PATCH unexpected status ${res.status}: ${res.body}`);
+    }
+
+    sleep(0.1);
+  }
+
+  console.log(`Preferences PATCH: ${successCount} succeeded, ${limitedCount} rate-limited out of ${PREFERENCES_BURST_SIZE}`);
+
+  check(limitedCount > 0, {
+    'preferences rate limit was enforced (got at least one 429)': (v) => v,
+  });
+}
+
+export default function () {
+  sessionLimitTest();
 }

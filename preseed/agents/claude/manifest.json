@@ -1,0 +1,14 @@
+{
+  "hooks/block-attributed-commits.sh": { "modes": ["advanced"] },
+  "hooks/memory-agent-prompt.md": { "modes": ["default", "advanced"] },
+  "hooks/memory-capture.sh": { "modes": ["default", "advanced"] },
+  "rules/ci-monitoring.md": { "modes": ["default", "advanced"] },
+  "rules/cloudflare-environment.md": { "modes": ["default", "advanced"] },
+  "rules/memory.md": { "modes": ["default", "advanced"] },
+  "rules/no-local-builds.md": { "modes": ["default", "advanced"] },
+  "skills/cloudflare-stack/SKILL.md": { "modes": ["default", "advanced"] },
+  "skills/consult-llm/SKILL.md": { "modes": ["advanced"] },
+  "skills/ship/SKILL.md": { "modes": ["default", "advanced"] },
+  "skills/ship/references/workflow-templates.md": { "modes": ["default", "advanced"] },
+  "skills/ship/references/wrangler-templates.md": { "modes": ["default", "advanced"] }
+}
