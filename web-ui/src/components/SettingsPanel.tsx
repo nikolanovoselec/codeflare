@@ -6,8 +6,6 @@ import {
   mdiCogOutline,
   mdiFastForward,
   mdiContentPaste,
-  mdiGestureTapButton,
-  mdiLightbulbOnOutline,
   mdiKeyVariant,
   mdiChevronDown,
 } from '@mdi/js';
@@ -69,7 +67,7 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
           onClick={() => props.onToggle()}
         >
           <span class={`accordion-chevron ${props.isOpen ? 'accordion-chevron--open' : ''}`}>
-            <Icon path={mdiChevronDown} size={16} />
+            <Icon path={mdiChevronDown} size={20} />
           </span>
           <span class="accordion-header-text">
             <span class="settings-group-title">{props.title}</span>
@@ -379,11 +377,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
             {/* Tips & Tricks */}
             <section class="settings-section">
-              <div class="settings-section-header">
-                <Icon path={mdiLightbulbOnOutline} size={16} />
-                <h3 class="settings-section-title">Tips & Tricks</h3>
-              </div>
-              <div class="setting-row">
+              <div class="setting-row setting-row--clickable" onClick={(e) => {
+                if (!(e.target as HTMLElement).closest('.toggle')) updateSetting('showTips', !showTips());
+              }}>
                 <label for="settings-show-tips">Show tips on dashboard</label>
                 <button
                   type="button"
@@ -407,11 +403,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             {/* Button Labels — mobile only */}
             <Show when={isTouchDevice()}>
               <section class="settings-section">
-                <div class="settings-section-header">
-                  <Icon path={mdiGestureTapButton} size={16} />
-                  <h3 class="settings-section-title">Mobile Buttons</h3>
-                </div>
-                <div class="setting-row">
+                <div class="setting-row setting-row--clickable" onClick={(e) => {
+                  if (!(e.target as HTMLElement).closest('.toggle')) updateSetting('showButtonLabels', !showButtonLabels());
+                }}>
                   <label for="settings-button-labels">Show button labels</label>
                   <button
                     type="button"
@@ -436,11 +430,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             {/* Samsung — Samsung only */}
             <Show when={isSamsungBrowser}>
               <section class="settings-section">
-                <div class="settings-section-header">
-                  <Icon path={mdiGestureTapButton} size={16} />
-                  <h3 class="settings-section-title">Samsung Internet</h3>
-                </div>
-                <div class="setting-row">
+                <div class="setting-row setting-row--clickable" onClick={(e) => {
+                  if (!(e.target as HTMLElement).closest('.toggle')) updateSetting('samsungAddressBarTop', !samsungAddressBarTop());
+                }}>
                   <label for="settings-samsung-bar-top">Address bar at top</label>
                   <button
                     type="button"
@@ -477,7 +469,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <Icon path={mdiFastForward} size={16} />
                 <h3 class="settings-section-title">Agent Startup</h3>
               </div>
-              <div class="setting-row">
+              <div class="setting-row setting-row--clickable" onClick={(e) => {
+                if (!(e.target as HTMLElement).closest('.toggle')) handleFastStartToggle();
+              }}>
                 <label for="settings-fast-start">Fast Start</label>
                 <button
                   type="button"
@@ -504,7 +498,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <Icon path={mdiCloudSyncOutline} size={16} />
                 <h3 class="settings-section-title">R2 Sync</h3>
               </div>
-              <div class="setting-row">
+              <div class="setting-row setting-row--clickable" onClick={(e) => {
+                if (!(e.target as HTMLElement).closest('.toggle')) handleWorkspaceSyncToggle();
+              }}>
                 <label for="settings-workspace-sync">Sync Workspace Folder</label>
                 <button
                   type="button"
@@ -593,7 +589,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <Icon path={mdiContentPaste} size={16} />
                   <h3 class="settings-section-title">Clipboard</h3>
                 </div>
-                <div class="setting-row">
+                <div class="setting-row setting-row--clickable" onClick={(e) => {
+                  if (!(e.target as HTMLElement).closest('.toggle')) updateSetting('clipboardAccess', !clipboardAccess());
+                }}>
                   <label for="settings-clipboard-access">Allow paste from clipboard</label>
                   <button
                     type="button"
