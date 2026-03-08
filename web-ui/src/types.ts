@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentTypeSchema } from './lib/schemas';
+import { AgentTypeSchema, SessionModeSchema } from './lib/schemas';
 
 /** Supported agent types for multi-agent sessions */
 export type AgentType = z.infer<typeof AgentTypeSchema>;
@@ -20,11 +20,14 @@ export interface TabPreset {
 }
 
 /** User preferences persisted across sessions */
+export type SessionMode = z.infer<typeof SessionModeSchema>;
+
 export interface UserPreferences {
   lastAgentType?: AgentType;
   lastPresetId?: string;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
+  sessionMode?: SessionMode;
 }
 
 /** Mirrors backend Session type (see src/types.ts). Keep in sync manually. */
