@@ -174,4 +174,72 @@ describe('Storage Operations API', () => {
     const data = await res.json();
     expect(data.deleted.length).toBe(2);
   });
+
+  it('POST /api/storage/delete with prefixes deletes folder contents server-side', async () => {
+    const folderPrefix = `e2e-prefix-delete-${Date.now()}/`;
+    const fileKeys = [
+      `${folderPrefix}file-a.txt`,
+      `${folderPrefix}file-b.txt`,
+      `${folderPrefix}sub/file-c.txt`,
+    ];
+
+    // Upload files into the folder
+    for (const key of fileKeys) {
+      await apiRequest('/api/storage/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, content: testFileContent }),
+      });
+    }
+
+    // Verify files exist
+    const browseRes = await apiRequest(`/api/storage/browse?prefix=${encodeURIComponent(folderPrefix)}`);
+    const browseData = await browseRes.json();
+    expect(browseData.objects.length + browseData.prefixes.length).toBeGreaterThan(0);
+
+    // Delete entire folder via prefix
+    const res = await apiRequest('/api/storage/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: [folderPrefix] }),
+    });
+    expect(res.ok).toBe(true);
+    const data = await res.json();
+    expect(data.deletedPrefixes).toBeDefined();
+    expect(data.deletedPrefixes.length).toBe(1);
+    expect(data.deletedPrefixes[0].prefix).toBe(folderPrefix);
+    expect(data.deletedPrefixes[0].count).toBe(3);
+
+    // Verify folder is empty
+    const verifyRes = await apiRequest(`/api/storage/browse?prefix=${encodeURIComponent(folderPrefix)}`);
+    const verifyData = await verifyRes.json();
+    expect(verifyData.objects.length).toBe(0);
+  });
+
+  it('POST /api/storage/delete with mixed keys and prefixes', async () => {
+    const folderPrefix = `e2e-mixed-delete-${Date.now()}/`;
+    const standaloneKey = `e2e-mixed-standalone-${Date.now()}.txt`;
+    const folderKey = `${folderPrefix}nested-file.txt`;
+
+    // Upload standalone file and folder file
+    for (const key of [standaloneKey, folderKey]) {
+      await apiRequest('/api/storage/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, content: testFileContent }),
+      });
+    }
+
+    // Delete both in one call
+    const res = await apiRequest('/api/storage/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: [standaloneKey], prefixes: [folderPrefix] }),
+    });
+    expect(res.ok).toBe(true);
+    const data = await res.json();
+    expect(data.deleted).toContain(standaloneKey);
+    expect(data.deletedPrefixes[0].prefix).toBe(folderPrefix);
+    expect(data.deletedPrefixes[0].count).toBe(1);
+  });
 });

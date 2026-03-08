@@ -65,11 +65,11 @@ Create-read-delete cycle testing session churn with realistic delays between ope
 
 ### Storage Operations (`storage-operations.js`)
 
-Upload-browse-download-delete cycle with weighted random file sizes: 60% small (1 KB), 30% medium (20 KB), 10% large (50 KB).
+Upload-browse-download-delete cycle with weighted random file sizes: 60% small (1 KB), 30% medium (20 KB), 10% large (50 KB). ~20% of iterations also test server-side prefix delete (upload 3 files into a folder, then delete the folder via `prefixes`).
 
 | Scenario | Duration | Base VUs | Operations |
 |----------|----------|----------|------------|
-| `storage_load` | 3m (ramp up, hold, ramp down) | 5 | `POST /api/storage/upload`, `GET /api/storage/browse`, `GET /api/storage/download`, `POST /api/storage/delete` |
+| `storage_load` | 3m (ramp up, hold, ramp down) | 5 | `POST /api/storage/upload`, `GET /api/storage/browse`, `GET /api/storage/download`, `POST /api/storage/delete` (keys + prefixes) |
 
 **Thresholds:**
 
@@ -80,7 +80,7 @@ Upload-browse-download-delete cycle with weighted random file sizes: 60% small (
 | `browse_duration` p95 | <3s |
 | `errors` | <15% |
 
-**Think time:** `think(3, 8)` after upload, `think(2, 5)` between browse/download/delete, `think(5, 15)` between full cycles. Models a user editing files in a cloud IDE.
+**Think time:** `think(3, 8)` after upload, `think(2, 5)` between browse/download/delete, `think(5, 15)` between full cycles. Models a user editing files in a cloud IDE. Folder prefix delete operations add `think(1, 3)` between folder upload and delete.
 
 ### Stress Test with Rate Limits (`rate-limit-validation.js`)
 

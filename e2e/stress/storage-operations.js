@@ -8,6 +8,7 @@ const uploadDuration = new Trend('upload_duration', true);
 const downloadDuration = new Trend('download_duration', true);
 const browseDuration = new Trend('browse_duration', true);
 const deleteDuration = new Trend('delete_duration', true);
+const prefixDeleteDuration = new Trend('prefix_delete_duration', true);
 const filesUploaded = new Counter('files_uploaded');
 const rateLimitHits = new Counter('rate_limit_hits');
 
@@ -143,6 +144,44 @@ export default function () {
     check(deleteRes, { 'delete ok': (r) => r.status === 200 || r.status === 204 });
     deleteDuration.add(deleteRes.timings.duration);
   });
+
+  // ~20% of iterations: user deletes an entire folder (prefix delete)
+  if (Math.random() < 0.2) {
+    think(2, 5);
+
+    group('folder prefix delete', () => {
+      const folderPrefix = `${filePrefix}/folder-${timestamp}`;
+      const folderFiles = [`${folderPrefix}/a.txt`, `${folderPrefix}/b.txt`, `${folderPrefix}/c.txt`];
+
+      // Upload a few files into a folder
+      for (const fKey of folderFiles) {
+        http.post(
+          `${BASE_URL}/api/storage/upload`,
+          JSON.stringify({ key: fKey, content: SMALL_CONTENT }),
+          { headers: HEADERS, tags: { endpoint: 'POST /api/storage/upload' } }
+        );
+      }
+
+      think(1, 3);
+
+      // Delete entire folder via prefix
+      const prefixDeleteRes = http.post(
+        `${BASE_URL}/api/storage/delete`,
+        JSON.stringify({ prefixes: [`${folderPrefix}/`] }),
+        { headers: HEADERS, tags: { endpoint: 'POST /api/storage/delete (prefix)' } }
+      );
+      check(prefixDeleteRes, {
+        'prefix delete ok': (r) => r.status === 200,
+        'prefix delete has count': (r) => {
+          try {
+            const body = JSON.parse(r.body);
+            return body.deletedPrefixes && body.deletedPrefixes.length > 0 && body.deletedPrefixes[0].count >= 0;
+          } catch { return false; }
+        },
+      });
+      prefixDeleteDuration.add(prefixDeleteRes.timings.duration);
+    });
+  }
 
   // User does other stuff before next file operation (typing code, reading docs)
   think(5, 15);
