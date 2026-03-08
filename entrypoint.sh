@@ -223,7 +223,6 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .claude/cache/**"            # changelog cache
     --filter "- .claude/debug/**"            # debug logs
     --filter "- .claude/file-history/**"     # per-session file edit history, grows unbounded
-    --filter "- .claude/plugins/cache/**"    # plugin cache
     --filter "- .claude/session-env/**"      # session environment variables
     --filter "- .claude/shell-snapshots/**"  # session shell state snapshots
     --filter "- .claude/stats-cache.json"    # regenerated usage stats
@@ -894,6 +893,21 @@ else
     echo "$HOOKS_CONFIG" | jq '.' > "$SETTINGS_FILE"
 fi
 echo "[entrypoint] Claude Code hooks configured in settings.json"
+
+# ECC plugin: enable for advanced mode (detected by presence of ECC rules in ~/.claude/rules/common/)
+if [ -d "$USER_CLAUDE_DIR/rules/common" ]; then
+    ECC_PLUGINS='{"enabledPlugins":{"everything-claude-code@everything-claude-code":true}}'
+    TMP_SETTINGS=$(mktemp)
+    if jq --argjson ecc "$ECC_PLUGINS" '. * $ecc' "$SETTINGS_FILE" > "$TMP_SETTINGS" 2>/dev/null; then
+        mv "$TMP_SETTINGS" "$SETTINGS_FILE"
+    else
+        rm -f "$TMP_SETTINGS"
+    fi
+
+    # Disable CPU-heavy ECC hooks on 1-vCPU container
+    export ECC_DISABLED_HOOKS="post:edit:format,post:edit:typecheck,post:quality-gate"
+    echo "[entrypoint] ECC plugin enabled, 3 CPU-heavy hooks disabled"
+fi
 
 # === Fast Start: tool-specific config files ===
 if [ "${FAST_CLI_START:-true}" != "false" ]; then

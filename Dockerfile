@@ -26,6 +26,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # System essentials
     ca-certificates \
     bash \
+    # ECC continuous learning v2.1 observe hooks
+    python3 \
     # Version control
     git \
     # Editors

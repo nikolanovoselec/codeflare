@@ -73,6 +73,238 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
     ]
   },
   {
+    "key": ".claude/rules/common/agents.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Agent Orchestration\n\n## Available Agents\n\nLocated in `~/.claude/agents/`:\n\n| Agent | Purpose | When to Use |\n|-------|---------|-------------|\n| planner | Implementation planning | Complex features, refactoring |\n| architect | System design | Architectural decisions |\n| tdd-guide | Test-driven development | New features, bug fixes |\n| code-reviewer | Code review | After writing code |\n| security-reviewer | Security analysis | Before commits |\n| build-error-resolver | Fix build errors | When build fails |\n| e2e-runner | E2E testing | Critical user flows |\n| refactor-cleaner | Dead code cleanup | Code maintenance |\n| doc-updater | Documentation | Updating docs |\n\n## Immediate Agent Usage\n\nNo user prompt needed:\n1. Complex feature requests - Use **planner** agent\n2. Code just written/modified - Use **code-reviewer** agent\n3. Bug fix or new feature - Use **tdd-guide** agent\n4. Architectural decision - Use **architect** agent\n\n## Parallel Task Execution\n\nALWAYS use parallel Task execution for independent operations:\n\n```markdown\n# GOOD: Parallel execution\nLaunch 3 agents in parallel:\n1. Agent 1: Security analysis of auth module\n2. Agent 2: Performance review of cache system\n3. Agent 3: Type checking of utilities\n\n# BAD: Sequential when unnecessary\nFirst agent 1, then agent 2, then agent 3\n```\n\n## Multi-Perspective Analysis\n\nFor complex problems, use split role sub-agents:\n- Factual reviewer\n- Senior engineer\n- Security expert\n- Consistency reviewer\n- Redundancy checker\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/common/coding-style.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Coding Style\n\n## Immutability (CRITICAL)\n\nALWAYS create new objects, NEVER mutate existing ones:\n\n```\n// Pseudocode\nWRONG:  modify(original, field, value) → changes original in-place\nCORRECT: update(original, field, value) → returns new copy with change\n```\n\nRationale: Immutable data prevents hidden side effects, makes debugging easier, and enables safe concurrency.\n\n## File Organization\n\nMANY SMALL FILES > FEW LARGE FILES:\n- High cohesion, low coupling\n- 200-400 lines typical, 800 max\n- Extract utilities from large modules\n- Organize by feature/domain, not by type\n\n## Error Handling\n\nALWAYS handle errors comprehensively:\n- Handle errors explicitly at every level\n- Provide user-friendly error messages in UI-facing code\n- Log detailed error context on the server side\n- Never silently swallow errors\n\n## Input Validation\n\nALWAYS validate at system boundaries:\n- Validate all user input before processing\n- Use schema-based validation where available\n- Fail fast with clear error messages\n- Never trust external data (API responses, user input, file content)\n\n## Code Quality Checklist\n\nBefore marking work complete:\n- [ ] Code is readable and well-named\n- [ ] Functions are small (<50 lines)\n- [ ] Files are focused (<800 lines)\n- [ ] No deep nesting (>4 levels)\n- [ ] Proper error handling\n- [ ] No hardcoded values (use constants or config)\n- [ ] No mutation (immutable patterns used)\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/common/development-workflow.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Development Workflow\n\n> This file extends [common/git-workflow.md](./git-workflow.md) with the full feature development process that happens before git operations.\n\nThe Feature Implementation Workflow describes the development pipeline: research, planning, TDD, code review, and then committing to git.\n\n## Feature Implementation Workflow\n\n0. **Research & Reuse** _(mandatory before any new implementation)_\n   - **GitHub code search first:** Run `gh search repos` and `gh search code` to find existing implementations, templates, and patterns before writing anything new.\n   - **Exa MCP for research:** Use `exa-web-search` MCP during the planning phase for broader research, data ingestion, and discovering prior art.\n   - **Check package registries:** Search npm, PyPI, crates.io, and other registries before writing utility code. Prefer battle-tested libraries over hand-rolled solutions.\n   - **Search for adaptable implementations:** Look for open-source projects that solve 80%+ of the problem and can be forked, ported, or wrapped.\n   - Prefer adopting or porting a proven approach over writing net-new code when it meets the requirement.\n\n1. **Plan First**\n   - Use **planner** agent to create implementation plan\n   - Generate planning docs before coding: PRD, architecture, system_design, tech_doc, task_list\n   - Identify dependencies and risks\n   - Break down into phases\n\n2. **TDD Approach**\n   - Use **tdd-guide** agent\n   - Write tests first (RED)\n   - Implement to pass tests (GREEN)\n   - Refactor (IMPROVE)\n   - Verify 80%+ coverage\n\n3. **Code Review**\n   - Use **code-reviewer** agent immediately after writing code\n   - Address CRITICAL and HIGH issues\n   - Fix MEDIUM issues when possible\n\n4. **Commit & Push**\n   - Detailed commit messages\n   - Follow conventional commits format\n   - See [git-workflow.md](./git-workflow.md) for commit message format and PR process\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/common/git-workflow.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Git Workflow\n\n## Commit Message Format\n```\n<type>: <description>\n\n<optional body>\n```\n\nTypes: feat, fix, refactor, docs, test, chore, perf, ci\n\nNote: Attribution disabled globally via ~/.claude/settings.json.\n\n## Pull Request Workflow\n\nWhen creating PRs:\n1. Analyze full commit history (not just latest commit)\n2. Use `git diff [base-branch]...HEAD` to see all changes\n3. Draft comprehensive PR summary\n4. Include test plan with TODOs\n5. Push with `-u` flag if new branch\n\n> For the full development process (planning, TDD, code review) before git operations,\n> see [development-workflow.md](./development-workflow.md).\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/common/hooks.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Hooks System\n\n## Hook Types\n\n- **PreToolUse**: Before tool execution (validation, parameter modification)\n- **PostToolUse**: After tool execution (auto-format, checks)\n- **Stop**: When session ends (final verification)\n\n## Auto-Accept Permissions\n\nUse with caution:\n- Enable for trusted, well-defined plans\n- Disable for exploratory work\n- Never use dangerously-skip-permissions flag\n- Configure `allowedTools` in `~/.claude.json` instead\n\n## TodoWrite Best Practices\n\nUse TodoWrite tool to:\n- Track progress on multi-step tasks\n- Verify understanding of instructions\n- Enable real-time steering\n- Show granular implementation steps\n\nTodo list reveals:\n- Out of order steps\n- Missing items\n- Extra unnecessary items\n- Wrong granularity\n- Misinterpreted requirements\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/common/patterns.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Common Patterns\n\n## Skeleton Projects\n\nWhen implementing new functionality:\n1. Search for battle-tested skeleton projects\n2. Use parallel agents to evaluate options:\n   - Security assessment\n   - Extensibility analysis\n   - Relevance scoring\n   - Implementation planning\n3. Clone best match as foundation\n4. Iterate within proven structure\n\n## Design Patterns\n\n### Repository Pattern\n\nEncapsulate data access behind a consistent interface:\n- Define standard operations: findAll, findById, create, update, delete\n- Concrete implementations handle storage details (database, API, file, etc.)\n- Business logic depends on the abstract interface, not the storage mechanism\n- Enables easy swapping of data sources and simplifies testing with mocks\n\n### API Response Format\n\nUse a consistent envelope for all API responses:\n- Include a success/status indicator\n- Include the data payload (nullable on error)\n- Include an error message field (nullable on success)\n- Include metadata for paginated responses (total, page, limit)\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/common/performance.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Performance Optimization\n\n## Model Selection Strategy\n\n**Haiku 4.5** (90% of Sonnet capability, 3x cost savings):\n- Lightweight agents with frequent invocation\n- Pair programming and code generation\n- Worker agents in multi-agent systems\n\n**Sonnet 4.6** (Best coding model):\n- Main development work\n- Orchestrating multi-agent workflows\n- Complex coding tasks\n\n**Opus 4.5** (Deepest reasoning):\n- Complex architectural decisions\n- Maximum reasoning requirements\n- Research and analysis tasks\n\n## Context Window Management\n\nAvoid last 20% of context window for:\n- Large-scale refactoring\n- Feature implementation spanning multiple files\n- Debugging complex interactions\n\nLower context sensitivity tasks:\n- Single-file edits\n- Independent utility creation\n- Documentation updates\n- Simple bug fixes\n\n## Extended Thinking + Plan Mode\n\nExtended thinking is enabled by default, reserving up to 31,999 tokens for internal reasoning.\n\nControl extended thinking via:\n- **Toggle**: Option+T (macOS) / Alt+T (Windows/Linux)\n- **Config**: Set `alwaysThinkingEnabled` in `~/.claude/settings.json`\n- **Budget cap**: `export MAX_THINKING_TOKENS=10000`\n- **Verbose mode**: Ctrl+O to see thinking output\n\nFor complex tasks requiring deep reasoning:\n1. Ensure extended thinking is enabled (on by default)\n2. Enable **Plan Mode** for structured approach\n3. Use multiple critique rounds for thorough analysis\n4. Use split role sub-agents for diverse perspectives\n\n## Build Troubleshooting\n\nIf build fails:\n1. Use **build-error-resolver** agent\n2. Analyze error messages\n3. Fix incrementally\n4. Verify after each fix\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/common/security.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Security Guidelines\n\n## Mandatory Security Checks\n\nBefore ANY commit:\n- [ ] No hardcoded secrets (API keys, passwords, tokens)\n- [ ] All user inputs validated\n- [ ] SQL injection prevention (parameterized queries)\n- [ ] XSS prevention (sanitized HTML)\n- [ ] CSRF protection enabled\n- [ ] Authentication/authorization verified\n- [ ] Rate limiting on all endpoints\n- [ ] Error messages don't leak sensitive data\n\n## Secret Management\n\n- NEVER hardcode secrets in source code\n- ALWAYS use environment variables or a secret manager\n- Validate that required secrets are present at startup\n- Rotate any secrets that may have been exposed\n\n## Security Response Protocol\n\nIf security issue found:\n1. STOP immediately\n2. Use **security-reviewer** agent\n3. Fix CRITICAL issues before continuing\n4. Rotate any exposed secrets\n5. Review entire codebase for similar issues\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/common/testing.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "# Testing Requirements\n\n## Minimum Test Coverage: 80%\n\nTest Types (ALL required):\n1. **Unit Tests** - Individual functions, utilities, components\n2. **Integration Tests** - API endpoints, database operations\n3. **E2E Tests** - Critical user flows (framework chosen per language)\n\n## Test-Driven Development\n\nMANDATORY workflow:\n1. Write test first (RED)\n2. Run test - it should FAIL\n3. Write minimal implementation (GREEN)\n4. Run test - it should PASS\n5. Refactor (IMPROVE)\n6. Verify coverage (80%+)\n\n## Troubleshooting Test Failures\n\n1. Use **tdd-guide** agent\n2. Check test isolation\n3. Verify mocks are correct\n4. Fix implementation, not tests (unless tests are wrong)\n\n## Agent Support\n\n- **tdd-guide** - Use PROACTIVELY for new features, enforces write-tests-first\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/golang/coding-style.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.go\"\n  - \"**/go.mod\"\n  - \"**/go.sum\"\n---\n# Go Coding Style\n\n> This file extends [common/coding-style.md](../common/coding-style.md) with Go specific content.\n\n## Formatting\n\n- **gofmt** and **goimports** are mandatory — no style debates\n\n## Design Principles\n\n- Accept interfaces, return structs\n- Keep interfaces small (1-3 methods)\n\n## Error Handling\n\nAlways wrap errors with context:\n\n```go\nif err != nil {\n    return fmt.Errorf(\"failed to create user: %w\", err)\n}\n```\n\n## Reference\n\nSee skill: `golang-patterns` for comprehensive Go idioms and patterns.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/golang/hooks.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.go\"\n  - \"**/go.mod\"\n  - \"**/go.sum\"\n---\n# Go Hooks\n\n> This file extends [common/hooks.md](../common/hooks.md) with Go specific content.\n\n## PostToolUse Hooks\n\nConfigure in `~/.claude/settings.json`:\n\n- **gofmt/goimports**: Auto-format `.go` files after edit\n- **go vet**: Run static analysis after editing `.go` files\n- **staticcheck**: Run extended static checks on modified packages\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/golang/patterns.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.go\"\n  - \"**/go.mod\"\n  - \"**/go.sum\"\n---\n# Go Patterns\n\n> This file extends [common/patterns.md](../common/patterns.md) with Go specific content.\n\n## Functional Options\n\n```go\ntype Option func(*Server)\n\nfunc WithPort(port int) Option {\n    return func(s *Server) { s.port = port }\n}\n\nfunc NewServer(opts ...Option) *Server {\n    s := &Server{port: 8080}\n    for _, opt := range opts {\n        opt(s)\n    }\n    return s\n}\n```\n\n## Small Interfaces\n\nDefine interfaces where they are used, not where they are implemented.\n\n## Dependency Injection\n\nUse constructor functions to inject dependencies:\n\n```go\nfunc NewUserService(repo UserRepository, logger Logger) *UserService {\n    return &UserService{repo: repo, logger: logger}\n}\n```\n\n## Reference\n\nSee skill: `golang-patterns` for comprehensive Go patterns including concurrency, error handling, and package organization.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/golang/security.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.go\"\n  - \"**/go.mod\"\n  - \"**/go.sum\"\n---\n# Go Security\n\n> This file extends [common/security.md](../common/security.md) with Go specific content.\n\n## Secret Management\n\n```go\napiKey := os.Getenv(\"OPENAI_API_KEY\")\nif apiKey == \"\" {\n    log.Fatal(\"OPENAI_API_KEY not configured\")\n}\n```\n\n## Security Scanning\n\n- Use **gosec** for static security analysis:\n  ```bash\n  gosec ./...\n  ```\n\n## Context & Timeouts\n\nAlways use `context.Context` for timeout control:\n\n```go\nctx, cancel := context.WithTimeout(ctx, 5*time.Second)\ndefer cancel()\n```\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/golang/testing.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.go\"\n  - \"**/go.mod\"\n  - \"**/go.sum\"\n---\n# Go Testing\n\n> This file extends [common/testing.md](../common/testing.md) with Go specific content.\n\n## Framework\n\nUse the standard `go test` with **table-driven tests**.\n\n## Race Detection\n\nAlways run with the `-race` flag:\n\n```bash\ngo test -race ./...\n```\n\n## Coverage\n\n```bash\ngo test -cover ./...\n```\n\n## Reference\n\nSee skill: `golang-testing` for detailed Go testing patterns and helpers.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/python/coding-style.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.py\"\n  - \"**/*.pyi\"\n---\n# Python Coding Style\n\n> This file extends [common/coding-style.md](../common/coding-style.md) with Python specific content.\n\n## Standards\n\n- Follow **PEP 8** conventions\n- Use **type annotations** on all function signatures\n\n## Immutability\n\nPrefer immutable data structures:\n\n```python\nfrom dataclasses import dataclass\n\n@dataclass(frozen=True)\nclass User:\n    name: str\n    email: str\n\nfrom typing import NamedTuple\n\nclass Point(NamedTuple):\n    x: float\n    y: float\n```\n\n## Formatting\n\n- **black** for code formatting\n- **isort** for import sorting\n- **ruff** for linting\n\n## Reference\n\nSee skill: `python-patterns` for comprehensive Python idioms and patterns.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/python/hooks.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.py\"\n  - \"**/*.pyi\"\n---\n# Python Hooks\n\n> This file extends [common/hooks.md](../common/hooks.md) with Python specific content.\n\n## PostToolUse Hooks\n\nConfigure in `~/.claude/settings.json`:\n\n- **black/ruff**: Auto-format `.py` files after edit\n- **mypy/pyright**: Run type checking after editing `.py` files\n\n## Warnings\n\n- Warn about `print()` statements in edited files (use `logging` module instead)\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/python/patterns.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.py\"\n  - \"**/*.pyi\"\n---\n# Python Patterns\n\n> This file extends [common/patterns.md](../common/patterns.md) with Python specific content.\n\n## Protocol (Duck Typing)\n\n```python\nfrom typing import Protocol\n\nclass Repository(Protocol):\n    def find_by_id(self, id: str) -> dict | None: ...\n    def save(self, entity: dict) -> dict: ...\n```\n\n## Dataclasses as DTOs\n\n```python\nfrom dataclasses import dataclass\n\n@dataclass\nclass CreateUserRequest:\n    name: str\n    email: str\n    age: int | None = None\n```\n\n## Context Managers & Generators\n\n- Use context managers (`with` statement) for resource management\n- Use generators for lazy evaluation and memory-efficient iteration\n\n## Reference\n\nSee skill: `python-patterns` for comprehensive patterns including decorators, concurrency, and package organization.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/python/security.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.py\"\n  - \"**/*.pyi\"\n---\n# Python Security\n\n> This file extends [common/security.md](../common/security.md) with Python specific content.\n\n## Secret Management\n\n```python\nimport os\nfrom dotenv import load_dotenv\n\nload_dotenv()\n\napi_key = os.environ[\"OPENAI_API_KEY\"]  # Raises KeyError if missing\n```\n\n## Security Scanning\n\n- Use **bandit** for static security analysis:\n  ```bash\n  bandit -r src/\n  ```\n\n## Reference\n\nSee skill: `django-security` for Django-specific security guidelines (if applicable).\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/python/testing.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.py\"\n  - \"**/*.pyi\"\n---\n# Python Testing\n\n> This file extends [common/testing.md](../common/testing.md) with Python specific content.\n\n## Framework\n\nUse **pytest** as the testing framework.\n\n## Coverage\n\n```bash\npytest --cov=src --cov-report=term-missing\n```\n\n## Test Organization\n\nUse `pytest.mark` for test categorization:\n\n```python\nimport pytest\n\n@pytest.mark.unit\ndef test_calculate_total():\n    ...\n\n@pytest.mark.integration\ndef test_database_connection():\n    ...\n```\n\n## Reference\n\nSee skill: `python-testing` for detailed pytest patterns and fixtures.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/swift/coding-style.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.swift\"\n  - \"**/Package.swift\"\n---\n# Swift Coding Style\n\n> This file extends [common/coding-style.md](../common/coding-style.md) with Swift specific content.\n\n## Formatting\n\n- **SwiftFormat** for auto-formatting, **SwiftLint** for style enforcement\n- `swift-format` is bundled with Xcode 16+ as an alternative\n\n## Immutability\n\n- Prefer `let` over `var` — define everything as `let` and only change to `var` if the compiler requires it\n- Use `struct` with value semantics by default; use `class` only when identity or reference semantics are needed\n\n## Naming\n\nFollow [Apple API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/):\n\n- Clarity at the point of use — omit needless words\n- Name methods and properties for their roles, not their types\n- Use `static let` for constants over global constants\n\n## Error Handling\n\nUse typed throws (Swift 6+) and pattern matching:\n\n```swift\nfunc load(id: String) throws(LoadError) -> Item {\n    guard let data = try? read(from: path) else {\n        throw .fileNotFound(id)\n    }\n    return try decode(data)\n}\n```\n\n## Concurrency\n\nEnable Swift 6 strict concurrency checking. Prefer:\n\n- `Sendable` value types for data crossing isolation boundaries\n- Actors for shared mutable state\n- Structured concurrency (`async let`, `TaskGroup`) over unstructured `Task {}`\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/swift/hooks.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.swift\"\n  - \"**/Package.swift\"\n---\n# Swift Hooks\n\n> This file extends [common/hooks.md](../common/hooks.md) with Swift specific content.\n\n## PostToolUse Hooks\n\nConfigure in `~/.claude/settings.json`:\n\n- **SwiftFormat**: Auto-format `.swift` files after edit\n- **SwiftLint**: Run lint checks after editing `.swift` files\n- **swift build**: Type-check modified packages after edit\n\n## Warning\n\nFlag `print()` statements — use `os.Logger` or structured logging instead for production code.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/swift/patterns.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.swift\"\n  - \"**/Package.swift\"\n---\n# Swift Patterns\n\n> This file extends [common/patterns.md](../common/patterns.md) with Swift specific content.\n\n## Protocol-Oriented Design\n\nDefine small, focused protocols. Use protocol extensions for shared defaults:\n\n```swift\nprotocol Repository: Sendable {\n    associatedtype Item: Identifiable & Sendable\n    func find(by id: Item.ID) async throws -> Item?\n    func save(_ item: Item) async throws\n}\n```\n\n## Value Types\n\n- Use structs for data transfer objects and models\n- Use enums with associated values to model distinct states:\n\n```swift\nenum LoadState<T: Sendable>: Sendable {\n    case idle\n    case loading\n    case loaded(T)\n    case failed(Error)\n}\n```\n\n## Actor Pattern\n\nUse actors for shared mutable state instead of locks or dispatch queues:\n\n```swift\nactor Cache<Key: Hashable & Sendable, Value: Sendable> {\n    private var storage: [Key: Value] = [:]\n\n    func get(_ key: Key) -> Value? { storage[key] }\n    func set(_ key: Key, value: Value) { storage[key] = value }\n}\n```\n\n## Dependency Injection\n\nInject protocols with default parameters — production uses defaults, tests inject mocks:\n\n```swift\nstruct UserService {\n    private let repository: any UserRepository\n\n    init(repository: any UserRepository = DefaultUserRepository()) {\n        self.repository = repository\n    }\n}\n```\n\n## References\n\nSee skill: `swift-actor-persistence` for actor-based persistence patterns.\nSee skill: `swift-protocol-di-testing` for protocol-based DI and testing.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/swift/security.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.swift\"\n  - \"**/Package.swift\"\n---\n# Swift Security\n\n> This file extends [common/security.md](../common/security.md) with Swift specific content.\n\n## Secret Management\n\n- Use **Keychain Services** for sensitive data (tokens, passwords, keys) — never `UserDefaults`\n- Use environment variables or `.xcconfig` files for build-time secrets\n- Never hardcode secrets in source — decompilation tools extract them trivially\n\n```swift\nlet apiKey = ProcessInfo.processInfo.environment[\"API_KEY\"]\nguard let apiKey, !apiKey.isEmpty else {\n    fatalError(\"API_KEY not configured\")\n}\n```\n\n## Transport Security\n\n- App Transport Security (ATS) is enforced by default — do not disable it\n- Use certificate pinning for critical endpoints\n- Validate all server certificates\n\n## Input Validation\n\n- Sanitize all user input before display to prevent injection\n- Use `URL(string:)` with validation rather than force-unwrapping\n- Validate data from external sources (APIs, deep links, pasteboard) before processing\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/swift/testing.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.swift\"\n  - \"**/Package.swift\"\n---\n# Swift Testing\n\n> This file extends [common/testing.md](../common/testing.md) with Swift specific content.\n\n## Framework\n\nUse **Swift Testing** (`import Testing`) for new tests. Use `@Test` and `#expect`:\n\n```swift\n@Test(\"User creation validates email\")\nfunc userCreationValidatesEmail() throws {\n    #expect(throws: ValidationError.invalidEmail) {\n        try User(email: \"not-an-email\")\n    }\n}\n```\n\n## Test Isolation\n\nEach test gets a fresh instance — set up in `init`, tear down in `deinit`. No shared mutable state between tests.\n\n## Parameterized Tests\n\n```swift\n@Test(\"Validates formats\", arguments: [\"json\", \"xml\", \"csv\"])\nfunc validatesFormat(format: String) throws {\n    let parser = try Parser(format: format)\n    #expect(parser.isValid)\n}\n```\n\n## Coverage\n\n```bash\nswift test --enable-code-coverage\n```\n\n## Reference\n\nSee skill: `swift-protocol-di-testing` for protocol-based dependency injection and mock patterns with Swift Testing.\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/typescript/coding-style.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.ts\"\n  - \"**/*.tsx\"\n  - \"**/*.js\"\n  - \"**/*.jsx\"\n---\n# TypeScript/JavaScript Coding Style\n\n> This file extends [common/coding-style.md](../common/coding-style.md) with TypeScript/JavaScript specific content.\n\n## Immutability\n\nUse spread operator for immutable updates:\n\n```typescript\n// WRONG: Mutation\nfunction updateUser(user, name) {\n  user.name = name  // MUTATION!\n  return user\n}\n\n// CORRECT: Immutability\nfunction updateUser(user, name) {\n  return {\n    ...user,\n    name\n  }\n}\n```\n\n## Error Handling\n\nUse async/await with try-catch:\n\n```typescript\ntry {\n  const result = await riskyOperation()\n  return result\n} catch (error) {\n  console.error('Operation failed:', error)\n  throw new Error('Detailed user-friendly message')\n}\n```\n\n## Input Validation\n\nUse Zod for schema-based validation:\n\n```typescript\nimport { z } from 'zod'\n\nconst schema = z.object({\n  email: z.string().email(),\n  age: z.number().int().min(0).max(150)\n})\n\nconst validated = schema.parse(input)\n```\n\n## Console.log\n\n- No `console.log` statements in production code\n- Use proper logging libraries instead\n- See hooks for automatic detection\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/typescript/hooks.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.ts\"\n  - \"**/*.tsx\"\n  - \"**/*.js\"\n  - \"**/*.jsx\"\n---\n# TypeScript/JavaScript Hooks\n\n> This file extends [common/hooks.md](../common/hooks.md) with TypeScript/JavaScript specific content.\n\n## PostToolUse Hooks\n\nConfigure in `~/.claude/settings.json`:\n\n- **Prettier**: Auto-format JS/TS files after edit\n- **TypeScript check**: Run `tsc` after editing `.ts`/`.tsx` files\n- **console.log warning**: Warn about `console.log` in edited files\n\n## Stop Hooks\n\n- **console.log audit**: Check all modified files for `console.log` before session ends\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/typescript/patterns.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.ts\"\n  - \"**/*.tsx\"\n  - \"**/*.js\"\n  - \"**/*.jsx\"\n---\n# TypeScript/JavaScript Patterns\n\n> This file extends [common/patterns.md](../common/patterns.md) with TypeScript/JavaScript specific content.\n\n## API Response Format\n\n```typescript\ninterface ApiResponse<T> {\n  success: boolean\n  data?: T\n  error?: string\n  meta?: {\n    total: number\n    page: number\n    limit: number\n  }\n}\n```\n\n## Custom Hooks Pattern\n\n```typescript\nexport function useDebounce<T>(value: T, delay: number): T {\n  const [debouncedValue, setDebouncedValue] = useState<T>(value)\n\n  useEffect(() => {\n    const handler = setTimeout(() => setDebouncedValue(value), delay)\n    return () => clearTimeout(handler)\n  }, [value, delay])\n\n  return debouncedValue\n}\n```\n\n## Repository Pattern\n\n```typescript\ninterface Repository<T> {\n  findAll(filters?: Filters): Promise<T[]>\n  findById(id: string): Promise<T | null>\n  create(data: CreateDto): Promise<T>\n  update(id: string, data: UpdateDto): Promise<T>\n  delete(id: string): Promise<void>\n}\n```\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/typescript/security.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.ts\"\n  - \"**/*.tsx\"\n  - \"**/*.js\"\n  - \"**/*.jsx\"\n---\n# TypeScript/JavaScript Security\n\n> This file extends [common/security.md](../common/security.md) with TypeScript/JavaScript specific content.\n\n## Secret Management\n\n```typescript\n// NEVER: Hardcoded secrets\nconst apiKey = \"sk-proj-xxxxx\"\n\n// ALWAYS: Environment variables\nconst apiKey = process.env.OPENAI_API_KEY\n\nif (!apiKey) {\n  throw new Error('OPENAI_API_KEY not configured')\n}\n```\n\n## Agent Support\n\n- Use **security-reviewer** skill for comprehensive security audits\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/rules/typescript/testing.md",
+    "contentType": "text/markdown; charset=utf-8",
+    "content": "---\npaths:\n  - \"**/*.ts\"\n  - \"**/*.tsx\"\n  - \"**/*.js\"\n  - \"**/*.jsx\"\n---\n# TypeScript/JavaScript Testing\n\n> This file extends [common/testing.md](../common/testing.md) with TypeScript/JavaScript specific content.\n\n## E2E Testing\n\nUse **Playwright** as the E2E testing framework for critical user flows.\n\n## Agent Support\n\n- **e2e-runner** - Playwright E2E testing specialist\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
     "key": ".claude/skills/cloudflare-stack/SKILL.md",
     "contentType": "text/markdown; charset=utf-8",
     "content": "---\nname: cloudflare-stack\ndescription: This skill should be used when the user wants to \"build something\", \"create a website\", \"make an app\", \"start a new project\", \"I have an idea\", \"build me a...\", \"I want to create...\", \"make me a...\", \"let's build...\", \"new project\", or describes any idea they want to build from scratch. This skill ensures the technology stack used is compatible with Cloudflare Workers deployment. Use this skill proactively whenever the user describes a new project idea — before writing any code, check that the chosen technologies will work on Cloudflare.\nversion: 1.0.0\n---\n\n# Cloudflare Stack: Build for Deployment\n\nThis skill ensures that every new project built in Codeflare uses a technology stack that is compatible with Cloudflare Workers, so the user can deploy it with `/ship` when ready.\n\n## Target Audience\n\nNon-technical users who describe what they want to build in plain language. They do not know or care about technology stacks — they just want their idea to work and be deployable.\n\n## When This Skill Applies\n\nThis skill applies whenever the user wants to **build something new from scratch**. It does NOT apply when working on existing projects that already have code (those already have a stack chosen).\n\n## Step 1: Discovery — Understand What the User Wants\n\nBefore writing any code, have a short conversation to understand the user's idea. This is critical because it allows you to **steer requirements toward what is achievable on Cloudflare** before the user gets attached to an approach that cannot be deployed.\n\n**Use the AskUserQuestion tool to present discovery questions with predefined options.** This is faster and easier for non-technical users than typing. Adapt questions to context — skip ones the user already answered. Ask up to 4 questions at a time.\n\nExample discovery questions (adapt the options to match what the user described):\n\n1. **\"Who is this for?\"** — Options: \"Just me\", \"Friends & family\", \"Anyone on the internet\"\n2. **\"What should visitors see?\"** — Options: \"Photos & images\", \"Text & articles\", \"Interactive app\", (adapt to their idea)\n3. **\"Should it save data between visits?\"** — Options: \"No, just show content\", \"Yes, user accounts\", \"Yes, form submissions or uploads\"\n4. **\"What is the vibe?\"** — Options: \"Simple & clean\", \"Fun & colorful\", \"Professional & polished\"\n\nThe user can always pick \"Other\" and type a custom answer. Use the answers to shape the tech decisions and scope.\n\n**While listening, mentally map their requirements to Cloudflare capabilities.** If something they describe would traditionally need unsupported tech, **steer the conversation now** — before building:\n\n- User: \"I want a social media site with millions of users\" → \"Let's start with a clean, fast site where people can share posts. We can add features as you grow.\" (Steer toward static + Workers API + D1, not a massive database-heavy backend.)\n- User: \"I want real-time video chat\" → \"Video chat needs specialized services. I can build a site with text chat and messaging — would that work for now?\" (WebRTC is possible but complex; steer toward achievable scope.)\n- User: \"I want to run Python scripts on my site\" → \"I'll build the same functionality using JavaScript, which will make it run super fast and be easy to put online.\" (Don't mention Cloudflare limitations — just redirect.)\n- User: \"I want an online store with payments\" → \"I can build a product showcase with a checkout flow. For payments, we'll connect to Stripe which handles all the money stuff securely.\" (Stripe works great with Workers.)\n\n**Summarize back before building:**\n\n\"So you want [summary]. It will [key features]. Sound right?\"\n\nWait for confirmation. Then build.\n\n**Key principle:** Never tell the user \"that's not possible.\" Instead, find the closest achievable version and present it positively. Shape the requirements during discovery so the project is always buildable and deployable.\n\n## Step 2: Build with the Right Tech Stack\n\n**Every new project must be deployable to Cloudflare Workers.** This means:\n\n### Supported Technologies\n\nUse these for new projects:\n\n**Static websites (most common for non-technical users):**\n- HTML, CSS, JavaScript — the simplest and best default\n- No framework needed for simple sites — just HTML files in a `public/` directory\n- Deployed as Workers Assets (static file serving)\n\n**Frontend frameworks (when a framework is needed):**\n- SolidJS (preferred — fast, simple, Cloudflare-native)\n- React (widely supported)\n- Vue, Svelte, Astro — all compatible\n- Any framework that builds to static HTML/CSS/JS works\n\n**Server-side / API projects:**\n- Cloudflare Workers (JavaScript/TypeScript) — runs on Cloudflare's edge\n- Hono — lightweight web framework designed for Workers\n- itty-router — minimal router for Workers\n- Any JavaScript/TypeScript server framework that runs in the Workers runtime\n\n**Full-stack:**\n- Static frontend + Workers API backend\n- Hono with JSX for server-rendered pages\n- Astro with Cloudflare adapter\n- SolidStart with Cloudflare adapter\n\n**Data storage (when the project needs persistence):**\n- Cloudflare KV — simple key-value storage\n- Cloudflare R2 — file/object storage (like S3)\n- Cloudflare D1 — SQLite database\n- Cloudflare Durable Objects — stateful coordination\n\n### NOT Supported — Do Not Use\n\nNever use these technologies for new projects:\n\n- **Python backends** (Django, Flask, FastAPI) — cannot run on Workers\n- **Go servers** — cannot run on Workers\n- **Ruby/Rails** — cannot run on Workers\n- **Java/Spring** — cannot run on Workers\n- **PHP** — cannot run on Workers\n- **Docker-based deployments** — Workers does not run containers\n- **Database servers** (PostgreSQL, MySQL, MongoDB, Redis as server) — use Cloudflare D1/KV/R2 instead\n- **Node.js-specific APIs** (fs, child_process, net) — Workers uses a web-standard runtime, not Node.js. Use Workers-compatible alternatives.\n\n### What to Do When the User's Idea Needs Unsupported Tech\n\nIf the user describes something that would typically require an unsupported technology, **find the Cloudflare-compatible equivalent**:\n\n| User wants | Instead of | Use |\n|---|---|---|\n| \"A website\" | Any backend | Static HTML/CSS/JS with Workers Assets |\n| \"A website with a database\" | PostgreSQL/MySQL | Cloudflare D1 (SQLite) |\n| \"File uploads\" | S3/local storage | Cloudflare R2 |\n| \"User sessions / real-time\" | Redis | Cloudflare KV or Durable Objects |\n| \"An API\" | Express/Django/Flask | Hono on Workers |\n| \"A full-stack app\" | Next.js (Node) | SolidStart or Astro with CF adapter |\n| \"A simple blog\" | WordPress | Static HTML or Astro |\n| \"A web scraper\" | Python scripts | Workers with fetch API |\n| \"AI/chatbot features\" | Python ML libs | Workers AI or external API calls |\n\n## Project Structure Conventions\n\n**Always create a new project directory** inside `~/workspace/`. Never build directly in the workspace root — it may contain other projects or files that would get mixed in. Use the project name as the directory name (lowercased, hyphenated).\n\nExample: If the user wants to build a meme site, create `~/workspace/meme-site/` and build everything inside it. Then `cd` into it before handing off to `/ship`.\n\n### Static site (most common)\n```\n~/workspace/my-project/\n  public/\n    index.html\n    styles.css\n    script.js\n  wrangler.toml        (created by /ship)\n```\n\n### Workers API\n```\n~/workspace/my-project/\n  src/\n    index.ts           (or index.js)\n  package.json\n  wrangler.toml        (created by /ship)\n```\n\n### Full-stack (static + API)\n```\n~/workspace/my-project/\n  public/\n    index.html\n    styles.css\n    script.js\n  src/\n    index.ts           (Workers API that also serves static files)\n  package.json\n  wrangler.toml        (created by /ship)\n```\n\n## Step 3: After Building — Ask About Publishing\n\nOnce the project is built and working, **always ask the user what they want to do with it:**\n\n\"Your [website/app/project] is ready! Would you like to:\"\n- **\"Put it online\"** — so anyone with the link can see it\n- **\"Keep it for myself\"** — just download it or keep working on it\n\n**If they want to put it online:** Tell them \"Let me set that up for you.\" Make sure the current working directory is the project directory (e.g., `~/workspace/my-project/`), then invoke the `/ship` skill. This will guide them through GitHub setup (version control + CI) first, then Cloudflare deployment. The order matters — GitHub/CI must be configured before deployment.\n\n**If they want to keep it:** Tell them \"Your project is saved here and you can keep working on it anytime. If you want to download the files, you can use the Storage panel. Whenever you are ready to put it online, just tell me to ship it.\"\n\n## How the Skills Work Together\n\n1. User describes their idea → **Step 1: Discovery** — understand requirements, steer toward Cloudflare-achievable scope\n2. Agent confirms requirements with user → **Step 2: Build** — using Cloudflare-compatible technologies\n3. Agent asks if user wants to publish → **Step 3: Post-build** — \"put it online or keep it?\"\n4. If online → **/ship** handles GitHub CI setup first, then Cloudflare deployment\n5. Result: a live `.workers.dev` URL\n\nThis skill owns the entire pre-build and build phase. `/ship` owns the infrastructure and deployment phase.\n\n## Communication Style\n\n- Never mention \"Cloudflare compatibility\" or \"tech stack\" to the user — they do not need to know why you chose HTML over Django.\n- Just build what they asked for using the right technologies.\n- If the user specifically requests an incompatible technology (e.g., \"build me a Django app\"), explain gently: \"I'll build this as a web app that we can easily put online. I'll use [technology] which will give you the same result and can be deployed with a single command.\"\n- Focus on what the project DOES, not what technology it uses.\n- The post-build question should feel natural, not like a tech setup — \"Want to put it online?\" not \"Want to configure CI/CD?\"\n",

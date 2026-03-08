@@ -1761,6 +1761,8 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
 | `consult-llm` skill | No | Yes |
 | `block-attributed-commits` hook | No | Yes |
+| ECC rules (29 files: common, TS, Python, Go, Swift) | No | Yes |
+| ECC plugin (`enabledPlugins` in settings.json) | No | Yes |
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in `UserPreferences` (KV). Undefined = `'default'`.
 
@@ -1773,6 +1775,22 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds mode-appropriate files then deletes preseed-managed files not in the current mode. Strictly scoped to keys from `AGENTS_SEEDED_CONFIGS` — no bucket listing, no prefix scans, never touches user-created files. Partial delete failures return `warnings` without failing the overall operation.
 
 **No migration**: Existing users are unaffected. Changes only happen on explicit action.
+
+### ECC Plugin Integration (Advanced Mode)
+
+[Everything Claude Code](https://github.com/affaan-m/everything-claude-code) (ECC) v1.8.0 provides 16 agents, 40 commands, 65 skills, hooks, and 29 rules for Claude Code. It is activated only for advanced session mode users.
+
+**Plugin persistence**: The ECC plugin is installed via marketplace and persists across sessions via R2 sync. The rclone cache exclusion for `.claude/plugins/cache/` was removed so the plugin directory syncs to R2 and is available on every new container.
+
+**Rules**: 29 rule files are preseeded to `~/.claude/rules/{common,typescript,python,golang,swift}/` via the manifest with `"modes": ["advanced"]`. Common rules (9 files) cover security, coding style, patterns, performance, testing, git workflow, development workflow, agents, and hooks. Language-specific rules (5 files each for TypeScript, Python, Go, Swift) extend common rules with language-appropriate conventions.
+
+**Disabled hooks**: Three CPU-heavy hooks are disabled via `ECC_DISABLED_HOOKS` env var on the 1-vCPU container: `post:edit:format`, `post:edit:typecheck`, `post:quality-gate`. These would run formatters, type checkers, and quality gates after every edit — too expensive for a single-CPU runtime.
+
+**Continuous Learning v2.1**: ECC's `observe.sh` hooks fire on tool use and write to `~/.claude/homunculus/`. These require `python3` (stdlib only, no pip), which is added to the runtime Docker image. The background observer is disabled by default.
+
+**Updates**: Users can run `/plugin install everything-claude-code` in-session to update the plugin. Rules update when the preseed pipeline is redeployed and users click "Recreate AI agent skills & rules".
+
+**Settings merge**: `entrypoint.sh` detects advanced mode by checking for the `~/.claude/rules/common/` directory (only present in advanced mode). When detected, it merges `enabledPlugins` into `settings.json` via the same `jq '. * $var'` recursive merge pattern used for hooks.
 
 ### Preseed Deployment
 
