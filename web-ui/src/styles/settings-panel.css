@@ -89,7 +89,7 @@
   border-bottom: none;
 }
 .settings-group-title {
-  margin: 0 0 var(--space-3) 0;
+  margin: 0;
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--color-text-primary);
@@ -105,11 +105,128 @@
   margin-bottom: 0;
 }
 
-/* Staggered group animations when panel opens */
-.settings-panel.open .settings-group-1 { animation: fadeInUp 200ms ease-out 75ms backwards; }
-.settings-panel.open .settings-group-2 { animation: fadeInUp 200ms ease-out 150ms backwards; }
-.settings-panel.open .settings-group-3 { animation: fadeInUp 200ms ease-out 225ms backwards; }
-.settings-panel.open .settings-group-4 { animation: fadeInUp 200ms ease-out 300ms backwards; }
+/*
+ * Accordion
+ *
+ * DOM structure:
+ *   div.settings-group
+ *     h3.settings-group-heading
+ *       button.accordion-header  [aria-expanded, aria-controls]
+ *         span.accordion-chevron  (rotates -90deg → 0deg)
+ *         span.accordion-header-text
+ *           span.settings-group-title
+ *           span.accordion-subtitle  (only when collapsed)
+ *     div.accordion-body  [role="region", aria-labelledby, aria-hidden]
+ *       div.accordion-body-inner  (overflow + visibility for focus trap)
+ *         [children]
+ */
+.settings-group-heading {
+  margin: 0;
+}
+
+.accordion-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.accordion-header:hover {
+  opacity: 0.8;
+}
+
+.accordion-header:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.accordion-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform var(--transition-slow);
+  color: var(--color-text-muted);
+}
+
+.accordion-chevron--open {
+  transform: rotate(0deg);
+}
+
+.accordion-header-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.accordion-subtitle {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-weight: normal;
+  margin-top: 2px;
+}
+
+.accordion-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--transition-slow);
+}
+
+.accordion-body--open {
+  grid-template-rows: 1fr;
+}
+
+.accordion-body-inner {
+  overflow: hidden;
+  min-height: 0;
+  visibility: hidden;
+  transition: visibility 0s var(--transition-slow);
+}
+
+.accordion-body--open .accordion-body-inner {
+  visibility: visible;
+  transition: visibility 0s 0s;
+}
+
+.accordion-body-inner > :first-child {
+  margin-top: var(--space-3);
+}
+
+/* LLM Keys explanation */
+.llm-keys-explanation {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.llm-keys-links {
+  margin: 0 0 var(--space-4) 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.llm-keys-links a {
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: opacity var(--transition-fast);
+}
+
+.llm-keys-links a:hover {
+  text-decoration: underline;
+}
 
 /* Error message */
 .settings-error {
@@ -408,10 +525,9 @@
     transition: none;
   }
 
-  .settings-panel.open .settings-group-1,
-  .settings-panel.open .settings-group-2,
-  .settings-panel.open .settings-group-3,
-  .settings-panel.open .settings-group-4 {
-    animation: none;
+  .accordion-body,
+  .accordion-chevron,
+  .accordion-body-inner {
+    transition: none;
   }
 }

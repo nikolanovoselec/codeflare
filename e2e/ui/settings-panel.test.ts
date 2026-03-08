@@ -30,6 +30,30 @@ async function waitForPanelClosed(page: Page, timeout = TIMEOUTS.DIALOG): Promis
   );
 }
 
+/** Open an accordion group by clicking its header (no-op if already open) */
+async function openAccordionGroup(page: Page, group: string, timeout = TIMEOUTS.DIALOG): Promise<void> {
+  const isAlreadyOpen = await page.evaluate(
+    (g) => document.querySelector(`[data-testid="accordion-header-${g}"]`)?.getAttribute('aria-expanded') === 'true',
+    group
+  );
+  if (isAlreadyOpen) return;
+  await page.evaluate(
+    (g) => (document.querySelector(`[data-testid="accordion-header-${g}"]`) as HTMLElement)?.click(),
+    group
+  );
+  await page.waitForFunction(
+    (g) => {
+      const header = document.querySelector(`[data-testid="accordion-header-${g}"]`);
+      if (header?.getAttribute('aria-expanded') !== 'true') return false;
+      const panel = document.querySelector(`[data-testid="accordion-panel-${g}"] .accordion-body-inner`);
+      if (!panel) return false;
+      return getComputedStyle(panel).visibility === 'visible';
+    },
+    { timeout },
+    group
+  );
+}
+
 describe.skipIf(!isSetup)('Settings panel', () => {
   let browser: Browser;
   let page: Page;
@@ -157,6 +181,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('shows workspace sync toggle with hint', async () => {
+    await openAccordionGroup(page, 'session');
     const syncToggle = await page.$('[data-testid="settings-workspace-sync-toggle"]');
     const syncHint = await page.$('[data-testid="settings-workspace-sync-hint"]');
     expect(syncToggle).toBeTruthy();
@@ -164,6 +189,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('shows fast start toggle with hint', async () => {
+    await openAccordionGroup(page, 'session');
     const fastStartToggle = await page.$('[data-testid="settings-fast-start-toggle"]');
     const fastStartHint = await page.$('[data-testid="settings-fast-start-hint"]');
     expect(fastStartToggle).toBeTruthy();
@@ -171,6 +197,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('shows recreate docs row', async () => {
+    await openAccordionGroup(page, 'session');
     const row = await page.$('[data-testid="settings-recreate-docs-row"]');
     const label = await page.$('[data-testid="settings-recreate-docs-label"]');
     expect(row).toBeTruthy();
@@ -190,6 +217,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
       });
       await waitForPanelOpen(page);
     }
+    await openAccordionGroup(page, 'llm');
     const groupTitles = await page.$$eval('.settings-group-title', els => els.map(el => el.textContent?.trim()));
     expect(groupTitles).toContain('LLM API Keys');
 
@@ -202,6 +230,7 @@ describe.skipIf(!isSetup)('Settings panel', () => {
   });
 
   it('toggling a boolean setting auto-saves', async () => {
+    await openAccordionGroup(page, 'appearance');
     const toggle = await page.$('[data-testid="settings-show-tips-toggle"]');
     expect(toggle).toBeTruthy();
     const initialState = await page.evaluate(
@@ -216,5 +245,43 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     );
     expect(newState).not.toBe(initialState);
     await page.evaluate((el) => (el as HTMLElement).click(), toggle);
+  });
+
+  it('Appearance group is expanded by default', async () => {
+    const expanded = await page.$eval(
+      '[data-testid="accordion-header-appearance"]',
+      el => el.getAttribute('aria-expanded')
+    );
+    expect(expanded).toBe('true');
+  });
+
+  it('clicking Session Defaults opens it and collapses Appearance', async () => {
+    await openAccordionGroup(page, 'session');
+    const sessionExpanded = await page.$eval(
+      '[data-testid="accordion-header-session"]',
+      el => el.getAttribute('aria-expanded')
+    );
+    const appearanceExpanded = await page.$eval(
+      '[data-testid="accordion-header-appearance"]',
+      el => el.getAttribute('aria-expanded')
+    );
+    expect(sessionExpanded).toBe('true');
+    expect(appearanceExpanded).toBe('false');
+  });
+
+  it('subtitles visible on collapsed groups', async () => {
+    // Appearance is currently collapsed (session is open from previous test)
+    const subtitle = await page.$('[data-testid="accordion-subtitle-appearance"]');
+    expect(subtitle).toBeTruthy();
+  });
+
+  it('LLM explanation text visible when LLM group is open', async () => {
+    await openAccordionGroup(page, 'llm');
+    const explanation = await page.$eval(
+      '[data-testid="llm-keys-explanation"]',
+      el => el.textContent
+    );
+    expect(explanation).toContain('Optional');
+    expect(explanation).toContain('second opinions');
   });
 });

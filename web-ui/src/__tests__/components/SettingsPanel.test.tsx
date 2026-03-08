@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import { within } from '@testing-library/dom';
+import { createSignal } from 'solid-js';
 import SettingsPanel from '../../components/SettingsPanel';
 import { loadSettings, saveSettings, defaultSettings } from '../../lib/settings';
 import type { Settings } from '../../lib/settings';
@@ -159,6 +160,7 @@ describe('SettingsPanel Component', () => {
   describe('R2 Sync Settings', () => {
     it('shows workspace sync toggle defaulted to off', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.getByTestId('settings-workspace-sync-toggle');
       expect(toggle).toBeInTheDocument();
@@ -169,6 +171,7 @@ describe('SettingsPanel Component', () => {
     it('toggles workspace sync preference via sessionStore', () => {
       sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: true };
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.getByTestId('settings-workspace-sync-toggle');
       fireEvent.click(toggle);
@@ -178,6 +181,7 @@ describe('SettingsPanel Component', () => {
 
     it('shows restart-required explanation text', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const hint = screen.getByTestId('settings-workspace-sync-hint');
       expect(hint.textContent).toContain('Restart the session');
@@ -186,6 +190,7 @@ describe('SettingsPanel Component', () => {
 
     it('renders clean recreate-documentation row with action on the right', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const row = screen.getByTestId('settings-recreate-docs-row');
       expect(row).toBeInTheDocument();
@@ -201,6 +206,7 @@ describe('SettingsPanel Component', () => {
 
     it('recreates getting-started docs via API', async () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const row = screen.getByTestId('settings-recreate-docs-row');
       const button = within(row).getByRole('button', { name: 'Recreate' });
@@ -214,6 +220,7 @@ describe('SettingsPanel Component', () => {
     it('shows error when recreate docs API fails', async () => {
       mockRecreateGettingStartedDocs.mockRejectedValueOnce(new Error('Seed failed'));
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const row = screen.getByTestId('settings-recreate-docs-row');
       const button = within(row).getByRole('button', { name: 'Recreate' });
@@ -228,6 +235,7 @@ describe('SettingsPanel Component', () => {
     it('shows fast start toggle defaulted to ON (undefined treated as true)', () => {
       sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.getByTestId('settings-fast-start-toggle');
       expect(toggle).toBeInTheDocument();
@@ -238,6 +246,7 @@ describe('SettingsPanel Component', () => {
     it('toggles fast start off via sessionStore.updatePreferences', () => {
       sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.getByTestId('settings-fast-start-toggle');
       fireEvent.click(toggle);
@@ -248,6 +257,7 @@ describe('SettingsPanel Component', () => {
     it('toggles fast start on when currently off', () => {
       sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: false };
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.getByTestId('settings-fast-start-toggle');
       expect(toggle).not.toHaveClass('toggle-on');
@@ -258,6 +268,7 @@ describe('SettingsPanel Component', () => {
 
     it('shows hint text containing "instant startup" and "auto-update"', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const hint = screen.getByTestId('settings-fast-start-hint');
       expect(hint.textContent).toContain('instant startup');
@@ -396,20 +407,22 @@ describe('SettingsPanel Component', () => {
   });
 
   describe('Group Structure', () => {
-    it('renders "Appearance" group heading', () => {
+    it('renders "Appearance" group heading inside accordion header', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const heading = screen.getByText('Appearance');
-      expect(heading.tagName).toBe('H3');
-      expect(heading).toHaveClass('settings-group-title');
+      const header = screen.getByTestId('accordion-header-appearance');
+      const titleSpan = header.querySelector('.settings-group-title');
+      expect(titleSpan).toHaveTextContent('Appearance');
+      // h3 wraps the button
+      expect(header.parentElement?.tagName).toBe('H3');
     });
 
-    it('renders "Session Defaults" group heading', () => {
+    it('renders "Session Defaults" group heading inside accordion header', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const heading = screen.getByText('Session Defaults');
-      expect(heading.tagName).toBe('H3');
-      expect(heading).toHaveClass('settings-group-title');
+      const header = screen.getByTestId('accordion-header-session');
+      const titleSpan = header.querySelector('.settings-group-title');
+      expect(titleSpan).toHaveTextContent('Session Defaults');
     });
 
     it('renders "Administration" group heading for admins', () => {
@@ -422,9 +435,9 @@ describe('SettingsPanel Component', () => {
         />
       ));
 
-      const heading = screen.getByText('Administration');
-      expect(heading.tagName).toBe('H3');
-      expect(heading).toHaveClass('settings-group-title');
+      const header = screen.getByTestId('accordion-header-admin');
+      const titleSpan = header.querySelector('.settings-group-title');
+      expect(titleSpan).toHaveTextContent('Administration');
     });
 
     it('hides "Administration" group for non-admins', () => {
@@ -437,7 +450,7 @@ describe('SettingsPanel Component', () => {
         />
       ));
 
-      expect(screen.queryByText('Administration')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('accordion-header-admin')).not.toBeInTheDocument();
     });
 
     it('shows "Open Setup & User Management" button text for admins', () => {
@@ -449,6 +462,7 @@ describe('SettingsPanel Component', () => {
           currentUserEmail="admin@example.com"
         />
       ));
+      fireEvent.click(screen.getByTestId('accordion-header-admin'));
 
       expect(screen.getByRole('button', { name: 'Open Setup & User Management' })).toBeInTheDocument();
     });
@@ -464,9 +478,10 @@ describe('SettingsPanel Component', () => {
           currentUserEmail="admin@example.com"
         />
       ));
+      fireEvent.click(screen.getByTestId('accordion-header-admin'));
 
-      const heading = screen.getByText('Administration');
-      expect(heading).toBeInTheDocument();
+      const header = screen.getByTestId('accordion-header-admin');
+      expect(header).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Open Setup & User Management' })).toBeInTheDocument();
     });
 
@@ -480,7 +495,7 @@ describe('SettingsPanel Component', () => {
         />
       ));
 
-      expect(screen.queryByText('Administration')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('accordion-header-admin')).not.toBeInTheDocument();
     });
 
     it('does NOT render UserManagement component', () => {
@@ -522,6 +537,7 @@ describe('SettingsPanel Component', () => {
 
     it('should have accessible toggle switch for workspace sync', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.getByTestId('settings-workspace-sync-toggle');
       expect(toggle).toHaveAttribute('role', 'switch');
@@ -539,6 +555,7 @@ describe('SettingsPanel Component', () => {
   describe('Clipboard Access Toggle', () => {
     it('should render clipboard access toggle defaulted to off', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.getByTestId('settings-clipboard-access-toggle');
       expect(toggle).toBeInTheDocument();
@@ -548,6 +565,7 @@ describe('SettingsPanel Component', () => {
 
     it('should toggle clipboard access setting on when clicked', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.getByTestId('settings-clipboard-access-toggle');
       fireEvent.click(toggle);
@@ -561,6 +579,7 @@ describe('SettingsPanel Component', () => {
     it('should hide clipboard toggle on mobile (paste always works)', () => {
       mobileState.mobile = true;
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const toggle = screen.queryByTestId('settings-clipboard-access-toggle');
       expect(toggle).not.toBeInTheDocument();
@@ -572,13 +591,15 @@ describe('SettingsPanel Component', () => {
     it('renders LLM API Keys group heading', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
-      const heading = screen.getByText('LLM API Keys');
-      expect(heading.tagName).toBe('H3');
-      expect(heading).toHaveClass('settings-group-title');
+      const header = screen.getByTestId('accordion-header-llm');
+      expect(header).toBeInTheDocument();
+      const titleSpan = header.querySelector('.settings-group-title');
+      expect(titleSpan).toHaveTextContent('LLM API Keys');
     });
 
     it('renders OpenAI and Gemini key inputs', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       const openaiInput = screen.getByTestId('settings-llm-openai-key');
       const geminiInput = screen.getByTestId('settings-llm-gemini-key');
@@ -590,6 +611,7 @@ describe('SettingsPanel Component', () => {
 
     it('renders Save Keys button', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       expect(saveButton).toBeInTheDocument();
@@ -598,6 +620,7 @@ describe('SettingsPanel Component', () => {
     it('loads masked keys on mount', async () => {
       mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234', geminiApiKey: '****abcd' });
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       // Wait for async load
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -611,6 +634,7 @@ describe('SettingsPanel Component', () => {
     it('calls updateLlmKeys API on save', async () => {
       mockUpdateLlmKeys.mockResolvedValue({ openaiApiKey: '****test' });
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       const openaiInput = screen.getByTestId('settings-llm-openai-key');
       fireEvent.input(openaiInput, { target: { value: 'sk-newkey-test' } });
@@ -626,6 +650,7 @@ describe('SettingsPanel Component', () => {
     it('shows success message after save', async () => {
       mockUpdateLlmKeys.mockResolvedValue({});
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       await fireEvent.click(saveButton);
@@ -637,6 +662,7 @@ describe('SettingsPanel Component', () => {
     it('shows error message on save failure', async () => {
       mockUpdateLlmKeys.mockRejectedValueOnce(new Error('Network error'));
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       const saveButton = screen.getByRole('button', { name: 'Save Keys' });
       await fireEvent.click(saveButton);
@@ -649,6 +675,7 @@ describe('SettingsPanel Component', () => {
       mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
       mockUpdateLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       // Wait for load
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -666,6 +693,7 @@ describe('SettingsPanel Component', () => {
       mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
       mockUpdateLlmKeys.mockResolvedValue({});
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -681,6 +709,7 @@ describe('SettingsPanel Component', () => {
 
     it('shows hint about next session start', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
       const hint = screen.getByTestId('settings-llm-keys-hint');
       expect(hint.textContent).toContain('next session start');
@@ -697,6 +726,7 @@ describe('SettingsPanel Component', () => {
           currentUserEmail="admin@example.com"
         />
       ));
+      fireEvent.click(screen.getByTestId('accordion-header-admin'));
 
       const warning = screen.getByTestId('settings-r2-warning');
       expect(warning).toBeInTheDocument();
@@ -716,6 +746,187 @@ describe('SettingsPanel Component', () => {
       ));
 
       expect(screen.queryByTestId('settings-r2-warning')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Accordion behavior', () => {
+    it('expands Appearance group by default', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const header = screen.getByTestId('accordion-header-appearance');
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('collapses other groups by default', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const sessionHeader = screen.getByTestId('accordion-header-session');
+      const llmHeader = screen.getByTestId('accordion-header-llm');
+      expect(sessionHeader).toHaveAttribute('aria-expanded', 'false');
+      expect(llmHeader).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('clicking collapsed group opens it and closes current one', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const sessionHeader = screen.getByTestId('accordion-header-session');
+      fireEvent.click(sessionHeader);
+
+      expect(sessionHeader).toHaveAttribute('aria-expanded', 'true');
+      const appearanceHeader = screen.getByTestId('accordion-header-appearance');
+      expect(appearanceHeader).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('clicking open group is a no-op (stays open)', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const appearanceHeader = screen.getByTestId('accordion-header-appearance');
+      fireEvent.click(appearanceHeader);
+
+      expect(appearanceHeader).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('shows subtitles only on collapsed groups', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      // Appearance is open — no subtitle
+      const appearanceSubtitle = screen.queryByTestId('accordion-subtitle-appearance');
+      expect(appearanceSubtitle).not.toBeInTheDocument();
+
+      // Session is collapsed — subtitle visible
+      const sessionSubtitle = screen.getByTestId('accordion-subtitle-session');
+      expect(sessionSubtitle).toBeInTheDocument();
+    });
+
+    it('toggles chevron class on open/close', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const appearanceHeader = screen.getByTestId('accordion-header-appearance');
+      const appearanceChevron = appearanceHeader.querySelector('.accordion-chevron');
+      expect(appearanceChevron).toHaveClass('accordion-chevron--open');
+
+      const sessionHeader = screen.getByTestId('accordion-header-session');
+      const sessionChevron = sessionHeader.querySelector('.accordion-chevron');
+      expect(sessionChevron).not.toHaveClass('accordion-chevron--open');
+    });
+
+    it('headers are button elements inside h3 wrappers', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const header = screen.getByTestId('accordion-header-appearance');
+      expect(header.tagName).toBe('BUTTON');
+      expect(header.parentElement?.tagName).toBe('H3');
+    });
+
+    it('buttons have aria-controls pointing to panel IDs', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const header = screen.getByTestId('accordion-header-appearance');
+      expect(header).toHaveAttribute('aria-controls', 'accordion-panel-appearance');
+    });
+
+    it('content regions have role=region, aria-labelledby, and aria-hidden', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      const panel = screen.getByTestId('accordion-panel-appearance');
+      expect(panel).toHaveAttribute('role', 'region');
+      expect(panel).toHaveAttribute('aria-labelledby', 'accordion-header-appearance');
+      expect(panel).toHaveAttribute('aria-hidden', 'false');
+
+      const sessionPanel = screen.getByTestId('accordion-panel-session');
+      expect(sessionPanel).toHaveAttribute('aria-hidden', 'true');
+    });
+  });
+
+  describe('Accordion reset on reopen', () => {
+    it('resets to Appearance when panel is closed and reopened', () => {
+      const [isOpen, setIsOpen] = createSignal(true);
+      render(() => <SettingsPanel isOpen={isOpen()} onClose={() => setIsOpen(false)} />);
+
+      // Switch to LLM group
+      const llmHeader = screen.getByTestId('accordion-header-llm');
+      fireEvent.click(llmHeader);
+      expect(llmHeader).toHaveAttribute('aria-expanded', 'true');
+
+      // Close and reopen
+      setIsOpen(false);
+      setIsOpen(true);
+
+      // Appearance should be expanded again
+      const appearanceHeader = screen.getByTestId('accordion-header-appearance');
+      expect(appearanceHeader).toHaveAttribute('aria-expanded', 'true');
+      expect(llmHeader).toHaveAttribute('aria-expanded', 'false');
+    });
+  });
+
+  describe('LLM API Keys explanation', () => {
+    it('shows explanation text with "Optional", "second opinions", and "Consult LLM"', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      // Open LLM group first
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
+
+      const explanation = screen.getByTestId('llm-keys-explanation');
+      expect(explanation.textContent).toContain('Optional');
+      expect(explanation.textContent).toContain('second opinions');
+      expect(explanation.textContent).toContain('Consult LLM');
+    });
+
+    it('shows links to OpenAI and Google AI Studio', () => {
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+
+      // Open LLM group first
+      fireEvent.click(screen.getByTestId('accordion-header-llm'));
+
+      const links = screen.getByTestId('llm-keys-links');
+      const anchors = links.querySelectorAll('a');
+      const hrefs = Array.from(anchors).map(a => a.getAttribute('href'));
+      expect(hrefs).toContain('https://platform.openai.com/api-keys');
+      expect(hrefs).toContain('https://aistudio.google.com/apikey');
+    });
+  });
+
+  describe('Accordion admin group', () => {
+    it('renders admin header for admin users (collapsed by default)', () => {
+      render(() => (
+        <SettingsPanel
+          isOpen={true}
+          onClose={() => {}}
+          currentUserRole="admin"
+          currentUserEmail="admin@example.com"
+        />
+      ));
+
+      const adminHeader = screen.getByTestId('accordion-header-admin');
+      expect(adminHeader).toBeInTheDocument();
+      expect(adminHeader).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('does not render admin header for non-admin users', () => {
+      render(() => (
+        <SettingsPanel
+          isOpen={true}
+          onClose={() => {}}
+          currentUserRole="user"
+          currentUserEmail="user@example.com"
+        />
+      ));
+
+      expect(screen.queryByTestId('accordion-header-admin')).not.toBeInTheDocument();
+    });
+
+    it('shows admin subtitle when collapsed', () => {
+      render(() => (
+        <SettingsPanel
+          isOpen={true}
+          onClose={() => {}}
+          currentUserRole="admin"
+          currentUserEmail="admin@example.com"
+        />
+      ));
+
+      const subtitle = screen.getByTestId('accordion-subtitle-admin');
+      expect(subtitle).toBeInTheDocument();
     });
   });
 });
