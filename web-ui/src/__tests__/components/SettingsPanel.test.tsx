@@ -22,7 +22,7 @@ const mockGetLlmKeys = vi.hoisted(() => vi.fn<[], Promise<Record<string, unknown
 const mockUpdateLlmKeys = vi.hoisted(() => vi.fn<[Record<string, unknown>], Promise<Record<string, unknown>>>(async () => ({})));
 
 vi.mock('../../api/client', () => ({
-  getLlmKeys: (...args: unknown[]) => mockGetLlmKeys(),
+  getLlmKeys: () => mockGetLlmKeys(),
   updateLlmKeys: (body: Record<string, unknown>) => mockUpdateLlmKeys(body),
 }));
 
