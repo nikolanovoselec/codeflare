@@ -1,42 +1,97 @@
 ---
 name: consult-llm
-description: This skill should be used when the user wants to query an external LLM (ChatGPT, Gemini, GPT-4, etc.) from within their coding session. Use this skill when the user says things like "ask ChatGPT", "consult Gemini", "what would GPT say", "get a second opinion", "ask another AI", or wants to compare answers from different models. This skill requires API keys configured in Settings.
-version: 1.0.0
+description: This skill should be used when the user wants to consult external LLMs for a second opinion or discussion. Use when the user says "discuss with llms", "consult llms", "consult LLMs", "ask LLMs", "get LLM opinions", "what do other LLMs think", "ask ChatGPT", "consult Gemini", "ask GPT", "get a second opinion", "ask another AI", "discuss with code llms", "consult code llms". The user may specify an LLM type like "code" to select code-specialized models.
+version: 2.0.0
 ---
 
 # Consult LLM: Query External AI Models
 
-This skill lets you query external LLM providers (OpenAI, Google Gemini) directly from your coding session using the `consult_llm` MCP tool.
+This skill queries external LLM providers via the `consult_llm` MCP tool, sending the same prompt to two models in parallel and presenting both responses for comparison.
 
 ## Prerequisites
 
-You must have API keys configured in **Settings > LLM API Keys** before using this skill. Keys take effect on the next session start.
+API keys must be configured in **Settings > LLM API Keys** before using this skill. Keys take effect on the next session start.
 
 - **OpenAI**: Get your API key from https://platform.openai.com/api-keys
 - **Gemini**: Get your API key from https://aistudio.google.com/apikey
 
-## How to Use
+## Model Selection
 
-The `consult_llm` MCP tool is automatically available when API keys are configured. Use it to:
+The user can specify an LLM type as a parameter. Parse the type from the user's message.
 
-- Get a second opinion on code or architecture decisions
-- Compare approaches by asking another model
-- Translate between programming languages
-- Ask for explanations from a different perspective
+### Default (no type specified)
 
-## Example Invocations
+When the user says "discuss with llms", "consult llms", or similar without specifying a type:
 
-Ask Claude to use the tool naturally:
+| Provider | Model ID |
+|----------|----------|
+| OpenAI | `gpt-5.4` |
+| Google | `gemini-3.1-pro-preview` |
 
-- "Ask ChatGPT how it would implement this function"
-- "Get Gemini's opinion on this database schema"
-- "Consult GPT-4 about the best approach for caching"
-- "What would another AI suggest for this error?"
+### Code LLMs
 
-## Available Models
+When the user says "discuss with code llms", "consult code llms", "ask code llms", or includes the word "code" before "llm(s)":
 
-- **OpenAI**: GPT-4o, GPT-4, GPT-3.5 (requires OpenAI API key)
-- **Gemini**: Gemini Pro, Gemini Flash (requires Gemini API key)
+| Provider | Model ID |
+|----------|----------|
+| OpenAI | `gpt-5.3-codex` |
+| Google | `gemini-3.1-pro-preview` |
+
+## How to Invoke
+
+When this skill triggers, follow these steps:
+
+1. **Parse the LLM type** from the user's message. Look for "code" before "llm" — if present, use Code LLMs. Otherwise, use Default.
+
+2. **Identify what to discuss.** The user's message contains both the trigger ("discuss with llms") and the topic. Extract the topic — it may be:
+   - A question about the current code or architecture
+   - A specific file or function to review
+   - A design decision to evaluate
+   - A general programming question
+
+3. **Construct the prompt.** Build a clear, context-rich prompt for the external models. Include:
+   - The user's question or topic
+   - Relevant file paths via the `files` parameter (if the discussion involves code)
+   - Enough context for the external model to give a useful answer
+
+4. **Call `consult_llm` twice in parallel** — once for each model in the selected pair. Use the same prompt and files for both. Set `task_mode` appropriately (`"review"` for code review, `"plan"` for architecture, `"debug"` for troubleshooting, `"general"` for everything else).
+
+5. **Present both responses** to the user with clear attribution:
+   - Label each response with the model name
+   - Highlight agreements and disagreements between the two
+   - Add your own synthesis if the responses diverge
+
+## Example Usage
+
+**User:** "discuss with llms whether we should use KV or D1 for session storage"
+- Type: Default (no "code" keyword)
+- Models: gpt-5.4 + gemini-3.1-pro-preview
+- Task mode: plan
+
+**User:** "consult code llms about this function" (while viewing a file)
+- Type: Code
+- Models: gpt-5.3-codex + gemini-3.1-pro-preview
+- Task mode: review
+
+**User:** "ask llms to review the auth middleware"
+- Type: Default
+- Models: gpt-5.4 + gemini-3.1-pro-preview
+- Task mode: review
+- Files: include the auth middleware file path
+
+## Available Models Reference
+
+All models available via the `consult_llm` MCP tool:
+
+| Model ID | Provider | Best for |
+|----------|----------|----------|
+| `gpt-5.4` | OpenAI | Latest reasoning, general tasks |
+| `gpt-5.2` | OpenAI | General tasks, fast |
+| `gpt-5.3-codex` | OpenAI | Code generation and review |
+| `gpt-5.2-codex` | OpenAI | Code generation, fast |
+| `gemini-3.1-pro-preview` | Google | Latest Gemini, broad reasoning |
+| `gemini-3-pro-preview` | Google | Gemini, stable |
+| `gemini-2.5-pro` | Google | Gemini, established |
 
 ## Troubleshooting
 
