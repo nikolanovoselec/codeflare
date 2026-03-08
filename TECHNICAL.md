@@ -641,7 +641,7 @@ When the limit is exceeded: HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: 
 | Endpoint | Method | Limit | Key Prefix |
 |----------|--------|-------|-----------|
 | `/api/storage/upload/*` | POST | 60/min | `storage-upload` |
-| `/api/storage/delete` | POST | 20/min | `storage-delete` |
+| `/api/storage/delete` | POST | 20/min | `storage-delete` | Accepts `keys` and/or `prefixes`. Prefix delete runs server-side (list+batch delete via R2 S3 API) — no per-request rate limit on internal R2 calls. |
 | `/api/storage/move` | POST | 20/min | `storage-move` |
 | `/api/storage/seed/*` | POST | 3/min | `storage-seed` |
 | `/api/storage/download` | GET | 120/min | `storage-download` |
@@ -796,7 +796,7 @@ Public before setup; admin-only after. All `adminUsers` must also be in `allowed
 | GET | `/api/storage/browse` | List objects in R2 prefix |
 | POST | `/api/storage/upload` | Upload file |
 | GET | `/api/storage/download` | Download file |
-| POST | `/api/storage/delete` | Delete object |
+| POST | `/api/storage/delete` | Delete objects by key and/or prefix (server-side bulk delete) |
 | POST | `/api/storage/move` | Move/rename object |
 | GET | `/api/storage/preview` | Preview file content |
 | GET | `/api/storage/stats` | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
@@ -1498,6 +1498,7 @@ wrangler tail codeflare --status error
 | AD24 | Predictable session IDs ([a-z0-9]{8,24}) | <details><summary>Session IDs are namespace keys, not secrets</summary><br>Session IDs are user-provided identifiers for KV namespacing, not authentication tokens. Security is JWT-based — knowing a session ID without a valid JWT grants zero access. The `SESSION_ID_PATTERN` validates format, not entropy. Randomizing IDs would break user-friendly naming.</details> |
 | AD25 | E2E service email hardcoded | <details><summary><code>e2e-service@codeflare.local</code> is a test identifier</summary><br>The `.local` TLD is RFC 6762 reserved and obviously non-production. The email is a test fixture seeded into KV for E2E authentication, not a secret. Extracting it to an environment variable adds configuration complexity for zero security benefit.</details> |
 | AD26 | Stress test rate-limit bypass | <details><summary>`STRESS_TEST_MODE=active` skips all rate limiting</summary><br>k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` — any other value (including `"true"`) keeps limits enforced. Only set on integration; production must never have this variable.</details> |
+| AD27 | Server-side prefix delete | <details><summary>Server-side list+batch delete via R2 S3 API instead of frontend recursive browse+delete</summary><br>Frontend folder deletion was subject to API rate limits (30/min browse, 20/min delete), causing failures for large folders. R2 has no native "delete prefix" API, and lifecycle rules (Days=0) take up to 24h. Server-side ListObjectsV2 + batch DeleteObjects (1000 keys/call) using `emptyR2Bucket()` is the fastest approach. No `[[r2_buckets]]` binding needed — per-user dynamic buckets use account-level S3 credentials directly.</details> |
 
 ---
 

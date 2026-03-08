@@ -7,12 +7,14 @@ import { ValidationError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 
 const mockFetch = vi.fn();
+const mockEmptyR2Bucket = vi.fn();
 
 vi.mock('../../lib/r2-client', () => ({
   createR2Client: vi.fn(() => ({ fetch: mockFetch })),
   getR2Url: vi.fn((endpoint: string, bucket: string, key?: string) =>
     key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`
   ),
+  emptyR2Bucket: (...args: unknown[]) => mockEmptyR2Bucket(...args),
 }));
 
 vi.mock('../../lib/r2-config', () => ({
@@ -31,6 +33,7 @@ describe('Storage Delete Route', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockFetch.mockReset();
+    mockEmptyR2Bucket.mockReset();
     envOverrides = {};
     mockKV = createMockKV();
 
@@ -65,7 +68,7 @@ describe('Storage Delete Route', () => {
 
   // --- Validation tests ---
 
-  it('rejects empty keys array with 400', async () => {
+  it('rejects empty keys array with no prefixes with 400', async () => {
     const res = await app.request('/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -77,7 +80,7 @@ describe('Storage Delete Route', () => {
     expect(body.code).toBe('VALIDATION_ERROR');
   });
 
-  it('rejects missing keys field with 400', async () => {
+  it('rejects request with neither keys nor prefixes with 400', async () => {
     const res = await app.request('/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -383,5 +386,153 @@ describe('Storage Delete Route', () => {
 
     expect(res.status).toBe(200);
     expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
+  });
+
+  // --- Prefix delete tests ---
+
+  it('prefix delete calls emptyR2Bucket with correct prefix and returns count', async () => {
+    mockEmptyR2Bucket.mockResolvedValueOnce(42);
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: ['workspace/folder/'] }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { deleted: string[]; deletedPrefixes: { prefix: string; count: number }[]; errors: Array<{ key: string; error: string }> };
+    expect(body.deleted).toEqual([]);
+    expect(body.deletedPrefixes).toEqual([{ prefix: 'workspace/folder/', count: 42 }]);
+    expect(body.errors).toEqual([]);
+
+    expect(mockEmptyR2Bucket).toHaveBeenCalledWith(
+      expect.anything(), // r2Client
+      'https://test.r2.cloudflarestorage.com',
+      'test-bucket',
+      'workspace/folder/',
+    );
+  });
+
+  it('handles mixed keys + prefixes in single request', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 })); // single key delete
+    mockEmptyR2Bucket.mockResolvedValueOnce(10);
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        keys: ['workspace/file.ts'],
+        prefixes: ['workspace/folder/'],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { deleted: string[]; deletedPrefixes: { prefix: string; count: number }[]; errors: Array<{ key: string; error: string }> };
+    expect(body.deleted).toEqual(['workspace/file.ts']);
+    expect(body.deletedPrefixes).toEqual([{ prefix: 'workspace/folder/', count: 10 }]);
+    expect(body.errors).toEqual([]);
+  });
+
+  it('prefix validation rejects path traversal', async () => {
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: ['workspace/../etc/'] }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string; code: string };
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.error).toContain('path traversal');
+  });
+
+  it('prefix validation rejects prefix starting with /', async () => {
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: ['/absolute/path/'] }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string; code: string };
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.error).toContain('must not start with /');
+  });
+
+  it('keys-only request still works (backward compat)', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: ['workspace/file.ts'] }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { deleted: string[]; deletedPrefixes: { prefix: string; count: number }[]; errors: Array<{ key: string; error: string }> };
+    expect(body.deleted).toEqual(['workspace/file.ts']);
+    expect(body.deletedPrefixes).toEqual([]);
+    expect(mockEmptyR2Bucket).not.toHaveBeenCalled();
+  });
+
+  it('invalidates stats cache after prefix delete', async () => {
+    mockEmptyR2Bucket.mockResolvedValueOnce(5);
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: ['workspace/folder/'] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
+  });
+
+  it('does not invalidate stats cache when prefix delete returns 0 objects', async () => {
+    mockEmptyR2Bucket.mockResolvedValueOnce(0);
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: ['workspace/empty/'] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockKV.delete).not.toHaveBeenCalled();
+  });
+
+  it('handles emptyR2Bucket error gracefully and reports in errors', async () => {
+    mockEmptyR2Bucket.mockRejectedValueOnce(new Error('ListObjectsV2 failed: HTTP 403'));
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: ['workspace/folder/'] }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { deleted: string[]; deletedPrefixes: { prefix: string; count: number }[]; errors: Array<{ key: string; error: string }> };
+    expect(body.deletedPrefixes).toEqual([]);
+    expect(body.errors).toHaveLength(1);
+    expect(body.errors[0].key).toBe('workspace/folder/');
+    expect(body.errors[0].error).toContain('ListObjectsV2 failed');
+  });
+
+  it('response includes deletedPrefixes with counts for multiple prefixes', async () => {
+    mockEmptyR2Bucket.mockResolvedValueOnce(10);
+    mockEmptyR2Bucket.mockResolvedValueOnce(25);
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: ['workspace/a/', 'workspace/b/'] }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { deletedPrefixes: { prefix: string; count: number }[] };
+    expect(body.deletedPrefixes).toEqual([
+      { prefix: 'workspace/a/', count: 10 },
+      { prefix: 'workspace/b/', count: 25 },
+    ]);
   });
 });

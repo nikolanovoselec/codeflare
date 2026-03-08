@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
-import { createR2Client, getR2Url } from '../../lib/r2-client';
+import { createR2Client, getR2Url, emptyR2Bucket } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { ValidationError } from '../../lib/error-types';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -19,10 +19,15 @@ const storageDeleteRateLimiter = createRateLimiter({
 });
 
 const MAX_DELETE_KEYS = 1000;
+const MAX_DELETE_PREFIXES = 50;
 
 const DeleteBodySchema = z.object({
-  keys: z.array(z.string().max(1024)).min(1, 'keys must be a non-empty array').max(MAX_DELETE_KEYS),
-});
+  keys: z.array(z.string().max(1024)).max(MAX_DELETE_KEYS).optional(),
+  prefixes: z.array(z.string().max(1024)).max(MAX_DELETE_PREFIXES).optional(),
+}).refine(
+  (data) => (data.keys && data.keys.length > 0) || (data.prefixes && data.prefixes.length > 0),
+  { message: 'At least one of keys or prefixes must be a non-empty array' }
+);
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', storageDeleteRateLimiter);
@@ -33,11 +38,16 @@ app.post('/', async (c) => {
   if (!parsed.success) {
     throw new ValidationError(parsed.error.issues[0].message);
   }
-  const { keys } = parsed.data;
+  const { keys = [], prefixes = [] } = parsed.data;
 
   // Validate all keys first
   for (const key of keys) {
     validateKey(key);
+  }
+
+  // Validate all prefixes
+  for (const prefix of prefixes) {
+    validateKey(prefix, 'prefix');
   }
 
   const bucketName = c.get('bucketName');
@@ -45,8 +55,10 @@ app.post('/', async (c) => {
   const { endpoint } = await getR2Config(c.env);
 
   const deleted: string[] = [];
+  const deletedPrefixes: { prefix: string; count: number }[] = [];
   const errors: { key: string; error: string }[] = [];
 
+  // Handle key-based deletes
   if (keys.length === 1) {
     // Single delete
     const key = keys[0];
@@ -61,7 +73,7 @@ app.post('/', async (c) => {
     } catch (err) {
       errors.push({ key, error: err instanceof Error ? err.message : 'Unknown error' });
     }
-  } else {
+  } else if (keys.length > 1) {
     // Batch delete via POST /{bucket}?delete
     const objectsXml = keys
       .map(key => `<Object><Key>${escapeXml(key)}</Key></Object>`)
@@ -116,14 +128,29 @@ app.post('/', async (c) => {
     }
   }
 
-  logger.info('Delete operation completed', { deleted: deleted.length, errors: errors.length });
+  // Handle prefix-based deletes (server-side list+delete)
+  for (const prefix of prefixes) {
+    try {
+      const count = await emptyR2Bucket(r2Client, endpoint, bucketName, prefix);
+      deletedPrefixes.push({ prefix, count });
+    } catch (err) {
+      errors.push({ key: prefix, error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  }
+
+  logger.info('Delete operation completed', {
+    deleted: deleted.length,
+    deletedPrefixes: deletedPrefixes.length,
+    errors: errors.length,
+  });
 
   // Invalidate storage-stats cache so next poll/fetch gets fresh data
-  if (deleted.length > 0) {
+  const totalDeleted = deleted.length + deletedPrefixes.reduce((sum, p) => sum + p.count, 0);
+  if (totalDeleted > 0) {
     await c.env.KV.delete(`storage-stats:${bucketName}`);
   }
 
-  return c.json({ deleted, errors });
+  return c.json({ deleted, deletedPrefixes, errors });
 });
 
 export default app;

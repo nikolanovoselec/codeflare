@@ -96,7 +96,8 @@ const MAX_EMPTY_ITERATIONS = 100;
 export async function emptyR2Bucket(
   client: AwsClient,
   endpoint: string,
-  bucketName: string
+  bucketName: string,
+  prefix?: string
 ): Promise<number> {
   let totalDeleted = 0;
   let continuationToken: string | undefined;
@@ -106,6 +107,9 @@ export async function emptyR2Bucket(
     const listUrl = new URL(getR2Url(endpoint, bucketName));
     listUrl.searchParams.set('list-type', '2');
     listUrl.searchParams.set('max-keys', '1000');
+    if (prefix) {
+      listUrl.searchParams.set('prefix', prefix);
+    }
     if (continuationToken) {
       listUrl.searchParams.set('continuation-token', continuationToken);
     }

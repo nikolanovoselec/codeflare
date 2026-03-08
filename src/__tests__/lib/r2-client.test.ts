@@ -383,6 +383,48 @@ describe('emptyR2Bucket', () => {
     );
   });
 
+  it('passes prefix to ListObjectsV2 URL when provided', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(listXml(['workspace/folder/a.txt']), { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete response
+
+    const count = await emptyR2Bucket(createClient(), endpoint, bucketName, 'workspace/folder/');
+
+    expect(count).toBe(1);
+    // Verify the list call included the prefix param
+    expect(mockSign).toHaveBeenCalledWith(
+      expect.stringContaining('prefix=workspace%2Ffolder%2F'),
+    );
+  });
+
+  it('does not set prefix param when prefix is omitted', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(listXml([]), { status: 200 }));
+
+    await emptyR2Bucket(createClient(), endpoint, bucketName);
+
+    const signedUrl = mockSign.mock.calls[0][0] as string;
+    expect(signedUrl).not.toContain('prefix=');
+  });
+
+  it('paginates with prefix across multiple pages', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response(listXml(['a.txt'], true, 'tok1'), { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 })) // delete page 1
+      .mockResolvedValueOnce(new Response(listXml(['b.txt']), { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 })); // delete page 2
+
+    const count = await emptyR2Bucket(createClient(), endpoint, bucketName, 'myprefix/');
+
+    expect(count).toBe(2);
+    // Both list calls should include the prefix
+    const listCalls = mockSign.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === 'string' && !(call[0] as string).includes('?delete'),
+    );
+    for (const call of listCalls) {
+      expect(call[0]).toContain('prefix=myprefix%2F');
+    }
+  });
+
   it('throws on ListObjectsV2 failure', async () => {
     mockFetch.mockResolvedValueOnce(new Response('Forbidden', { status: 403 }));
 

@@ -174,6 +174,7 @@ export const UploadResponseSchema = z.object({
 
 export const DeleteResponseSchema = z.object({
   deleted: z.array(z.string()),
+  deletedPrefixes: z.array(z.object({ prefix: z.string(), count: z.number() })).optional(),
   errors: z.array(z.object({ key: z.string(), error: z.string() })),
 });
 

@@ -412,7 +412,7 @@ describe('Storage Store', () => {
       storageStore.toggleSelect('workspace/a.txt');
       await storageStore.deleteSelected();
 
-      expect(mockDeleteFiles).toHaveBeenCalledWith(['workspace/a.txt']);
+      expect(mockDeleteFiles).toHaveBeenCalledWith(['workspace/a.txt'], undefined);
     });
 
     it('should refresh listing after successful delete', async () => {
@@ -452,27 +452,35 @@ describe('Storage Store', () => {
       expect(mockDeleteFiles).not.toHaveBeenCalled();
     });
 
-    it('should delete keys under selected prefixes', async () => {
-      mockBrowseStorage
-        .mockResolvedValueOnce({
-          objects: [
-            { key: 'workspace/folder/a.txt', size: 10, lastModified: '2025-01-01T00:00:00Z' },
-            { key: 'workspace/folder/b.txt', size: 20, lastModified: '2025-01-01T00:00:00Z' },
-          ],
-          prefixes: [],
-          isTruncated: false,
-        })
-        .mockResolvedValueOnce({
-          objects: [],
-          prefixes: [],
-          isTruncated: false,
-        });
+    it('should send prefixes directly to API for server-side deletion', async () => {
+      mockDeleteFiles.mockResolvedValue({ deleted: [], deletedPrefixes: [{ prefix: 'workspace/folder/', count: 5 }], errors: [] });
+      mockBrowseStorage.mockResolvedValue({
+        objects: [],
+        prefixes: [],
+        isTruncated: false,
+      });
 
       storageStore.toggleSelectPrefix('workspace/folder/');
       await storageStore.deleteSelected();
 
-      expect(mockBrowseStorage).toHaveBeenCalledWith('workspace/folder/', undefined);
-      expect(mockDeleteFiles).toHaveBeenCalledWith(['workspace/folder/a.txt', 'workspace/folder/b.txt']);
+      expect(mockDeleteFiles).toHaveBeenCalledWith(undefined, ['workspace/folder/']);
+      expect(storageStore.selectedPrefixes).toEqual([]);
+    });
+
+    it('should send both keys and prefixes in single API call', async () => {
+      mockDeleteFiles.mockResolvedValue({ deleted: ['workspace/a.txt'], deletedPrefixes: [{ prefix: 'workspace/folder/', count: 3 }], errors: [] });
+      mockBrowseStorage.mockResolvedValue({
+        objects: [],
+        prefixes: [],
+        isTruncated: false,
+      });
+
+      storageStore.toggleSelect('workspace/a.txt');
+      storageStore.toggleSelectPrefix('workspace/folder/');
+      await storageStore.deleteSelected();
+
+      expect(mockDeleteFiles).toHaveBeenCalledWith(['workspace/a.txt'], ['workspace/folder/']);
+      expect(storageStore.selectedKeys).toEqual([]);
       expect(storageStore.selectedPrefixes).toEqual([]);
     });
   });

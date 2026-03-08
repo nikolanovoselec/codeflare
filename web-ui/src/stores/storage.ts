@@ -243,20 +243,9 @@ export const storageStore = {
   async deleteSelected() {
     if (state.selectedKeys.length === 0 && state.selectedPrefixes.length === 0) return;
     try {
-      const keysToDelete = [...state.selectedKeys];
-      if (state.selectedPrefixes.length > 0) {
-        const prefixKeys = await storageStore.collectKeysForPrefixes(state.selectedPrefixes);
-        keysToDelete.push(...prefixKeys);
-      }
-      if (keysToDelete.length > 0) {
-        const batches: string[][] = [];
-        for (let i = 0; i < keysToDelete.length; i += 1000) {
-          batches.push(keysToDelete.slice(i, i + 1000));
-        }
-        for (const batch of batches) {
-          await storageApi.deleteFiles(batch);
-        }
-      }
+      const keys = state.selectedKeys.length > 0 ? [...state.selectedKeys] : undefined;
+      const prefixes = state.selectedPrefixes.length > 0 ? [...state.selectedPrefixes] : undefined;
+      await storageApi.deleteFiles(keys, prefixes);
       setState('selectedKeys', []);
       setState('selectedPrefixes', []);
       await storageStore.browse();
@@ -339,30 +328,6 @@ export const storageStore = {
 
   closePreview() {
     setState('previewFile', null);
-  },
-
-  async collectKeysForPrefixes(prefixes: string[]): Promise<string[]> {
-    const keys: string[] = [];
-    const visited = new Set<string>();
-
-    const collectRecursive = async (prefix: string) => {
-      if (visited.has(prefix)) return;
-      visited.add(prefix);
-      let continuationToken: string | undefined;
-      do {
-        const result = await storageApi.browseStorage(prefix, continuationToken);
-        keys.push(...result.objects.map((o) => o.key));
-        for (const subPrefix of result.prefixes) {
-          await collectRecursive(subPrefix);
-        }
-        continuationToken = result.nextContinuationToken ?? undefined;
-      } while (continuationToken);
-    };
-
-    for (const prefix of prefixes) {
-      await collectRecursive(prefix);
-    }
-    return keys;
   },
 
   searchFiles(query: string) {

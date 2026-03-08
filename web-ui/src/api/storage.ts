@@ -97,11 +97,17 @@ export async function abortMultipartUpload(key: string, uploadId: string): Promi
   }
 }
 
-// Delete files
-export async function deleteFiles(keys: string[]): Promise<{ deleted: string[]; errors: { key: string; error: string }[] }> {
+// Delete files and/or prefixes
+export async function deleteFiles(
+  keys?: string[],
+  prefixes?: string[]
+): Promise<{ deleted: string[]; deletedPrefixes?: { prefix: string; count: number }[]; errors: { key: string; error: string }[] }> {
+  const body: Record<string, unknown> = {};
+  if (keys && keys.length > 0) body.keys = keys;
+  if (prefixes && prefixes.length > 0) body.prefixes = prefixes;
   return storageFetch('/storage/delete', {
     method: 'POST',
-    body: JSON.stringify({ keys }),
+    body: JSON.stringify(body),
   }, DeleteResponseSchema);
 }
 
