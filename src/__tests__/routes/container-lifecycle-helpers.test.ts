@@ -308,7 +308,7 @@ describe('Container lifecycle extracted helpers', () => {
       await configureContainerDO(paramsWithLlm);
 
       const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
-      const body = await fetchCall.json();
+      const body = await fetchCall.json() as Record<string, unknown>;
       expect(body.openaiApiKey).toBe('sk-test123');
       expect(body.geminiApiKey).toBe('AIzaSy-test456');
     });
@@ -319,7 +319,7 @@ describe('Container lifecycle extracted helpers', () => {
       await configureContainerDO(baseParams);
 
       const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
-      const body = await fetchCall.json();
+      const body = await fetchCall.json() as Record<string, unknown>;
       expect(body).not.toHaveProperty('openaiApiKey');
       expect(body).not.toHaveProperty('geminiApiKey');
     });

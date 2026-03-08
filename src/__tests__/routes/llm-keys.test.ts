@@ -50,7 +50,7 @@ describe('LLM Keys routes', () => {
       const app = createTestApp();
       const res = await app.request('/api/llm-keys');
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, unknown>;
       expect(body.openaiApiKey).toBeUndefined();
       expect(body.geminiApiKey).toBeUndefined();
     });
@@ -64,7 +64,7 @@ describe('LLM Keys routes', () => {
       const app = createTestApp();
       const res = await app.request('/api/llm-keys');
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, unknown>;
       expect(body.openaiApiKey).toBe('****mnop');
       expect(body.geminiApiKey).toBe('****xxxx');
     });
@@ -74,7 +74,7 @@ describe('LLM Keys routes', () => {
 
       const app = createTestApp();
       const res = await app.request('/api/llm-keys');
-      const body = await res.json();
+      const body = await res.json() as Record<string, unknown>;
       expect(body.openaiApiKey).toBe('****');
     });
 
@@ -83,7 +83,7 @@ describe('LLM Keys routes', () => {
 
       const app = createTestApp();
       const res = await app.request('/api/llm-keys');
-      const body = await res.json();
+      const body = await res.json() as Record<string, unknown>;
       expect(body.openaiApiKey).not.toContain('sk-full');
       expect(body.openaiApiKey).toMatch(/^\*{4}/);
     });
@@ -98,7 +98,7 @@ describe('LLM Keys routes', () => {
         body: JSON.stringify({ openaiApiKey: 'sk-test1234567890' }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, unknown>;
       expect(body.openaiApiKey).toBe('****7890');
 
       // Verify stored in KV
@@ -119,7 +119,7 @@ describe('LLM Keys routes', () => {
         body: JSON.stringify({ openaiApiKey: null }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, unknown>;
       expect(body.openaiApiKey).toBeUndefined();
       expect(body.geminiApiKey).toMatch(/^\*{4}/);
     });
@@ -134,7 +134,7 @@ describe('LLM Keys routes', () => {
         body: JSON.stringify({ geminiApiKey: 'AIzaSy-new' }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, unknown>;
       expect(body.openaiApiKey).toBe('****this');
       expect(body.geminiApiKey).toBe('****-new');
     });
@@ -170,7 +170,7 @@ describe('LLM Keys routes', () => {
       const app = createTestApp();
       const res = await app.request('/api/llm-keys', { method: 'DELETE' });
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, unknown>;
       expect(body.success).toBe(true);
       expect(mockKV.delete).toHaveBeenCalledWith('llm-keys:test-bucket');
     });
