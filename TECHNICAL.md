@@ -1696,7 +1696,7 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ## 24. Automatic Memory Capture
 
-Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 30 user messages. Zero manual intervention required.
+Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 15 user messages. Zero manual intervention required.
 
 ### Architecture
 
@@ -1705,7 +1705,7 @@ UserPromptSubmit hook (~150ms)           Main agent                    Backgroun
     |                                        |                              |
     +-- read stdin JSON                      |                              |
     +-- jq: count user messages              |                              |
-    +-- check counter (delta < 30?) → exit   |                              |
+    +-- check counter (delta < 15?) → exit   |                              |
     +-- check lock → exit                    |                              |
     +-- write .vars JSON file                |                              |
     +-- output JSON + exit 0 ─────────> receive additionalContext           |
@@ -1724,7 +1724,7 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the
 
 1. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
 2. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
-3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 30, exits silently.
+3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits silently.
 4. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits. Stale locks (>2 minutes) are removed automatically.
 5. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the context string short.
 6. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. Exits with code 0 — no blocking, no loop guard needed.
@@ -1772,4 +1772,4 @@ Hook scripts and prompt are deployed via the preseed pipeline:
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
-- **Agent not firing**: Check `~/.claude/settings.json` has the `UserPromptSubmit` hook configured for `memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Verify the hook outputs `hookSpecificOutput` JSON and exits with code 0.
+- **Agent not firing**: Check `~/.claude/settings.json` has the `UserPromptSubmit` hook configured for `memory-capture.sh`. Verify the transcript has 15+ user messages since last capture. Verify the hook outputs `hookSpecificOutput` JSON and exits with code 0.

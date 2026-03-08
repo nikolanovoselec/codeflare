@@ -45,8 +45,8 @@ describe('memory-capture.sh hook script', () => {
     assert.ok(hookScript.includes('last_line'));
   });
 
-  it('exits when delta < 30 user messages', () => {
-    assert.ok(hookScript.includes('30'));
+  it('exits when delta < 15 user messages', () => {
+    assert.ok(hookScript.includes('15'));
     assert.ok(hookScript.includes('exit 0'));
   });
 
