@@ -1763,6 +1763,8 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 | `block-attributed-commits` hook | No | Yes |
 | ECC rules (29 files: common, TS, Python, Go, Swift) | No | Yes |
 | ECC plugin (`enabledPlugins` in settings.json) | No | Yes |
+| Context7 plugin (up-to-date docs lookup) | No | Yes |
+| Superpowers plugin (TDD, debugging, planning skills) | No | Yes |
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in `UserPreferences` (KV). Undefined = `'default'`.
 
@@ -1780,13 +1782,15 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 
 [Everything Claude Code](https://github.com/affaan-m/everything-claude-code) (ECC) v1.8.0 provides 16 agents, 40 commands, 65 skills, hooks, and 29 rules for Claude Code. It is activated only for advanced session mode users.
 
-**Plugin persistence**: The ECC plugin is installed via marketplace and persists across sessions via R2 sync. The rclone cache exclusion for `.claude/plugins/cache/` was removed so the plugin directory syncs to R2 and is available on every new container.
+**Plugin persistence**: Plugins persist across sessions via R2 sync (`~/.claude/plugins/cache/` is not excluded from rclone). Three plugins are enabled for advanced mode: ECC (`everything-claude-code@everything-claude-code`), Context7 (`context7@claude-plugins-official`), and Superpowers (`superpowers@claude-plugins-official`). Context7 provides up-to-date documentation lookup via MCP. Superpowers provides structured TDD, debugging, and planning skills.
+
+**Plugin preseeding**: `known_marketplaces.json` and `installed_plugins.json` are preseeded via the manifest pipeline (`"modes": ["advanced"]`). On Recreate, these are written to R2 and synced to the container via rclone. The `installed_plugins.json` points `installPath` to the marketplace clone directories (`~/.claude/plugins/marketplaces/`), so plugins resolve from the marketplace source on disk. The marketplace clones themselves persist via R2 sync after the first `claude plugin marketplace add` or manual clone.
 
 **Rules**: 29 rule files are preseeded to `~/.claude/rules/{common,typescript,python,golang,swift}/` via the manifest with `"modes": ["advanced"]`. Common rules (9 files) cover security, coding style, patterns, performance, testing, git workflow, development workflow, agents, and hooks. Language-specific rules (5 files each for TypeScript, Python, Go, Swift) extend common rules with language-appropriate conventions.
 
 **Disabled hooks**: Three CPU-heavy hooks are disabled via `ECC_DISABLED_HOOKS` env var on the 1-vCPU container: `post:edit:format`, `post:edit:typecheck`, `post:quality-gate`. These would run formatters, type checkers, and quality gates after every edit — too expensive for a single-CPU runtime.
 
-**Continuous Learning v2.1**: ECC's `observe.sh` hooks fire on tool use and write to `~/.claude/homunculus/`. These require `python3` (stdlib only, no pip), which is added to the runtime Docker image. The background observer is disabled by default.
+**Continuous Learning v2.1**: ECC's `observe.sh` hooks fire on every PreToolUse/PostToolUse and write observations to `~/.claude/homunculus/projects/<hash>/observations.jsonl`. These require `python3` (stdlib only, no pip), which is added to the runtime Docker image. The `entrypoint.sh` creates `~/.claude/homunculus/config.json` inside the advanced mode guard with observer loop disabled (too CPU-heavy for 1-vCPU) but with tuned thresholds (10-min interval, 30 min observations). Observations accumulate automatically; users can analyze them into instincts via `/evolve` or `/instinct-status`.
 
 **Updates**: Users can run `/plugin install everything-claude-code` in-session to update the plugin. Rules update when the preseed pipeline is redeployed and users click "Recreate AI agent skills & rules".
 

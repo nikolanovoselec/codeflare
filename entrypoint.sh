@@ -896,7 +896,7 @@ echo "[entrypoint] Claude Code hooks configured in settings.json"
 
 # ECC plugin: enable for advanced mode (detected by presence of ECC rules in ~/.claude/rules/common/)
 if [ -d "$USER_CLAUDE_DIR/rules/common" ]; then
-    ECC_PLUGINS='{"enabledPlugins":{"everything-claude-code@everything-claude-code":true}}'
+    ECC_PLUGINS='{"enabledPlugins":{"everything-claude-code@everything-claude-code":true,"context7@claude-plugins-official":true,"superpowers@claude-plugins-official":true}}'
     TMP_SETTINGS=$(mktemp)
     if jq --argjson ecc "$ECC_PLUGINS" '. * $ecc' "$SETTINGS_FILE" > "$TMP_SETTINGS" 2>/dev/null; then
         mv "$TMP_SETTINGS" "$SETTINGS_FILE"
@@ -906,7 +906,25 @@ if [ -d "$USER_CLAUDE_DIR/rules/common" ]; then
 
     # Disable CPU-heavy ECC hooks on 1-vCPU container
     export ECC_DISABLED_HOOKS="post:edit:format,post:edit:typecheck,post:quality-gate"
-    echo "[entrypoint] ECC plugin enabled, 3 CPU-heavy hooks disabled"
+
+    # CL v2.1 Instinct system: create homunculus config for observation collection
+    # observe.sh hooks fire on every tool use (via ECC plugin hooks.json) and write
+    # observations to ~/.claude/homunculus/projects/<hash>/observations.jsonl.
+    # Observer loop (background analysis into instincts) disabled for 1-vCPU — user
+    # can manually analyze with /evolve or /instinct-status when ready.
+    HOMUNCULUS_DIR="$USER_CLAUDE_DIR/homunculus"
+    mkdir -p "$HOMUNCULUS_DIR"
+    cat > "$HOMUNCULUS_DIR/config.json" << 'HOMUNCULUS_EOF'
+{
+  "observer": {
+    "enabled": false,
+    "run_interval_minutes": 10,
+    "min_observations_to_analyze": 30
+  }
+}
+HOMUNCULUS_EOF
+
+    echo "[entrypoint] Plugins enabled (ECC, context7, superpowers), CL v2.1 configured, 3 CPU-heavy hooks disabled"
 fi
 
 # === Fast Start: tool-specific config files ===

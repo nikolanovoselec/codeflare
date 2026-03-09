@@ -54,7 +54,7 @@ describe('ECC plugin cache persistence', () => {
 // Test: settings.json merge includes enabledPlugins for ECC
 // ============================================================================
 describe('ECC enabledPlugins configuration', () => {
-  it('settings.json merge includes enabledPlugins for ECC', () => {
+  it('settings.json merge includes enabledPlugins for all advanced plugins', () => {
     const main = extractMainExecution();
     assert.ok(main, 'MAIN EXECUTION section should exist');
     assert.ok(
@@ -62,8 +62,16 @@ describe('ECC enabledPlugins configuration', () => {
       'entrypoint should configure enabledPlugins in settings.json'
     );
     assert.ok(
-      main.includes('everything-claude-code'),
-      'enabledPlugins should reference everything-claude-code plugin'
+      main.includes('everything-claude-code@everything-claude-code'),
+      'enabledPlugins should reference ECC plugin'
+    );
+    assert.ok(
+      main.includes('context7@claude-plugins-official'),
+      'enabledPlugins should reference context7 plugin'
+    );
+    assert.ok(
+      main.includes('superpowers@claude-plugins-official'),
+      'enabledPlugins should reference superpowers plugin'
     );
   });
 
@@ -144,6 +152,71 @@ describe('ECC configuration preserves existing settings', () => {
     assert.ok(
       eccIdx < bisyncIdx,
       'ECC enabledPlugins merge must run before bisync baseline'
+    );
+  });
+});
+
+// ============================================================================
+// Test: CL v2.1 Instinct system (homunculus) configuration
+// ============================================================================
+describe('CL v2.1 Instinct system configuration', () => {
+  it('creates homunculus directory inside advanced mode block', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+    assert.ok(
+      main.includes('homunculus'),
+      'should reference homunculus directory'
+    );
+    assert.ok(
+      main.includes('mkdir -p "$HOMUNCULUS_DIR"'),
+      'should create homunculus directory'
+    );
+  });
+
+  it('writes config.json with observer settings', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+    assert.ok(
+      main.includes('config.json'),
+      'should write homunculus config.json'
+    );
+    assert.ok(
+      main.includes('"observer"'),
+      'config should contain observer settings'
+    );
+    assert.ok(
+      main.includes('run_interval_minutes'),
+      'config should set observer interval'
+    );
+    assert.ok(
+      main.includes('min_observations_to_analyze'),
+      'config should set minimum observations threshold'
+    );
+  });
+
+  it('observer loop is disabled for 1-vCPU container', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+    // observer.enabled should be false — analysis too heavy for 1-vCPU
+    assert.ok(
+      main.includes('"enabled": false'),
+      'observer loop should be disabled (enabled: false) for 1-vCPU'
+    );
+  });
+
+  it('homunculus config is inside the advanced mode guard', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+
+    // The advanced mode guard checks for rules/common
+    const guardIdx = main.indexOf('if [ -d "$USER_CLAUDE_DIR/rules/common" ]');
+    const homunculusIdx = main.indexOf('HOMUNCULUS_DIR=');
+
+    assert.ok(guardIdx > -1, 'advanced mode guard should exist');
+    assert.ok(homunculusIdx > -1, 'HOMUNCULUS_DIR should exist');
+    assert.ok(
+      guardIdx < homunculusIdx,
+      'homunculus config must be inside the advanced mode guard block'
     );
   });
 });
