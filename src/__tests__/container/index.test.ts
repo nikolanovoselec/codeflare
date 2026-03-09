@@ -58,9 +58,13 @@ vi.mock('@cloudflare/containers', () => ({
       return null;
     }
     async schedule(_seconds: number, _method: string): Promise<void> {}
+    deleteSchedules(_method: string): void {}
+    renewActivityTimeout(): void {}
+    async stop(_signal: string): Promise<void> {}
     onStart(): void {}
     onStop(): void {}
     onError(_error: unknown): void {}
+    onActivityExpired(): void {}
   },
 }));
 
@@ -566,6 +570,147 @@ describe('container DO class', () => {
     it('rejects non-boolean workspaceSyncEnabled', () => {
       expect(validateBucketNameInput({ bucketName: 'b', workspaceSyncEnabled: 'true' }))
         .toBe('workspaceSyncEnabled must be a boolean when provided');
+    });
+  });
+
+  describe('onStop clears collectMetrics schedule', () => {
+    it('calls deleteSchedules("collectMetrics") to kill the alarm loop', async () => {
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({
+        id: 'sess123',
+        status: 'running',
+        name: 'Test',
+      });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      const deleteSchedulesSpy = vi.spyOn(instance, 'deleteSchedules' as any);
+
+      await instance.onStop();
+
+      expect(deleteSchedulesSpy).toHaveBeenCalledWith('collectMetrics');
+    });
+  });
+
+  describe('onActivityExpired', () => {
+    it('calls stop("SIGTERM") when /activity returns non-OK', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      // Container is running, but /activity returns 500
+      mockContainerRuntime.running = true;
+      mockTcpPortFetch.mockResolvedValue(new Response('error', { status: 500 }));
+
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.onActivityExpired();
+
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+      expect(renewSpy).not.toHaveBeenCalled();
+    });
+
+    it('calls stop("SIGTERM") when /activity fetch throws', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      // Container is running, but fetch throws
+      mockContainerRuntime.running = true;
+      mockTcpPortFetch.mockRejectedValue(new Error('Connection refused'));
+
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.onActivityExpired();
+
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+      expect(renewSpy).not.toHaveBeenCalled();
+    });
+
+    it('renews timeout when hasActiveConnections is true', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      // Container is running, /activity returns active connections
+      mockContainerRuntime.running = true;
+      mockTcpPortFetch.mockResolvedValue(
+        new Response(JSON.stringify({ hasActiveConnections: true, connectedClients: 2 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+
+      await instance.onActivityExpired();
+
+      expect(renewSpy).toHaveBeenCalled();
+      expect(stopSpy).not.toHaveBeenCalled();
+    });
+
+    it('calls stop("SIGTERM") when hasActiveConnections is false', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      // Container is running, /activity returns no active connections
+      mockContainerRuntime.running = true;
+      mockTcpPortFetch.mockResolvedValue(
+        new Response(JSON.stringify({ hasActiveConnections: false, connectedClients: 0 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.onActivityExpired();
+
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+      expect(renewSpy).not.toHaveBeenCalled();
     });
   });
 

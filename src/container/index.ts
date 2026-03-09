@@ -610,8 +610,8 @@ export class container extends Container<Env> {
       const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
       const res = await tcpPort.fetch('http://localhost/activity');
       if (!res.ok) {
-        this.logger.warn('onActivityExpired: /activity returned non-OK, renewing as safety net', { status: res.status });
-        this.renewActivityTimeout();
+        this.logger.warn('onActivityExpired: /activity returned non-OK after 30m idle, stopping', { status: res.status });
+        await this.stop('SIGTERM');
         return;
       }
       const activity = await res.json() as { hasActiveConnections: boolean; connectedClients: number };
@@ -624,13 +624,10 @@ export class container extends Container<Env> {
         return;
       }
     } catch (err) {
-      // Don't kill the container on transient fetch errors — renew instead.
-      // The next alarm cycle will re-check. Killing on a failed /activity
-      // fetch is the most likely cause of containers dying during active use.
-      this.logger.warn('onActivityExpired: failed to check activity, renewing as safety net', {
+      this.logger.warn('onActivityExpired: failed to check activity after 30m idle, stopping', {
         error: err instanceof Error ? err.message : String(err),
       });
-      this.renewActivityTimeout();
+      await this.stop('SIGTERM');
       return;
     }
 
@@ -642,6 +639,9 @@ export class container extends Container<Env> {
    * Called when the container stops
    */
   override async onStop(): Promise<void> {
+    // Kill the collectMetrics alarm loop — without this, the schedule
+    // continues firing on a dead container indefinitely (zombie alarms).
+    try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
     this.logger.info('Container stopped');
     await this.updateKvStatus('stopped', 'lastActiveAt');
   }
