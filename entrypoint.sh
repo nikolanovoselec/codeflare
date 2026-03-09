@@ -905,7 +905,7 @@ if [ -d "$USER_CLAUDE_DIR/rules/common" ]; then
     fi
 
     # Disable CPU-heavy ECC hooks on 1-vCPU container
-    export ECC_DISABLED_HOOKS="post:edit:format,post:edit:typecheck,post:quality-gate"
+    export ECC_DISABLED_HOOKS="post:edit:format,post:edit:typecheck,post:quality-gate,post:bash:build-complete"
 
     # CL v2.1 Instinct system: create homunculus config for observation collection
     # observe.sh hooks fire on every tool use (via ECC plugin hooks.json) and write
@@ -924,7 +924,7 @@ if [ -d "$USER_CLAUDE_DIR/rules/common" ]; then
 }
 HOMUNCULUS_EOF
 
-    echo "[entrypoint] Plugins enabled (ECC, context7, superpowers), CL v2.1 configured, 3 CPU-heavy hooks disabled"
+    echo "[entrypoint] Plugins enabled (ECC, context7, superpowers), CL v2.1 configured, 4 hooks disabled"
 fi
 
 # === Fast Start: tool-specific config files ===

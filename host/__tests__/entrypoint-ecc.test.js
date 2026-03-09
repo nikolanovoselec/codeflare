@@ -99,7 +99,7 @@ describe('ECC enabledPlugins configuration', () => {
 // Test: ECC_DISABLED_HOOKS env var
 // ============================================================================
 describe('ECC_DISABLED_HOOKS environment variable', () => {
-  it('exports ECC_DISABLED_HOOKS with 3 CPU-heavy hooks', () => {
+  it('exports ECC_DISABLED_HOOKS with 4 disabled hooks', () => {
     const main = extractMainExecution();
     assert.ok(main, 'MAIN EXECUTION section should exist');
     assert.ok(
@@ -117,6 +117,10 @@ describe('ECC_DISABLED_HOOKS environment variable', () => {
     assert.ok(
       main.includes('post:quality-gate'),
       'should disable post:quality-gate hook'
+    );
+    assert.ok(
+      main.includes('post:bash:build-complete'),
+      'should disable post:bash:build-complete hook (no-op stub)'
     );
   });
 });
@@ -152,6 +156,44 @@ describe('ECC configuration preserves existing settings', () => {
     assert.ok(
       eccIdx < bisyncIdx,
       'ECC enabledPlugins merge must run before bisync baseline'
+    );
+  });
+});
+
+// ============================================================================
+// Test: Preseeded run-with-flags-shell.sh uses bash (rclone permission fix)
+// ============================================================================
+describe('run-with-flags-shell.sh rclone permission fix', () => {
+  const rwfPath = resolve(__dirname, '../../preseed/agents/claude/plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/run-with-flags-shell.sh');
+  let rwfContent;
+
+  try {
+    rwfContent = readFileSync(rwfPath, 'utf8');
+  } catch {
+    rwfContent = null;
+  }
+
+  it('preseeded run-with-flags-shell.sh exists', () => {
+    assert.ok(rwfContent, 'run-with-flags-shell.sh should exist in preseed');
+  });
+
+  it('invokes scripts via bash instead of direct execution', () => {
+    assert.ok(rwfContent, 'file must exist');
+    assert.ok(
+      rwfContent.includes('bash "$SCRIPT_PATH"'),
+      'should use bash "$SCRIPT_PATH" (rclone strips execute bits)'
+    );
+    assert.ok(
+      !rwfContent.match(/\| "\$SCRIPT_PATH"$/m),
+      'should NOT use direct "$SCRIPT_PATH" invocation'
+    );
+  });
+
+  it('is listed in manifest.json for advanced mode', () => {
+    const manifest = readFileSync(resolve(__dirname, '../../preseed/agents/claude/manifest.json'), 'utf8');
+    assert.ok(
+      manifest.includes('run-with-flags-shell.sh'),
+      'manifest should include run-with-flags-shell.sh'
     );
   });
 });
