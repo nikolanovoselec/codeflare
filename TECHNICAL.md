@@ -1761,8 +1761,10 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
 | `consult-llm` skill | No | Yes |
 | `block-attributed-commits` hook | No | Yes |
-| ECC rules (29 files: common, TS, Python, Go, Swift) | No | Yes |
-| ECC plugin (`enabledPlugins` in settings.json) | No | Yes |
+| Language rules (33 files: common, TS, Python, Go, Swift) | No | Yes |
+| Cherry-picked agents (8: architect, planner, code-reviewer, etc.) | No | Yes |
+| Cherry-picked commands (8: /plan, /tdd, /verify, etc.) | No | Yes |
+| Cherry-picked skills (13: api-design, security-review, tdd-workflow, etc.) | No | Yes |
 | Context7 plugin (up-to-date docs lookup) | No | Yes |
 | Superpowers plugin (TDD, debugging, planning skills) | No | Yes |
 
@@ -1778,35 +1780,50 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 
 **No migration**: Existing users are unaffected. Changes only happen on explicit action.
 
-### ECC Plugin Integration (Advanced Mode)
+### Cherry-Picked ECC Components (Advanced Mode)
 
-[Everything Claude Code](https://github.com/affaan-m/everything-claude-code) (ECC) v1.8.0 provides 16 agents, 40 commands, 65 skills, hooks, and 29 rules for Claude Code. It is activated only for advanced session mode users.
+The [Everything Claude Code](https://github.com/affaan-m/everything-claude-code) (ECC) plugin has been **decomposed** — instead of installing the full plugin with its 23 hooks, instinct system, and 152 components, we cherry-pick only the valuable agents, commands, and skills and preseed them directly to the filesystem where Claude Code auto-discovers them. No ECC plugin is installed or enabled.
 
-**Plugin persistence**: Plugins persist across sessions via R2 sync (`~/.claude/plugins/cache/` is not excluded from rclone). Three plugins are enabled for advanced mode: ECC (`everything-claude-code@everything-claude-code`), Context7 (`context7@claude-plugins-official`), and Superpowers (`superpowers@claude-plugins-official`). Context7 provides up-to-date documentation lookup via MCP. Superpowers provides structured TDD, debugging, and planning skills.
+**Rationale**: The ECC plugin imposed ~3,200 tokens/turn of system prompt overhead (hook definitions, 16 agent + 40 command + 65 skill listings). Its instinct/continuous-learning system was non-functional (two bugs: `run-with-flags-shell.sh` didn't forward phase arguments, and async PostToolUse hooks received empty `tool_output`). Four async Stop hooks generated "Async hook Stop completed" notifications every session. The decomposition eliminates all overhead while retaining the useful content.
 
-**Plugin preseeding**: The full ECC plugin (181 files) is preseeded at `plugins/cache/everything-claude-code/everything-claude-code/1.8.0/` via the manifest pipeline (`"modes": ["advanced"]`), alongside `known_marketplaces.json` and `installed_plugins.json`. This includes all agents (16), commands (41), hooks, scripts, skills (82 files across 63 standalone + multi-file skills like continuous-learning-v2), and plugin metadata. CI validators (`scripts/ci/`), codemap generator, and release scripts are excluded as they serve no runtime purpose. On Recreate, these are written to R2 and synced to the container via rclone. New users get a fully working ECC plugin out of the box without needing a marketplace clone or manual installation. The `run-with-flags-shell.sh` dispatcher is patched with `bash "$SCRIPT_PATH"` to handle rclone stripping execute permissions from `.sh` files.
+**Cherry-picked agents (8)**: `architect`, `build-error-resolver`, `code-reviewer`, `doc-updater`, `planner`, `refactor-cleaner`, `security-reviewer`, `tdd-guide`. Preseeded to `~/.claude/agents/*.md` via the manifest pipeline with `"modes": ["advanced"]`.
 
-**Rules**: 29 rule files are preseeded to `~/.claude/rules/{common,typescript,python,golang,swift}/` via the manifest with `"modes": ["advanced"]`. Common rules (9 files) cover security, coding style, patterns, performance, testing, git workflow, development workflow, agents, and hooks. Language-specific rules (5 files each for TypeScript, Python, Go, Swift) extend common rules with language-appropriate conventions.
+**Cherry-picked commands (8)**: `build-fix`, `checkpoint`, `code-review`, `plan`, `refactor-clean`, `tdd`, `test-coverage`, `verify`. Preseeded to `~/.claude/commands/*.md`.
 
-**Disabled hooks**: Four hooks are disabled via `ECC_DISABLED_HOOKS` env var on the 1-vCPU container: `post:edit:format` (auto-formatter), `post:edit:typecheck` (TypeScript checker), `post:quality-gate` (quality gate), and `post:bash:build-complete` (no-op build stub). The first three are CPU-heavy; the fourth spawns a Node.js process on every Bash command for no functional purpose.
+**Cherry-picked skills (13 + 1 reference)**: `api-design`, `backend-patterns`, `coding-standards`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `e2e-testing`, `frontend-patterns`, `iterative-retrieval`, `search-first`, `security-review` (with `cloud-infrastructure-security.md` reference), `tdd-workflow`, `verification-loop`. Preseeded to `~/.claude/skills/<name>/SKILL.md`.
 
-**rclone permission fix**: rclone sync strips execute bits from `.sh` files. ECC's `run-with-flags-shell.sh` dispatcher normally invokes hook scripts directly (`"$SCRIPT_PATH"`), which fails with "Permission denied" when the execute bit is missing. The preseeded copy uses `bash "$SCRIPT_PATH"` instead, making hooks work regardless of file permissions.
+**Excluded (123 components)**: All 23 ECC hooks, the instinct/continuous-learning system (observe.sh, instinct-cli.py, homunculus config), all Go/Python/Swift/Java/C++/Django/Spring Boot/ClickHouse skills, multi-model orchestration commands (5 `multi-*` commands), loop system commands, meta-ECC tools (harness-optimizer, skill-stocktake, configure-ecc), content/investor/market-research skills, NanoClaw REPL, session management, and all ECC scripts/lib files.
 
-**Continuous Learning v2.1**: ECC's `observe.sh` hooks fire on every PreToolUse/PostToolUse and write observations to `~/.claude/homunculus/projects/<hash>/observations.jsonl`. These require `python3` (stdlib only, no pip), which is added to the runtime Docker image. The `entrypoint.sh` creates `~/.claude/homunculus/config.json` inside the advanced mode guard with observer loop disabled (too CPU-heavy for 1-vCPU) but with tuned thresholds (10-min interval, 30 min observations). Observations accumulate automatically; users can analyze them into instincts via `/evolve` or `/instinct-status`.
+**Selection criteria**: Components were kept if they (1) are language-agnostic or TypeScript/web-applicable, (2) have zero `${CLAUDE_PLUGIN_ROOT}` dependencies, (3) provide direct development value rather than meta-ECC functionality.
 
-**Updates**: Users can run `/plugin install everything-claude-code` in-session to update the plugin. Rules update when the preseed pipeline is redeployed and users click "Recreate AI agent skills & rules".
+**Rules**: 33 rule files are preseeded to `~/.claude/rules/{common,typescript,python,golang,swift}/` via the manifest with `"modes": ["advanced"]`. These are identical to ECC's rules and were already preseeded before the decomposition. Common rules (9 files) cover security, coding style, patterns, performance, testing, git workflow, development workflow, agents, and hooks. Language-specific rules (5 files each for TypeScript, Python, Go, Swift) extend common rules with language-appropriate conventions.
 
-**Settings merge**: `entrypoint.sh` detects advanced mode by checking for the `~/.claude/rules/common/` directory (only present in advanced mode). When detected, it merges `enabledPlugins` into `settings.json` via the same `jq '. * $var'` recursive merge pattern used for hooks.
+**Plugins (context7 + superpowers only)**: Two plugins remain enabled for advanced mode: Context7 (`context7@claude-plugins-official`) for up-to-date documentation lookup via MCP, and Superpowers (`superpowers@claude-plugins-official`) for structured TDD, debugging, and planning skills. These are preseeded at `plugins/cache/claude-plugins-official/` with `installed_plugins.json` and `known_marketplaces.json`. Plugins persist across sessions via R2 sync.
+
+**Settings merge**: `entrypoint.sh` detects advanced mode by checking for `~/.claude/rules/common/` (only present in advanced mode). When detected, it merges `enabledPlugins` (context7 + superpowers) into `settings.json` via `jq '. * $var'` recursive merge. No `ECC_DISABLED_HOOKS` env var is needed since no ECC hooks exist.
+
+**Context consumption**: Per-turn system prompt overhead is ~9,000 tokens (rules ~7,885 + agent/command/skill/plugin listings ~1,110). On-demand content (agent/skill/command full text) loads only when invoked, ranging from 200–3,200 tokens per activation. Total preseed content is ~131K tokens but only ~7% is always-on.
+
+**Updates**: Cherry-picked files update when the preseed pipeline is redeployed and users click "Recreate AI agent skills & rules". Users cannot update ECC components in-session since there is no ECC plugin installed.
 
 ### Preseed Deployment
 
-Hook scripts and prompt are deployed via the preseed pipeline:
+All preseed content (hooks, rules, agents, commands, skills, plugin caches) is deployed via the manifest pipeline:
 
-1. Source files in `preseed/agents/claude/hooks/` (includes `memory-capture.sh` and `memory-agent-prompt.md`)
-2. `scripts/generate-agent-seed.mjs` reads `manifest.json` for mode tags, bakes them into `src/lib/agent-seed.generated.ts`
-3. On first bucket creation: `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes to R2
-4. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes non-mode files
-5. Bisync pulls from R2 to container `~/.claude/hooks/`
+1. Source files in `preseed/agents/claude/` organized by type: `hooks/`, `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
+2. `preseed/agents/claude/manifest.json` maps each file to modes (`default`, `advanced`, or both)
+3. `scripts/generate-agent-seed.mjs` reads manifest + files, validates consistency (every file must have a manifest entry and vice versa), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array
+4. On first bucket creation: `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2
+5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
+6. Bisync pulls from R2 to container `~/.claude/`
+
+**Manifest structure (121 entries)**:
+- `hooks/` (3): memory-capture.sh, memory-agent-prompt.md, block-attributed-commits.sh
+- `rules/` (33): core (4 default+advanced), common (9), typescript (5), python (5), golang (5), swift (5)
+- `agents/` (8): cherry-picked from ECC (advanced only)
+- `commands/` (8): cherry-picked from ECC (advanced only)
+- `skills/` (19): 3 codeflare-native + 13 cherry-picked from ECC + 3 ship references (advanced only, except cloudflare-stack and ship which are default+advanced)
+- `plugins/` (50): context7 (2), superpowers (46), metadata (2) — all advanced only
 
 ### Settings.json Merge
 

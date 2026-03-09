@@ -1,14 +1,6 @@
 {
   "version": 2,
   "plugins": {
-    "everything-claude-code@everything-claude-code": [{
-      "scope": "user",
-      "installPath": "/home/user/.claude/plugins/cache/everything-claude-code/everything-claude-code/1.8.0",
-      "version": "1.8.0",
-      "installedAt": "2026-03-09T00:00:00Z",
-      "lastUpdated": "2026-03-09T00:00:00Z",
-      "gitCommitSha": "0f416b0b9d99e367cedf6d3af114bc24272cfe4c"
-    }],
     "context7@claude-plugins-official": [{
       "scope": "user",
       "installPath": "/home/user/.claude/plugins/cache/claude-plugins-official/context7/unknown",

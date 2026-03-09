@@ -454,917 +454,162 @@
       "advanced"
     ]
   },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/.claude-plugin/PLUGIN_SCHEMA_NOTES.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/.claude-plugin/README.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/.claude-plugin/marketplace.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/.claude-plugin/plugin.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/architect.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/build-error-resolver.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/chief-of-staff.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/code-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/database-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/doc-updater.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/e2e-runner.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/go-build-resolver.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/go-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/harness-optimizer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/loop-operator.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/planner.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/python-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/refactor-cleaner.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/security-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/agents/tdd-guide.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/build-fix.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/checkpoint.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/claw.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/code-review.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/e2e.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/eval.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/evolve.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/go-build.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/go-review.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/go-test.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/harness-audit.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/instinct-export.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/instinct-import.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/instinct-status.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/learn-eval.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/learn.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/loop-start.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/loop-status.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/model-route.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/multi-backend.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/multi-execute.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/multi-frontend.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/multi-plan.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/multi-workflow.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/orchestrate.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/plan.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/pm2.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/projects.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/promote.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/python-review.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/quality-gate.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/refactor-clean.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/sessions.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/setup-pm.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/skill-create.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/tdd.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/test-coverage.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/update-codemaps.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/update-docs.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/commands/verify.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/hooks/README.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/hooks/hooks.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/claw.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/auto-tmux-dev.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/check-console-log.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/check-hook-enabled.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/cost-tracker.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/doc-file-warning.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/evaluate-session.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/post-bash-build-complete.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/post-bash-pr-created.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/post-edit-console-warn.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/post-edit-format.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/post-edit-typecheck.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/pre-bash-dev-server-block.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/pre-bash-git-push-reminder.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/pre-bash-tmux-reminder.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/pre-compact.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/pre-write-doc-warn.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/quality-gate.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/run-with-flags-shell.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/run-with-flags.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/session-end-marker.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/session-end.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/session-start.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/suggest-compact.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/hook-flags.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/package-manager.d.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/package-manager.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/project-detect.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/session-aliases.d.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/session-aliases.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/session-manager.d.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/session-manager.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/shell-split.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/utils.d.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/lib/utils.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/setup-package-manager.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/skill-create-output.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/agent-harness-construction/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/agentic-engineering/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/ai-first-engineering/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/api-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/article-writing/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/autonomous-loops/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/backend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/clickhouse-io/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/coding-standards/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/configure-ecc/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/content-engine/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/content-hash-cache-pattern/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-agent-loop/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/agents/observer-loop.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/agents/observer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/agents/start-observer.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/config.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/hooks/observe.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/scripts/detect-project.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/scripts/instinct-cli.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning-v2/scripts/test_parse_instinct.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning/config.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/continuous-learning/evaluate-session.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/cost-aware-llm-pipeline/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/cpp-coding-standards/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/cpp-testing/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/database-migrations/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/deployment-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/django-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/django-security/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/django-tdd/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/django-verification/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/docker-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/e2e-testing/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/enterprise-agent-ops/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/eval-harness/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/foundation-models-on-device/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/frontend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/frontend-slides/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/frontend-slides/STYLE_PRESETS.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/golang-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/golang-testing/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/investor-materials/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/investor-outreach/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/iterative-retrieval/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/java-coding-standards/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/jpa-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/liquid-glass-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/market-research/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/nanoclaw-repl/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/nutrient-document-processing/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/plankton-code-quality/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/postgres-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/project-guidelines-example/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/python-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/python-testing/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/ralphinho-rfc-pipeline/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/regex-vs-llm-structured-text/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/search-first/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/security-review/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/security-review/cloud-infrastructure-security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/security-scan/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/skill-stocktake/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/skill-stocktake/scripts/quick-diff.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/skill-stocktake/scripts/save-results.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/skill-stocktake/scripts/scan.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/springboot-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/springboot-security/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/springboot-tdd/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/springboot-verification/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/strategic-compact/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/strategic-compact/suggest-compact.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/swift-actor-persistence/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/swift-concurrency-6-2/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/swift-protocol-di-testing/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/swiftui-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/tdd-workflow/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/verification-loop/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/visa-doc-translate/README.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/everything-claude-code/everything-claude-code/1.8.0/skills/visa-doc-translate/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/installed_plugins.json": {
     "modes": [
       "advanced"
     ]
   },
   "plugins/known_marketplaces.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/architect.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/build-error-resolver.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/code-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/doc-updater.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/planner.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/refactor-cleaner.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/security-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/tdd-guide.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/build-fix.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/checkpoint.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/code-review.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/plan.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/refactor-clean.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/tdd.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/test-coverage.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/verify.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/api-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/backend-patterns/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/coding-standards/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/content-hash-cache-pattern/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/database-migrations/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/deployment-patterns/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/e2e-testing/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-patterns/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/iterative-retrieval/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/search-first/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/security-review/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/security-review/cloud-infrastructure-security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/tdd-workflow/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/verification-loop/SKILL.md": {
     "modes": [
       "advanced"
     ]

@@ -6,14 +6,9 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
-
-// Helper: extract the RCLONE_FILTERS_COMMON block
-function extractRcloneFilters() {
-  const start = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
-  const end = entrypoint.indexOf(')', start);
-  if (start === -1 || end === -1) return null;
-  return entrypoint.slice(start, end);
-}
+const manifest = JSON.parse(
+  readFileSync(resolve(__dirname, '../../preseed/agents/claude/manifest.json'), 'utf8')
+);
 
 // Helper: extract the MAIN EXECUTION section
 function extractMainExecution() {
@@ -24,47 +19,21 @@ function extractMainExecution() {
 }
 
 // ============================================================================
-// Test: rclone filters do NOT exclude .claude/plugins/cache/
+// Test: ECC plugin is NOT enabled — only context7 + superpowers
 // ============================================================================
-describe('ECC plugin cache persistence', () => {
-  it('rclone filters do NOT exclude .claude/plugins/cache/', () => {
-    const filters = extractRcloneFilters();
-    assert.ok(filters, 'RCLONE_FILTERS_COMMON should exist');
-    assert.ok(
-      !filters.includes('.claude/plugins/cache'),
-      'rclone filters must NOT exclude .claude/plugins/cache/ — ECC plugin must persist via R2'
-    );
-  });
-
-  it('still excludes other .claude/ ephemeral data', () => {
-    const filters = extractRcloneFilters();
-    assert.ok(filters, 'RCLONE_FILTERS_COMMON should exist');
-    assert.ok(
-      filters.includes('.claude/cache/**'),
-      'should still exclude .claude/cache/**'
-    );
-    assert.ok(
-      filters.includes('.claude/debug/**'),
-      'should still exclude .claude/debug/**'
-    );
-  });
-});
-
-// ============================================================================
-// Test: settings.json merge includes enabledPlugins for ECC
-// ============================================================================
-describe('ECC enabledPlugins configuration', () => {
-  it('settings.json merge includes enabledPlugins for all advanced plugins', () => {
+describe('ECC plugin removal', () => {
+  it('does NOT enable everything-claude-code plugin', () => {
     const main = extractMainExecution();
     assert.ok(main, 'MAIN EXECUTION section should exist');
     assert.ok(
-      main.includes('enabledPlugins'),
-      'entrypoint should configure enabledPlugins in settings.json'
+      !main.includes('everything-claude-code@everything-claude-code'),
+      'enabledPlugins must NOT reference ECC plugin'
     );
-    assert.ok(
-      main.includes('everything-claude-code@everything-claude-code'),
-      'enabledPlugins should reference ECC plugin'
-    );
+  });
+
+  it('still enables context7 and superpowers plugins', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
     assert.ok(
       main.includes('context7@claude-plugins-official'),
       'enabledPlugins should reference context7 plugin'
@@ -75,190 +44,193 @@ describe('ECC enabledPlugins configuration', () => {
     );
   });
 
-  it('ECC plugin enablement is gated to advanced mode (checks for rules/common)', () => {
+  it('does NOT export ECC_DISABLED_HOOKS', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+    assert.ok(
+      !main.includes('ECC_DISABLED_HOOKS'),
+      'should not export ECC_DISABLED_HOOKS (no ECC hooks to disable)'
+    );
+  });
+
+  it('does NOT configure homunculus/instinct system', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+    assert.ok(
+      !main.includes('HOMUNCULUS_DIR'),
+      'should not reference HOMUNCULUS_DIR (instinct system removed)'
+    );
+    assert.ok(
+      !main.includes('homunculus'),
+      'should not reference homunculus at all'
+    );
+  });
+
+  it('plugin enablement is gated to advanced mode (checks for rules/common)', () => {
     const main = extractMainExecution();
     assert.ok(main, 'MAIN EXECUTION section should exist');
     assert.ok(
       main.includes('rules/common'),
-      'ECC plugin enablement should check for presence of rules/common directory'
-    );
-  });
-
-  it('uses jq recursive merge for enabledPlugins', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    // Should use jq '. * $ecc' pattern
-    assert.ok(
-      main.includes('. * $ecc'),
-      'should use jq recursive merge for ECC enabledPlugins'
+      'plugin enablement should check for presence of rules/common directory'
     );
   });
 });
 
 // ============================================================================
-// Test: ECC_DISABLED_HOOKS env var
+// Test: Cherry-picked agents are in manifest
 // ============================================================================
-describe('ECC_DISABLED_HOOKS environment variable', () => {
-  it('exports ECC_DISABLED_HOOKS with 4 disabled hooks', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    assert.ok(
-      main.includes('ECC_DISABLED_HOOKS'),
-      'should export ECC_DISABLED_HOOKS env var'
-    );
-    assert.ok(
-      main.includes('post:edit:format'),
-      'should disable post:edit:format hook'
-    );
-    assert.ok(
-      main.includes('post:edit:typecheck'),
-      'should disable post:edit:typecheck hook'
-    );
-    assert.ok(
-      main.includes('post:quality-gate'),
-      'should disable post:quality-gate hook'
-    );
-    assert.ok(
-      main.includes('post:bash:build-complete'),
-      'should disable post:bash:build-complete hook (no-op stub)'
-    );
-  });
-});
+describe('Cherry-picked agents in manifest', () => {
+  const expectedAgents = [
+    'architect', 'build-error-resolver', 'code-reviewer', 'doc-updater',
+    'planner', 'refactor-cleaner', 'security-reviewer', 'tdd-guide'
+  ];
 
-// ============================================================================
-// Test: settings.json merge preserves existing hooks and permissions
-// ============================================================================
-describe('ECC configuration preserves existing settings', () => {
-  it('ECC enabledPlugins merge runs after hooks merge', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-
-    const hooksIdx = main.indexOf('HOOKS_CONFIG=');
-    const eccIdx = main.indexOf('ECC_PLUGINS=');
-
-    assert.ok(hooksIdx > -1, 'HOOKS_CONFIG should exist in main execution');
-    assert.ok(eccIdx > -1, 'ECC_PLUGINS should exist in main execution');
-    assert.ok(
-      hooksIdx < eccIdx,
-      'hooks merge must run before ECC enabledPlugins merge'
-    );
-  });
-
-  it('ECC enabledPlugins merge runs before bisync baseline', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-
-    const eccIdx = main.indexOf('ECC_PLUGINS=');
-    const bisyncIdx = main.indexOf('establish_bisync_baseline');
-
-    assert.ok(eccIdx > -1, 'ECC_PLUGINS should exist');
-    assert.ok(bisyncIdx > -1, 'establish_bisync_baseline should exist');
-    assert.ok(
-      eccIdx < bisyncIdx,
-      'ECC enabledPlugins merge must run before bisync baseline'
-    );
-  });
-});
-
-// ============================================================================
-// Test: Preseeded run-with-flags-shell.sh uses bash (rclone permission fix)
-// ============================================================================
-describe('run-with-flags-shell.sh rclone permission fix', () => {
-  const rwfPath = resolve(__dirname, '../../preseed/agents/claude/plugins/cache/everything-claude-code/everything-claude-code/1.8.0/scripts/hooks/run-with-flags-shell.sh');
-  let rwfContent;
-
-  try {
-    rwfContent = readFileSync(rwfPath, 'utf8');
-  } catch {
-    rwfContent = null;
+  for (const agent of expectedAgents) {
+    it(`manifest includes agents/${agent}.md`, () => {
+      const key = `agents/${agent}.md`;
+      assert.ok(manifest[key], `manifest should include ${key}`);
+      assert.ok(
+        manifest[key].modes.includes('advanced'),
+        `${key} should be in advanced mode`
+      );
+    });
   }
 
-  it('preseeded run-with-flags-shell.sh exists', () => {
-    assert.ok(rwfContent, 'run-with-flags-shell.sh should exist in preseed');
+  it('does NOT include excluded agents', () => {
+    const excluded = [
+      'chief-of-staff', 'database-reviewer', 'e2e-runner',
+      'go-build-resolver', 'go-reviewer', 'harness-optimizer',
+      'loop-operator', 'python-reviewer'
+    ];
+    for (const agent of excluded) {
+      assert.ok(
+        !manifest[`agents/${agent}.md`],
+        `manifest should NOT include agents/${agent}.md`
+      );
+    }
+  });
+});
+
+// ============================================================================
+// Test: Cherry-picked commands are in manifest
+// ============================================================================
+describe('Cherry-picked commands in manifest', () => {
+  const expectedCommands = [
+    'build-fix', 'checkpoint', 'code-review', 'plan',
+    'refactor-clean', 'tdd', 'test-coverage', 'verify'
+  ];
+
+  for (const cmd of expectedCommands) {
+    it(`manifest includes commands/${cmd}.md`, () => {
+      const key = `commands/${cmd}.md`;
+      assert.ok(manifest[key], `manifest should include ${key}`);
+      assert.ok(
+        manifest[key].modes.includes('advanced'),
+        `${key} should be in advanced mode`
+      );
+    });
+  }
+
+  it('does NOT include ECC-dependent commands', () => {
+    const excluded = [
+      'claw', 'evolve', 'instinct-status', 'instinct-export',
+      'instinct-import', 'loop-start', 'loop-status', 'projects',
+      'promote', 'sessions', 'quality-gate'
+    ];
+    for (const cmd of excluded) {
+      assert.ok(
+        !manifest[`commands/${cmd}.md`],
+        `manifest should NOT include commands/${cmd}.md`
+      );
+    }
+  });
+});
+
+// ============================================================================
+// Test: Cherry-picked skills are in manifest
+// ============================================================================
+describe('Cherry-picked skills in manifest', () => {
+  const expectedSkills = [
+    'api-design', 'backend-patterns', 'coding-standards',
+    'content-hash-cache-pattern', 'database-migrations', 'deployment-patterns',
+    'e2e-testing', 'frontend-patterns', 'iterative-retrieval',
+    'search-first', 'security-review', 'tdd-workflow', 'verification-loop'
+  ];
+
+  for (const skill of expectedSkills) {
+    it(`manifest includes skills/${skill}/SKILL.md`, () => {
+      const key = `skills/${skill}/SKILL.md`;
+      assert.ok(manifest[key], `manifest should include ${key}`);
+      assert.ok(
+        manifest[key].modes.includes('advanced'),
+        `${key} should be in advanced mode`
+      );
+    });
+  }
+
+  it('security-review includes cloud-infrastructure-security.md reference', () => {
+    const key = 'skills/security-review/cloud-infrastructure-security.md';
+    assert.ok(manifest[key], `manifest should include ${key}`);
   });
 
-  it('invokes scripts via bash instead of direct execution', () => {
-    assert.ok(rwfContent, 'file must exist');
-    assert.ok(
-      rwfContent.includes('bash "$SCRIPT_PATH"'),
-      'should use bash "$SCRIPT_PATH" (rclone strips execute bits)'
+  it('does NOT include ECC-only skills', () => {
+    const excluded = [
+      'continuous-learning-v2', 'continuous-learning', 'autonomous-loops',
+      'configure-ecc', 'nanoclaw-repl', 'skill-stocktake'
+    ];
+    for (const skill of excluded) {
+      assert.ok(
+        !manifest[`skills/${skill}/SKILL.md`],
+        `manifest should NOT include skills/${skill}/SKILL.md`
+      );
+    }
+  });
+});
+
+// ============================================================================
+// Test: No ECC plugin cache files in manifest
+// ============================================================================
+describe('ECC plugin cache removed from manifest', () => {
+  it('manifest has no everything-claude-code plugin references', () => {
+    const eccKeys = Object.keys(manifest).filter(k =>
+      k.includes('everything-claude-code')
     );
-    assert.ok(
-      !rwfContent.match(/\| "\$SCRIPT_PATH"$/m),
-      'should NOT use direct "$SCRIPT_PATH" invocation'
+    assert.equal(
+      eccKeys.length, 0,
+      `manifest should have no ECC plugin entries, found: ${eccKeys.join(', ')}`
     );
   });
 
-  it('is listed in manifest.json for advanced mode', () => {
-    const manifest = readFileSync(resolve(__dirname, '../../preseed/agents/claude/manifest.json'), 'utf8');
+  it('manifest still has claude-plugins-official (context7 + superpowers)', () => {
+    const officialKeys = Object.keys(manifest).filter(k =>
+      k.includes('claude-plugins-official')
+    );
     assert.ok(
-      manifest.includes('run-with-flags-shell.sh'),
-      'manifest should include run-with-flags-shell.sh'
+      officialKeys.length > 0,
+      'manifest should still have claude-plugins-official plugin entries'
     );
   });
 });
 
 // ============================================================================
-// Test: CL v2.1 Instinct system (homunculus) configuration
+// Test: Existing preseed components unchanged
 // ============================================================================
-describe('CL v2.1 Instinct system configuration', () => {
-  it('creates homunculus directory inside advanced mode block', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    assert.ok(
-      main.includes('homunculus'),
-      'should reference homunculus directory'
-    );
-    assert.ok(
-      main.includes('mkdir -p "$HOMUNCULUS_DIR"'),
-      'should create homunculus directory'
-    );
+describe('Existing preseed components preserved', () => {
+  it('hooks are still in manifest', () => {
+    assert.ok(manifest['hooks/memory-capture.sh'], 'memory-capture.sh should be in manifest');
+    assert.ok(manifest['hooks/memory-agent-prompt.md'], 'memory-agent-prompt.md should be in manifest');
+    assert.ok(manifest['hooks/block-attributed-commits.sh'], 'block-attributed-commits.sh should be in manifest');
   });
 
-  it('writes config.json with observer settings', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    assert.ok(
-      main.includes('config.json'),
-      'should write homunculus config.json'
-    );
-    assert.ok(
-      main.includes('"observer"'),
-      'config should contain observer settings'
-    );
-    assert.ok(
-      main.includes('run_interval_minutes'),
-      'config should set observer interval'
-    );
-    assert.ok(
-      main.includes('min_observations_to_analyze'),
-      'config should set minimum observations threshold'
-    );
+  it('codeflare-specific skills preserved', () => {
+    assert.ok(manifest['skills/cloudflare-stack/SKILL.md'], 'cloudflare-stack skill should be in manifest');
+    assert.ok(manifest['skills/ship/SKILL.md'], 'ship skill should be in manifest');
+    assert.ok(manifest['skills/consult-llm/SKILL.md'], 'consult-llm skill should be in manifest');
   });
 
-  it('observer loop is disabled for 1-vCPU container', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    // observer.enabled should be false — analysis too heavy for 1-vCPU
-    assert.ok(
-      main.includes('"enabled": false'),
-      'observer loop should be disabled (enabled: false) for 1-vCPU'
-    );
-  });
-
-  it('homunculus config is inside the advanced mode guard', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-
-    // The advanced mode guard checks for rules/common
-    const guardIdx = main.indexOf('if [ -d "$USER_CLAUDE_DIR/rules/common" ]');
-    const homunculusIdx = main.indexOf('HOMUNCULUS_DIR=');
-
-    assert.ok(guardIdx > -1, 'advanced mode guard should exist');
-    assert.ok(homunculusIdx > -1, 'HOMUNCULUS_DIR should exist');
-    assert.ok(
-      guardIdx < homunculusIdx,
-      'homunculus config must be inside the advanced mode guard block'
-    );
+  it('rules preserved', () => {
+    assert.ok(manifest['rules/ci-monitoring.md'], 'ci-monitoring rule should be in manifest');
+    assert.ok(manifest['rules/cloudflare-environment.md'], 'cloudflare-environment rule should be in manifest');
+    assert.ok(manifest['rules/common/coding-style.md'], 'common/coding-style rule should be in manifest');
   });
 });
