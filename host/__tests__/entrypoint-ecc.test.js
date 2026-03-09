@@ -153,8 +153,8 @@ describe('Cherry-picked skills in manifest', () => {
   const expectedSkills = [
     'api-design', 'backend-patterns', 'coding-standards',
     'content-hash-cache-pattern', 'database-migrations', 'deployment-patterns',
-    'e2e-testing', 'frontend-patterns', 'iterative-retrieval',
-    'search-first', 'security-review', 'tdd-workflow', 'verification-loop'
+    'frontend-patterns', 'iterative-retrieval',
+    'search-first', 'security-review'
   ];
 
   for (const skill of expectedSkills) {

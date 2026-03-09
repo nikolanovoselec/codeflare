@@ -19,19 +19,16 @@ The Feature Implementation Workflow describes the development pipeline: research
    - Identify dependencies and risks
    - Break down into phases
 
-2. **TDD Approach**
-   - Use **tdd-guide** agent
-   - Write tests first (RED)
-   - Implement to pass tests (GREEN)
-   - Refactor (IMPROVE)
-   - Verify 80%+ coverage
+2. **TDD Approach** — follow [testing.md](./testing.md)
 
-3. **Code Review**
-   - Use **code-reviewer** agent immediately after writing code
-   - Address CRITICAL and HIGH issues
-   - Fix MEDIUM issues when possible
+3. **Code Review** — follow [agents.md](./agents.md) (use **code-reviewer** agent)
 
-4. **Commit & Push**
+4. **Update Documentation**
+   - Update all references to changed/removed components (docs, manifests, tests, generated files)
+   - Ensure counts, lists, and cross-references are consistent
+   - Documentation updates MUST happen before committing, not as a follow-up
+
+5. **Commit & Push**
    - Detailed commit messages
    - Follow conventional commits format
    - See [git-workflow.md](./git-workflow.md) for commit message format and PR process

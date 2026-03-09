@@ -60,11 +60,6 @@
       "advanced"
     ]
   },
-  "rules/common/hooks.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/common/patterns.md": {
     "modes": [
       "advanced"
@@ -574,11 +569,6 @@
       "advanced"
     ]
   },
-  "skills/e2e-testing/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/frontend-patterns/SKILL.md": {
     "modes": [
       "advanced"
@@ -600,16 +590,6 @@
     ]
   },
   "skills/security-review/cloud-infrastructure-security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/tdd-workflow/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/verification-loop/SKILL.md": {
     "modes": [
       "advanced"
     ]

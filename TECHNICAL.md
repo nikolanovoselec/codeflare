@@ -1761,10 +1761,10 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
 | `consult-llm` skill | No | Yes |
 | `block-attributed-commits` hook | No | Yes |
-| Language rules (33 files: common, TS, Python, Go, Swift) | No | Yes |
+| Language rules (32 files: common, TS, Python, Go, Swift) | No | Yes |
 | Cherry-picked agents (8: architect, planner, code-reviewer, etc.) | No | Yes |
 | Cherry-picked commands (8: /plan, /tdd, /verify, etc.) | No | Yes |
-| Cherry-picked skills (13: api-design, security-review, tdd-workflow, etc.) | No | Yes |
+| Cherry-picked skills (10: api-design, security-review, etc.) | No | Yes |
 | Context7 plugin (up-to-date docs lookup) | No | Yes |
 | Superpowers plugin (TDD, debugging, planning skills) | No | Yes |
 
@@ -1790,13 +1790,13 @@ The [Everything Claude Code](https://github.com/affaan-m/everything-claude-code)
 
 **Cherry-picked commands (8)**: `build-fix`, `checkpoint`, `code-review`, `plan`, `refactor-clean`, `tdd`, `test-coverage`, `verify`. Preseeded to `~/.claude/commands/*.md`.
 
-**Cherry-picked skills (13 + 1 reference)**: `api-design`, `backend-patterns`, `coding-standards`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `e2e-testing`, `frontend-patterns`, `iterative-retrieval`, `search-first`, `security-review` (with `cloud-infrastructure-security.md` reference), `tdd-workflow`, `verification-loop`. Preseeded to `~/.claude/skills/<name>/SKILL.md`.
+**Cherry-picked skills (10 + 1 reference)**: `api-design`, `backend-patterns`, `coding-standards`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`, `security-review` (with `cloud-infrastructure-security.md` reference). Preseeded to `~/.claude/skills/<name>/SKILL.md`. Skills `e2e-testing`, `tdd-workflow`, and `verification-loop` were removed as they assume local test/build execution, which conflicts with the CI-only environment.
 
 **Excluded (123 components)**: All 23 ECC hooks, the instinct/continuous-learning system (observe.sh, instinct-cli.py, homunculus config), all Go/Python/Swift/Java/C++/Django/Spring Boot/ClickHouse skills, multi-model orchestration commands (5 `multi-*` commands), loop system commands, meta-ECC tools (harness-optimizer, skill-stocktake, configure-ecc), content/investor/market-research skills, NanoClaw REPL, session management, and all ECC scripts/lib files.
 
 **Selection criteria**: Components were kept if they (1) are language-agnostic or TypeScript/web-applicable, (2) have zero `${CLAUDE_PLUGIN_ROOT}` dependencies, (3) provide direct development value rather than meta-ECC functionality.
 
-**Rules**: 33 rule files are preseeded to `~/.claude/rules/{common,typescript,python,golang,swift}/` via the manifest with `"modes": ["advanced"]`. These are identical to ECC's rules and were already preseeded before the decomposition. Common rules (9 files) cover security, coding style, patterns, performance, testing, git workflow, development workflow, agents, and hooks. Language-specific rules (5 files each for TypeScript, Python, Go, Swift) extend common rules with language-appropriate conventions.
+**Rules**: 32 rule files are preseeded to `~/.claude/rules/{common,typescript,python,golang,swift}/` via the manifest with `"modes": ["advanced"]`. Common rules (8 files) cover security, coding style, patterns, performance, testing, git workflow, development workflow, and agents. `common/hooks.md` was removed (low-value generic advice; language-specific hooks files are self-contained). Language-specific rules (5 files each for TypeScript, Python, Go, Swift) provide language-appropriate conventions.
 
 **Plugins (context7 + superpowers only)**: Two plugins remain enabled for advanced mode: Context7 (`context7@claude-plugins-official`) for up-to-date documentation lookup via MCP, and Superpowers (`superpowers@claude-plugins-official`) for structured TDD, debugging, and planning skills. These are preseeded at `plugins/cache/claude-plugins-official/` with `installed_plugins.json` and `known_marketplaces.json`. Plugins persist across sessions via R2 sync.
 
