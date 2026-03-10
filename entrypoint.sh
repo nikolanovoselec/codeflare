@@ -906,6 +906,16 @@ if [ -d "$USER_CLAUDE_DIR/rules/common" ]; then
     fi
 
     echo "[entrypoint] Plugins enabled (context7, superpowers), cherry-picked agents/commands/skills preseeded"
+
+    # Fix superpowers plugin SessionStart hook quoting bug (5.0.0+)
+    # Upstream uses single quotes around ${CLAUDE_PLUGIN_ROOT} which prevents variable expansion
+    for hooks_json in "$USER_HOME/.claude/plugins/cache/claude-plugins-official/superpowers"/*/hooks/hooks.json; do
+        [ -f "$hooks_json" ] || continue
+        if grep -q "'\${CLAUDE_PLUGIN_ROOT}" "$hooks_json" 2>/dev/null; then
+            sed -i "s|'\${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd'|bash \"\${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\"|g" "$hooks_json"
+            echo "[entrypoint] Fixed superpowers hook quoting in $(dirname "$hooks_json")"
+        fi
+    done
 fi
 
 # === Fast Start: tool-specific config files ===
