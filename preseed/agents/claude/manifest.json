@@ -40,17 +40,7 @@
       "advanced"
     ]
   },
-  "rules/common/agents.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/common/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/common/development-workflow.md": {
     "modes": [
       "advanced"
     ]
@@ -60,22 +50,7 @@
       "advanced"
     ]
   },
-  "rules/common/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/common/performance.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/common/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/common/testing.md": {
     "modes": [
       "advanced"
     ]
@@ -479,11 +454,6 @@
       "advanced"
     ]
   },
-  "agents/planner.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "agents/refactor-cleaner.md": {
     "modes": [
       "advanced"
@@ -509,22 +479,7 @@
       "advanced"
     ]
   },
-  "commands/code-review.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "commands/plan.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "commands/refactor-clean.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "commands/tdd.md": {
     "modes": [
       "advanced"
     ]
@@ -550,11 +505,6 @@
     ]
   },
   "skills/backend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/coding-standards/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -585,16 +535,6 @@
     ]
   },
   "skills/search-first/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/security-review/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/security-review/cloud-infrastructure-security.md": {
     "modes": [
       "advanced"
     ]
