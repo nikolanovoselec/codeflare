@@ -27,6 +27,10 @@ CVE-2026-27904
 # Debian bookworm base image system libraries — no fixes available in bookworm.
 # These are in system packages, not directly exposed to untrusted input.
 
+# libexpat1 2.5.0-1+deb12u2: integer overflow causing information disclosure / data integrity issues
+# Transitive dep of git, python3, etc. No fixed version in bookworm. No XML parsing of untrusted input.
+CVE-2026-25210
+
 # glibc 2.36-9+deb12u13: integer overflow in memalign (heap corruption)
 # Container runs trusted code only; no user-controlled allocation sizes.
 CVE-2026-0861
