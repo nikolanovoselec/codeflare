@@ -11,7 +11,7 @@ const ECC_SUBDIRS = ['common', 'typescript', 'python', 'golang', 'swift'] as con
 
 // Expected file count per subdirectory
 const ECC_FILES_PER_SUBDIR: Record<string, number> = {
-  common: 8, // agents, coding-style, development-workflow, git-workflow, patterns, performance, security, testing
+  common: 3, // coding-style, git-workflow, security
   typescript: 5, // coding-style, hooks, patterns, security, testing
   python: 5,
   golang: 5,
@@ -95,7 +95,7 @@ describe('ECC rules in agent-seed', () => {
     }
   });
 
-  it('total ECC rules count is 28', () => {
-    expect(eccRules().length).toBe(28);
+  it('total ECC rules count is 23', () => {
+    expect(eccRules().length).toBe(23);
   });
 });
