@@ -359,7 +359,7 @@ describe('Storage Delete Route', () => {
     expect(body.errors).toEqual([]);
   });
 
-  // --- Cache invalidation tests ---
+  // --- Cache invalidation tests (CF-029) ---
 
   it('invalidates storage-stats KV cache after successful single delete', async () => {
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -386,6 +386,45 @@ describe('Storage Delete Route', () => {
 
     expect(res.status).toBe(200);
     expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
+  });
+
+  it('pre-populated stats cache is removed after single delete', async () => {
+    // Seed the cache with stale stats
+    mockKV._set('storage-stats:test-bucket', {
+      totalFiles: 42,
+      totalFolders: 5,
+      totalSizeBytes: 100_000,
+      cachedAt: Date.now(),
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: ['workspace/file.ts'] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:test-bucket');
+    // Verify the cached entry was actually removed from the store
+    const cached = await mockKV.get('storage-stats:test-bucket', 'json');
+    expect(cached).toBeNull();
+  });
+
+  it('does not invalidate stats cache when all deletes fail', async () => {
+    // Single delete that returns 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+
+    const res = await app.request('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: ['workspace/missing.ts'] }),
+    });
+
+    expect(res.status).toBe(200);
+    // Cache should NOT be invalidated since nothing was deleted
+    expect(mockKV.delete).not.toHaveBeenCalled();
   });
 
   // --- Prefix delete tests ---

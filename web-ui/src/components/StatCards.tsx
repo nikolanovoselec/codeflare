@@ -2,6 +2,7 @@ import { Component, Show } from 'solid-js';
 import Icon from './Icon';
 import { mdiFileDocumentOutline, mdiFolderOutline, mdiHarddisk, mdiCloudOutline } from '@mdi/js';
 import { storageStore } from '../stores/storage';
+import { formatSize } from '../lib/format';
 import '../styles/stat-cards.css';
 
 interface StorageStats {
@@ -20,14 +21,6 @@ function formatBucketLabel(bucketName?: string): string {
   const prefix = `${storageStore.workerName}-`;
   const label = bucketName.startsWith(prefix) ? bucketName.slice(prefix.length) : bucketName;
   return label.toUpperCase();
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  if (i === 0) return `${bytes} B`;
-  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
 }
 
 const StatCards: Component<StatCardsProps> = (props) => {
@@ -75,7 +68,7 @@ const StatCards: Component<StatCardsProps> = (props) => {
                   <Icon path={mdiHarddisk} size={12} />
                   Storage
                 </span>
-                <span class="stat-card__metric-value">{formatBytes(stats().totalSizeBytes)}</span>
+                <span class="stat-card__metric-value">{formatSize(stats().totalSizeBytes)}</span>
               </div>
             </div>
           </div>
