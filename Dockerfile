@@ -119,7 +119,7 @@ COPY .cache-bust /tmp/.cache-bust
 RUN apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g github:nikolanovoselec/claude-unleashed#81769c8ed634a9366c8c2e145a9000ab19eea831 && \
+RUN npm install -g github:nikolanovoselec/claude-unleashed#860c5d2e946681c238e1ef33447a99942bb349dd && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
     rm -rf /root/.npm

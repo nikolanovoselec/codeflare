@@ -894,29 +894,7 @@ else
 fi
 echo "[entrypoint] Claude Code hooks configured in settings.json"
 
-# Plugins: enable context7 + superpowers for advanced mode (detected by presence of rules/common/)
-# ECC plugin removed — agents, commands, skills are preseeded directly to ~/.claude/ via agent-seed
-if [ -d "$USER_CLAUDE_DIR/rules/common" ]; then
-    PLUGINS_CONFIG='{"enabledPlugins":{"context7@claude-plugins-official":true,"superpowers@claude-plugins-official":true}}'
-    TMP_SETTINGS=$(mktemp)
-    if jq --argjson plugins "$PLUGINS_CONFIG" '. * $plugins' "$SETTINGS_FILE" > "$TMP_SETTINGS" 2>/dev/null; then
-        mv "$TMP_SETTINGS" "$SETTINGS_FILE"
-    else
-        rm -f "$TMP_SETTINGS"
-    fi
-
-    echo "[entrypoint] Plugins enabled (context7, superpowers), cherry-picked agents/commands/skills preseeded"
-
-    # Fix superpowers plugin SessionStart hook quoting bug (5.0.0+)
-    # Upstream uses single quotes around ${CLAUDE_PLUGIN_ROOT} which prevents variable expansion
-    for hooks_json in "$USER_HOME/.claude/plugins/cache/claude-plugins-official/superpowers"/*/hooks/hooks.json; do
-        [ -f "$hooks_json" ] || continue
-        if grep -q "'\${CLAUDE_PLUGIN_ROOT}" "$hooks_json" 2>/dev/null; then
-            sed -i "s|'\${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd'|bash \"\${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\"|g" "$hooks_json"
-            echo "[entrypoint] Fixed superpowers hook quoting in $(dirname "$hooks_json")"
-        fi
-    done
-fi
+# Plugins removed from preseed — users install via marketplace if wanted
 
 # === Fast Start: tool-specific config files ===
 if [ "${FAST_CLI_START:-true}" != "false" ]; then
