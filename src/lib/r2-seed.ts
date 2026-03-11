@@ -113,19 +113,33 @@ export async function seedGettingStartedDocs(
 
 /**
  * Return only the seed documents that belong to the given session mode.
+ * Throws if duplicate keys exist within the same mode (indicates generator bug).
  */
 export function getConfigsForMode(mode: SessionMode): SeedDocument[] {
-  return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.modes.includes(mode));
+  const docs = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.modes.includes(mode));
+  const seen = new Set<string>();
+  for (const doc of docs) {
+    if (seen.has(doc.key)) throw new Error(`Duplicate key "${doc.key}" in mode "${mode}"`);
+    seen.add(doc.key);
+  }
+  return docs;
 }
 
 /**
  * Return the R2 keys of preseed-managed files that are NOT in the given mode.
  * These are candidates for cleanup on mode switch.
+ *
+ * Keys that have a variant in the target mode (same key, different content per mode)
+ * are excluded — they were just seeded and must not be deleted.
  */
 export function getPreseedKeysNotInMode(mode: SessionMode): string[] {
+  const keysInMode = new Set(
+    AGENTS_SEEDED_CONFIGS.filter((doc) => doc.modes.includes(mode)).map((doc) => doc.key)
+  );
   return AGENTS_SEEDED_CONFIGS
     .filter((doc) => !doc.modes.includes(mode))
-    .map((doc) => doc.key);
+    .map((doc) => doc.key)
+    .filter((k) => !keysInMode.has(k));
 }
 
 /**

@@ -15,19 +15,38 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
           key: '.claude/rules/common.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Common',
-          modes: ['default', 'advanced'],
+          modes: ['default', 'advanced'] as ('default' | 'advanced')[],
         },
         {
           key: '.claude/hooks/block-attributed-commits.sh',
           contentType: 'application/x-shellscript; charset=utf-8',
           content: '#!/bin/bash',
-          modes: ['advanced'],
+          modes: ['advanced'] as ('default' | 'advanced')[],
         },
         {
           key: '.claude/skills/consult-llm/SKILL.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Consult',
-          modes: ['advanced'],
+          modes: ['advanced'] as ('default' | 'advanced')[],
+        },
+        // Variant-per-mode: same key, different content per mode (instructions files)
+        {
+          key: '.codex/AGENTS.md',
+          contentType: 'text/markdown; charset=utf-8',
+          content: '# Default instructions',
+          modes: ['default'] as ('default' | 'advanced')[],
+        },
+        {
+          key: '.codex/AGENTS.md',
+          contentType: 'text/markdown; charset=utf-8',
+          content: '# Advanced instructions with more rules',
+          modes: ['advanced'] as ('default' | 'advanced')[],
+        },
+        {
+          key: '.codex/skills/ship/SKILL.md',
+          contentType: 'text/markdown; charset=utf-8',
+          content: '# Ship',
+          modes: ['default', 'advanced'] as ('default' | 'advanced')[],
         },
       ],
     },
@@ -67,23 +86,57 @@ const bucket = 'test-bucket';
 describe('getConfigsForMode', () => {
   it('returns only default-mode documents for "default"', () => {
     const docs = getConfigsForMode('default');
-    expect(docs).toHaveLength(1);
-    expect(docs[0].key).toBe('.claude/rules/common.md');
+    expect(docs).toHaveLength(3);
+    const keys = docs.map((d) => d.key);
+    expect(keys).toContain('.claude/rules/common.md');
+    expect(keys).toContain('.codex/AGENTS.md');
+    expect(keys).toContain('.codex/skills/ship/SKILL.md');
   });
 
   it('returns all documents for "advanced"', () => {
     const docs = getConfigsForMode('advanced');
-    expect(docs).toHaveLength(3);
+    expect(docs).toHaveLength(5);
+  });
+
+  it('returns only one variant per key within a mode', () => {
+    const defaultDocs = getConfigsForMode('default');
+    const codexInstructions = defaultDocs.filter((d) => d.key === '.codex/AGENTS.md');
+    expect(codexInstructions).toHaveLength(1);
+    expect(codexInstructions[0].content).toBe('# Default instructions');
+
+    const advancedDocs = getConfigsForMode('advanced');
+    const codexInstructionsAdv = advancedDocs.filter((d) => d.key === '.codex/AGENTS.md');
+    expect(codexInstructionsAdv).toHaveLength(1);
+    expect(codexInstructionsAdv[0].content).toBe('# Advanced instructions with more rules');
+  });
+
+  it('throws on duplicate keys within a mode', () => {
+    const original = [...testState.agentDocs];
+    testState.agentDocs.push({
+      key: '.codex/AGENTS.md',
+      contentType: 'text/markdown; charset=utf-8',
+      content: '# Duplicate!',
+      modes: ['default'],
+    });
+    expect(() => getConfigsForMode('default')).toThrow('Duplicate key ".codex/AGENTS.md"');
+    testState.agentDocs.length = 0;
+    testState.agentDocs.push(...original);
   });
 });
 
 describe('getPreseedKeysNotInMode', () => {
-  it('returns advanced-only keys for "default"', () => {
+  it('returns advanced-only keys for "default" mode', () => {
     const keys = getPreseedKeysNotInMode('default');
     expect(keys).toEqual([
       '.claude/hooks/block-attributed-commits.sh',
       '.claude/skills/consult-llm/SKILL.md',
     ]);
+  });
+
+  it('does NOT return variant-per-mode keys that have a default variant', () => {
+    const keys = getPreseedKeysNotInMode('default');
+    // .codex/AGENTS.md has both a default and advanced variant — must not be deleted
+    expect(keys).not.toContain('.codex/AGENTS.md');
   });
 
   it('returns empty array for "advanced"', () => {
@@ -104,8 +157,8 @@ describe('seedAgentConfigs', () => {
       mode: 'default',
     });
 
-    expect(result.written).toEqual(['.claude/rules/common.md']);
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.written).toHaveLength(3);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
   it('with mode="advanced" uploads all docs', async () => {
@@ -116,8 +169,8 @@ describe('seedAgentConfigs', () => {
       mode: 'advanced',
     });
 
-    expect(result.written).toHaveLength(3);
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(result.written).toHaveLength(5);
+    expect(mockFetch).toHaveBeenCalledTimes(5);
   });
 });
 
@@ -175,7 +228,6 @@ describe('reconcileAgentConfigs', () => {
   });
 
   it('seeds and cleans up for "default" mode with cleanup=true', async () => {
-    // Seed PUT + Delete calls
     mockFetch.mockResolvedValue(new Response('', { status: 200 }));
 
     const result = await reconcileAgentConfigs(env, bucket, endpoint, 'default', {
@@ -183,7 +235,7 @@ describe('reconcileAgentConfigs', () => {
       cleanup: true,
     });
 
-    expect(result.written).toEqual(['.claude/rules/common.md']);
+    expect(result.written).toHaveLength(3);
     expect(result.deleted).toHaveLength(2);
     expect(result.warnings).toEqual([]);
   });
@@ -196,9 +248,9 @@ describe('reconcileAgentConfigs', () => {
       cleanup: false,
     });
 
-    expect(result.written).toEqual(['.claude/rules/common.md']);
+    expect(result.written).toHaveLength(3);
     expect(result.deleted).toEqual([]);
-    // Only 1 PUT, no DELETE calls
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    // 3 PUTs, no DELETE calls
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 });
