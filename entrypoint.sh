@@ -336,22 +336,22 @@ establish_bisync_baseline() {
         SYNC_RESULT=$?
     fi
     cat "$BASELINE_OUTPUT" >> /tmp/sync.log
-    cat "$BASELINE_OUTPUT"
+    cat "$BASELINE_OUTPUT" >&2
     rm -f "$BASELINE_OUTPUT"
     if [ $SYNC_RESULT -eq 0 ]; then
-        echo "[entrypoint] Step 2 complete: Bisync baseline established"
+        echo "[entrypoint] Step 2 complete: Bisync baseline established" | tee -a /tmp/sync.log
         touch /tmp/.bisync-initialized
         SYNC_STATUS="success"
         return 0
     elif [ $SYNC_RESULT -eq 124 ]; then
-        echo "[entrypoint] WARNING: Bisync baseline timed out after ${BISYNC_TIMEOUT}s"
+        echo "[entrypoint] WARNING: Bisync baseline timed out after ${BISYNC_TIMEOUT}s" | tee -a /tmp/sync.log >&2
         touch /tmp/.bisync-initialized
         SYNC_STATUS="timeout"
         return 0  # Don't fail, just skip daemon
     else
         SYNC_ERROR="rclone bisync --resync failed with code $SYNC_RESULT"
         SYNC_STATUS="failed"
-        echo "[entrypoint] ERROR: $SYNC_ERROR"
+        echo "[entrypoint] ERROR: $SYNC_ERROR" | tee -a /tmp/sync.log >&2
         return 1
     fi
 }
@@ -459,12 +459,16 @@ start_sync_daemon() {
             # fall back to --resync to re-establish clean bisync state.
             # This merges both sides (files on only one side get copied to the other).
             if [ $CONSECUTIVE_FAILURES -ge 3 ]; then
-                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') 3 consecutive failures — falling back to --resync" | tee -a /tmp/sync.log
+                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') 3 consecutive failures — falling back to --resync" | tee -a /tmp/sync.log >&2
                 update_sync_status "failed" "Resync fallback triggered"
                 if establish_bisync_baseline; then
+                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Resync fallback succeeded — resuming normal sync" | tee -a /tmp/sync.log >&2
                     CONSECUTIVE_FAILURES=0
                 else
-                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Resync fallback also failed — will retry next cycle" | tee -a /tmp/sync.log
+                    local LAST_ERRORS
+                    LAST_ERRORS=$(grep -i 'error\|fatal\|failed' /tmp/sync.log | tail -3)
+                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') RESYNC FAILED — will retry next cycle. Recent errors:" | tee -a /tmp/sync.log >&2
+                    echo "$LAST_ERRORS" | tee -a /tmp/sync.log >&2
                     CONSECUTIVE_FAILURES=2  # retry resync after 1 more failure instead of 3
                 fi
             fi
