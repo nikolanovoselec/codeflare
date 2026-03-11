@@ -1525,6 +1525,24 @@ wrangler tail codeflare --status error
 | AD26 | Stress test rate-limit bypass | <details><summary>`STRESS_TEST_MODE=active` skips all rate limiting</summary><br>k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` — any other value (including `"true"`) keeps limits enforced. Only set on integration; production must never have this variable.</details> |
 | AD27 | Server-side prefix delete | <details><summary>Server-side list+batch delete via R2 S3 API instead of frontend recursive browse+delete</summary><br>Frontend folder deletion was subject to API rate limits (30/min browse, 20/min delete), causing failures for large folders. R2 has no native "delete prefix" API, and lifecycle rules (Days=0) take up to 24h. Server-side ListObjectsV2 + batch DeleteObjects (1000 keys/call) using `emptyR2Bucket()` is the fastest approach. No `[[r2_buckets]]` binding needed — per-user dynamic buckets use account-level S3 credentials directly.</details> |
 
+#### AD: Stress Test Rate-Limit Bypass is Integration-Only
+- **Status:** Accepted
+- **Context:** `STRESS_TEST_MODE=active` disables all rate limiting. Only set via GitHub Actions workflow for integration environment. AD26 documents the bypass mechanism.
+- **Decision:** No CI guard needed for production deployment. The bypass is controlled via GitHub Actions environment variables, which are scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable.
+- **Consequences:** Relies on GitHub Actions environment separation. A repo admin could theoretically set the variable for production, but this requires deliberate action, not accidental configuration.
+
+#### AD: Container Secrets Passed as Environment Variables
+- **Status:** Accepted
+- **Context:** Container DO injects R2 credentials, LLM API keys, and auth tokens as plaintext environment variables. Containers are single-tenant (one user per container) and users have full terminal access.
+- **Decision:** Accept plaintext env vars for container secrets. Users can already access all environment variables via their terminal session (`env` command). The secrets are: R2 credentials (bucket-scoped to user's own bucket), LLM API keys (user's own keys), and a container auth token (internal DO-to-container communication).
+- **Consequences:** Any process inside the container can read secrets via `/proc/self/environ`. Acceptable because: (1) containers are single-tenant, (2) users already have equivalent access via terminal, (3) R2 credentials are bucket-scoped, (4) LLM keys belong to the user.
+
+#### AD: Worker Name Derived from Host Header for .workers.dev Domains
+- **Status:** Accepted
+- **Context:** During setup, the worker name is derived from the Host header for `.workers.dev` subdomains. For custom domains, the `CLOUDFLARE_WORKER_NAME` env var is preferred.
+- **Decision:** Accept Host header parsing for `.workers.dev` domains during setup. The exposure window is: (1) only during first-time setup (minutes), (2) requires CF Access JWT authentication, (3) setup is idempotent. For custom domains, the env var set at deploy time takes precedence.
+- **Consequences:** A spoofed Host header on a `.workers.dev` domain during the setup window could theoretically direct configuration to a different worker name, but this requires authenticated access and the window is extremely narrow.
+
 ---
 
 ## 22. Lessons Learned
