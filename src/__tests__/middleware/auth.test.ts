@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
-import { authMiddleware, AuthVariables } from '../../middleware/auth';
+import { authMiddleware, requireAdmin, AuthVariables } from '../../middleware/auth';
 import { authenticateRequest } from '../../lib/access';
 import { AppError, AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
@@ -186,5 +186,124 @@ describe('Auth Middleware', () => {
       ).rejects.toThrow(ForbiddenError);
     });
 
+  });
+
+  // =========================================================================
+  // requireAdmin middleware (CF-011)
+  // =========================================================================
+  describe('requireAdmin', () => {
+    /**
+     * Creates a Hono app with auth + requireAdmin middleware.
+     * authMiddleware sets user/bucketName, then requireAdmin checks the role.
+     */
+    function createAdminApp(envOverrides: Partial<Env> = {}) {
+      const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+
+      app.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          ...envOverrides,
+        } as Env;
+        return next();
+      });
+
+      app.use('*', authMiddleware);
+
+      // Protected route requiring admin
+      app.get('/admin', requireAdmin, (c) => {
+        return c.json({ ok: true });
+      });
+
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      return app;
+    }
+
+    it('returns 403 for non-admin user', async () => {
+      const testEmail = 'regular@example.com';
+      mockKV._store.set(
+        `user:${testEmail}`,
+        JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'user' })
+      );
+
+      const app = createAdminApp();
+      const res = await app.request('/admin', {
+        headers: { 'cf-access-authenticated-user-email': testEmail },
+      });
+
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('FORBIDDEN');
+    });
+
+    it('calls next() and returns 200 for admin user', async () => {
+      const testEmail = 'admin@example.com';
+      mockKV._store.set(
+        `user:${testEmail}`,
+        JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' })
+      );
+
+      const app = createAdminApp();
+      const res = await app.request('/admin', {
+        headers: { 'cf-access-authenticated-user-email': testEmail },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean };
+      expect(body.ok).toBe(true);
+    });
+
+    it('returns 401 when user context is missing (no auth header)', async () => {
+      const app = createAdminApp();
+      const res = await app.request('/admin');
+
+      // authMiddleware throws AuthError before requireAdmin runs
+      expect(res.status).toBe(401);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('AUTH_ERROR');
+    });
+
+    it('returns 403 when user has no role (legacy KV entry)', async () => {
+      const testEmail = 'norole@example.com';
+      // Legacy entry without role field — authenticateRequest defaults to 'user'
+      mockKV._store.set(
+        `user:${testEmail}`,
+        JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01' })
+      );
+
+      const app = createAdminApp();
+      const res = await app.request('/admin', {
+        headers: { 'cf-access-authenticated-user-email': testEmail },
+      });
+
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('FORBIDDEN');
+    });
+
+    it('returns 403 for unexpected role casing (Admin vs admin)', async () => {
+      const testEmail = 'badcase@example.com';
+      // Force an unexpected casing by storing 'Admin' (capital A)
+      mockKV._store.set(
+        `user:${testEmail}`,
+        JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'Admin' })
+      );
+
+      const app = createAdminApp();
+      const res = await app.request('/admin', {
+        headers: { 'cf-access-authenticated-user-email': testEmail },
+      });
+
+      // requireAdmin checks strict equality: user.role !== 'admin'
+      // 'Admin' !== 'admin' so it should be 403
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('FORBIDDEN');
+    });
   });
 });

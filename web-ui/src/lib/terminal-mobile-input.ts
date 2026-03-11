@@ -3,6 +3,79 @@ import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceReset
 import { logger } from './logger';
 import { getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
 
+// ---------------------------------------------------------------------------
+// Extracted key-mapping constants and pure dispatch logic (CF-020)
+// ---------------------------------------------------------------------------
+
+/** Map of functional key names to terminal escape sequences */
+export const FUNCTIONAL_KEY_MAP: Readonly<Record<string, string>> = {
+  'Enter': '\r',
+  'Backspace': '\x7f',
+  'Delete': '\x1b[3~',
+  'Escape': '\x1b',
+  'Tab': '\t',
+  'ArrowUp': '\x1b[A',
+  'ArrowDown': '\x1b[B',
+  'ArrowRight': '\x1b[C',
+  'ArrowLeft': '\x1b[D',
+  'Home': '\x1b[H',
+  'End': '\x1b[F',
+  'PageUp': '\x1b[5~',
+  'PageDown': '\x1b[6~',
+};
+
+/**
+ * Result of resolving a keydown event to a terminal action.
+ * - `type: 'sequence'` → send the sequence string to the terminal
+ * - `type: 'copy'` → copy selection to clipboard
+ * - `type: 'paste'` → read clipboard and paste into terminal
+ * - `type: 'none'` → no action (unhandled key or composing)
+ */
+export type KeyDispatchResult =
+  | { type: 'sequence'; sequence: string }
+  | { type: 'copy' }
+  | { type: 'paste' }
+  | { type: 'none' };
+
+/**
+ * Pure function: resolve a keydown event to a terminal action.
+ *
+ * @param key - The KeyboardEvent.key value
+ * @param ctrlKey - Whether the Ctrl modifier was held
+ * @param hasSelection - Whether the terminal has a text selection
+ * @returns The action to take for this key event
+ */
+export function resolveKeyAction(
+  key: string,
+  ctrlKey: boolean,
+  hasSelection: boolean,
+): KeyDispatchResult {
+  // Check functional keys first
+  const seq = FUNCTIONAL_KEY_MAP[key];
+  if (seq) {
+    return { type: 'sequence', sequence: seq };
+  }
+
+  // Ctrl+key combos
+  if (ctrlKey && key.length === 1) {
+    const code = key.toLowerCase().charCodeAt(0);
+    if (code >= 97 && code <= 122) { // a-z
+      // Ctrl+C with selection = copy
+      if (key === 'c' && hasSelection) {
+        return { type: 'copy' };
+      }
+      // Ctrl+V = paste
+      if (key === 'v') {
+        return { type: 'paste' };
+      }
+      // Other Ctrl+letter combos → terminal control code
+      return { type: 'sequence', sequence: String.fromCharCode(code - 96) };
+    }
+  }
+
+  return { type: 'none' };
+}
+
 interface MobileInputCallbacks {
   /** Called when cursor line needs a refresh */
   refreshCursorLine: () => void;
@@ -154,58 +227,35 @@ export function setupMobileInput(
       if (!terminal) return;
       sentViaKeydown = false;
 
-      // Map functional keys to terminal sequences
-      const keyMap: Record<string, string> = {
-        'Enter': '\r',
-        'Backspace': '\x7f',
-        'Delete': '\x1b[3~',
-        'Escape': '\x1b',
-        'Tab': '\t',
-        'ArrowUp': '\x1b[A',
-        'ArrowDown': '\x1b[B',
-        'ArrowRight': '\x1b[C',
-        'ArrowLeft': '\x1b[D',
-        'Home': '\x1b[H',
-        'End': '\x1b[F',
-        'PageUp': '\x1b[5~',
-        'PageDown': '\x1b[6~',
-      };
+      const action = resolveKeyAction(
+        e.key,
+        e.ctrlKey,
+        !!terminal.getSelection(),
+      );
 
-      const seq = keyMap[e.key];
-      if (seq) {
-        e.preventDefault();
-        sentViaKeydown = true;
-        terminal.input(seq, false);
-        return;
-      }
-
-      // Ctrl+key combos
-      if (e.ctrlKey && e.key.length === 1) {
-        e.preventDefault();
-        sentViaKeydown = true;
-        const code = e.key.toLowerCase().charCodeAt(0);
-        if (code >= 97 && code <= 122) { // a-z
-          // Ctrl+C with selection = copy
-          if (e.key === 'c') {
-            const selection = terminal.getSelection();
-            if (selection) {
-              navigator.clipboard.writeText(selection);
-              terminal.clearSelection();
-              return;
-            }
-          }
-          // Ctrl+V = paste
-          if (e.key === 'v') {
-            navigator.clipboard.readText().then((text) => {
-              if (text && terminal) terminal.paste(text);
-            }).catch((err) => {
-              logger.warn('Clipboard read failed:', err);
-            });
-            return;
-          }
-          terminal.input(String.fromCharCode(code - 96), false);
-        }
-        return;
+      switch (action.type) {
+        case 'sequence':
+          e.preventDefault();
+          sentViaKeydown = true;
+          terminal.input(action.sequence, false);
+          return;
+        case 'copy':
+          e.preventDefault();
+          sentViaKeydown = true;
+          navigator.clipboard.writeText(terminal.getSelection()!);
+          terminal.clearSelection();
+          return;
+        case 'paste':
+          e.preventDefault();
+          sentViaKeydown = true;
+          navigator.clipboard.readText().then((text) => {
+            if (text && terminal) terminal.paste(text);
+          }).catch((err) => {
+            logger.warn('Clipboard read failed:', err);
+          });
+          return;
+        case 'none':
+          break;
       }
     });
 

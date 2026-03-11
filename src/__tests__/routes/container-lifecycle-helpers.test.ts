@@ -402,5 +402,75 @@ describe('Container lifecycle extracted helpers', () => {
 
       expect(result.status).toBe('starting');
     });
+
+    // CF-022: KV rollback on container start failure
+    it('rolls back KV session status to stopped when startAndWaitForPorts throws', async () => {
+      const container = createMockContainer('stopped');
+      container.startAndWaitForPorts.mockRejectedValue(new Error('Container crashed'));
+
+      // Seed the session in KV so the rollback can read it
+      mockKV._set('session:bucket:session1234', {
+        id: 'session1234',
+        name: 'Test',
+        status: 'running',
+        createdAt: '2024-01-01T00:00:00Z',
+      });
+
+      const params = baseParams(container);
+      // Use a waitUntil that awaits the promise so we can verify the rollback
+      const capturedPromises: Promise<void>[] = [];
+      params.waitUntil = vi.fn((p: Promise<void>) => {
+        capturedPromises.push(p);
+      });
+
+      await startOrRestartContainer(params);
+
+      // Wait for the background promise (waitUntil callback) to settle
+      expect(capturedPromises.length).toBe(1);
+      await capturedPromises[0];
+
+      // After start failure, KV should be rolled back to 'stopped'
+      const stored = await mockKV.get('session:bucket:session1234', 'json') as any;
+      expect(stored.status).toBe('stopped');
+    });
+
+    it('handles KV rollback failure gracefully (does not throw)', async () => {
+      const container = createMockContainer('stopped');
+      container.startAndWaitForPorts.mockRejectedValue(new Error('Container crashed'));
+
+      // Seed the session in KV
+      mockKV._set('session:bucket:session1234', {
+        id: 'session1234',
+        name: 'Test',
+        status: 'running',
+        createdAt: '2024-01-01T00:00:00Z',
+      });
+
+      const params = baseParams(container);
+
+      // Make KV.put fail during rollback (after the initial read succeeds)
+      const originalPut = mockKV.put;
+      let putCallCount = 0;
+      mockKV.put = vi.fn(async (key: string, value: string, opts?: any) => {
+        putCallCount++;
+        // First put is the session status change to 'running', let it through
+        // Second put would be the rollback to 'stopped', make it fail
+        if (putCallCount > 1) {
+          throw new Error('KV write failed');
+        }
+        return originalPut(key, value, opts);
+      });
+
+      const capturedPromises: Promise<void>[] = [];
+      params.waitUntil = vi.fn((p: Promise<void>) => {
+        capturedPromises.push(p);
+      });
+
+      await startOrRestartContainer(params);
+
+      // The background promise should resolve without throwing,
+      // even though KV rollback failed
+      await expect(capturedPromises[0]).resolves.toBeUndefined();
+    });
   });
 });
