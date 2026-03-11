@@ -51,7 +51,7 @@ const log: Logger = (level: LogLevel, msg: string, meta?: Record<string, unknown
 // Start time for uptime calculation
 const SERVER_START_TIME = Date.now();
 
-const PORT = process.env.TERMINAL_PORT ?? '8080';
+const PORT = parseInt(process.env.TERMINAL_PORT ?? '8080', 10);
 // Spawn a login shell so .bashrc runs and auto-starts the configured agent
 // The .bashrc has agent auto-start logic that only works in interactive login shells
 const TERMINAL_COMMAND = process.env.TERMINAL_COMMAND ?? '/bin/bash';
