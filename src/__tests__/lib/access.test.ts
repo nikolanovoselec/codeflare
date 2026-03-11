@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockLoggerWarn = vi.fn();
+const { mockLoggerWarn } = vi.hoisted(() => ({
+  mockLoggerWarn: vi.fn(),
+}));
 
 vi.mock('../../lib/logger', () => ({
   createLogger: vi.fn(() => ({
