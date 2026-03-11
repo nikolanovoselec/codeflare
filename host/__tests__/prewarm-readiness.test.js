@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
  * command from TAB_CONFIG for logging purposes.
  */
 
-import { getPrewarmConfig } from '../prewarm-config.js';
+import { getPrewarmConfig } from '../dist/prewarm-config.js';
 
 describe('getPrewarmConfig', () => {
   describe('when TAB_CONFIG is absent or empty', () => {

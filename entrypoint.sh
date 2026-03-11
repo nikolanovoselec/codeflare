@@ -965,7 +965,7 @@ fi
 # ============================================================================
 
 echo "[entrypoint] Starting terminal server on port 8080..."
-cd /app/host && HOME="$USER_HOME" TERMINAL_PORT=8080 node server.js &
+cd /app/host && HOME="$USER_HOME" TERMINAL_PORT=8080 node dist/server.js &
 TERMINAL_PID=$!
 echo "$TERMINAL_PID" > /tmp/terminal.pid
 echo "[entrypoint] Terminal server started with PID $TERMINAL_PID"

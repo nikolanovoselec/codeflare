@@ -5,15 +5,18 @@ import fs from 'fs';
 import path from 'path';
 
 const HOST_DIR = path.resolve(import.meta.dirname, '..');
+const SRC_DIR = path.join(HOST_DIR, 'src');
 
 /**
  * Tests for FIX-26 (DF3): safeTokenCompare SHA-256 hash comparison
  * and FIX-20 (DC1): isAlive dead code removal.
+ *
+ * Source inspection reads .ts files from src/.
  */
 
 describe('FIX-26: safeTokenCompare uses SHA-256 hash comparison', () => {
-  // Extract safeTokenCompare from server.js source for functional testing
-  // Since server.js has side effects (http.createServer), we test the function
+  // Extract safeTokenCompare from server.ts source for functional testing
+  // Since server.ts has side effects (http.createServer), we test the function
   // by extracting its logic and verifying the source pattern.
 
   // Helper that mirrors the expected implementation
@@ -38,8 +41,8 @@ describe('FIX-26: safeTokenCompare uses SHA-256 hash comparison', () => {
     assert.equal(safeTokenCompare('x', 'xy'), false);
   });
 
-  it('server.js uses SHA-256 hash in safeTokenCompare (no length pre-check)', () => {
-    const serverSrc = fs.readFileSync(path.join(HOST_DIR, 'server.js'), 'utf8');
+  it('server.ts uses SHA-256 hash in safeTokenCompare (no length pre-check)', () => {
+    const serverSrc = fs.readFileSync(path.join(SRC_DIR, 'server.ts'), 'utf8');
 
     // Must use createHash('sha256') for constant-time length normalization
     assert.ok(
@@ -73,22 +76,22 @@ describe('FIX-26: safeTokenCompare uses SHA-256 hash comparison', () => {
 
 describe('FIX-20: isAlive dead code removal', () => {
   it('Session class does not have isAlive method', () => {
-    const sessionSrc = fs.readFileSync(path.join(HOST_DIR, 'session.js'), 'utf8');
+    const sessionSrc = fs.readFileSync(path.join(SRC_DIR, 'session.ts'), 'utf8');
 
     // isAlive() was dead code — never called anywhere. It should be removed.
     assert.ok(
       !sessionSrc.includes('isAlive('),
-      'session.js must not contain isAlive method (dead code)'
+      'session.ts must not contain isAlive method (dead code)'
     );
   });
 
   it('Session class still has isPtyAlive method (not dead code)', () => {
-    const sessionSrc = fs.readFileSync(path.join(HOST_DIR, 'session.js'), 'utf8');
+    const sessionSrc = fs.readFileSync(path.join(SRC_DIR, 'session.ts'), 'utf8');
 
-    // isPtyAlive() IS used in server.js — must remain
+    // isPtyAlive() IS used in server.ts — must remain
     assert.ok(
       sessionSrc.includes('isPtyAlive('),
-      'session.js must still have isPtyAlive method'
+      'session.ts must still have isPtyAlive method'
     );
   });
 });

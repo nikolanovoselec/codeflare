@@ -5,7 +5,9 @@
  * and client aggregation across sessions.
  */
 
+import { WebSocket } from 'ws';
 import { Session } from './session.js';
+import type { SessionOptions, SessionJSON, Logger } from './types.js';
 
 export const PREWARM_SESSION_ID = 'prewarm-1';
 
@@ -13,25 +15,26 @@ export const PREWARM_SESSION_ID = 'prewarm-1';
  * SessionManager handles all PTY sessions.
  */
 export class SessionManager {
-  /**
-   * @param {object} options - Configuration options passed to new Session instances
-   * @param {number} options.maxSessions - Maximum number of active sessions
-   * @param {number} options.ptyCleanupIntervalMs - Cleanup interval in ms
-   * @param {function} options.log - Structured logger
-   */
-  constructor(options = {}) {
+  sessions: Map<string, Session>;
+  cleanupInterval: ReturnType<typeof setInterval> | null;
+  private readonly _options: SessionOptions;
+  private readonly _maxSessions: number;
+  private readonly _ptyCleanupIntervalMs: number;
+  private readonly _log: Logger;
+
+  constructor(options: SessionOptions = {}) {
     this.sessions = new Map();
     this.cleanupInterval = null;
     this._options = options;
-    this._maxSessions = options.maxSessions || 20;
-    this._ptyCleanupIntervalMs = options.ptyCleanupIntervalMs || 60000;
-    this._log = options.log || (() => {});
+    this._maxSessions = options.maxSessions ?? 20;
+    this._ptyCleanupIntervalMs = options.ptyCleanupIntervalMs ?? 60000;
+    this._log = options.log ?? (() => {});
   }
 
   /**
    * Start periodic cleanup of dead sessions
    */
-  startCleanup() {
+  startCleanup(): void {
     if (this.cleanupInterval) return;
 
     this.cleanupInterval = setInterval(() => {
@@ -44,7 +47,7 @@ export class SessionManager {
   /**
    * Stop periodic cleanup
    */
-  stopCleanup() {
+  stopCleanup(): void {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
@@ -54,8 +57,8 @@ export class SessionManager {
   /**
    * Clean up sessions that have no clients and no PTY
    */
-  cleanupDeadSessions() {
-    const toDelete = [];
+  cleanupDeadSessions(): void {
+    const toDelete: string[] = [];
     for (const [id, session] of this.sessions) {
       if (!session.isPtyAlive() && session.clients.size === 0) {
         toDelete.push(id);
@@ -75,7 +78,7 @@ export class SessionManager {
   /**
    * Get or create a session
    */
-  getOrCreate(id, name, manual = false) {
+  getOrCreate(id: string, name: string, manual = false): Session | null {
     let session = this.sessions.get(id);
 
     if (session) {
@@ -118,14 +121,14 @@ export class SessionManager {
   /**
    * Get a session by ID
    */
-  get(id) {
+  get(id: string): Session | undefined {
     return this.sessions.get(id);
   }
 
   /**
    * Delete a session
    */
-  delete(id) {
+  delete(id: string): boolean {
     const session = this.sessions.get(id);
     if (session) {
       session.kill();
@@ -139,7 +142,7 @@ export class SessionManager {
   /**
    * Kill all active sessions. Used during shutdown.
    */
-  killAll() {
+  killAll(): void {
     for (const [id, session] of this.sessions) {
       session.kill();
       this._log('info', 'Killed session during shutdown', { session: id });
@@ -150,15 +153,15 @@ export class SessionManager {
   /**
    * List all sessions
    */
-  list() {
+  list(): SessionJSON[] {
     return Array.from(this.sessions.values()).map((s) => s.toJSON());
   }
 
   /**
    * Get a Map of all connected WebSocket clients across all sessions.
    */
-  get clients() {
-    const allClients = new Map();
+  get clients(): Map<string, WebSocket> {
+    const allClients = new Map<string, WebSocket>();
     let idx = 0;
     for (const session of this.sessions.values()) {
       for (const ws of session.clients) {
@@ -171,7 +174,7 @@ export class SessionManager {
   /**
    * Get session count
    */
-  get size() {
+  get size(): number {
     return this.sessions.size;
   }
 }

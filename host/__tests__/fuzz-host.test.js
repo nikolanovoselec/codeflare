@@ -2,8 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
 
-import { getPrewarmConfig } from '../prewarm-config.js';
-import { createActivityTracker } from '../activity-tracker.js';
+import { getPrewarmConfig } from '../dist/prewarm-config.js';
+import { createActivityTracker } from '../dist/activity-tracker.js';
 
 const NUM_RUNS = parseInt(process.env.FAST_CHECK_NUM_RUNS || '1000', 10);
 

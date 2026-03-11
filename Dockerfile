@@ -1,14 +1,21 @@
 # Codeflare Container - Multi-session terminal server with rclone sync
 # Uses node-pty for PTY management and rclone for R2 storage sync
 
-# ---- Stage 1: Builder (compile native addons) ----
+# ---- Stage 1: Builder (compile native addons + TypeScript) ----
 FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
 COPY host/package.json host/package-lock.json /app/host/
 WORKDIR /app/host
-RUN npm ci --omit=dev
+# Install all deps (including devDependencies for TypeScript compilation)
+RUN npm ci
+# Copy TypeScript source and config, then compile
+COPY host/tsconfig.json /app/host/
+COPY host/src/ /app/host/src/
+RUN npm run build
+# Remove devDependencies after build to keep runtime image lean
+RUN npm prune --omit=dev
 
 # ---- Stage 2: Runtime ----
 FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
@@ -185,8 +192,8 @@ RUN mkdir -p /app/host
 
 # Copy pre-compiled host server from builder stage
 COPY --from=builder /app/host/node_modules /app/host/node_modules
+COPY --from=builder /app/host/dist /app/host/dist
 COPY host/package.json /app/host/
-COPY host/*.js /app/host/
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
