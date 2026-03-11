@@ -443,14 +443,30 @@ start_sync_daemon() {
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync failed with exit code $SYNC_RESULT (failure $CONSECUTIVE_FAILURES/3)" | tee -a /tmp/sync.log
             update_sync_status "failed" "Bisync exit code $SYNC_RESULT"
 
+            # Exit code 7 with missing listing files = no prior bisync state exists.
+            # Skip straight to --resync instead of waiting for 3 failures.
+            local LISTING_GLOB="/home/user/.cache/rclone/bisync/home_user..r2_${R2_BUCKET_NAME}.path*.lst"
+            local HAS_LISTINGS=false
+            # shellcheck disable=SC2086
+            ls $LISTING_GLOB >/dev/null 2>&1 && HAS_LISTINGS=true
+
+            if [ "$HAS_LISTINGS" = "false" ] && [ $SYNC_RESULT -eq 7 ]; then
+                echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') No listing files found — immediate resync" | tee -a /tmp/sync.log
+                CONSECUTIVE_FAILURES=3  # force resync path below
+            fi
+
             # After 3 consecutive failures (each with 3 internal retries = 9 total attempts),
             # fall back to --resync to re-establish clean bisync state.
             # This merges both sides (files on only one side get copied to the other).
             if [ $CONSECUTIVE_FAILURES -ge 3 ]; then
                 echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') 3 consecutive failures — falling back to --resync" | tee -a /tmp/sync.log
                 update_sync_status "failed" "Resync fallback triggered"
-                establish_bisync_baseline
-                CONSECUTIVE_FAILURES=0
+                if establish_bisync_baseline; then
+                    CONSECUTIVE_FAILURES=0
+                else
+                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Resync fallback also failed — will retry next cycle" | tee -a /tmp/sync.log
+                    CONSECUTIVE_FAILURES=2  # retry resync after 1 more failure instead of 3
+                fi
             fi
         fi
     done &

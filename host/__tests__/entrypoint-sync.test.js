@@ -577,21 +577,39 @@ describe('sync daemon consecutive failure recovery', () => {
     );
   });
 
-  it('start_sync_daemon() resets counter after resync fallback', () => {
+  it('start_sync_daemon() only resets counter when resync succeeds', () => {
     const body = extractFunction('start_sync_daemon');
     assert.ok(body, 'start_sync_daemon function should exist');
-    // Inside the >= 3 block, after establish_bisync_baseline, counter resets to 0
+    // The resync is wrapped in an if — counter resets only on success
+    assert.ok(
+      body.includes('if establish_bisync_baseline'),
+      'establish_bisync_baseline should be called inside an if (check return value)'
+    );
+    // On success: reset to 0
     const geBlock = body.slice(body.indexOf('CONSECUTIVE_FAILURES -ge 3'));
     assert.ok(geBlock, 'should have the >= 3 consecutive failures block');
-    const baselineIdx = geBlock.indexOf('establish_bisync_baseline');
-    const resetIdx = geBlock.indexOf('CONSECUTIVE_FAILURES=0', baselineIdx);
     assert.ok(
-      baselineIdx > -1,
-      'establish_bisync_baseline should appear in the >= 3 block'
+      geBlock.includes('CONSECUTIVE_FAILURES=0'),
+      'CONSECUTIVE_FAILURES=0 should appear in the >= 3 block (success path)'
+    );
+    // On failure: set to 2 (retry resync after 1 more failure)
+    assert.ok(
+      geBlock.includes('CONSECUTIVE_FAILURES=2'),
+      'CONSECUTIVE_FAILURES=2 should appear in the >= 3 block (failure path — retry sooner)'
+    );
+  });
+
+  it('start_sync_daemon() immediately resyncs when listing files are missing', () => {
+    const body = extractFunction('start_sync_daemon');
+    assert.ok(body, 'start_sync_daemon function should exist');
+    // Should detect missing listing files and force immediate resync
+    assert.ok(
+      body.includes('No listing files found'),
+      'start_sync_daemon should detect missing listing files'
     );
     assert.ok(
-      resetIdx > baselineIdx,
-      'CONSECUTIVE_FAILURES=0 should appear after establish_bisync_baseline in the >= 3 block'
+      body.includes('CONSECUTIVE_FAILURES=3'),
+      'start_sync_daemon should force CONSECUTIVE_FAILURES=3 when listings are missing'
     );
   });
 });
