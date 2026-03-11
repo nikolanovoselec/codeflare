@@ -314,7 +314,7 @@ initial_sync_from_r2() {
 # Step 2: Establish bisync baseline (after data is restored)
 # IMPORTANT: Uses timeout to prevent infinite hangs
 establish_bisync_baseline() {
-    local BISYNC_TIMEOUT=180  # 3 minutes max for baseline
+    local BISYNC_TIMEOUT=600  # 10 minutes max for baseline (large buckets with many files)
     echo "[entrypoint] Step 2: Establishing bisync baseline (max ${BISYNC_TIMEOUT}s)..." | tee -a /tmp/sync.log
 
     BASELINE_OUTPUT=$(mktemp)
