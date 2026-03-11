@@ -129,6 +129,13 @@ async function listAccessApps(token: string, accountId: string): Promise<AccessA
   return data.result;
 }
 
+function isAlreadyExistsError(errors: Array<{ message?: string }> | undefined): boolean {
+  return errors?.some((e) =>
+    e.message?.toLowerCase().includes('already exists')
+    || e.message?.toLowerCase().includes('duplicate')
+  ) ?? false;
+}
+
 async function upsertAccessApp(
   token: string,
   accountId: string,
@@ -165,11 +172,7 @@ async function upsertAccessApp(
 
   const data = await parseCfResponse<AccessAppResult>(response);
   if (!data.success || !data.result?.id) {
-    const alreadyExistsError = data.errors?.some((e) =>
-      e.message?.toLowerCase().includes('already exists')
-      || e.message?.toLowerCase().includes('duplicate')
-    );
-    if (alreadyExistsError && !existingAppId) {
+    if (isAlreadyExistsError(data.errors) && !existingAppId) {
       logger.warn('Access app already exists but was not found in initial lookup, retrying list', { appDomain });
       const retriedApps = await listAccessApps(token, accountId);
       const existingByDomain = retriedApps.find((app) => app.domain === appDomain);
@@ -208,13 +211,6 @@ async function listAccessGroups(token: string, accountId: string): Promise<Acces
     throw new Error(`Failed to list Access groups: ${data.errors?.map(e => e.message).join(', ') ?? 'unknown'}`);
   }
   return data.result;
-}
-
-function isAlreadyExistsError(errors: Array<{ message?: string }> | undefined): boolean {
-  return errors?.some((e) =>
-    e.message?.toLowerCase().includes('already exists')
-    || e.message?.toLowerCase().includes('duplicate')
-  ) ?? false;
 }
 
 async function upsertAccessGroup(

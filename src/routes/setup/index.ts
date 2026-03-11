@@ -140,8 +140,12 @@ app.post('/configure', async (c) => {
         handleSetSecrets(token, accountId, r2AccessKeyId, r2SecretAccessKey, c.req.url, steps, workerName)
       );
 
+      // Normalize and deduplicate emails before any KV operations
+      const normalizedAllowed = [...new Set(allowedUsers.map(e => e.trim().toLowerCase()))];
+      const normalizedAdmins = [...new Set(adminUsers.map(e => e.trim().toLowerCase()))];
+
       // Remove stale users not in the new allowedUsers list (full cleanup)
-      const allowedSet = new Set(allowedUsers);
+      const allowedSet = new Set(normalizedAllowed);
       const existingUserKeys = await listAllKvKeys(c.env.KV, 'user:');
       const staleEmails = existingUserKeys
         .filter(key => !allowedSet.has(emailFromKvKey(key.name)))
@@ -157,8 +161,8 @@ app.post('/configure', async (c) => {
       }
 
       // Store users in KV with role
-      const adminSet = new Set(adminUsers);
-      const userWrites = allowedUsers.map(email => {
+      const adminSet = new Set(normalizedAdmins);
+      const userWrites = normalizedAllowed.map(email => {
         const role = adminSet.has(email) ? 'admin' : 'user';
         return c.env.KV.put(
           `user:${email}`,

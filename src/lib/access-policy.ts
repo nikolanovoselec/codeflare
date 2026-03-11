@@ -75,6 +75,7 @@ export async function syncAccessPolicy(
     const groupsRes = await cfApiCB.execute(() =>
       fetch(`${CF_API_BASE}/accounts/${accountId}/access/groups`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(10_000),
       })
     );
     const groupsData = await groupsRes.json() as CfAccessGroupsResponse;
@@ -96,6 +97,7 @@ export async function syncAccessPolicy(
               name: groupName,
               include: groupUsers.map((email) => ({ email: { email } })),
             }),
+            signal: AbortSignal.timeout(10_000),
           })
         );
 
@@ -133,6 +135,7 @@ export async function syncAccessPolicy(
   const appsRes = await cfApiCB.execute(() =>
     fetch(`${CF_API_BASE}/accounts/${accountId}/access/apps`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
     })
   );
   const appsData = await appsRes.json() as CfAccessAppsResponse;
@@ -152,7 +155,7 @@ export async function syncAccessPolicy(
     const policiesRes = await cfApiCB.execute(() =>
       fetch(
         `${CF_API_BASE}/accounts/${accountId}/access/apps/${app.id}/policies`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }
       )
     );
     const policiesData = await policiesRes.json() as CfAccessPoliciesResponse;
@@ -180,6 +183,7 @@ export async function syncAccessPolicy(
             include,
             exclude: policy.exclude || [],
           }),
+          signal: AbortSignal.timeout(10_000),
         }
       )
     );
