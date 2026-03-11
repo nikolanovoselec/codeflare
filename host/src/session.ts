@@ -24,6 +24,26 @@ import type {
 
 const PROCESS_NAME_POLL_MS = 2000;
 
+/**
+ * Strip terminal emulator response sequences from input before writing to PTY.
+ *
+ * When xterm.js responds to queries from PTY programs (DSR cursor position,
+ * OSC background color, device attributes), the responses travel back through
+ * WebSocket and can pollute stdin of programs reading user input — e.g.,
+ * `gh secret set` reads an OSC 11 response instead of the pasted secret.
+ *
+ * These patterns are terminal responses, never user-typed input:
+ * - CPR (Cursor Position Report): \e[<row>;<col>R  — response to DSR \e[6n
+ * - OSC 10/11/12 responses: \e]1x;rgb:...ST       — response to \e]11;?\e\\
+ * - DA1 (Device Attributes): \e[?<params>c         — response to \e[c
+ */
+function stripTerminalResponses(data: string): string {
+  return data
+    .replace(/\x1b\[\d+;\d+R/g, '')
+    .replace(/\x1b\]1[012];[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[\?[\d;]*c/g, '');
+}
+
 // Forward reference — SessionManager is imported only as a type to avoid
 // circular runtime dependencies.
 interface SessionManagerLike {
@@ -260,11 +280,15 @@ export class Session {
   }
 
   /**
-   * Write data to the PTY
+   * Write data to the PTY, stripping terminal emulator responses that
+   * xterm.js sent back through WebSocket (CPR, OSC, DA sequences).
    */
   write(data: string): void {
     if (this.ptyProcess) {
-      this.ptyProcess.write(data);
+      const filtered = stripTerminalResponses(data);
+      if (filtered) {
+        this.ptyProcess.write(filtered);
+      }
     }
   }
 
