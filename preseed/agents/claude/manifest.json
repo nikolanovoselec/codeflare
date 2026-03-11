@@ -283,5 +283,11 @@
     "modes": [
       "advanced"
     ]
+  },
+  "plugins/known_marketplaces.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
   }
 }

@@ -133,6 +133,15 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
     ]
   },
   {
+    "key": ".claude/plugins/known_marketplaces.json",
+    "contentType": "application/json; charset=utf-8",
+    "content": "{\n  \"claude-plugins-official\": {\n    \"source\": {\n      \"source\": \"github\",\n      \"repo\": \"anthropics/claude-plugins-official\"\n    },\n    \"installLocation\": \"/home/user/.claude/plugins/marketplaces/claude-plugins-official\",\n    \"lastUpdated\": \"2026-03-11T00:00:00.000Z\"\n  }\n}\n",
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  {
     "key": ".claude/rules/ci-monitoring.md",
     "contentType": "text/markdown; charset=utf-8",
     "content": "# CI Monitoring After Push\n\nA single push can trigger multiple GitHub Actions workflows (PR Checks, Fuzz, CodeQL, etc.). You MUST wait for ALL of them to pass before deploying or proceeding.\n\n## After every push\n\n1. Run a single background Bash poll loop (timeout 600000ms) that checks ALL runs every 15s until all complete AND all succeed:\n   ```\n   while true; do\n     echo \"$(date +%H:%M:%S)\"\n     gh run list --branch <branch> --limit 5 --json databaseId,name,status,conclusion \\\n       --template '{{range .}}{{.databaseId}}{{\"\\t\"}}{{.name}}{{\"\\t\"}}{{.status}}{{\"\\t\"}}{{.conclusion}}{{\"\\n\"}}{{end}}'\n     ALL_DONE=$(gh run list --branch <branch> --limit 5 --json status \\\n       --template '{{$all := true}}{{range .}}{{if ne .status \"completed\"}}{{$all = false}}{{end}}{{end}}{{$all}}')\n     if [ \"$ALL_DONE\" = \"true\" ]; then\n       ANY_FAILED=$(gh run list --branch <branch> --limit 5 --json conclusion \\\n         --template '{{$fail := false}}{{range .}}{{if ne .conclusion \"success\"}}{{$fail = true}}{{end}}{{end}}{{$fail}}')\n       if [ \"$ANY_FAILED\" = \"true\" ]; then\n         echo \"COMPLETED WITH FAILURES\"\n       else\n         echo \"ALL GREEN\"\n       fi\n       break\n     fi\n     sleep 15\n   done\n   ```\n   Use `run_in_background: true` so the poll does not burn context tokens. You will be notified when it finishes.\n2. When notified, read the output. If it ends with `ALL GREEN`, CI passed. If it ends with `COMPLETED WITH FAILURES`, identify the failed run IDs from the output, run `gh run view $RUN_ID --log-failed`, fix the issue, commit, push, then go back to step 1.\n3. NEVER report CI as passing unless the poll output ends with `ALL GREEN`. The poll checks BOTH completion AND success — a run that completed with `failure` conclusion is NOT green.\n4. NEVER deploy to integration until every CI run from the push is green.\n5. Do NOT use `gh run watch` — it hangs.\n6. Before pushing a new commit, cancel any still-running CI runs from a previous push on the same branch — they are stale and waste resources:\n   ```\n   gh run list --branch <branch> --limit 5 --json databaseId,status --jq '.[] | select(.status != \"completed\") | .databaseId' | xargs -I{} gh run cancel {}\n   ```\n",
