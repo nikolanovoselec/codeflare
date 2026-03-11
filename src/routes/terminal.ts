@@ -20,6 +20,7 @@ import { getContainer } from '@cloudflare/containers';
 import type { Env, Session } from '../types';
 import { getSessionKey } from '../lib/kv-keys';
 import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS } from '../lib/constants';
+import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
 import { authenticateRequest } from '../lib/access';
@@ -173,36 +174,22 @@ export async function handleWebSocketUpgrade(
       }
     } else {
       // WebSocket connection rate limiting: 30 connections/min per user (FIX-21)
-      // Fail-open on KV errors (AD35)
-      try {
-        const wsRateKey = `ws-connect:${user.email}`;
-        const wsRateData = await env.KV.get<{ count: number; windowStart: number }>(wsRateKey, 'json');
-        const now = Date.now();
+      // Fail-open on KV errors via shared rate-limit-core (AD35)
+      const wsRateResult = await checkRateLimit({
+        kv: env.KV,
+        key: `ws-connect:${user.email}`,
+        limit: WS_RATE_LIMIT_MAX_CONNECTIONS,
+        windowMs: WS_RATE_LIMIT_WINDOW_MS,
+        ttlSeconds: WS_RATE_LIMIT_TTL_SECONDS,
+      });
 
-        let count = 1;
-        let windowStart = now;
-
-        if (wsRateData && wsRateData.windowStart > now - WS_RATE_LIMIT_WINDOW_MS) {
-          count = wsRateData.count + 1;
-          windowStart = wsRateData.windowStart;
-        }
-
-        if (count > WS_RATE_LIMIT_MAX_CONNECTIONS) {
-          const retryAfterSec = Math.ceil((WS_RATE_LIMIT_WINDOW_MS - (now - windowStart)) / 1000);
-          logger.warn('WebSocket rate limit exceeded', { email: user.email, count });
-          return new Response(null, {
-            status: 429,
-            headers: { ...jsonHeaders, 'Retry-After': String(retryAfterSec) },
-            webSocket: undefined,
-          });
-        }
-
-        await env.KV.put(wsRateKey, JSON.stringify({ count, windowStart }), {
-          expirationTtl: WS_RATE_LIMIT_TTL_SECONDS,
+      if (!wsRateResult.allowed) {
+        logger.warn('WebSocket rate limit exceeded', { email: user.email, count: wsRateResult.count });
+        return new Response(null, {
+          status: 429,
+          headers: { ...jsonHeaders, 'Retry-After': String(wsRateResult.retryAfterSec) },
+          webSocket: undefined,
         });
-      } catch (err) {
-        // Fail-open: KV errors should not block WebSocket connections (AD35)
-        logger.warn('WebSocket rate limit KV error, allowing connection', { error: toErrorMessage(err) });
       }
     }
 
@@ -226,8 +213,8 @@ export async function handleWebSocketUpgrade(
     ctx.waitUntil((async () => {
       const fresh = await env.KV.get<Session>(sessionKey, 'json');
       if (fresh) {
-        fresh.lastAccessedAt = new Date().toISOString();
-        await env.KV.put(sessionKey, JSON.stringify(fresh));
+        const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
+        await env.KV.put(sessionKey, JSON.stringify(touched));
       }
     })().catch(err => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
 

@@ -57,8 +57,8 @@ app.post('/', async (c) => {
     createdAt: new Date().toISOString(),
   };
 
-  presets.push(preset);
-  await c.env.KV.put(key, JSON.stringify(presets));
+  const updated = [...presets, preset];
+  await c.env.KV.put(key, JSON.stringify(updated));
 
   return c.json({ preset }, 201);
 });
@@ -84,10 +84,10 @@ app.patch('/:id', async (c) => {
     throw new NotFoundError('Preset', presetId);
   }
 
-  presets[index].name = parsed.data.label;
-  await c.env.KV.put(key, JSON.stringify(presets));
+  const updated = presets.map((p, i) => i === index ? { ...p, name: parsed.data.label } : p);
+  await c.env.KV.put(key, JSON.stringify(updated));
 
-  return c.json({ preset: presets[index] });
+  return c.json({ preset: updated[index] });
 });
 
 /**
@@ -105,8 +105,8 @@ app.delete('/:id', async (c) => {
     throw new NotFoundError('Preset', presetId);
   }
 
-  presets.splice(index, 1);
-  await c.env.KV.put(key, JSON.stringify(presets));
+  const updated = presets.filter((_, i) => i !== index);
+  await c.env.KV.put(key, JSON.stringify(updated));
 
   return c.json({ success: true, deleted: true, id: presetId });
 });

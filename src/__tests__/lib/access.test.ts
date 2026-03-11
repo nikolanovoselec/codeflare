@@ -1,4 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const { mockLoggerWarn } = vi.hoisted(() => ({
+  mockLoggerWarn: vi.fn(),
+}));
+
+vi.mock('../../lib/logger', () => ({
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    warn: mockLoggerWarn,
+  })),
+}));
+
 import { resolveUserFromKV, getBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache } from '../../lib/access';
 import { AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
@@ -361,8 +375,8 @@ describe('access.ts', () => {
       expect(user.email).toBe('svc@company.com');
     });
 
-    it('logs console.warn when access_aud_list JSON parse fails (FIX-3)', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    it('logs logger.warn when access_aud_list JSON parse fails (FIX-3)', async () => {
+      mockLoggerWarn.mockClear();
       resetAuthConfigCache();
 
       // Store invalid JSON in setup:access_aud_list
@@ -373,12 +387,10 @@ describe('access.ts', () => {
       });
       await getUserFromRequest(request, makeEnv());
 
-      expect(warnSpy).toHaveBeenCalledWith(
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
         'Failed to parse access_aud_list',
         expect.objectContaining({ raw: '{not-valid-json' }),
       );
-
-      warnSpy.mockRestore();
     });
 
   });

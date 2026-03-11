@@ -16,12 +16,16 @@ const containerHealthMap = new Map<string, BreakerEntry>();
 const containerInternalMap = new Map<string, BreakerEntry>();
 const containerSessionsMap = new Map<string, BreakerEntry>();
 
+let callCount = 0;
+
 function getOrCreateBreaker(
   map: Map<string, BreakerEntry>,
   containerId: string,
   namePrefix: string,
   options: { failureThreshold: number; resetTimeoutMs: number; halfOpenMaxAttempts?: number },
 ): CircuitBreaker {
+  if (++callCount % 50 === 0) cleanupStaleBreakers();
+
   const existing = map.get(containerId);
   if (existing) {
     existing.lastAccessedAt = Date.now();

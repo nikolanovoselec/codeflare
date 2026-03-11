@@ -240,6 +240,20 @@ if (typeof window !== 'undefined' && isSamsungBrowser) {
   });
 }
 
+// Debug overlay interval handle — stored so it can be cleaned up.
+let debugIntervalId: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Clean up the debug overlay interval to prevent memory leaks.
+ * Safe to call even when no overlay is active.
+ */
+export function cleanupDebugOverlay(): void {
+  if (debugIntervalId !== null) {
+    clearInterval(debugIntervalId);
+    debugIntervalId = null;
+  }
+}
+
 // On-screen debug overlay for viewport/keyboard diagnostics.
 // Activated by ?debug=1 URL parameter. Shows live values that update
 // on geometrychange, visualViewport resize, and a 500ms fallback interval.
@@ -301,6 +315,6 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     window.visualViewport.addEventListener('scroll', updateOverlay);
   }
   window.addEventListener('resize', updateOverlay);
-  setInterval(updateOverlay, 500);
+  debugIntervalId = setInterval(updateOverlay, 500);
   updateOverlay();
 }

@@ -127,9 +127,8 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   const session = await getSessionOrThrow(c.env.KV, key);
 
   // Persist stopped status in KV so batch-status can skip container probes
-  session.status = 'stopped';
-  session.lastStatusCheck = Date.now();
-  await c.env.KV.put(key, JSON.stringify(session));
+  const updated = { ...session, status: 'stopped' as const, lastStatusCheck: Date.now() };
+  await c.env.KV.put(key, JSON.stringify(updated));
 
   // Best-effort container destroy — container may already be stopped
   try {

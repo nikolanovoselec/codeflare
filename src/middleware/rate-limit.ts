@@ -4,13 +4,10 @@ import type { AuthVariables } from './auth';
 import { RateLimitError } from '../lib/error-types';
 import { ANONYMOUS_RATE_LIMIT_KEY } from '../lib/constants';
 import { createLogger } from '../lib/logger';
+import { checkRateLimit } from '../lib/rate-limit-core';
 
 const logger = createLogger('rate-limit');
 
-// In-memory fallback when KV is unreachable (FIX-15)
-const inMemoryRateLimit = new Map<string, { count: number; windowStart: number }>();
-const CLEANUP_EVERY_N_REQUESTS = 100;
-let fallbackRequestCounter = 0;
 let stressTestWarningLogged = false;
 
 /**
@@ -27,19 +24,12 @@ export interface RateLimitConfig {
 }
 
 /**
- * Rate limit data stored in KV
- */
-interface RateLimitData {
-  count: number;
-  windowStart: number;
-}
-
-/**
  * Create a rate limiting middleware for Hono
  *
  * Uses Cloudflare KV to track request counts per user/IP.
  * If KV is not available, rate limiting is skipped.
- * If a KV operation fails, falls back to in-memory rate limiting.
+ * If a KV operation fails, falls back to in-memory rate limiting
+ * via the shared rate-limit-core module.
  *
  * @example
  * ```typescript
@@ -81,67 +71,21 @@ export function createRateLimiter(config: RateLimitConfig): MiddlewareHandler<{ 
     const identifier = bucketName || c.req.header('CF-Connecting-IP') || ANONYMOUS_RATE_LIMIT_KEY;
     const key = `${config.keyPrefix || 'ratelimit'}:${identifier}`;
 
-    const now = Date.now();
-    const windowStart = now - config.windowMs;
+    const ttlSeconds = Math.ceil(config.windowMs / 1000) + 60; // Add 60s buffer
+    const result = await checkRateLimit({
+      kv,
+      key,
+      limit: config.maxRequests,
+      windowMs: config.windowMs,
+      ttlSeconds,
+    });
 
-    try {
-      // Get current request count
-      const data = await kv.get<RateLimitData>(key, 'json');
-
-      let count = 1;
-      let currentWindowStart = now;
-
-      if (data) {
-        if (data.windowStart > windowStart) {
-          // Still in the same window
-          count = data.count + 1;
-          currentWindowStart = data.windowStart;
-        }
-        // Otherwise, start a new window (count stays 1, windowStart is now)
-      }
-
-      if (count > config.maxRequests) {
-        const retryAfter = Math.ceil((currentWindowStart + config.windowMs - now) / 1000);
-        throw new RateLimitError(`Rate limit exceeded. Try again in ${retryAfter} seconds.`);
-      }
-
-      // Update the count
-      await kv.put(key, JSON.stringify({ count, windowStart: currentWindowStart }), {
-        expirationTtl: Math.ceil(config.windowMs / 1000) + 60, // Add 60s buffer
-      });
-
-      c.header('X-RateLimit-Limit', config.maxRequests.toString());
-      c.header('X-RateLimit-Remaining', Math.max(0, config.maxRequests - count).toString());
-    } catch (err) {
-      if (err instanceof RateLimitError) {
-        throw err;
-      }
-      // KV operation failed — use in-memory fallback instead of letting request through (FIX-15)
-      logger.warn('Rate limit KV operation failed, using in-memory fallback', { key, error: String(err) });
-
-      const fallbackNow = Date.now();
-      const windowMs = config.windowMs;
-      const entry = inMemoryRateLimit.get(key);
-
-      if (entry && (fallbackNow - entry.windowStart) < windowMs) {
-        entry.count++;
-        if (entry.count > config.maxRequests) {
-          const retryAfter = Math.ceil((entry.windowStart + windowMs - fallbackNow) / 1000);
-          throw new RateLimitError(`Rate limit exceeded. Try again in ${retryAfter} seconds.`);
-        }
-      } else {
-        inMemoryRateLimit.set(key, { count: 1, windowStart: fallbackNow });
-      }
-
-      // Proactive cleanup every N requests to prevent unbounded growth (FIX-36)
-      fallbackRequestCounter++;
-      if (fallbackRequestCounter % CLEANUP_EVERY_N_REQUESTS === 0) {
-        const cutoff = fallbackNow - windowMs;
-        for (const [k, v] of inMemoryRateLimit) {
-          if (v.windowStart < cutoff) inMemoryRateLimit.delete(k);
-        }
-      }
+    if (!result.allowed) {
+      throw new RateLimitError(`Rate limit exceeded. Try again in ${result.retryAfterSec} seconds.`);
     }
+
+    c.header('X-RateLimit-Limit', config.maxRequests.toString());
+    c.header('X-RateLimit-Remaining', Math.max(0, config.maxRequests - result.count).toString());
 
     return next();
   };

@@ -82,6 +82,8 @@ describe('seedGettingStartedDocs', () => {
   });
 
   it('seeds only missing docs when overwrite=false', async () => {
+    // Phase 1: parallel HEADs (Readme.TXT → 404, QuickStart.MD → 200)
+    // Phase 2: parallel PUTs (Readme.TXT → 200)
     mockFetch
       .mockResolvedValueOnce(new Response('', { status: 404 }))
       .mockResolvedValueOnce(new Response('', { status: 200 }))
@@ -108,12 +110,12 @@ describe('seedGettingStartedDocs', () => {
         method: 'HEAD',
       },
       {
-        url: 'https://test.r2.cloudflarestorage.com/test-bucket/Readme.TXT',
-        method: 'PUT',
-      },
-      {
         url: 'https://test.r2.cloudflarestorage.com/test-bucket/Guides/QuickStart.MD',
         method: 'HEAD',
+      },
+      {
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/Readme.TXT',
+        method: 'PUT',
       },
     ]);
   });

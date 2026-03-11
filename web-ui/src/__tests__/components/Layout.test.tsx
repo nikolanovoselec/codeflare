@@ -92,6 +92,7 @@ let mockIsSamsungBrowser = false;
 vi.mock('../../lib/mobile', () => ({
   forceResetKeyboardState: vi.fn(),
   enableVirtualKeyboardOverlay: vi.fn(),
+  cleanupDebugOverlay: vi.fn(),
   get isSamsungBrowser() { return mockIsSamsungBrowser; },
 }));
 

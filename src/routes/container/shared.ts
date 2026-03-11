@@ -2,7 +2,6 @@
  * Shared utilities for container routes
  * Includes timeout utilities, circuit breakers, and logger
  */
-import type { DurableObjectStub } from '@cloudflare/workers-types';
 import { createLogger, type Logger } from '../../lib/logger';
 import { isBucketNameResponse } from '../../lib/type-guards';
 import { toErrorMessage } from '../../lib/error-types';
@@ -31,9 +30,12 @@ export async function fetchWithTimeout(
 /**
  * Fetch the stored bucket name from a container's Durable Object.
  * Returns the bucket name string or null if it couldn't be retrieved.
+ *
+ * Accepts a structural type instead of DurableObjectStub to avoid
+ * requiring `as any` casts from callers that hold a narrower type.
  */
 export async function getStoredBucketName(
-  container: DurableObjectStub,
+  container: { fetch: (req: Request) => Promise<Response> },
   logger: Logger,
   containerId: string
 ): Promise<string | null> {
