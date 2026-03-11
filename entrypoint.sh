@@ -219,7 +219,7 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/state*.sqlite-wal"    # SQLite WAL (ephemeral, corrupt on restore)
 
     # Claude Code — session-specific ephemeral data, regenerated per session
-    --filter "- .claude/plugins/marketplaces/**/.git/**"  # marketplace git objects (large, re-cloned from remote)
+    --filter "- .claude/plugins/marketplaces/**"  # marketplace git clones (ephemeral, re-cloned from remote on demand)
     --filter "- .claude/cache/**"            # changelog cache
     --filter "- .claude/debug/**"            # debug logs
     --filter "- .claude/file-history/**"     # per-session file edit history, grows unbounded
@@ -935,22 +935,6 @@ if [ "${FAST_CLI_START:-true}" != "false" ]; then
     mkdir -p "$USER_HOME/.codex"
     echo '{"dismissed_version":"999.0.0"}' > "$USER_HOME/.codex/version.json"
 fi
-
-# Patch marketplace JSON to remove plugins with unsupported source types (e.g. git-subdir)
-# Claude Code's stable channel doesn't support all source types that upstream adds.
-# Without this patch, /plugin fails with "Invalid schema ... plugins.N.source. Invalid input"
-for mkt_json in "$USER_HOME/.claude/plugins/marketplaces"/*/".claude-plugin/marketplace.json"; do
-    [ -f "$mkt_json" ] || continue
-    if grep -q '"git-subdir"' "$mkt_json" 2>/dev/null; then
-        TMP_MKT=$(mktemp)
-        if jq '.plugins = [.plugins[] | select(.source.source != "git-subdir" and .source != "git-subdir")]' "$mkt_json" > "$TMP_MKT" 2>/dev/null; then
-            mv "$TMP_MKT" "$mkt_json"
-            echo "[entrypoint] Patched marketplace: removed plugins with unsupported git-subdir source type"
-        else
-            rm -f "$TMP_MKT"
-        fi
-    fi
-done
 
 # Configure tab auto-start
 configure_tab_autostart
