@@ -52,7 +52,7 @@ describe('Storage Store', () => {
 
   describe('initial state', () => {
     it('should have correct defaults', () => {
-      expect(storageStore.currentPrefix).toBe('workspace/');
+      expect(storageStore.currentPrefix).toBe('');
       expect(storageStore.objects).toEqual([]);
       expect(storageStore.prefixes).toEqual([]);
       expect(storageStore.loading).toBe(false);
@@ -78,7 +78,7 @@ describe('Storage Store', () => {
 
       await storageStore.browse();
 
-      expect(mockBrowseStorage).toHaveBeenCalledWith('workspace/');
+      expect(mockBrowseStorage).toHaveBeenCalledWith('');
       expect(storageStore.objects).toEqual([
         { key: 'workspace/file.txt', size: 100, lastModified: '2025-01-01T00:00:00Z' },
       ]);
@@ -188,7 +188,14 @@ describe('Storage Store', () => {
         isTruncated: false,
       });
 
-      // Default prefix is 'workspace/' which is a single segment
+      // Navigate to workspace/ first so navigateUp has somewhere to go
+      await storageStore.navigateTo('workspace/');
+      vi.clearAllMocks();
+      mockBrowseStorage.mockResolvedValue({
+        objects: [],
+        prefixes: [],
+        isTruncated: false,
+      });
       await storageStore.navigateUp();
 
       // Should navigate to root '' (empty prefix)
@@ -232,8 +239,8 @@ describe('Storage Store', () => {
       ]);
     });
 
-    it('should return single breadcrumb at root', () => {
-      expect(storageStore.breadcrumbs).toEqual(['workspace/']);
+    it('should return empty breadcrumbs at root', () => {
+      expect(storageStore.breadcrumbs).toEqual([]);
     });
   });
 
@@ -570,7 +577,7 @@ describe('Storage Store', () => {
 
       await storageStore.refresh();
 
-      expect(mockBrowseStorage).toHaveBeenCalledWith('workspace/');
+      expect(mockBrowseStorage).toHaveBeenCalledWith('');
     });
   });
 

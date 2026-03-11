@@ -54,7 +54,7 @@ interface StorageState {
 }
 
 const initialState: StorageState = {
-  currentPrefix: 'workspace/',
+  currentPrefix: '',
   objects: [],
   prefixes: [],
   loading: false,
