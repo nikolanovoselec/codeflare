@@ -219,7 +219,7 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/state*.sqlite-wal"    # SQLite WAL (ephemeral, corrupt on restore)
 
     # Claude Code — session-specific ephemeral data, regenerated per session
-    --filter "- .claude/plugins/marketplaces/**/.git/**"  # marketplace git clones (~2MB each, reinstalled from remote)
+    --filter "- .claude/plugins/marketplaces/**"  # marketplace git clones (ephemeral, re-cloned from remote on demand)
     --filter "- .claude/cache/**"            # changelog cache
     --filter "- .claude/debug/**"            # debug logs
     --filter "- .claude/file-history/**"     # per-session file edit history, grows unbounded

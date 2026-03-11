@@ -22,7 +22,7 @@ const StorageBrowser: Component = () => {
   let searchInputRef: HTMLInputElement | undefined;
 
   onMount(() => {
-    storageStore.browse('');
+    storageStore.browse(storageStore.currentPrefix || '');
 
     // Auto-refresh file listing every 30s (silent — no loading spinner)
     const refreshInterval = setInterval(() => {
