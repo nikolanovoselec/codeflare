@@ -23,7 +23,7 @@ FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7
 # Suppress npm update nag; configure claude-unleashed for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 ENV CLAUDE_UNLEASHED_SKIP_CONSENT=1
-ENV CLAUDE_UNLEASHED_CHANNEL=latest
+ENV CLAUDE_UNLEASHED_CHANNEL=stable
 ENV DISABLE_INSTALLATION_CHECKS=1
 ENV CLAUDE_UNLEASHED_NO_UPDATE=1
 ENV IS_SANDBOX=1
@@ -119,7 +119,7 @@ COPY .cache-bust /tmp/.cache-bust
 RUN apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g github:nikolanovoselec/claude-unleashed#12ecd6af335285ff459645c07f3d635b76b62e3b && \
+RUN npm install -g github:nikolanovoselec/claude-unleashed#d261d3fbbf28678cf1181b9008b63d6d680256c8 && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
     rm -rf /root/.npm
