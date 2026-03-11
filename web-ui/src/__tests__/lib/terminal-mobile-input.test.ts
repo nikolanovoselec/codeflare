@@ -8,7 +8,6 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveKeyAction,
   FUNCTIONAL_KEY_MAP,
-  type KeyDispatchResult,
 } from '../../lib/terminal-mobile-input';
 
 describe('FUNCTIONAL_KEY_MAP', () => {
