@@ -436,17 +436,22 @@ server.listen(PORT, '0.0.0.0', () => {
   sessionManager.sessions.set(PREWARM_SESSION_ID, prewarmSession);
   prewarmSession.start();
   prewarmStartTime = Date.now();
-  log('info', 'Pre-warming tab 1 PTY', { command: prewarmConfig.command });
+  log('info', 'Pre-warming tab 1 PTY', { command: prewarmConfig.command, ptyAlive: prewarmSession.ptyProcess !== null, ptyPid: prewarmSession.ptyProcess?.pid ?? null });
 
   // Readiness = first PTY output + 1.5s settle delay.
   // The delay lets the agent render its initial UI before the user can click "Open".
   const PREWARM_SETTLE_MS = 1500;
   let prewarmDataListener: { dispose(): void } | null = null;
   if (prewarmSession.ptyProcess) {
-    prewarmDataListener = prewarmSession.ptyProcess.onData(() => {
+    prewarmDataListener = prewarmSession.ptyProcess.onData((data: string) => {
       if (!prewarmReady) {
         const elapsed = Date.now() - prewarmStartTime;
-        log('info', 'Pre-warm first output detected, settling', { elapsedSec: (elapsed / 1000).toFixed(1), command: prewarmConfig.command });
+        log('info', 'Pre-warm first output detected, settling', {
+          elapsedSec: (elapsed / 1000).toFixed(1),
+          command: prewarmConfig.command,
+          firstChars: data.substring(0, 80).replace(/[\x00-\x1f]/g, '?'),
+          bytesLen: data.length,
+        });
         if (prewarmDataListener) {
           prewarmDataListener.dispose();
           prewarmDataListener = null;
@@ -459,6 +464,8 @@ server.listen(PORT, '0.0.0.0', () => {
         }, PREWARM_SETTLE_MS);
       }
     });
+  } else {
+    log('warn', 'Pre-warm: ptyProcess is null after start(), relying on timeout only');
   }
 
   // Hard timeout safety net (20s) — in case PTY produces no output at all
