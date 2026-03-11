@@ -184,256 +184,6 @@
       "advanced"
     ]
   },
-  "plugins/cache/claude-plugins-official/context7/unknown/.claude-plugin/plugin.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/context7/unknown/.mcp.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/.claude-plugin/marketplace.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/.claude-plugin/plugin.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/agents/code-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/commands/brainstorm.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/commands/execute-plan.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/commands/write-plan.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/docs/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/hooks/hooks.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/hooks/run-hook.cmd": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/hooks/session-start": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/lib/skills-core.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/brainstorming/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/dispatching-parallel-agents/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/executing-plans/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/finishing-a-development-branch/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/receiving-code-review/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/requesting-code-review/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/requesting-code-review/code-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/subagent-driven-development/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/subagent-driven-development/code-quality-reviewer-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/subagent-driven-development/implementer-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/subagent-driven-development/spec-reviewer-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/CREATION-LOG.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/condition-based-waiting-example.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/condition-based-waiting.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/defense-in-depth.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/find-polluter.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/root-cause-tracing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/test-academic.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/test-pressure-1.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/test-pressure-2.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/systematic-debugging/test-pressure-3.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/test-driven-development/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/test-driven-development/testing-anti-patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/using-git-worktrees/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/using-superpowers/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/verification-before-completion/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/writing-plans/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/writing-skills/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/writing-skills/anthropic-best-practices.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/writing-skills/examples/CLAUDE_MD_TESTING.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/writing-skills/graphviz-conventions.dot": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/writing-skills/persuasion-principles.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/writing-skills/render-graphs.js": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/cache/claude-plugins-official/superpowers/4.3.1/skills/writing-skills/testing-skills-with-subagents.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/installed_plugins.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/known_marketplaces.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "agents/architect.md": {
     "modes": [
       "advanced"
@@ -469,32 +219,27 @@
       "advanced"
     ]
   },
-  "commands/build-fix.md": {
+  "commands/brainstorm.md": {
     "modes": [
       "advanced"
     ]
   },
-  "commands/checkpoint.md": {
+  "commands/debug.md": {
     "modes": [
       "advanced"
     ]
   },
-  "commands/refactor-clean.md": {
+  "commands/deploy.md": {
     "modes": [
       "advanced"
     ]
   },
-  "commands/test-coverage.md": {
+  "commands/plan.md": {
     "modes": [
       "advanced"
     ]
   },
   "commands/review.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "commands/verify.md": {
     "modes": [
       "advanced"
     ]
