@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { createActivityTracker } from '../activity-tracker.js';
+import { createActivityTracker } from '../dist/activity-tracker.js';
 
 describe('activity-tracker', () => {
   let tracker;

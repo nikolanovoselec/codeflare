@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "description": "Terminal server for codeflare container",
-  "main": "server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node server.js",
+    "build": "tsc",
+    "start": "node dist/server.js",
     "test": "node --test __tests__/*.test.js"
   },
   "dependencies": {
@@ -16,6 +17,9 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "fast-check": "^4.5.3"
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "fast-check": "^4.5.3",
+    "typescript": "^5.7.0"
   }
 }

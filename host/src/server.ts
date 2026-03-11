@@ -15,21 +15,22 @@
  * - GET  /sync-log            - rclone sync log
  */
 
-import http from 'http';
+import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { parse as parseUrl } from 'url';
-import fs from 'fs';
-import crypto from 'crypto';
+import { parse as parseUrl } from 'node:url';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 import { getSyncStatus, getSystemMetrics } from './metrics.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
+import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry } from './types.js';
 
 const WS_KEEPALIVE_PING_MS = 30000;
 
 // Structured logger — replaces raw console.log/console.error calls
-function log(level, msg, meta) {
+const log: Logger = (level: LogLevel, msg: string, meta?: Record<string, unknown>): void => {
   const entry = `[${level.toUpperCase()}] ${msg}`;
   if (meta) {
     const metaStr = JSON.stringify(meta);
@@ -45,21 +46,21 @@ function log(level, msg, meta) {
       console.log(entry);
     }
   }
-}
+};
 
 // Start time for uptime calculation
 const SERVER_START_TIME = Date.now();
 
-const PORT = process.env.TERMINAL_PORT || 8080;
+const PORT = process.env.TERMINAL_PORT ?? '8080';
 // Spawn a login shell so .bashrc runs and auto-starts the configured agent
 // The .bashrc has agent auto-start logic that only works in interactive login shells
-const TERMINAL_COMMAND = process.env.TERMINAL_COMMAND || '/bin/bash';
-const TERMINAL_ARGS = process.env.TERMINAL_ARGS || '-l';  // Login shell flag
-const WORKSPACE_DEFAULT = process.env.WORKSPACE || '/home/user/workspace';
+const TERMINAL_COMMAND = process.env.TERMINAL_COMMAND ?? '/bin/bash';
+const TERMINAL_ARGS = process.env.TERMINAL_ARGS ?? '-l';  // Login shell flag
+const WORKSPACE_DEFAULT = process.env.WORKSPACE ?? '/home/user/workspace';
 
 // PTY persistence settings
-const PTY_KEEPALIVE_MS = parseInt(process.env.PTY_KEEPALIVE_MS || '2700000', 10); // 45 minutes
-const PTY_CLEANUP_INTERVAL_MS = parseInt(process.env.PTY_CLEANUP_INTERVAL_MS || '60000', 10); // Check every minute
+const PTY_KEEPALIVE_MS = parseInt(process.env.PTY_KEEPALIVE_MS ?? '2700000', 10); // 45 minutes
+const PTY_CLEANUP_INTERVAL_MS = parseInt(process.env.PTY_CLEANUP_INTERVAL_MS ?? '60000', 10); // Check every minute
 
 // Named constants for magic numbers
 const WS_MAX_PAYLOAD = 64 * 1024;        // 64KB WebSocket max payload
@@ -67,9 +68,9 @@ const MAX_CONTROL_MSG_LENGTH = 200;       // Max length for JSON control message
 
 // Parse TAB_CONFIG for expected process names per terminal tab
 // TAB_CONFIG is set by the Container DO before container start
-let tabConfigMap = {};
+const tabConfigMap: Record<string, string> = {};
 try {
-  const tabConfig = JSON.parse(process.env.TAB_CONFIG || '[]');
+  const tabConfig: TabConfigEntry[] = JSON.parse(process.env.TAB_CONFIG ?? '[]');
   for (const tab of tabConfig) {
     if (tab.command) {
       tabConfigMap[tab.id] = tab.command;
@@ -81,15 +82,15 @@ try {
 
 // Determine actual working directory - fall back if WORKSPACE doesn't exist
 // This handles the case where R2 mount fails or hasn't completed yet
-let cachedWorkingDir = null;
-function getWorkingDirectory() {
+let cachedWorkingDir: string | null = null;
+function getWorkingDirectory(): string {
   if (cachedWorkingDir) return cachedWorkingDir;
   if (fs.existsSync(WORKSPACE_DEFAULT)) {
     cachedWorkingDir = WORKSPACE_DEFAULT;
     return cachedWorkingDir;
   }
   // Fall back to HOME or /tmp if workspace doesn't exist
-  const fallback = process.env.HOME || '/tmp';
+  const fallback = process.env.HOME ?? '/tmp';
   log('warn', 'Workspace not found, falling back', { workspace: WORKSPACE_DEFAULT, fallback });
   cachedWorkingDir = fallback;
   return cachedWorkingDir;
@@ -97,9 +98,9 @@ function getWorkingDirectory() {
 
 // Ring buffer for recent WebSocket events (for debugging disconnects)
 const WS_EVENT_BUFFER_SIZE = 100;
-const wsEventLog = [];
-function logWsEvent(sessionId, type, details) {
-  const event = {
+const wsEventLog: WsEvent[] = [];
+const logWsEvent: WsEventLogger = (sessionId: string, type: string, details?: Record<string, unknown>): void => {
+  const event: WsEvent = {
     ts: new Date().toISOString(),
     session: sessionId.substring(0, 8),
     type,
@@ -109,7 +110,7 @@ function logWsEvent(sessionId, type, details) {
   if (wsEventLog.length > WS_EVENT_BUFFER_SIZE) {
     wsEventLog.shift();
   }
-}
+};
 
 // Activity tracking for smart hibernation (WebSocket disconnect tracking)
 const activityTracker = createActivityTracker();
@@ -134,18 +135,15 @@ const sessionManager = new SessionManager(sessionOptions);
 /**
  * Timing-safe comparison of bearer tokens.
  * Uses crypto.timingSafeEqual to prevent timing side-channel attacks.
- * @param {string} provided - The token from the Authorization header
- * @param {string} expected - The expected CONTAINER_AUTH_TOKEN
- * @returns {boolean}
  */
-function safeTokenCompare(provided, expected) {
-  const h = (s) => crypto.createHash('sha256').update(s).digest();
+function safeTokenCompare(provided: string, expected: string): boolean {
+  const h = (s: string): Buffer => crypto.createHash('sha256').update(s).digest();
   return crypto.timingSafeEqual(h(provided), h(expected));
 }
 
 // Create HTTP server
-const server = http.createServer(async (req, res) => {
-  const { pathname } = parseUrl(req.url);
+const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
+  const { pathname } = parseUrl(req.url ?? '');
   const method = req.method;
 
   // Internal endpoints exempt from auth — used by DO schedule-based callbacks
@@ -153,7 +151,7 @@ const server = http.createServer(async (req, res) => {
   // the DO's fetch() override that injects auth headers.
   // These endpoints are behind the container network boundary (no external access).
   const authExemptPaths = new Set(['/health', '/activity']);
-  if (!authExemptPaths.has(pathname)) {
+  if (!authExemptPaths.has(pathname ?? '')) {
     // Validate container auth token (internal-only service, no CORS needed)
     const expectedToken = process.env.CONTAINER_AUTH_TOKEN;
     if (!expectedToken) {
@@ -223,7 +221,7 @@ const server = http.createServer(async (req, res) => {
     const MAX_BODY_SIZE = 64 * 1024; // 64KB
     let body = '';
     let bodySize = 0;
-    req.on('data', (chunk) => {
+    req.on('data', (chunk: Buffer) => {
       bodySize += chunk.length;
       if (bodySize > MAX_BODY_SIZE) {
         res.writeHead(413, { 'Content-Type': 'application/json' });
@@ -236,14 +234,14 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       if (bodySize > MAX_BODY_SIZE) return;
       try {
-        const { id, name } = JSON.parse(body || '{}');
+        const { id, name } = JSON.parse(body || '{}') as { id?: string; name?: string };
         if (!id) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Session ID required' }));
           return;
         }
 
-        const session = sessionManager.getOrCreate(id, name || 'Terminal');
+        const session = sessionManager.getOrCreate(id, name ?? 'Terminal');
         if (!session) {
           res.writeHead(503, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Session limit reached' }));
@@ -251,7 +249,7 @@ const server = http.createServer(async (req, res) => {
         }
         res.writeHead(201, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ session: session.toJSON() }));
-      } catch (e) {
+      } catch {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
       }
@@ -260,7 +258,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Delete session
-  const deleteMatch = pathname.match(/^\/sessions\/([^\/]+)$/);
+  const deleteMatch = (pathname ?? '').match(/^\/sessions\/([^/]+)$/);
   if (deleteMatch && method === 'DELETE') {
     const id = deleteMatch[1];
     const deleted = sessionManager.delete(id);
@@ -279,7 +277,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const MAX_LOG_SIZE = 100 * 1024; // 100KB
       const stat = fs.statSync('/tmp/sync.log');
-      let logContent;
+      let logContent: string;
       if (stat.size > MAX_LOG_SIZE) {
         // Read only the last 100KB
         const buffer = Buffer.alloc(MAX_LOG_SIZE);
@@ -307,9 +305,9 @@ const server = http.createServer(async (req, res) => {
 // Create WebSocket server
 const wss = new WebSocketServer({ server, path: '/terminal', maxPayload: WS_MAX_PAYLOAD });
 
-wss.on('connection', (ws, req) => {
-  const { query } = parseUrl(req.url, true);
-  const sessionId = query.session;
+wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+  const { query } = parseUrl(req.url ?? '', true);
+  const sessionId = query.session as string | undefined;
   const isManualTab = query.manual === '1';
   const connectedAt = Date.now();
 
@@ -334,7 +332,7 @@ wss.on('connection', (ws, req) => {
   });
 
   // Sanitize session name
-  const name = (query.name || '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || 'Terminal';
+  const name = ((query.name as string) ?? '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || 'Terminal';
 
   // Get or create session (pass manual flag for user-created tabs)
   const session = sessionManager.getOrCreate(sessionId, name, isManualTab);
@@ -346,30 +344,30 @@ wss.on('connection', (ws, req) => {
   // Attach client to session
   session.attach(ws);
 
-  log('info', 'WS connected', { session: shortId, ptyAlive: session.isPtyAlive(), ptyPid: session.ptyProcess?.pid || null, totalClients: session.clients.size });
-  logWsEvent(sessionId, 'connect', { clients: session.clients.size, ptyAlive: session.isPtyAlive(), ptyPid: session.ptyProcess?.pid || null });
+  log('info', 'WS connected', { session: shortId, ptyAlive: session.isPtyAlive(), ptyPid: session.ptyProcess?.pid ?? null, totalClients: session.clients.size });
+  logWsEvent(sessionId, 'connect', { clients: session.clients.size, ptyAlive: session.isPtyAlive(), ptyPid: session.ptyProcess?.pid ?? null });
 
   // Handle incoming messages
   // RAW data goes directly to PTY, JSON only for control messages (resize)
-  ws.on('message', (message) => {
+  ws.on('message', (message: Buffer | string) => {
     const str = message.toString();
 
     // Try to parse as JSON for known control messages only
     // Length-gated: control messages are small; skip parsing for large terminal input
     if (str.length < MAX_CONTROL_MSG_LENGTH && str.startsWith('{')) {
       try {
-        const msg = JSON.parse(str);
+        const msg = JSON.parse(str) as Record<string, unknown>;
 
         // Validate type field AND correct field types before acting
         if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
           if (msg.cols > 0 && msg.cols < 10000 && msg.rows > 0 && msg.rows < 10000) {
-            session.resize(msg.cols, msg.rows);
+            session.resize(msg.cols as number, msg.rows as number);
           }
           return;
         }
 
         if (msg.type === 'data' && typeof msg.data === 'string') {
-          session.write(msg.data);
+          session.write(msg.data as string);
           return;
         }
 
@@ -392,7 +390,7 @@ wss.on('connection', (ws, req) => {
   });
 
   // Handle client disconnect
-  ws.on('close', (code, reason) => {
+  ws.on('close', (code: number, reason: Buffer) => {
     clearInterval(pingInterval);
     const duration = Math.floor((Date.now() - connectedAt) / 1000);
     const reasonStr = reason ? reason.toString() : '';
@@ -404,10 +402,10 @@ wss.on('connection', (ws, req) => {
   });
 
   // Handle errors
-  ws.on('error', (err) => {
+  ws.on('error', (err: Error & { code?: string }) => {
     const duration = Math.floor((Date.now() - connectedAt) / 1000);
-    log('error', 'WS error', { session: shortId, message: err.message, errCode: err.code || null, durationSec: duration, ptyAlive: session.isPtyAlive() });
-    logWsEvent(sessionId, 'error', { message: err.message, errCode: err.code || null, durationSec: duration, ptyAlive: session.isPtyAlive() });
+    log('error', 'WS error', { session: shortId, message: err.message, errCode: err.code ?? null, durationSec: duration, ptyAlive: session.isPtyAlive() });
+    logWsEvent(sessionId, 'error', { message: err.message, errCode: err.code ?? null, durationSec: duration, ptyAlive: session.isPtyAlive() });
     session.detach(ws, sessionManager);
   });
 
@@ -418,8 +416,8 @@ wss.on('connection', (ws, req) => {
 let prewarmReady = false;
 let prewarmStartTime = 0;
 
-const parsedTabConfig = (() => {
-  try { return JSON.parse(process.env.TAB_CONFIG || '[]'); } catch { return []; }
+const parsedTabConfig: TabConfigEntry[] = (() => {
+  try { return JSON.parse(process.env.TAB_CONFIG ?? '[]') as TabConfigEntry[]; } catch { return []; }
 })();
 const prewarmConfig = getPrewarmConfig(parsedTabConfig);
 const PREWARM_TIMEOUT_MS = 20000;     // Hard cap: consider ready after 20s regardless
@@ -443,7 +441,7 @@ server.listen(PORT, '0.0.0.0', () => {
   // Readiness = first PTY output + 1.5s settle delay.
   // The delay lets the agent render its initial UI before the user can click "Open".
   const PREWARM_SETTLE_MS = 1500;
-  let prewarmDataListener = null;
+  let prewarmDataListener: { dispose(): void } | null = null;
   if (prewarmSession.ptyProcess) {
     prewarmDataListener = prewarmSession.ptyProcess.onData(() => {
       if (!prewarmReady) {
@@ -464,7 +462,7 @@ server.listen(PORT, '0.0.0.0', () => {
   }
 
   // Hard timeout safety net (20s) — in case PTY produces no output at all
-  const timeoutId = setTimeout(() => {
+  setTimeout(() => {
     if (!prewarmReady) {
       prewarmReady = true;
       log('info', 'Pre-warm ready (timeout)', { elapsedSec: (PREWARM_TIMEOUT_MS / 1000).toFixed(1), command: prewarmConfig.command });
@@ -485,7 +483,7 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 // Graceful shutdown helper
-function shutdown(signal) {
+function shutdown(signal: string): void {
   log('info', `Received ${signal}, shutting down`);
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes
   sessionManager.killAll();

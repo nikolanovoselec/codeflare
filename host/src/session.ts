@@ -6,33 +6,61 @@
  */
 
 import pty from 'node-pty';
+import type { IPty } from 'node-pty';
 import { WebSocket } from 'ws';
 import HeadlessPkg from '@xterm/headless';
 const { Terminal: HeadlessTerminal } = HeadlessPkg;
 import SerializePkg from '@xterm/addon-serialize';
 const { SerializeAddon } = SerializePkg;
 
+import type {
+  SessionOptions,
+  SessionJSON,
+  TabConfigMap,
+  Logger,
+  WsEventLogger,
+  ActivityTracker,
+} from './types.js';
+
 const PROCESS_NAME_POLL_MS = 2000;
+
+// Forward reference — SessionManager is imported only as a type to avoid
+// circular runtime dependencies.
+interface SessionManagerLike {
+  clients: Map<string, WebSocket>;
+  sessions: Map<string, Session>;
+}
 
 /**
  * Session represents a PTY terminal instance.
  */
 export class Session {
-  /**
-   * @param {string} id - Session ID
-   * @param {string} name - Display name
-   * @param {boolean} manual - Whether this is a manually-created tab
-   * @param {object} options - Configuration options
-   * @param {object} options.tabConfigMap - Map of terminal ID to configured command
-   * @param {string} options.terminalCommand - Command to spawn
-   * @param {string} options.terminalArgs - Arguments for the command
-   * @param {function} options.getWorkingDirectory - Function to resolve working directory
-   * @param {function} options.log - Structured logger
-   * @param {function} options.logWsEvent - WebSocket event logger
-   * @param {object} options.activityTracker - Activity tracker instance
-   * @param {number} options.ptyKeepaliveMs - PTY keepalive timeout in ms
-   */
-  constructor(id, name = 'Terminal', manual = false, options = {}) {
+  id: string;
+  name: string;
+  manual: boolean;
+  ptyProcess: IPty | null;
+  clients: Set<WebSocket>;
+  headlessTerminal: InstanceType<typeof HeadlessTerminal>;
+  serializeAddon: InstanceType<typeof SerializeAddon>;
+  createdAt: string;
+  lastAccessedAt: string;
+  disconnectedAt: string | null;
+  keepAliveTimeout: ReturnType<typeof setTimeout> | null;
+  lastProcessName: string | null;
+  processNameInterval: ReturnType<typeof setInterval> | null;
+  orphanTimeout: ReturnType<typeof setTimeout> | null;
+
+  // Injected dependencies
+  private readonly _tabConfigMap: TabConfigMap;
+  private readonly _terminalCommand: string;
+  private readonly _terminalArgs: string;
+  private readonly _getWorkingDirectory: () => string;
+  private readonly _log: Logger;
+  private readonly _logWsEvent: WsEventLogger;
+  private readonly _activityTracker: ActivityTracker | null;
+  private readonly _ptyKeepaliveMs: number;
+
+  constructor(id: string, name = 'Terminal', manual = false, options: SessionOptions = {}) {
     this.id = id;
     this.name = name;
     this.manual = manual;
@@ -50,20 +78,20 @@ export class Session {
     this.orphanTimeout = null;
 
     // Injected dependencies
-    this._tabConfigMap = options.tabConfigMap || {};
-    this._terminalCommand = options.terminalCommand || '/bin/bash';
-    this._terminalArgs = options.terminalArgs || '-l';
-    this._getWorkingDirectory = options.getWorkingDirectory || (() => '/tmp');
-    this._log = options.log || (() => {});
-    this._logWsEvent = options.logWsEvent || (() => {});
-    this._activityTracker = options.activityTracker || null;
-    this._ptyKeepaliveMs = options.ptyKeepaliveMs || 2700000;
+    this._tabConfigMap = options.tabConfigMap ?? {};
+    this._terminalCommand = options.terminalCommand ?? '/bin/bash';
+    this._terminalArgs = options.terminalArgs ?? '-l';
+    this._getWorkingDirectory = options.getWorkingDirectory ?? (() => '/tmp');
+    this._log = options.log ?? (() => {});
+    this._logWsEvent = options.logWsEvent ?? (() => {});
+    this._activityTracker = options.activityTracker ?? null;
+    this._ptyKeepaliveMs = options.ptyKeepaliveMs ?? 2700000;
   }
 
   /**
    * Get the terminal ID from the compound session ID (e.g., "abc123-2" -> "2")
    */
-  get terminalId() {
+  get terminalId(): string {
     const parts = this.id.split('-');
     return parts[parts.length - 1];
   }
@@ -71,25 +99,25 @@ export class Session {
   /**
    * Resolve the display name for the foreground process.
    */
-  resolveProcessName() {
+  resolveProcessName(): string | null {
     const rawName = this.ptyProcess ? this.ptyProcess.process : null;
     if (!rawName) return null;
 
     const configuredCmd = this._tabConfigMap[this.terminalId];
     if (configuredCmd) {
       const baseName = rawName.split('/').pop();
-      if (['node', 'nodejs', 'bash', 'sh', 'zsh'].includes(baseName)) {
+      if (['node', 'nodejs', 'bash', 'sh', 'zsh'].includes(baseName ?? '')) {
         return configuredCmd.split(/\s+/)[0];
       }
     }
 
-    return rawName.split('/').pop() || rawName;
+    return rawName.split('/').pop() ?? rawName;
   }
 
   /**
    * Start the PTY process
    */
-  start(cols = 80, rows = 24) {
+  start(cols = 80, rows = 24): void {
     if (this.ptyProcess) {
       return;
     }
@@ -103,12 +131,12 @@ export class Session {
     const cwd = this._getWorkingDirectory();
     const terminalId = this.id.includes('-') ? this.id.split('-').pop() : '1';
 
-    const ptyEnv = {
-      ...process.env,
+    const ptyEnv: Record<string, string> = {
+      ...process.env as Record<string, string>,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
-      HOME: process.env.HOME || '/root',
-      TERMINAL_ID: terminalId,
+      HOME: process.env.HOME ?? '/root',
+      TERMINAL_ID: terminalId ?? '1',
     };
     if (this.manual) {
       ptyEnv.MANUAL_TAB = '1';
@@ -122,7 +150,7 @@ export class Session {
       env: ptyEnv,
     });
 
-    this.ptyProcess.onData((data) => {
+    this.ptyProcess.onData((data: string) => {
       this.headlessTerminal.write(data);
 
       for (const client of this.clients) {
@@ -132,7 +160,7 @@ export class Session {
       }
     });
 
-    this.ptyProcess.onExit(({ exitCode, signal }) => {
+    this.ptyProcess.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
       this._log('info', 'PTY exited', { session: this.id, exitCode, signal, connectedClients: this.clients.size });
       this._logWsEvent(this.id, 'pty_exit', { exitCode, signal, connectedClients: this.clients.size });
       for (const client of this.clients) {
@@ -151,7 +179,7 @@ export class Session {
     this.lastProcessName = this.resolveProcessName();
     this.processNameInterval = setInterval(() => {
       if (!this.ptyProcess) {
-        clearInterval(this.processNameInterval);
+        clearInterval(this.processNameInterval!);
         this.processNameInterval = null;
         return;
       }
@@ -173,7 +201,7 @@ export class Session {
   /**
    * Attach a WebSocket client to this session
    */
-  attach(ws) {
+  attach(ws: WebSocket): void {
     this.clients.add(ws);
     this.lastAccessedAt = new Date().toISOString();
     if (this._activityTracker) {
@@ -205,10 +233,8 @@ export class Session {
 
   /**
    * Detach a WebSocket client from this session
-   * @param {WebSocket} ws
-   * @param {SessionManager} sessionManager - Reference to session manager for cleanup
    */
-  detach(ws, sessionManager = null) {
+  detach(ws: WebSocket, sessionManager: SessionManagerLike | null = null): void {
     this.clients.delete(ws);
     this._log('info', 'Client detached', { session: this.id.substring(0, 8), totalClients: this.clients.size });
 
@@ -236,7 +262,7 @@ export class Session {
   /**
    * Write data to the PTY
    */
-  write(data) {
+  write(data: string): void {
     if (this.ptyProcess) {
       this.ptyProcess.write(data);
     }
@@ -245,7 +271,7 @@ export class Session {
   /**
    * Resize the PTY
    */
-  resize(cols, rows) {
+  resize(cols: number, rows: number): void {
     if (this.ptyProcess) {
       this.ptyProcess.resize(cols, rows);
     }
@@ -255,7 +281,7 @@ export class Session {
   /**
    * Kill the PTY process
    */
-  kill() {
+  kill(): void {
     if (this.keepAliveTimeout) {
       clearTimeout(this.keepAliveTimeout);
       this.keepAliveTimeout = null;
@@ -283,18 +309,18 @@ export class Session {
   /**
    * Check if PTY process is still running
    */
-  isPtyAlive() {
+  isPtyAlive(): boolean {
     return this.ptyProcess !== null;
   }
 
   /**
    * Get session info
    */
-  toJSON() {
+  toJSON(): SessionJSON {
     return {
       id: this.id,
       name: this.name,
-      pid: this.ptyProcess?.pid || null,
+      pid: this.ptyProcess?.pid ?? null,
       clients: this.clients.size,
       createdAt: this.createdAt,
       lastAccessedAt: this.lastAccessedAt,

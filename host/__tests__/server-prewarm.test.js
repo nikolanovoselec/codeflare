@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
  * the command name from TAB_CONFIG for logging — no patterns or quiescence.
  */
 
-import { getPrewarmConfig } from '../prewarm-config.js';
+import { getPrewarmConfig } from '../dist/prewarm-config.js';
 
 describe('getPrewarmConfig (server integration)', () => {
   it('returns command: null when tabConfig is undefined', () => {
