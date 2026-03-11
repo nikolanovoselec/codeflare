@@ -155,20 +155,19 @@ app.patch('/:id', async (c) => {
     throw new ValidationError(parsed.error.issues[0].message);
   }
 
-  // Update fields
-  if (parsed.data.name) {
-    session.name = sanitizeSessionName(parsed.data.name);
-  }
-  if (parsed.data.tabConfig) {
-    session.tabConfig = parsed.data.tabConfig;
-  }
-  session.lastAccessedAt = new Date().toISOString();
+  // Update fields (immutable)
+  const updated = {
+    ...session,
+    ...(parsed.data.name ? { name: sanitizeSessionName(parsed.data.name) } : {}),
+    ...(parsed.data.tabConfig ? { tabConfig: parsed.data.tabConfig } : {}),
+    lastAccessedAt: new Date().toISOString(),
+  };
 
   // Save updated session
-  await c.env.KV.put(key, JSON.stringify(session));
+  await c.env.KV.put(key, JSON.stringify(updated));
 
   // Omit userId from API response
-  return c.json({ session: toApiSession(session) });
+  return c.json({ session: toApiSession(updated) });
 });
 
 /**
@@ -221,10 +220,10 @@ app.post('/:id/touch', async (c) => {
 
   const session = await getSessionOrThrow(c.env.KV, key);
 
-  session.lastAccessedAt = new Date().toISOString();
-  await c.env.KV.put(key, JSON.stringify(session));
+  const updated = { ...session, lastAccessedAt: new Date().toISOString() };
+  await c.env.KV.put(key, JSON.stringify(updated));
 
-  return c.json({ session: toApiSession(session) });
+  return c.json({ session: toApiSession(updated) });
 });
 
 export default app;

@@ -211,7 +211,7 @@ export async function configureContainerDO(params: {
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
   const { container, bucketName, containerId, logger } = params;
 
-  const storedBucketName = await getStoredBucketName(container as any, logger, containerId);
+  const storedBucketName = await getStoredBucketName(container, logger, containerId);
 
   const setBucketBody = buildSetBucketNameBody({
     bucketName: params.bucketName,
@@ -308,8 +308,8 @@ export async function startOrRestartContainer(params: {
 
   // Mark session as running in KV
   if (sessionData.status !== 'running') {
-    sessionData.status = 'running';
-    await env.KV.put(sessionKey, JSON.stringify(sessionData));
+    const updated = { ...sessionData, status: 'running' as const };
+    await env.KV.put(sessionKey, JSON.stringify(updated));
   }
 
   // If container is already running/healthy with correct bucket, return immediately
@@ -331,8 +331,8 @@ export async function startOrRestartContainer(params: {
         try {
           const freshSession = await env.KV.get<Session>(sessionKey, 'json');
           if (freshSession) {
-            freshSession.status = 'stopped';
-            await env.KV.put(sessionKey, JSON.stringify(freshSession));
+            const rolledBack = { ...freshSession, status: 'stopped' as const };
+            await env.KV.put(sessionKey, JSON.stringify(rolledBack));
           }
         } catch (err) {
           logger.error('KV rollback to stopped failed', toError(err));

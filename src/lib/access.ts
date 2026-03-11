@@ -1,6 +1,9 @@
 import type { AccessUser, Env, UserRole } from '../types';
 import { verifyAccessJWT } from './jwt';
 import { AuthError, ForbiddenError } from './error-types';
+import { createLogger } from './logger';
+
+const logger = createLogger('access');
 
 // Module-level cache for auth config (avoids KV reads on every request)
 const AUTH_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -80,7 +83,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
             cachedAccessAudList = null;
           }
         } catch {
-          console.warn('Failed to parse access_aud_list', { raw: audListRaw });
+          logger.warn('Failed to parse access_aud_list', { raw: audListRaw });
           cachedAccessAudList = null;
         }
       } else {

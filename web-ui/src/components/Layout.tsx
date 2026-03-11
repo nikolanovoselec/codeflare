@@ -7,7 +7,7 @@ import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore } from '../stores/session';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
-import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser } from '../lib/mobile';
+import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
@@ -58,6 +58,7 @@ const Layout: Component<LayoutProps> = (props) => {
 
   onCleanup(() => {
     sessionStore.stopSessionListPolling();
+    cleanupDebugOverlay();
   });
 
   // On dashboard: schedule a full WebSocket disconnect after a grace period
