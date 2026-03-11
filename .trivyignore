@@ -1,10 +1,14 @@
 # Trivy vulnerability suppressions
 # Review monthly and remove entries when upstream fixes are available.
 
-# lazygit v0.59.0 (latest) built with Go 1.25.6 — needs Go 1.25.7+ for fix.
-# Upstream issue: jesseduffield/lazygit hasn't released a rebuild yet.
+# lazygit v0.60.0 built with Go 1.25.x — may still need Go 1.25.8+ for fix.
 # Risk: crypto/tls session resumption — lazygit doesn't expose TLS services.
 CVE-2025-68121
+
+# Go stdlib URL parsing / HTML meta tag injection in rclone/lazygit.
+# These are CLI tools in sandboxed container, not processing untrusted URLs.
+CVE-2026-25679
+CVE-2026-27142
 
 # node-tar transitive dependency in globally-installed npm CLIs
 # (claude-unleashed, @openai/codex, @google/gemini-cli, opencode-ai).
@@ -72,10 +76,11 @@ CVE-2023-31102
 # gh CLI is a dev tool inside sandboxed container — no Docker daemon present.
 CVE-2025-15558
 
-# node-tar 7.5.7: hardlink path traversal via drive-relative linkpath
+# node-tar 7.5.7: hardlink/symlink path traversal via drive-relative linkpath
 # CLIs don't process untrusted tar archives at runtime.
 GHSA-qffp-2rhf-9h96
 CVE-2026-29786
+CVE-2026-31802
 
 # cpython 3.11 (Debian bookworm): python3 added for ECC observe hooks (stdlib only).
 # No network services, no untrusted input — hooks run locally on tool-use events.

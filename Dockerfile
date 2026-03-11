@@ -71,8 +71,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && ln -s "$(which nvim)" /usr/local/bin/vim
 
 # Install rclone (pinned version — unpinned install.sh broke bisync, see TECHNICAL.md §22.13)
-RUN curl -fsSL https://downloads.rclone.org/v1.73.1/rclone-v1.73.1-linux-amd64.deb -o /tmp/rclone.deb \
-    && echo "4ae039b8ee737bc925a841f6398659584b8b6bdd29c0bb157c40cc234befd732  /tmp/rclone.deb" | sha256sum -c - \
+RUN curl -fsSL https://downloads.rclone.org/v1.73.2/rclone-v1.73.2-linux-amd64.deb -o /tmp/rclone.deb \
+    && echo "2c6bc8e6ee23493907bdae2c599b00b9fcc2def7d1346211ce371323d14ac9d6  /tmp/rclone.deb" | sha256sum -c - \
     && dpkg -i /tmp/rclone.deb \
     && rm /tmp/rclone.deb
 
@@ -100,8 +100,8 @@ RUN YAZI_VERSION="26.1.22" && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-gnu/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.59.0" && \
-    LAZYGIT_SHA256="264283f40a40c899d702a338b20622f690221f753f03bac827c1f34e91f516c2" && \
+RUN LAZYGIT_VERSION="0.60.0" && \
+    LAZYGIT_SHA256="6252ca6cf98bc4fd3e0d927b54225910cfa57b065d0ad88263f14592f7f9ab15" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
