@@ -35,7 +35,7 @@ export async function fetchWithTimeout(
  * requiring `as any` casts from callers that hold a narrower type.
  */
 export async function getStoredBucketName(
-  container: { fetch: (req: Request | string) => Promise<Response> },
+  container: { fetch: (req: Request) => Promise<Response> },
   logger: Logger,
   containerId: string
 ): Promise<string | null> {
