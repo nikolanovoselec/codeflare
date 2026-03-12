@@ -75,8 +75,9 @@ const abortControllers = new Map<string, AbortController>();
 const inputDisposables = new Map<string, { dispose: () => void }>();
 
 // Write batching — coalesce rapid WebSocket messages into a single terminal.write()
-// per animation frame. Reduces write() call frequency for better rendering performance
-// during burst output (e.g. large build logs, scrollback buffer trimming).
+// per animation frame. Prevents xterm.js syncScrollArea from firing per-message,
+// which causes a scrollTop reflow storm once the scrollback buffer starts trimming
+// (~30-40 min of heavy output with scrollback: 10000).
 const writeBuffers = new Map<string, string[]>();
 const pendingFlushes = new Map<string, number>();
 
