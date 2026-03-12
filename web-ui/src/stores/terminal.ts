@@ -75,8 +75,10 @@ const abortControllers = new Map<string, AbortController>();
 const inputDisposables = new Map<string, { dispose: () => void }>();
 
 // Write batching — coalesce rapid WebSocket messages into a single terminal.write()
-// per animation frame. Reduces write() call frequency for better rendering performance
-// during burst output (e.g. large build logs, scrollback buffer trimming).
+// at 30fps (every ~33ms). At 60fps each frame triggers a render pass with layout
+// invalidation; halving to 30fps cuts renderRows style recalcs roughly in half
+// during burst output while keeping latency imperceptible (~33ms vs ~16ms).
+const WRITE_FLUSH_INTERVAL_MS = 33;
 const writeBuffers = new Map<string, string[]>();
 const pendingFlushes = new Map<string, number>();
 
@@ -98,15 +100,15 @@ function scheduleWrite(key: string, terminal: Terminal, data: string): void {
   buffer.push(data);
 
   if (!pendingFlushes.has(key)) {
-    const rafId = requestAnimationFrame(() => flushWriteBuffer(key, terminal));
-    pendingFlushes.set(key, rafId);
+    const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
+    pendingFlushes.set(key, timerId);
   }
 }
 
 function cancelPendingFlush(key: string): void {
-  const rafId = pendingFlushes.get(key);
-  if (rafId !== undefined) {
-    cancelAnimationFrame(rafId);
+  const timerId = pendingFlushes.get(key);
+  if (timerId !== undefined) {
+    clearTimeout(timerId);
     pendingFlushes.delete(key);
   }
   writeBuffers.delete(key);
@@ -465,7 +467,7 @@ function disposeSession(sessionId: string): void {
   cleanupFitAddonsByPrefix(prefix);
   cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
-  cleanupMapByPrefix(pendingFlushes, prefix, (rafId) => cancelAnimationFrame(rafId));
+  cleanupMapByPrefix(pendingFlushes, prefix, (rafId) => clearTimeout(rafId));
   cleanupMapByPrefix(writeBuffers, prefix);
 
   // Clean up state
@@ -507,7 +509,7 @@ function disposeAll(): void {
 
   // Cancel all pending write flushes
   for (const rafId of pendingFlushes.values()) {
-    cancelAnimationFrame(rafId);
+    clearTimeout(rafId);
   }
   pendingFlushes.clear();
   writeBuffers.clear();
@@ -648,7 +650,7 @@ function disconnectAll(): void {
 
   // Cancel all pending write flushes
   for (const rafId of pendingFlushes.values()) {
-    cancelAnimationFrame(rafId);
+    clearTimeout(rafId);
   }
   pendingFlushes.clear();
   writeBuffers.clear();

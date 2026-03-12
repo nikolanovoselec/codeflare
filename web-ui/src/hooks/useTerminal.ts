@@ -10,7 +10,7 @@ import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
-import { getIframeInput } from '../lib/xterm-internals';
+import { getXtermCore, getIframeInput } from '../lib/xterm-internals';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -130,6 +130,21 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
     } else {
       term.open(container);
+    }
+
+    // Freeze _syncTextArea — it repositions xterm's hidden textarea to the cursor
+    // on every render for IME composition popups. We don't use xterm's textarea for
+    // input (desktop uses onData, mobile uses iframe compositor jail), so this is
+    // pure layout invalidation waste (~960 style recalcs per 37s of burst output).
+    const core = getXtermCore(term);
+    if (core && typeof core._syncTextArea === 'function') {
+      try {
+        Object.defineProperty(core, '_syncTextArea', {
+          configurable: true,
+          get() { return () => {}; },
+          set() { /* ignore reassignment */ },
+        });
+      } catch { /* already defined (mobile path) */ }
     }
 
     // Disable mobile IME composition
