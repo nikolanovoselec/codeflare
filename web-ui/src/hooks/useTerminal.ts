@@ -10,7 +10,7 @@ import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
-import { getXtermCore, getIframeInput } from '../lib/xterm-internals';
+import { getIframeInput } from '../lib/xterm-internals';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -56,7 +56,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
-  let scrollGuard: ((e: Event) => void) | undefined;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -134,21 +133,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
     } else {
       term.open(container);
-    }
-
-    // Freeze _syncTextArea — it repositions xterm's hidden textarea to the cursor
-    // on every render for IME composition popups. We don't use xterm's textarea for
-    // input (desktop uses onData, mobile uses iframe compositor jail), so this is
-    // pure layout invalidation waste (~960 style recalcs per 37s of burst output).
-    const core = getXtermCore(term);
-    if (core && typeof core._syncTextArea === 'function') {
-      try {
-        Object.defineProperty(core, '_syncTextArea', {
-          configurable: true,
-          get() { return () => {}; },
-          set() { /* ignore reassignment */ },
-        });
-      } catch { /* already defined (mobile path) */ }
     }
 
     // Disable mobile IME composition
@@ -240,6 +224,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (!fitAddon || !containerEl || !term) return;
+        if (containerEl.clientHeight === 0) return;
         fitAddon.fit();
         setDimensions({ cols: term.cols, rows: term.rows });
       });
@@ -251,7 +236,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       if (fitAddon && shouldResize) {
         if (kbDebounceTimer !== null) return;
         requestAnimationFrame(() => {
-          if (!fitAddon || !term || kbDebounceTimer !== null) return;
+          if (!fitAddon || !term || !containerEl || kbDebounceTimer !== null) return;
+          if (containerEl.clientHeight === 0) return;
           const wasBottom = isAtBottom(term);
           fitAddon.fit();
           // fit() recalculates rows/cols and can reset the scroll position.
@@ -307,28 +293,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
-    // Native scroll guard — xterm 6.0.0 uses SmoothScrollableElement (JS-based
-    // scrolling), so native scrollTop on its containers should always be 0.
-    // However, because we froze _syncTextArea (L140) for performance, the hidden
-    // textarea stays at (0,0). During burst output the browser may force-scroll
-    // overflow:hidden containers to reveal the focused textarea, causing a visual
-    // snap to the top. We intercept these native scroll resets in capture phase.
-    scrollGuard = (e: Event) => {
-      const target = e.target as HTMLElement;
-      if (target && (target.scrollTop !== 0 || target.scrollLeft !== 0)) {
-        if (
-          target.classList.contains('xterm-viewport') ||
-          target.classList.contains('xterm-screen') ||
-          target.classList.contains('xterm-scrollable-element') ||
-          target.classList.contains('xterm')
-        ) {
-          target.scrollTop = 0;
-          target.scrollLeft = 0;
-        }
-      }
-    };
-    containerEl.addEventListener('scroll', scrollGuard, { capture: true, passive: true });
-
     // Font loading fix
     if (document.fonts) {
       const currentFont = t.options.fontFamily;
@@ -357,7 +321,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (kbDebounceTimer !== null) clearTimeout(kbDebounceTimer);
     kbDebounceTimer = setTimeout(() => {
       kbDebounceTimer = null;
-      if (!fitAddon || !term) return;
+      if (!fitAddon || !term || !containerEl) return;
+      if (containerEl.clientHeight === 0) return;
       fitAddon.fit();
       // Always scroll to bottom when keyboard is open. fit() recalculates rows
       // and can reset the scroll position, causing a "jump to top" if we don't
@@ -403,7 +368,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       resetKeyboardStateIfStale();
       enableVirtualKeyboardOverlay();
       requestAnimationFrame(() => {
-        if (fitAddon && term) fitAddon.fit();
+        if (fitAddon && term && containerEl && containerEl.clientHeight > 0) fitAddon.fit();
       });
 
       // Fix 1: Samsung back-button keyboard dismiss detection via focusout.
@@ -436,7 +401,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   createEffect(() => {
     if (props.active && fitAddon && term) {
       requestAnimationFrame(() => {
-        if (!fitAddon || !term) return;
+        if (!fitAddon || !term || !containerEl) return;
+        if (containerEl.clientHeight === 0) return;
         const wasBottom = isAtBottom(term);
         fitAddon.fit();
         // First activation: always scroll to bottom so user sees the prompt.
@@ -459,7 +425,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (!initializing && fitAddon && term && props.active) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          if (!fitAddon || !term) return;
+          if (!fitAddon || !term || !containerEl) return;
+          if (containerEl.clientHeight === 0) return;
           const wasBottom = isAtBottom(term);
           fitAddon.fit();
           if (wasBottom) term.scrollToBottom();
@@ -480,7 +447,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     terminalStore.stopUrlDetection();
     terminalStore.unregisterFitAddon(props.sessionId, props.terminalId);
     if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu);
-    if (scrollGuard) containerEl?.removeEventListener('scroll', scrollGuard, { capture: true } as EventListenerOptions);
   });
 
   return {

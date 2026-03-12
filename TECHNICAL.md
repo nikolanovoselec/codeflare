@@ -1621,7 +1621,7 @@ Samsung Internet's bottom navigation bar inflates viewport height, causing the V
 The mobile terminal input system uses several techniques to work around browser/OS limitations:
 
 1. **Iframe compositor jail** -- Separate compositor context for Android IME caret containment
-2. **`_syncTextArea` freeze** -- Prevents xterm from interfering with custom input handling
+2. **`_syncTextArea` (NOT frozen)** -- xterm repositions its hidden textarea to the cursor on every render. This must remain active so the browser's focus-scroll targets the cursor position (bottom of terminal) rather than `(0,0)`. Freezing it was a premature optimization (~30 style recalcs/sec on a single hidden element) that caused the scroll-to-top bug (Fix 8)
 3. **`createElement` monkey-patch** -- Uses `input[type=password]` instead of textarea (scoped to `terminal.open()`)
 4. **`isFocused` getter override** -- Live reference via `iframe.contentDocument?.hasFocus()` avoids stale state
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
@@ -1697,8 +1697,9 @@ A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. W
 
 - **Mobile with keyboard open:** Always call `scrollToBottom()` after `fit()`. The user expects to see the prompt whenever the keyboard is open.
 - **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollToBottom()` after `fit()`. If the user had scrolled up into scrollback, preserve their position.
+- **Zero-height guard:** All `fit()` call sites check `containerEl.clientHeight === 0` and bail early. Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
 
-This applies to all three `fit()` paths above, plus the init-overlay refit. A previous approach tried to limit mobile scrolling to `closed→open` keyboard transitions only (via `wasKeyboardOpen` and `needsScrollToBottom` flags), but keyboard animation fires multiple height changes after the initial open, and the transition flag was consumed by the first debounce — leaving subsequent `fit()` calls without `scrollToBottom()`. The ResizeObserver was particularly problematic: it fires *after* the keyboard debounce completes (when `kbDebounceTimer` returns to `null`), calling `fit()` without any scroll restoration on either platform.
+This applies to all three `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
 
 #### Visibility Return Keyboard Reset (Fix 6)
 
@@ -1738,15 +1739,26 @@ Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` 
 
 #### Scroll-to-Top Reset During Burst Output (Fix 8)
 
-xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would still jump to the top of scrollback during burst output. Two independent causes:
+xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would jump to the top of scrollback during burst output. Root cause was a vicious cycle between two performance hacks:
 
-**Cause A — Browser focus-scroll bypass:** The `_syncTextArea` freeze (Fix 2 above) leaves xterm's hidden input element fixed at `(0,0)`. During burst output, the browser's focus validation engine can force-scroll `overflow: hidden` containers to reveal the focused element, bypassing `SmoothScrollableElement`'s JS scroll state entirely. This native `scrollTop` mutation causes a visual snap to the top.
+**Root cause — `_syncTextArea` freeze + scroll guard vicious cycle:**
 
-**Solution A:** A native scroll guard in capture phase on the terminal container intercepts scroll events on xterm's structural elements (`.xterm-viewport`, `.xterm-screen`, `.xterm-scrollable-element`, `.xterm`) and forces `scrollTop/scrollLeft` back to `0`. In xterm 6's architecture, native scroll on these elements is always spurious — all real scrolling goes through `SmoothScrollableElement`.
+1. `_syncTextArea` was frozen (replaced with a no-op) to avoid ~30 style recalcs/sec on xterm's hidden textarea during burst output. This left the textarea stuck at `(0,0)` instead of following the cursor.
 
-**Cause B — Unconditional `scrollToBottom()` during layout transitions:** `refitAllTerminals()` unconditionally called `scrollToBottom()` and `refresh()` on every registered terminal during CSS layout transitions (panel open/close). This ran twice per transition with delays, destroying any manual scrollback position and interacting badly with burst output. Similar unconditional calls existed in the active-state and init-overlay effects.
+2. With the textarea at `(0,0)`, the browser's focus validation engine would force-scroll containers to reveal the focused element, causing a visual snap to the top.
 
-**Solution B:** All `scrollToBottom()` call sites now check `viewportY >= baseY` (xterm's buffer-level scroll state) before scrolling. If the user had scrolled up to read history, their position is preserved. `refitAllTerminals()` also skips the resize WS message if dimensions didn't change, and removed the unconditional `refresh()`. The write batching flush (`flushWriteBuffer`) adds a post-write callback that re-snaps to bottom only if the user was following output and an internal reset occurred.
+3. A capture-phase "scroll guard" was added to counteract this — intercepting native scroll events on `.xterm-viewport`, `.xterm-screen`, `.xterm-scrollable-element`, and `.xterm`, forcing `scrollTop/scrollLeft` back to `0`.
+
+4. **The scroll guard was the actual bug.** xterm 6.0.0's `SmoothScrollableElement` still uses `.xterm-viewport`'s native `scrollTop` as the synchronization mechanism between the scrollbar and `viewportY`. Forcing `scrollTop = 0` on viewport scroll events told xterm the user scrolled to the absolute top of the buffer, setting `viewportY = 0`.
+
+**Solution:** Remove both hacks. `_syncTextArea` stays active so the textarea follows the cursor — the browser's focus-scroll then targets the cursor position (bottom of terminal), not `(0,0)`. The scroll guard is no longer needed because the focus-scroll no longer causes a snap to top. The ~30 style recalcs/sec on a single hidden element is negligible compared to the scroll corruption it was preventing.
+
+**Additional hardening:**
+
+- All `fitAddon.fit()` call sites are guarded with `containerEl.clientHeight === 0` checks to prevent zero-row dimension calculations during CSS visibility transitions (inactive terminals have `height: 0`).
+- All `scrollToBottom()` call sites check `viewportY >= baseY` before scrolling to preserve manual scrollback position.
+- The post-write scroll snap in `flushWriteBuffer()` is deferred to the next animation frame via `requestAnimationFrame`, allowing xterm's `RenderService` and `SmoothScrollableElement` to complete their internal layout pass before checking `viewportY`.
+- `refitAllTerminals()` skips the resize WS message if dimensions didn't change.
 
 #### WS Retryable Close Codes (Fix 5)
 

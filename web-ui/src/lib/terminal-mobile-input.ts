@@ -97,17 +97,6 @@ export function setupMobileInput(
   props: { active: boolean },
   callbacks: MobileInputCallbacks,
 ): () => void {
-  const core = getXtermCore(terminal);
-  if (core && typeof core._syncTextArea === 'function') {
-    try {
-      Object.defineProperty(core, '_syncTextArea', {
-        configurable: true,
-        get() { return () => {}; },
-        set() { /* ignore reassignment */ },
-      });
-    } catch { /* already defined */ }
-  }
-
   // Create the iframe compositor jail
   const iframe = document.createElement('iframe');
   iframe.className = 'terminal-input-iframe';

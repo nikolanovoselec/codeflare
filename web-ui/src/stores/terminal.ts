@@ -95,9 +95,13 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
     // Post-write scroll guard: if user was following output but xterm's internal
     // scroll state got reset (e.g. SmoothScrollableElement race during burst),
     // snap back to bottom. If user had scrolled up, leave them alone.
-    if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
-      terminal.scrollToBottom();
-    }
+    // Deferred to next frame so xterm's RenderService and SmoothScrollableElement
+    // finish their internal layout pass before we check viewportY.
+    requestAnimationFrame(() => {
+      if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
+        terminal.scrollToBottom();
+      }
+    });
   });
 }
 
