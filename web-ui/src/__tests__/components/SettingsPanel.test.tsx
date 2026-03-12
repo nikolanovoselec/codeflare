@@ -10,7 +10,7 @@ import * as storageApi from '../../api/storage';
 const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false }));
 
 const sessionStoreState = vi.hoisted(() => ({
-  preferences: { workspaceSyncEnabled: false as boolean | undefined, fastStartEnabled: undefined as boolean | undefined, sessionMode: undefined as string | undefined },
+  preferences: { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined } as { workspaceSyncEnabled: boolean | undefined; fastStartEnabled: boolean | undefined; sessionMode?: string | undefined },
   updatePreferences: vi.fn(async () => undefined),
 }));
 
