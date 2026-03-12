@@ -161,6 +161,28 @@ describe('multi-agent documents', () => {
     }
   });
 
+  it('codeflare-memory plugin files are advanced-only', () => {
+    const pluginDocs = claudeDocs().filter((d) => d.key.includes('codeflare-memory'));
+    expect(pluginDocs.length).toBe(4);
+    for (const doc of pluginDocs) {
+      expect(doc.modes).toEqual(['advanced']);
+    }
+  });
+
+  it('codeflare-memory plugin is excluded from non-Claude agents', () => {
+    const nonClaude = AGENTS_SEEDED_CONFIGS.filter((d) => !d.key.startsWith('.claude/'));
+    for (const doc of nonClaude) {
+      expect(doc.key).not.toContain('codeflare-memory');
+    }
+  });
+
+  it('no standalone memory hook files remain in hooks/ directory', () => {
+    const memoryHooks = claudeDocs().filter(
+      (d) => d.key.startsWith('.claude/hooks/memory')
+    );
+    expect(memoryHooks).toHaveLength(0);
+  });
+
   it('non-Claude agent definitions have no model field in frontmatter', () => {
     const nonClaudeAgents = AGENTS_SEEDED_CONFIGS.filter(
       (d) =>

@@ -898,8 +898,9 @@ if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
 fi
 
 # Configure Claude Code hooks in ~/.claude/settings.json
-# Hooks: PreToolUse (block attributed commits), UserPromptSubmit (memory capture)
-HOOKS_CONFIG='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/block-attributed-commits.sh"}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/memory-capture.sh"}]}]}}'
+# Hooks: PreToolUse (block attributed commits)
+# Memory capture hook moved to codeflare-memory plugin (auto-loads from plugin hooks/hooks.json)
+HOOKS_CONFIG='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$USER_HOME"'/.claude/hooks/block-attributed-commits.sh"}]}]}}'
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
@@ -914,7 +915,20 @@ else
 fi
 echo "[entrypoint] Claude Code hooks configured in settings.json"
 
-# Plugins removed from preseed — users install via marketplace if wanted
+# Enable codeflare-memory plugin (silently skipped if plugin files absent in default mode)
+PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true}}'
+if [ -f "$USER_CLAUDE_JSON" ]; then
+    TMP_PLUGINS=$(mktemp)
+    if jq --argjson cfg "$PLUGINS_CONFIG" '. * $cfg' "$USER_CLAUDE_JSON" > "$TMP_PLUGINS" 2>/dev/null; then
+        mv "$TMP_PLUGINS" "$USER_CLAUDE_JSON"
+    else
+        echo "[entrypoint] WARNING: Could not merge plugin enablement (malformed .claude.json?)"
+        rm -f "$TMP_PLUGINS"
+    fi
+else
+    echo "$PLUGINS_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+fi
+echo "[entrypoint] codeflare-memory plugin enabled in .claude.json"
 
 # === Fast Start: tool-specific config files ===
 if [ "${FAST_CLI_START:-true}" != "false" ]; then

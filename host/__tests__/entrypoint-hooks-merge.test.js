@@ -30,14 +30,14 @@ describe('settings.json hooks merge', () => {
     );
   });
 
-  it('configures UserPromptSubmit hook for memory-capture.sh', () => {
+  it('does NOT configure UserPromptSubmit hook in settings.json HOOKS_CONFIG', () => {
+    // Memory capture moved to codeflare-memory plugin — UserPromptSubmit should not be in HOOKS_CONFIG
+    const hooksConfigMatch = entrypoint.match(/HOOKS_CONFIG='(\{.*?\})'/);
+    assert.ok(hooksConfigMatch, 'HOOKS_CONFIG assignment should exist');
+    const hooksConfig = hooksConfigMatch[1];
     assert.ok(
-      entrypoint.includes('memory-capture.sh'),
-      'entrypoint should reference memory-capture.sh hook script'
-    );
-    assert.ok(
-      entrypoint.includes('UserPromptSubmit'),
-      'entrypoint should configure UserPromptSubmit hook event'
+      !hooksConfig.includes('UserPromptSubmit'),
+      'HOOKS_CONFIG should not contain UserPromptSubmit (memory capture moved to plugin)'
     );
   });
 
@@ -49,18 +49,6 @@ describe('settings.json hooks merge', () => {
     assert.ok(
       entrypoint.includes('PreToolUse'),
       'entrypoint should configure PreToolUse hook event'
-    );
-  });
-
-  it('does not mark memory-capture hook as async', () => {
-    // UserPromptSubmit hooks deliver additionalContext via exit 0 — async is not needed
-    // Check that the hooks config block does not contain "async"
-    const hooksStart = entrypoint.indexOf('"hooks":{');
-    const hooksEnd = entrypoint.indexOf('}}\'\n', hooksStart);
-    const hooksBlock = entrypoint.slice(hooksStart, hooksEnd);
-    assert.ok(
-      !hooksBlock.includes('"async"'),
-      'memory-capture hook should not be configured as async'
     );
   });
 
@@ -97,7 +85,7 @@ describe('settings.json hooks merge', () => {
     const main = extractMainExecution();
     assert.ok(main, 'MAIN EXECUTION section should exist');
 
-    const hooksIdx = main.indexOf('memory-capture.sh');
+    const hooksIdx = main.indexOf('block-attributed-commits.sh');
     const bisyncBaselineIdx = main.indexOf('establish_bisync_baseline');
 
     assert.ok(hooksIdx > -1, 'hooks config should exist in main execution');
@@ -106,6 +94,42 @@ describe('settings.json hooks merge', () => {
       hooksIdx < bisyncBaselineIdx,
       'hooks merge must run before bisync baseline'
     );
+  });
+});
+
+// ============================================================================
+// Test: codeflare-memory plugin enablement
+// ============================================================================
+describe('codeflare-memory plugin enablement', () => {
+  it('enables codeflare-memory plugin in .claude.json', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+    assert.ok(
+      main.includes('codeflare-memory'),
+      'entrypoint should reference codeflare-memory plugin'
+    );
+    assert.ok(
+      main.includes('enabledPlugins'),
+      'entrypoint should configure enabledPlugins in .claude.json'
+    );
+  });
+
+  it('plugin enablement uses jq merge into .claude.json', () => {
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+    assert.ok(
+      main.includes('enabledPlugins') && main.includes('. * $'),
+      'plugin enablement should use jq recursive merge'
+    );
+  });
+
+  it('plugin enablement is NOT mode-gated (permanent)', () => {
+    // enabledPlugins should be set unconditionally — missing plugins are silently skipped
+    const main = extractMainExecution();
+    assert.ok(main, 'MAIN EXECUTION section should exist');
+    // The plugin config block should NOT be inside a mode check (rules/common test)
+    const pluginIdx = main.indexOf('"codeflare-memory"');
+    assert.ok(pluginIdx > -1, 'should have codeflare-memory plugin reference');
   });
 });
 

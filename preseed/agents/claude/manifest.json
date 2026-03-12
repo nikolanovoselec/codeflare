@@ -4,12 +4,22 @@
       "advanced"
     ]
   },
-  "hooks/memory-agent-prompt.md": {
+  "plugins/codeflare-memory/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"
     ]
   },
-  "hooks/memory-capture.sh": {
+  "plugins/codeflare-memory/hooks/hooks.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/scripts/memory-capture.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/scripts/memory-agent-prompt.md": {
     "modes": [
       "advanced"
     ]

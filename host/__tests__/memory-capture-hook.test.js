@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const hookScript = readFileSync(
-  resolve(__dirname, '../../preseed/agents/claude/hooks/memory-capture.sh'),
+  resolve(__dirname, '../../preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh'),
   'utf8'
 );
 

@@ -671,78 +671,80 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </Show>
           </AccordionSection>
 
-          {/* ── LLM API Keys ── */}
-          <AccordionSection
-            group="llm"
-            title="LLM API Keys"
-            subtitle={ACCORDION_SUBTITLES.llm}
-            isOpen={openGroup() === 'llm'}
-            onToggle={() => handleAccordionClick('llm')}
-          >
-            <p class="llm-keys-explanation" data-testid="llm-keys-explanation">
-              Optional. These keys let you consult external AI models (GPT, Gemini) for second opinions while coding. Used by the "Consult LLM" tool in Claude Code sessions.
-            </p>
-            <p class="llm-keys-links" data-testid="llm-keys-links">
-              Get keys: <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a> · <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
-            </p>
+          {/* ── LLM API Keys (advanced mode only) ── */}
+          <Show when={currentSessionMode() === 'advanced'}>
+            <AccordionSection
+              group="llm"
+              title="LLM API Keys"
+              subtitle={ACCORDION_SUBTITLES.llm}
+              isOpen={openGroup() === 'llm'}
+              onToggle={() => handleAccordionClick('llm')}
+            >
+              <p class="llm-keys-explanation" data-testid="llm-keys-explanation">
+                Optional. These keys let you consult external AI models (GPT, Gemini) for second opinions while coding. Used by the "Consult LLM" tool in Claude Code sessions.
+              </p>
+              <p class="llm-keys-links" data-testid="llm-keys-links">
+                Get keys: <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a> · <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+              </p>
 
-            <section class="settings-section">
-              <div class="settings-section-header">
-                <Icon path={mdiKeyVariant} size={16} />
-                <h3 class="settings-section-title">Provider Keys</h3>
-              </div>
-              <div class="setting-row setting-row--column-gap">
-                <label for="settings-llm-openai-key">OpenAI API Key</label>
-                <input
-                  type="password"
-                  id="settings-llm-openai-key"
-                  class="llm-key-input"
-                  value={llmOpenaiKey()}
-                  placeholder="sk-..."
-                  autocomplete="off"
-                  onInput={(e) => setLlmOpenaiKey(e.currentTarget.value)}
-                  data-testid="settings-llm-openai-key"
-                />
-              </div>
-              <div class="setting-row setting-row--column-gap">
-                <label for="settings-llm-gemini-key">Gemini API Key</label>
-                <input
-                  type="password"
-                  id="settings-llm-gemini-key"
-                  class="llm-key-input"
-                  value={llmGeminiKey()}
-                  placeholder="AI..."
-                  autocomplete="off"
-                  onInput={(e) => setLlmGeminiKey(e.currentTarget.value)}
-                  data-testid="settings-llm-gemini-key"
-                />
-              </div>
-              <div class="setting-row setting-row--column-gap">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={llmKeysSaving()}
-                  onClick={() => { void handleSaveLlmKeys(); }}
-                  data-testid="settings-llm-keys-save"
-                >
-                  Save Keys
-                </Button>
-                <span class="settings-hint" data-testid="settings-llm-keys-hint">
-                  Keys take effect on next session start. Used by the consult-llm MCP tool.
-                </span>
-                <Show when={llmKeysMessage()}>
-                  {(message) => (
-                    <span class="settings-hint" data-testid="settings-llm-keys-success">{message()}</span>
-                  )}
-                </Show>
-                <Show when={llmKeysError()}>
-                  {(error) => (
-                    <span class="settings-error" data-testid="settings-llm-keys-error">{error()}</span>
-                  )}
-                </Show>
-              </div>
-            </section>
-          </AccordionSection>
+              <section class="settings-section">
+                <div class="settings-section-header">
+                  <Icon path={mdiKeyVariant} size={16} />
+                  <h3 class="settings-section-title">Provider Keys</h3>
+                </div>
+                <div class="setting-row setting-row--column-gap">
+                  <label for="settings-llm-openai-key">OpenAI API Key</label>
+                  <input
+                    type="password"
+                    id="settings-llm-openai-key"
+                    class="llm-key-input"
+                    value={llmOpenaiKey()}
+                    placeholder="sk-..."
+                    autocomplete="off"
+                    onInput={(e) => setLlmOpenaiKey(e.currentTarget.value)}
+                    data-testid="settings-llm-openai-key"
+                  />
+                </div>
+                <div class="setting-row setting-row--column-gap">
+                  <label for="settings-llm-gemini-key">Gemini API Key</label>
+                  <input
+                    type="password"
+                    id="settings-llm-gemini-key"
+                    class="llm-key-input"
+                    value={llmGeminiKey()}
+                    placeholder="AI..."
+                    autocomplete="off"
+                    onInput={(e) => setLlmGeminiKey(e.currentTarget.value)}
+                    data-testid="settings-llm-gemini-key"
+                  />
+                </div>
+                <div class="setting-row setting-row--column-gap">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={llmKeysSaving()}
+                    onClick={() => { void handleSaveLlmKeys(); }}
+                    data-testid="settings-llm-keys-save"
+                  >
+                    Save Keys
+                  </Button>
+                  <span class="settings-hint" data-testid="settings-llm-keys-hint">
+                    Keys take effect on next session start. Used by the consult-llm MCP tool.
+                  </span>
+                  <Show when={llmKeysMessage()}>
+                    {(message) => (
+                      <span class="settings-hint" data-testid="settings-llm-keys-success">{message()}</span>
+                    )}
+                  </Show>
+                  <Show when={llmKeysError()}>
+                    {(error) => (
+                      <span class="settings-error" data-testid="settings-llm-keys-error">{error()}</span>
+                    )}
+                  </Show>
+                </div>
+              </section>
+            </AccordionSection>
+          </Show>
 
           {/* ── Administration (admin only) ── */}
           <Show when={isAdmin()}>

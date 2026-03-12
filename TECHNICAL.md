@@ -1551,6 +1551,9 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 | AD25 | E2E service email hardcoded | <details><summary><code>e2e-service@codeflare.local</code> is a test identifier</summary><br>The `.local` TLD is RFC 6762 reserved and obviously non-production. The email is a test fixture seeded into KV for E2E authentication, not a secret. Extracting it to an environment variable adds configuration complexity for zero security benefit.</details> |
 | AD26 | Stress test rate-limit bypass | <details><summary>`STRESS_TEST_MODE=active` skips all rate limiting</summary><br>k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` — any other value (including `"true"`) keeps limits enforced. Only set on integration; production must never have this variable.</details> |
 | AD27 | Server-side prefix delete | <details><summary>Server-side list+batch delete via R2 S3 API instead of frontend recursive browse+delete</summary><br>Frontend folder deletion was subject to API rate limits (30/min browse, 20/min delete), causing failures for large folders. R2 has no native "delete prefix" API, and lifecycle rules (Days=0) take up to 24h. Server-side ListObjectsV2 + batch DeleteObjects (1000 keys/call) using `emptyR2Bucket()` is the fastest approach. No `[[r2_buckets]]` binding needed — per-user dynamic buckets use account-level S3 credentials directly.</details> |
+| AD28 | Stress test bypass is integration-only | <details><summary>No CI guard needed — GitHub Actions environment separation controls it</summary><br>`STRESS_TEST_MODE=active` disables all rate limiting. Only set via GitHub Actions workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but this requires deliberate action.</details> |
+| AD29 | Container secrets as env vars | <details><summary>Plaintext env vars acceptable for single-tenant containers</summary><br>Container DO injects R2 credentials, LLM API keys, and auth tokens as plaintext environment variables. Users already have full terminal access (`env` command). Secrets are: R2 credentials (bucket-scoped), LLM keys (user's own), container auth token (internal DO-to-container). Any process can read via `/proc/self/environ` but containers are single-tenant.</details> |
+| AD30 | Worker name from Host header | <details><summary>Host header parsing for `.workers.dev` domains during setup only</summary><br>Worker name derived from Host header for `.workers.dev` subdomains during first-time setup. Custom domains use `CLOUDFLARE_WORKER_NAME` env var instead. Exposure window: only during setup (minutes), requires CF Access JWT, setup is idempotent. Spoofed Host could theoretically direct to wrong worker name but requires authenticated access and extremely narrow window.</details> |
 
 #### AD: Stress Test Rate-Limit Bypass is Integration-Only
 - **Status:** Accepted
@@ -1795,7 +1798,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 
 | Content | Default | Advanced |
 |---------|---------|----------|
-| Memory hooks, prompt & rule | No | Yes |
+| Memory plugin & rule | No | Yes |
 | CI monitoring, environment, no-local-builds rules | Yes | Yes |
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes |
@@ -1810,7 +1813,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 
 **Manifest**: `preseed/agents/claude/manifest.json` — object-per-entry with `{ "modes": ["default", "advanced"] }` tags. The generator (`scripts/generate-agent-seed.mjs`) reads the manifest and produces adapted versions for all 5 supported agents.
 
-**Multi-agent generation**: The generator produces 121 seed documents from CC's preseed as the single source of truth. For each non-CC agent (Codex, Gemini CLI, Copilot, OpenCode), it: (1) concatenates applicable rules into a single instructions file per mode, (2) adapts skills with tool name remapping, (3) adapts agent definitions with tool name remapping and `model` field removal. Instructions files are variant-per-mode (same R2 key, different content for default vs advanced). See [Multi-Agent Preseed](#multi-agent-preseed) section below.
+**Multi-agent generation**: The generator produces 123 seed documents from CC's preseed as the single source of truth. For each non-CC agent (Codex, Gemini CLI, Copilot, OpenCode), it: (1) concatenates applicable rules into a single instructions file per mode, (2) adapts skills with tool name remapping, (3) adapts agent definitions with tool name remapping and `model` field removal. Instructions files are variant-per-mode (same R2 key, different content for default vs advanced). See [Multi-Agent Preseed](#multi-agent-preseed) section below.
 
 **Resolver**: `resolveSessionMode(prefs)` in `src/lib/session-mode.ts` — single source of truth for the `?? 'default'` fallback.
 
@@ -1847,13 +1850,13 @@ All preseed content is deployed via the manifest pipeline:
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
-**Manifest structure (56 CC source entries)**:
-- `hooks/` (3): memory-capture.sh, memory-agent-prompt.md, block-attributed-commits.sh
+**Manifest structure (58 CC source entries)**:
+- `hooks/` (1): block-attributed-commits.sh (advanced only)
 - `rules/` (27): core (4 default+advanced), common (3), typescript (5), python (5), golang (5), swift (5)
 - `agents/` (7): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, plan, review (advanced only)
 - `skills/` (13): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first
-- `plugins/` (1): known_marketplaces.json (default+advanced)
+- `plugins/` (5): known_marketplaces.json (default+advanced), codeflare-memory plugin (4 files, advanced only: plugin.json, hooks.json, memory-capture.sh, memory-agent-prompt.md)
 
 ### Multi-Agent Preseed
 
@@ -1884,32 +1887,37 @@ The generator produces adapted config files for 5 agents from CC's preseed as si
 
 | Agent | Instructions | Skills | Agents | Total |
 |-------|-------------|--------|--------|-------|
-| CC | 0 (individual rules) | 13 | 7 | 56 (all categories) |
+| CC | 0 (individual rules) | 13 | 7 | 58 (all categories) |
 | Codex | 2 (default+advanced) | 12 | 0 | 14 |
 | Gemini | 2 | 12 | 7 | 21 |
 | Copilot | 2 | 0 | 7 | 9 |
 | OpenCode | 2 | 12 | 7 | 21 |
-| **Total** | | | | **121** |
+| **Total** | | | | **123** |
 
-**Excluded from non-CC agents**: hooks (CC hook system), commands (CC slash commands), plugins (CC plugin system), `rules/memory.md` (depends on MCP memory server), `consult-llm` skill (depends on CC-specific MCP tool).
+**Excluded from non-CC agents**: hooks (CC hook system), commands (CC slash commands), plugins (CC plugin system, including codeflare-memory), `rules/memory.md` (depends on MCP memory server), `consult-llm` skill (depends on CC-specific MCP tool).
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1) concatenates applicable rules into a single instructions file, (2) remaps tool names in agent definition frontmatter, (3) removes `model` field from frontmatter, (4) replaces `~/.claude/` path references with agent-specific config paths, (5) uses correct file extensions (e.g., `.agent.md` for Copilot agents).
 
-**Per-mode counts**: Default mode seeds 24 files, advanced mode seeds 117 files. Total array size is 121 (includes variant-per-mode duplicates for instructions files).
+**Per-mode counts**: Default mode seeds 24 files, advanced mode seeds 119 files. Total array size is 123 (includes variant-per-mode duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the generated array — once for default mode (3 rules) and once for advanced mode (all rules including memory, ECC), with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this correctly by excluding keys that have a variant in the target mode.
 
 ### Settings.json Merge
 
-`entrypoint.sh` merges hook configuration into `~/.claude/settings.json` using the same `jq '. * $cfg'` recursive merge pattern as the MCP config. The UserPromptSubmit hook is non-blocking (exit 0) so no special timeout or async configuration is needed. Handles three cases:
+`entrypoint.sh` merges hook configuration into `~/.claude/settings.json` using the same `jq '. * $cfg'` recursive merge pattern as the MCP config. Only the `PreToolUse` hook (block-attributed-commits) is configured in settings.json. Handles three cases:
 
 - **File doesn't exist**: Creates with hook config
 - **File exists**: Recursive merge preserving user's existing settings (statusLine, permissions, etc.)
 - **File malformed**: Skips with warning, does not overwrite
 
+### Plugin Enablement
+
+`entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable the `codeflare-memory` plugin. This is permanent (not mode-gated) because missing plugins are silently skipped by Claude Code — when the plugin files are absent in default mode, the plugin simply doesn't load. The plugin's UserPromptSubmit hook is declared in `~/.claude/plugins/codeflare-memory/hooks/hooks.json` instead of settings.json, eliminating the orphaned-hook problem when switching modes.
+
 ### Troubleshooting
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
-- **Agent not firing**: Check `~/.claude/settings.json` has the `UserPromptSubmit` hook configured for `memory-capture.sh`. Verify the transcript has 15+ user messages since last capture. Verify the hook outputs `hookSpecificOutput` JSON and exits with code 0.
+- **Agent not firing**: Verify `~/.claude/plugins/codeflare-memory/` directory exists with all 4 files (plugin.json, hooks.json, memory-capture.sh, memory-agent-prompt.md). Check that `.claude.json` has `"enabledPlugins":{"codeflare-memory":true}`. Verify the transcript has 15+ user messages since last capture.
+- **Legacy hook errors after mode switch**: If `settings.json` still has a `UserPromptSubmit` hook referencing the old `~/.claude/hooks/memory-capture.sh` path, manually remove it: `jq 'del(.hooks.UserPromptSubmit)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 
