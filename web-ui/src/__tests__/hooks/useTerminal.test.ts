@@ -560,8 +560,6 @@ describe('useTerminal hook', () => {
       mockFit.mockClear();
 
       // Close keyboard but reopen BEFORE the close debounce fires (within 150ms).
-      // This cancels the close debounce, leaving wasKeyboardOpen stale if not
-      // tracked synchronously.
       setKbHeight(0);
       setKbOpen(false);
       // Advance only 50ms — not enough for close debounce to fire
@@ -579,7 +577,7 @@ describe('useTerminal hook', () => {
       vi.useRealTimers();
     });
 
-    it('should NOT scroll to bottom on mid-animation height adjustments while keyboard stays open', async () => {
+    it('should scroll to bottom on mid-animation height adjustments while keyboard stays open', async () => {
       vi.useFakeTimers();
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
@@ -612,7 +610,9 @@ describe('useTerminal hook', () => {
       await vi.advanceTimersByTimeAsync(200);
 
       expect(mockFit).toHaveBeenCalled();
-      expect(mockScrollToBottom).not.toHaveBeenCalled();
+      // Always scroll to bottom when keyboard is open — fit() can reset scroll
+      // position, so we must re-anchor to prevent "jump to top"
+      expect(mockScrollToBottom).toHaveBeenCalled();
 
       dispose();
       vi.useRealTimers();

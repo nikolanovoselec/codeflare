@@ -55,8 +55,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let wasKeyboardOpen = false;
-  let needsScrollToBottom = false;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
   let scrollGuard: ((e: Event) => void) | undefined;
 
@@ -254,7 +252,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         if (kbDebounceTimer !== null) return;
         requestAnimationFrame(() => {
           if (!fitAddon || !term || kbDebounceTimer !== null) return;
+          const wasBottom = isAtBottom(term);
           fitAddon.fit();
+          // fit() recalculates rows/cols and can reset the scroll position.
+          // On mobile with keyboard open: always anchor to bottom (user expects prompt).
+          // On desktop/mobile without keyboard: preserve position if user was following output.
+          if (isTouchDevice() && isVirtualKeyboardOpen()) {
+            term.scrollToBottom();
+          } else if (wasBottom) {
+            term.scrollToBottom();
+          }
           const cols = term.cols;
           const rows = term.rows;
           setDimensions({ cols, rows });
@@ -347,30 +354,19 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (!term || !fitAddon) return;
     if (!(props.active || props.alwaysObserveResize)) return;
 
-    // Track closed→open transition synchronously so it survives debounce resets.
-    // Previously wasKeyboardOpen was only updated inside the debounced callback,
-    // so a cancelled close-debounce left it stale (true), preventing scrollToBottom
-    // on the next keyboard open (close→reopen without dashboard exit, or browser
-    // background→return→tap).
-    if (kbOpen && !wasKeyboardOpen) {
-      needsScrollToBottom = true;
-    }
-    if (!kbOpen) {
-      needsScrollToBottom = false;
-    }
-    wasKeyboardOpen = kbOpen;
-
     if (kbDebounceTimer !== null) clearTimeout(kbDebounceTimer);
     kbDebounceTimer = setTimeout(() => {
       kbDebounceTimer = null;
       if (!fitAddon || !term) return;
       fitAddon.fit();
-      // Scroll to bottom only when keyboard transitions closed→open (user wants
-      // to see the prompt). On close or mid-animation height adjustments, preserve
-      // scroll position so users don't lose their place in scrollback.
-      if (needsScrollToBottom) {
+      // Always scroll to bottom when keyboard is open. fit() recalculates rows
+      // and can reset the scroll position, causing a "jump to top" if we don't
+      // re-anchor. Previous approach tried to limit this to closed→open transitions,
+      // but keyboard animation fires multiple height changes after the initial open,
+      // and the transition flag was consumed by the first debounce — leaving
+      // subsequent fit() calls without scrollToBottom.
+      if (kbOpen) {
         term.scrollToBottom();
-        needsScrollToBottom = false;
       }
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
@@ -444,8 +440,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         const wasBottom = isAtBottom(term);
         fitAddon.fit();
         // First activation: always scroll to bottom so user sees the prompt.
-        // Subsequent activations: only if user was already following output.
-        if (!hasInitialScrolled || wasBottom) {
+        // Subsequent activations: only if user was already following output,
+        // or if the mobile keyboard is open (user expects to see the prompt).
+        if (!hasInitialScrolled || wasBottom || (isTouchDevice() && isVirtualKeyboardOpen())) {
           term.scrollToBottom();
           hasInitialScrolled = true;
         }

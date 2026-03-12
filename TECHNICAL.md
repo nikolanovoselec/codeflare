@@ -1686,14 +1686,19 @@ Baseline now only changes at:
 
 #### `kbDebounceTimer` Guard Pattern (Fix 3)
 
-Two effects can trigger `fitAddon.fit()` simultaneously:
+Three code paths can trigger `fitAddon.fit()`:
 1. **Keyboard refit** (debounced 150ms)
 2. **Active-state effect** (immediate `requestAnimationFrame`)
 3. **ResizeObserver** (immediate `requestAnimationFrame`)
 
 A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. The ResizeObserver checks `kbDebounceTimer !== null` and skips `fit()` when active. The timer callback sets it back to `null`. Using the timer ID (vs. a boolean flag) prevents a race condition where cleanup of the debounce timer doesn't properly clear the gate.
 
-The keyboard refit effect tracks the `closed→open` keyboard transition via `wasKeyboardOpen` and `needsScrollToBottom` flags. Both are updated **synchronously** in the effect body (before the debounce timer), not inside the debounced callback. This is critical because the debounce timer from a keyboard-close event can be cancelled when the user quickly reopens the keyboard — if `wasKeyboardOpen` were only updated inside the cancelled callback, it would stay stale at `true`, causing the reopen path to skip `scrollToBottom()`. The `needsScrollToBottom` flag persists across debounce resets and is consumed (reset to `false`) only when the debounced callback actually fires and calls `scrollToBottom()`. It is also cleared synchronously when the keyboard closes, so an accidental open→close within the debounce window doesn't trigger an unwanted scroll.
+**Scroll preservation after `fit()`:** Every `fit()` call site must preserve or restore scroll position, because `fit()` recalculates terminal dimensions and can reset the viewport to the top. The rules are:
+
+- **Mobile with keyboard open:** Always call `scrollToBottom()` after `fit()`. The user expects to see the prompt whenever the keyboard is open.
+- **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollToBottom()` after `fit()`. If the user had scrolled up into scrollback, preserve their position.
+
+This applies to all three `fit()` paths above, plus the init-overlay refit. A previous approach tried to limit mobile scrolling to `closed→open` keyboard transitions only (via `wasKeyboardOpen` and `needsScrollToBottom` flags), but keyboard animation fires multiple height changes after the initial open, and the transition flag was consumed by the first debounce — leaving subsequent `fit()` calls without `scrollToBottom()`. The ResizeObserver was particularly problematic: it fires *after* the keyboard debounce completes (when `kbDebounceTimer` returns to `null`), calling `fit()` without any scroll restoration on either platform.
 
 #### Visibility Return Keyboard Reset (Fix 6)
 
