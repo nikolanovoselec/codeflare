@@ -6,13 +6,11 @@
   },
   "hooks/memory-agent-prompt.md": {
     "modes": [
-      "default",
       "advanced"
     ]
   },
   "hooks/memory-capture.sh": {
     "modes": [
-      "default",
       "advanced"
     ]
   },
@@ -30,7 +28,6 @@
   },
   "rules/memory.md": {
     "modes": [
-      "default",
       "advanced"
     ]
   },

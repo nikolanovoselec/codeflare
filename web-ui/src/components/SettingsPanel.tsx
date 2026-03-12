@@ -223,9 +223,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
     try {
       const result = await recreateAgentConfigs();
-      setRecreateAgentMessage(
-        `Recreated ${result.written.length} agent config file(s).`
-      );
+      const parts = [`Recreated ${result.written.length} agent config file(s).`];
+      if (result.deleted && result.deleted.length > 0) {
+        parts.push(`Removed ${result.deleted.length} file(s) from previous mode.`);
+      }
+      setRecreateAgentMessage(parts.join(' '));
     } catch (error) {
       setRecreateAgentError(
         error instanceof Error
