@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   getXtermCore,
-  getXtermViewport,
   getIframeInput,
   setIframeInput,
   getBufferActive,
@@ -13,7 +12,6 @@ import {
 function makeMockTerminal(overrides: Record<string, unknown> = {}) {
   return {
     _core: {
-      viewport: { handleTouchStart: () => {}, handleTouchMove: () => false },
       coreService: { triggerDataEvent: () => {} },
       _coreBrowserService: {},
       _syncTextArea: () => {},
@@ -36,19 +34,6 @@ describe('xterm-internals', () => {
     it('returns undefined when _core is missing', () => {
       const term = makeMockTerminal({ _core: undefined });
       expect(getXtermCore(term)).toBeUndefined();
-    });
-  });
-
-  describe('getXtermViewport', () => {
-    it('returns the viewport from core', () => {
-      const term = makeMockTerminal();
-      const viewport = getXtermViewport(term);
-      expect(viewport).toBe(term._core.viewport);
-    });
-
-    it('returns undefined when core is missing', () => {
-      const term = makeMockTerminal({ _core: undefined });
-      expect(getXtermViewport(term)).toBeUndefined();
     });
   });
 

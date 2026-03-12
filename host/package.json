@@ -11,15 +11,15 @@
     "test": "node --test __tests__/*.test.js"
   },
   "dependencies": {
-    "@xterm/addon-serialize": "^0.13.0",
-    "@xterm/headless": "^5.5.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
     "node-pty": "^1.0.0",
-    "ws": "^8.18.0"
+    "ws": "^8.19.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^25.5.0",
     "@types/ws": "^8.5.0",
-    "fast-check": "^4.5.3",
-    "typescript": "^5.7.0"
+    "fast-check": "^4.6.0",
+    "typescript": "^5.9.3"
   }
 }

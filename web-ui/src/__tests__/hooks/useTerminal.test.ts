@@ -39,12 +39,7 @@ const mockTerminalInstance = {
     registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
   },
   registerLinkProvider: vi.fn(() => ({ dispose: vi.fn() })),
-  _core: {
-    viewport: {
-      handleTouchStart: vi.fn(),
-      handleTouchMove: vi.fn(),
-    },
-  },
+  _core: {},
 };
 
 // MOCK-DRIFT RISK: Terminal constructor returns a static mock object.
@@ -619,50 +614,6 @@ describe('useTerminal hook', () => {
     });
   });
 
-  describe('mobile viewport touch handler disable', () => {
-    it('should disable xterm viewport touch handlers on mobile', () => {
-      const isTouchDeviceMock = vi.mocked(isTouchDevice);
-      isTouchDeviceMock.mockReturnValue(true);
-
-      // Save original references
-      const originalHandleTouchStart = mockTerminalInstance._core.viewport.handleTouchStart;
-      const originalHandleTouchMove = mockTerminalInstance._core.viewport.handleTouchMove;
-
-      const dispose = createRoot((dispose) => {
-        const result = useTerminal(defaultProps);
-        result.containerRef(containerEl);
-        return dispose;
-      });
-
-      // Handlers should be replaced with no-ops, not the original vi.fn()
-      expect(mockTerminalInstance._core.viewport.handleTouchStart).not.toBe(originalHandleTouchStart);
-      expect(mockTerminalInstance._core.viewport.handleTouchMove).not.toBe(originalHandleTouchMove);
-
-      dispose();
-    });
-
-    it('should NOT disable viewport touch handlers on desktop', () => {
-      const isTouchDeviceMock = vi.mocked(isTouchDevice);
-      isTouchDeviceMock.mockReturnValue(false);
-
-      // Save original references
-      const originalHandleTouchStart = mockTerminalInstance._core.viewport.handleTouchStart;
-      const originalHandleTouchMove = mockTerminalInstance._core.viewport.handleTouchMove;
-
-      const dispose = createRoot((dispose) => {
-        const result = useTerminal(defaultProps);
-        result.containerRef(containerEl);
-        return dispose;
-      });
-
-      // Handlers should remain the original functions
-      expect(mockTerminalInstance._core.viewport.handleTouchStart).toBe(originalHandleTouchStart);
-      expect(mockTerminalInstance._core.viewport.handleTouchMove).toBe(originalHandleTouchMove);
-
-      dispose();
-    });
-  });
-
   describe('named constants', () => {
     it('DECTCEM_CURSOR_PARAM equals 25', () => {
       expect(DECTCEM_CURSOR_PARAM).toBe(25);
@@ -713,10 +664,6 @@ describe('useTerminal hook', () => {
 
       // setupMobileInput should be called on mobile devices
       expect(setupMobileInput).toHaveBeenCalled();
-
-      // Viewport touch handlers should be overridden (replaced with no-ops)
-      const touchStartHandler = mockTerminalInstance._core.viewport.handleTouchStart;
-      expect(touchStartHandler()).toBeUndefined();
 
       dispose();
     });

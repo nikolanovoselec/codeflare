@@ -1625,7 +1625,7 @@ The mobile terminal input system uses several techniques to work around browser/
 3. **`createElement` monkey-patch** -- Uses `input[type=password]` instead of textarea (scoped to `terminal.open()`)
 4. **`isFocused` getter override** -- Live reference via `iframe.contentDocument?.hasFocus()` avoids stale state
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
-6. **Four-part scroll fix** -- Disables xterm's touch handlers, sets `touch-action: pan-y`, enables momentum scrolling, and manages pointer-events based on keyboard state
+6. **Pointer-events toggle** -- Manages pointer-events on `.xterm-screen` based on keyboard state. xterm 6.0.0's SmoothScrollableElement handles touch scrolling internally; the pointer-events toggle controls whether touches go to the scroll layer (keyboard closed) or canvas (keyboard open)
 
 ### Samsung Internet Keyboard Quirks
 
