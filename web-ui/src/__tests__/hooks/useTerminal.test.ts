@@ -785,16 +785,20 @@ describe('useTerminal hook', () => {
     });
   });
 
-  describe('mobile pointer-events toggle on .xterm-screen', () => {
+  describe('mobile pointer-events toggle on .xterm-scrollable-element and .xterm-screen', () => {
     let screenEl: HTMLDivElement;
+    let scrollableEl: HTMLDivElement;
 
     beforeEach(() => {
+      scrollableEl = document.createElement('div');
+      scrollableEl.classList.add('xterm-scrollable-element');
+      containerEl.appendChild(scrollableEl);
       screenEl = document.createElement('div');
       screenEl.classList.add('xterm-screen');
-      containerEl.appendChild(screenEl);
+      scrollableEl.appendChild(screenEl);
     });
 
-    it('should set pointer-events: none on .xterm-screen when keyboard closed on mobile', () => {
+    it('should set pointer-events: none on both elements when keyboard closed on mobile', () => {
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
       const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
 
@@ -809,12 +813,13 @@ describe('useTerminal hook', () => {
         return dispose;
       });
 
+      expect(scrollableEl.style.pointerEvents).toBe('none');
       expect(screenEl.style.pointerEvents).toBe('none');
 
       dispose();
     });
 
-    it('should restore pointer-events on .xterm-screen when keyboard opens', () => {
+    it('should restore pointer-events on both elements when keyboard opens', () => {
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
       const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
 
@@ -832,6 +837,7 @@ describe('useTerminal hook', () => {
       // Keyboard opens
       setKbOpen(true);
 
+      expect(scrollableEl.style.pointerEvents).toBe('');
       expect(screenEl.style.pointerEvents).toBe('');
 
       dispose();
@@ -852,6 +858,7 @@ describe('useTerminal hook', () => {
         return dispose;
       });
 
+      expect(scrollableEl.style.pointerEvents).toBe('');
       expect(screenEl.style.pointerEvents).toBe('');
 
       dispose();
@@ -873,11 +880,13 @@ describe('useTerminal hook', () => {
       });
 
       // pointer-events should be 'none' while mounted on mobile with keyboard closed
+      expect(scrollableEl.style.pointerEvents).toBe('none');
       expect(screenEl.style.pointerEvents).toBe('none');
 
       dispose();
 
       // After cleanup, pointer-events should be restored
+      expect(scrollableEl.style.pointerEvents).toBe('');
       expect(screenEl.style.pointerEvents).toBe('');
     });
   });

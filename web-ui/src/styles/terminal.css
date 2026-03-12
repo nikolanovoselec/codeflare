@@ -102,6 +102,12 @@
             overscroll-behavior: contain;
             -webkit-overflow-scrolling: touch;
           }
+
+          /* xterm 6.0.0: the scrollable element wrapper must allow vertical
+             touch scroll pass-through when pointer-events is disabled via JS. */
+          .xterm-scrollable-element {
+            touch-action: pan-y;
+          }
         }
 
         /* Contain overflow from xterm helper elements */

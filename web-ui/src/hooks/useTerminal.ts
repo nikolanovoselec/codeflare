@@ -310,25 +310,48 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
   });
 
-  // Virtual keyboard scroll lock
+  // Virtual keyboard scroll lock — when keyboard is open, prevent native scroll on
+  // the viewport (swipe gestures handle navigation instead). When closing, preserve
+  // scrollTop across the overflow-y transition to prevent jump-to-top.
   createEffect(() => {
     if (!containerEl || !isTouchDevice()) return;
     const kbOpen = isVirtualKeyboardOpen();
     const viewport = containerEl.querySelector('.xterm-viewport') as HTMLElement | null;
     if (!viewport) return;
-    viewport.style.overflowY = kbOpen ? 'hidden' : '';
+    if (kbOpen) {
+      viewport.style.overflowY = 'hidden';
+    } else {
+      const savedScrollTop = viewport.scrollTop;
+      viewport.style.overflowY = '';
+      // Restore scroll position after browser reflow from overflow-y change
+      if (savedScrollTop > 0) {
+        viewport.scrollTop = savedScrollTop;
+        requestAnimationFrame(() => { viewport.scrollTop = savedScrollTop; });
+      }
+    }
     onCleanup(() => { viewport.style.overflowY = ''; });
   });
 
-  // Pointer-events toggle: when keyboard closed, disable canvas interaction so touches
-  // fall through to .xterm-viewport for native scroll. When keyboard opens, restore.
+  // Pointer-events toggle: when keyboard closed, disable interaction on the scrollable
+  // element so touches fall through to .xterm-viewport for native scroll.
+  // xterm 6.0.0 wraps .xterm-screen in .xterm-scrollable-element (VS Code's scrollbar
+  // system). We must disable pointer-events on this wrapper — not just .xterm-screen —
+  // otherwise the wrapper captures touch events before they reach the viewport.
   createEffect(() => {
     if (!containerEl || !isTouchDevice()) return;
+    const scrollableEl = containerEl.querySelector('.xterm-scrollable-element') as HTMLElement | null;
     const screen = containerEl.querySelector('.xterm-screen') as HTMLElement | null;
-    if (!screen) return;
     const kbOpen = isVirtualKeyboardOpen();
-    screen.style.pointerEvents = kbOpen ? '' : 'none';
-    onCleanup(() => { screen.style.pointerEvents = ''; });
+    if (scrollableEl) {
+      scrollableEl.style.pointerEvents = kbOpen ? '' : 'none';
+    }
+    if (screen) {
+      screen.style.pointerEvents = kbOpen ? '' : 'none';
+    }
+    onCleanup(() => {
+      if (scrollableEl) scrollableEl.style.pointerEvents = '';
+      if (screen) screen.style.pointerEvents = '';
+    });
   });
 
   // Refit on keyboard height change
