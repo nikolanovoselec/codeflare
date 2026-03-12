@@ -529,7 +529,10 @@ describe('Terminal Store', () => {
       const rawData = '\x1b[32mHello World\x1b[0m\r\n';
       wsInstance._simulateMessage(rawData);
 
-      // Should write raw data directly to terminal
+      // Flush rAF write batch
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should write raw data to terminal (via rAF batch)
       expect(terminal.write).toHaveBeenCalledWith(rawData);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
@@ -556,6 +559,9 @@ describe('Terminal Store', () => {
       // Send a pong message — no longer a recognized control message
       const pongMsg = JSON.stringify({ type: 'pong' });
       wsInstance._simulateMessage(pongMsg);
+
+      // Flush rAF write batch
+      await vi.advanceTimersByTimeAsync(0);
 
       // Since pong is no longer handled, it falls through to terminal.write
       expect(terminal.write).toHaveBeenCalledWith(pongMsg);
@@ -584,6 +590,9 @@ describe('Terminal Store', () => {
       // Send malformed JSON that starts with '{' but isn't valid JSON
       const malformedJson = '{not valid json at all';
       wsInstance._simulateMessage(malformedJson);
+
+      // Flush rAF write batch
+      await vi.advanceTimersByTimeAsync(0);
 
       // Should fall through to raw write
       expect(terminal.write).toHaveBeenCalledWith(malformedJson);
