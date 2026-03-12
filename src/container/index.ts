@@ -306,7 +306,7 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey } =
+      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, sessionMode } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
@@ -319,6 +319,7 @@ export class container extends Container<Env> {
           tabConfig?: TabConfig[];
           openaiApiKey?: string;
           geminiApiKey?: string;
+          sessionMode?: string;
         };
 
       // FIX-28: Idempotency — once bucket name is set, reject subsequent calls.
@@ -354,13 +355,17 @@ export class container extends Container<Env> {
           prefsChanged = true;
         }
 
-        // Always update LLM keys on restart (read fresh from KV each start)
+        // Always update LLM keys and session mode on restart (read fresh each start)
         if (openaiApiKey !== undefined) {
           this._openaiApiKey = openaiApiKey || null;
           prefsChanged = true;
         }
         if (geminiApiKey !== undefined) {
           this._geminiApiKey = geminiApiKey || null;
+          prefsChanged = true;
+        }
+        if (sessionMode) {
+          this._sessionMode = sessionMode;
           prefsChanged = true;
         }
 
@@ -377,7 +382,7 @@ export class container extends Container<Env> {
       // FIX-15: Validate inputs
       const validationError = validateBucketNameInput({
         bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
-        workspaceSyncEnabled, fastStartEnabled,
+        workspaceSyncEnabled, fastStartEnabled, sessionMode,
       });
       if (validationError) {
         return new Response(JSON.stringify({ error: validationError }), {
@@ -403,6 +408,7 @@ export class container extends Container<Env> {
         tabConfig,
         openaiApiKey,
         geminiApiKey,
+        sessionMode,
       });
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
