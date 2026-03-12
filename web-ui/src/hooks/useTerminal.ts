@@ -10,7 +10,7 @@ import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
-import { getXtermViewport, getIframeInput } from '../lib/xterm-internals';
+import { getIframeInput } from '../lib/xterm-internals';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -191,11 +191,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   function setupMobileTerminal() {
     if (!term) return;
 
-    const viewport = getXtermViewport(term);
-    if (viewport) {
-      viewport.handleTouchStart = () => {};
-      viewport.handleTouchMove = () => false;
-    }
+    // xterm 6.0.0: touch scrolling is handled by SmoothScrollableElement
+    // internally — no need to disable viewport touch handlers (removed in v6).
 
     const mobileCleanup = setupMobileInput(term, props, {
       refreshCursorLine: () => {
@@ -282,46 +279,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
-    // Scroll jump guard — xterm.js syncScrollArea updates .xterm-scroll-area
-    // height synchronously but defers scrollTop restoration to requestAnimationFrame.
-    // During burst output the browser reflows between those two steps, resetting
-    // scrollTop (visible as a flash to the top). This listener detects the
-    // browser-initiated reset and corrects scrollTop before paint.
-    const xtermViewport = containerEl.querySelector('.xterm-viewport') as HTMLElement | null;
-    if (xtermViewport) {
-      let lastScrollTop = xtermViewport.scrollTop;
-      let following = true;
-      let correcting = false;
-      const scrollGuard = () => {
-        if (correcting) return;
-        const current = xtermViewport.scrollTop;
-        const maxScroll = xtermViewport.scrollHeight - xtermViewport.clientHeight;
-
-        // Update following state — true when within 50px of the bottom
-        if (maxScroll - current < 50) {
-          following = true;
-        }
-
-        // Detect browser-initiated scroll reset: large downward jump while following output
-        const drop = lastScrollTop - current;
-        if (following && drop > 500) {
-          correcting = true;
-          xtermViewport.scrollTop = maxScroll;
-          lastScrollTop = maxScroll;
-          correcting = false;
-          return;
-        }
-
-        // User scrolled up intentionally (small gradual movement away from bottom)
-        if (maxScroll - current > 50 && drop > 0 && drop <= 500) {
-          following = false;
-        }
-
-        lastScrollTop = current;
-      };
-      xtermViewport.addEventListener('scroll', scrollGuard);
-      onCleanup(() => xtermViewport.removeEventListener('scroll', scrollGuard));
-    }
+    // Scroll guard removed — xterm 6.0.0 replaced the scroll architecture with
+    // VS Code's SmoothScrollableElement, eliminating the syncScrollArea race that
+    // caused scroll-to-top resets during burst output.
 
     // Font loading fix
     if (document.fonts) {

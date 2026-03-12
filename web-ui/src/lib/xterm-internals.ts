@@ -2,13 +2,17 @@
  * Typed helper functions that encapsulate xterm.js internal access.
  *
  * xterm.js exposes several private APIs (prefixed with `_`) that we rely on
- * for mobile input handling, touch gestures, and viewport manipulation.
- * Instead of scattering `(terminal as any)._core` casts throughout the
- * codebase, this module provides typed accessors with a single cast point.
+ * for mobile input handling and focus management. Instead of scattering
+ * `(terminal as any)._core` casts throughout the codebase, this module
+ * provides typed accessors with a single cast point.
  *
  * We also use a WeakMap-based approach for custom properties (__iframeInput,
  * __removeFocusGuard) instead of monkey-patching the Terminal instance, which
  * avoids polluting the xterm type and prevents accidental property collisions.
+ *
+ * xterm 6.0.0 note: The core class is now CoreBrowserTerminal (was Terminal).
+ * The viewport was rewritten to use VS Code's SmoothScrollableElement and no
+ * longer exposes touch handlers. Touch scrolling is handled internally.
  */
 import type { Terminal } from '@xterm/xterm';
 
@@ -23,13 +27,7 @@ export interface XtermCoreService {
   triggerDataEvent: (data: string, wasUserInput: boolean) => void;
 }
 
-export interface XtermViewport {
-  handleTouchStart: (e: TouchEvent) => void;
-  handleTouchMove: (e: TouchEvent) => boolean;
-}
-
 export interface XtermCore {
-  viewport: XtermViewport | undefined;
   coreService: XtermCoreService | undefined;
   _coreBrowserService: XtermCoreBrowserService | undefined;
   _syncTextArea: (() => void) | undefined;
@@ -49,11 +47,6 @@ export interface XtermBufferActive {
 /** Access xterm's internal _core object. Single cast point for the entire codebase. */
 export function getXtermCore(terminal: Terminal): XtermCore | undefined {
   return (terminal as any)._core as XtermCore | undefined;
-}
-
-/** Access the internal viewport handler (used to disable touch scrolling on mobile). */
-export function getXtermViewport(terminal: Terminal): XtermViewport | undefined {
-  return getXtermCore(terminal)?.viewport;
 }
 
 // ── Buffer access ────────────────────────────────────────────────────
