@@ -282,6 +282,27 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
+    // DEBUG: Scroll position jump detector — logs to browser console when
+    // the xterm viewport scroll position changes by more than 500px in a
+    // single frame. Remove once the intermittent scroll-to-top bug is found.
+    const xtermViewport = containerEl.querySelector('.xterm-viewport') as HTMLElement | null;
+    if (xtermViewport) {
+      let lastScrollTop = xtermViewport.scrollTop;
+      const scrollObserver = () => {
+        const current = xtermViewport.scrollTop;
+        const delta = Math.abs(current - lastScrollTop);
+        if (delta > 500) {
+          console.warn(
+            `[SCROLL-DEBUG ${props.sessionId}:${props.terminalId}] Jump detected: ${lastScrollTop} → ${current} (Δ${delta})`,
+            new Error('Stack trace').stack
+          );
+        }
+        lastScrollTop = current;
+      };
+      xtermViewport.addEventListener('scroll', scrollObserver, { passive: true });
+      onCleanup(() => xtermViewport.removeEventListener('scroll', scrollObserver));
+    }
+
     // Font loading fix
     if (document.fonts) {
       const currentFont = t.options.fontFamily;
