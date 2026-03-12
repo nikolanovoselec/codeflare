@@ -1,6 +1,8 @@
 import { createStore, produce } from 'solid-js/store';
+import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
+import { ApiError } from '../api/fetch-helper';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
@@ -128,6 +130,10 @@ const [state, setState] = createStore<SessionState>({
   preferences: {},
   maxSessions: 3,
 });
+
+// Auth expiry detection — set when background polling gets a 401/auth redirect.
+// Exposed as a reactive signal so Layout can show a re-auth banner.
+const [authExpired, setAuthExpired] = createSignal(false);
 
 // Register dependencies for extracted modules
 registerTabsDeps(
@@ -534,8 +540,15 @@ async function refreshSessionStatuses(): Promise<void> {
         updateSessionStatus(session.id, 'stopped');
       }
     }
-  } catch {
-    // Silently ignore — this is background polling
+  } catch (err) {
+    // Detect auth expiry: stop polling and surface to UI instead of thrashing
+    if (err instanceof ApiError && err.status === 401) {
+      logger.warn('[SessionStore] Auth expired — stopping background polling');
+      setAuthExpired(true);
+      stopSessionListPolling();
+      return;
+    }
+    // Silently ignore other errors — this is background polling
   }
 }
 
@@ -685,8 +698,12 @@ export const sessionStore = {
   startR2Polling,
   stopR2Polling,
 
+  // Auth expiry
+  get authExpired() { return authExpired(); },
+
   // @internal -- exposed for tests (AD23)
   updateSessionStatus,
   refreshSessionStatuses,
   _resetMissCounters: () => sessionMissCounters.clear(),
+  _resetAuthExpired: () => setAuthExpired(false),
 };

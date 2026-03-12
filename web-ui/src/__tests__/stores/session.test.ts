@@ -75,6 +75,7 @@ describe('Session Store', () => {
     mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
     mockGetStartupStatus.mockRejectedValue(new Error('Not found'));
     sessionStore._resetMissCounters();
+    sessionStore._resetAuthExpired();
   });
 
   afterEach(() => {
@@ -1227,6 +1228,62 @@ describe('Session Store', () => {
       expect(shouldSkipStatusTransition('session-1', 'session-1')).toBe(true);
       expect(shouldSkipStatusTransition('session-1', null)).toBe(false);
       expect(shouldSkipStatusTransition('session-1', 'session-2')).toBe(false);
+    });
+  });
+
+  describe('auth expiry detection', () => {
+    beforeEach(async () => {
+      mockGetSessions.mockResolvedValue([
+        {
+          id: 'session-1',
+          name: 'Test Session',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        },
+      ]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'running', ptyActive: true },
+      }, maxSessions: 3 });
+      await sessionStore.loadSessions();
+    });
+
+    it('should set authExpired when refreshSessionStatuses gets a 401 ApiError', async () => {
+      const { ApiError } = await import('../../api/fetch-helper');
+      mockGetBatchSessionStatus.mockRejectedValue(
+        new ApiError('Authentication expired', 401, 'Unauthorized')
+      );
+
+      expect(sessionStore.authExpired).toBe(false);
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.authExpired).toBe(true);
+    });
+
+    it('should stop session list polling after auth expiry', async () => {
+      const { ApiError } = await import('../../api/fetch-helper');
+      mockGetBatchSessionStatus.mockRejectedValue(
+        new ApiError('Authentication expired', 401, 'Unauthorized')
+      );
+
+      sessionStore.startSessionListPolling();
+      await sessionStore.refreshSessionStatuses();
+
+      // Clear mock to track new calls
+      mockGetBatchSessionStatus.mockClear();
+
+      // Advance past several poll intervals — no new calls should happen
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(mockGetBatchSessionStatus).not.toHaveBeenCalled();
+    });
+
+    it('should not set authExpired on non-auth errors', async () => {
+      mockGetBatchSessionStatus.mockRejectedValue(new Error('Network timeout'));
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.authExpired).toBe(false);
     });
   });
 });

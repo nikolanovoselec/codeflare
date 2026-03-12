@@ -54,6 +54,17 @@ export async function baseFetch<T>(
     const body = await response.text().catch(() => undefined);
     let errorMessage = body || `HTTP ${response.status}`;
     let steps: Array<{ step: string; status: string; error?: string }> | undefined;
+
+    // Detect HTML error pages (e.g., CF Access login page returned as 403).
+    // Show a clean auth message instead of dumping raw HTML into the UI.
+    if (body && /^\s*<!doctype\s|^\s*<html[\s>]/i.test(body)) {
+      throw new ApiError(
+        'Authentication expired — please refresh the page to log in again',
+        401,
+        'Unauthorized'
+      );
+    }
+
     try {
       if (body) {
         const parsed = JSON.parse(body);

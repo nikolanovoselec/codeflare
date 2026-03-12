@@ -60,6 +60,31 @@ html, body {
   background: rgba(239, 68, 68, 0.3);
 }
 
+.layout-auth-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: rgba(245, 158, 11, 0.15);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.5);
+  color: #f59e0b;
+  font-size: var(--text-sm);
+  z-index: 100;
+}
+
+.layout-auth-banner button {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  background: rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-sm);
+  color: #f59e0b;
+  transition: background var(--transition-fast);
+}
+
+.layout-auth-banner button:hover {
+  background: rgba(245, 158, 11, 0.4);
+}
+
 /* Bug 4 fix: layout-init-overlay removed - now handled per-terminal */
 
 .layout-terminal-container {

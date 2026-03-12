@@ -259,6 +259,16 @@ const Layout: Component<LayoutProps> = (props) => {
       {/* SplashCursor - layout-level so it covers header + content */}
       <SplashCursor />
 
+      {/* Auth expiry banner — shown when background polling detects expired session */}
+      <Show when={sessionStore.authExpired}>
+        <div class="layout-auth-banner" data-testid="auth-expired-banner">
+          <span>Session expired — please re-authenticate to continue.</span>
+          <button type="button" onClick={() => window.location.reload()}>
+            Refresh
+          </button>
+        </div>
+      </Show>
+
       {/* Header - only shown when not on dashboard */}
       <Show when={!showDashboard()}>
         <Header

@@ -140,6 +140,68 @@ describe('fetch-helper: baseFetch', () => {
   });
 
   // ==========================================================================
+  // HTML Error Body Detection (CF Access login page)
+  // ==========================================================================
+  describe('HTML error body detection', () => {
+    it('should throw clean auth error when error body is an HTML page (<!DOCTYPE)', async () => {
+      const cfAccessLoginPage = '<!DOCTYPE html><html><head><title>Access Denied</title></head><body>Please log in</body></html>';
+      mockFetch.mockResolvedValueOnce({
+        type: 'basic',
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: () => Promise.resolve(cfAccessLoginPage),
+      });
+
+      try {
+        await baseFetch('/api/storage/browse', {});
+        expect.unreachable('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError);
+        const apiErr = err as ApiError;
+        expect(apiErr.status).toBe(401);
+        expect(apiErr.message).toContain('Authentication expired');
+        // Must NOT contain raw HTML
+        expect(apiErr.message).not.toContain('<html');
+        expect(apiErr.message).not.toContain('<!DOCTYPE');
+      }
+    });
+
+    it('should throw clean auth error when error body starts with <html>', async () => {
+      const htmlPage = '<html><body>Access denied</body></html>';
+      mockFetch.mockResolvedValueOnce({
+        type: 'basic',
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: () => Promise.resolve(htmlPage),
+      });
+
+      try {
+        await baseFetch('/api/test', {});
+        expect.unreachable('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError);
+        const apiErr = err as ApiError;
+        expect(apiErr.status).toBe(401);
+        expect(apiErr.message).not.toContain('<html');
+      }
+    });
+
+    it('should still show raw text for non-HTML error bodies', async () => {
+      mockFetch.mockResolvedValueOnce({
+        type: 'basic',
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        text: () => Promise.resolve('Database connection failed'),
+      });
+
+      await expect(baseFetch('/api/test', {})).rejects.toThrow('Database connection failed');
+    });
+  });
+
+  // ==========================================================================
   // Error Wrapping
   // ==========================================================================
   describe('error wrapping', () => {
