@@ -2,43 +2,63 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-## Table of Contents
-
-1. [Architecture Overview](#1-architecture-overview)
-2. [System Components](#2-system-components)
-   - [Worker (Hono Router)](#21-worker-hono-router)
-   - [Container DO (CodeflareContainer)](#22-container-do-codeflarecontainer)
-   - [Terminal Server (node-pty)](#23-terminal-server-node-pty)
-   - [Frontend (SolidJS + xterm.js)](#24-frontend-solidjs--xtermjs)
-3. [Backend Libraries](#3-backend-libraries)
-4. [Data Flow](#4-data-flow)
-5. [Storage and Sync](#5-storage-and-sync)
-6. [Authentication](#6-authentication)
-7. [Security Model](#7-security-model)
-8. [API Reference](#8-api-reference)
-9. [Container Image](#9-container-image)
-10. [Container Startup](#10-container-startup)
-    - [Fast Start](#fast-start)
-11. [Claude Code Integration](#11-claude-code-integration)
-12. [File Structure](#12-file-structure)
-13. [Environment Variables](#13-environment-variables)
-14. [Configuration](#14-configuration)
-15. [CI/CD (GitHub Actions)](#15-cicd-github-actions)
-16. [Testing](#16-testing)
-17. [Development](#17-development)
-18. [Cost](#18-cost)
-19. [Troubleshooting](#19-troubleshooting)
-20. [Debugging Guide](#20-debugging-guide)
-21. [Architecture Decisions](#21-architecture-decisions)
-22. [Lessons Learned](#22-lessons-learned)
-23. [Mobile Terminal Design](#23-mobile-terminal-design)
-24. [Automatic Memory Capture](#24-automatic-memory-capture)
-
-**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by CF Access). The workers.dev URL should then be gated behind one-click Access in the Cloudflare dashboard.
+**Last Updated:** 2026-03-12
 
 ---
 
-## 1. Architecture Overview
+## Table of Contents
+
+### Core Architecture
+1. [Architecture Overview](#architecture-overview)
+2. [System Components](#system-components)
+3. [Data Flow](#data-flow)
+
+### Backend
+4. [Backend Libraries](#backend-libraries)
+5. [Storage and Sync](#storage-and-sync)
+6. [Memory Persistence](#memory-persistence)
+
+### Security & Operations
+7. [Authentication](#authentication)
+8. [Security Model](#security-model)
+9. [Rate Limiting](#rate-limiting)
+
+### APIs & Configuration
+10. [API Reference](#api-reference)
+11. [Environment Variables](#environment-variables)
+12. [Configuration](#configuration)
+
+### Deployment & Infrastructure
+13. [Container Image](#container-image)
+14. [Container Startup](#container-startup)
+15. [Claude Code Integration](#claude-code-integration)
+16. [CI/CD (GitHub Actions)](#cicd-github-actions)
+
+### Development & Testing
+17. [Testing](#testing)
+18. [Development](#development)
+19. [File Structure](#file-structure)
+
+### Operations & Debugging
+20. [Troubleshooting](#troubleshooting)
+21. [Debugging Guide](#debugging-guide)
+22. [Cost Analysis](#cost-analysis)
+
+### Design Documentation
+23. [Architecture Decisions](#architecture-decisions)
+24. [Lessons Learned](#lessons-learned)
+25. [Mobile Terminal Design](#mobile-terminal-design)
+26. [Automatic Memory Capture](#automatic-memory-capture)
+
+**Related Documentation:**
+- [README.md](/home/user/workspace/codeflare/README.md) - Product overview and setup
+- [SECURITY.md](/home/user/workspace/codeflare/SECURITY.md) - Security policy and headers
+- [docs/SETUP_WIZARD.md](/home/user/workspace/codeflare/docs/SETUP_WIZARD.md) - Setup wizard configuration
+- [STRESS_TEST.md](/home/user/workspace/codeflare/STRESS_TEST.md) - Load testing guide
+
+---
+
+## Architecture Overview
 
 Codeflare runs AI coding agents in isolated containers, one per browser session (tab). All sessions for a user share a single R2 bucket for persistent storage, with periodic bidirectional sync (every 60 seconds).
 
@@ -54,11 +74,13 @@ graph TD
     P2 -->|"rclone bisync (every 60s)"| R2
 ```
 
+**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by CF Access). The workers.dev URL should then be gated behind one-click Access in the Cloudflare dashboard.
+
 ---
 
-## 2. System Components
+## System Components
 
-### 2.1 Worker (Hono Router)
+### Worker (Hono Router)
 
 **File:** `src/index.ts`
 
@@ -81,7 +103,7 @@ if (wsRouteResult.isWebSocketRoute) {
 
 With SPA fallback (`not_found_handling = "single-page-application"`), control-plane paths must execute Worker logic first via `run_worker_first = ["/", "/api/*", "/public/*", "/health"]`. Missing `/api/*` causes setup/auth flows to break (API endpoints return HTML instead of JSON).
 
-### 2.2 Container DO (CodeflareContainer)
+### Container DO (CodeflareContainer)
 
 **File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, confirmed stable with keepalive heartbeat).
 
@@ -111,7 +133,6 @@ flowchart TD
     NoRenew --> FetchHealth
     FetchHealth --> WriteKV["Write metrics to KV"]
     WriteKV --> ReArm["schedule(5, 'collectMetrics')<br/>(unconditional if container.running)"]
-
 ```
 
 **`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected -> `renewActivityTimeout()`. If no clients -> `this.stop('SIGTERM')`. If `/activity` returns non-OK or the fetch throws, calls `this.stop('SIGTERM')` -- by the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed (meaning `collectMetrics` saw no active WS clients for 30 min), so an unreachable activity endpoint confirms the container is dead.
@@ -146,7 +167,7 @@ sequenceDiagram
 
 **Internal Endpoints:** `/_internal/setBucketName`, `/_internal/setSessionId`, `/_internal/getBucketName`
 
-### 2.3 Terminal Server (node-pty)
+### Terminal Server (node-pty)
 
 **File:** `host/server.ts` - Node.js/TypeScript server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
@@ -162,7 +183,7 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **Terminal emulator response stripping:** The PTY input handler strips terminal emulator responses (CSI sequences like `\x1b[?1;2c` and DA/DSR replies) from WebSocket input before writing to the PTY. These responses are generated by xterm.js in reply to terminal queries issued by CLI tools, and can appear as garbage characters in the terminal when echoed back through the PTY.
 
-### 2.4 Frontend (SolidJS + xterm.js)
+### Frontend (SolidJS + xterm.js)
 
 **Directory:** `web-ui/`
 
@@ -237,7 +258,7 @@ function connect() {
 
 ---
 
-## 3. Backend Libraries
+## Backend Libraries
 
 | File | Purpose |
 |------|---------|
@@ -291,7 +312,7 @@ flowchart TD
 
 ---
 
-## 4. Data Flow
+## Data Flow
 
 ### Session Creation to Terminal Connection
 
@@ -382,7 +403,6 @@ flowchart TD
 
     U3 -.- Key["destroy() clearing identifiers<br/>BEFORE onStop() prevents<br/>session resurrection"]
     D3 -.- Key
-
 ```
 
 **Restart (same bucket):** `setBucketName` -> 409 (bucket already set, but stores `sessionId`, `workspaceSyncEnabled`, `tabConfig`, and `fastStartEnabled` in DO storage for KV reconciliation and preference updates) -> `startAndWaitForPorts()` -> `onStart()` re-arms metrics
@@ -437,7 +457,7 @@ flowchart TD
 
 ---
 
-## 5. Storage and Sync
+## Storage and Sync
 
 ### Why rclone bisync (Not s3fs)
 
@@ -498,7 +518,7 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 **Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/.bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the shutdown trap to skip the final bisync — losing any files created during the session.
 
-### Memory Persistence
+## Memory Persistence
 
 Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persists across sessions using per-session JSONL files synced to R2.
 
@@ -530,7 +550,7 @@ Skill definition: `preseed/agents/claude/skills/consult-llm/SKILL.md`.
 
 ---
 
-## 6. Authentication
+## Authentication
 
 ### Cloudflare Access Integration
 
@@ -561,7 +581,7 @@ flowchart TD
     A[Request] --> B[Edge routing]
     B --> C[CORS]
     C --> D[Auth Middleware]
-    D --> E["getUserFromRequest()&lt;br/&gt;JWT / service token"]
+    D --> E["getUserFromRequest()<br/>JWT / service token"]
     E --> F[Normalize email]
     F --> G[Check KV allowlist]
     G --> H["getBucketName()"]
@@ -579,11 +599,11 @@ flowchart TD
 
 ---
 
-## 7. Security Model
+## Security Model
 
 ### CF Access Gate
 
-Cloudflare Access protects all authenticated surfaces (see Section 6 for Access application destination strategy).
+Cloudflare Access protects all authenticated surfaces (see Section [Authentication](#authentication) for Access application destination strategy).
 
 ### API Token Containment
 
@@ -639,7 +659,7 @@ HSTS is also applied to all redirect responses via `secureRedirect()` helper, in
 
 64 KiB on all `/api/*` routes (storage routes exempt for file uploads).
 
-### Rate Limiting
+## Rate Limiting
 
 Per-user rate limiting via `createRateLimiter()` factory in `src/middleware/rate-limit.ts`. Keyed by `bucketName` (user identifier set by auth middleware), falls back to `CF-Connecting-IP` for unauthenticated requests.
 
@@ -658,7 +678,7 @@ When the limit is exceeded: HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: 
 | Endpoint | Method | Limit | Key Prefix |
 |----------|--------|-------|-----------|
 | `/api/storage/upload/*` | POST | 60/min | `storage-upload` |
-| `/api/storage/delete` | POST | 20/min | `storage-delete` | Accepts `keys` and/or `prefixes`. Prefix delete runs server-side (list+batch delete via R2 S3 API) — no per-request rate limit on internal R2 calls. |
+| `/api/storage/delete` | POST | 20/min | `storage-delete` |
 | `/api/storage/move` | POST | 20/min | `storage-move` |
 | `/api/storage/seed/*` | POST | 3/min | `storage-seed` |
 | `/api/storage/download` | GET | 120/min | `storage-download` |
@@ -731,7 +751,7 @@ Cannot be accessed via the web storage API (browse, upload, delete, move). These
 
 ---
 
-## 8. API Reference
+## API Reference
 
 ### Common Response Headers
 
@@ -806,6 +826,8 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 Public before setup; admin-only after. All `adminUsers` must also be in `allowedUsers`. Regular users (`allowedUsers` beyond admins) are optional -- admin-only deployments with 0 regular users are fully supported.
 
+See [docs/SETUP_WIZARD.md](/home/user/workspace/codeflare/docs/SETUP_WIZARD.md) for complete setup configuration details.
+
 ### Storage (R2 File Browser)
 
 | Method | Endpoint | Description |
@@ -851,7 +873,104 @@ GET `/health`, GET `/api/health`
 
 ---
 
-## 9. Container Image
+## Environment Variables
+
+### Worker Environment
+
+| Variable | Purpose | Source |
+|----------|---------|--------|
+| `SERVICE_TOKEN_EMAIL` | Email for service token auth | Optional |
+| `CLOUDFLARE_API_TOKEN` | R2 bucket creation | Wrangler secret |
+| `R2_ACCESS_KEY_ID` | R2 auth for containers | Wrangler secret |
+| `R2_SECRET_ACCESS_KEY` | R2 auth for containers | Wrangler secret |
+| `R2_ACCOUNT_ID` | R2 endpoint construction | Dynamic (env with KV fallback) |
+| `R2_ENDPOINT` | S3-compatible endpoint | Dynamic (env with KV fallback) |
+| `ALLOWED_ORIGINS` | CORS patterns (comma-separated) | wrangler.toml |
+| `LOG_LEVEL` | Min log level (default: "info") | wrangler.toml |
+| `ONBOARDING_LANDING_PAGE` | `"active"` enables public waitlist landing | wrangler.toml |
+| `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | Optional |
+| `RESEND_API_KEY` | Waitlist notification emails | Optional |
+| `WAITLIST_FROM_EMAIL` | Sender identity for waitlist | Optional |
+| `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | GitHub Actions variable / Worker runtime env |
+| `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
+| `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
+| `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | Worker secret (optional) |
+| `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | Worker env var |
+
+### Container Environment
+
+| Variable | Purpose | Source |
+|----------|---------|--------|
+| `R2_BUCKET_NAME` | User's personal bucket | Worker -> DO via `setBucketName` |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | rclone auth | Worker -> DO (preferred) or DO `this.env` fallback |
+| `R2_ACCOUNT_ID` / `R2_ENDPOINT` | rclone endpoint | Worker -> DO or `getR2Config()` fallback |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
+| `TERMINAL_PORT` | Always 8080 | Hardcoded |
+| `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) | Worker -> DO |
+| `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`) | Worker via `setBucketName` |
+| `TAB_CONFIG` | JSON array of terminal tab configurations | Worker -> DO |
+| `TERMINAL_ID` | Unique ID for this terminal instance | Host terminal server |
+| `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker -> DO |
+| `MANUAL_TAB` | Set to `1` for user-created tabs to skip autostart | Worker -> DO |
+| `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default) | Worker -> DO |
+| `OPENAI_API_KEY` | OpenAI API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
+| `GEMINI_API_KEY` | Gemini API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
+| `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
+| `BROWSER` | Points to `open-url` shim that exits 1 | Dockerfile ENV (`/usr/local/bin/open-url`) |
+
+---
+
+## Configuration
+
+### Secrets
+
+Repository: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optional `RESEND_API_KEY`
+
+Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **Worker-level R2 credentials are derived from the API token** (used for bucket admin operations like create/empty/delete). Per-user scoped R2 tokens are separate — created on first login, independent of the master token but revoked when the API token changes. If the token is rotated, setup must be re-run.
+
+### CORS
+
+Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGINS` env var is static fallback.
+
+`R2_ACCOUNT_ID` and `R2_ENDPOINT` resolved dynamically (env vars with KV fallback).
+
+### Container Specs
+
+| Tier | Config | Max Instances | Notes |
+|------|--------|---------------|-------|
+| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 10 | Sub-1-vCPU workloads |
+| default | 1 vCPU, 3 GiB, 6 GB | 10 | Baseline for node-pty + agent CLIs |
+| `high` | 2 vCPU, 6 GiB, 8 GB | 10 | Higher parallelism |
+
+Base image: Node.js 24 Debian (bookworm-slim).
+
+### API Token Permissions
+
+#### Account Permissions
+
+| Permission | Access | Required | Why |
+|-----------|--------|----------|-----|
+| Account Settings | Read | Yes | Account ID discovery |
+| Workers Scripts | Edit | Yes | Deploy worker + secrets |
+| Workers KV Storage | Edit | Yes | KV namespace management |
+| Workers R2 Storage | Edit | Yes | Per-user R2 buckets |
+| Containers | Edit | Yes | Container lifecycle |
+| Access: Apps and Policies | Edit | Yes | Managed Access app |
+| Access: Organizations, Identity Providers, and Groups | Edit | Yes | Access groups + auth_domain |
+| Turnstile | Edit | Only if onboarding active | Turnstile widget |
+| API Tokens | Edit | Yes | Create/revoke per-user scoped R2 tokens |
+
+#### Zone Permissions
+
+| Permission | Access | Required | Why |
+|-----------|--------|----------|-----|
+| Zone | Read | Yes | Zone ID resolution |
+| DNS | Edit | Yes | Proxied CNAME |
+| Workers Routes | Edit | Yes | Worker route upsert |
+
+---
+
+## Container Image
 
 **File:** `Dockerfile` - Base: `node:24-bookworm-slim`, multi-stage build (builder compiles native addons, runtime has no build tools).
 
@@ -894,7 +1013,7 @@ Port: 8080 (single port architecture).
 
 ---
 
-## 10. Container Startup
+## Container Startup
 
 **File:** `entrypoint.sh`
 
@@ -936,7 +1055,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 ---
 
-## 11. Claude Code Integration
+## Claude Code Integration
 
 The "Claude Code" agent in Codeflare uses [claude-unleashed](https://github.com/nikolanovoselec/claude-unleashed) (`cu` command) behind the scenes. claude-unleashed enables `--dangerously-skip-permissions` when running as root inside containers (standard CLI prevents this via `process.getuid() === 0` check), and provides a controlled update mechanism.
 
@@ -954,7 +1073,221 @@ The "Claude Code" agent in Codeflare uses [claude-unleashed](https://github.com/
 
 ---
 
-## 12. File Structure
+## CI/CD (GitHub Actions)
+
+Eight workflows covering deploy, testing, fuzzing, penetration testing, stress testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| `deploy.yml` | Push to `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets |
+| `test.yml` | PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit`, dependency review |
+| `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
+| `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
+| `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
+| `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
+| `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
+| `stress-test.yml` | `workflow_dispatch` | k6 stress tests (API throughput, session lifecycle, storage operations, WebSocket concurrency) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
+
+### GitHub Environments
+
+| Environment | Used by | Trigger |
+|-------------|---------|---------|
+| `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
+| `integration` | `deploy.yml`, `e2e.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
+
+### GitHub Secrets and Variables
+
+**Secrets (repository-level):**
+
+| Secret | Required | Used by | Purpose |
+|--------|----------|---------|---------|
+| `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` | Wrangler CLI auth, KV operations, container push, worker deploy, secret management |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` | Identifies the Cloudflare account for all API operations |
+| `RESEND_API_KEY` | Only if `ONBOARDING_LANDING_PAGE=active` | `deploy.yml` | Waitlist notification emails via Resend |
+| `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token ID for E2E auth |
+| `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token secret; also used as `SERVICE_AUTH_SECRET` worker secret and KV seeding |
+
+**Variables:**
+
+| Variable | Default | Used by | Purpose | Default source |
+|----------|---------|---------|---------|----------------|
+| `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` | Worker name for deploy and E2E target resolution | Hardcoded fallback in workflow |
+| `RUNNER` | `ubuntu-latest` | All workflows | GitHub Actions runner label (self-hosted support) | Hardcoded fallback in workflow |
+| `E2E_BASE_URL` | - | `e2e.yml` | Base URL of deployed worker for E2E tests | Set per environment |
+| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` | Enables public waitlist landing page via `--var` | Hardcoded fallback in workflow |
+| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 6 GB) | `deploy.yml` | Container resource tier (low/default/high) | Defaults to `default` in deploy step |
+| `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | `deploy.yml` | When `active`, writes `.cache-bust` to invalidate CU Docker layer | Not set by default |
+| `MAX_SESSIONS_USER` | `3` | `deploy.yml` | Per-user session cap passed via `--var` | Omitted if unset (backend default applies) |
+| `MAX_SESSIONS_ADMIN` | `10` | `deploy.yml` | Per-admin session cap passed via `--var` | Omitted if unset (backend default applies) |
+| `PENTEST_TARGET` | - | `pentest.yml` | Base URL for penetration tests (e.g., `https://codeflare.graymatter.ch`) | Set per `production` environment |
+| `STRESS_TEST_CONCURRENCY` | `0` (disabled) | `stress-test.yml` | k6 virtual user scaling factor. When >0, scales VU targets proportionally and loosens latency thresholds. | Set per `integration` environment |
+
+### Deploy Workflow Detail
+
+1. Install dependencies (cached via `actions/cache`)
+2. Build frontend, run backend + frontend tests, typecheck both
+3. Resolve/create KV namespace, patch `wrangler.toml` with KV ID
+4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB)
+5. Optionally generate `.cache-bust` for Claude Unleashed layer
+6. Build Docker image locally
+7. Scan with Trivy (HIGH/CRITICAL severity, `.trivyignore` for exceptions)
+8. Push image to Cloudflare registry via `wrangler containers push`, extract registry URI
+9. Patch `wrangler.toml` `image` field to registry URI (skips Docker rebuild on deploy)
+10. Deploy with `npx wrangler deploy` passing `--var` for runtime config
+11. Set worker secrets: `CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET` (E2E), optional `RESEND_API_KEY`
+12. Seed E2E service user in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present
+
+### Test Workflow Detail
+
+Two parallel jobs:
+- **test**: Lint (oxlint), build frontend, run backend + frontend tests, typecheck both, dead code check (knip), `npm audit --audit-level=high` for backend and frontend
+- **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
+
+### E2E Workflow Detail
+
+Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile`:
+1. **setup** job: Sets `SERVICE_AUTH_SECRET` on target worker, seeds E2E service user in KV, smoke-tests auth with retry loop (handles KV eventual consistency ~60s)
+2. **e2e-api** job (depends on `setup`): Runs API test suite
+3. **e2e-ui-desktop** job (depends on `setup` + `e2e-api`): Runs UI desktop tests. Installs Chrome via `npx puppeteer browsers install chrome` + system shared libraries
+4. **e2e-ui-mobile** job (depends on `setup` + `e2e-ui-desktop`): Runs UI mobile tests with `E2E_MOBILE=1`. Failed runs upload screenshots/HTML as artifacts (5-day retention)
+
+### Pentest Workflow Detail
+
+Six parallel jobs, each running lightweight external probes against the production deployment using only `curl` and `openssl` (no heavy scanning tools). All jobs use the `production` GitHub environment and read `PENTEST_TARGET` from environment variables.
+
+1. **security-headers**: Verifies presence of HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy. Confirms `X-Powered-By` is absent.
+2. **tls**: Confirms TLS 1.3 works, TLS 1.0/1.1 are rejected, HSTS preload is enabled, and the certificate has at least 14 days before expiry.
+3. **auth-gate**: Sends unauthenticated requests to seven API endpoints and confirms they all require CF Access (302/401/403). Tests that injecting `cf-access-authenticated-user-email` headers does not bypass authentication.
+4. **info-disclosure**: Probes for sensitive files (`/.env`, `/.git/config`, `/api/debug`), checks that responses contain no secrets or stack traces.
+5. **injection**: Tests host header injection (spoofed `Host` returns 403), `X-Forwarded-Host` has no effect on content, CL/TE request smuggling is rejected, and path traversal payloads (`%2e%2e`, double-encoded, backslash, unicode) are blocked at the auth layer.
+6. **http-methods**: Verifies TRACE returns 405 and WebSocket upgrade without authentication returns 302.
+
+**Requires:** `PENTEST_TARGET` variable set in the `production` GitHub environment (e.g., `https://codeflare.graymatter.ch`). See the full manual test report in [PENTEST.md](/home/user/workspace/codeflare/PENTEST.md).
+
+---
+
+## Testing
+
+### Backend Tests
+
+**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
+**Count:** 68 test files, ~996 tests.
+**Run:** `npm test`
+**Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
+**Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
+
+### Frontend Tests
+
+**Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
+**Count:** 68 test files, ~1,324 tests.
+**Run:** `cd web-ui && npm test`
+**Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
+
+### Host Tests
+
+**Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
+**Count:** 9 test files, ~86 tests.
+**Run:** `cd host && npm test`
+**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
+
+### Property-Based Fuzz Tests
+
+**Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to main, weekly, and manual dispatch.
+**Local:** Default 1,000 iterations. Override with `FAST_CHECK_NUM_RUNS=50000`.
+
+| Suite | File | Tests | What it covers |
+|-------|------|-------|----------------|
+| Backend | `src/__tests__/fuzz/input-validation.fuzz.test.ts` | 120 | XML injection/parsing, getBucketName, validateKey (path traversal, null bytes, encoding tricks), KV namespacing, ReDoS, circuit breaker state machine, error types, logger, content-type helpers |
+| Frontend | `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` | 13 | md5 (custom impl), isActionableUrl (ReDoS resistance), cleanupMapByPrefix (Map iteration+deletion) |
+| Host | `host/__tests__/fuzz-host.test.js` | 9 | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
+
+**Test selection criteria:** Every test must exercise real production code (no replicas) on an untrusted input boundary (user input, API responses, WebSocket data, env vars). Tests that verify framework guarantees (Zod safeParse), language features (class inheritance), or trivial formatters are excluded.
+
+**Bugs found by fuzzing:**
+- `getBucketName` trailing hyphen for long worker names (`src/lib/access.ts`)
+- Null byte bypass in `validateKey` (`src/routes/storage/validation.ts`)
+- `prewarm-config.js` crash on non-string tab command (`host/prewarm-config.js`)
+- `toError`/`toErrorMessage` crash on objects with throwing `toString()` (`src/lib/error-types.ts`)
+
+### Vitest Version Split
+
+Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v4.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify - the version constraint is real.
+
+### E2E API Tests
+
+**Dir:** `e2e/api/` - 12 test files, ~55 tests.
+**Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
+**Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
+
+Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `error-responses`, `rate-limiting`.
+
+### E2E UI Tests
+
+**Dir:** `e2e/ui/` - 10 test files, ~75 tests (run as desktop + mobile).
+**Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
+**Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
+**Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1280x720. Mobile viewport: 390x844 (iPhone-like).
+
+Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`, `error-states`, `mobile-specific`.
+
+### E2E Infrastructure
+
+- **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page - UI tests work around this by intercepting requests.
+- **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
+- **CSS disable:** UI tests inject a `<style>` element via `evaluateOnNewDocument` that sets `transition: none !important; animation: none !important; scroll-behavior: auto !important` on all elements (`*, *::before, *::after`), disabling CSS transitions and animations for reliable element positioning in headless Chrome.
+- **Screenshot artifacts:** Failed UI tests capture screenshots and HTML dumps to `e2e-artifacts/`. CI uploads these as artifacts with 5-day retention.
+- **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
+
+### E2E Service Token Setup
+
+Step-by-step for running E2E tests against a deployed worker:
+
+1. Create a CF Access service token in Cloudflare dashboard (Access > Service Tokens)
+2. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` as GitHub repository secrets (under `integration` environment for E2E)
+3. Deploy the worker (sets `SERVICE_AUTH_SECRET` automatically from `CF_ACCESS_CLIENT_SECRET`)
+4. The deploy workflow seeds `e2e-service@codeflare.local` as admin in KV allowlist
+5. Run E2E via `Actions > E2E Tests > Run workflow`
+
+For local E2E development:
+```bash
+export CF_ACCESS_CLIENT_ID="<your-service-token-id>"
+export CF_ACCESS_CLIENT_SECRET="<your-service-token-secret>"
+export E2E_BASE_URL="https://your-app.example.com"
+npm run test:e2e        # All E2E tests
+npm run test:e2e:api    # API tests only
+npm run test:e2e:ui     # UI desktop tests only
+E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
+```
+
+### E2E Test Maintenance
+
+**Rule:** When modifying UI components or API routes, review and update corresponding E2E tests.
+
+- **Source -> test mapping:** Each source module has a corresponding E2E test file. Key mappings: `src/routes/session/` -> `e2e/api/sessions.test.ts`, `src/routes/storage/` -> `e2e/api/storage.test.ts`, `src/routes/setup/` -> `e2e/api/setup-status.test.ts`, `web-ui/.../Dashboard.tsx` -> `e2e/ui/dashboard.test.ts`. Run `grep -r 'data-testid' e2e/` to find all referenced test IDs.
+- **`data-testid` verification:** Every `data-testid` referenced in E2E tests must exist in the web-ui source. Grep to verify before committing.
+- **Cleanup:** `afterAll` hooks handle test cleanup. If tests fail mid-run, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
+
+---
+
+## Development
+
+```bash
+npm install && cd web-ui && npm install && cd ..
+npm run dev          # Run locally (requires Docker)
+npm run lint         # Lint backend (oxlint)
+npm run lint:fix     # Lint backend with auto-fix
+npm run typecheck    # Type check backend
+npm test             # Backend unit tests
+npm run test:e2e     # E2E API tests
+npm run test:e2e:ui  # E2E UI tests (Puppeteer)
+npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see Section 16)
+cd web-ui && npm run dev   # Frontend dev server
+cd web-ui && npm run build # Frontend production build
+```
+
+---
+
+## File Structure
 
 ```
 codeflare/
@@ -1061,342 +1394,7 @@ codeflare/
 
 ---
 
-## 13. Environment Variables
-
-### Worker Environment
-
-| Variable | Purpose | Source |
-|----------|---------|--------|
-| `SERVICE_TOKEN_EMAIL` | Email for service token auth | Optional |
-| `CLOUDFLARE_API_TOKEN` | R2 bucket creation | Wrangler secret |
-| `R2_ACCESS_KEY_ID` | R2 auth for containers | Wrangler secret |
-| `R2_SECRET_ACCESS_KEY` | R2 auth for containers | Wrangler secret |
-| `R2_ACCOUNT_ID` | R2 endpoint construction | Dynamic (env with KV fallback) |
-| `R2_ENDPOINT` | S3-compatible endpoint | Dynamic (env with KV fallback) |
-| `ALLOWED_ORIGINS` | CORS patterns (comma-separated) | wrangler.toml |
-| `LOG_LEVEL` | Min log level (default: "info") | wrangler.toml |
-| `ONBOARDING_LANDING_PAGE` | `"active"` enables public waitlist landing | wrangler.toml |
-| `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | Optional |
-| `RESEND_API_KEY` | Waitlist notification emails | Optional |
-| `WAITLIST_FROM_EMAIL` | Sender identity for waitlist | Optional |
-| `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | GitHub Actions variable / Worker runtime env |
-| `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
-| `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
-| `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | Worker secret (optional) |
-| `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | Worker env var |
-
-### Container Environment
-
-| Variable | Purpose | Source |
-|----------|---------|--------|
-| `R2_BUCKET_NAME` | User's personal bucket | Worker -> DO via `setBucketName` |
-| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | rclone auth | Worker -> DO (preferred) or DO `this.env` fallback |
-| `R2_ACCOUNT_ID` / `R2_ENDPOINT` | rclone endpoint | Worker -> DO or `getR2Config()` fallback |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 compatibility | Mirrors R2 keys |
-| `TERMINAL_PORT` | Always 8080 | Hardcoded |
-| `SYNC_MODE` | Sync strategy (`none`, `full`, or `metadata`) -- see Section 5 | Worker -> DO |
-| `WORKSPACE_SYNC_ENABLED` | Whether workspace sync is enabled (`'true'`/`'false'`). Drives `SYNC_MODE` value. | Worker via `setBucketName` |
-| `TAB_CONFIG` | JSON array of terminal tab configurations | Worker -> DO |
-| `TERMINAL_ID` | Unique ID for this terminal instance | Host terminal server (`session.js`) |
-| `CONTAINER_AUTH_TOKEN` | Auth token for container API calls | Worker -> DO |
-| `MANUAL_TAB` | Set to `1` for user-created tabs to skip autostart | Worker -> DO |
-| `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default). Set `'false'` to allow auto-updates. See [Fast Start](#fast-start). | Worker -> DO (from `fastStartEnabled` preference) |
-| `OPENAI_API_KEY` | OpenAI API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
-| `GEMINI_API_KEY` | Gemini API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
-| `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
-| `BROWSER` | Points to `open-url` shim that exits 1, forcing CLIs to print OAuth URLs as text | Dockerfile ENV (`/usr/local/bin/open-url`) |
-
----
-
-## 14. Configuration
-
-### Secrets
-
-Repository: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optional `RESEND_API_KEY`
-
-Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **Worker-level R2 credentials are derived from the API token** (used for bucket admin operations like create/empty/delete). Per-user scoped R2 tokens are separate — created on first login, independent of the master token but revoked when the API token changes. If the token is rotated, setup must be re-run.
-
-### CORS
-
-Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGINS` env var is static fallback.
-
-`R2_ACCOUNT_ID` and `R2_ENDPOINT` resolved dynamically (env vars with KV fallback).
-
-### Container Specs
-
-| Tier | Config | Max Instances | Notes |
-|------|--------|---------------|-------|
-| `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 10 | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 6 GB | 10 | Baseline for node-pty + agent CLIs |
-| `high` | 2 vCPU, 6 GiB, 8 GB | 10 | Higher parallelism |
-
-Base image: Node.js 24 Debian (bookworm-slim).
-
-### API Token Permissions
-
-#### Account Permissions
-
-| Permission | Access | Required | Why |
-|-----------|--------|----------|-----|
-| Account Settings | Read | Yes | Account ID discovery |
-| Workers Scripts | Edit | Yes | Deploy worker + secrets |
-| Workers KV Storage | Edit | Yes | KV namespace management |
-| Workers R2 Storage | Edit | Yes | Per-user R2 buckets |
-| Containers | Edit | Yes | Container lifecycle |
-| Access: Apps and Policies | Edit | Yes | Managed Access app |
-| Access: Organizations, Identity Providers, and Groups | Edit | Yes | Access groups + auth_domain |
-| Turnstile | Edit | Only if onboarding active | Turnstile widget |
-| API Tokens | Edit | Yes | Create/revoke per-user scoped R2 tokens |
-
-#### Zone Permissions
-
-| Permission | Access | Required | Why |
-|-----------|--------|----------|-----|
-| Zone | Read | Yes | Zone ID resolution |
-| DNS | Edit | Yes | Proxied CNAME |
-| Workers Routes | Edit | Yes | Worker route upsert |
-
----
-
-## 15. CI/CD (GitHub Actions)
-
-Eight workflows covering deploy, testing, fuzzing, penetration testing, stress testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
-
-| Workflow | Trigger | What it does |
-|----------|---------|-------------|
-| `deploy.yml` | Push to `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets |
-| `test.yml` | PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit`, dependency review |
-| `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
-| `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
-| `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
-| `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
-| `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
-| `stress-test.yml` | `workflow_dispatch` | k6 stress tests (API throughput, session lifecycle, storage operations, WebSocket concurrency) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
-
-### GitHub Environments
-
-| Environment | Used by | Trigger |
-|-------------|---------|---------|
-| `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
-| `integration` | `deploy.yml`, `e2e.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
-
-### GitHub Secrets and Variables
-
-**Secrets (repository-level):**
-
-| Secret | Required | Used by | Purpose |
-|--------|----------|---------|---------|
-| `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` | Wrangler CLI auth, KV operations, container push, worker deploy, secret management |
-| `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` | Identifies the Cloudflare account for all API operations |
-| `RESEND_API_KEY` | Only if `ONBOARDING_LANDING_PAGE=active` | `deploy.yml` | Waitlist notification emails via Resend |
-| `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token ID for E2E auth |
-| `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token secret; also used as `SERVICE_AUTH_SECRET` worker secret and KV seeding |
-
-**Variables:**
-
-| Variable | Default | Used by | Purpose | Default source |
-|----------|---------|---------|---------|----------------|
-| `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` | Worker name for deploy and E2E target resolution | Hardcoded fallback in workflow |
-| `RUNNER` | `ubuntu-latest` | All workflows | GitHub Actions runner label (self-hosted support) | Hardcoded fallback in workflow |
-| `E2E_BASE_URL` | - | `e2e.yml` | Base URL of deployed worker for E2E tests | Set per environment |
-| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` | Enables public waitlist landing page via `--var` | Hardcoded fallback in workflow |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 6 GB) | `deploy.yml` | Container resource tier (low/default/high) | Defaults to `default` in deploy step |
-| `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | `deploy.yml` | When `active`, writes `.cache-bust` to invalidate CU Docker layer | Not set by default |
-| `MAX_SESSIONS_USER` | `3` | `deploy.yml` | Per-user session cap passed via `--var` | Omitted if unset (backend default applies) |
-| `MAX_SESSIONS_ADMIN` | `10` | `deploy.yml` | Per-admin session cap passed via `--var` | Omitted if unset (backend default applies) |
-| `PENTEST_TARGET` | - | `pentest.yml` | Base URL for penetration tests (e.g., `https://codeflare.graymatter.ch`) | Set per `production` environment |
-| `STRESS_TEST_CONCURRENCY` | `0` (disabled) | `stress-test.yml` | k6 virtual user scaling factor. When >0, scales VU targets proportionally and loosens latency thresholds. | Set per `integration` environment |
-
-### Deploy Workflow Detail
-
-1. Install dependencies (cached via `actions/cache`)
-2. Build frontend, run backend + frontend tests, typecheck both
-3. Resolve/create KV namespace, patch `wrangler.toml` with KV ID
-4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB)
-5. Optionally generate `.cache-bust` for Claude Unleashed layer
-6. Build Docker image locally
-7. Scan with Trivy (HIGH/CRITICAL severity, `.trivyignore` for exceptions)
-8. Push image to Cloudflare registry via `wrangler containers push`, extract registry URI
-9. Patch `wrangler.toml` `image` field to registry URI (skips Docker rebuild on deploy)
-10. Deploy with `npx wrangler deploy` passing `--var` for runtime config
-11. Set worker secrets: `CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET` (E2E), optional `RESEND_API_KEY`
-12. Seed E2E service user in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present
-
-### Test Workflow Detail
-
-Two parallel jobs:
-- **test**: Lint (oxlint), build frontend, run backend + frontend tests, typecheck both, dead code check (knip), `npm audit --audit-level=high` for backend and frontend
-- **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
-
-### E2E Workflow Detail
-
-Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile`:
-1. **setup** job: Sets `SERVICE_AUTH_SECRET` on target worker, seeds E2E service user in KV, smoke-tests auth with retry loop (handles KV eventual consistency ~60s)
-2. **e2e-api** job (depends on `setup`): Runs API test suite
-3. **e2e-ui-desktop** job (depends on `setup` + `e2e-api`): Runs UI desktop tests. Installs Chrome via `npx puppeteer browsers install chrome` + system shared libraries
-4. **e2e-ui-mobile** job (depends on `setup` + `e2e-ui-desktop`): Runs UI mobile tests with `E2E_MOBILE=1`. Failed runs upload screenshots/HTML as artifacts (5-day retention)
-
-### Pentest Workflow Detail
-
-Six parallel jobs, each running lightweight external probes against the production deployment using only `curl` and `openssl` (no heavy scanning tools). All jobs use the `production` GitHub environment and read `PENTEST_TARGET` from environment variables.
-
-1. **security-headers**: Verifies presence of HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy. Confirms `X-Powered-By` is absent.
-2. **tls**: Confirms TLS 1.3 works, TLS 1.0/1.1 are rejected, HSTS preload is enabled, and the certificate has at least 14 days before expiry.
-3. **auth-gate**: Sends unauthenticated requests to seven API endpoints and confirms they all require CF Access (302/401/403). Tests that injecting `cf-access-authenticated-user-email` headers does not bypass authentication.
-4. **info-disclosure**: Probes for sensitive files (`/.env`, `/.git/config`, `/api/debug`), checks that responses contain no secrets or stack traces.
-5. **injection**: Tests host header injection (spoofed `Host` returns 403), `X-Forwarded-Host` has no effect on content, CL/TE request smuggling is rejected, and path traversal payloads (`%2e%2e`, double-encoded, backslash, unicode) are blocked at the auth layer.
-6. **http-methods**: Verifies TRACE returns 405 and WebSocket upgrade without authentication returns 302.
-
-**Requires:** `PENTEST_TARGET` variable set in the `production` GitHub environment (e.g., `https://codeflare.graymatter.ch`). See the full manual test report in `PENTEST.md`.
-
----
-
-## 16. Testing
-
-### 16.1 Backend Tests
-
-**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
-**Count:** 68 test files, ~996 tests.
-**Run:** `npm test`
-**Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
-**Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
-
-### 16.2 Frontend Tests
-
-**Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 68 test files, ~1,324 tests.
-**Run:** `cd web-ui && npm test`
-**Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
-
-### 16.3 Host Tests
-
-**Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 9 test files, ~86 tests.
-**Run:** `cd host && npm test`
-**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
-
-### 16.4 Property-Based Fuzz Tests
-
-**Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to main, weekly, and manual dispatch.
-**Local:** Default 1,000 iterations. Override with `FAST_CHECK_NUM_RUNS=50000`.
-
-| Suite | File | Tests | What it covers |
-|-------|------|-------|----------------|
-| Backend | `src/__tests__/fuzz/input-validation.fuzz.test.ts` | 120 | XML injection/parsing, getBucketName, validateKey (path traversal, null bytes, encoding tricks), KV namespacing, ReDoS, circuit breaker state machine, error types, logger, content-type helpers |
-| Frontend | `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` | 13 | md5 (custom impl), isActionableUrl (ReDoS resistance), cleanupMapByPrefix (Map iteration+deletion) |
-| Host | `host/__tests__/fuzz-host.test.js` | 9 | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
-
-**Test selection criteria:** Every test must exercise real production code (no replicas) on an untrusted input boundary (user input, API responses, WebSocket data, env vars). Tests that verify framework guarantees (Zod safeParse), language features (class inheritance), or trivial formatters are excluded.
-
-**Bugs found by fuzzing:**
-- `getBucketName` trailing hyphen for long worker names (`src/lib/access.ts`)
-- Null byte bypass in `validateKey` (`src/routes/storage/validation.ts`)
-- `prewarm-config.js` crash on non-string tab command (`host/prewarm-config.js`)
-- `toError`/`toErrorMessage` crash on objects with throwing `toString()` (`src/lib/error-types.ts`)
-
-### 16.5 Vitest Version Split
-
-Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v4.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify - the version constraint is real.
-
-### 16.6 E2E API Tests
-
-**Dir:** `e2e/api/` - 12 test files, ~55 tests.
-**Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
-**Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
-
-Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `error-responses`, `rate-limiting`.
-
-### 16.7 E2E UI Tests
-
-**Dir:** `e2e/ui/` - 10 test files, ~75 tests (run as desktop + mobile).
-**Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
-**Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
-**Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1280x720. Mobile viewport: 390x844 (iPhone-like).
-
-Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`, `error-states`, `mobile-specific`.
-
-### 16.8 E2E Infrastructure
-
-- **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page - UI tests work around this by intercepting requests.
-- **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
-- **CSS disable:** UI tests inject a `<style>` element via `evaluateOnNewDocument` that sets `transition: none !important; animation: none !important; scroll-behavior: auto !important` on all elements (`*, *::before, *::after`), disabling CSS transitions and animations for reliable element positioning in headless Chrome.
-- **Screenshot artifacts:** Failed UI tests capture screenshots and HTML dumps to `e2e-artifacts/`. CI uploads these as artifacts with 5-day retention.
-- **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
-
-### 16.9 E2E Service Token Setup
-
-Step-by-step for running E2E tests against a deployed worker:
-
-1. Create a CF Access service token in Cloudflare dashboard (Access > Service Tokens)
-2. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` as GitHub repository secrets (under `integration` environment for E2E)
-3. Deploy the worker (sets `SERVICE_AUTH_SECRET` automatically from `CF_ACCESS_CLIENT_SECRET`)
-4. The deploy workflow seeds `e2e-service@codeflare.local` as admin in KV allowlist
-5. Run E2E via `Actions > E2E Tests > Run workflow`
-
-For local E2E development:
-```bash
-export CF_ACCESS_CLIENT_ID="<your-service-token-id>"
-export CF_ACCESS_CLIENT_SECRET="<your-service-token-secret>"
-export E2E_BASE_URL="https://your-app.example.com"
-npm run test:e2e        # All E2E tests
-npm run test:e2e:api    # API tests only
-npm run test:e2e:ui     # UI desktop tests only
-E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
-```
-
-### 16.10 E2E Test Maintenance
-
-**Rule:** When modifying UI components or API routes, review and update corresponding E2E tests.
-
-- **Source -> test mapping:** Each source module has a corresponding E2E test file. Key mappings: `src/routes/session/` -> `e2e/api/sessions.test.ts`, `src/routes/storage/` -> `e2e/api/storage.test.ts`, `src/routes/setup/` -> `e2e/api/setup-status.test.ts`, `web-ui/.../Dashboard.tsx` -> `e2e/ui/dashboard.test.ts`. Run `grep -r 'data-testid' e2e/` to find all referenced test IDs.
-- **`data-testid` verification:** Every `data-testid` referenced in E2E tests must exist in the web-ui source. Grep to verify before committing.
-- **Cleanup:** `afterAll` hooks handle test cleanup. If tests fail mid-run, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
-
----
-
-## 17. Development
-
-```bash
-npm install && cd web-ui && npm install && cd ..
-npm run dev          # Run locally (requires Docker)
-npm run lint         # Lint backend (oxlint)
-npm run lint:fix     # Lint backend with auto-fix
-npm run typecheck    # Type check backend
-npm test             # Backend unit tests
-npm run test:e2e     # E2E API tests
-npm run test:e2e:ui  # E2E UI tests (Puppeteer)
-npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see Section 15)
-cd web-ui && npm run dev   # Frontend dev server
-cd web-ui && npm run build # Frontend production build
-```
-
----
-
-## 18. Cost
-
-### Per-Container Pricing
-
-Parameters: 8h/day, 20 days/month = 160h = 576,000s active. Default tier (1 vCPU, 3 GiB, 6 GB). CPU usage: 20% average.
-
-| Resource | Calculation | Free Tier | Billable | Rate | Cost |
-|----------|-------------|-----------|----------|------|------|
-| CPU (active usage) | 0.2 vCPU x 576,000s = 115,200 vCPU-s | 22,500 vCPU-s | 92,700 vCPU-s | $0.000020/vCPU-s | $1.85 |
-| Memory (provisioned) | 3 GiB x 576,000s = 1,728,000 GiB-s | 90,000 GiB-s | 1,638,000 GiB-s | $0.0000025/GiB-s | $4.10 |
-| Disk (provisioned) | 6 GB x 576,000s = 3,456,000 GB-s | 720,000 GB-s | 2,736,000 GB-s | $0.00000007/GB-s | $0.19 |
-| Workers Paid plan | | | | | $5.00 |
-| **Total** | | | | | **~$11.14/user/month** |
-
-Notes:
-- CPU billed on active usage only. Memory + disk billed on provisioned resources.
-- Hibernated containers (after 30m idle) = zero cost
-- R2: First 10 GB free, $0.015/GB/month after
-- Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
-
-Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
-
----
-
-## 19. Troubleshooting
+## Troubleshooting
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
@@ -1420,7 +1418,7 @@ Terminal server not starting (sync blocking). Check: `GET /api/container/startup
 
 ### R2 Sync Issues
 
-- **Bisync empty listing**: Initial `establish_bisync_baseline()` uses `--resync` to create the baseline, handles this case. The periodic daemon never uses `--resync` (see AD14).
+- **Bisync empty listing**: Initial `establish_bisync_baseline()` uses `--resync` to create the baseline, handles this case. The periodic daemon never uses `--resync` (see [Architecture Decisions](#architecture-decisions)).
 - **Transfers 0 files**: Filter order indeterminacy from mixed `--include`/`--exclude`. Use `--filter` flags instead.
 - **Slow sync**: Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 - **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.
@@ -1473,7 +1471,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 ---
 
-## 20. Debugging Guide
+## Debugging Guide
 
 ### Container Status
 
@@ -1498,7 +1496,31 @@ wrangler tail codeflare --status error
 
 ---
 
-## 21. Architecture Decisions
+## Cost Analysis
+
+### Per-Container Pricing
+
+Parameters: 8h/day, 20 days/month = 160h = 576,000s active. Default tier (1 vCPU, 3 GiB, 6 GB). CPU usage: 20% average.
+
+| Resource | Calculation | Free Tier | Billable | Rate | Cost |
+|----------|-------------|-----------|----------|------|------|
+| CPU (active usage) | 0.2 vCPU x 576,000s = 115,200 vCPU-s | 22,500 vCPU-s | 92,700 vCPU-s | $0.000020/vCPU-s | $1.85 |
+| Memory (provisioned) | 3 GiB x 576,000s = 1,728,000 GiB-s | 90,000 GiB-s | 1,638,000 GiB-s | $0.0000025/GiB-s | $4.10 |
+| Disk (provisioned) | 6 GB x 576,000s = 3,456,000 GB-s | 720,000 GB-s | 2,736,000 GB-s | $0.00000007/GB-s | $0.19 |
+| Workers Paid plan | | | | | $5.00 |
+| **Total** | | | | | **~$11.14/user/month** |
+
+Notes:
+- CPU billed on active usage only. Memory + disk billed on provisioned resources.
+- Hibernated containers (after 30m idle) = zero cost
+- R2: First 10 GB free, $0.015/GB/month after
+- Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
+
+Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
+
+---
+
+## Architecture Decisions
 
 | ID | Decision | Details |
 |----|----------|---------|
@@ -1515,7 +1537,7 @@ wrangler tail codeflare --status error
 | AD11 | Suffix-pattern CORS with credentials | <details><summary><code>matchesPattern()</code> with domain-boundary enforcement</summary><br>Default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, with `Access-Control-Allow-Credentials: true` on matching responses.<br><br>**Trade-off**: Any `*.workers.dev` subdomain passes the CORS check. Accepted because: `matchesPattern()` enforces domain boundaries (`evil-workers.dev` does NOT match), custom domains replace the wildcard, `ALLOWED_ORIGINS` is configurable, and CF Access JWT is the primary auth gate.<br><br>**Mitigation**: Setup adds `.workers.dev` suffix and `.{customDomain}` suffix to `setup:allowed_origins` in KV.<br><br>**Future**: Restricting credentialed CORS to exact known hosts would tighten the trust surface.</details> |
 | AD12 | KV-based setup lock (non-atomic) | <details><summary>Read-then-write pattern, acceptable for one-time setup</summary><br>Read `setup:complete`, check if false, perform setup, write true. Not atomic - two simultaneous requests could both proceed.<br><br>**Trade-off**: Accepted because setup is a one-time operation by a single admin. Each sub-step (CF API calls) is individually idempotent - duplicate execution produces the same result. Worst case is redundant API calls, not corrupted state.<br><br>**Future**: Moving to a Durable Object would provide strict serialization, deferred until there's evidence of the race occurring.</details> |
 | AD13 | Per-user scoped R2 tokens | <details><summary>Each container gets an R2 token scoped to its user's bucket only</summary><br>Replaces previous shared credential model. Token lifecycle:<br>1. **Creation**: `getOrCreateScopedR2Token()` creates token with Object Read+Write policy restricted to user's bucket<br>2. **Caching**: Token data cached in KV as `r2token:{email}` - survives container restarts<br>3. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config<br>4. **Revocation**: `deleteScopedR2Token()` on user deletion<br><br>**Trade-off**: Requires `API Tokens: Edit` permission on deploy token (broader than ideal). Accepted because manual R2 credential management per user is operationally impractical.</details> |
-| AD14 | Never auto-resync on bisync failure | <details><summary><code>--resilient</code> + <code>--recover</code> for self-healing instead</summary><br>`--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses pending deletions - if side A deleted a file and bisync fails before propagating, `--resync` resurrects it from side B.<br><br>**Instead**: `--resilient` (continue past non-critical errors) + `--recover` (reconstruct corrupted listings) + `--max-delete 100` (allow bulk deletions). Daemon retries in 60s on any failure.<br><br>**Manual `--resync`** is safe in `establish_bisync_baseline()` on container startup because one-way restore runs first.</details> |
+| AD14 | Never auto-`--resync` on bisync failure | <details><summary><code>--resilient</code> + <code>--recover</code> for self-healing instead</summary><br>`--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses pending deletions - if side A deleted a file and bisync fails before propagating, `--resync` resurrects it from side B.<br><br>**Instead**: `--resilient` (continue past non-critical errors) + `--recover` (reconstruct corrupted listings) + `--max-delete 100` (allow bulk deletions). Daemon retries in 60s on failure.<br><br>**Manual `--resync`** is safe in `establish_bisync_baseline()` on container startup because one-way restore runs first.</details> |
 | AD15 | TabConfigSchema allows arbitrary command strings | <details><summary><code>z.string().max(200)</code> — no additional security risk</summary><br>Users already have full root shell access inside their own ephemeral container. Restricting tab commands provides no additional security benefit since the container is their sandbox.</details> |
 | AD16 | entrypoint.sh ~680 lines complexity | <details><summary>Battle-tested, rewrite risk > benefit</summary><br>Handles Alpine→Debian migration, PTY pre-warm, rclone sync orchestration, tab autostart, and graceful shutdown. Accumulated complexity reflects real-world edge cases discovered over months of production use. A rewrite risks reintroducing solved bugs for marginal readability gains.</details> |
 | AD17 | collectMetrics density | <details><summary>Extends AD6 scope — alarm() context needs atomicity</summary><br>`collectMetrics` performs activity checking, health probing, and KV status updates in a single alarm callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The alarm() context provides natural atomicity across these tightly coupled operations.</details> |
@@ -1550,7 +1572,7 @@ wrangler tail codeflare --status error
 
 ---
 
-## 22. Lessons Learned
+## Lessons Learned
 
 Architectural principles and design rationale.
 
@@ -1572,7 +1594,7 @@ Architectural principles and design rationale.
 
 ---
 
-## 23. Mobile Terminal Design
+## Mobile Terminal Design
 
 ### Challenge 1: Cursor Duplication ("Orange Square")
 
@@ -1649,12 +1671,6 @@ Second keyboard open (broken):   baselineInnerH=1105, vpGrowth=0,  getKbHeight=4
 ```
 The 47px gap (483 - 436) is exactly the missing `viewportGrowth` compensation.
 
-**Previous attempts that failed:**
-1. `Math.min(baselineInnerHeight, window.innerHeight)` — prevents upward poisoning but doesn't handle all cases
-2. `Math.abs(...) < 100` threshold — still corrupts because the 47px bar change is under 100px
-3. Updating baseline in `forceResetKeyboardState()` — same corruption risk on visibility return
-4. Updating baseline in `resetKeyboardStateIfStale()` — same corruption risk
-
 **Final solution:** Removed ALL `baselineInnerHeight` updates from:
 - `handleGeometryChange` keyboard-close branch (was the primary corruption source)
 - `forceResetKeyboardState()` (called on visibility return, terminal exit)
@@ -1717,7 +1733,7 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ---
 
-## 24. Automatic Memory Capture
+## Automatic Memory Capture
 
 Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 15 user messages. Zero manual intervention required.
 
@@ -1896,3 +1912,4 @@ The generator produces adapted config files for 5 agents from CC's preseed as si
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
 - **Agent not firing**: Check `~/.claude/settings.json` has the `UserPromptSubmit` hook configured for `memory-capture.sh`. Verify the transcript has 15+ user messages since last capture. Verify the hook outputs `hookSpecificOutput` JSON and exits with code 0.
+
