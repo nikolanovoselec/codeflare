@@ -191,16 +191,16 @@ describe('Cherry-picked skills in manifest', () => {
 // Test: Existing preseed components unchanged
 // ============================================================================
 describe('Existing preseed components preserved', () => {
-  it('block-attributed-commits hook migrated to codeflare-hooks plugin', () => {
+  it('block-attributed-commits hook in codeflare-hooks plugin', () => {
     assert.ok(!manifest['hooks/block-attributed-commits.sh'], 'hooks/block-attributed-commits.sh should NOT be in manifest (moved to plugin)');
     assert.ok(manifest['plugins/codeflare-hooks/.claude-plugin/plugin.json'], 'codeflare-hooks plugin.json should be in manifest');
-    assert.ok(manifest['plugins/codeflare-hooks/hooks/hooks.json'], 'codeflare-hooks hooks.json should be in manifest');
+    assert.ok(!manifest['plugins/codeflare-hooks/hooks/hooks.json'], 'hooks.json should NOT be in manifest (dead code, hooks registered via settings.json)');
     assert.ok(manifest['plugins/codeflare-hooks/scripts/block-attributed-commits.sh'], 'codeflare-hooks script should be in manifest');
   });
 
   it('codeflare-hooks plugin entries are advanced-only', () => {
     const pluginKeys = Object.keys(manifest).filter(k => k.startsWith('plugins/codeflare-hooks/'));
-    assert.ok(pluginKeys.length === 3, `should have 3 codeflare-hooks plugin entries, found ${pluginKeys.length}`);
+    assert.ok(pluginKeys.length === 2, `should have 2 codeflare-hooks plugin entries (plugin.json + script), found ${pluginKeys.length}`);
     for (const key of pluginKeys) {
       assert.deepEqual(
         manifest[key].modes,
@@ -210,20 +210,20 @@ describe('Existing preseed components preserved', () => {
     }
   });
 
-  it('memory hooks moved to codeflare-memory plugin', () => {
+  it('memory hooks in codeflare-memory plugin', () => {
     // Old hook entries should be gone
     assert.ok(!manifest['hooks/memory-capture.sh'], 'hooks/memory-capture.sh should NOT be in manifest (moved to plugin)');
     assert.ok(!manifest['hooks/memory-agent-prompt.md'], 'hooks/memory-agent-prompt.md should NOT be in manifest (moved to plugin)');
-    // New plugin entries should exist
+    // Plugin entries should exist (no hooks.json — hooks registered via settings.json)
     assert.ok(manifest['plugins/codeflare-memory/.claude-plugin/plugin.json'], 'plugin.json should be in manifest');
-    assert.ok(manifest['plugins/codeflare-memory/hooks/hooks.json'], 'hooks.json should be in manifest');
+    assert.ok(!manifest['plugins/codeflare-memory/hooks/hooks.json'], 'hooks.json should NOT be in manifest (dead code, hooks registered via settings.json)');
     assert.ok(manifest['plugins/codeflare-memory/scripts/memory-capture.sh'], 'memory-capture.sh should be in plugin manifest');
     assert.ok(manifest['plugins/codeflare-memory/scripts/memory-agent-prompt.md'], 'memory-agent-prompt.md should be in plugin manifest');
   });
 
   it('codeflare-memory plugin entries are advanced-only', () => {
     const pluginKeys = Object.keys(manifest).filter(k => k.startsWith('plugins/codeflare-memory/'));
-    assert.ok(pluginKeys.length === 4, `should have 4 plugin entries, found ${pluginKeys.length}`);
+    assert.ok(pluginKeys.length === 3, `should have 3 plugin entries (plugin.json + 2 scripts), found ${pluginKeys.length}`);
     for (const key of pluginKeys) {
       assert.deepEqual(
         manifest[key].modes,

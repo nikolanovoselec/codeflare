@@ -26,25 +26,30 @@ describe('settings.json configuration', () => {
     );
   });
 
-  it('does NOT have HOOKS_CONFIG variable (hooks are plugin-based)', () => {
+  it('advanced mode SETTINGS_CONFIG includes hooks', () => {
+    // Advanced mode should merge PreToolUse and UserPromptSubmit hooks into settings.json
     assert.ok(
-      !entrypoint.includes('HOOKS_CONFIG='),
-      'entrypoint should NOT have HOOKS_CONFIG variable (hooks moved to codeflare-hooks plugin)'
+      entrypoint.includes('PreToolUse'),
+      'entrypoint should configure PreToolUse hook for advanced mode'
+    );
+    assert.ok(
+      entrypoint.includes('UserPromptSubmit'),
+      'entrypoint should configure UserPromptSubmit hook for advanced mode'
+    );
+    assert.ok(
+      entrypoint.includes('block-attributed-commits.sh'),
+      'PreToolUse hook should point to codeflare-hooks plugin script'
+    );
+    assert.ok(
+      entrypoint.includes('memory-capture.sh'),
+      'UserPromptSubmit hook should point to codeflare-memory plugin script'
     );
   });
 
-  it('does NOT configure PreToolUse hook in settings.json', () => {
-    // PreToolUse hook moved to codeflare-hooks plugin
-    const settingsConfigMatch = entrypoint.match(/SETTINGS_CONFIG='(\{.*?\})'/);
-    assert.ok(settingsConfigMatch, 'SETTINGS_CONFIG assignment should exist');
-    const settingsConfig = settingsConfigMatch[1];
+  it('SESSION_MODE gates hook registration', () => {
     assert.ok(
-      !settingsConfig.includes('PreToolUse'),
-      'SETTINGS_CONFIG should not contain PreToolUse (moved to codeflare-hooks plugin)'
-    );
-    assert.ok(
-      !settingsConfig.includes('hooks'),
-      'SETTINGS_CONFIG should not contain hooks key (hooks moved to plugin)'
+      entrypoint.includes('SESSION_MODE:-default') && entrypoint.includes('"hooks"'),
+      'hook registration should be gated on SESSION_MODE'
     );
   });
 

@@ -19,3 +19,7 @@ Chat history is summarized automatically by the memory-capture UserPromptSubmit 
 ## Best practices:
 - One fact per observation (atomic)
 - Use descriptive entity names (e.g., "user-project-myapp" not "project")
+
+## Hook-Triggered Summarization
+
+When a `UserPromptSubmit hook additional context` system-reminder appears, you MUST follow its instructions immediately. It runs in the background and does not block your response.

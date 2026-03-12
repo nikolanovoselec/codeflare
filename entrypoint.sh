@@ -901,8 +901,15 @@ if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
     echo "[entrypoint] consult-llm MCP server configured for Claude Code"
 fi
 
-# Configure Claude Code settings.json (hooks now plugin-based via codeflare-hooks plugin)
-SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
+# Configure Claude Code settings.json with hooks (advanced) or just settings (default)
+PLUGIN_DIR="$USER_HOME/.claude/plugins"
+if [ "${SESSION_MODE:-default}" = "advanced" ]; then
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
+    echo "[entrypoint] Advanced mode: configuring settings.json with hooks"
+else
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
+    echo "[entrypoint] Default mode: configuring settings.json without hooks"
+fi
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
@@ -915,7 +922,6 @@ if [ -f "$SETTINGS_FILE" ]; then
 else
     echo "$SETTINGS_CONFIG" | jq '.' > "$SETTINGS_FILE"
 fi
-echo "[entrypoint] Claude Code settings configured in settings.json"
 
 # Enable plugins (silently skipped if plugin files absent in default mode)
 PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true}}'

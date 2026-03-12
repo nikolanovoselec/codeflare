@@ -1791,7 +1791,7 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the
 
 ### Prompt File
 
-The background agent's full instructions live in `~/.claude/hooks/memory-agent-prompt.md` (preseeded alongside the hook script). This keeps the hook's reason string short (~200 chars) while providing detailed instructions for:
+The background agent's full instructions live in `~/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md` (preseeded alongside the hook script). This keeps the hook's reason string short (~200 chars) while providing detailed instructions for:
 
 - Observation quality (merge related facts, skip trivial events, max 5-8 per window)
 - MCP memory entity naming (`chat-YYYY-MM-DD`)
@@ -1874,7 +1874,7 @@ All preseed content is deployed via the manifest pipeline:
 - `agents/` (7): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, plan, review (advanced only)
 - `skills/` (13): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first
-- `plugins/` (5): known_marketplaces.json (default+advanced), codeflare-memory plugin (4 files, advanced only: plugin.json, hooks.json, memory-capture.sh, memory-agent-prompt.md)
+- `plugins/` (4): known_marketplaces.json (default+advanced), codeflare-memory plugin (3 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md), codeflare-hooks plugin (2 files, advanced only: plugin.json, block-attributed-commits.sh)
 
 ### Multi-Agent Preseed
 
@@ -1922,7 +1922,7 @@ The generator produces adapted config files for 5 agents from CC's preseed as si
 
 ### Settings.json Merge
 
-`entrypoint.sh` merges `skipDangerousModePermissionPrompt` into `~/.claude/settings.json` using `jq '. * $cfg'` recursive merge. All hooks are now plugin-based (no hook configuration in settings.json). Handles three cases:
+`entrypoint.sh` merges settings into `~/.claude/settings.json` using `jq '. * $cfg'` recursive merge. In advanced mode, this includes `skipDangerousModePermissionPrompt` plus hook registrations (PreToolUse and UserPromptSubmit). In default mode, only `skipDangerousModePermissionPrompt` is merged (no hooks). Handles three cases:
 
 - **File doesn't exist**: Creates with settings config
 - **File exists**: Recursive merge preserving user's existing settings (statusLine, permissions, etc.)
@@ -1930,16 +1930,16 @@ The generator produces adapted config files for 5 agents from CC's preseed as si
 
 ### Plugin Enablement
 
-`entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable both the `codeflare-memory` and `codeflare-hooks` plugins. This is permanent (not mode-gated) because missing plugins are silently skipped by Claude Code — when the plugin files are absent in default mode, the plugins simply don't load.
+`entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable both the `codeflare-memory` and `codeflare-hooks` plugins. This is permanent (not mode-gated) because missing plugins are silently skipped by Claude Code — when the plugin files are absent in default mode, the plugins simply don't load. Plugins are used for file organization and delivery via R2 sync only — hook registration is done via `settings.json` (see above).
 
-- **codeflare-memory**: UserPromptSubmit hook for automatic memory capture (declared in plugin `hooks/hooks.json`)
-- **codeflare-hooks**: PreToolUse hook for blocking commit attribution (declared in plugin `hooks/hooks.json`, replaces the old settings.json-based hook)
+- **codeflare-memory**: Scripts for memory capture (hook registered in settings.json, scripts delivered via plugin)
+- **codeflare-hooks**: Scripts for commit attribution blocking (hook registered in settings.json, scripts delivered via plugin)
 
 ### Troubleshooting
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
-- **Agent not firing**: Verify `~/.claude/plugins/codeflare-memory/` directory exists with all 4 files (plugin.json, hooks.json, memory-capture.sh, memory-agent-prompt.md). Check that `.claude.json` has `"enabledPlugins":{"codeflare-memory":true}`. Verify the transcript has 15+ user messages since last capture.
-- **Attribution blocking not working**: Verify `~/.claude/plugins/codeflare-hooks/` directory exists with plugin.json, hooks/hooks.json, and scripts/block-attributed-commits.sh. Check that `.claude.json` has `"enabledPlugins":{"codeflare-hooks":true}`.
-- **Legacy hook errors**: If `settings.json` still has hook entries from the old architecture, remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
+- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 15+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only).
+- **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entry pointing to `block-attributed-commits.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
+- **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint SESSION_MODE gating may have failed. Remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 
