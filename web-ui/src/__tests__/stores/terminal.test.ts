@@ -54,9 +54,13 @@ describe('Terminal Store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    // Make requestAnimationFrame synchronous so write batching flushes immediately
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.useRealTimers();
     // Clean up any connections
     terminalStore.disposeAll();
@@ -529,9 +533,6 @@ describe('Terminal Store', () => {
       const rawData = '\x1b[32mHello World\x1b[0m\r\n';
       wsInstance._simulateMessage(rawData);
 
-      // Flush rAF write batch
-      await vi.advanceTimersByTimeAsync(0);
-
       // Should write raw data to terminal (via rAF batch)
       expect(terminal.write).toHaveBeenCalledWith(rawData);
 
@@ -560,9 +561,6 @@ describe('Terminal Store', () => {
       const pongMsg = JSON.stringify({ type: 'pong' });
       wsInstance._simulateMessage(pongMsg);
 
-      // Flush rAF write batch
-      await vi.advanceTimersByTimeAsync(0);
-
       // Since pong is no longer handled, it falls through to terminal.write
       expect(terminal.write).toHaveBeenCalledWith(pongMsg);
 
@@ -590,9 +588,6 @@ describe('Terminal Store', () => {
       // Send malformed JSON that starts with '{' but isn't valid JSON
       const malformedJson = '{not valid json at all';
       wsInstance._simulateMessage(malformedJson);
-
-      // Flush rAF write batch
-      await vi.advanceTimersByTimeAsync(0);
 
       // Should fall through to raw write
       expect(terminal.write).toHaveBeenCalledWith(malformedJson);
