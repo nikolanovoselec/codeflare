@@ -6,8 +6,6 @@ const SWIPE_THRESHOLD = 20; // px minimum delta to qualify as a swipe
 const LONG_PRESS_MS = 500; // after this delay, yield to browser text-selection
 const REPEAT_INTERVAL = 80; // ms between repeated key sends while finger held
 const DIRECTION_LOCK_RATIO = 1.5; // one axis must exceed the other by this factor
-const SCROLL_PX_PER_LINE_DEFAULT = 17; // fallback: 14px font * 1.2 line-height
-
 // ANSI escape sequences for arrow keys.
 // Horizontal swipes always active; vertical swipes send arrow keys only when
 // keyboard is open (when closed, vertical swipes scroll the terminal buffer).

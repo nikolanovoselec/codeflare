@@ -5,7 +5,7 @@ import Terminal from '../../components/Terminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import type { TerminalConnectionState } from '../../types';
-import { isTouchDevice, enableVirtualKeyboardOverlay, isVirtualKeyboardOpen } from '../../lib/mobile';
+import { isTouchDevice, enableVirtualKeyboardOverlay } from '../../lib/mobile';
 
 // Mock xterm.js and addons
 const mockTerminalInstance = {
