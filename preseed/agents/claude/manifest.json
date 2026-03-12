@@ -1,5 +1,15 @@
 {
-  "hooks/block-attributed-commits.sh": {
+  "plugins/codeflare-hooks/.claude-plugin/plugin.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/hooks/hooks.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/scripts/block-attributed-commits.sh": {
     "modes": [
       "advanced"
     ]

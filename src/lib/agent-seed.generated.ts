@@ -11,7 +11,23 @@ type SeedDocument = {
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
-    "key": ".claude/hooks/block-attributed-commits.sh",
+    "key": ".claude/plugins/codeflare-hooks/.claude-plugin/plugin.json",
+    "contentType": "application/json; charset=utf-8",
+    "content": "{\n  \"name\": \"codeflare-hooks\",\n  \"description\": \"Platform hooks for commit attribution blocking\",\n  \"version\": \"1.0.0\"\n}\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/plugins/codeflare-hooks/hooks/hooks.json",
+    "contentType": "application/json; charset=utf-8",
+    "content": "{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"bash ${CLAUDE_PLUGIN_ROOT}/scripts/block-attributed-commits.sh\"\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
+    "key": ".claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh",
     "contentType": "application/x-shellscript; charset=utf-8",
     "content": "#!/usr/bin/env bash\n# PreToolUse hook - blocks git commits/PRs with Claude attribution\nset -e\n\nINPUT=$(cat)\nTOOL_NAME=$(echo \"$INPUT\" | jq -r '.tool_name // empty' 2>/dev/null) || true\n\n# Only check Bash tool\n[[ \"$TOOL_NAME\" != \"Bash\" ]] && exit 0\n\n# Extract command\nCOMMAND=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty' 2>/dev/null) || true\n\n# Check if this is a git commit or gh pr create command\nif [[ ! \"$COMMAND\" =~ git.*commit ]] && [[ ! \"$COMMAND\" =~ gh.*pr.*create ]]; then\n  exit 0\nfi\n\n# Check for attribution patterns (case insensitive)\nif echo \"$COMMAND\" | grep -Eiq \"(co-authored-by|noreply@anthropic|claude sonnet|claude opus|claude haiku|claude code|generated with.*claude|generated with.*\\[claude)\"; then\n  jq -n '{\n    \"hookSpecificOutput\": {\n      \"hookEventName\": \"PreToolUse\",\n      \"permissionDecision\": \"deny\",\n      \"permissionDecisionReason\": \"Attribution detected. Retry the commit without Co-Authored-By, AI attribution, emoji, or Generated with Claude Code lines. Use a plain commit message.\"\n    }\n  }'\n  exit 0\nfi\n\nexit 0\n",
     "modes": [

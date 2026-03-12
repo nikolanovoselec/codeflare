@@ -237,6 +237,61 @@ describe('container DO class', () => {
       expect(mockStorage.put).toHaveBeenCalledWith('_sessionId', 'mysession123');
     });
 
+    it('setBucketName stores sessionMode and passes it as SESSION_MODE env var', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'new-bucket', sessionMode: 'advanced' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      // SESSION_MODE should be in envVars
+      expect(instance.envVars?.SESSION_MODE).toBe('advanced');
+    });
+
+    it('setBucketName defaults SESSION_MODE to "default" when sessionMode not provided', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return null;
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'new-bucket' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      // Should default to 'default'
+      expect(instance.envVars?.SESSION_MODE).toBe('default');
+    });
+
+    it('setBucketName returns 400 for non-string sessionMode', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'new-bucket', sessionMode: 123 }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(400);
+    });
+
     it('falls through to super.fetch for unknown routes', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';

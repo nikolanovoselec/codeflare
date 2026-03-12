@@ -520,18 +520,18 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 ## Memory Persistence
 
-Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persists across sessions using per-session JSONL files synced to R2.
+Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persists across sessions using per-session JSONL files synced to R2. **Memory persistence is gated on `SESSION_MODE=advanced`** — in default mode, the entire `.memory/` directory is excluded from rclone sync and merge/cleanup are skipped (MCP memory still works in-session but doesn't survive container recreate).
 
-**Lifecycle:**
+**Lifecycle** (advanced mode only):
 1. Container boots, rclone pulls `~/.memory/session-*.jsonl` files from R2
 2. `entrypoint.sh` runs `merge_memory_files()`: consolidates all session files into `session-{SESSION_ID}.jsonl`, deduplicating entities (by name) and relations (by JSON equality)
 3. `server-memory` MCP server reads/writes `session-{SESSION_ID}.jsonl` during the session
 4. rclone bisync syncs changes back to R2 every 60s and on shutdown
-5. `cleanup_old_memory_files()` removes old session files after bisync baseline is established
+5. `cleanup_old_memory_files()` removes old session files (keeps 3 newest) after bisync baseline is established
 
 **Why per-session JSONL:** Multiple concurrent sessions from the same user write to the same R2 bucket. A shared file would cause last-write-wins data loss. Per-session JSONL files eliminate write conflicts — each session owns its own file, and merge-on-boot consolidates them.
 
-**Two-phase merge/cleanup:** The merge runs after R2 sync but before bisync baseline establishment. Old files are kept so `--resync` doesn't resurrect them. Cleanup (local-only deletion) runs after bisync baseline succeeds, so periodic bisync propagates the deletions to R2. Direct R2 deletion is unsafe for concurrent sessions — another session's bisync would propagate the deletion locally, destroying the active memory file. The rclone config uses `disable_checksum = true` to prevent `BadDigest` errors from files modified during upload (pre-warm PTY race condition).
+**Two-phase merge/cleanup:** The merge runs after R2 sync but before bisync baseline establishment. Old files are kept so `--resync` doesn't resurrect them. Cleanup (local-only deletion, KEEP=3) runs after bisync baseline succeeds, so periodic bisync propagates the deletions to R2. Direct R2 deletion is unsafe for concurrent sessions — another session's bisync would propagate the deletion locally, destroying the active memory file. The rclone config uses `disable_checksum = true` to prevent `BadDigest` errors from files modified during upload (pre-warm PTY race condition).
 
 ### LLM Consultation (consult-llm-mcp)
 
@@ -915,6 +915,7 @@ GET `/health`, GET `/api/health`
 | `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default) | Worker -> DO |
 | `OPENAI_API_KEY` | OpenAI API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
 | `GEMINI_API_KEY` | Gemini API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
+| `SESSION_MODE` | Session mode (`'default'` or `'advanced'`) — controls memory persistence and rclone filters | Worker -> DO via `setBucketName` |
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
 | `BROWSER` | Points to `open-url` shim that exits 1 | Dockerfile ENV (`/usr/local/bin/open-url`) |
 
@@ -1788,9 +1789,9 @@ The background agent's full instructions live in `~/.claude/hooks/memory-agent-p
 └── {session_id}.vars   # Variables JSON for current hook invocation (excluded from sync)
 ```
 
-- Counter files are **persisted to R2** — survives container restarts, needed for `--resume` to avoid re-summarizing the entire transcript.
-- Lock and vars files are **excluded from sync** via `--filter "- .memory/counter/*.lock"` and `--filter "- .memory/counter/*.vars"` — they are ephemeral per-invocation state.
-- The `.memory/` directory itself IS synced (it contains the MCP memory JSONL files used across sessions).
+- All counter files are **excluded from sync** via `--filter "- .memory/counter/**"` — they are ephemeral per-session state (each session gets a new sessionID, old counters are orphans).
+- In **advanced mode**, the `.memory/` directory itself IS synced (it contains the MCP memory JSONL files used across sessions).
+- In **default mode**, the entire `.memory/**` directory is excluded from sync via a conditional `SESSION_MODE` check.
 
 ### Session Modes
 
@@ -1904,20 +1905,24 @@ The generator produces adapted config files for 5 agents from CC's preseed as si
 
 ### Settings.json Merge
 
-`entrypoint.sh` merges hook configuration into `~/.claude/settings.json` using the same `jq '. * $cfg'` recursive merge pattern as the MCP config. Only the `PreToolUse` hook (block-attributed-commits) is configured in settings.json. Handles three cases:
+`entrypoint.sh` merges `skipDangerousModePermissionPrompt` into `~/.claude/settings.json` using `jq '. * $cfg'` recursive merge. All hooks are now plugin-based (no hook configuration in settings.json). Handles three cases:
 
-- **File doesn't exist**: Creates with hook config
+- **File doesn't exist**: Creates with settings config
 - **File exists**: Recursive merge preserving user's existing settings (statusLine, permissions, etc.)
 - **File malformed**: Skips with warning, does not overwrite
 
 ### Plugin Enablement
 
-`entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable the `codeflare-memory` plugin. This is permanent (not mode-gated) because missing plugins are silently skipped by Claude Code — when the plugin files are absent in default mode, the plugin simply doesn't load. The plugin's UserPromptSubmit hook is declared in `~/.claude/plugins/codeflare-memory/hooks/hooks.json` instead of settings.json, eliminating the orphaned-hook problem when switching modes.
+`entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable both the `codeflare-memory` and `codeflare-hooks` plugins. This is permanent (not mode-gated) because missing plugins are silently skipped by Claude Code — when the plugin files are absent in default mode, the plugins simply don't load.
+
+- **codeflare-memory**: UserPromptSubmit hook for automatic memory capture (declared in plugin `hooks/hooks.json`)
+- **codeflare-hooks**: PreToolUse hook for blocking commit attribution (declared in plugin `hooks/hooks.json`, replaces the old settings.json-based hook)
 
 ### Troubleshooting
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
 - **Agent not firing**: Verify `~/.claude/plugins/codeflare-memory/` directory exists with all 4 files (plugin.json, hooks.json, memory-capture.sh, memory-agent-prompt.md). Check that `.claude.json` has `"enabledPlugins":{"codeflare-memory":true}`. Verify the transcript has 15+ user messages since last capture.
-- **Legacy hook errors after mode switch**: If `settings.json` still has a `UserPromptSubmit` hook referencing the old `~/.claude/hooks/memory-capture.sh` path, manually remove it: `jq 'del(.hooks.UserPromptSubmit)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
+- **Attribution blocking not working**: Verify `~/.claude/plugins/codeflare-hooks/` directory exists with plugin.json, hooks/hooks.json, and scripts/block-attributed-commits.sh. Check that `.claude.json` has `"enabledPlugins":{"codeflare-hooks":true}`.
+- **Legacy hook errors**: If `settings.json` still has hook entries from the old architecture, remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 

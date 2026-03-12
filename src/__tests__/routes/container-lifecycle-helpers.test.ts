@@ -259,6 +259,7 @@ describe('Container lifecycle extracted helpers', () => {
       tabConfig: [{ id: '1', command: 'claude-code', label: 'Claude' }],
       workspaceSyncEnabled: true,
       fastStartEnabled: false,
+      sessionMode: 'default',
       logger: mockLogger as any,
     };
 
@@ -329,6 +330,21 @@ describe('Container lifecycle extracted helpers', () => {
       const body = await fetchCall.json() as Record<string, unknown>;
       expect(body).not.toHaveProperty('openaiApiKey');
       expect(body).not.toHaveProperty('geminiApiKey');
+    });
+
+    it('includes sessionMode in setBucketName body', async () => {
+      mockGetStoredBucketName.mockResolvedValue('old-bucket');
+
+      const paramsWithAdvanced = {
+        ...baseParams,
+        sessionMode: 'advanced',
+      };
+
+      await configureContainerDO(paramsWithAdvanced);
+
+      const fetchCall = mockContainer.fetch.mock.calls[0][0] as Request;
+      const body = await fetchCall.json() as Record<string, unknown>;
+      expect(body.sessionMode).toBe('advanced');
     });
   });
 

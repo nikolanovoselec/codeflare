@@ -38,6 +38,7 @@ function buildSetBucketNameBody(params: {
   fastStartEnabled: boolean;
   openaiApiKey?: string;
   geminiApiKey?: string;
+  sessionMode: string;
 }): string {
   return JSON.stringify({
     bucketName: params.bucketName,
@@ -51,6 +52,7 @@ function buildSetBucketNameBody(params: {
     fastStartEnabled: params.fastStartEnabled,
     ...(params.openaiApiKey && { openaiApiKey: params.openaiApiKey }),
     ...(params.geminiApiKey && { geminiApiKey: params.geminiApiKey }),
+    sessionMode: params.sessionMode,
   });
 }
 
@@ -207,6 +209,7 @@ export async function configureContainerDO(params: {
   fastStartEnabled: boolean;
   openaiApiKey?: string;
   geminiApiKey?: string;
+  sessionMode: string;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
   const { container, bucketName, containerId, logger } = params;
@@ -223,6 +226,7 @@ export async function configureContainerDO(params: {
     fastStartEnabled: params.fastStartEnabled,
     openaiApiKey: params.openaiApiKey,
     geminiApiKey: params.geminiApiKey,
+    sessionMode: params.sessionMode,
   });
 
   const needsBucketUpdate = storedBucketName !== bucketName;
@@ -424,6 +428,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       fastStartEnabled,
       openaiApiKey: llmKeys?.openaiApiKey,
       geminiApiKey: llmKeys?.geminiApiKey,
+      sessionMode,
       logger: reqLogger,
     });
 

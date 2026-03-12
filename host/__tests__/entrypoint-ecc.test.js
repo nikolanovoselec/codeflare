@@ -191,8 +191,23 @@ describe('Cherry-picked skills in manifest', () => {
 // Test: Existing preseed components unchanged
 // ============================================================================
 describe('Existing preseed components preserved', () => {
-  it('block-attributed-commits hook is still in manifest', () => {
-    assert.ok(manifest['hooks/block-attributed-commits.sh'], 'block-attributed-commits.sh should be in manifest');
+  it('block-attributed-commits hook migrated to codeflare-hooks plugin', () => {
+    assert.ok(!manifest['hooks/block-attributed-commits.sh'], 'hooks/block-attributed-commits.sh should NOT be in manifest (moved to plugin)');
+    assert.ok(manifest['plugins/codeflare-hooks/.claude-plugin/plugin.json'], 'codeflare-hooks plugin.json should be in manifest');
+    assert.ok(manifest['plugins/codeflare-hooks/hooks/hooks.json'], 'codeflare-hooks hooks.json should be in manifest');
+    assert.ok(manifest['plugins/codeflare-hooks/scripts/block-attributed-commits.sh'], 'codeflare-hooks script should be in manifest');
+  });
+
+  it('codeflare-hooks plugin entries are advanced-only', () => {
+    const pluginKeys = Object.keys(manifest).filter(k => k.startsWith('plugins/codeflare-hooks/'));
+    assert.ok(pluginKeys.length === 3, `should have 3 codeflare-hooks plugin entries, found ${pluginKeys.length}`);
+    for (const key of pluginKeys) {
+      assert.deepEqual(
+        manifest[key].modes,
+        ['advanced'],
+        `${key} should be advanced-only`
+      );
+    }
   });
 
   it('memory hooks moved to codeflare-memory plugin', () => {

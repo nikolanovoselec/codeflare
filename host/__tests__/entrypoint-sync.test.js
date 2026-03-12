@@ -66,7 +66,7 @@ describe('startup ordering: file modifications before bisync baseline', () => {
 
     // These file-modifying operations must appear BEFORE the bisync baseline launch
     const claudeJsonIdx = main.indexOf('bypassPermissionsModeAccepted');
-    const settingsJsonIdx = main.indexOf('Claude Code hooks configured');
+    const settingsJsonIdx = main.indexOf('Claude Code settings configured');
     const geminiIdx = main.indexOf('enableAutoUpdate');
     const codexIdx = main.indexOf('dismissed_version');
     const tabAutostartIdx = main.indexOf('configure_tab_autostart');
@@ -367,10 +367,10 @@ describe('Memory merge functions', () => {
     assert.ok(!body.includes('rm -f'), 'merge_memory_files should NOT delete files (that is cleanup\'s job)');
   });
 
-  it('Cleanup keeps 10 newest and deletes the rest', () => {
+  it('Cleanup keeps 3 newest and deletes the rest', () => {
     const body = extractFunction('cleanup_old_memory_files');
     assert.ok(body.includes('rm -f'), 'cleanup should delete old session files');
-    assert.ok(body.includes('KEEP=10'), 'cleanup should keep 10 newest files');
+    assert.ok(body.includes('KEEP=3'), 'cleanup should keep 3 newest files');
     assert.ok(body.includes('sort -rn'), 'cleanup should sort by mtime descending');
   });
 });

@@ -370,7 +370,7 @@ describe('Storage API Client', () => {
           bucketCreated: false,
           written: ['.claude/rules/cloudflare-environment.md'],
           skipped: [],
-          deleted: ['.claude/hooks/block-attributed-commits.sh', '.claude/skills/consult-llm/SKILL.md'],
+          deleted: ['.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json', '.claude/skills/consult-llm/SKILL.md'],
           warnings: [],
         })
       );
