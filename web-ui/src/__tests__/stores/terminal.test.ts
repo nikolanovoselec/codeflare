@@ -539,7 +539,7 @@ describe('Terminal Store', () => {
       // Flush write batch (30fps throttle = 33ms setTimeout)
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(terminal.write).toHaveBeenCalledWith(rawData);
+      expect(terminal.write).toHaveBeenCalledWith(rawData, expect.any(Function));
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
@@ -570,7 +570,7 @@ describe('Terminal Store', () => {
       await vi.advanceTimersByTimeAsync(50);
 
       // Since pong is no longer handled, it falls through to terminal.write
-      expect(terminal.write).toHaveBeenCalledWith(pongMsg);
+      expect(terminal.write).toHaveBeenCalledWith(pongMsg, expect.any(Function));
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
@@ -601,7 +601,7 @@ describe('Terminal Store', () => {
       await vi.advanceTimersByTimeAsync(50);
 
       // Should fall through to raw write
-      expect(terminal.write).toHaveBeenCalledWith(malformedJson);
+      expect(terminal.write).toHaveBeenCalledWith(malformedJson, expect.any(Function));
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
