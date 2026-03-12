@@ -20,6 +20,10 @@ Chat history is summarized automatically by the memory-capture UserPromptSubmit 
 - One fact per observation (atomic)
 - Use descriptive entity names (e.g., "user-project-myapp" not "project")
 
+## "Memory" Commands
+
+When the user says "check memory", "update memory", "optimize memory", "compact memory", "search memory", "load memory", or similar — they mean the **MCP memory server** (server-memory). Use the MCP tools (`search_nodes`, `read_graph`, `create_entities`, `add_observations`, `delete_entities`, `delete_observations`). Do NOT confuse this with the file-based memory system at `~/.claude/projects/*/memory/`.
+
 ## Hook-Triggered Summarization
 
 When a `UserPromptSubmit hook additional context` system-reminder appears, you MUST follow its instructions immediately. It runs in the background and does not block your response.
