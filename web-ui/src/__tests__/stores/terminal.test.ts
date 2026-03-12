@@ -44,11 +44,12 @@ describe('Terminal Store', () => {
       cols: 80,
       rows: 24,
       onData: vi.fn(() => ({ dispose: vi.fn() })),
-      write: vi.fn(),
+      write: vi.fn((_data: string, cb?: () => void) => { if (cb) cb(); }),
       reset: vi.fn(),
       scrollToBottom: vi.fn(),
       refresh: vi.fn(),
       dispose: vi.fn(),
+      buffer: { active: { viewportY: 100, baseY: 100 } },
     }) as unknown as Terminal;
 
   beforeEach(() => {

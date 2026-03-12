@@ -86,9 +86,19 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   pendingFlushes.delete(key);
   const buffer = writeBuffers.get(key);
   if (!buffer || buffer.length === 0) return;
+
+  const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
   const data = buffer.join('');
   buffer.length = 0;
-  terminal.write(data);
+
+  terminal.write(data, () => {
+    // Post-write scroll guard: if user was following output but xterm's internal
+    // scroll state got reset (e.g. SmoothScrollableElement race during burst),
+    // snap back to bottom. If user had scrolled up, leave them alone.
+    if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
+      terminal.scrollToBottom();
+    }
+  });
 }
 
 function scheduleWrite(key: string, terminal: Terminal, data: string): void {

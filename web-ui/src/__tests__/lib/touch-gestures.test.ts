@@ -5,14 +5,17 @@ import type { Terminal } from '@xterm/xterm';
 // Helper: create a mock Terminal with the internal triggerDataEvent path
 function createMockTerminal() {
   const triggerDataEvent = vi.fn();
+  const scrollLines = vi.fn();
   const terminal = {
     _core: {
       coreService: {
         triggerDataEvent,
       },
     },
+    options: { fontSize: 14, lineHeight: 1.2 },
+    scrollLines,
   } as unknown as Terminal;
-  return { terminal, triggerDataEvent };
+  return { terminal, triggerDataEvent, scrollLines };
 }
 
 // Helper: create a minimal TouchEvent
@@ -119,22 +122,67 @@ describe('touch-gestures', () => {
       });
     });
 
-    describe('vertical swipe with keyboard closed', () => {
-      it('should NOT call preventDefault when keyboard is closed', () => {
+    describe('vertical swipe with keyboard closed (scroll mode)', () => {
+      it('should call scrollLines on vertical swipe when keyboard is closed', () => {
         (window as any).ontouchstart = null;
-        const { terminal, triggerDataEvent } = createMockTerminal();
+        const { terminal, triggerDataEvent, scrollLines } = createMockTerminal();
+        const isKeyboardOpen = vi.fn(() => false);
+        const cleanup = attachSwipeGestures(container, terminal, isKeyboardOpen)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        // dy=-40 exceeds threshold, enters scroll mode, pre-seeds accumulator
+        // 40px / 17px-per-line = 2 lines scrolled immediately
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 60, { cancelable: true }));
+
+        // Should NOT send arrow keys — this is scroll, not key mode
+        expect(triggerDataEvent).not.toHaveBeenCalled();
+        // Should have scrolled the terminal buffer
+        expect(scrollLines).toHaveBeenCalledWith(2);
+        cleanup();
+      });
+
+      it('should call preventDefault in scroll mode', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal();
         const isKeyboardOpen = vi.fn(() => false);
         const cleanup = attachSwipeGestures(container, terminal, isKeyboardOpen)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
 
-        const moveEvent = makeTouchEvent('touchmove', 100, 60, { cancelable: true });
-        const preventDefaultSpy = vi.spyOn(moveEvent, 'preventDefault');
-        container.dispatchEvent(moveEvent);
+        // First move enters scroll mode
+        const enterEvent = makeTouchEvent('touchmove', 100, 60, { cancelable: true });
+        const enterSpy = vi.spyOn(enterEvent, 'preventDefault');
+        container.dispatchEvent(enterEvent);
+        expect(enterSpy).toHaveBeenCalled();
 
-        expect(preventDefaultSpy).not.toHaveBeenCalled();
-        // Vertical swipe with keyboard closed should not send keys
-        expect(triggerDataEvent).not.toHaveBeenCalled();
+        // Subsequent moves also preventDefault
+        const scrollEvent = makeTouchEvent('touchmove', 100, 35, { cancelable: true });
+        const scrollSpy = vi.spyOn(scrollEvent, 'preventDefault');
+        container.dispatchEvent(scrollEvent);
+        expect(scrollSpy).toHaveBeenCalled();
+
+        cleanup();
+      });
+
+      it('should scroll proportionally to finger movement including threshold distance', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, scrollLines } = createMockTerminal();
+        const isKeyboardOpen = vi.fn(() => false);
+        const cleanup = attachSwipeGestures(container, terminal, isKeyboardOpen)!;
+
+        // fontSize=14, lineHeight=1.2 → scrollPxPerLine=17 (from mock terminal defaults)
+        // Start at y=200
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 200));
+        // Move to y=160 (dy=40, enters scroll mode; pre-seeds accumulator with 40px)
+        // 40/17 = 2 lines scrolled immediately
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 160));
+        expect(scrollLines).toHaveBeenCalledWith(2);
+
+        // Move another 34px up (y=126) → deltaY=34, accumulator = (40 - 2*17) + 34 = 40
+        // 40/17 = 2 more lines
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 126));
+        expect(scrollLines).toHaveBeenCalledWith(2);
+
         cleanup();
       });
     });

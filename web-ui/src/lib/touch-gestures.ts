@@ -6,10 +6,11 @@ const SWIPE_THRESHOLD = 20; // px minimum delta to qualify as a swipe
 const LONG_PRESS_MS = 500; // after this delay, yield to browser text-selection
 const REPEAT_INTERVAL = 80; // ms between repeated key sends while finger held
 const DIRECTION_LOCK_RATIO = 1.5; // one axis must exceed the other by this factor
+const SCROLL_PX_PER_LINE_DEFAULT = 17; // fallback: 14px font * 1.2 line-height
 
 // ANSI escape sequences for arrow keys.
-// Horizontal swipes always active; vertical swipes only when keyboard is open
-// (to avoid conflicting with native terminal scrolling).
+// Horizontal swipes always active; vertical swipes send arrow keys only when
+// keyboard is open (when closed, vertical swipes scroll the terminal buffer).
 const ARROW: Record<string, string> = {
   left: '\x1b[D',
   right: '\x1b[C',
@@ -32,11 +33,19 @@ export function sendTerminalKey(terminal: Terminal, sequence: string): void {
   }
 }
 
+function getScrollPxPerLine(terminal: Terminal): number {
+  const fontSize = typeof terminal.options.fontSize === 'number' ? terminal.options.fontSize : 14;
+  const lineHeight = typeof terminal.options.lineHeight === 'number' ? terminal.options.lineHeight : 1.2;
+  return Math.max(12, Math.round(fontSize * lineHeight));
+}
+
 /**
- * Attach swipe-to-arrow-key gestures to a terminal container.
+ * Attach touch gestures to a terminal container.
  * Horizontal swipes (left/right) always map to arrow left/right.
- * Vertical swipes (up/down) map to arrow up/down only when keyboard is open
- * (when keyboard is closed, vertical scrolling uses native xterm behavior).
+ * Vertical swipes (up/down) map to arrow up/down when keyboard is open.
+ * When keyboard is closed, vertical swipes scroll the terminal buffer
+ * via terminal.scrollLines() (xterm 6.0.0's SmoothScrollableElement
+ * doesn't support touch natively).
  * Returns a cleanup function, or undefined if touch is not supported.
  */
 export function attachSwipeGestures(
@@ -54,6 +63,10 @@ export function attachSwipeGestures(
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let repeatTimer: ReturnType<typeof setInterval> | null = null;
   let cancelled = false;
+  let scrollMode = false;
+  let lastScrollY = 0;
+  let scrollAccumulator = 0;
+  const scrollPxPerLine = getScrollPxPerLine(terminal);
 
   function clearTimers() {
     if (longPressTimer !== null) {
@@ -70,6 +83,9 @@ export function attachSwipeGestures(
     clearTimers();
     lockedDirection = null;
     cancelled = false;
+    scrollMode = false;
+    lastScrollY = 0;
+    scrollAccumulator = 0;
   }
 
   function resolveDirection(dx: number, dy: number): Direction | null {
@@ -86,7 +102,7 @@ export function attachSwipeGestures(
       if (isKeyboardOpen?.()) {
         return dy < 0 ? 'up' : 'down';
       }
-      // Keyboard closed — let native scroll handle vertical
+      // Keyboard closed — scroll mode handles this (see onTouchMove)
       return null;
     }
 
@@ -101,8 +117,8 @@ export function attachSwipeGestures(
 
   function onTouchStart(e: TouchEvent) {
     if (e.touches.length !== 1) {
+      resetState();
       cancelled = true;
-      clearTimers();
       return;
     }
 
@@ -121,23 +137,63 @@ export function attachSwipeGestures(
   function onTouchMove(e: TouchEvent) {
     if (cancelled || e.touches.length !== 1) return;
 
-    // When keyboard is open, block ALL touch scroll to prevent xterm's
-    // internal Gesture handler from scrolling the terminal.
-    // We handle navigation via swipe gestures instead.
     const kbOpen = isKeyboardOpen?.() ?? false;
+
+    // When keyboard is open, block ALL native touch behavior — we handle
+    // navigation via swipe gestures (arrow keys) instead.
     if (kbOpen) {
       e.preventDefault();
-      e.stopPropagation();
     }
 
     const touch = e.touches[0];
     const dx = touch.clientX - startX;
     const dy = touch.clientY - startY;
 
+    // Already in scroll mode — accumulate delta and scroll terminal buffer
+    if (scrollMode) {
+      e.preventDefault();
+      const deltaY = lastScrollY - touch.clientY; // positive = finger up = scroll down
+      lastScrollY = touch.clientY;
+      scrollAccumulator += deltaY;
+
+      const lines = Math.trunc(scrollAccumulator / scrollPxPerLine);
+      if (lines !== 0) {
+        terminal.scrollLines(lines);
+        scrollAccumulator -= lines * scrollPxPerLine;
+      }
+      return;
+    }
+
     // If we haven't locked a direction yet, try to resolve one
     if (lockedDirection === null) {
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+
+      // Keyboard closed + vertical-dominant swipe → enter scroll mode.
+      // xterm 6.0.0 moved scrolling to SmoothScrollableElement which uses
+      // JS-based scrolling (not native overflow). pointer-events:none would
+      // kill it, and .xterm-viewport no longer has scrollable content. So
+      // we scroll the buffer directly via terminal.scrollLines().
+      if (!kbOpen && absDy >= SWIPE_THRESHOLD && absDy >= absDx * DIRECTION_LOCK_RATIO) {
+        scrollMode = true;
+        lastScrollY = touch.clientY;
+        scrollAccumulator = startY - touch.clientY; // pre-seed with threshold movement
+        if (longPressTimer !== null) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+        // Immediately scroll if the threshold crossing already covers a full line
+        const lines = Math.trunc(scrollAccumulator / scrollPxPerLine);
+        if (lines !== 0) {
+          terminal.scrollLines(lines);
+          scrollAccumulator -= lines * scrollPxPerLine;
+        }
+        e.preventDefault();
+        return;
+      }
+
       const dir = resolveDirection(dx, dy);
-      if (dir === null) return; // not enough movement or vertical swipe
+      if (dir === null) return;
 
       lockedDirection = dir;
 
@@ -156,12 +212,6 @@ export function attachSwipeGestures(
         }, REPEAT_INTERVAL);
       }
     }
-
-    // When keyboard is closed, do NOT preventDefault — let the browser
-    // handle native vertical scrolling. Horizontal swipe keys still fire
-    // via sendKey() above, but we don't block the scroll gesture.
-    // (Previously this called e.preventDefault() which killed vertical scroll
-    //  whenever a horizontal direction locked first.)
   }
 
   function onTouchEnd() {

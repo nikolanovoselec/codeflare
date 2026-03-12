@@ -39,6 +39,10 @@ interface UseTerminalResult {
   initProgress: () => ReturnType<typeof sessionStore.getInitProgressForSession>;
 }
 
+function isAtBottom(t: Terminal): boolean {
+  return t.buffer.active.viewportY >= t.buffer.active.baseY;
+}
+
 export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let containerEl: HTMLDivElement | undefined;
   let term: Terminal | undefined;
@@ -53,6 +57,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let wasKeyboardOpen = false;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
+  let scrollGuard: ((e: Event) => void) | undefined;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -206,8 +211,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   function setupMobileTerminal() {
     if (!term) return;
 
-    // xterm 6.0.0: touch scrolling is handled by SmoothScrollableElement
-    // internally — no need to disable viewport touch handlers (removed in v6).
+    // xterm 6.0.0: touch scrolling when keyboard is closed is handled by
+    // touch-gestures.ts via terminal.scrollLines() (direct buffer scroll).
 
     const mobileCleanup = setupMobileInput(term, props, {
       refreshCursorLine: () => {
@@ -294,9 +299,27 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
-    // Scroll guard removed — xterm 6.0.0 replaced the scroll architecture with
-    // VS Code's SmoothScrollableElement, eliminating the syncScrollArea race that
-    // caused scroll-to-top resets during burst output.
+    // Native scroll guard — xterm 6.0.0 uses SmoothScrollableElement (JS-based
+    // scrolling), so native scrollTop on its containers should always be 0.
+    // However, because we froze _syncTextArea (L140) for performance, the hidden
+    // textarea stays at (0,0). During burst output the browser may force-scroll
+    // overflow:hidden containers to reveal the focused textarea, causing a visual
+    // snap to the top. We intercept these native scroll resets in capture phase.
+    scrollGuard = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.scrollTop !== 0 || target.scrollLeft !== 0)) {
+        if (
+          target.classList.contains('xterm-viewport') ||
+          target.classList.contains('xterm-screen') ||
+          target.classList.contains('xterm-scrollable-element') ||
+          target.classList.contains('xterm')
+        ) {
+          target.scrollTop = 0;
+          target.scrollLeft = 0;
+        }
+      }
+    };
+    containerEl.addEventListener('scroll', scrollGuard, { capture: true, passive: true });
 
     // Font loading fix
     if (document.fonts) {
@@ -310,49 +333,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
   });
 
-  // Virtual keyboard scroll lock — when keyboard is open, prevent native scroll on
-  // the viewport (swipe gestures handle navigation instead). When closing, preserve
-  // scrollTop across the overflow-y transition to prevent jump-to-top.
-  createEffect(() => {
-    if (!containerEl || !isTouchDevice()) return;
-    const kbOpen = isVirtualKeyboardOpen();
-    const viewport = containerEl.querySelector('.xterm-viewport') as HTMLElement | null;
-    if (!viewport) return;
-    if (kbOpen) {
-      viewport.style.overflowY = 'hidden';
-    } else {
-      const savedScrollTop = viewport.scrollTop;
-      viewport.style.overflowY = '';
-      // Restore scroll position after browser reflow from overflow-y change
-      if (savedScrollTop > 0) {
-        viewport.scrollTop = savedScrollTop;
-        requestAnimationFrame(() => { viewport.scrollTop = savedScrollTop; });
-      }
-    }
-    onCleanup(() => { viewport.style.overflowY = ''; });
-  });
-
-  // Pointer-events toggle: when keyboard closed, disable interaction on the scrollable
-  // element so touches fall through to .xterm-viewport for native scroll.
-  // xterm 6.0.0 wraps .xterm-screen in .xterm-scrollable-element (VS Code's scrollbar
-  // system). We must disable pointer-events on this wrapper — not just .xterm-screen —
-  // otherwise the wrapper captures touch events before they reach the viewport.
-  createEffect(() => {
-    if (!containerEl || !isTouchDevice()) return;
-    const scrollableEl = containerEl.querySelector('.xterm-scrollable-element') as HTMLElement | null;
-    const screen = containerEl.querySelector('.xterm-screen') as HTMLElement | null;
-    const kbOpen = isVirtualKeyboardOpen();
-    if (scrollableEl) {
-      scrollableEl.style.pointerEvents = kbOpen ? '' : 'none';
-    }
-    if (screen) {
-      screen.style.pointerEvents = kbOpen ? '' : 'none';
-    }
-    onCleanup(() => {
-      if (scrollableEl) scrollableEl.style.pointerEvents = '';
-      if (screen) screen.style.pointerEvents = '';
-    });
-  });
+  // xterm 6.0.0 moved scrolling from .xterm-viewport (native overflow) to
+  // SmoothScrollableElement (JS-based). Touch scrolling when keyboard is closed
+  // is handled by touch-gestures.ts via terminal.scrollLines() — no need for
+  // pointer-events or overflow-y tricks on viewport/scrollable-element.
 
   // Refit on keyboard height change
   createEffect(() => {
@@ -443,8 +427,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (props.active && fitAddon && term) {
       requestAnimationFrame(() => {
         if (!fitAddon || !term) return;
+        const wasBottom = isAtBottom(term);
         fitAddon.fit();
-        if (!isTouchDevice() || !hasInitialScrolled) {
+        // First activation: always scroll to bottom so user sees the prompt.
+        // Subsequent activations: only if user was already following output.
+        if (!hasInitialScrolled || wasBottom) {
           term.scrollToBottom();
           hasInitialScrolled = true;
         }
@@ -462,8 +449,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (!fitAddon || !term) return;
+          const wasBottom = isAtBottom(term);
           fitAddon.fit();
-          term.scrollToBottom();
+          if (wasBottom) term.scrollToBottom();
           term.refresh(0, term.rows - 1);
           terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
         });
@@ -481,6 +469,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     terminalStore.stopUrlDetection();
     terminalStore.unregisterFitAddon(props.sessionId, props.terminalId);
     if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu);
+    if (scrollGuard) containerEl?.removeEventListener('scroll', scrollGuard, { capture: true } as EventListenerOptions);
   });
 
   return {

@@ -398,20 +398,7 @@ describe('Terminal Component', () => {
       expect(container.style.userSelect).toBe('none');
     });
 
-    it('should set touch-action: pan-y when keyboard is closed on mobile', () => {
-      // jsdom doesn't reflect touch-action via setProperty, so spy on the prototype
-      const spy = vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty');
-
-      render(() => <Terminal {...defaultProps} />);
-
-      const touchActionCalls = spy.mock.calls.filter(([prop]) => prop === 'touch-action');
-      expect(touchActionCalls.length).toBeGreaterThan(0);
-      expect(touchActionCalls[touchActionCalls.length - 1][1]).toBe('pan-y');
-      spy.mockRestore();
-    });
-
-    it('should set touch-action: none when keyboard is open on mobile', () => {
-      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+    it('should set touch-action: none on mobile (all touch handled in JS)', () => {
       const spy = vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty');
 
       render(() => <Terminal {...defaultProps} />);

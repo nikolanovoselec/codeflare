@@ -64,24 +64,40 @@ export function getLayoutChangeCounter(): number {
   return layoutChangeCounter();
 }
 
-/** Refit all registered terminals (fit + send resize to PTY + refresh) */
+/** Refit all registered terminals (fit + send resize to PTY if changed).
+ *  Preserves scroll position: only follows output if user was already at bottom. */
 function refitAllTerminals(): void {
   const terminals = getTerminals();
   const connections = getConnections();
 
   for (const [key, fitAddon] of fitAddons) {
     try {
-      fitAddon.fit();
       const terminal = terminals.get(key);
-      if (terminal) {
-        const cols = terminal.cols;
-        const rows = terminal.rows;
+      if (!terminal) {
+        fitAddon.fit();
+        continue;
+      }
+
+      const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+      const prevCols = terminal.cols;
+      const prevRows = terminal.rows;
+
+      fitAddon.fit();
+
+      const cols = terminal.cols;
+      const rows = terminal.rows;
+
+      // Only send resize if dimensions actually changed
+      if (cols !== prevCols || rows !== prevRows) {
         const ws = connections.get(key);
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         }
+      }
+
+      // Preserve user scroll position — only follow output if already at bottom
+      if (wasAtBottom) {
         terminal.scrollToBottom();
-        terminal.refresh(0, terminal.rows - 1);
       }
     } catch (err) {
       logger.warn(`[Terminal ${key}] Failed to refit on layout change:`, err);

@@ -1625,7 +1625,7 @@ The mobile terminal input system uses several techniques to work around browser/
 3. **`createElement` monkey-patch** -- Uses `input[type=password]` instead of textarea (scoped to `terminal.open()`)
 4. **`isFocused` getter override** -- Live reference via `iframe.contentDocument?.hasFocus()` avoids stale state
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
-6. **Pointer-events toggle** -- Manages pointer-events on `.xterm-screen` based on keyboard state. xterm 6.0.0's SmoothScrollableElement handles touch scrolling internally; the pointer-events toggle controls whether touches go to the scroll layer (keyboard closed) or canvas (keyboard open)
+6. **Touch scroll via `terminal.scrollLines()`** -- When keyboard is closed, vertical swipes in `touch-gestures.ts` scroll the terminal buffer directly via `terminal.scrollLines()`. xterm 6.0.0's `SmoothScrollableElement` uses JS-based scrolling that doesn't support native touch; `.xterm-viewport` no longer has scrollable content. The gesture handler accumulates pixel deltas and converts to line-granularity scroll, with sensitivity derived from terminal font metrics (`fontSize * lineHeight`)
 
 ### Samsung Internet Keyboard Quirks
 
@@ -1730,6 +1730,18 @@ The 50ms delay gives SolidJS time to process the null state and run cleanup effe
 Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` repeat timer that fires every 80ms while the finger is held. `touchstart`/`touchmove` were registered in capture phase, but `touchend`/`touchcancel` were in bubble phase. When xterm.js's internal Gesture handler (on `.xterm-screen`) called `stopPropagation()` on `touchend` during its own gesture processing, the bubble-phase listener on the container never fired, leaving the repeat timer running indefinitely.
 
 **Solution:** Register `touchend`/`touchcancel` in capture phase (`{ capture: true }`) matching `touchstart`/`touchmove`. Our handler now fires before xterm's, guaranteeing the repeat timer is always cleared.
+
+#### Scroll-to-Top Reset During Burst Output (Fix 8)
+
+xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would still jump to the top of scrollback during burst output. Two independent causes:
+
+**Cause A — Browser focus-scroll bypass:** The `_syncTextArea` freeze (Fix 2 above) leaves xterm's hidden input element fixed at `(0,0)`. During burst output, the browser's focus validation engine can force-scroll `overflow: hidden` containers to reveal the focused element, bypassing `SmoothScrollableElement`'s JS scroll state entirely. This native `scrollTop` mutation causes a visual snap to the top.
+
+**Solution A:** A native scroll guard in capture phase on the terminal container intercepts scroll events on xterm's structural elements (`.xterm-viewport`, `.xterm-screen`, `.xterm-scrollable-element`, `.xterm`) and forces `scrollTop/scrollLeft` back to `0`. In xterm 6's architecture, native scroll on these elements is always spurious — all real scrolling goes through `SmoothScrollableElement`.
+
+**Cause B — Unconditional `scrollToBottom()` during layout transitions:** `refitAllTerminals()` unconditionally called `scrollToBottom()` and `refresh()` on every registered terminal during CSS layout transitions (panel open/close). This ran twice per transition with delays, destroying any manual scrollback position and interacting badly with burst output. Similar unconditional calls existed in the active-state and init-overlay effects.
+
+**Solution B:** All `scrollToBottom()` call sites now check `viewportY >= baseY` (xterm's buffer-level scroll state) before scrolling. If the user had scrolled up to read history, their position is preserved. `refitAllTerminals()` also skips the resize WS message if dimensions didn't change, and removed the unconditional `refresh()`. The write batching flush (`flushWriteBuffer`) adds a post-write callback that re-snaps to bottom only if the user was following output and an internal reset occurred.
 
 #### WS Retryable Close Codes (Fix 5)
 

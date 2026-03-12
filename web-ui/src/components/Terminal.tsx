@@ -2,7 +2,7 @@ import { Component, Show, createSignal, createEffect } from 'solid-js';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '../hooks/useTerminal';
 import InitProgress from './InitProgress';
-import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay } from '../lib/mobile';
+import { isTouchDevice, getKeyboardHeight, enableVirtualKeyboardOverlay } from '../lib/mobile';
 import { getRemoveFocusGuard, getIframeInput } from '../lib/xterm-internals';
 import '../styles/terminal.css';
 
@@ -102,7 +102,7 @@ const Terminal: Component<TerminalProps> = (props) => {
           'overflow-anchor': 'none',
           '-webkit-user-select': isTouchDevice() ? 'none' : undefined,
           'user-select': isTouchDevice() ? 'none' : undefined,
-          'touch-action': isTouchDevice() ? (isVirtualKeyboardOpen() ? 'none' : 'pan-y') : undefined,
+          'touch-action': isTouchDevice() ? 'none' : undefined,
         }}
       />
 
