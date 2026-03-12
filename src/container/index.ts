@@ -42,8 +42,9 @@ export function validateBucketNameInput(input: {
   r2Endpoint?: unknown;
   workspaceSyncEnabled?: unknown;
   fastStartEnabled?: unknown;
+  sessionMode?: unknown;
 }): string | null {
-  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled } = input;
+  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode } = input;
 
   if (typeof bucketName !== 'string' || bucketName.trim() === '') {
     return 'bucketName must be a non-empty string';
@@ -60,7 +61,7 @@ export function validateBucketNameInput(input: {
   if (fastStartEnabled !== undefined && typeof fastStartEnabled !== 'boolean') {
     return 'fastStartEnabled must be a boolean when provided';
   }
-  if (body.sessionMode !== undefined && typeof body.sessionMode !== 'string') {
+  if (sessionMode !== undefined && typeof sessionMode !== 'string') {
     return 'sessionMode must be a string when provided';
   }
   if (r2AccountId !== undefined && (typeof r2AccountId !== 'string' || r2AccountId.trim() === '')) {
