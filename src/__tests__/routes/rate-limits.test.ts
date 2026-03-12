@@ -150,7 +150,7 @@ describe('Rate limit coverage', () => {
         mockKV,
         envOverrides: storageEnv(),
       });
-      mockR2Fetch.mockResolvedValue(new Response('', { status: 204 }));
+      mockR2Fetch.mockResolvedValue(new Response(null, { status: 204 }));
 
       await assertRateLimited(20, () =>
         app.request('/delete', {

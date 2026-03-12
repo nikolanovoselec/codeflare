@@ -180,7 +180,7 @@ describe('deleteNonModeConfigs', () => {
   });
 
   it('deletes advanced-only keys for "default" mode', async () => {
-    mockFetch.mockResolvedValue(new Response('', { status: 204 }));
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'default');
 
@@ -211,7 +211,7 @@ describe('deleteNonModeConfigs', () => {
 
   it('returns warnings for partial delete failure', async () => {
     mockFetch
-      .mockResolvedValueOnce(new Response('', { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response('', { status: 500 }));
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'default');

@@ -48,7 +48,7 @@ describe('agent-seed manifest.json', () => {
     }
   });
 
-  it('"advanced" is a superset of "default" — all default keys also appear in advanced', () => {
+  it('"advanced" is a superset of "default" -- all default keys also appear in advanced', () => {
     const defaultKeys = new Set(
       AGENTS_SEEDED_CONFIGS.filter((doc) => doc.modes.includes('default')).map((doc) => doc.key)
     );
