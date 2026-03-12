@@ -74,6 +74,45 @@ const abortControllers = new Map<string, AbortController>();
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
 
+// Write batching — coalesce rapid WebSocket messages into a single terminal.write()
+// per animation frame. Prevents xterm.js syncScrollArea from firing per-message,
+// which causes a scrollTop reflow storm once the scrollback buffer starts trimming
+// (~30-40 min of heavy output with scrollback: 10000).
+const writeBuffers = new Map<string, string[]>();
+const pendingFlushes = new Map<string, number>();
+
+function flushWriteBuffer(key: string, terminal: Terminal): void {
+  pendingFlushes.delete(key);
+  const buffer = writeBuffers.get(key);
+  if (!buffer || buffer.length === 0) return;
+  const data = buffer.join('');
+  buffer.length = 0;
+  terminal.write(data);
+}
+
+function scheduleWrite(key: string, terminal: Terminal, data: string): void {
+  let buffer = writeBuffers.get(key);
+  if (!buffer) {
+    buffer = [];
+    writeBuffers.set(key, buffer);
+  }
+  buffer.push(data);
+
+  if (!pendingFlushes.has(key)) {
+    const rafId = requestAnimationFrame(() => flushWriteBuffer(key, terminal));
+    pendingFlushes.set(key, rafId);
+  }
+}
+
+function cancelPendingFlush(key: string): void {
+  const rafId = pendingFlushes.get(key);
+  if (rafId !== undefined) {
+    cancelAnimationFrame(rafId);
+    pendingFlushes.delete(key);
+  }
+  writeBuffers.delete(key);
+}
+
 // L26: FitAddon management and layout resize delegated to terminal-layout.ts
 // Register layout module dependencies at module init
 registerLayoutDeps(
@@ -281,7 +320,7 @@ function connect(
         }
       }
 
-      terminal.write(messageData);
+      scheduleWrite(key, terminal, messageData);
     }
 
     function handleWebSocketClose(event: CloseEvent): void {
@@ -328,6 +367,7 @@ function connect(
   // Return cleanup function
   return () => {
     controller.abort();
+    cancelPendingFlush(key);
 
     // Bug 1 fix: Dispose input handler from the external Map
     const disposable = inputDisposables.get(key);
@@ -350,6 +390,9 @@ function connect(
 // Disconnect from terminal
 function disconnect(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
+
+  // Cancel any buffered writes waiting for the next animation frame
+  cancelPendingFlush(key);
 
   // Abort any in-flight retry loops for this key (THE BUG FIX)
   const controller = abortControllers.get(key);
@@ -423,6 +466,8 @@ function disposeSession(sessionId: string): void {
   cleanupFitAddonsByPrefix(prefix);
   cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
+  cleanupMapByPrefix(pendingFlushes, prefix, (rafId) => cancelAnimationFrame(rafId));
+  cleanupMapByPrefix(writeBuffers, prefix);
 
   // Clean up state
   setState(produce((s) => {
@@ -460,6 +505,13 @@ function disposeAll(): void {
     clearTimeout(timeout);
   }
   retryTimeouts.clear();
+
+  // Cancel all pending write flushes
+  for (const rafId of pendingFlushes.values()) {
+    cancelAnimationFrame(rafId);
+  }
+  pendingFlushes.clear();
+  writeBuffers.clear();
 
   // Abort all retry loops
   for (const controller of abortControllers.values()) {
@@ -594,6 +646,13 @@ function disconnectAll(): void {
     clearTimeout(timeout);
   }
   retryTimeouts.clear();
+
+  // Cancel all pending write flushes
+  for (const rafId of pendingFlushes.values()) {
+    cancelAnimationFrame(rafId);
+  }
+  pendingFlushes.clear();
+  writeBuffers.clear();
 
   // Abort all retry loops
   for (const controller of abortControllers.values()) {

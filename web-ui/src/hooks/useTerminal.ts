@@ -319,7 +319,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
         lastScrollTop = current;
       };
-      xtermViewport.addEventListener('scroll', scrollGuard, { passive: true });
+      xtermViewport.addEventListener('scroll', scrollGuard);
       onCleanup(() => xtermViewport.removeEventListener('scroll', scrollGuard));
     }
 
