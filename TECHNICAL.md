@@ -1779,7 +1779,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 
 | Content | Default | Advanced |
 |---------|---------|----------|
-| Memory hooks & prompt | Yes | Yes |
+| Memory hooks, prompt & rule | No | Yes |
 | CI monitoring, environment, no-local-builds rules | Yes | Yes |
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes |
@@ -1814,7 +1814,7 @@ ECC-derived rules, agents, commands, and skills are preseeded directly to the ag
 
 **Skills (12 files, 10 unique skills)**: `cloudflare-stack`, `ship` (+ 2 reference files), `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`. Preseeded to `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for agents that support skills). `consult-llm` is CC-only (depends on MCP tool).
 
-**Rules (27 files, 4 default + 23 advanced-only)**: Core environment rules (`ci-monitoring`, `cloudflare-environment`, `no-local-builds`, `memory`). ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs (3 + 5*4 = 23 files, advanced only). Common rules cover security, coding style, and git workflow. Language-specific rules provide conventions for TypeScript, Python, Go, and Swift.
+**Rules (27 files, 3 default + 24 advanced-only)**: Core environment rules (`ci-monitoring`, `cloudflare-environment`, `no-local-builds`) in both modes. `memory` rule is advanced-only (depends on MCP memory server). ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs (3 + 5*4 = 23 files, advanced only). Common rules cover security, coding style, and git workflow. Language-specific rules provide conventions for TypeScript, Python, Go, and Swift.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds the official Anthropic plugin marketplace URL for user discovery.
 
@@ -1879,7 +1879,9 @@ The generator produces adapted config files for 5 agents from CC's preseed as si
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1) concatenates applicable rules into a single instructions file, (2) remaps tool names in agent definition frontmatter, (3) removes `model` field from frontmatter, (4) replaces `~/.claude/` path references with agent-specific config paths, (5) uses correct file extensions (e.g., `.agent.md` for Copilot agents).
 
-**Variant-per-mode keys**: Instructions files appear twice in the generated array — once for default mode (3 rules) and once for advanced mode (26 rules), with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this correctly by excluding keys that have a variant in the target mode.
+**Per-mode counts**: Default mode seeds 24 files, advanced mode seeds 117 files. Total array size is 121 (includes variant-per-mode duplicates for instructions files).
+
+**Variant-per-mode keys**: Instructions files appear twice in the generated array — once for default mode (3 rules) and once for advanced mode (all rules including memory, ECC), with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this correctly by excluding keys that have a variant in the target mode.
 
 ### Settings.json Merge
 

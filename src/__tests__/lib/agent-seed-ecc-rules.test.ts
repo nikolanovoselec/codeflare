@@ -94,13 +94,23 @@ describe('ECC rules in agent-seed', () => {
     }
   });
 
-  it('existing codeflare rules still have default+advanced modes', () => {
-    const cfRules = codeflareRules();
+  it('non-memory codeflare rules have default+advanced modes', () => {
+    const cfRules = codeflareRules().filter(
+      (doc) => doc.key !== '.claude/rules/memory.md'
+    );
     expect(cfRules.length).toBeGreaterThan(0);
     for (const rule of cfRules) {
       expect(rule.modes).toContain('default');
       expect(rule.modes).toContain('advanced');
     }
+  });
+
+  it('memory rule is advanced-only (depends on MCP memory server)', () => {
+    const memoryRule = codeflareRules().find(
+      (doc) => doc.key === '.claude/rules/memory.md'
+    );
+    expect(memoryRule).toBeDefined();
+    expect(memoryRule!.modes).toEqual(['advanced']);
   });
 
   it('total ECC rules count is 23', () => {
