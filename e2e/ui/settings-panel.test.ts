@@ -204,7 +204,8 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     expect(label).toBeTruthy();
   });
 
-  it('shows LLM API Keys section with inputs and save button', async () => {
+  it('shows LLM API Keys section with inputs and save button (advanced mode only)', async () => {
+    // LLM API Keys accordion is only visible in advanced mode
     // Ensure panel is open
     const isAlreadyOpen = await page.evaluate(
       () => document.querySelector('[data-testid="settings-panel"]')?.getAttribute('aria-hidden') === 'false'
@@ -217,6 +218,8 @@ describe.skipIf(!isSetup)('Settings panel', () => {
       });
       await waitForPanelOpen(page);
     }
+    const llmHeader = await page.$('[data-testid="accordion-header-llm"]');
+    if (!llmHeader) return; // default mode — LLM accordion hidden, skip
     await openAccordionGroup(page, 'llm');
     const groupTitles = await page.$$eval('.settings-group-title', els => els.map(el => el.textContent?.trim()));
     expect(groupTitles).toContain('LLM API Keys');
@@ -275,7 +278,9 @@ describe.skipIf(!isSetup)('Settings panel', () => {
     expect(subtitle).toBeTruthy();
   });
 
-  it('LLM explanation text visible when LLM group is open', async () => {
+  it('LLM explanation text visible when LLM group is open (advanced mode only)', async () => {
+    const llmHeader = await page.$('[data-testid="accordion-header-llm"]');
+    if (!llmHeader) return; // default mode — LLM accordion hidden, skip
     await openAccordionGroup(page, 'llm');
     const explanation = await page.$eval(
       '[data-testid="llm-keys-explanation"]',

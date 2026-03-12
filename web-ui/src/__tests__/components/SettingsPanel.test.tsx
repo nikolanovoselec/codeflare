@@ -10,7 +10,7 @@ import * as storageApi from '../../api/storage';
 const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false }));
 
 const sessionStoreState = vi.hoisted(() => ({
-  preferences: { workspaceSyncEnabled: false as boolean | undefined, fastStartEnabled: undefined as boolean | undefined },
+  preferences: { workspaceSyncEnabled: false as boolean | undefined, fastStartEnabled: undefined as boolean | undefined, sessionMode: undefined as string | undefined },
   updatePreferences: vi.fn(async () => undefined),
 }));
 
@@ -690,6 +690,13 @@ describe('SettingsPanel Component', () => {
   });
 
   describe('LLM API Keys', () => {
+    beforeEach(() => {
+      sessionStoreState.preferences.sessionMode = 'advanced';
+    });
+    afterEach(() => {
+      sessionStoreState.preferences.sessionMode = undefined;
+    });
+
     it('renders LLM API Keys group heading', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
@@ -860,12 +867,14 @@ describe('SettingsPanel Component', () => {
     });
 
     it('collapses other groups by default', () => {
+      sessionStoreState.preferences.sessionMode = 'advanced';
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
       const sessionHeader = screen.getByTestId('accordion-header-session');
       const llmHeader = screen.getByTestId('accordion-header-llm');
       expect(sessionHeader).toHaveAttribute('aria-expanded', 'false');
       expect(llmHeader).toHaveAttribute('aria-expanded', 'false');
+      sessionStoreState.preferences.sessionMode = undefined;
     });
 
     it('clicking collapsed group opens it and closes current one', () => {
@@ -942,10 +951,11 @@ describe('SettingsPanel Component', () => {
 
   describe('Accordion reset on reopen', () => {
     it('resets to Appearance when panel is closed and reopened', () => {
+      sessionStoreState.preferences.sessionMode = 'advanced';
       const [isOpen, setIsOpen] = createSignal(true);
       render(() => <SettingsPanel isOpen={isOpen()} onClose={() => setIsOpen(false)} />);
 
-      // Switch to LLM group
+      // Switch to LLM group (only visible in advanced mode)
       const llmHeader = screen.getByTestId('accordion-header-llm');
       fireEvent.click(llmHeader);
       expect(llmHeader).toHaveAttribute('aria-expanded', 'true');
@@ -958,10 +968,18 @@ describe('SettingsPanel Component', () => {
       const appearanceHeader = screen.getByTestId('accordion-header-appearance');
       expect(appearanceHeader).toHaveAttribute('aria-expanded', 'true');
       expect(llmHeader).toHaveAttribute('aria-expanded', 'false');
+      sessionStoreState.preferences.sessionMode = undefined;
     });
   });
 
   describe('LLM API Keys explanation', () => {
+    beforeEach(() => {
+      sessionStoreState.preferences.sessionMode = 'advanced';
+    });
+    afterEach(() => {
+      sessionStoreState.preferences.sessionMode = undefined;
+    });
+
     it('shows explanation text with "Optional", "second opinions", and "Consult LLM"', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
