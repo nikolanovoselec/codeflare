@@ -282,25 +282,45 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
 
-    // DEBUG: Scroll position jump detector — logs to browser console when
-    // the xterm viewport scroll position changes by more than 500px in a
-    // single frame. Remove once the intermittent scroll-to-top bug is found.
+    // Scroll jump guard — xterm.js syncScrollArea updates .xterm-scroll-area
+    // height synchronously but defers scrollTop restoration to requestAnimationFrame.
+    // During burst output the browser reflows between those two steps, resetting
+    // scrollTop (visible as a flash to the top). This listener detects the
+    // browser-initiated reset and corrects scrollTop before paint.
     const xtermViewport = containerEl.querySelector('.xterm-viewport') as HTMLElement | null;
     if (xtermViewport) {
       let lastScrollTop = xtermViewport.scrollTop;
-      const scrollObserver = () => {
+      let following = true;
+      let correcting = false;
+      const scrollGuard = () => {
+        if (correcting) return;
         const current = xtermViewport.scrollTop;
-        const delta = Math.abs(current - lastScrollTop);
-        if (delta > 500) {
-          console.warn(
-            `[SCROLL-DEBUG ${props.sessionId}:${props.terminalId}] Jump detected: ${lastScrollTop} → ${current} (Δ${delta})`,
-            new Error('Stack trace').stack
-          );
+        const maxScroll = xtermViewport.scrollHeight - xtermViewport.clientHeight;
+
+        // Update following state — true when within 50px of the bottom
+        if (maxScroll - current < 50) {
+          following = true;
         }
+
+        // Detect browser-initiated scroll reset: large downward jump while following output
+        const drop = lastScrollTop - current;
+        if (following && drop > 500) {
+          correcting = true;
+          xtermViewport.scrollTop = maxScroll;
+          lastScrollTop = maxScroll;
+          correcting = false;
+          return;
+        }
+
+        // User scrolled up intentionally (small gradual movement away from bottom)
+        if (maxScroll - current > 50 && drop > 0 && drop <= 500) {
+          following = false;
+        }
+
         lastScrollTop = current;
       };
-      xtermViewport.addEventListener('scroll', scrollObserver, { passive: true });
-      onCleanup(() => xtermViewport.removeEventListener('scroll', scrollObserver));
+      xtermViewport.addEventListener('scroll', scrollGuard, { passive: true });
+      onCleanup(() => xtermViewport.removeEventListener('scroll', scrollGuard));
     }
 
     // Font loading fix
