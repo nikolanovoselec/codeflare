@@ -125,6 +125,10 @@ export function setupMobileInput(
 
   let iframeInputRef: HTMLInputElement | null = null;
   let wasInputFocused = false;
+  // Hoisted to outer scope so cleanup can cancel a pending blur debounce.
+  // Without this, a pending 100ms timer could fire after the component unmounts,
+  // calling disableVirtualKeyboardOverlay() and _handleTextAreaBlur() on stale state.
+  let blurTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   const blurIframeInput = () => {
     if (iframeInputRef && iframe.contentDocument?.activeElement === iframeInputRef) {
@@ -265,6 +269,7 @@ export function setupMobileInput(
 
     // Wire up xterm's cursor rendering to the iframe input's focus state.
     const coreRef = getXtermCore(terminal);
+
     if (coreRef) {
       const ta = terminal?.textarea;
       if (ta) {
@@ -288,6 +293,11 @@ export function setupMobileInput(
       }
 
       input.addEventListener('focus', () => {
+        // Cancel pending blur — the input was re-focused (e.g., tap on terminal)
+        if (blurTimeoutId !== null) {
+          clearTimeout(blurTimeoutId);
+          blurTimeoutId = null;
+        }
         if (coreRef.coreService && !coreRef.coreService.isCursorInitialized) {
           coreRef.coreService.isCursorInitialized = true;
         }
@@ -298,14 +308,29 @@ export function setupMobileInput(
       });
 
       input.addEventListener('blur', () => {
-        disableVirtualKeyboardOverlay();
-        if (typeof coreRef._handleTextAreaBlur === 'function') {
-          coreRef._handleTextAreaBlur();
-        }
-        callbacks.refreshCursorLine();
+        // Cancel any previous pending blur (rapid blur→blur without focus between)
+        if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
+        // Debounce: wait 100ms before disabling overlaysContent. If the input
+        // is re-focused within this window (tap→blur→click→focus cycle), the
+        // timeout is cancelled and overlaysContent stays true — avoiding the
+        // Samsung geometrychange cascade that resets keyboard height signals.
+        blurTimeoutId = setTimeout(() => {
+          blurTimeoutId = null;
+          disableVirtualKeyboardOverlay();
+          if (typeof coreRef._handleTextAreaBlur === 'function') {
+            coreRef._handleTextAreaBlur();
+          }
+          callbacks.refreshCursorLine();
+        }, 100);
       });
     } else {
-      input.addEventListener('blur', () => disableVirtualKeyboardOverlay());
+      input.addEventListener('blur', () => {
+        if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
+        blurTimeoutId = setTimeout(() => {
+          blurTimeoutId = null;
+          disableVirtualKeyboardOverlay();
+        }, 100);
+      });
     }
   });
 
@@ -316,6 +341,7 @@ export function setupMobileInput(
   // Return cleanup function
   return () => {
     wasInputFocused = false;
+    if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); blurTimeoutId = null; }
     document.removeEventListener('visibilitychange', onVisibilityChange);
     window.removeEventListener('focus', onWindowFocus);
     window.removeEventListener('pagehide', onPageHide);

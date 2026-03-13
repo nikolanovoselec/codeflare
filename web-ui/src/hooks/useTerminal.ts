@@ -335,7 +335,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
       setDimensions({ cols: term.cols, rows: term.rows });
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
-      window.scrollTo(0, 0);
     }, KEYBOARD_REFIT_DEBOUNCE_MS);
     onCleanup(() => {
       if (kbDebounceTimer !== null) {
