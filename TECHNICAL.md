@@ -1089,7 +1089,7 @@ Eight workflows covering deploy, testing, fuzzing, penetration testing, stress t
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | Push to `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets |
-| `test.yml` | PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit`, dependency review |
+| `test.yml` | PRs to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit --omit=dev`, dependency review |
 | `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
 | `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security |
 | `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
@@ -1149,7 +1149,7 @@ Eight workflows covering deploy, testing, fuzzing, penetration testing, stress t
 ### Test Workflow Detail
 
 Two parallel jobs:
-- **test**: Lint (oxlint), build frontend, run backend + frontend tests, typecheck both, dead code check (knip), `npm audit --audit-level=high` for backend and frontend
+- **test**: Lint (oxlint), build frontend, run backend + frontend tests, typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
 - **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
 
 ### E2E Workflow Detail
@@ -1220,7 +1220,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 ### Vitest Version Split
 
-Root uses Vitest v3.x (required by `@cloudflare/vitest-pool-workers`). `web-ui/` uses Vitest v4.x (SolidJS testing library compatibility). Each has independent `node_modules` and separate configs. Do not attempt to unify - the version constraint is real.
+Both root and `web-ui/` use Vitest v3.x. Vitest 4.x is incompatible with `@cloudflare/vitest-pool-workers` (the constraint comes from the Workers runtime integration). Each has independent `node_modules` and separate configs. Do not attempt to upgrade to v4 - the version constraint is real.
 
 ### E2E API Tests
 

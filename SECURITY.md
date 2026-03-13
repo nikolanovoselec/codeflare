@@ -74,7 +74,7 @@ Multiple layers of automated supply chain analysis:
 | **CodeQL** | `codeql.yml` | Static analysis for JS/TS vulnerabilities (XSS, injection, data flow issues). Runs on push, PRs, and weekly. |
 | **OSSF Scorecard** | `scorecard.yml` | Repository security posture: branch protection, dependency pinning, CI best practices. Runs on push to main and weekly. |
 | **Dependency Review** | `test.yml` | `actions/dependency-review-action` blocks PRs that introduce dependencies with known vulnerabilities. |
-| **npm audit** | `test.yml` | `npm audit --audit-level=high` for both backend and frontend. Fails on HIGH+ severity advisories. |
+| **npm audit** | `test.yml` | `npm audit --audit-level=high --omit=dev` for both backend and frontend. Fails on HIGH+ severity advisories in production dependencies. Dev-only vulnerabilities (e.g. transitive devDep issues in undici/yauzl) are excluded. |
 | **Trivy** | `deploy.yml` | Container image vulnerability scanning (HIGH/CRITICAL severity). Blocks deploy on findings. Uses `.trivyignore` for accepted risks. |
 | **Dependabot** | `.github/dependabot.yml` | Automated dependency update PRs for npm (backend, frontend, host), Docker, and GitHub Actions. |
 
