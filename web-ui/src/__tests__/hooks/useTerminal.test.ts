@@ -31,6 +31,7 @@ const mockTerminalInstance = {
   options: { fontFamily: 'monospace', theme: {} },
   textarea: null,
   scrollLines: vi.fn(),
+  onScroll: vi.fn(() => ({ dispose: vi.fn() })),
   buffer: {
     active: { length: 0, cursorY: 0, viewportY: 0, baseY: 0, getLine: vi.fn(() => null) },
     onBufferChange: vi.fn(() => ({ dispose: vi.fn() })),

@@ -21,6 +21,7 @@ const mockTerminalInstance = {
   clearSelection: vi.fn(),
   scrollToBottom: vi.fn(),
   scrollLines: vi.fn(),
+  onScroll: vi.fn(() => ({ dispose: vi.fn() })),
   refresh: vi.fn(),
   focus: vi.fn(),
   dispose: vi.fn(),
