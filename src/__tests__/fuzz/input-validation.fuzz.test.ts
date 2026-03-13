@@ -1,7 +1,7 @@
 /**
  * Property-based fuzz tests for critical input validation and transformation paths.
  *
- * Each test verifies a real application invariant — not that JS built-ins work.
+ * Each test verifies a real application invariant - not that JS built-ins work.
  * CI runs 50k iterations (FAST_CHECK_NUM_RUNS=50000); local runs 1k.
  */
 import { describe, it, expect } from 'vitest';
@@ -27,7 +27,7 @@ import { getConfigsForMode, getPreseedKeysNotInMode } from '../../lib/r2-seed';
 const NUM_RUNS = parseInt(process.env.FAST_CHECK_NUM_RUNS || '1000');
 
 // ---------------------------------------------------------------------------
-// XML escape/decode round-trip — protects against injection in DeleteObjects
+// XML escape/decode round-trip - protects against injection in DeleteObjects
 // ---------------------------------------------------------------------------
 describe('Fuzz: XML entity round-trip', () => {
   it('decode(escape(s)) === s for all strings', () => {
@@ -77,7 +77,7 @@ describe('Fuzz: XML entity round-trip', () => {
 });
 
 // ---------------------------------------------------------------------------
-// XML parsing — regex-based parser must handle adversarial XML
+// XML parsing - regex-based parser must handle adversarial XML
 // ---------------------------------------------------------------------------
 describe('Fuzz: XML parsing resilience', () => {
   it('parseListObjectsXml never throws on arbitrary strings', () => {
@@ -118,7 +118,7 @@ describe('Fuzz: XML parsing resilience', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Bucket name derivation — collision resistance and format invariants
+// Bucket name derivation - collision resistance and format invariants
 // ---------------------------------------------------------------------------
 describe('Fuzz: getBucketName', () => {
   it('output always matches R2 bucket naming rules', () => {
@@ -175,7 +175,7 @@ describe('Fuzz: getBucketName', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Container ID — validation gate must never pass invalid session IDs
+// Container ID - validation gate must never pass invalid session IDs
 // ---------------------------------------------------------------------------
 describe('Fuzz: getContainerId', () => {
   it('always throws on invalid session IDs', () => {
@@ -210,7 +210,7 @@ describe('Fuzz: getContainerId', () => {
 
 
 // ---------------------------------------------------------------------------
-// Session name sanitization — must strip injection vectors, never empty
+// Session name sanitization - must strip injection vectors, never empty
 // ---------------------------------------------------------------------------
 describe('Fuzz: sanitizeSessionName', () => {
   it('output never contains characters outside the allowlist', () => {
@@ -259,7 +259,7 @@ describe('Fuzz: sanitizeSessionName', () => {
 
 
 // ---------------------------------------------------------------------------
-// getMaxSessions — must always return non-negative finite number
+// getMaxSessions - must always return non-negative finite number
 // ---------------------------------------------------------------------------
 describe('Fuzz: getMaxSessions', () => {
   it('always returns a non-negative finite number', () => {
@@ -274,7 +274,7 @@ describe('Fuzz: getMaxSessions', () => {
           const result = getMaxSessions(role, env);
           expect(typeof result).toBe('number');
           expect(Number.isFinite(result)).toBe(true);
-          // Negative values from parseInt are technically accepted — this documents that
+          // Negative values from parseInt are technically accepted - this documents that
         },
       ),
       { numRuns: NUM_RUNS },
@@ -311,7 +311,7 @@ describe('Fuzz: getMaxSessions', () => {
 });
 
 // ---------------------------------------------------------------------------
-// R2 URL construction — path traversal and format safety
+// R2 URL construction - path traversal and format safety
 // ---------------------------------------------------------------------------
 describe('Fuzz: getR2Url', () => {
   it('never has double slashes between endpoint and bucket', () => {
@@ -323,7 +323,7 @@ describe('Fuzz: getR2Url', () => {
           const url = getR2Url(endpoint, bucket);
           // Between endpoint and bucket there should be exactly one slash
           const afterProtocol = url.replace(/^https?:\/\//, '');
-          // Split on bucket name — the part before it should not end with extra slashes
+          // Split on bucket name - the part before it should not end with extra slashes
           const idx = afterProtocol.indexOf(`/${bucket}`);
           if (idx >= 0) {
             const beforeBucket = afterProtocol.substring(0, idx + 1);
@@ -366,7 +366,7 @@ describe('Fuzz: getR2Url', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Storage key validation — path traversal, protected paths, edge cases
+// Storage key validation - path traversal, protected paths, edge cases
 // ---------------------------------------------------------------------------
 describe('Fuzz: validateKey', () => {
   it('any key passing validation has no path traversal', () => {
@@ -378,9 +378,9 @@ describe('Fuzz: validateKey', () => {
           expect(key).not.toContain('..');
           expect(key.startsWith('/')).toBe(false);
           expect(key.length).toBeLessThanOrEqual(1024);
-          // PROTECTED_PATHS is now empty — no path restrictions to check
+          // PROTECTED_PATHS is now empty - no path restrictions to check
         } catch {
-          // Validation threw — that's fine, this is the reject path
+          // Validation threw - that's fine, this is the reject path
         }
       }),
       { numRuns: NUM_RUNS },
@@ -421,9 +421,9 @@ describe('Fuzz: validateKey', () => {
         fc.constantFrom(...formerlyProtected),
         fc.stringMatching(/^[a-z0-9]{0,20}$/),
         (path, prefix) => {
-          // At root — should now pass
+          // At root - should now pass
           expect(() => validateKey(path)).not.toThrow();
-          // Nested under a prefix — should now pass
+          // Nested under a prefix - should now pass
           if (prefix.length > 0) {
             expect(() => validateKey(`${prefix}/${path}`)).not.toThrow();
           }
@@ -448,7 +448,7 @@ describe('Fuzz: validateKey', () => {
 });
 
 // ---------------------------------------------------------------------------
-// KV key namespace isolation — colon injection and cross-namespace collision
+// KV key namespace isolation - colon injection and cross-namespace collision
 // ---------------------------------------------------------------------------
 describe('Fuzz: KV key namespace isolation', () => {
   // Valid bucket names from getBucketName (no colons possible)
@@ -501,7 +501,7 @@ describe('Fuzz: KV key namespace isolation', () => {
 
 
 // ---------------------------------------------------------------------------
-// getBucketName with long workerName — second trailing-hyphen vector
+// getBucketName with long workerName - second trailing-hyphen vector
 // ---------------------------------------------------------------------------
 describe('Fuzz: getBucketName workerName edge cases', () => {
   it('never produces trailing hyphen regardless of workerName length', () => {
@@ -540,7 +540,7 @@ describe('Fuzz: getBucketName workerName edge cases', () => {
 
 
 // ---------------------------------------------------------------------------
-// XML parser — adversarial structured XML
+// XML parser - adversarial structured XML
 // ---------------------------------------------------------------------------
 describe('Fuzz: XML parsing with adversarial structure', () => {
   it('handles XML with injection attempts in key names', () => {
@@ -588,7 +588,7 @@ describe('Fuzz: XML parsing with adversarial structure', () => {
 
 
 // ---------------------------------------------------------------------------
-// ReDoS resistance — regex-based XML parser must not hang on pathological input
+// ReDoS resistance - regex-based XML parser must not hang on pathological input
 // ---------------------------------------------------------------------------
 describe('Fuzz: ReDoS resistance', () => {
   it('handles many <Contents> opens without closes (backtracking on lazy quantifier)', () => {
@@ -668,7 +668,7 @@ describe('Fuzz: ReDoS resistance', () => {
 });
 
 // ---------------------------------------------------------------------------
-// validateKey encoding tricks — bypass attempts via encoding, null bytes, Unicode
+// validateKey encoding tricks - bypass attempts via encoding, null bytes, Unicode
 // ---------------------------------------------------------------------------
 describe('Fuzz: validateKey encoding tricks', () => {
   it('URL-encoded traversal (%2e%2e) does not bypass validation (JS string is literal)', () => {
@@ -693,9 +693,9 @@ describe('Fuzz: validateKey encoding tricks', () => {
     // Fullwidth period U+FF0E: ．
     // validateKey checks for ASCII '..' only. Fullwidth periods are different codepoints.
     const fullwidthTraversal = 'workspace/\uFF0E\uFF0E/secret';
-    // Should pass — no ASCII '..' present
+    // Should pass - no ASCII '..' present
     expect(() => validateKey(fullwidthTraversal)).not.toThrow();
-    // Document: this is correct behavior — R2 treats keys as opaque strings,
+    // Document: this is correct behavior - R2 treats keys as opaque strings,
     // so '．．' is genuinely different from '..'
   });
 
@@ -704,7 +704,7 @@ describe('Fuzz: validateKey encoding tricks', () => {
     // This is NOT '..' in the JS string sense, so validateKey passes.
     const zwsBypass = 'workspace/.\u200B./secret';
     expect(() => validateKey(zwsBypass)).not.toThrow();
-    // Document: similar to fullwidth — R2 keys are opaque, so '.\u200B.' != '..'
+    // Document: similar to fullwidth - R2 keys are opaque, so '.\u200B.' != '..'
   });
 
   it('case sensitivity: .Claude/ vs .claude/ - both allowed (PROTECTED_PATHS is now empty)', () => {
@@ -749,7 +749,7 @@ describe('Fuzz: validateKey encoding tricks', () => {
               expect(hasTraversal).toBe(false);
               expect(startsWithSlash).toBe(false);
             } catch {
-              // Rejected — still valid for other reasons (traversal, leading slash, etc.)
+              // Rejected - still valid for other reasons (traversal, leading slash, etc.)
             }
           }
         },
@@ -761,7 +761,7 @@ describe('Fuzz: validateKey encoding tricks', () => {
 
 
 // ---------------------------------------------------------------------------
-// Circuit breaker state machine — model-based testing with fc.commands
+// Circuit breaker state machine - model-based testing with fc.commands
 // ---------------------------------------------------------------------------
 describe('Fuzz: circuit breaker state machine', () => {
   const CB_FAILURE_THRESHOLD = 3;
@@ -818,7 +818,7 @@ describe('Fuzz: circuit breaker state machine', () => {
           throw new Error('fail');
         });
       } catch {
-        // Expected — either the function threw or circuit was open
+        // Expected - either the function threw or circuit was open
       }
 
       // Model the state transition
@@ -965,7 +965,7 @@ describe('Fuzz: circuit breaker state machine', () => {
     // Wait for reset timeout
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // Now in HALF_OPEN on next execute — fail halfOpenMaxAttempts times
+    // Now in HALF_OPEN on next execute - fail halfOpenMaxAttempts times
     for (let i = 0; i < CB_HALF_OPEN_MAX_ATTEMPTS; i++) {
       try {
         await cb.execute(async () => { throw new Error('fail'); });
@@ -976,7 +976,7 @@ describe('Fuzz: circuit breaker state machine', () => {
 });
 
 // ---------------------------------------------------------------------------
-// CORS matchesPattern implementation consistency — cors-cache.ts is the only copy
+// CORS matchesPattern implementation consistency - cors-cache.ts is the only copy
 // ---------------------------------------------------------------------------
 describe('Fuzz: CORS matchesPattern implementation consistency', () => {
   // Replicated from src/lib/cors-cache.ts (the only implementation)
@@ -1024,7 +1024,7 @@ describe('Fuzz: CORS matchesPattern implementation consistency', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Compound session ID parsing — terminal.ts regex /^(.+)-([1-6])$/
+// Compound session ID parsing - terminal.ts regex /^(.+)-([1-6])$/
 // ---------------------------------------------------------------------------
 describe('Fuzz: compound session ID parsing', () => {
   const COMPOUND_REGEX = /^(.+)-([1-6])$/;
@@ -1196,7 +1196,7 @@ describe('Fuzz: REQUEST_ID_PATTERN', () => {
 // normalizeEmail (replicated from access.ts:12-14)
 // ---------------------------------------------------------------------------
 
-/** Replicated from src/lib/access.ts — not exported */
+/** Replicated from src/lib/access.ts - not exported */
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -1239,7 +1239,7 @@ describe('Fuzz: normalizeEmail (replicated)', () => {
 // getCookieValue (replicated from access.ts:26-36)
 // ---------------------------------------------------------------------------
 
-/** Replicated from src/lib/access.ts — not exported */
+/** Replicated from src/lib/access.ts - not exported */
 function getCookieValue(cookieHeader: string | null, key: string): string | null {
   if (!cookieHeader) return null;
   const pairs = cookieHeader.split(';');
@@ -1543,7 +1543,7 @@ describe('Fuzz: getDefaultTabConfig', () => {
 // extractTag (replicated from r2-client.ts:153-156)
 // ---------------------------------------------------------------------------
 
-/** Replicated from src/lib/r2-client.ts — not exported */
+/** Replicated from src/lib/r2-client.ts - not exported */
 function extractTag(block: string, tag: string): string | undefined {
   const match = block.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
   return match ? decodeXmlEntities(match[1]) : undefined;
@@ -1594,7 +1594,7 @@ describe('Fuzz: extractTag (replicated)', () => {
 // isRetryable (replicated from r2-admin.ts:109-111)
 // ---------------------------------------------------------------------------
 
-/** Replicated from src/lib/r2-admin.ts — not exported */
+/** Replicated from src/lib/r2-admin.ts - not exported */
 function isRetryable(status: number): boolean {
   return status >= 500 || status === 429;
 }
@@ -1629,7 +1629,7 @@ describe('Fuzz: isRetryable (replicated)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// TabConfigSchema — Zod schema validation must reject invalid tab configs
+// TabConfigSchema - Zod schema validation must reject invalid tab configs
 // ---------------------------------------------------------------------------
 describe('Fuzz: TabConfigSchema', () => {
   it('safeParse never throws on arbitrary objects', () => {
@@ -1718,7 +1718,7 @@ describe('Fuzz: TabConfigSchema', () => {
 });
 
 // ---------------------------------------------------------------------------
-// createLogger / setLogLevel — logger must never throw on arbitrary data
+// createLogger / setLogLevel - logger must never throw on arbitrary data
 // ---------------------------------------------------------------------------
 describe('Fuzz: createLogger / setLogLevel', () => {
   it('createLogger never throws on arbitrary module name and context', () => {
@@ -1727,7 +1727,7 @@ describe('Fuzz: createLogger / setLogLevel', () => {
         fc.string(),
         fc.dictionary(fc.string(), fc.anything()),
         (moduleName, context) => {
-          // Must not throw — logger creation is unconditional
+          // Must not throw - logger creation is unconditional
           const logger = createLogger(moduleName, context);
           expect(typeof logger.debug).toBe('function');
           expect(typeof logger.info).toBe('function');
@@ -1779,7 +1779,7 @@ describe('Fuzz: createLogger / setLogLevel', () => {
         (moduleName, parentCtx, childCtx) => {
           const parent = createLogger(moduleName, parentCtx);
           const child = parent.child(childCtx);
-          // Child must be a valid logger — never throws
+          // Child must be a valid logger - never throws
           expect(typeof child.info).toBe('function');
           child.info('test');
         },
@@ -1808,7 +1808,7 @@ describe('Fuzz: createLogger / setLogLevel', () => {
 });
 
 // ---------------------------------------------------------------------------
-// toApiSession — must strip userId and lastStatusCheck, preserve rest
+// toApiSession - must strip userId and lastStatusCheck, preserve rest
 // ---------------------------------------------------------------------------
 describe('Fuzz: toApiSession', () => {
   it('always strips userId and lastStatusCheck', () => {
@@ -1896,7 +1896,7 @@ describe('Fuzz: toApiSession', () => {
 });
 
 // ---------------------------------------------------------------------------
-// cache-reset state machine — model-based testing with fc.commands()
+// cache-reset state machine - model-based testing with fc.commands()
 // ---------------------------------------------------------------------------
 describe('Fuzz: cache-reset state machine', () => {
   // Model: tracks what setupCompleteCache should be
@@ -2003,7 +2003,7 @@ describe('Fuzz: cache-reset state machine', () => {
 });
 
 // ---------------------------------------------------------------------------
-// SetupError, RateLimitError, CircuitBreakerOpenError — constructor + toJSON
+// SetupError, RateLimitError, CircuitBreakerOpenError - constructor + toJSON
 // ---------------------------------------------------------------------------
 describe('Fuzz: error-types constructors and toJSON', () => {
   it('SetupError toJSON has { success: false, steps, error, code } shape', () => {
@@ -2106,7 +2106,7 @@ describe('Fuzz: error-types constructors and toJSON', () => {
         ),
         (steps) => {
           const err = new SetupError('test', steps);
-          // Reference equality — steps are not cloned
+          // Reference equality - steps are not cloned
           expect(err.steps).toBe(steps);
           expect(err.toJSON().steps).toBe(steps);
         },
@@ -2117,7 +2117,7 @@ describe('Fuzz: error-types constructors and toJSON', () => {
 });
 
 // ---------------------------------------------------------------------------
-// isTextContentType / isImageContentType — replicated from preview.ts (non-exported)
+// isTextContentType / isImageContentType - replicated from preview.ts (non-exported)
 // ---------------------------------------------------------------------------
 describe('Fuzz: isTextContentType / isImageContentType', () => {
   // Replicated from src/routes/storage/preview.ts (not exported)
@@ -2240,7 +2240,7 @@ describe('Fuzz: isTextContentType / isImageContentType', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Session mode — agent config filtering invariants
+// Session mode - agent config filtering invariants
 // ---------------------------------------------------------------------------
 describe('Session mode config filtering', () => {
   it('filtering by any valid mode always returns non-empty', () => {

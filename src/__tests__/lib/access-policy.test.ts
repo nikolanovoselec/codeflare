@@ -364,7 +364,7 @@ describe('access-policy.ts', () => {
       await syncAccessPolicy('token-123', 'acc-123', 'claude.example.com', mockKV as unknown as KVNamespace);
 
       // First sync: member@example.com is a regular user, so user group is updated
-      // Second sync: member deleted, only admin remains, regularEmails is empty — user group PUT is skipped
+      // Second sync: member deleted, only admin remains, regularEmails is empty - user group PUT is skipped
       expect(userGroupIncludeBodies).toHaveLength(1);
       expect(userGroupIncludeBodies[0]).toEqual([{ email: { email: 'member@example.com' } }]);
     });

@@ -121,7 +121,7 @@ describe('User Profile Routes', () => {
   });
 
   // =========================================================================
-  // GET /user/r2-status — R2 scoped token readiness
+  // GET /user/r2-status - R2 scoped token readiness
   // =========================================================================
   describe('GET /user/r2-status', () => {
     it('should return { ready: true } when r2token:{email} exists in KV', async () => {
@@ -165,7 +165,7 @@ describe('User Profile Routes', () => {
   });
 
   // =========================================================================
-  // POST /user/ensure-r2-token — Eagerly create scoped R2 token
+  // POST /user/ensure-r2-token - Eagerly create scoped R2 token
   // =========================================================================
   describe('POST /user/ensure-r2-token', () => {
     it('should return { ready: true } when token is created successfully', async () => {

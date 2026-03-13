@@ -64,7 +64,7 @@ describe('per-container circuit breakers', () => {
   describe('lazy creation', () => {
     it('creates breaker on first access', () => {
       resetContainerBreakers();
-      // No breakers exist yet — accessing creates one
+      // No breakers exist yet - accessing creates one
       const cb = getContainerHealthCB('new-container');
       expect(cb).toBeDefined();
       expect(cb.getState()).toBe('CLOSED');

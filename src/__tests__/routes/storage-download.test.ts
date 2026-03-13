@@ -21,7 +21,7 @@ const { mockSign, mockCreateR2Client, mockGetR2Url, mockFetch: _mockFetch } = vi
   };
 });
 
-// Mock r2-client module — download uses AwsClient.sign(), not .fetch()
+// Mock r2-client module - download uses AwsClient.sign(), not .fetch()
 vi.mock('../../lib/r2-client', () => ({
   createR2Client: mockCreateR2Client,
   getR2Url: mockGetR2Url,

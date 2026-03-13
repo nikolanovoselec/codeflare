@@ -68,7 +68,7 @@ describe('rate-limit fallback on KV failure', () => {
 
     await limiter(c as any, next);
 
-    // console.warn should NOT be called — only the structured logger is used
+    // console.warn should NOT be called - only the structured logger is used
     expect(consoleSpy).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });

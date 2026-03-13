@@ -584,7 +584,7 @@ describe('DELETE /sessions/:id', () => {
       method: 'DELETE',
     });
 
-    // prepareShutdown should NOT be called — destroy() follows immediately,
+    // prepareShutdown should NOT be called - destroy() follows immediately,
     // so any sync triggered by prepareShutdown would be aborted.
     // The entrypoint.sh SIGTERM handler is the safety net for direct deletion.
     const fetchCalls = testState.container!.fetch.mock.calls;

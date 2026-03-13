@@ -135,7 +135,7 @@ describe('Cross-Package Constants', () => {
   it('StorageObject etag is optional', () => {
     const withEtag = { key: 'file.txt', size: 100, lastModified: '2024-01-01', etag: '"abc"' };
     const withoutEtag = { key: 'file.txt', size: 100, lastModified: '2024-01-01' };
-    // Both shapes should be valid — this is a structural assertion
+    // Both shapes should be valid - this is a structural assertion
     expect(withEtag).toHaveProperty('etag');
     expect(withoutEtag).not.toHaveProperty('etag');
   });

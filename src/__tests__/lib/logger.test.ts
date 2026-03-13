@@ -9,7 +9,7 @@ describe('createLogger', () => {
   };
 
   beforeEach(() => {
-    // Reset log level to default — other tests may set it to 'silent' via env bindings
+    // Reset log level to default - other tests may set it to 'silent' via env bindings
     setLogLevel('info');
     consoleSpy = {
       log: vi.spyOn(console, 'log').mockImplementation(() => {}),

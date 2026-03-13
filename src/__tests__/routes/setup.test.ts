@@ -8,13 +8,13 @@ import { cfApiCB } from '../../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
 
-// URL-based mock fetch factory — routes requests by URL pattern (and optionally method)
+// URL-based mock fetch factory - routes requests by URL pattern (and optionally method)
 // instead of fragile positional mockResolvedValueOnce chaining.
 //
 // Pattern matching rules:
 //   - Default: URL path (before '?') must END WITH the pattern. This prevents broad patterns
 //     like '/accounts' from matching sub-resource URLs like '/accounts/acc123/workers/...'.
-//   - Prefix '~': Uses includes() against the URL path — matches anywhere in the path.
+//   - Prefix '~': Uses includes() against the URL path - matches anywhere in the path.
 //     Use this for patterns that need to match both base paths and sub-resource paths
 //     (e.g., '~/dns_records' matches both '.../dns_records' and '.../dns_records/record-id').
 //   - Contains '?': Uses includes() against the full URL (including query string).
@@ -720,7 +720,7 @@ describe('Setup Routes', () => {
           if (!init?.method || init.method === 'GET') {
             return mockResponses.dnsRecordLookupEmpty();
           }
-          // POST/PUT for create/update — return auth error
+          // POST/PUT for create/update - return auth error
           return new Response(
             JSON.stringify({
               success: false,
@@ -755,7 +755,7 @@ describe('Setup Routes', () => {
           if (!init?.method || init.method === 'GET') {
             return mockResponses.dnsRecordLookupEmpty();
           }
-          // POST create — "already exists" error
+          // POST create - "already exists" error
           return new Response(
             JSON.stringify({
               success: false,
@@ -1163,7 +1163,7 @@ describe('Setup Routes', () => {
         '/workers/subdomain': mockResponses.subdomainLookup,
         '~/dns_records': (url: string, init?: RequestInit) => {
           if (!init?.method || init.method === 'GET') {
-            // DNS record lookup — returns existing CNAME record
+            // DNS record lookup - returns existing CNAME record
             return new Response(
               JSON.stringify({
                 success: true,
@@ -1172,7 +1172,7 @@ describe('Setup Routes', () => {
               { status: 200 }
             );
           }
-          // PUT update — success
+          // PUT update - success
           return new Response('', { status: 200 });
         },
         '/workers/routes': mockResponses.workerRouteCreate,
@@ -1215,7 +1215,7 @@ describe('Setup Routes', () => {
           // Policy-related URLs contain /policies
           if (url.includes('/policies')) {
             if (!init?.method || init.method === 'GET') {
-              // Policy lookup — returns existing policy
+              // Policy lookup - returns existing policy
               return new Response(
                 JSON.stringify({
                   success: true,
@@ -1224,12 +1224,12 @@ describe('Setup Routes', () => {
                 { status: 200 }
               );
             }
-            // PUT update policy — success
+            // PUT update policy - success
             return new Response('', { status: 200 });
           }
           // App-level URLs
           if (!init?.method || init.method === 'GET') {
-            // Access app lookup — returns existing app for this domain
+            // Access app lookup - returns existing app for this domain
             return new Response(
               JSON.stringify({
                 success: true,
@@ -1238,7 +1238,7 @@ describe('Setup Routes', () => {
               { status: 200 }
             );
           }
-          // PUT update Access app — success
+          // PUT update Access app - success
           return new Response(
             JSON.stringify({ success: true, result: { id: 'existing-app-456' } }),
             { status: 200 }
@@ -1426,7 +1426,7 @@ describe('Setup Routes', () => {
               { status: 500 }
             );
           }
-          // POST create — success
+          // POST create - success
           return new Response('', { status: 200 });
         },
         '/workers/routes': mockResponses.workerRouteCreate,
@@ -1462,7 +1462,7 @@ describe('Setup Routes', () => {
         ...customDomainFlowMocks(),
         '~/access/apps': (_url: string, init?: RequestInit) => {
           if (!init?.method || init.method === 'GET') {
-            // Return an error response — listAccessApps now throws on failure
+            // Return an error response - listAccessApps now throws on failure
             return new Response(
               JSON.stringify({ success: false, errors: [{ message: 'lookup failed' }] }),
               { status: 500 }
@@ -1491,7 +1491,7 @@ describe('Setup Routes', () => {
         body: JSON.stringify(standardBody),
       });
 
-      // listAccessApps now throws on error — streamed as NDJSON error
+      // listAccessApps now throws on error - streamed as NDJSON error
       expect(res.status).toBe(200);
       const lines = await readNdjson(res);
       expect(lines).toContainEqual(

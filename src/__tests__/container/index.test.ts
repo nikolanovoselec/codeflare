@@ -150,7 +150,7 @@ describe('container DO class', () => {
 
   describe('internal route dispatch', () => {
     it('dispatches POST /_internal/setBucketName to handler', async () => {
-      // No existing bucket — storage returns null for all keys
+      // No existing bucket - storage returns null for all keys
       const instance = new ContainerClass(mockCtx as any, mockEnv);
 
       const request = new Request('http://container/_internal/setBucketName', {
@@ -570,7 +570,7 @@ describe('container DO class', () => {
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
-      // console.error should NOT be called directly — logger.error is used instead
+      // console.error should NOT be called directly - logger.error is used instead
       expect(consoleSpy).not.toHaveBeenCalled();
       consoleSpy.mockRestore();
     });

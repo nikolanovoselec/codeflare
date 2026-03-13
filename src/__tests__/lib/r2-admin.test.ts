@@ -372,7 +372,7 @@ describe('r2-admin', () => {
     it('should create new token if KV returns null, write to KV, return creds', async () => {
       mockKV.get.mockResolvedValue(null);
 
-      // Mock the createScopedR2Token call (via fetch) — new /tokens format
+      // Mock the createScopedR2Token call (via fetch) - new /tokens format
       mockFetch.mockResolvedValueOnce(
         new Response(JSON.stringify({
           success: true,
@@ -421,7 +421,7 @@ describe('r2-admin', () => {
     it('should deduplicate concurrent getOrCreateScopedR2Token calls for the same email (FIX-7)', async () => {
       mockKV.get.mockResolvedValue(null);
 
-      // Mock token creation — should only be called ONCE despite two concurrent calls
+      // Mock token creation - should only be called ONCE despite two concurrent calls
       let createCount = 0;
       mockFetch.mockImplementation(async () => {
         createCount++;
@@ -462,7 +462,7 @@ describe('r2-admin', () => {
       };
       mockKV.get.mockResolvedValue(JSON.stringify(staleToken));
 
-      // Mock: create new token after stale detection — new /tokens format
+      // Mock: create new token after stale detection - new /tokens format
       mockFetch.mockResolvedValueOnce(
         new Response(JSON.stringify({
           success: true,

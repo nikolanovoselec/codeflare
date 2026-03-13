@@ -324,7 +324,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
       method: 'POST',
     });
 
-    // Request should have failed — no container.fetch with account-level creds
+    // Request should have failed - no container.fetch with account-level creds
     expect(res.status).toBe(500);
 
     // Verify setBucketName was NOT called (no fallback)

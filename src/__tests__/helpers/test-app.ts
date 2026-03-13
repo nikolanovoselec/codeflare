@@ -47,7 +47,7 @@ export function createTestApp(options: TestAppOptions) {
 
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
-  // Shared error handler — AppError is the base class for all custom errors
+  // Shared error handler - AppError is the base class for all custom errors
   app.onError((err, c) => {
     if (err instanceof AppError) {
       return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);

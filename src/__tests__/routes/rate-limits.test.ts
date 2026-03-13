@@ -121,7 +121,7 @@ describe('Rate limit coverage', () => {
 
   // ── Storage upload (shared limiter, 60/min) ──────────────────────
 
-  describe('POST /upload — storage-upload (60/min)', () => {
+  describe('POST /upload - storage-upload (60/min)', () => {
     it('blocks after 60 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/upload', handler: uploadRoutes }],
@@ -143,7 +143,7 @@ describe('Rate limit coverage', () => {
 
   // ── Storage delete (20/min) ──────────────────────────────────────
 
-  describe('POST /delete — storage-delete (20/min)', () => {
+  describe('POST /delete - storage-delete (20/min)', () => {
     it('blocks after 20 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/delete', handler: deleteRoutes }],
@@ -164,7 +164,7 @@ describe('Rate limit coverage', () => {
 
   // ── Storage move (20/min) ────────────────────────────────────────
 
-  describe('POST /move — storage-move (20/min)', () => {
+  describe('POST /move - storage-move (20/min)', () => {
     it('blocks after 20 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/move', handler: moveRoutes }],
@@ -185,7 +185,7 @@ describe('Rate limit coverage', () => {
 
   // ── Storage seed (3/min, shared) ─────────────────────────────────
 
-  describe('POST /seed/getting-started — storage-seed (3/min)', () => {
+  describe('POST /seed/getting-started - storage-seed (3/min)', () => {
     it('blocks after 3 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/seed', handler: seedRoutes }],
@@ -201,7 +201,7 @@ describe('Rate limit coverage', () => {
 
   // ── Storage download (120/min) ───────────────────────────────────
 
-  describe('GET /download — storage-download (120/min)', () => {
+  describe('GET /download - storage-download (120/min)', () => {
     it('blocks after 120 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/download', handler: downloadRoutes }],
@@ -226,14 +226,14 @@ describe('Rate limit coverage', () => {
 
   // ── Storage preview (120/min) ────────────────────────────────────
 
-  describe('GET /preview — storage-preview (120/min)', () => {
+  describe('GET /preview - storage-preview (120/min)', () => {
     it('blocks after 120 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/preview', handler: previewRoutes }],
         mockKV,
         envOverrides: storageEnv(),
       });
-      // HEAD returns text content type — use mockImplementation so each call gets a fresh Response
+      // HEAD returns text content type -use mockImplementation so each call gets a fresh Response
       mockR2Fetch.mockImplementation(() =>
         new Response('', {
           status: 200,
@@ -249,7 +249,7 @@ describe('Rate limit coverage', () => {
 
   // ── Storage browse (30/min) ──────────────────────────────────────
 
-  describe('GET /browse — storage-browse (30/min)', () => {
+  describe('GET /browse - storage-browse (30/min)', () => {
     it('blocks after 30 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/browse', handler: browseRoutes }],
@@ -268,7 +268,7 @@ describe('Rate limit coverage', () => {
 
   // ── Storage stats (10/min) ───────────────────────────────────────
 
-  describe('GET /stats — storage-stats (10/min)', () => {
+  describe('GET /stats - storage-stats (10/min)', () => {
     it('blocks after 10 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/stats', handler: statsRoutes }],
@@ -287,7 +287,7 @@ describe('Rate limit coverage', () => {
 
   // ── Session delete (10/min) ──────────────────────────────────────
 
-  describe('DELETE /sessions/:id — session-delete (10/min)', () => {
+  describe('DELETE /sessions/:id - session-delete (10/min)', () => {
     it('blocks after 10 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/sessions', handler: sessionCrudRoutes }],
@@ -317,7 +317,7 @@ describe('Rate limit coverage', () => {
 
   // ── Session stop (10/min) ────────────────────────────────────────
 
-  describe('POST /sessions/:id/stop — session-stop (10/min)', () => {
+  describe('POST /sessions/:id/stop - session-stop (10/min)', () => {
     it('blocks after 10 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/sessions', handler: sessionLifecycleRoutes }],
@@ -342,7 +342,7 @@ describe('Rate limit coverage', () => {
 
   // ── Ensure R2 token (5/min) ──────────────────────────────────────
 
-  describe('POST /user/ensure-r2-token — ensure-r2-token (5/min)', () => {
+  describe('POST /user/ensure-r2-token - ensure-r2-token (5/min)', () => {
     it('blocks after 5 requests', async () => {
       const app = createTestApp({
         routes: [{ path: '/user', handler: userProfileRoutes }],

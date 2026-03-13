@@ -609,7 +609,7 @@ describe('Container Lifecycle Routes', () => {
         method: 'POST',
       });
 
-      // STRESS_TEST_MODE bypasses session limit — should succeed despite 5 running
+      // STRESS_TEST_MODE bypasses session limit - should succeed despite 5 running
       expect(res.status).toBe(200);
     });
   });

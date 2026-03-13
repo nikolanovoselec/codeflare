@@ -99,7 +99,7 @@ describe('cors-cache', () => {
       it('rejects evil prefix domain for dot-prefixed patterns', async () => {
         const env = createEnv({ ALLOWED_ORIGINS: '.example.com' });
 
-        // ".example.com" requires a dot boundary — "notexample.com" has no leading dot
+        // ".example.com" requires a dot boundary - "notexample.com" has no leading dot
         expect(await isAllowedOrigin('https://notexample.com', env)).toBe(false);
       });
 
@@ -109,7 +109,7 @@ describe('cors-cache', () => {
 
         // Legitimate subdomain
         expect(await isAllowedOrigin('https://api.claude.novoselec.ch', env)).toBe(true);
-        // Evil prefix — not a subdomain
+        // Evil prefix - not a subdomain
         expect(await isAllowedOrigin('https://evilclaude.novoselec.ch', env)).toBe(false);
       });
     });

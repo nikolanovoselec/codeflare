@@ -270,7 +270,7 @@ describe('Auth Middleware', () => {
 
     it('returns 403 when user has no role (legacy KV entry)', async () => {
       const testEmail = 'norole@example.com';
-      // Legacy entry without role field — authenticateRequest defaults to 'user'
+      // Legacy entry without role field - authenticateRequest defaults to 'user'
       mockKV._store.set(
         `user:${testEmail}`,
         JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01' })

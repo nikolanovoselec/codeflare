@@ -6,7 +6,7 @@ import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
  * agent seed configs. ECC rules are language-specific and common rules that
  * should only be available in advanced session mode.
  *
- * These checks are scoped to Claude documents only — non-Claude agents
+ * These checks are scoped to Claude documents only - non-Claude agents
  * receive rules concatenated into a single instructions file, not as
  * individual rule documents.
  */
@@ -33,7 +33,7 @@ function eccRules() {
 }
 
 function codeflareRules() {
-  // Original codeflare rules — directly in .claude/rules/ without a subdirectory
+  // Original codeflare rules - directly in .claude/rules/ without a subdirectory
   return claudeDocs().filter(
     (doc) =>
       doc.key.startsWith('.claude/rules/') &&

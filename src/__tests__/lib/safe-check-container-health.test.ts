@@ -63,7 +63,7 @@ describe('safeCheckContainerHealth', () => {
 
     expect(result.healthy).toBe(false);
     expect(result.status).toBe('stopped');
-    // fetch should NOT be called — that would auto-start the container
+    // fetch should NOT be called - that would auto-start the container
     expect(mockContainer.fetch).not.toHaveBeenCalled();
   });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 
-// Mock all route modules to prevent import side effects — must be Hono instances
+// Mock all route modules to prevent import side effects - must be Hono instances
 vi.mock('../routes/terminal', () => ({
   default: new Hono(),
   validateWebSocketRoute: vi.fn(() => ({ isWebSocketRoute: false })),

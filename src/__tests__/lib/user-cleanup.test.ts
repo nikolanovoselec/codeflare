@@ -337,7 +337,7 @@ describe('cleanupUserData', () => {
 
     mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
 
-    // Should NOT throw — the r2token KV delete failure is caught
+    // Should NOT throw - the r2token KV delete failure is caught
     const result = await cleanupUserData(email, createEnv());
 
     // Token API deletion should still have succeeded

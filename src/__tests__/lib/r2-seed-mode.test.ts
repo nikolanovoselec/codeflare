@@ -135,7 +135,7 @@ describe('getPreseedKeysNotInMode', () => {
 
   it('does NOT return variant-per-mode keys that have a default variant', () => {
     const keys = getPreseedKeysNotInMode('default');
-    // .codex/AGENTS.md has both a default and advanced variant — must not be deleted
+    // .codex/AGENTS.md has both a default and advanced variant - must not be deleted
     expect(keys).not.toContain('.codex/AGENTS.md');
   });
 

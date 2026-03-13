@@ -3,7 +3,7 @@ import { createMockKV, MockKV } from './helpers/mock-kv';
 import type { Session } from '../types';
 
 // ---------------------------------------------------------------------------
-// Shared mutable state — vi.hoisted ensures this runs before vi.mock factories
+// Shared mutable state - vi.hoisted ensures this runs before vi.mock factories
 // ---------------------------------------------------------------------------
 const testState = vi.hoisted(() => ({
   storedSessionId: 'testsession123456' as string | undefined,
@@ -21,7 +21,7 @@ const testState = vi.hoisted(() => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Module-level mocks — must be before imports that depend on mocked modules
+// Module-level mocks - must be before imports that depend on mocked modules
 // ---------------------------------------------------------------------------
 vi.mock('@cloudflare/containers', () => {
   class MockContainer {
