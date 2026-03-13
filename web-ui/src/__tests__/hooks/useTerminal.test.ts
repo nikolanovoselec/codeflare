@@ -692,7 +692,7 @@ describe('useTerminal hook', () => {
           lineHeight: 1.2,
           allowProposedApi: true,
           convertEol: true,
-          scrollback: 10000,
+          scrollback: 400,
         })
       );
 

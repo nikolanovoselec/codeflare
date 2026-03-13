@@ -5,6 +5,7 @@ import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/
 import { sendTerminalKey } from '../lib/touch-gestures';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
+import { markScrollIntent } from '../lib/terminal-scroll-intent';
 import { loadSettings } from '../lib/settings';
 import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
 import { getIframeInput } from '../lib/xterm-internals';
@@ -172,7 +173,13 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             onPointerDown={preventFocusSteal}
             onClick={() => {
               const term = getActiveTerm();
-              if (term) term.scrollPages(-1);
+              if (term) {
+                const sessionId = sessionStore.activeSessionId;
+                const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : undefined;
+                const terminalId = terminals?.activeTabId || '1';
+                if (sessionId) markScrollIntent(sessionId, terminalId);
+                term.scrollPages(-1);
+              }
               refocusTerminal();
             }}
             title="Page Up"
@@ -189,7 +196,13 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             onPointerDown={preventFocusSteal}
             onClick={() => {
               const term = getActiveTerm();
-              if (term) term.scrollToBottom();
+              if (term) {
+                const sessionId = sessionStore.activeSessionId;
+                const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : undefined;
+                const terminalId = terminals?.activeTabId || '1';
+                if (sessionId) markScrollIntent(sessionId, terminalId);
+                term.scrollToBottom();
+              }
               refocusTerminal();
             }}
             title="Scroll to Bottom"

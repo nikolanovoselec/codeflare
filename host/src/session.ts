@@ -85,7 +85,7 @@ export class Session {
     this.manual = manual;
     this.ptyProcess = null;
     this.clients = new Set();
-    this.headlessTerminal = new HeadlessTerminal({ cols: 80, rows: 24, scrollback: 10000, allowProposedApi: true });
+    this.headlessTerminal = new HeadlessTerminal({ cols: 80, rows: 24, scrollback: 400, allowProposedApi: true });
     this.serializeAddon = new SerializeAddon();
     this.headlessTerminal.loadAddon(this.serializeAddon);
     this.createdAt = new Date().toISOString();

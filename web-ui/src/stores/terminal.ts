@@ -88,44 +88,19 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   if (!buffer || buffer.length === 0) return;
 
   const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
-  const prevViewportY = terminal.buffer.active.viewportY;
   const data = buffer.join('');
   buffer.length = 0;
 
+  // Fix 13: Simplified post-write guard. Only handle the common case: user was
+  // following output (at bottom) but xterm didn't keep them there after the write.
+  // The old drop > 3 heuristic and rAF duplicate are removed — they fought with
+  // the onScroll detector in useTerminal.ts, causing terminal oscillation during
+  // output (especially visible on mobile with keyboard open).
+  // The onScroll detector handles browser focus-reset (ydisp === 0) independently.
   terminal.write(data, () => {
-    // Post-write scroll guard: if user was following output but xterm's internal
-    // scroll state got reset (e.g. SmoothScrollableElement race during burst),
-    // snap back to bottom. If user had scrolled up, leave them alone.
-    //
-    // Fix 9: On mobile, check BOTH synchronously (catch reset before paint)
-    // AND in rAF (catch reset during render pass). The mobile textarea at
-    // position:fixed(0,0) can cause the browser's focus-validation to scroll
-    // xterm containers, resetting ydisp to 0 between write and next paint.
     if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
       terminal.scrollToBottom();
-    } else if (!wasAtBottom && prevViewportY > 0 && terminal.buffer.active.baseY > 5) {
-      // Fix 11: User was scrolled up. If viewportY dropped significantly
-      // during write (e.g. CLI virtual scroll removing lines above viewport),
-      // restore the user's scroll position rather than jumping to top.
-      const drop = prevViewportY - terminal.buffer.active.viewportY;
-      if (drop > 3) {
-        const target = Math.min(prevViewportY, terminal.buffer.active.baseY);
-        terminal.scrollLines(target - terminal.buffer.active.viewportY);
-      }
     }
-    // Deferred check: xterm's RenderService and SmoothScrollableElement
-    // finish their internal layout pass in rAF, so check again.
-    requestAnimationFrame(() => {
-      if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
-        terminal.scrollToBottom();
-      } else if (!wasAtBottom && prevViewportY > 0 && terminal.buffer.active.baseY > 5) {
-        const drop = prevViewportY - terminal.buffer.active.viewportY;
-        if (drop > 3) {
-          const target = Math.min(prevViewportY, terminal.buffer.active.baseY);
-          terminal.scrollLines(target - terminal.buffer.active.viewportY);
-        }
-      }
-    });
   });
 }
 

@@ -1796,31 +1796,29 @@ Same root cause as Fix 9, manifesting on desktop: during long sessions where ter
 
 1. **CSS: Global viewport overflow fix** — Moved `.xterm .xterm-viewport { overflow: hidden !important; }` from inside `@media (pointer: coarse)` to global scope, applying to all devices. This is the primary fix — it strips `.xterm-viewport` of scroll-container status so the browser cannot trigger native scroll events on it.
 
-2. **JS: Universal scroll-drop detector with improved heuristic** — Removed the `if (isTouchDevice())` gate. Replaced the `lastKnownYdisp > ybase * 0.5` heuristic with:
-   - **`wasFollowingOutput`** — tracks whether the user was at the bottom of the buffer before the drop. Strictly more precise than the old "bottom half" threshold — catches 100% of following-output resets, zero false positives from users browsing scrollback.
-   - **User-intent suppression** — listens for `wheel`, `pointerdown`, and navigation `keydown` (PageUp/PageDown/Home/End). Suppresses correction for 250ms after intentional user scroll to avoid fighting legitimate scrollback on desktop (mouse wheel, scrollbar drag, keyboard navigation).
-   - **`ybase > 5` threshold** — retained from Fix 9 to prevent false positives during init/restore when the buffer is nearly empty.
+2. **JS: Universal scroll-drop detector** — Removed the `if (isTouchDevice())` gate. Detects browser focus-reset (viewport snaps to `ydisp === 0`) and corrects via `scrollToBottom()`. Uses `wasFollowingOutput` tracking, user-intent suppression (150ms grace after wheel/pointerdown/keydown + external intent API for floating buttons), `ybase > 5` threshold, and `isCorrectingScroll` re-entrancy guard. See Fix 13 below for the full overhaul.
 
-#### Virtual Scroll Viewport Jump (Fix 11)
+#### Scroll Stability Overhaul (Fix 13)
 
-CLI applications like Claude Code use virtual scrolling in their TUI (controlled by `CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL`). When a session grows long, the TUI removes old lines from the top of the terminal 1:1 as new lines are added, keeping the visible entry count roughly constant. The welcome banner/logo stays at line 0.
+Fixes 9-12 introduced three overlapping scroll-correction mechanisms that fought each other during output, causing terminal oscillation (especially on mobile with keyboard open). Fix 13 replaces them with a minimal, targeted approach.
 
-This line removal sends ANSI escape sequences that modify buffer content above the viewport, causing xterm.js to recalculate `viewportY`. The recalculation can reset `viewportY` to 0 (jumping to top). Two symptoms:
+**Root cause of oscillation:** The `wasFollowing && ydisp < ybase` check was too broad — it treated ANY scroll away from bottom as suspicious, fighting legitimate programmatic scrolls (floating buttons) and xterm's native scrollback trimming. The `drop > 3` heuristic detected xterm's own viewport adjustments during trimming as errors and reversed them, causing the very jumps it was meant to prevent. Three independent correction mechanisms (post-write sync, post-write rAF, onScroll detector) could trigger each other in a cascade.
 
-- **User scrolled up**: viewport jumps to top permanently — no existing guard corrected this because `wasAtBottom` and `wasFollowingOutput` were both false.
-- **User at bottom**: brief flash to top then back — existing guards corrected it but too late (one rendered frame at wrong position).
+**Fix 13 changes:**
 
-**Two-layer fix:**
+1. **Narrowed scroll-reset detection** (`hooks/useTerminal.ts`) — changed from `ydisp < ybase` to `ydisp === 0`. The browser focus-reset bug always snaps to position 0 (scroll origin). Any other ydisp value is either a legitimate scroll or xterm's native scrollback trimming.
 
-1. **Post-write scroll guard** (`stores/terminal.ts`) — now also handles the scrolled-up case. Records `prevViewportY` before each write. If `!wasAtBottom` and `viewportY` dropped by more than 3 lines during the write, restores to `min(prevViewportY, baseY)` via `scrollLines()`. Checks both synchronously and in rAF.
+2. **Removed `drop > 3` heuristic** — xterm.js natively adjusts viewportY when trimming scrollback lines to maintain visual stability. The heuristic was counterproductive.
 
-2. **Scroll-drop detector** (`hooks/useTerminal.ts`) — broadened from `ydisp === 0` to two cases:
-   - `wasFollowing && ydisp < ybase` — catches any drop from bottom (not just to 0), replacing the original Fix 9 check.
-   - `!wasFollowing && drop > 3` — new: catches viewport drops when user was scrolled up. Tracks `previousYdisp` to measure drop magnitude. Restores to `min(previousYdisp, ybase)`.
+3. **Simplified post-write guard** (`stores/terminal.ts`) — kept only `wasAtBottom → scrollToBottom` sync check. Removed `drop > 3` and rAF duplicate that fought with the onScroll detector.
 
-Both layers use a `> 3` line threshold to avoid fighting normal single-line scroll adjustments while catching the multi-line viewport resets from virtual scroll re-renders.
+4. **Added re-entrancy guard** — `isCorrectingScroll` boolean prevents `scrollToBottom()` inside corrections from re-triggering the detector via synchronous `onScroll`.
 
-**Fallback:** If the fix proves insufficient, setting `CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1` in the PTY environment eliminates the root cause entirely by preventing the TUI from removing old lines. Trade-off: unbounded terminal buffer growth until xterm's scrollback limit (10,000) is reached.
+5. **External scroll intent API** (`lib/terminal-scroll-intent.ts`) — keyed by session:terminal. Floating buttons call `markScrollIntent()` before `scrollPages()`/`scrollToBottom()` so the detector recognizes out-of-tree UI actions.
+
+6. **Reduced grace window** from 250ms to 150ms for tighter intent tracking.
+
+7. **Reduced scrollback** from 10,000 to 400 lines (both frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`), so xterm's scrollback buffer is the only history cap.
 
 #### WS Retryable Close Codes (Fix 5)
 

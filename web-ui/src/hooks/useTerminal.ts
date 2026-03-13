@@ -11,6 +11,7 @@ import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
 import { getIframeInput } from '../lib/xterm-internals';
+import { hasRecentScrollIntent, clearScrollIntent } from '../lib/terminal-scroll-intent';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -109,7 +110,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
       allowProposedApi: true,
       convertEol: true,
-      scrollback: 10000,
+      scrollback: 400,
     });
 
     fitAddon = new FitAddon();
@@ -219,22 +220,25 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       setupMobileTerminal();
     }
 
-    // Fix 9+10: Scroll-drop detector for ALL devices (was mobile-only in Fix 9).
-    // On every scroll event from xterm, check if ydisp dropped to 0 while the
-    // user was following output — indicating a browser-triggered scroll reset.
-    // Corrects immediately via queueMicrotask before the browser paints.
+    // Fix 13: Scroll-reset detector for ALL devices.
+    // Catches the browser focus-validation bug that snaps viewport to position 0.
+    // CSS overflow:hidden on .xterm-viewport is the primary defense; this detector
+    // is belt-and-suspenders for resets from any source.
     //
-    // Desktop needs this because the same focus-validation mechanism that caused
-    // the mobile bug can also fire on desktop during long sessions. The CSS fix
-    // (overflow:hidden on .xterm-viewport) is the primary defense; this detector
-    // is belt-and-suspenders for resets from any unknown source.
+    // Key change from Fixes 9-12: narrowed from `ydisp < ybase` to `ydisp === 0`.
+    // The browser focus-reset ALWAYS goes to position 0 (scroll origin). The old
+    // broad check fought legitimate scrolls (floating buttons, xterm's native
+    // scrollback trimming at 10k lines) causing terminal oscillation during output.
     //
-    // User-intent suppression prevents fighting legitimate scroll actions:
-    // wheel, pointer (scrollbar drag), and navigation keys (PageUp/Home/etc).
+    // The old `drop > 3` heuristic (Fix 11) is removed: xterm.js natively adjusts
+    // viewportY when trimming scrollback lines to keep the viewport visually stable.
+    // The heuristic detected this native adjustment as an error and reversed it,
+    // causing the very jump it was meant to prevent.
     {
       let wasFollowingOutput = true;
       let lastUserScrollIntentAt = 0;
-      const USER_SCROLL_GRACE_MS = 250;
+      let isCorrectingScroll = false;
+      const USER_SCROLL_GRACE_MS = 150;
 
       const markUserScrollIntent = () => { lastUserScrollIntentAt = Date.now(); };
       const onNavKeyDown = (e: KeyboardEvent) => {
@@ -253,42 +257,44 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         containerEl?.removeEventListener('keydown', onNavKeyDown);
       };
 
-      let previousYdisp: number | undefined;
-
       scrollDropDisposable = t.onScroll((ydisp: number) => {
         const ybase = t.buffer.active.baseY;
-        const wasFollowing = wasFollowingOutput;
-        wasFollowingOutput = ydisp >= ybase;
-        const recentUserIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS;
 
-        if (!recentUserIntent && ybase > 5) {
-          if (wasFollowing && ydisp < ybase) {
-            // Fix 9+10: Was following output, viewport dropped away from bottom.
-            // Broader than the original ydisp === 0 check — catches any drop.
-            queueMicrotask(() => {
-              if (t.buffer.active.viewportY < t.buffer.active.baseY) {
-                t.scrollToBottom();
-              }
-            });
-          } else if (!wasFollowing && previousYdisp !== undefined && previousYdisp > 0) {
-            // Fix 11: User was scrolled up but viewport dropped significantly.
-            // This happens when a CLI's virtual scroll removes lines above the
-            // viewport (e.g. Claude Code's TUI re-rendering). Restore position
-            // instead of letting the user land at the top of the buffer.
-            const drop = previousYdisp - ydisp;
-            if (drop > 3) {
-              const target = Math.min(previousYdisp, ybase);
-              queueMicrotask(() => {
-                const current = t.buffer.active.viewportY;
-                if (current < target) {
-                  t.scrollLines(target - current);
-                }
-              });
-            }
-          }
+        // Always update tracking state, even when suppressed
+        if (isCorrectingScroll) {
+          wasFollowingOutput = ydisp >= ybase;
+          return;
         }
 
-        previousYdisp = ydisp;
+        const wasFollowing = wasFollowingOutput;
+        wasFollowingOutput = ydisp >= ybase;
+
+        const recentLocalIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS;
+        const recentExternalIntent = hasRecentScrollIntent(
+          props.sessionId, props.terminalId, USER_SCROLL_GRACE_MS
+        );
+        const recentUserIntent = recentLocalIntent || recentExternalIntent;
+
+        // Only correct the specific browser focus-reset signature: ydisp snaps to 0
+        // while user was following output. Any other ydisp value is either a
+        // legitimate scroll action or xterm's native scrollback trimming.
+        if (
+          !recentUserIntent &&
+          ybase > 5 &&
+          wasFollowing &&
+          ydisp === 0
+        ) {
+          isCorrectingScroll = true;
+          queueMicrotask(() => {
+            try {
+              if (t.buffer.active.viewportY === 0 && t.buffer.active.baseY > 0) {
+                t.scrollToBottom();
+              }
+            } finally {
+              isCorrectingScroll = false;
+            }
+          });
+        }
       });
     }
 
@@ -551,6 +557,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cleanupGestures?.();
     scrollIntentCleanup?.();
     scrollDropDisposable?.dispose();
+    clearScrollIntent(props.sessionId, props.terminalId);
     bufferChangeDisposable?.dispose();
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
