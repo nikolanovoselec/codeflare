@@ -177,7 +177,7 @@ All optional. The defaults work out of the box. I respect your time.
 
 ## Testing
 
-See `TECHNICAL.md` Section 16 for test suite details, counts, and configuration.
+See `TECHNICAL.md` Section 17 for test suite details, counts, and configuration.
 
 ```bash
 npm test                           # Backend tests
@@ -189,11 +189,11 @@ npm run test:e2e:ui-desktop        # E2E UI desktop (alias)
 npm run test:e2e:ui-mobile         # E2E UI mobile
 ```
 
-E2E tests require a deployed worker and CF Access service tokens. See `TECHNICAL.md` Section 16 for setup details.
+E2E tests require a deployed worker and CF Access service tokens. See `TECHNICAL.md` Section 17 for setup details.
 
 ## CI/CD
 
-Seven GitHub Actions workflows:
+Eight GitHub Actions workflows:
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
@@ -204,8 +204,9 @@ Seven GitHub Actions workflows:
 | `scorecard.yml` | Push to `main`, weekly, manual | OSSF Scorecard |
 | `fuzz.yml` | PRs, weekly, manual | Property-based fuzzing (fast-check) |
 | `pentest.yml` | Weekly (Monday 5am UTC), manual | Automated external penetration testing |
+| `stress-test.yml` | Manual | k6 load testing against integration worker |
 
-See `TECHNICAL.md` Section 15 for full CI/CD documentation.
+See `TECHNICAL.md` Section 16 for full CI/CD documentation.
 
 ## Docs
 

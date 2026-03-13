@@ -831,7 +831,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 Public before setup; admin-only after. All `adminUsers` must also be in `allowedUsers`. Regular users (`allowedUsers` beyond admins) are optional -- admin-only deployments with 0 regular users are fully supported.
 
-See [docs/SETUP_WIZARD.md](/home/user/workspace/codeflare/docs/SETUP_WIZARD.md) for complete setup configuration details.
+See [docs/SETUP_WIZARD.md](docs/SETUP_WIZARD.md) for complete setup configuration details.
 
 ### Storage (R2 File Browser)
 
@@ -1169,7 +1169,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 5. **injection**: Tests host header injection (spoofed `Host` returns 403), `X-Forwarded-Host` has no effect on content, CL/TE request smuggling is rejected, and path traversal payloads (`%2e%2e`, double-encoded, backslash, unicode) are blocked at the auth layer.
 6. **http-methods**: Verifies TRACE returns 405 and WebSocket upgrade without authentication returns 302.
 
-**Requires:** `PENTEST_TARGET` variable set in the `production` GitHub environment (e.g., `https://codeflare.graymatter.ch`). See the full manual test report in [PENTEST.md](/home/user/workspace/codeflare/PENTEST.md).
+**Requires:** `PENTEST_TARGET` variable set in the `production` GitHub environment (e.g., `https://codeflare.graymatter.ch`). See the full manual test report in [PENTEST.md](PENTEST.md).
 
 ---
 
