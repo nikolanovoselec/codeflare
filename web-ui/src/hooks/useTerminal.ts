@@ -56,6 +56,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
+  let scrollDropDisposable: { dispose: () => void } | undefined;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -215,6 +216,30 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     if (isTouchDevice()) {
       setupMobileTerminal();
+
+      // Fix 9: Scroll-drop detector for mobile. On every scroll event from xterm,
+      // check if ydisp dropped significantly (indicating a jump-to-top reset).
+      // This catches resets from ANY source — write path, resize, keyboard,
+      // browser focus-validation, etc. Corrects immediately before the browser
+      // paints the wrong scroll position.
+      //
+      // xterm 6.0.0's public onScroll fires with ydisp as a plain number.
+      let lastKnownYdisp = 0;
+      scrollDropDisposable = t.onScroll((ydisp: number) => {
+        const ybase = t.buffer.active.baseY;
+
+        // If ydisp dropped to 0 (or near 0) while ybase is high, something
+        // reset the scroll position. Immediately correct unless user is genuinely
+        // scrolling near the top (lastKnownYdisp was also low).
+        if (ydisp === 0 && ybase > 5 && lastKnownYdisp > ybase * 0.5) {
+          queueMicrotask(() => {
+            if (t.buffer.active.viewportY < t.buffer.active.baseY) {
+              t.scrollToBottom();
+            }
+          });
+        }
+        lastKnownYdisp = ydisp;
+      });
     }
 
     terminalStore.setTerminal(props.sessionId, props.terminalId, t);
@@ -474,6 +499,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   onCleanup(() => {
     cleanup?.();
     cleanupGestures?.();
+    scrollDropDisposable?.dispose();
     bufferChangeDisposable?.dispose();
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();

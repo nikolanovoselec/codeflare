@@ -1621,7 +1621,7 @@ Samsung Internet's bottom navigation bar inflates viewport height, causing the V
 The mobile terminal input system uses several techniques to work around browser/OS limitations:
 
 1. **Iframe compositor jail** -- Separate compositor context for Android IME caret containment
-2. **`_syncTextArea` (NOT frozen)** -- xterm repositions its hidden textarea to the cursor on every render. This must remain active so the browser's focus-scroll targets the cursor position (bottom of terminal) rather than `(0,0)`. Freezing it was a premature optimization (~30 style recalcs/sec on a single hidden element) that caused the scroll-to-top bug (Fix 8)
+2. **`_syncTextArea` (NOT frozen)** -- xterm repositions its hidden textarea to the cursor on every render. This must remain active so the browser's focus-scroll targets the cursor position (bottom of terminal) rather than `(0,0)`. Freezing it was a premature optimization (~30 style recalcs/sec on a single hidden element) that caused the scroll-to-top bug (Fix 8). Note: on mobile, CSS `!important` overrides `_syncTextArea`'s positioning (textarea stays at 0,0 for the compositor jail), so Fix 9 adds additional guards.
 3. **`createElement` monkey-patch** -- Uses `input[type=password]` instead of textarea (scoped to `terminal.open()`)
 4. **`isFocused` getter override** -- Live reference via `iframe.contentDocument?.hasFocus()` avoids stale state
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
@@ -1759,6 +1759,20 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 - All `scrollToBottom()` call sites check `viewportY >= baseY` before scrolling to preserve manual scrollback position.
 - The post-write scroll snap in `flushWriteBuffer()` is deferred to the next animation frame via `requestAnimationFrame`, allowing xterm's `RenderService` and `SmoothScrollableElement` to complete their internal layout pass before checking `viewportY`.
 - `refitAllTerminals()` skips the resize WS message if dimensions didn't change.
+
+#### Mobile Scroll-to-Top on Every Write (Fix 9)
+
+Same root cause as Fix 8 but on mobile: the `.xterm-helper-textarea` is pinned to `position: fixed; top: 0; left: 0` via CSS `!important` (needed for the iframe compositor jail), which defeats `_syncTextArea()`'s cursor-following. The browser's focus-validation engine scrolls `.xterm-viewport` (which still has `overflow-y: scroll` from xterm's default CSS, even though it's empty in 6.0.0) to reveal the textarea at (0,0), resetting xterm's internal ydisp to 0.
+
+**Symptoms:** Terminal jumps to top of scrollback buffer (showing the welcome banner) on EVERY output write when keyboard is closed, and intermittently when keyboard is open. Happens on all mobile browsers (Chrome Android, Samsung Internet, etc.).
+
+**Three-layer fix:**
+
+1. **CSS: Kill native scroll on viewport** — `@media (pointer: coarse) { .xterm .xterm-viewport { overflow: hidden !important; } }`. Since xterm 6.0.0's viewport div is empty (SmoothScrollableElement handles scrolling), this has no side effects.
+
+2. **Synchronous post-write scroll guard** — `flushWriteBuffer()` now checks `viewportY < baseY` both synchronously (inside the write callback) AND in `requestAnimationFrame`. The synchronous check catches resets that happen during the write/render cycle, before the browser paints the wrong frame.
+
+3. **Scroll-drop detector** — `useTerminal` subscribes to xterm's `onScroll` event on mobile and monitors for sudden ydisp drops to 0 when ybase is high. If detected, immediately corrects via `queueMicrotask(() => scrollToBottom())`. This catches resets from ANY source (write path, resize, keyboard, browser focus-validation) regardless of the triggering mechanism.
 
 #### WS Retryable Close Codes (Fix 5)
 

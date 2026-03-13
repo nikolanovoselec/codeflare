@@ -95,8 +95,16 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
     // Post-write scroll guard: if user was following output but xterm's internal
     // scroll state got reset (e.g. SmoothScrollableElement race during burst),
     // snap back to bottom. If user had scrolled up, leave them alone.
-    // Deferred to next frame so xterm's RenderService and SmoothScrollableElement
-    // finish their internal layout pass before we check viewportY.
+    //
+    // Fix 9: On mobile, check BOTH synchronously (catch reset before paint)
+    // AND in rAF (catch reset during render pass). The mobile textarea at
+    // position:fixed(0,0) can cause the browser's focus-validation to scroll
+    // xterm containers, resetting ydisp to 0 between write and next paint.
+    if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
+      terminal.scrollToBottom();
+    }
+    // Deferred check: xterm's RenderService and SmoothScrollableElement
+    // finish their internal layout pass in rAF, so check again.
     requestAnimationFrame(() => {
       if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
         terminal.scrollToBottom();
