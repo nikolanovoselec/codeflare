@@ -537,14 +537,16 @@ Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persist
 
 When `OPENAI_API_KEY` or `GEMINI_API_KEY` env vars are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`. This enables Claude Code to query external LLMs via the `consult_llm` MCP tool. Keys are stored in KV as `llm-keys:{bucketName}`, managed via `PUT /api/llm-keys`, and injected as container env vars during `setBucketName()`. Keys are NOT persisted in DO storage — read fresh from KV on each container start.
 
-**Skill trigger phrases:** "discuss with llms", "consult llms", "ask llms", "get a second opinion", "discuss with code llms", "consult code llms".
+**Skill trigger phrases:** "discuss with llms", "consult llms", "ask llms", "get a second opinion", "ask ChatGPT", "consult Gemini", "ask GPT", "ask another AI".
 
-**Model pairs** (skill sends to both models in parallel):
+**Default model pair** (skill sends to both models in parallel):
 
-| Type | OpenAI | Google |
-|------|--------|--------|
-| Default (no qualifier) | `gpt-5.4` | `gemini-3.1-pro-preview` |
-| Code (`"code llms"`) | `gpt-5.3-codex` | `gemini-3.1-pro-preview` |
+| Provider | Model ID |
+|----------|----------|
+| OpenAI | `gpt-5.4` |
+| Google | `gemini-3.1-pro-preview` |
+
+If the user names a specific model, only that model is queried. All supported models: `gpt-5.4`, `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gemini-3.1-pro-preview`, `gemini-3-pro-preview`, `gemini-2.5-pro`.
 
 Skill definition: `preseed/agents/claude/skills/consult-llm/SKILL.md`.
 

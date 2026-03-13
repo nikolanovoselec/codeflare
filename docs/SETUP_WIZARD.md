@@ -326,5 +326,7 @@ custom domain.
 |---|---|---|---|
 | `/api/setup/configure` | 60 s | 5 | `setup-configure` |
 | `/api/setup/status` | 60 s | 30 | `setup-status` |
-| `/api/setup/detect-token` | 60 s | 10 | `setup-detect-token` |
-| `/api/setup/prefill` | 60 s | 10 | `setup-prefill` |
+| `/api/setup/detect-token` | 60 s | 5 \* | `setup-detect-token` |
+| `/api/setup/prefill` | 60 s | 5 \* | `setup-prefill` |
+
+\* detect-token and prefill have endpoint-specific limiters at 10/min, but are also subject to the shared `setupRateLimiter` (5/min, key prefix `setup-configure`) applied as middleware. The effective limit is 5/min.
