@@ -2,7 +2,7 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-13
 
 ---
 
@@ -89,7 +89,7 @@ Entry point and API gateway. Handles routing, WebSocket upgrade interception, au
 **WebSocket must be intercepted BEFORE Hono routing** (required workaround for CF Workers):
 ```typescript
 // See: https://github.com/cloudflare/workerd/issues/2319
-const wsRouteResult = validateWebSocketRoute(request, env);
+const wsRouteResult = validateWebSocketRoute(request);
 if (wsRouteResult.isWebSocketRoute) {
   return handleWebSocketUpgrade(request, env, ctx, wsRouteResult);
 }
@@ -103,7 +103,7 @@ if (wsRouteResult.isWebSocketRoute) {
 
 With SPA fallback (`not_found_handling = "single-page-application"`), control-plane paths must execute Worker logic first via `run_worker_first = ["/", "/api/*", "/public/*", "/health"]`. Missing `/api/*` causes setup/auth flows to break (API endpoints return HTML instead of JSON).
 
-### Container DO (CodeflareContainer)
+### Container DO (container)
 
 **File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, confirmed stable with keepalive heartbeat).
 
@@ -225,7 +225,7 @@ sequenceDiagram
 
 **KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully -- `SessionStatCard` shows last-known metrics for recently-stopped sessions.
 
-**Auto-Reconnect:** 10 attempts (`MAX_WS_RETRIES`) with 2-second delay. Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops.
+**Auto-Reconnect:** Infinite retries with 1-second delay (`WS_RETRY_DELAY_MS = 1000`). Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops.
 
 **No Application-Level WS Pings:** Removed. Cloudflare's runtime handles protocol-level WebSocket keepalive for DO/Container connections automatically.
 
@@ -254,7 +254,7 @@ function connect() {
 
 #### Frontend Constants
 
-**File:** `web-ui/src/lib/constants.ts` -- 18 constants for polling intervals, timeouts, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
+**File:** `web-ui/src/lib/constants.ts` -- 19 constants for polling intervals, timeouts, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ---
 
@@ -266,7 +266,7 @@ function connect() {
 | `src/lib/container-helpers.ts` | Consolidated container initialization: `getSessionIdFromQuery()` (from query param), `getContainerId()` (with validation, never fallbacks), `getContainerContext()` (full context for route handlers). |
 | `src/lib/error-types.ts` | `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401), `ForbiddenError` (403), `SetupError` (400), `RateLimitError` (429), `CircuitBreakerOpenError` (503). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`. |
 | `src/lib/type-guards.ts` | Runtime type validation replacing unsafe type casts (e.g., `isBucketNameResponse()`). |
-| `src/lib/constants.ts` | Single source of truth for 20 configuration constants: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, request ID config, session limits. |
+| `src/lib/constants.ts` | Single source of truth for 18 configuration constants: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, request ID config, session limits. |
 | `src/lib/circuit-breaker.ts` | Prevents cascading failures. States: CLOSED (normal), OPEN (fail fast), HALF_OPEN (testing recovery). Wraps `container.fetch()` calls. |
 | `src/middleware/rate-limit.ts` | Per-user rate limiting (bucketName from auth, IP fallback). Stores counts in KV. Adds `X-RateLimit-*` headers. |
 | `src/lib/logger.ts` | JSON logging with `createLogger(module)`, child loggers with request context. |
@@ -613,7 +613,7 @@ The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO
 
 ### Container Auth Token
 
-A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/server.js`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
+A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/server.ts`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
 
 ### Dual R2 Credential Architecture
 
@@ -747,7 +747,7 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 
 ### Protected R2 Paths
 
-Cannot be accessed via the web storage API (browse, upload, delete, move). These paths ARE synced to R2 via rclone for session persistence (credentials, config, plugins). Defined in `PROTECTED_PATHS` in `src/lib/constants.ts`: `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json`.
+**`PROTECTED_PATHS` is now empty** (`[]` in `src/lib/constants.ts`). Previously, paths like `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json` were blocked from the web storage API. The protection was removed — all R2 paths are now accessible via browse, upload, delete, and move. The `validateKey()` function in `src/routes/storage/validation.ts` still checks the array but it's a no-op with an empty list.
 
 ---
 
@@ -1180,14 +1180,14 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 68 test files, ~1,324 tests.
+**Count:** 71 test files, ~1,324 tests.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
 ### Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 9 test files, ~86 tests.
+**Count:** 12 test files, ~86 tests.
 **Run:** `cd host && npm test`
 **Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
 
@@ -1355,7 +1355,7 @@ codeflare/
 │   ├── metrics.ts            # System metrics collection (disk usage, sync status)
 │   ├── activity-tracker.ts   # WebSocket disconnect tracking for idle detection
 │   ├── prewarm-config.ts     # PTY pre-warm configuration (first-output readiness)
-│   ├── __tests__/            # Host unit tests (9 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, host fixes, fuzz, memory merge/cleanup)
+│   ├── __tests__/            # Host unit tests (12 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, host fixes, fuzz, memory merge/cleanup)
 │   ├── tsconfig.json         # TypeScript configuration
 │   ├── knip.json             # Dead code detection config for host package
 │   └── package.json
@@ -1367,7 +1367,7 @@ codeflare/
 │       ├── hooks/            # useTerminal.ts, useStageTimings.ts
 │       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, xterm-internals, settings, format, mobile, + others
 │       ├── styles/           # CSS (design tokens, animations, component styles)
-│       └── __tests__/        # Frontend unit tests (68 files)
+│       └── __tests__/        # Frontend unit tests (71 files)
 ├── .oxlintrc.json            # oxlint configuration (root + web-ui)
 ├── scripts/                  # generate-tutorial-seed.mjs, generate-agent-seed.mjs, fix-broken-sourcemaps.js
 ├── tutorials/                # Tutorial content (Getting Started, Examples, etc.)
@@ -1465,7 +1465,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | WebSocket fails | Container not running | Verify startup-status |
 | Zombie restarts | Stale DO state | Self-terminates via missing-identifiers guard |
 | Deleted session reappears | `onStop()` resurrects KV entry | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
-| Container dies during active use | Auth issue on internal paths | Verify `/activity` in `authExemptPaths` in `host/server.js` |
+| Container dies during active use | Auth issue on internal paths | Verify `/activity` in `authExemptPaths` in `host/server.ts` |
 | Phantom container on session switch | Reconnect scope issue | Ensure `activeSessionId` filter passed to `reconnectDisconnectedTerminals()` |
 | Character doubling in terminal | Handler not disposed on reconnect | Dispose `inputDisposable` before creating new handler in `connect()` |
 | Container returns 503 on all authenticated endpoints | `CONTAINER_AUTH_TOKEN` not set | Security default-deny. Token is set automatically by the DO via `crypto.randomUUID()` on lifecycle start. If missing, verify DO `updateEnvVars()` runs before `startAndWaitForPorts()` |
@@ -1540,7 +1540,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 | AD13 | Per-user scoped R2 tokens | <details><summary>Each container gets an R2 token scoped to its user's bucket only</summary><br>Replaces previous shared credential model. Token lifecycle:<br>1. **Creation**: `getOrCreateScopedR2Token()` creates token with Object Read+Write policy restricted to user's bucket<br>2. **Caching**: Token data cached in KV as `r2token:{email}` - survives container restarts<br>3. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config<br>4. **Revocation**: `deleteScopedR2Token()` on user deletion<br><br>**Trade-off**: Requires `API Tokens: Edit` permission on deploy token (broader than ideal). Accepted because manual R2 credential management per user is operationally impractical.</details> |
 | AD14 | Never auto-`--resync` on bisync failure | <details><summary><code>--resilient</code> + <code>--recover</code> for self-healing instead</summary><br>`--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses pending deletions - if side A deleted a file and bisync fails before propagating, `--resync` resurrects it from side B.<br><br>**Instead**: `--resilient` (continue past non-critical errors) + `--recover` (reconstruct corrupted listings) + `--max-delete 100` (allow bulk deletions). Daemon retries in 60s on failure.<br><br>**Manual `--resync`** is safe in `establish_bisync_baseline()` on container startup because one-way restore runs first.</details> |
 | AD15 | TabConfigSchema allows arbitrary command strings | <details><summary><code>z.string().max(200)</code> — no additional security risk</summary><br>Users already have full root shell access inside their own ephemeral container. Restricting tab commands provides no additional security benefit since the container is their sandbox.</details> |
-| AD16 | entrypoint.sh ~680 lines complexity | <details><summary>Battle-tested, rewrite risk > benefit</summary><br>Handles Alpine→Debian migration, PTY pre-warm, rclone sync orchestration, tab autostart, and graceful shutdown. Accumulated complexity reflects real-world edge cases discovered over months of production use. A rewrite risks reintroducing solved bugs for marginal readability gains.</details> |
+| AD16 | entrypoint.sh ~1010 lines complexity | <details><summary>Battle-tested, rewrite risk > benefit</summary><br>Handles Alpine→Debian migration, PTY pre-warm, rclone sync orchestration, tab autostart, and graceful shutdown. Accumulated complexity reflects real-world edge cases discovered over months of production use. A rewrite risks reintroducing solved bugs for marginal readability gains.</details> |
 | AD17 | collectMetrics density | <details><summary>Extends AD6 scope — alarm() context needs atomicity</summary><br>`collectMetrics` performs activity checking, health probing, and KV status updates in a single alarm callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The alarm() context provides natural atomicity across these tightly coupled operations.</details> |
 | AD18 | WebGL `any` types in webgl-utils.ts | <details><summary>No standard TS definitions for WebGL extensions</summary><br>Extensions like `OES_texture_half_float`, `WEBGL_lose_context`, etc. have no official TypeScript definitions. The `any` casts are isolated to this single utility file and the WebGL API surface is stable. Adding custom type definitions would be maintenance burden with no runtime benefit.</details> |
 | AD19 | splash-cursor-logic.ts `as any` casts | <details><summary>Creative-coding adapted code with no upstream TS types</summary><br>Pointer tracking objects and WebGL shader uniforms in this creative-coding module have no typed definitions upstream. The code is adapted from a visual effect library. Type assertions are confined to this isolated module.</details> |
@@ -1913,7 +1913,7 @@ ECC-derived rules, agents, commands, and skills are preseeded directly to the ag
 
 **Commands (5)**: `brainstorm`, `debug`, `deploy`, `plan`, `review`. Preseeded to `~/.claude/commands/*.md` (CC only — other agents don't support slash commands).
 
-**Skills (12 files, 10 unique skills)**: `cloudflare-stack`, `ship` (+ 2 reference files), `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`. Preseeded to `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for agents that support skills). `consult-llm` is CC-only (depends on MCP tool).
+**Skills (13 files, 11 unique skills)**: `cloudflare-stack`, `ship` (+ 2 reference files), `consult-llm`, `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`. Preseeded to `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for agents that support skills). `consult-llm` is CC-only (depends on MCP tool).
 
 **Rules (27 files, 3 default + 24 advanced-only)**: Core environment rules (`ci-monitoring`, `cloudflare-environment`, `no-local-builds`) in both modes. `memory` rule is advanced-only (depends on MCP memory server). ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs (3 + 5*4 = 23 files, advanced only). Common rules cover security, coding style, and git workflow. Language-specific rules provide conventions for TypeScript, Python, Go, and Swift.
 
@@ -1925,20 +1925,19 @@ ECC-derived rules, agents, commands, and skills are preseeded directly to the ag
 
 All preseed content is deployed via the manifest pipeline:
 
-1. Source files in `preseed/agents/claude/` organized by type: `hooks/`, `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
+1. Source files in `preseed/agents/claude/` organized by type: `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
 2. `preseed/agents/claude/manifest.json` maps each file to modes (`default`, `advanced`, or both)
-3. `scripts/generate-agent-seed.mjs` reads manifest + files (manifest-driven, ignores non-manifest files like `plugins/cache/`), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array (121 documents across all agents)
+3. `scripts/generate-agent-seed.mjs` reads manifest + files (manifest-driven, ignores non-manifest files like `plugins/cache/`), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array (123 documents across all agents)
 4. On first bucket creation: `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
 **Manifest structure (58 CC source entries)**:
-- `hooks/` (1): block-attributed-commits.sh (advanced only)
-- `rules/` (27): core (4 default+advanced), common (3), typescript (5), python (5), golang (5), swift (5)
+- `rules/` (27): core (3 default+advanced + 1 advanced-only: memory), common (3), typescript (5), python (5), golang (5), swift (5)
 - `agents/` (7): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, plan, review (advanced only)
 - `skills/` (13): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first
-- `plugins/` (4): known_marketplaces.json (default+advanced), codeflare-memory plugin (3 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md), codeflare-hooks plugin (2 files, advanced only: plugin.json, block-attributed-commits.sh)
+- `plugins/` (6): known_marketplaces.json (default+advanced), codeflare-memory plugin (3 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md), codeflare-hooks plugin (2 files, advanced only: plugin.json, block-attributed-commits.sh)
 
 ### Multi-Agent Preseed
 
