@@ -291,6 +291,23 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     const total = getKeyboardHeight();
     const barTop = isSamsungBrowser ? loadSettings().samsungAddressBarTop !== false : false;
 
+    // Attempt to read xterm's viewportY for scroll diagnostics
+    let vpY: string = 'N/A';
+    let baseY: string = 'N/A';
+    let rows: string = 'N/A';
+    try {
+      const xtermEl = document.querySelector('.xterm');
+      const termCore = xtermEl && (xtermEl as any)._core;
+      if (termCore) {
+        const buf = termCore._bufferService?.buffer;
+        if (buf) {
+          vpY = String(buf.ydisp);
+          baseY = String(buf.ybase);
+        }
+        rows = String(termCore._bufferService?.rows ?? 'N/A');
+      }
+    } catch { /* ignore */ }
+
     overlay.textContent =
       `innerHeight:    ${innerH}\n` +
       `baselineInnerH: ${baselineInnerHeight}\n` +
@@ -304,7 +321,10 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
       `vkOpen:         ${vkOpen()}\n` +
       `samsung:        ${isSamsungBrowser}\n` +
       `samsungBarTop:  ${barTop}\n` +
-      `strategy:       ${usingVirtualKeyboardAPI ? 'VK API' : 'fallback'}`;
+      `strategy:       ${usingVirtualKeyboardAPI ? 'VK API' : 'fallback'}\n` +
+      `ydisp:          ${vpY}\n` +
+      `ybase:          ${baseY}\n` +
+      `rows:           ${rows}`;
   }
 
   if (nav.virtualKeyboard) {

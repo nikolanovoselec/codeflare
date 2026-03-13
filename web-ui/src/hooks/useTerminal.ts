@@ -298,8 +298,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       const currentFont = t.options.fontFamily;
       document.fonts.ready.then(() => {
         if (term?.element && currentFont) {
+          const wasBottom = isAtBottom(term);
           term.options.fontFamily = currentFont;
           fitAddon?.fit();
+          if (wasBottom) term.scrollToBottom();
         }
       });
     }
@@ -310,27 +312,56 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   // is handled by touch-gestures.ts via terminal.scrollLines() — no need for
   // pointer-events or overflow-y tricks on viewport/scrollable-element.
 
-  // Refit on keyboard height change
+  // Refit on keyboard height change — leading + trailing edge pattern.
+  //
+  // Problem: When the keyboard opens, padding-bottom increases instantly (SolidJS
+  // reactive binding), shrinking the terminal container. But if fit() is delayed
+  // (debounced), xterm's canvas stays at the old (larger) dimensions for ~150ms.
+  // During this gap the canvas overflows the container, hiding the prompt behind
+  // the keyboard and causing a visible content jump when fit() finally fires.
+  //
+  // Solution: Call fit() + scrollToBottom() immediately via queueMicrotask on the
+  // FIRST keyboard height change (leading edge). The microtask runs after SolidJS
+  // has applied the padding-bottom DOM update but before the browser paints —
+  // eliminating the visual gap. Subsequent height changes during the keyboard
+  // animation are debounced (trailing edge) to avoid excessive refitting.
+  // The PTY resize message is only sent on the trailing edge.
   createEffect(() => {
-    const _kbHeight = getKeyboardHeight();
-    const kbOpen = isVirtualKeyboardOpen();
+    const kbHeight = getKeyboardHeight();
+    const _kbOpen = isVirtualKeyboardOpen();
     if (!isTouchDevice()) return;
     if (!term || !fitAddon) return;
     if (!(props.active || props.alwaysObserveResize)) return;
 
+    // Leading edge: immediate fit on first REAL keyboard change (height > 0).
+    // Skip the initial mount-time run (kbHeight=0) — the onMount double-rAF
+    // handles that. queueMicrotask ensures we run after all SolidJS effects in
+    // this batch (including the padding-bottom DOM update) but before the
+    // browser's rendering pipeline (layout, ResizeObserver, rAF, paint).
+    if (kbDebounceTimer === null && kbHeight > 0) {
+      queueMicrotask(() => {
+        if (!fitAddon || !term || !containerEl) return;
+        if (containerEl.clientHeight === 0) return;
+        fitAddon.fit();
+        // Read signal at execution time — not the stale closure capture
+        if (isVirtualKeyboardOpen()) {
+          term.scrollToBottom();
+        }
+        setDimensions({ cols: term.cols, rows: term.rows });
+      });
+    }
+
+    // Trailing edge: debounced fit after keyboard animation settles.
+    // Sends PTY resize message only here to avoid flooding the server
+    // with intermediate dimensions during the ~300ms animation.
     if (kbDebounceTimer !== null) clearTimeout(kbDebounceTimer);
     kbDebounceTimer = setTimeout(() => {
       kbDebounceTimer = null;
       if (!fitAddon || !term || !containerEl) return;
       if (containerEl.clientHeight === 0) return;
       fitAddon.fit();
-      // Always scroll to bottom when keyboard is open. fit() recalculates rows
-      // and can reset the scroll position, causing a "jump to top" if we don't
-      // re-anchor. Previous approach tried to limit this to closed→open transitions,
-      // but keyboard animation fires multiple height changes after the initial open,
-      // and the transition flag was consumed by the first debounce — leaving
-      // subsequent fit() calls without scrollToBottom.
-      if (kbOpen) {
+      // Read signal at execution time — not the stale closure capture
+      if (isVirtualKeyboardOpen()) {
         term.scrollToBottom();
       }
       setDimensions({ cols: term.cols, rows: term.rows });
@@ -367,7 +398,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       resetKeyboardStateIfStale();
       enableVirtualKeyboardOverlay();
       requestAnimationFrame(() => {
-        if (fitAddon && term && containerEl && containerEl.clientHeight > 0) fitAddon.fit();
+        if (fitAddon && term && containerEl && containerEl.clientHeight > 0) {
+          const wasBottom = isAtBottom(term);
+          fitAddon.fit();
+          if (wasBottom) term.scrollToBottom();
+        }
       });
 
       // Fix 1: Samsung back-button keyboard dismiss detection via focusout.

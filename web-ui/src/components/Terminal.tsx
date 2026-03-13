@@ -97,6 +97,11 @@ const Terminal: Component<TerminalProps> = (props) => {
           width: '100%',
           flex: '1',
           'min-height': '0',
+          // overflow:hidden prevents xterm's canvas from bleeding into the
+          // padding-bottom area during the brief window between keyboard height
+          // signal update (which shrinks this container via padding on the wrapper)
+          // and the fit() call that resizes the canvas to match.
+          overflow: 'hidden',
           'background-color': isInitializing() ? 'transparent' : 'var(--color-terminal-theme-bg)',
           visibility: isInitializing() ? 'hidden' : 'visible',
           'overflow-anchor': 'none',
