@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "@types/ws": "^8.5.0",
+    "@types/ws": "^8.18.1",
     "fast-check": "^4.6.0",
     "typescript": "^5.9.3"
   }
