@@ -253,19 +253,42 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         containerEl?.removeEventListener('keydown', onNavKeyDown);
       };
 
+      let previousYdisp: number | undefined;
+
       scrollDropDisposable = t.onScroll((ydisp: number) => {
         const ybase = t.buffer.active.baseY;
         const wasFollowing = wasFollowingOutput;
         wasFollowingOutput = ydisp >= ybase;
         const recentUserIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS;
 
-        if (ydisp === 0 && ybase > 5 && wasFollowing && !recentUserIntent) {
-          queueMicrotask(() => {
-            if (t.buffer.active.viewportY < t.buffer.active.baseY) {
-              t.scrollToBottom();
+        if (!recentUserIntent && ybase > 5) {
+          if (wasFollowing && ydisp < ybase) {
+            // Fix 9+10: Was following output, viewport dropped away from bottom.
+            // Broader than the original ydisp === 0 check — catches any drop.
+            queueMicrotask(() => {
+              if (t.buffer.active.viewportY < t.buffer.active.baseY) {
+                t.scrollToBottom();
+              }
+            });
+          } else if (!wasFollowing && previousYdisp !== undefined && previousYdisp > 0) {
+            // Fix 11: User was scrolled up but viewport dropped significantly.
+            // This happens when a CLI's virtual scroll removes lines above the
+            // viewport (e.g. Claude Code's TUI re-rendering). Restore position
+            // instead of letting the user land at the top of the buffer.
+            const drop = previousYdisp - ydisp;
+            if (drop > 3) {
+              const target = Math.min(previousYdisp, ybase);
+              queueMicrotask(() => {
+                const current = t.buffer.active.viewportY;
+                if (current < target) {
+                  t.scrollLines(target - current);
+                }
+              });
             }
-          });
+          }
         }
+
+        previousYdisp = ydisp;
       });
     }
 

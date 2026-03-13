@@ -88,6 +88,7 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   if (!buffer || buffer.length === 0) return;
 
   const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+  const prevViewportY = terminal.buffer.active.viewportY;
   const data = buffer.join('');
   buffer.length = 0;
 
@@ -102,12 +103,27 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
     // xterm containers, resetting ydisp to 0 between write and next paint.
     if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
       terminal.scrollToBottom();
+    } else if (!wasAtBottom && prevViewportY > 0 && terminal.buffer.active.baseY > 5) {
+      // Fix 11: User was scrolled up. If viewportY dropped significantly
+      // during write (e.g. CLI virtual scroll removing lines above viewport),
+      // restore the user's scroll position rather than jumping to top.
+      const drop = prevViewportY - terminal.buffer.active.viewportY;
+      if (drop > 3) {
+        const target = Math.min(prevViewportY, terminal.buffer.active.baseY);
+        terminal.scrollLines(target - terminal.buffer.active.viewportY);
+      }
     }
     // Deferred check: xterm's RenderService and SmoothScrollableElement
     // finish their internal layout pass in rAF, so check again.
     requestAnimationFrame(() => {
       if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
         terminal.scrollToBottom();
+      } else if (!wasAtBottom && prevViewportY > 0 && terminal.buffer.active.baseY > 5) {
+        const drop = prevViewportY - terminal.buffer.active.viewportY;
+        if (drop > 3) {
+          const target = Math.min(prevViewportY, terminal.buffer.active.baseY);
+          terminal.scrollLines(target - terminal.buffer.active.viewportY);
+        }
       }
     });
   });

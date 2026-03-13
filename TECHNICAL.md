@@ -1791,6 +1791,27 @@ Same root cause as Fix 9, manifesting on desktop: during long sessions where ter
    - **User-intent suppression** — listens for `wheel`, `pointerdown`, and navigation `keydown` (PageUp/PageDown/Home/End). Suppresses correction for 250ms after intentional user scroll to avoid fighting legitimate scrollback on desktop (mouse wheel, scrollbar drag, keyboard navigation).
    - **`ybase > 5` threshold** — retained from Fix 9 to prevent false positives during init/restore when the buffer is nearly empty.
 
+#### Virtual Scroll Viewport Jump (Fix 11)
+
+CLI applications like Claude Code use virtual scrolling in their TUI (controlled by `CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL`). When a session grows long, the TUI removes old lines from the top of the terminal 1:1 as new lines are added, keeping the visible entry count roughly constant. The welcome banner/logo stays at line 0.
+
+This line removal sends ANSI escape sequences that modify buffer content above the viewport, causing xterm.js to recalculate `viewportY`. The recalculation can reset `viewportY` to 0 (jumping to top). Two symptoms:
+
+- **User scrolled up**: viewport jumps to top permanently — no existing guard corrected this because `wasAtBottom` and `wasFollowingOutput` were both false.
+- **User at bottom**: brief flash to top then back — existing guards corrected it but too late (one rendered frame at wrong position).
+
+**Two-layer fix:**
+
+1. **Post-write scroll guard** (`stores/terminal.ts`) — now also handles the scrolled-up case. Records `prevViewportY` before each write. If `!wasAtBottom` and `viewportY` dropped by more than 3 lines during the write, restores to `min(prevViewportY, baseY)` via `scrollLines()`. Checks both synchronously and in rAF.
+
+2. **Scroll-drop detector** (`hooks/useTerminal.ts`) — broadened from `ydisp === 0` to two cases:
+   - `wasFollowing && ydisp < ybase` — catches any drop from bottom (not just to 0), replacing the original Fix 9 check.
+   - `!wasFollowing && drop > 3` — new: catches viewport drops when user was scrolled up. Tracks `previousYdisp` to measure drop magnitude. Restores to `min(previousYdisp, ybase)`.
+
+Both layers use a `> 3` line threshold to avoid fighting normal single-line scroll adjustments while catching the multi-line viewport resets from virtual scroll re-renders.
+
+**Fallback:** If the fix proves insufficient, setting `CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1` in the PTY environment eliminates the root cause entirely by preventing the TUI from removing old lines. Trade-off: unbounded terminal buffer growth until xterm's scrollback limit (10,000) is reached.
+
 #### WS Retryable Close Codes (Fix 5)
 
 The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.
