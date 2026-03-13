@@ -98,17 +98,25 @@
             pointer-events: none !important;
           }
 
-          /* Fix 9: Kill native scroll on .xterm-viewport on mobile.
-             xterm 6.0.0's viewport div is EMPTY (SmoothScrollableElement handles
-             scrolling now), but the default CSS still has overflow-y:scroll. On
-             mobile, the browser's focus-validation engine can scroll this
-             container to reveal the textarea at position:fixed(0,0), resetting
-             xterm's internal ydisp to 0 — the same mechanism as Fix 8.
-             overflow:hidden prevents any native scroll from occurring. */
-          .xterm .xterm-viewport {
-            overflow: hidden !important;
-            overscroll-behavior: contain;
-          }
+        }
+
+        /* Fix 9+10: Kill native scroll on .xterm-viewport (ALL devices).
+           xterm 6.0.0's viewport div is EMPTY — no children, no scroll-area
+           (verified in CoreBrowserTerminal.ts:426-428). SmoothScrollableElement
+           handles all scrolling via JS ScrollState and CSS transforms. The
+           default xterm CSS still has overflow-y:scroll on .xterm-viewport,
+           which lets the browser's focus-validation engine natively scroll
+           this empty container, resetting xterm's internal ydisp to 0.
+           overflow:hidden strips the element of scroll-container status so
+           the browser cannot interfere. Safe because:
+           - No xterm code reads/writes _viewportElement.scrollTop
+           - Mouse wheel handled by SmoothScrollableElement JS (scrollableElement.ts:370-389)
+           - Visible scrollbar is the overlay widget (.xterm-scrollable-element > .scrollbar)
+           Originally mobile-only (Fix 9); extended to desktop (Fix 10) after
+           the same jump-to-top manifested on desktop during long sessions. */
+        .xterm .xterm-viewport {
+          overflow: hidden !important;
+          overscroll-behavior: contain;
         }
 
         /* Contain overflow from xterm helper elements */

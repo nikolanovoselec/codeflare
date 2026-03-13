@@ -57,6 +57,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
   let scrollDropDisposable: { dispose: () => void } | undefined;
+  let scrollIntentCleanup: (() => void) | undefined;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -216,29 +217,55 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     if (isTouchDevice()) {
       setupMobileTerminal();
+    }
 
-      // Fix 9: Scroll-drop detector for mobile. On every scroll event from xterm,
-      // check if ydisp dropped significantly (indicating a jump-to-top reset).
-      // This catches resets from ANY source — write path, resize, keyboard,
-      // browser focus-validation, etc. Corrects immediately before the browser
-      // paints the wrong scroll position.
-      //
-      // xterm 6.0.0's public onScroll fires with ydisp as a plain number.
-      let lastKnownYdisp = 0;
+    // Fix 9+10: Scroll-drop detector for ALL devices (was mobile-only in Fix 9).
+    // On every scroll event from xterm, check if ydisp dropped to 0 while the
+    // user was following output — indicating a browser-triggered scroll reset.
+    // Corrects immediately via queueMicrotask before the browser paints.
+    //
+    // Desktop needs this because the same focus-validation mechanism that caused
+    // the mobile bug can also fire on desktop during long sessions. The CSS fix
+    // (overflow:hidden on .xterm-viewport) is the primary defense; this detector
+    // is belt-and-suspenders for resets from any unknown source.
+    //
+    // User-intent suppression prevents fighting legitimate scroll actions:
+    // wheel, pointer (scrollbar drag), and navigation keys (PageUp/Home/etc).
+    {
+      let wasFollowingOutput = true;
+      let lastUserScrollIntentAt = 0;
+      const USER_SCROLL_GRACE_MS = 250;
+
+      const markUserScrollIntent = () => { lastUserScrollIntentAt = Date.now(); };
+      const onNavKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') {
+          markUserScrollIntent();
+        }
+      };
+
+      containerEl.addEventListener('wheel', markUserScrollIntent, { passive: true });
+      containerEl.addEventListener('pointerdown', markUserScrollIntent, { passive: true });
+      containerEl.addEventListener('keydown', onNavKeyDown);
+
+      scrollIntentCleanup = () => {
+        containerEl?.removeEventListener('wheel', markUserScrollIntent);
+        containerEl?.removeEventListener('pointerdown', markUserScrollIntent);
+        containerEl?.removeEventListener('keydown', onNavKeyDown);
+      };
+
       scrollDropDisposable = t.onScroll((ydisp: number) => {
         const ybase = t.buffer.active.baseY;
+        const wasFollowing = wasFollowingOutput;
+        wasFollowingOutput = ydisp >= ybase;
+        const recentUserIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS;
 
-        // If ydisp dropped to 0 (or near 0) while ybase is high, something
-        // reset the scroll position. Immediately correct unless user is genuinely
-        // scrolling near the top (lastKnownYdisp was also low).
-        if (ydisp === 0 && ybase > 5 && lastKnownYdisp > ybase * 0.5) {
+        if (ydisp === 0 && ybase > 5 && wasFollowing && !recentUserIntent) {
           queueMicrotask(() => {
             if (t.buffer.active.viewportY < t.buffer.active.baseY) {
               t.scrollToBottom();
             }
           });
         }
-        lastKnownYdisp = ydisp;
       });
     }
 
@@ -499,6 +526,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   onCleanup(() => {
     cleanup?.();
     cleanupGestures?.();
+    scrollIntentCleanup?.();
     scrollDropDisposable?.dispose();
     bufferChangeDisposable?.dispose();
     cursorHideDisposable?.dispose();

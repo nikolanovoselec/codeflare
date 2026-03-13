@@ -1768,11 +1768,28 @@ Same root cause as Fix 8 but on mobile: the `.xterm-helper-textarea` is pinned t
 
 **Three-layer fix:**
 
-1. **CSS: Kill native scroll on viewport** — `@media (pointer: coarse) { .xterm .xterm-viewport { overflow: hidden !important; } }`. Since xterm 6.0.0's viewport div is empty (SmoothScrollableElement handles scrolling), this has no side effects.
+1. **CSS: Kill native scroll on viewport** — `.xterm .xterm-viewport { overflow: hidden !important; }`. Since xterm 6.0.0's viewport div is empty (SmoothScrollableElement handles scrolling), this has no side effects. Originally mobile-only (`@media (pointer: coarse)`); extended to all devices in Fix 10.
 
 2. **Synchronous post-write scroll guard** — `flushWriteBuffer()` now checks `viewportY < baseY` both synchronously (inside the write callback) AND in `requestAnimationFrame`. The synchronous check catches resets that happen during the write/render cycle, before the browser paints the wrong frame.
 
-3. **Scroll-drop detector** — `useTerminal` subscribes to xterm's `onScroll` event on mobile and monitors for sudden ydisp drops to 0 when ybase is high. If detected, immediately corrects via `queueMicrotask(() => scrollToBottom())`. This catches resets from ANY source (write path, resize, keyboard, browser focus-validation) regardless of the triggering mechanism.
+3. **Scroll-drop detector** — `useTerminal` subscribes to xterm's `onScroll` event and monitors for sudden ydisp drops to 0 when ybase is high. If detected, immediately corrects via `queueMicrotask(() => scrollToBottom())`. This catches resets from ANY source (write path, resize, keyboard, browser focus-validation) regardless of the triggering mechanism. Originally mobile-only; extended to all devices in Fix 10 with an improved heuristic (see below).
+
+#### Desktop Scroll-to-Top During Long Sessions (Fix 10)
+
+Same root cause as Fix 9, manifesting on desktop: during long sessions where terminal content extends behind the fixed header, the browser's focus-validation engine or scroll anchoring can natively scroll the empty `.xterm-viewport` div (which still had `overflow-y: scroll` from xterm's legacy CSS on desktop), resetting ydisp to 0 and jumping the terminal to the top.
+
+**Why Fix 9 didn't cover desktop:** Both the CSS viewport fix and the scroll-drop detector were gated behind mobile-only checks (`@media (pointer: coarse)` and `if (isTouchDevice())`), leaving desktop with zero protection against the same underlying mechanism.
+
+**Verification:** Deep analysis of xterm 6.0.0 source confirmed that `.xterm-viewport` is genuinely empty (`CoreBrowserTerminal.ts:426-428` creates a bare `<div>` with no children), no xterm code reads/writes `_viewportElement.scrollTop`, mouse wheel is handled by `SmoothScrollableElement` JS (`scrollableElement.ts:370-389`), and the visible scrollbar is the overlay widget (`.xterm-scrollable-element > .scrollbar`). `overflow: hidden` on an empty element has zero functional impact on xterm.
+
+**Two-part fix:**
+
+1. **CSS: Global viewport overflow fix** — Moved `.xterm .xterm-viewport { overflow: hidden !important; }` from inside `@media (pointer: coarse)` to global scope, applying to all devices. This is the primary fix — it strips `.xterm-viewport` of scroll-container status so the browser cannot trigger native scroll events on it.
+
+2. **JS: Universal scroll-drop detector with improved heuristic** — Removed the `if (isTouchDevice())` gate. Replaced the `lastKnownYdisp > ybase * 0.5` heuristic with:
+   - **`wasFollowingOutput`** — tracks whether the user was at the bottom of the buffer before the drop. Strictly more precise than the old "bottom half" threshold — catches 100% of following-output resets, zero false positives from users browsing scrollback.
+   - **User-intent suppression** — listens for `wheel`, `pointerdown`, and navigation `keydown` (PageUp/PageDown/Home/End). Suppresses correction for 250ms after intentional user scroll to avoid fighting legitimate scrollback on desktop (mouse wheel, scrollbar drag, keyboard navigation).
+   - **`ybase > 5` threshold** — retained from Fix 9 to prevent false positives during init/restore when the buffer is nearly empty.
 
 #### WS Retryable Close Codes (Fix 5)
 
