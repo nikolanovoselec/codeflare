@@ -21,14 +21,21 @@ vi.mock('../../lib/mobile', () => ({
 
 const mockGetLlmKeys = vi.hoisted(() => vi.fn());
 const mockUpdateLlmKeys = vi.hoisted(() => vi.fn());
+const mockGetDeployKeys = vi.hoisted(() => vi.fn());
+const mockUpdateDeployKeys = vi.hoisted(() => vi.fn());
 
 // Defaults
 mockGetLlmKeys.mockResolvedValue({});
 mockUpdateLlmKeys.mockResolvedValue({});
+mockGetDeployKeys.mockResolvedValue({});
+mockUpdateDeployKeys.mockResolvedValue({});
 
 vi.mock('../../api/client', () => ({
   getLlmKeys: () => mockGetLlmKeys(),
   updateLlmKeys: (body: unknown) => mockUpdateLlmKeys(body),
+  getDeployKeys: () => mockGetDeployKeys(),
+  updateDeployKeys: (body: unknown) => mockUpdateDeployKeys(body),
+  deleteDeployKeys: vi.fn(async () => undefined),
 }));
 
 vi.mock('../../api/storage', () => ({
