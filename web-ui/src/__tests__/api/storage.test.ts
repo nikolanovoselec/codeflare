@@ -350,7 +350,7 @@ describe('Storage API Client', () => {
         mockResponse({
           success: true,
           bucketCreated: false,
-          written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'],
+          written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/github-cloudflare-ship/SKILL.md'],
           skipped: [],
         })
       );

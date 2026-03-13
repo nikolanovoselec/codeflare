@@ -17,6 +17,7 @@ import { sessionStore } from '../stores/session';
 import { isTouchDevice, isSamsungBrowser } from '../lib/mobile';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import { getLlmKeys, updateLlmKeys } from '../api/client';
+import DeployKeysSection from './settings/DeployKeysSection';
 import '../styles/settings-panel.css';
 
 interface SettingsPanelProps {
@@ -26,7 +27,7 @@ interface SettingsPanelProps {
   currentUserRole?: 'admin' | 'user';
 }
 
-type AccordionGroup = 'appearance' | 'session' | 'llm' | 'admin';
+type AccordionGroup = 'appearance' | 'session' | 'deploy' | 'llm' | 'admin';
 
 interface AccordionSectionProps {
   group: AccordionGroup;
@@ -100,6 +101,7 @@ const DEFAULT_ACCENT_HEX = '#3b82f6';
 const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
   session: 'Startup behavior & workspace sync',
+  deploy: 'Connect GitHub & Cloudflare for one-click deploy',
   llm: 'Optional — connect GPT & Gemini for second opinions',
   admin: 'Setup wizard & user management',
 };
@@ -669,6 +671,17 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 </div>
               </section>
             </Show>
+          </AccordionSection>
+
+          {/* ── Push & Deploy ── */}
+          <AccordionSection
+            group="deploy"
+            title="Push & Deploy"
+            subtitle={ACCORDION_SUBTITLES.deploy}
+            isOpen={openGroup() === 'deploy'}
+            onToggle={() => handleAccordionClick('deploy')}
+          >
+            <DeployKeysSection />
           </AccordionSection>
 
           {/* ── LLM API Keys (advanced mode only) ── */}

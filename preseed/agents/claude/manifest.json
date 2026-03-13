@@ -36,6 +36,12 @@
       "advanced"
     ]
   },
+  "rules/deploy-credentials.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "rules/memory.md": {
     "modes": [
       "advanced"
@@ -173,19 +179,19 @@
       "advanced"
     ]
   },
-  "skills/ship/SKILL.md": {
+  "skills/github-cloudflare-ship/SKILL.md": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "skills/ship/references/workflow-templates.md": {
+  "skills/github-cloudflare-ship/references/workflow-templates.md": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "skills/ship/references/wrangler-templates.md": {
+  "skills/github-cloudflare-ship/references/wrangler-templates.md": {
     "modes": [
       "default",
       "advanced"

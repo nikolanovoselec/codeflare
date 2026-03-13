@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session, SessionMode, UserPreferences, LlmKeys, TabConfig } from '../../types';
+import type { Env, Session, SessionMode, UserPreferences, LlmKeys, DeployKeys, TabConfig } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
 import { resolveSessionMode } from '../../lib/session-mode';
@@ -14,7 +14,7 @@ import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, NotFoundError, RateLimitError, toError, toErrorMessage } from '../../lib/error-types';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, listAllKvKeys, getSessionPrefix } from '../../lib/kv-keys';
+import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
@@ -38,6 +38,9 @@ function buildSetBucketNameBody(params: {
   fastStartEnabled: boolean;
   openaiApiKey?: string;
   geminiApiKey?: string;
+  githubToken?: string;
+  cloudflareApiToken?: string;
+  cloudflareAccountId?: string;
   sessionMode: string;
 }): string {
   return JSON.stringify({
@@ -52,6 +55,9 @@ function buildSetBucketNameBody(params: {
     fastStartEnabled: params.fastStartEnabled,
     ...(params.openaiApiKey && { openaiApiKey: params.openaiApiKey }),
     ...(params.geminiApiKey && { geminiApiKey: params.geminiApiKey }),
+    githubToken: params.githubToken ?? null,
+    cloudflareApiToken: params.cloudflareApiToken ?? null,
+    cloudflareAccountId: params.cloudflareAccountId ?? null,
     sessionMode: params.sessionMode,
   });
 }
@@ -209,6 +215,9 @@ export async function configureContainerDO(params: {
   fastStartEnabled: boolean;
   openaiApiKey?: string;
   geminiApiKey?: string;
+  githubToken?: string;
+  cloudflareApiToken?: string;
+  cloudflareAccountId?: string;
   sessionMode: string;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
@@ -226,6 +235,9 @@ export async function configureContainerDO(params: {
     fastStartEnabled: params.fastStartEnabled,
     openaiApiKey: params.openaiApiKey,
     geminiApiKey: params.geminiApiKey,
+    githubToken: params.githubToken,
+    cloudflareApiToken: params.cloudflareApiToken,
+    cloudflareAccountId: params.cloudflareAccountId,
     sessionMode: params.sessionMode,
   });
 
@@ -393,9 +405,11 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     const sessionMode = resolveSessionMode(preferences);
 
-    // Read LLM API keys (if any) to inject into container env vars
+    // Read LLM API keys and deploy credentials (if any) to inject into container env vars
     const llmKeysKey = getLlmKeysKey(bucketName);
     const llmKeys = await c.env.KV.get<LlmKeys>(llmKeysKey, 'json');
+    const deployKeysKey = getDeployKeysKey(bucketName);
+    const deployKeys = await c.env.KV.get<DeployKeys>(deployKeysKey, 'json');
 
     // Step 2: Ensure R2 bucket exists and seed if new
     const { r2Config } = await ensureBucketAndSeed({
@@ -428,6 +442,9 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       fastStartEnabled,
       openaiApiKey: llmKeys?.openaiApiKey,
       geminiApiKey: llmKeys?.geminiApiKey,
+      githubToken: deployKeys?.githubToken,
+      cloudflareApiToken: deployKeys?.cloudflareApiToken,
+      cloudflareAccountId: deployKeys?.cloudflareAccountId,
       sessionMode,
       logger: reqLogger,
     });

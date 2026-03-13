@@ -111,6 +111,9 @@ export class container extends Container<Env> {
   private _tabConfig: TabConfig[] | null = null;
   private _openaiApiKey: string | null = null;
   private _geminiApiKey: string | null = null;
+  private _githubToken: string | null = null;
+  private _cloudflareApiToken: string | null = null;
+  private _cloudflareAccountId: string | null = null;
   private _sessionMode: string = 'default';
   private _containerAuthToken: string | null = null;
   private _sessionId: string | null = null;
@@ -172,6 +175,9 @@ export class container extends Container<Env> {
     tabConfig?: TabConfig[];
     openaiApiKey?: string;
     geminiApiKey?: string;
+    githubToken?: string;
+    cloudflareApiToken?: string;
+    cloudflareAccountId?: string;
     sessionMode?: string;
   }): Promise<void> {
     this._bucketName = name;
@@ -194,6 +200,11 @@ export class container extends Container<Env> {
     // Store LLM API keys (not persisted to DO storage — read fresh from KV each start)
     if (r2Creds?.openaiApiKey) this._openaiApiKey = r2Creds.openaiApiKey;
     if (r2Creds?.geminiApiKey) this._geminiApiKey = r2Creds.geminiApiKey;
+
+    // Store deploy credentials (not persisted — read fresh from KV each start)
+    if (r2Creds?.githubToken) this._githubToken = r2Creds.githubToken;
+    if (r2Creds?.cloudflareApiToken) this._cloudflareApiToken = r2Creds.cloudflareApiToken;
+    if (r2Creds?.cloudflareAccountId) this._cloudflareAccountId = r2Creds.cloudflareAccountId;
 
     // Store session mode (not persisted — re-sent every start, same as LLM keys)
     if (r2Creds?.sessionMode) this._sessionMode = r2Creds.sessionMode;
@@ -276,6 +287,10 @@ export class container extends Container<Env> {
       // LLM API keys (injected for consult-llm-mcp MCP server)
       ...(this._openaiApiKey && { OPENAI_API_KEY: this._openaiApiKey }),
       ...(this._geminiApiKey && { GEMINI_API_KEY: this._geminiApiKey }),
+      // Deploy credentials (GitHub + Cloudflare for push & deploy)
+      ...(this._githubToken && { GH_TOKEN: this._githubToken }),
+      ...(this._cloudflareApiToken && { CLOUDFLARE_API_TOKEN: this._cloudflareApiToken }),
+      ...(this._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: this._cloudflareAccountId }),
       // Session mode (controls memory persistence in entrypoint.sh)
       SESSION_MODE: this._sessionMode,
     };
@@ -306,7 +321,7 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, sessionMode } =
+      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, sessionMode } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
@@ -319,6 +334,9 @@ export class container extends Container<Env> {
           tabConfig?: TabConfig[];
           openaiApiKey?: string;
           geminiApiKey?: string;
+          githubToken?: string;
+          cloudflareApiToken?: string;
+          cloudflareAccountId?: string;
           sessionMode?: string;
         };
 
@@ -355,13 +373,25 @@ export class container extends Container<Env> {
           prefsChanged = true;
         }
 
-        // Always update LLM keys and session mode on restart (read fresh each start)
+        // Always update LLM keys, deploy keys, and session mode on restart (read fresh each start)
         if (openaiApiKey !== undefined) {
           this._openaiApiKey = openaiApiKey || null;
           prefsChanged = true;
         }
         if (geminiApiKey !== undefined) {
           this._geminiApiKey = geminiApiKey || null;
+          prefsChanged = true;
+        }
+        if (githubToken !== undefined) {
+          this._githubToken = githubToken || null;
+          prefsChanged = true;
+        }
+        if (cloudflareApiToken !== undefined) {
+          this._cloudflareApiToken = cloudflareApiToken || null;
+          prefsChanged = true;
+        }
+        if (cloudflareAccountId !== undefined) {
+          this._cloudflareAccountId = cloudflareAccountId || null;
           prefsChanged = true;
         }
         if (sessionMode) {
@@ -408,6 +438,9 @@ export class container extends Container<Env> {
         tabConfig,
         openaiApiKey,
         geminiApiKey,
+        githubToken,
+        cloudflareApiToken,
+        cloudflareAccountId,
         sessionMode,
       });
 
@@ -603,8 +636,15 @@ export class container extends Container<Env> {
       await this.ctx.storage.delete('tabConfig');
       this._bucketName = null;
       this._sessionId = null;
+      this._r2AccessKeyId = null;
+      this._r2SecretAccessKey = null;
+      this._containerAuthToken = null;
       this._openaiApiKey = null;
       this._geminiApiKey = null;
+      this._githubToken = null;
+      this._cloudflareApiToken = null;
+      this._cloudflareAccountId = null;
+      this._sessionMode = 'default';
       this.logger.info('Operational storage cleared');
     } catch (err) {
       this.logger.error('Failed to clear storage', err instanceof Error ? err : new Error(toErrorMessage(err)));

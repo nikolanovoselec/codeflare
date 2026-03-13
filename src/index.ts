@@ -11,6 +11,7 @@ import storageRoutes from './routes/storage';
 import presetRoutes from './routes/presets';
 import preferenceRoutes from './routes/preferences';
 import llmKeysRoutes from './routes/llm-keys';
+import deployKeysRoutes from './routes/deploy-keys';
 import publicRoutes from './routes/public/index';
 import { REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, CORS_MAX_AGE_SECONDS } from './lib/constants';
 import { AppError } from './lib/error-types';
@@ -153,6 +154,7 @@ app.route('/api/storage', storageRoutes);
 app.route('/api/presets', presetRoutes);
 app.route('/api/preferences', preferenceRoutes);
 app.route('/api/llm-keys', llmKeysRoutes);
+app.route('/api/deploy-keys', deployKeysRoutes);
 
 // 404 fallback - only for API routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

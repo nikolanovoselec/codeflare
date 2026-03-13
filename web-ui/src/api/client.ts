@@ -18,6 +18,7 @@ import {
   DeletePresetResponseSchema,
   UserPreferencesSchema,
   LlmKeysResponseSchema,
+  DeployKeysResponseSchema,
   OnboardingConfigResponseSchema,
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
@@ -293,6 +294,30 @@ export async function updateLlmKeys(keys: { openaiApiKey?: string | null; gemini
 
 export async function deleteLlmKeys(): Promise<void> {
   await fetchApi('/llm-keys', {
+    method: 'DELETE',
+  });
+}
+
+// Deploy Keys API
+export type DeployKeysResponse = z.infer<typeof DeployKeysResponseSchema>;
+
+export async function getDeployKeys(): Promise<DeployKeysResponse> {
+  return fetchApi('/deploy-keys', {}, DeployKeysResponseSchema);
+}
+
+export async function updateDeployKeys(keys: {
+  githubToken?: string | null;
+  cloudflareApiToken?: string | null;
+  cloudflareAccountId?: string | null;
+}): Promise<DeployKeysResponse> {
+  return fetchApi('/deploy-keys', {
+    method: 'PUT',
+    body: JSON.stringify(keys),
+  }, DeployKeysResponseSchema);
+}
+
+export async function deleteDeployKeys(): Promise<void> {
+  await fetchApi('/deploy-keys', {
     method: 'DELETE',
   });
 }

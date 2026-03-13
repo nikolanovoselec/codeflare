@@ -252,6 +252,19 @@ export const LlmKeysResponseSchema = z.object({
   geminiApiKey: z.string().optional(),
 });
 
+// Deploy keys response schema
+const CloudflareAccountSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
+export const DeployKeysResponseSchema = z.object({
+  githubToken: z.string().optional(),
+  cloudflareApiToken: z.string().optional(),
+  cloudflareAccountId: z.string().optional(),
+  cloudflareAccounts: z.array(CloudflareAccountSchema).optional(),
+});
+
 // Onboarding config schema (public endpoint)
 export const OnboardingConfigResponseSchema = z.object({
   active: z.boolean(),

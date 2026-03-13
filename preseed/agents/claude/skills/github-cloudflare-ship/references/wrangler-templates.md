@@ -44,11 +44,11 @@ binding = "MY_KV"
 id = "create-via-wrangler-kv-namespace-create"
 ```
 
-Create the namespace first (requires `npx wrangler login` or `CLOUDFLARE_API_TOKEN` env var):
+Create the namespace first — the agent should run this automatically when `$CLOUDFLARE_API_TOKEN` is set:
 ```bash
-npx wrangler kv namespace create MY_KV
+npx -y wrangler kv namespace create MY_KV
 ```
-Or create via Cloudflare dashboard: Workers & Pages > KV.
+Capture the namespace `id` from the output and replace the placeholder in wrangler.toml.
 
 ## Workers with R2 Bucket
 
@@ -62,11 +62,10 @@ binding = "MY_BUCKET"
 bucket_name = "my-bucket"
 ```
 
-Create the bucket first (requires Wrangler auth):
+Create the bucket first — the agent should run this automatically when `$CLOUDFLARE_API_TOKEN` is set:
 ```bash
-npx wrangler r2 bucket create my-bucket
+npx -y wrangler r2 bucket create my-bucket
 ```
-Or create via Cloudflare dashboard: R2.
 
 ## Workers with D1 Database
 
@@ -81,11 +80,11 @@ database_name = "my-database"
 database_id = "create-via-wrangler-d1-create"
 ```
 
-Create the database first (requires Wrangler auth):
+Create the database first — the agent should run this automatically when `$CLOUDFLARE_API_TOKEN` is set:
 ```bash
-npx wrangler d1 create my-database
+npx -y wrangler d1 create my-database
 ```
-Or create via Cloudflare dashboard: Workers & Pages > D1.
+Capture the `database_id` from the output and replace the placeholder in wrangler.toml.
 
 ## Workers with Durable Objects
 
@@ -137,5 +136,5 @@ ENVIRONMENT = "production"
 Sensitive values go in GitHub Secrets and are accessed via `wrangler-action`. For Workers-specific secrets, use interactive mode (never echo values):
 
 ```bash
-npx wrangler secret put SECRET_NAME
+npx -y wrangler secret put SECRET_NAME
 ```

@@ -24,6 +24,8 @@ Cloudflare Workers (live)
 
 ## Step 1: Create a Cloudflare API Token
 
+> **If you've configured Push & Deploy in Settings**, your Cloudflare API token and account ID are already available in every session. You can skip this step for direct `wrangler` deploys. You'll still need to add secrets to GitHub for CI/CD (Step 3).
+
 You need a token that lets GitHub Actions deploy Workers on your behalf.
 
 1. Go to https://dash.cloudflare.com/profile/api-tokens
@@ -42,6 +44,8 @@ You also need your **Account ID**:
 ---
 
 ## Step 2: Set Up a GitHub Repository
+
+> **If you've configured Push & Deploy in Settings**, GitHub authentication is automatic. `git push`, `gh repo create`, and the `gh` CLI all work out of the box without manual login.
 
 ### Ask your agent:
 
@@ -191,6 +195,8 @@ GitHub Actions picks up the push, runs tests, and deploys automatically.
 ## Quick Deploy (No Pipeline)
 
 For quick iterations you can deploy directly from a terminal, but the GitHub Actions pipeline above is the recommended approach since your API token stays safely in GitHub secrets and never enters your terminal session.
+
+> **If Push & Deploy is configured**, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are already set. Just run `npx wrangler deploy` - no export needed.
 
 ```bash
 export CLOUDFLARE_API_TOKEN="your-token-here"

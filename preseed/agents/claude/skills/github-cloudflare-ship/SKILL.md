@@ -1,5 +1,5 @@
 ---
-name: ship
+name: github-cloudflare-ship
 description: This skill should be used when the user wants to "ship this", "deploy this", "publish my code", "push to GitHub", "create a repo", "set up GitHub", "share my code", "put this online", "make this live", "get a URL for this", "host this", "I want people to see this", "deploy to Cloudflare", "how do I get this on the internet", "I want to share what I built", "make this accessible", "launch this", "push my changes", "create a repository", "set up version control", or mentions anything about getting their code online, shared, deployed, or published. This skill detects the current state of GitHub and Cloudflare configuration and only guides through what is missing. Use this skill proactively — if the user has finished building something and expresses any desire to share it, back it up, deploy it, or make it accessible, this is the right skill.
 version: 2.0.0
 ---
@@ -33,11 +33,15 @@ Check if the workspace has any meaningful files (not just hidden files or empty 
 - "Do you already have code somewhere, or are we starting from scratch?"
 - "Do you have an existing GitHub repository you want to clone?"
 
-If they have an existing repo, clone it with `gh repo clone <url> ~/workspace/<name>`. If they want to start from scratch, help them describe their idea and build it first (the `/cloudflare-stack` skill ensures the right tech stack). Return to `/ship` when they have code ready.
+If they have an existing repo, clone it with `gh repo clone <url> ~/workspace/<name>`. If they want to start from scratch, help them describe their idea and build it first (the `/cloudflare-stack` skill ensures the right tech stack). Return to `/github-cloudflare-ship` when they have code ready.
 
 ### Step 2: Authenticate with GitHub
 
-Run `gh auth status` to check if already logged in.
+First, check if `$GH_TOKEN` is set (pre-configured via Settings > Push & Deploy):
+- Run: `echo "${GH_TOKEN:+set}"` — if it prints "set", the token is pre-configured.
+- If set: run `gh auth status` to verify it works. If valid, tell the user: "Your GitHub account is already connected from Settings." Then check git identity and set it if missing (see below). Move to Step 3.
+
+If `$GH_TOKEN` is not set, run `gh auth status` to check if already logged in.
 
 **If authenticated:** Confirm which account is connected. Then check git identity (`git config --global user.name` and `git config --global user.email`). If both are set, move to Step 3.
 
@@ -61,8 +65,8 @@ Run `git config --global init.defaultBranch main` to ensure new repos use `main`
 
 1. Explain: "Git needs to know your name and email to label your work — like signing your name on a document."
 2. Get name: `gh api user --jq '.name'`
-3. Get the GitHub username: `gh api user --jq '.login'`. Use the noreply email format: `<username>@users.noreply.github.com`. This protects the user's private email from appearing in public commits.
-4. Set: `git config --global user.name "Name"` and `git config --global user.email "<username>@users.noreply.github.com"`.
+3. Get the GitHub user ID and username: `gh api user --jq '.id'` and `gh api user --jq '.login'`. Use the noreply email format: `<id>+<username>@users.noreply.github.com`. This protects the user's private email and ensures commits are correctly attributed on their profile.
+4. Set: `git config --global user.name "Name"` and `git config --global user.email "<id>+<username>@users.noreply.github.com"`.
 5. Confirm what was set.
 
 **Important:** Never use the user's real email for git commits. Always use the `<username>@users.noreply.github.com` format. This keeps their personal email private while still linking commits to their GitHub account.
@@ -153,13 +157,17 @@ Look for existing Cloudflare setup:
 - `gh secret list` — check for `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
 - Check if `wrangler.toml` exists
 
-**If both secrets exist and wrangler.toml exists:** Skip to Step 12 (push and deploy).
+**If both secrets exist and wrangler.toml exists:** Skip credential setup (Steps 9-10), but still evaluate wrangler.toml in Step 11 for placeholder IDs and provision resources in Step 12 if needed. Only skip directly to Step 13 if wrangler.toml has no placeholders.
 
 **If partially configured:** Skip only the completed parts.
 
 ### Step 9: Cloudflare Account and Credentials
 
-Ask the user: "Do you already have a Cloudflare account?"
+First, check if `$CLOUDFLARE_API_TOKEN` and `$CLOUDFLARE_ACCOUNT_ID` are set (pre-configured via Settings > Push & Deploy):
+- Run: `echo "${CLOUDFLARE_API_TOKEN:+set} ${CLOUDFLARE_ACCOUNT_ID:+set}"`
+- If both print "set": tell the user "Your Cloudflare account is already connected from Settings." Skip to Step 10 to store them as GitHub secrets for CI.
+
+If not pre-configured, ask the user: "Do you already have a Cloudflare account?"
 
 **If no:**
 1. Explain: "Cloudflare is where your project will run on the internet. It is free for what we need."
@@ -187,6 +195,17 @@ Ask the user: "Do you already have a Cloudflare account?"
 2. "Next to your account name, click the three dots '...' menu and select 'Copy Account ID' at the bottom."
 
 ### Step 10: Store Credentials as GitHub Secrets
+
+**If credentials are pre-configured** (from Settings > Push & Deploy):
+
+Store them as GitHub Actions secrets directly — no need to ask the user to paste anything:
+```
+printf '%s' "$CLOUDFLARE_API_TOKEN" | gh secret set CLOUDFLARE_API_TOKEN
+printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | gh secret set CLOUDFLARE_ACCOUNT_ID
+```
+Verify with `gh secret list`. Tell the user: "Your Cloudflare credentials from Settings have been stored as GitHub secrets for automated deployments." Skip to Step 11.
+
+**If credentials are NOT pre-configured:**
 
 Explain: "We are going to store your Cloudflare credentials securely in GitHub. They will never be visible in your code — GitHub encrypts them."
 
@@ -229,7 +248,7 @@ If the user chooses this:
 
 **Check if `wrangler.toml` exists:**
 
-**If it exists:** Verify `name` matches the project and the config looks correct. Move on.
+**If it exists:** Verify `name` matches the project and the config looks correct. Check for placeholder IDs like `"create-via-wrangler-d1-create"` or `"create-via-wrangler-kv-namespace-create"` — if found, real resources need to be provisioned in Step 12. Move on.
 
 **If not:**
 
@@ -237,8 +256,13 @@ If the user chooses this:
 2. Determine project type:
    - If `src/index.ts` or `src/index.js` exists, or `package.json` has a `main` field → Workers project
    - If only HTML/CSS/JS files → static site. Use Workers Assets with `[assets] directory = "./public"`. If HTML files are in the root, move them to `public/` first. **Never use `directory = "./"` — it would expose config files publicly.**
-3. Create `wrangler.toml` from `references/wrangler-templates.md`. **Replace `my-project` with the actual project name** (repo name or directory name, lowercased and hyphenated). Set `compatibility_date` to the first of the current month.
-4. If it is a Workers project and the entry file does not exist, create a minimal worker entry point from the templates.
+3. **Scan source code for Cloudflare service bindings.** Look in the entry file and imported modules for:
+   - `env.DB` or `.prepare()`, `.exec()`, `.batch()` patterns → D1 database
+   - `env.*.put()`, `env.*.get()` with R2 method signatures (`.writeHttpMetadata`, multipart) → R2 bucket
+   - `env.*.put()`, `env.*.get()` with simple string key/value patterns → KV namespace
+   - Classes extending `DurableObject` or `env.*.idFromName()` → Durable Objects
+4. Create `wrangler.toml` from `references/wrangler-templates.md`. **Replace `my-project` with the actual project name** (repo name or directory name, lowercased and hyphenated). Set `compatibility_date` to the first of the current month. **Include binding declarations** for any detected services — use the appropriate template from `references/wrangler-templates.md`.
+5. If it is a Workers project and the entry file does not exist, create a minimal worker entry point from the templates.
 
 **Check if the workflow has a deploy step:**
 
@@ -255,9 +279,64 @@ Look at `.github/workflows/ci.yml` for `cloudflare/wrangler-action`.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 ```
 
-- **If no workflow exists:** Create `.github/workflows/ci.yml` using the deploy workflow template from `references/wrangler-templates.md`.
+- **If no workflow exists:** Create `.github/workflows/ci.yml` using the deploy workflow template from `references/workflow-templates.md`.
 
-### Step 12: Push and Deploy
+If the project uses D1 and has a schema file (`schema.sql`, `migrations/*.sql`), add a `preCommands` field to the wrangler-action step so migrations run before each deploy:
+
+```yaml
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          preCommands: wrangler d1 execute <db-name> --remote --file=schema.sql
+```
+
+### Step 12: Provision Cloudflare Resources
+
+Check if the project uses D1, R2, or KV by examining `wrangler.toml` for binding declarations (`[[d1_databases]]`, `[[r2_buckets]]`, `[[kv_namespaces]]`).
+
+**If no bindings detected:** Skip to Step 13.
+
+**If bindings are detected:**
+
+Check if `$CLOUDFLARE_API_TOKEN` and `$CLOUDFLARE_ACCOUNT_ID` are available (pre-configured via Settings > Push & Deploy, or exported manually):
+
+**If available — automated provisioning:**
+
+For each detected service, create the resource and update `wrangler.toml` with real IDs:
+
+**D1 Database:**
+1. Check if the database already exists: `npx -y wrangler d1 list 2>/dev/null | grep <database-name>` — if found, capture its ID and skip creation.
+2. If not found: `npx -y wrangler d1 create <database-name>` — capture the `database_id` from the output.
+3. Update `wrangler.toml` with the real `database_id` (replace the placeholder).
+4. If schema files exist (e.g., `schema.sql`, `migrations/*.sql`): Apply the schema now only if the CI workflow does NOT already have a `preCommands` step that does the same thing. If CI handles migrations, skip local execution to avoid duplicate `CREATE TABLE` errors. If this is the first deploy and CI is not yet configured, run: `npx -y wrangler d1 execute <database-name> --remote --file=schema.sql`. Tell the user: "Database created and schema applied."
+
+**R2 Bucket:**
+1. `npx -y wrangler r2 bucket create <bucket-name>` — creating an existing bucket is a no-op, so no need to check first.
+2. Tell the user: "Storage bucket ready."
+
+**KV Namespace:**
+1. Check if it exists: `npx -y wrangler kv namespace list 2>/dev/null | grep <binding-name>` — if found, capture its ID.
+2. If not found: `npx -y wrangler kv namespace create <binding-name>` — capture the namespace `id` from the output.
+3. Update `wrangler.toml` with the real namespace `id` (replace the placeholder).
+
+**Durable Objects:**
+No provisioning needed. Wrangler creates and migrates Durable Objects automatically during deploy. Verify `[[durable_objects.bindings]]` and `[[migrations]]` sections are present in `wrangler.toml`.
+
+Tell the user what was created: "I set up your [database/bucket/namespace] — everything is ready for deployment."
+
+**If NOT available — get the credentials, then provision automatically:**
+
+Do not ask the user to create resources manually. Get the credentials first, then run the provisioning commands yourself:
+
+1. Tell the user: "Your project uses [D1/R2/KV]. I need your Cloudflare credentials to set these up."
+2. Offer two options:
+   - "Go to Settings > Push & Deploy and connect your Cloudflare account. Then start a new session and run /github-cloudflare-ship again." (persistent, recommended)
+   - "Or paste your token and account ID in a terminal tab." The safest option for commands involving secrets is for the user to run them manually in a separate terminal tab — this avoids secrets appearing in the AI conversation history. Give the user the exact `export` commands to paste: `export CLOUDFLARE_API_TOKEN='...'` and `export CLOUDFLARE_ACCOUNT_ID='...'`. Once set, run the provisioning commands in that same tab.
+3. Once credentials are available, run the automated provisioning steps — never ask the user to create resources in the dashboard.
+
+### Step 13: Push and Deploy
 
 1. Check for sensitive files before staging. If found, add to `.gitignore`.
 2. `git add -A`
@@ -267,10 +346,10 @@ Look at `.github/workflows/ci.yml` for `cloudflare/wrangler-action`.
 6. Get the run ID: `RUN_ID=$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')`
 7. Poll until complete (do NOT use `gh run watch` — it can exceed the Bash timeout): `gh run view $RUN_ID --json status,conclusion --jq '[.status, .conclusion] | join(" ")'`. Check every 15 seconds until status is `completed`. Use `run_in_background` for the polling loop if needed.
 
-### Step 13: Verify and Celebrate
+### Step 14: Verify and Celebrate
 
 1. When the workflow completes, get the run logs: `gh run view $RUN_ID --log` — look for the `.workers.dev` URL that wrangler prints on successful deploy.
-2. **If the URL is not found in logs:** Construct it from the `name` field in `wrangler.toml`: `https://<name>.<account-subdomain>.workers.dev`. If still unsure, tell the user to check their Cloudflare dashboard under Workers & Pages.
+2. **If the URL is not found in logs:** If `$CLOUDFLARE_API_TOKEN` is available, run `npx -y wrangler deployments list` to find the URL. If still not found, tell the user: "Your deployment finished successfully. You can find your live URL in the Cloudflare dashboard under Workers & Pages." Do not fabricate a URL — the account subdomain is not known.
 3. Tell the user: "Your project is live! Anyone can visit it at: <URL>"
 4. Tell them: "From now on, every time you want to update your live site, just tell me to push your changes. The deployment happens automatically."
 
@@ -279,8 +358,11 @@ Look at `.github/workflows/ci.yml` for `cloudflare/wrangler-action`.
 1. Check: `gh run view $RUN_ID --log-failed`
 2. Explain what went wrong simply.
 3. Common failures:
-   - **Permission/auth error:** Wrong API token template. Walk user through creating a new token with "Edit Cloudflare Workers" template. Re-store in GitHub secrets.
+   - **Permission/auth error:** Wrong API token or missing scopes. If the user configured credentials in Settings > Push & Deploy, the token may lack specific scopes (e.g., D1, R2). Tell the user to create a new token with broader permissions or add the missing scopes in the Cloudflare dashboard.
    - **Workers TOS not accepted:** First-time Workers users may need to visit https://dash.cloudflare.com/ → "Workers & Pages" and accept the terms of service before deployments work. Tell the user: "Open your Cloudflare dashboard, click 'Workers & Pages', and accept any terms that appear. Then I will retry the deployment."
+   - **D1 database not found:** The `database_id` in `wrangler.toml` is a placeholder or points to a non-existent database. Run `npx -y wrangler d1 create <name>` to create it and update the ID. If `$CLOUDFLARE_API_TOKEN` is available, do this automatically. If not, guide the user.
+   - **R2 bucket not found:** The `bucket_name` in `wrangler.toml` references a bucket that does not exist. Run `npx -y wrangler r2 bucket create <name>`.
+   - **KV namespace not found:** The `id` in `[[kv_namespaces]]` is a placeholder. Run `npx -y wrangler kv namespace create <name>` and update the ID.
    - **Script/Worker not found:** Check `wrangler.toml` points to the correct entry file.
    - **Test failure:** Check if test script is the default placeholder. If so, remove the test step from the workflow.
 4. Fix and push again.
@@ -303,11 +385,21 @@ Tell the user: "Go to your Cloudflare dashboard → Workers & Pages → click on
 **Option B: Terminal tab (if user has their API token handy):**
 Tell the user to open a second terminal tab and run:
 ```
-CLOUDFLARE_API_TOKEN="<their-token>" CLOUDFLARE_ACCOUNT_ID="<their-account-id>" npx wrangler delete <project-name> --force
+CLOUDFLARE_API_TOKEN="<their-token>" CLOUDFLARE_ACCOUNT_ID="<their-account-id>" npx -y wrangler delete <project-name> --force
 ```
 Get the account ID from `wrangler.toml` if available.
 
 Confirm: "Your site has been taken offline."
+
+### Step 2b: Delete Provisioned Resources
+
+Check `wrangler.toml` for Cloudflare resource bindings. If `$CLOUDFLARE_API_TOKEN` is available, delete them automatically:
+
+- **D1:** `npx -y wrangler d1 delete <database-name>` for each `[[d1_databases]]` entry
+- **R2:** `npx -y wrangler r2 bucket delete <bucket-name>` for each `[[r2_buckets]]` entry (warn that this deletes all stored data)
+- **KV:** `npx -y wrangler kv namespace delete --namespace-id=<id>` for each `[[kv_namespaces]]` entry
+
+If credentials are not available, warn the user: "Your D1 databases, R2 buckets, and KV namespaces still exist on your Cloudflare account. You can delete them from the Cloudflare dashboard to avoid leftover resources."
 
 ### Step 3: Delete the GitHub Repository
 
@@ -331,8 +423,9 @@ Confirm: "All cleaned up. The project is completely gone."
 - Celebrate small wins: "Done! GitHub is connected.", "Almost there!", "Your site is live!"
 - The moment the user has a working URL is the big moment — make it feel like one.
 - If something fails, explain simply and fix it. Never blame the user.
-- Never ask the user to type commands — do everything for them and explain what happened.
+- Never ask the user to type commands — do everything for them and explain what happened. The only exception is commands involving secrets (API tokens, passwords) — for those, give the user the exact command to paste in a separate terminal tab to keep secrets out of chat history.
 - When asking the user to do something in their browser, be extremely specific about what to click and what they will see.
+- **When asking the user a question or offering choices, always use the AskUserQuestion tool** (the ask dialog). Present options with clear descriptions and mark the recommended option. Never ask freeform text questions — always present structured choices with explanations so the user can pick without needing to understand the technical details. For example, when asking about repo name, privacy, or credential setup method, use the ask dialog with a recommended default.
 
 ## Additional Resources
 

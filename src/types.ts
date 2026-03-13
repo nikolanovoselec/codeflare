@@ -149,6 +149,15 @@ export interface LlmKeys {
   geminiApiKey?: string;
 }
 
+/**
+ * User-scoped deploy credentials stored in KV
+ */
+export interface DeployKeys {
+  githubToken?: string;
+  cloudflareApiToken?: string;
+  cloudflareAccountId?: string;
+}
+
 export interface StorageObject {
   key: string;
   size: number;

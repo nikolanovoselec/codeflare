@@ -562,6 +562,82 @@
   color: var(--color-text-dimmed);
 }
 
+/* Deploy Keys Section */
+.deploy-instructions {
+  margin-bottom: var(--space-3);
+}
+
+.deploy-instructions ol {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.deploy-instructions ol li {
+  margin-bottom: var(--space-1);
+}
+
+.deploy-connected-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.deploy-masked-token {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.deploy-account-id {
+  font-size: var(--text-xs);
+  color: var(--color-text-dimmed);
+  font-family: var(--font-mono);
+}
+
+.deploy-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  margin-left: auto;
+}
+
+.deploy-status--connected {
+  color: var(--color-success, #22c55e);
+}
+
+.deploy-account-select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.deploy-account-select label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.deploy-account-dropdown {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+}
+
+.deploy-account-dropdown:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--glow-accent);
+}
+
 /* ======================================
    Mobile: fullscreen settings panel
    ====================================== */

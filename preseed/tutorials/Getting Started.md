@@ -47,4 +47,6 @@ Three paths. Pick whichever matches your personality:
 2. **Read the Documentation** - architecture, sync internals, terminal features, troubleshooting. It's thorough.
 3. **Just wing it** - create a session, clone something, and tell your agent what you want. Worst case, you lose an ephemeral container. Best case, you ship before lunch.
 
+**Shipping soon?** Configure Push & Deploy in Settings to connect your GitHub and Cloudflare accounts. Do it once, and every session starts pre-authenticated - `git push`, `wrangler deploy`, and the `gh` CLI just work.
+
 Examples and docs are in the `tutorials/` folder, or browse them in the R2 File Browser on the Dashboard.

@@ -6,7 +6,7 @@ import { createMockKV } from '../helpers/mock-kv';
 const testState = vi.hoisted(() => ({
   createBucketResult: { success: true, created: false } as { success: boolean; created?: boolean; error?: string },
   seedResult: { written: ['Getting-Started.md', 'Documentation/README.md'], skipped: [] as string[] },
-  agentSeedResult: { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'], skipped: [] as string[] },
+  agentSeedResult: { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/github-cloudflare-ship/SKILL.md'], skipped: [] as string[] },
 }));
 
 vi.mock('../../lib/r2-admin', () => ({
@@ -35,7 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   testState.createBucketResult = { success: true, created: false };
   testState.seedResult = { written: ['Getting-Started.md', 'Documentation/README.md'], skipped: [] };
-  testState.agentSeedResult = { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'], skipped: [] };
+  testState.agentSeedResult = { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/github-cloudflare-ship/SKILL.md'], skipped: [] };
 });
 
 describe('Storage Seed Routes', () => {
@@ -138,7 +138,7 @@ describe('Agent Config Seed Routes', () => {
 
     expect(body.success).toBe(true);
     expect(body.bucketCreated).toBe(false);
-    expect(body.written).toEqual(['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md']);
+    expect(body.written).toEqual(['.claude/rules/cloudflare-environment.md', '.claude/skills/github-cloudflare-ship/SKILL.md']);
     expect(createBucketIfNotExists).toHaveBeenCalledWith('test-account', 'test-token', 'my-bucket');
     expect(reconcileAgentConfigs).toHaveBeenCalledWith(
       expect.any(Object),

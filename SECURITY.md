@@ -107,6 +107,26 @@ Enabled at the repository level (Settings > Code security and analysis):
 - **Auth on connect:** WebSocket connections go through the same CF Access auth middleware as HTTP requests.
 - **Container-scoped tokens:** WebSocket traffic proxied to containers includes the DO-scoped `Authorization: Bearer` token.
 
+### Push & Deploy Credentials
+
+Users can connect their GitHub and Cloudflare accounts via Settings > Push & Deploy. Tokens are stored and injected into container sessions as environment variables.
+
+**Storage:**
+- Tokens are stored in Cloudflare KV, encrypted at rest with AES-256-GCM.
+- Tokens are validated against provider APIs (GitHub, Cloudflare) before storage. Invalid or revoked tokens are rejected.
+
+**Injection:**
+- Tokens are injected as environment variables at container startup: `GH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+- Container isolation ensures tokens are per-user. A user's tokens are only injected into their own sessions.
+
+**Token scope and expiry:**
+- GitHub tokens are fine-grained PATs with scoped repository access and 90-day expiry.
+- Cloudflare API tokens follow the same scoping principle as the deployment token (minimum required permissions).
+
+**Access control:**
+- Tokens are only accessible to the authenticated user who stored them. KV keys are scoped by user identity.
+- The admin API token (`CLOUDFLARE_API_TOKEN` used by the Worker itself) remains separate and is never injected into containers.
+
 ### Automated Penetration Testing
 
 A weekly CI workflow (`pentest.yml`) runs external black-box security tests against the production deployment, validating security headers, TLS, auth gates, info disclosure, injection resistance, and HTTP methods. Run manually via `Actions` > `Pentest` > `Run workflow`. See [PENTEST.md](PENTEST.md) for the complete report covering all 13 test categories.

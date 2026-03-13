@@ -30,7 +30,7 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
           modes: ['default', 'advanced'],
         },
         {
-          key: '.claude/skills/ship/SKILL.md',
+          key: '.claude/skills/github-cloudflare-ship/SKILL.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Ship Skill',
           modes: ['default', 'advanced'],
@@ -156,7 +156,7 @@ describe('seedAgentConfigs', () => {
         modes: ['default', 'advanced'],
       },
       {
-        key: '.claude/skills/ship/SKILL.md',
+        key: '.claude/skills/github-cloudflare-ship/SKILL.md',
         contentType: 'text/markdown; charset=utf-8',
         content: '# Ship Skill',
         modes: ['default', 'advanced'],
@@ -177,7 +177,7 @@ describe('seedAgentConfigs', () => {
       { overwrite: false }
     );
 
-    expect(result.written).toEqual(['.claude/skills/ship/SKILL.md']);
+    expect(result.written).toEqual(['.claude/skills/github-cloudflare-ship/SKILL.md']);
     expect(result.skipped).toEqual(['.claude/rules/cloudflare-environment.md']);
 
     const calls = mockFetch.mock.calls.map((call) => ({
@@ -191,11 +191,11 @@ describe('seedAgentConfigs', () => {
         method: 'HEAD',
       },
       {
-        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/skills/ship/SKILL.md',
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/skills/github-cloudflare-ship/SKILL.md',
         method: 'HEAD',
       },
       {
-        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/skills/ship/SKILL.md',
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/skills/github-cloudflare-ship/SKILL.md',
         method: 'PUT',
       },
     ]);
@@ -215,7 +215,7 @@ describe('seedAgentConfigs', () => {
 
     expect(result.written).toEqual([
       '.claude/rules/cloudflare-environment.md',
-      '.claude/skills/ship/SKILL.md',
+      '.claude/skills/github-cloudflare-ship/SKILL.md',
     ]);
     expect(result.skipped).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(2);

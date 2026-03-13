@@ -6,7 +6,7 @@ version: 1.0.0
 
 # Cloudflare Stack: Build for Deployment
 
-This skill ensures that every new project built in Codeflare uses a technology stack that is compatible with Cloudflare Workers, so the user can deploy it with `/ship` when ready.
+This skill ensures that every new project built in Codeflare uses a technology stack that is compatible with Cloudflare Workers, so the user can deploy it with `/github-cloudflare-ship` when ready.
 
 ## Target Audience
 
@@ -116,7 +116,7 @@ If the user describes something that would typically require an unsupported tech
 
 **Always create a new project directory** inside `~/workspace/`. Never build directly in the workspace root — it may contain other projects or files that would get mixed in. Use the project name as the directory name (lowercased, hyphenated).
 
-Example: If the user wants to build a meme site, create `~/workspace/meme-site/` and build everything inside it. Then `cd` into it before handing off to `/ship`.
+Example: If the user wants to build a meme site, create `~/workspace/meme-site/` and build everything inside it. Then `cd` into it before handing off to `/github-cloudflare-ship`.
 
 ### Static site (most common)
 ```
@@ -125,7 +125,7 @@ Example: If the user wants to build a meme site, create `~/workspace/meme-site/`
     index.html
     styles.css
     script.js
-  wrangler.toml        (created by /ship)
+  wrangler.toml        (created by /github-cloudflare-ship)
 ```
 
 ### Workers API
@@ -134,7 +134,7 @@ Example: If the user wants to build a meme site, create `~/workspace/meme-site/`
   src/
     index.ts           (or index.js)
   package.json
-  wrangler.toml        (created by /ship)
+  wrangler.toml        (created by /github-cloudflare-ship)
 ```
 
 ### Full-stack (static + API)
@@ -147,7 +147,7 @@ Example: If the user wants to build a meme site, create `~/workspace/meme-site/`
   src/
     index.ts           (Workers API that also serves static files)
   package.json
-  wrangler.toml        (created by /ship)
+  wrangler.toml        (created by /github-cloudflare-ship)
 ```
 
 ## Step 3: After Building — Ask About Publishing
@@ -158,7 +158,7 @@ Once the project is built and working, **always ask the user what they want to d
 - **"Put it online"** — so anyone with the link can see it
 - **"Keep it for myself"** — just download it or keep working on it
 
-**If they want to put it online:** Tell them "Let me set that up for you." Make sure the current working directory is the project directory (e.g., `~/workspace/my-project/`), then invoke the `/ship` skill. This will guide them through GitHub setup (version control + CI) first, then Cloudflare deployment. The order matters — GitHub/CI must be configured before deployment.
+**If they want to put it online:** Tell them "Let me set that up for you." Make sure the current working directory is the project directory (e.g., `~/workspace/my-project/`), then invoke the `/github-cloudflare-ship` skill. This will guide them through GitHub setup (version control + CI) first, then Cloudflare deployment. The order matters — GitHub/CI must be configured before deployment.
 
 **If they want to keep it:** Tell them "Your project is saved here and you can keep working on it anytime. If you want to download the files, you can use the Storage panel. Whenever you are ready to put it online, just tell me to ship it."
 
@@ -167,10 +167,10 @@ Once the project is built and working, **always ask the user what they want to d
 1. User describes their idea → **Step 1: Discovery** — understand requirements, steer toward Cloudflare-achievable scope
 2. Agent confirms requirements with user → **Step 2: Build** — using Cloudflare-compatible technologies
 3. Agent asks if user wants to publish → **Step 3: Post-build** — "put it online or keep it?"
-4. If online → **/ship** handles GitHub CI setup first, then Cloudflare deployment
+4. If online → **/github-cloudflare-ship** handles GitHub CI setup first, then Cloudflare deployment
 5. Result: a live `.workers.dev` URL
 
-This skill owns the entire pre-build and build phase. `/ship` owns the infrastructure and deployment phase.
+This skill owns the entire pre-build and build phase. `/github-cloudflare-ship` owns the infrastructure and deployment phase — including automatically creating D1 databases, R2 buckets, and KV namespaces when the project uses them. If the user has connected their Cloudflare account in Settings > Push & Deploy, `/github-cloudflare-ship` provisions these resources without any manual steps.
 
 ## Communication Style
 

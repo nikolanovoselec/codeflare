@@ -940,6 +940,12 @@ else
 fi
 echo "[entrypoint] codeflare-memory and codeflare-hooks plugins enabled in .claude.json"
 
+# Configure git credential helper for pre-configured deploy tokens
+if [ -n "${GH_TOKEN:-}" ]; then
+    git config --global credential.helper '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
+    echo "[entrypoint] Git credential helper configured for GH_TOKEN"
+fi
+
 # === Fast Start: tool-specific config files ===
 if [ "${FAST_CLI_START:-true}" != "false" ]; then
     # Gemini: merge enableAutoUpdate:false into settings (file may be synced via rclone)

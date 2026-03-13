@@ -7,7 +7,7 @@
  */
 import type { Env, Session } from '../types';
 import { getBucketName } from './access';
-import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey } from './kv-keys';
+import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -68,6 +68,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
     env.KV.delete(getPresetsKey(bucketName)),
     env.KV.delete(getPreferencesKey(bucketName)),
     env.KV.delete(getLlmKeysKey(bucketName)),
+    env.KV.delete(getDeployKeysKey(bucketName)),
   ]);
 
   // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---

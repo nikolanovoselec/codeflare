@@ -43,7 +43,7 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
           modes: ['advanced'] as ('default' | 'advanced')[],
         },
         {
-          key: '.codex/skills/ship/SKILL.md',
+          key: '.codex/skills/github-cloudflare-ship/SKILL.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Ship',
           modes: ['default', 'advanced'] as ('default' | 'advanced')[],
@@ -90,7 +90,7 @@ describe('getConfigsForMode', () => {
     const keys = docs.map((d) => d.key);
     expect(keys).toContain('.claude/rules/common.md');
     expect(keys).toContain('.codex/AGENTS.md');
-    expect(keys).toContain('.codex/skills/ship/SKILL.md');
+    expect(keys).toContain('.codex/skills/github-cloudflare-ship/SKILL.md');
   });
 
   it('returns all documents for "advanced"', () => {
