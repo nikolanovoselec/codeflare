@@ -57,6 +57,29 @@ describe('bisync --ignore-checksum flag', () => {
 });
 
 // ============================================================================
+// Test: --s3-upload-cutoff 0 to force multipart (prevents BadDigest TOCTOU race)
+// ============================================================================
+describe('bisync --s3-upload-cutoff 0 flag', () => {
+  it('establish_bisync_baseline() includes --s3-upload-cutoff 0', () => {
+    const body = extractFunction('establish_bisync_baseline');
+    assert.ok(body, 'establish_bisync_baseline function should exist');
+    assert.ok(
+      body.includes('--s3-upload-cutoff 0'),
+      'establish_bisync_baseline should force multipart uploads to prevent BadDigest on actively-written files'
+    );
+  });
+
+  it('bisync_with_r2() includes --s3-upload-cutoff 0', () => {
+    const body = extractFunction('bisync_with_r2');
+    assert.ok(body, 'bisync_with_r2 function should exist');
+    assert.ok(
+      body.includes('--s3-upload-cutoff 0'),
+      'bisync_with_r2 should force multipart uploads to prevent BadDigest on actively-written files'
+    );
+  });
+});
+
+// ============================================================================
 // Test: startup ordering — file modifications before bisync baseline
 // ============================================================================
 describe('startup ordering: file modifications before bisync baseline', () => {
