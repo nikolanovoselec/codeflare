@@ -51,10 +51,10 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 26. [Automatic Memory Capture](#automatic-memory-capture)
 
 **Related Documentation:**
-- [README.md](/home/user/workspace/codeflare/README.md) - Product overview and setup
-- [SECURITY.md](/home/user/workspace/codeflare/SECURITY.md) - Security policy and headers
-- [docs/SETUP_WIZARD.md](/home/user/workspace/codeflare/docs/SETUP_WIZARD.md) - Setup wizard configuration
-- [STRESS_TEST.md](/home/user/workspace/codeflare/STRESS_TEST.md) - Load testing guide
+- [README.md](README.md) - Product overview and setup
+- [SECURITY.md](SECURITY.md) - Security policy and headers
+- [docs/SETUP_WIZARD.md](docs/SETUP_WIZARD.md) - Setup wizard configuration
+- [STRESS_TEST.md](STRESS_TEST.md) - Load testing guide
 
 ---
 
@@ -986,7 +986,7 @@ Base image: Node.js 24 Debian (bookworm-slim).
 | Category | Packages |
 |----------|----------|
 | Sync | rclone |
-| Version Control | git, github-cli (gh), lazygit (v0.59.0) |
+| Version Control | git, github-cli (gh), lazygit (v0.60.0) |
 | Editors | vim (symlinked to neovim), neovim, nano |
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |

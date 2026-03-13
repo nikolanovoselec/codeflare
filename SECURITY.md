@@ -61,19 +61,9 @@ Every response from the worker includes the following security headers:
 - **Container auth tokens:** Each container DO lifecycle generates a random UUID (`crypto.randomUUID()`) injected into all proxied requests. The terminal server validates this token on every non-exempt path.
 - **No admin credential passthrough:** The admin API token (`CLOUDFLARE_API_TOKEN`) never enters containers. R2 credentials injected into containers are per-user scoped tokens with bucket-level permission boundaries.
 
-### Protected Paths
+### Storage Isolation
 
-The following paths are protected from file operations within containers:
-
-```
-.claude/
-.anthropic/
-.ssh/
-.config/
-.claude.json
-```
-
-These paths are defined in `src/lib/constants.ts` as `PROTECTED_PATHS` and are enforced by storage route handlers.
+The `PROTECTED_PATHS` array in `src/lib/constants.ts` is deliberately empty. Each user's storage is bucket-scoped (isolated per user via sanitized email-derived bucket names), and users already have unrestricted terminal access to the same files inside their container. Path-level restrictions within a user's own bucket would add complexity without meaningful security benefit.
 
 ### Supply Chain Security
 
