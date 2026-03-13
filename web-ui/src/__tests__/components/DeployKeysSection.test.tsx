@@ -10,15 +10,11 @@ mockGetDeployKeys.mockResolvedValue({});
 mockUpdateDeployKeys.mockResolvedValue({});
 mockDeleteDeployKeys.mockResolvedValue(undefined);
 
-vi.mock('../../api/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../api/client')>();
-  return {
-    ...actual,
-    getDeployKeys: (...args: unknown[]) => mockGetDeployKeys(...args),
-    updateDeployKeys: (body: unknown) => mockUpdateDeployKeys(body),
-    deleteDeployKeys: (...args: unknown[]) => mockDeleteDeployKeys(...args),
-  };
-});
+vi.mock('../../api/client', () => ({
+  getDeployKeys: (...args: unknown[]) => mockGetDeployKeys(...args),
+  updateDeployKeys: (body: unknown) => mockUpdateDeployKeys(body),
+  deleteDeployKeys: (...args: unknown[]) => mockDeleteDeployKeys(...args),
+}));
 
 // Mock window.open
 const mockWindowOpen = vi.fn();
