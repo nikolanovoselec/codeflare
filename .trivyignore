@@ -96,3 +96,11 @@ CVE-2025-69534
 CVE-2025-8194
 # email header injection via unquoted newlines
 CVE-2026-1299
+
+# systemd 252.39 (libsystemd0, libudev1): privilege escalation via RegisterMachine D-Bus method
+# Container doesn't use machined/RegisterMachine; no fix available in bookworm.
+CVE-2026-4105
+
+# openssh-client 9.2p1: GSSAPI information disclosure / DoS
+# Container uses SSH only for git clone over SSH (not GSSAPI); no fix in bookworm.
+CVE-2026-3497
