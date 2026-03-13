@@ -1820,6 +1820,20 @@ Fixes 9-12 introduced three overlapping scroll-correction mechanisms that fought
 
 7. **Reduced scrollback** from 10,000 to 400 lines (both frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`), so xterm's scrollback buffer is the only history cap.
 
+#### Scroll Position Restoration (Fix 14)
+
+Fix 13 only corrected the "was following output → snapped to 0 → restore to bottom" case. Users who scrolled up to read history were still vulnerable: the browser focus-reset bug snapped them to `ydisp === 0` and nothing corrected it because `wasFollowing` was false.
+
+**Fix 14 changes:**
+
+1. **Added `previousYdisp` tracking** — records the last known scroll position before each `onScroll` event.
+
+2. **Expanded correction to cover scrolled-up users** — when `ydisp === 0` and `previousYdisp > 0` (regardless of `wasFollowing`), the detector now fires. If the user was following output, restores to bottom. If the user was scrolled up, restores to `previousYdisp` via `scrollLines()`.
+
+3. **Clamped restore position** — `Math.min(previousYdisp, ybase)` prevents restoring past the end of the buffer after scrollback trimming.
+
+4. **Removed `wasFollowing` as a gate** — replaced with `previousYdisp > 0` as the primary guard. This still prevents false-positives when the user is genuinely at line 0.
+
 #### WS Retryable Close Codes (Fix 5)
 
 The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.

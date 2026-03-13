@@ -236,6 +236,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // causing the very jump it was meant to prevent.
     {
       let wasFollowingOutput = true;
+      let previousYdisp = 0;
       let lastUserScrollIntentAt = 0;
       let isCorrectingScroll = false;
       const USER_SCROLL_GRACE_MS = 150;
@@ -275,26 +276,40 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         );
         const recentUserIntent = recentLocalIntent || recentExternalIntent;
 
-        // Only correct the specific browser focus-reset signature: ydisp snaps to 0
-        // while user was following output. Any other ydisp value is either a
-        // legitimate scroll action or xterm's native scrollback trimming.
+        // Fix 14: Detect browser focus-reset signature (ydisp snaps to 0) and correct.
+        // Two cases:
+        //   1. User was following output (at bottom) → restore to bottom
+        //   2. User was scrolled up (reading history) → restore to previous position
+        // The browser focus-validation bug ALWAYS snaps to ydisp === 0 regardless
+        // of where the user was. Without case 2, users who scroll up to read get
+        // stuck at the top on every output.
         if (
           !recentUserIntent &&
           ybase > 5 &&
-          wasFollowing &&
-          ydisp === 0
+          ydisp === 0 &&
+          previousYdisp > 0
         ) {
           isCorrectingScroll = true;
+          const restoreToBottom = wasFollowing;
+          // Clamp previousYdisp to current ybase (scrollback may have trimmed lines)
+          const restorePosition = Math.min(previousYdisp, ybase);
           queueMicrotask(() => {
             try {
               if (t.buffer.active.viewportY === 0 && t.buffer.active.baseY > 0) {
-                t.scrollToBottom();
+                if (restoreToBottom) {
+                  t.scrollToBottom();
+                } else {
+                  t.scrollLines(restorePosition);
+                }
               }
             } finally {
               isCorrectingScroll = false;
             }
           });
         }
+
+        // Track position for restoration (skip when correcting to avoid overwriting)
+        previousYdisp = ydisp;
       });
     }
 
