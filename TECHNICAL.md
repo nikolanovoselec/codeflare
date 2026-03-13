@@ -169,11 +169,11 @@ sequenceDiagram
 
 ### Terminal Server (node-pty)
 
-**File:** `host/server.ts` - Node.js/TypeScript server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
+**File:** `host/src/server.ts` - Node.js/TypeScript server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
 Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (WebSocket connection state: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`) for hibernation decisions via `GET /activity`.
 
-**Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. Paths called via `getTcpPort().fetch()` (which bypasses the DO's `fetch()` override that injects the auth header) must be in the `authExemptPaths` Set at `host/server.ts`: `['/health', '/activity']`. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
+**Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. Paths called via `getTcpPort().fetch()` (which bypasses the DO's `fetch()` override that injects the auth header) must be in the `authExemptPaths` Set at `host/src/server.ts`: `['/health', '/activity']`. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
 
 **`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null }`. Used by both `collectMetrics()` (keepalive heartbeat) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected).
 
@@ -613,7 +613,7 @@ The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO
 
 ### Container Auth Token
 
-A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/server.ts`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
+A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/src/server.ts`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
 
 ### Dual R2 Credential Architecture
 
@@ -691,9 +691,12 @@ When the limit is exceeded: HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: 
 | `/api/sessions` | POST | 10/min | `session-create` |
 | `/api/container/start` | POST | 10/min | `container-start` |
 | `/api/users/:email` | DELETE | 20/min | `user-mutation` |
-| `/api/setup/detect-token` | POST | 5/min | `setup` |
-| `/api/setup/prefill` | POST | 5/min | `setup` |
-| `/api/setup/configure` | POST | 5/min | `setup` |
+| `/api/setup/status` | GET | 30/min | `setup-status` |
+| `/api/setup/detect-token` | GET | 5/min | `setup-configure` |
+| `/api/setup/prefill` | GET | 5/min | `setup-configure` |
+| `/api/setup/configure` | POST | 5/min | `setup-configure` |
+| `PATCH /api/preferences` | PATCH | 20/min | `preferences-patch` |
+| `POST /public/waitlist` | POST | 5/min | `waitlist-submit` |
 
 **Adding a new rate limiter:**
 
@@ -806,6 +809,8 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/user` | Authenticated user info (includes `onboardingActive`) |
+| GET | `/api/user/r2-status` | R2 credential status for current user |
+| POST | `/api/user/ensure-r2-token` | Create scoped R2 token if missing (rate limited) |
 | GET | `/api/users` | List allowed users (admin only) |
 | DELETE | `/api/users/:email` | Remove allowed user (admin only) |
 
@@ -840,6 +845,7 @@ See [docs/SETUP_WIZARD.md](/home/user/workspace/codeflare/docs/SETUP_WIZARD.md) 
 | GET | `/api/storage/preview` | Preview file content |
 | GET | `/api/storage/stats` | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
 | POST | `/api/storage/seed/getting-started` | Seed tutorial docs |
+| POST | `/api/storage/seed/agent-configs` | Recreate AI agent skills & rules (overwrites, respects session mode) |
 | POST | `/api/storage/upload/initiate` | Initiate multipart upload |
 | POST | `/api/storage/upload/part` | Upload a single part (base64 body) |
 | POST | `/api/storage/upload/complete` | Complete multipart upload |
@@ -988,7 +994,7 @@ Base image: Node.js 24 Debian (bookworm-slim).
 
 ### Global NPM Packages
 
-Versions are pinned in the Dockerfile and updated periodically (`.cache-bust` layer invalidation triggers fresh installs on each deploy). The Dockerfile is the source of truth for version pins - versions listed below are approximate and may drift between documentation updates.
+Non-CU packages install with `@latest` — each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). CU is pinned to a git commit hash. The Dockerfile is the source of truth — versions listed below are approximate and may drift between deploys.
 
 | Package | Version | Provides |
 |---------|---------|----------|
@@ -1042,7 +1048,7 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 5 AI tools, el
 
 | Tool | Disable Mechanism | Type |
 |------|------------------|------|
-| Claude Code (claude-unleashed) | `CLAUDE_UNLEASHED_NO_UPDATE=1`, `CLAUDE_UNLEASHED_CHANNEL=latest` | Env var |
+| Claude Code (claude-unleashed) | `CLAUDE_UNLEASHED_NO_UPDATE=1`, `CLAUDE_UNLEASHED_CHANNEL=stable` | Env var |
 | OpenCode | `OPENCODE_DISABLE_AUTOUPDATE=1` | Env var |
 | Copilot | `COPILOT_AUTO_UPDATE=false` | Env var |
 | Gemini | `~/.gemini/settings.json` -> `general.enableAutoUpdate: false` | Config file (jq merge) |
@@ -1064,11 +1070,11 @@ The "Claude Code" agent in Codeflare uses [claude-unleashed](https://github.com/
 
 ### Environment Variables
 
-**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_CHANNEL=latest`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
+**Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_CHANNEL=stable`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
 
-**Channel:** claude-unleashed uses `latest` dist-tag (not `stable`). Anthropic's stable channel ships marketplace plugins using `git-subdir` source type, which stable itself doesn't support — causing plugin install failures on container start. The `latest` channel avoids this issue.
+**Channel:** claude-unleashed uses `stable` dist-tag. Set via `CLAUDE_UNLEASHED_CHANNEL=stable` in the Dockerfile.
 
-**Prewarm readiness:** Detected by first PTY output — as soon as the agent produces any terminal output, pre-warm is considered ready. This replaced the previous approach of agent-specific regex patterns and quiescence-based detection, which failed when agents weren't logged in (startup output was completely different, patterns didn't match, causing 20s timeout delays). The 20s hard timeout in `server.js` remains as a safety net for the rare case where a PTY produces no output at all. `host/prewarm-config.js` now only extracts the command name from `tabConfig` for logging.
+**Prewarm readiness:** Detected by first PTY output — as soon as the agent produces any terminal output, pre-warm is considered ready. This replaced the previous approach of agent-specific regex patterns and quiescence-based detection, which failed when agents weren't logged in (startup output was completely different, patterns didn't match, causing 20s timeout delays). The 20s hard timeout in `server.ts` remains as a safety net for the rare case where a PTY produces no output at all. `host/src/prewarm-config.ts` now only extracts the command name from `tabConfig` for logging.
 
 **Auto-start flags (.bashrc):** `--silent`, `--no-consent`
 
@@ -1207,7 +1213,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 **Bugs found by fuzzing:**
 - `getBucketName` trailing hyphen for long worker names (`src/lib/access.ts`)
 - Null byte bypass in `validateKey` (`src/routes/storage/validation.ts`)
-- `prewarm-config.js` crash on non-string tab command (`host/prewarm-config.js`)
+- `prewarm-config.ts` crash on non-string tab command (`host/src/prewarm-config.ts`)
 - `toError`/`toErrorMessage` crash on objects with throwing `toString()` (`src/lib/error-types.ts`)
 
 ### Vitest Version Split
@@ -1349,12 +1355,14 @@ codeflare/
 │   └── __tests__/            # Backend unit tests (68 files, ~996 tests)
 ├── e2e/                      # E2E tests: 12 API files (~55 tests) + 10 UI files (~75 tests, Puppeteer)
 ├── host/                        # TypeScript (migrated from JS)
-│   ├── server.ts             # HTTP/WS server, auth, routing, prewarm, signal handlers
-│   ├── session.ts            # Session class — PTY management, tab lifecycle
-│   ├── session-manager.ts    # SessionManager class, PREWARM_SESSION_ID constant
-│   ├── metrics.ts            # System metrics collection (disk usage, sync status)
-│   ├── activity-tracker.ts   # WebSocket disconnect tracking for idle detection
-│   ├── prewarm-config.ts     # PTY pre-warm configuration (first-output readiness)
+│   ├── src/
+│   │   ├── server.ts         # HTTP/WS server, auth, routing, prewarm, signal handlers
+│   │   ├── session.ts        # Session class — PTY management, tab lifecycle
+│   │   ├── session-manager.ts # SessionManager class, PREWARM_SESSION_ID constant
+│   │   ├── metrics.ts        # System metrics collection (disk usage, sync status)
+│   │   ├── activity-tracker.ts # WebSocket disconnect tracking for idle detection
+│   │   ├── prewarm-config.ts # PTY pre-warm configuration (first-output readiness)
+│   │   └── types.ts          # Shared TypeScript types
 │   ├── __tests__/            # Host unit tests (12 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, host fixes, fuzz, memory merge/cleanup)
 │   ├── tsconfig.json         # TypeScript configuration
 │   ├── knip.json             # Dead code detection config for host package
@@ -1465,7 +1473,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | WebSocket fails | Container not running | Verify startup-status |
 | Zombie restarts | Stale DO state | Self-terminates via missing-identifiers guard |
 | Deleted session reappears | `onStop()` resurrects KV entry | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
-| Container dies during active use | Auth issue on internal paths | Verify `/activity` in `authExemptPaths` in `host/server.ts` |
+| Container dies during active use | Auth issue on internal paths | Verify `/activity` in `authExemptPaths` in `host/src/server.ts` |
 | Phantom container on session switch | Reconnect scope issue | Ensure `activeSessionId` filter passed to `reconnectDisconnectedTerminals()` |
 | Character doubling in terminal | Handler not disposed on reconnect | Dispose `inputDisposable` before creating new handler in `connect()` |
 | Container returns 503 on all authenticated endpoints | `CONTAINER_AUTH_TOKEN` not set | Security default-deny. Token is set automatically by the DO via `crypto.randomUUID()` on lifecycle start. If missing, verify DO `updateEnvVars()` runs before `startAndWaitForPorts()` |
