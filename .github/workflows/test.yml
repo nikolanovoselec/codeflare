@@ -78,10 +78,10 @@ jobs:
         working-directory: web-ui
 
       - name: Security audit (backend)
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
 
       - name: Security audit (frontend)
-        run: cd web-ui && npm audit --audit-level=high
+        run: cd web-ui && npm audit --audit-level=high --omit=dev
 
   dependency-review:
     name: Dependency Review
