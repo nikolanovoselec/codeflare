@@ -20,6 +20,12 @@ vi.mock('../../api/client', () => ({
 const mockWindowOpen = vi.fn();
 vi.stubGlobal('open', mockWindowOpen);
 
+// Helper: Button component uses its own data-testid="button", so find buttons by text
+const getButtonByText = (text: string) => {
+  const span = screen.getByText(text);
+  return span.closest('button')!;
+};
+
 describe('DeployKeysSection Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -86,10 +92,10 @@ describe('DeployKeysSection Component', () => {
     it('opens GitHub token URL in new tab on connect click', async () => {
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getByTestId('deploy-github-connect')).toBeInTheDocument();
+        expect(screen.getByText('Connect GitHub')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByTestId('deploy-github-connect'));
+      fireEvent.click(getButtonByText('Connect GitHub'));
       expect(mockWindowOpen).toHaveBeenCalledWith(
         expect.stringContaining('github.com/settings/personal-access-tokens/new'),
         '_blank',
@@ -108,7 +114,9 @@ describe('DeployKeysSection Component', () => {
 
       const input = screen.getByTestId('deploy-github-token-input') as HTMLInputElement;
       fireEvent.input(input, { target: { value: 'github_pat_test1234567890' } });
-      fireEvent.click(screen.getByTestId('deploy-github-save'));
+
+      const saveButtons = screen.getAllByText('Save');
+      fireEvent.click(saveButtons[0].closest('button')!);
 
       await waitFor(() => {
         expect(mockUpdateDeployKeys).toHaveBeenCalledWith({
@@ -131,7 +139,9 @@ describe('DeployKeysSection Component', () => {
 
       const input = screen.getByTestId('deploy-github-token-input') as HTMLInputElement;
       fireEvent.input(input, { target: { value: 'bad-token' } });
-      fireEvent.click(screen.getByTestId('deploy-github-save'));
+
+      const saveButtons = screen.getAllByText('Save');
+      fireEvent.click(saveButtons[0].closest('button')!);
 
       await waitFor(() => {
         expect(screen.getByTestId('deploy-github-error')).toHaveTextContent('Invalid GitHub token');
@@ -141,10 +151,11 @@ describe('DeployKeysSection Component', () => {
     it('shows error when trying to save empty token', async () => {
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getByTestId('deploy-github-save')).toBeInTheDocument();
+        expect(screen.getAllByText('Save').length).toBeGreaterThan(0);
       });
 
-      fireEvent.click(screen.getByTestId('deploy-github-save'));
+      const saveButtons = screen.getAllByText('Save');
+      fireEvent.click(saveButtons[0].closest('button')!);
 
       await waitFor(() => {
         expect(screen.getByTestId('deploy-github-error')).toHaveTextContent('Paste a new token');
@@ -162,10 +173,11 @@ describe('DeployKeysSection Component', () => {
 
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getByTestId('deploy-github-disconnect')).toBeInTheDocument();
+        expect(screen.getAllByText('Disconnect').length).toBeGreaterThan(0);
       });
 
-      fireEvent.click(screen.getByTestId('deploy-github-disconnect'));
+      const disconnectButtons = screen.getAllByText('Disconnect');
+      fireEvent.click(disconnectButtons[0].closest('button')!);
 
       await waitFor(() => {
         expect(mockUpdateDeployKeys).toHaveBeenCalledWith({ githubToken: null });
@@ -183,10 +195,10 @@ describe('DeployKeysSection Component', () => {
     it('opens Cloudflare token URL in new tab on connect click', async () => {
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getByTestId('deploy-cf-connect')).toBeInTheDocument();
+        expect(screen.getByText('Connect Cloudflare')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByTestId('deploy-cf-connect'));
+      fireEvent.click(getButtonByText('Connect Cloudflare'));
       expect(mockWindowOpen).toHaveBeenCalledWith(
         expect.stringContaining('dash.cloudflare.com/profile/api-tokens'),
         '_blank',
@@ -206,7 +218,9 @@ describe('DeployKeysSection Component', () => {
 
       const input = screen.getByTestId('deploy-cf-token-input') as HTMLInputElement;
       fireEvent.input(input, { target: { value: 'cf-token-test' } });
-      fireEvent.click(screen.getByTestId('deploy-cf-save'));
+
+      const saveButtons = screen.getAllByText('Save');
+      fireEvent.click(saveButtons[1].closest('button')!);
 
       await waitFor(() => {
         expect(mockUpdateDeployKeys).toHaveBeenCalledWith({
@@ -235,7 +249,9 @@ describe('DeployKeysSection Component', () => {
 
       const input = screen.getByTestId('deploy-cf-token-input') as HTMLInputElement;
       fireEvent.input(input, { target: { value: 'cf-token-multi' } });
-      fireEvent.click(screen.getByTestId('deploy-cf-save'));
+
+      const saveButtons = screen.getAllByText('Save');
+      fireEvent.click(saveButtons[1].closest('button')!);
 
       await waitFor(() => {
         expect(screen.getByTestId('deploy-cf-account-select')).toBeInTheDocument();
@@ -258,10 +274,11 @@ describe('DeployKeysSection Component', () => {
 
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getByTestId('deploy-cf-disconnect')).toBeInTheDocument();
+        expect(screen.getAllByText('Disconnect').length).toBeGreaterThan(0);
       });
 
-      fireEvent.click(screen.getByTestId('deploy-cf-disconnect'));
+      const disconnectButtons = screen.getAllByText('Disconnect');
+      fireEvent.click(disconnectButtons[0].closest('button')!);
 
       await waitFor(() => {
         expect(mockUpdateDeployKeys).toHaveBeenCalledWith({ cloudflareApiToken: null });

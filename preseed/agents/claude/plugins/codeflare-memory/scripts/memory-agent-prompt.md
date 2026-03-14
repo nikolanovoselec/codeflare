@@ -30,7 +30,7 @@ Search for entity `chat-{TODAY}`. If it exists, use `add_observations` with only
 
 ### 3. Compaction check
 
-Call `read_graph` and count total observations across ALL entities. If total exceeds 1000, compact the entire graph to ~300 observations:
+Call `read_graph` and count total observations across ALL entities. If total exceeds 300, compact the entire graph to ~100 observations:
 
 - Merge `chat-*` entities older than 3 days into `chat-archive-YYYY-MM` (combine into high-level summaries, delete originals)
 - Merge redundant/overlapping observations on the same entity
