@@ -76,7 +76,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
           style={{ background: props.brandColor || 'var(--color-bg-tertiary)' }}
           onClick={handleConnect}
         >
-          <ProviderIcon size={24} />
+          <ProviderIcon size={24} fill="white" />
           <span>Connect to {props.name}</span>
         </button>
       </Show>
@@ -93,7 +93,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
               rel="noopener noreferrer"
               data-testid={props.testId ? `${props.testId}-external` : undefined}
             >
-              <ProviderIcon size={20} style={{ color: 'white' }} />
+              <ProviderIcon size={20} fill="white" />
               <span>{props.externalLabel || `Open ${props.name}`}</span>
             </a>
           </Show>
