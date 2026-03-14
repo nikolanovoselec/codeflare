@@ -11,7 +11,7 @@ import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
 import { getIframeInput } from '../lib/xterm-internals';
-import { hasRecentScrollIntent, clearScrollIntent } from '../lib/terminal-scroll-intent';
+import { clearScrollIntent } from '../lib/terminal-scroll-intent';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -220,126 +220,24 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       setupMobileTerminal();
     }
 
-    // Fix 13: Scroll-reset detector for ALL devices.
-    // Catches the browser focus-validation bug that snaps viewport to position 0.
-    // CSS overflow:hidden on .xterm-viewport is the primary defense; this detector
-    // is belt-and-suspenders for resets from any source.
+    // Fix 17: Removed scroll-reset detector and all custom scroll corrections.
     //
-    // Key change from Fixes 9-12: narrowed from `ydisp < ybase` to `ydisp === 0`.
-    // The browser focus-reset ALWAYS goes to position 0 (scroll origin). The old
-    // broad check fought legitimate scrolls (floating buttons, xterm's native
-    // scrollback trimming at 10k lines) causing terminal oscillation during output.
+    // Fixes 13-16 added increasingly complex scroll correction logic to handle
+    // browser focus resets (ydisp snap to 0) and scrollback trimming drift.
+    // These corrections fought xterm 6.0.0's native scroll management:
+    //   - Post-write guard (flushWriteBuffer) called scrollToBottom()/scrollLines()
+    //   - Those fired onScroll events that the reset detector processed
+    //   - Detector scheduled corrections that fired more onScroll events
+    //   - Result: feedback loop causing visible oscillation during rapid output
     //
-    // The old `drop > 3` heuristic (Fix 11) is removed: xterm.js natively adjusts
-    // viewportY when trimming scrollback lines to keep the viewport visually stable.
-    // The heuristic detected this native adjustment as an error and reversed it,
-    // causing the very jump it was meant to prevent.
-    {
-      let wasFollowingOutput = true;
-      let previousYdisp = 0;
-      let previousDistFromBottom = 0;
-      let lastUserScrollIntentAt = 0;
-      let isCorrectingScroll = false;
-      const USER_SCROLL_GRACE_MS = 150;
-
-      const markUserScrollIntent = () => { lastUserScrollIntentAt = Date.now(); };
-      const onNavKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') {
-          markUserScrollIntent();
-        }
-      };
-
-      containerEl.addEventListener('wheel', markUserScrollIntent, { passive: true });
-      containerEl.addEventListener('pointerdown', markUserScrollIntent, { passive: true });
-      containerEl.addEventListener('keydown', onNavKeyDown);
-
-      scrollIntentCleanup = () => {
-        containerEl?.removeEventListener('wheel', markUserScrollIntent);
-        containerEl?.removeEventListener('pointerdown', markUserScrollIntent);
-        containerEl?.removeEventListener('keydown', onNavKeyDown);
-      };
-
-      scrollDropDisposable = t.onScroll((ydisp: number) => {
-        const ybase = t.buffer.active.baseY;
-        const distFromBottom = ybase - ydisp;
-
-        // Always update tracking state, even when suppressed
-        if (isCorrectingScroll) {
-          wasFollowingOutput = ydisp >= ybase;
-          previousYdisp = ydisp;
-          previousDistFromBottom = distFromBottom;
-          return;
-        }
-
-        const wasFollowing = wasFollowingOutput;
-        wasFollowingOutput = ydisp >= ybase;
-
-        // Fix 16: When virtual keyboard is open, skip all scroll correction.
-        // The terminal is in bottom-anchored mode — the write callback handles
-        // scrollToBottom(). Any scroll corrections here fight with the keyboard
-        // effect and write callback, causing visible oscillation.
-        if (isTouchDevice() && isVirtualKeyboardOpen()) {
-          previousYdisp = ydisp;
-          previousDistFromBottom = distFromBottom;
-          return;
-        }
-
-        const recentLocalIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS;
-        const recentExternalIntent = hasRecentScrollIntent(
-          props.sessionId, props.terminalId, USER_SCROLL_GRACE_MS
-        );
-        const recentUserIntent = recentLocalIntent || recentExternalIntent;
-
-        // Fix 15: Distance-based scroll reset detection.
-        //
-        // Previous fixes (13-14) checked `ydisp === 0` to detect browser focus resets.
-        // This false-positived during scrollback trimming: xterm legitimately decrements
-        // ydisp as old lines are removed, eventually reaching 0. Fix 14 misidentified
-        // this as a browser bug and applied wrong corrections (scrollLines with absolute
-        // position instead of delta), pinning users at the top.
-        //
-        // The correct invariant is distance-from-bottom. During normal scrollback
-        // trimming, distance stays roughly constant (both baseY and ydisp shift together).
-        // During a browser focus reset, ydisp snaps to 0 while baseY stays large,
-        // causing distance to jump dramatically.
-        //
-        // Detection: ydisp dropped to 0 AND distance-from-bottom changed by >20 lines
-        // from the previous state. This cannot happen during normal trimming (distance
-        // changes by at most 1-2 lines per trim) but always happens during a browser
-        // focus reset (distance jumps from ~0 to baseY).
-        const distanceDrift = Math.abs(distFromBottom - previousDistFromBottom);
-        const suspiciousReset =
-          !recentUserIntent &&
-          ydisp === 0 &&
-          previousYdisp > 20 &&
-          ybase > 20 &&
-          distanceDrift > 20;
-
-        if (suspiciousReset) {
-          isCorrectingScroll = true;
-          const restoreDistance = wasFollowing ? 0 : previousDistFromBottom;
-          queueMicrotask(() => {
-            try {
-              const currentBaseY = t.buffer.active.baseY;
-              const currentY = t.buffer.active.viewportY;
-              if (currentBaseY <= 0) return;
-              const targetY = Math.max(0, currentBaseY - restoreDistance);
-              const delta = targetY - currentY;
-              if (delta !== 0) {
-                t.scrollLines(delta);
-              } else if (restoreDistance === 0) {
-                t.scrollToBottom();
-              }
-            } finally {
-              isCorrectingScroll = false;
-            }
-          });
-        }
-
-        previousYdisp = ydisp;
-        previousDistFromBottom = distFromBottom;
-      });
-    }
+    // xterm 6.0.0 uses SmoothScrollableElement (JS-based scrolling, not native
+    // overflow). With .xterm-viewport overflow:hidden, the browser cannot
+    // focus-reset the viewport. xterm natively preserves viewport position
+    // during scrollback trimming. No custom corrections needed.
+    //
+    // Consensus: GPT-5.4, Gemini 3.1 Pro, Claude Opus 4.6.
+    scrollIntentCleanup = () => {};
+    scrollDropDisposable = t.onScroll(() => {});
 
     terminalStore.setTerminal(props.sessionId, props.terminalId, t);
     terminalStore.registerFitAddon(props.sessionId, props.terminalId, fa);

@@ -82,50 +82,18 @@ const WRITE_FLUSH_INTERVAL_MS = 33;
 const writeBuffers = new Map<string, string[]>();
 const pendingFlushes = new Map<string, number>();
 
+// Fix 17: Removed post-write scroll correction (Fixes 13-15).
+// xterm 6.0.0 natively preserves viewport position during scrollback trimming.
+// Custom corrections fought xterm's native behavior, causing oscillation.
+// Consensus: GPT-5.4, Gemini 3.1 Pro, Claude Opus 4.6.
 function flushWriteBuffer(key: string, terminal: Terminal): void {
   pendingFlushes.delete(key);
   const buffer = writeBuffers.get(key);
   if (!buffer || buffer.length === 0) return;
 
-  const beforeBaseY = terminal.buffer.active.baseY;
-  const beforeY = terminal.buffer.active.viewportY;
-  const wasAtBottom = beforeY >= beforeBaseY;
-  const beforeDistFromBottom = beforeBaseY - beforeY;
   const data = buffer.join('');
   buffer.length = 0;
-
-  // Fix 15: Distance-based post-write scroll guard.
-  //
-  // For bottom-following users: if xterm moved them away from bottom after
-  // the write, scroll back to bottom. (Same as Fix 13.)
-  //
-  // For scrolled-up users: if the write caused scrollback trimming, xterm
-  // should preserve the viewport position by shifting both baseY and viewportY.
-  // If the distance-from-bottom drifted significantly (>5 lines), correct it.
-  // This handles cases where xterm's internal trim adjustment doesn't perfectly
-  // preserve the user's reading position.
-  terminal.write(data, () => {
-    const afterBaseY = terminal.buffer.active.baseY;
-    const afterY = terminal.buffer.active.viewportY;
-
-    if (wasAtBottom) {
-      if (afterY < afterBaseY) {
-        terminal.scrollToBottom();
-      }
-      return;
-    }
-
-    // Scrolled-up user: check if trim shifted position
-    const afterDistFromBottom = afterBaseY - afterY;
-    const drift = Math.abs(afterDistFromBottom - beforeDistFromBottom);
-    if (drift > 5) {
-      const targetY = Math.max(0, afterBaseY - beforeDistFromBottom);
-      const delta = targetY - afterY;
-      if (delta !== 0) {
-        terminal.scrollLines(delta);
-      }
-    }
-  });
+  terminal.write(data);
 }
 
 function scheduleWrite(key: string, terminal: Terminal, data: string): void {
