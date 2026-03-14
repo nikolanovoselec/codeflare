@@ -199,6 +199,7 @@ const DeployKeysSection: Component = () => {
       <ProviderRow
         icon={GitHubIcon}
         name="GitHub"
+        brandColor="#24292f"
         connected={githubConnected()}
         onConnect={() => { setGithubMessage(null); setGithubError(null); setModalProvider('github'); }}
         onDisconnect={() => { void handleDisconnectGithub(); }}
@@ -209,6 +210,7 @@ const DeployKeysSection: Component = () => {
       <ProviderRow
         icon={CloudflareIcon}
         name="Cloudflare"
+        brandColor="#f38020"
         connected={cfConnected()}
         onConnect={() => { setCfMessage(null); setCfError(null); setModalProvider('cloudflare'); }}
         onDisconnect={() => { void handleDisconnectCloudflare(); }}

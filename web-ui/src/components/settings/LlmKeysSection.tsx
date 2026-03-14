@@ -138,6 +138,7 @@ const LlmKeysSection: Component = () => {
       <ProviderRow
         icon={OpenAIIcon}
         name="OpenAI"
+        brandColor="#10a37f"
         connected={openaiConnected()}
         onConnect={() => { setOpenaiMessage(null); setOpenaiError(null); setModalProvider('openai'); }}
         onDisconnect={() => { void handleDisconnectOpenai(); }}
@@ -148,6 +149,7 @@ const LlmKeysSection: Component = () => {
       <ProviderRow
         icon={GeminiIcon}
         name="Gemini"
+        brandColor="#4285f4"
         connected={geminiConnected()}
         onConnect={() => { setGeminiMessage(null); setGeminiError(null); setModalProvider('gemini'); }}
         onDisconnect={() => { void handleDisconnectGemini(); }}

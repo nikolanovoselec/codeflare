@@ -1,9 +1,9 @@
 import { Component, Show, JSX } from 'solid-js';
-import Button from '../ui/Button';
 
 interface ProviderRowProps {
   icon: Component<{ size?: number; class?: string; style?: JSX.CSSProperties }>;
   name: string;
+  brandColor?: string;
   connected: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
@@ -16,31 +16,35 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
 
   return (
     <div class="provider-row" data-testid={props.testId}>
-      <span class="provider-row-icon">
-        <ProviderIcon size={20} />
-      </span>
-      <span class="provider-row-name">{props.name}</span>
       <Show when={props.connected}>
-        <span class="provider-row-badge" data-testid={props.testId ? `${props.testId}-badge` : undefined}>
-          Connected
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => props.onDisconnect()}
-          loading={props.disconnecting}
-        >
-          Disconnect
-        </Button>
+        <div class="provider-row-connected">
+          <span class="provider-row-icon">
+            <ProviderIcon size={28} />
+          </span>
+          <span class="provider-row-name">{props.name}</span>
+          <span class="provider-row-badge" data-testid={props.testId ? `${props.testId}-badge` : undefined}>
+            Connected
+          </span>
+          <button
+            type="button"
+            class="provider-row-disconnect"
+            onClick={() => props.onDisconnect()}
+            disabled={props.disconnecting}
+          >
+            {props.disconnecting ? 'Disconnecting...' : 'Disconnect'}
+          </button>
+        </div>
       </Show>
       <Show when={!props.connected}>
-        <Button
-          variant="secondary"
-          size="sm"
+        <button
+          type="button"
+          class="provider-row-connect-btn"
+          style={{ background: props.brandColor || 'var(--color-bg-tertiary)' }}
           onClick={() => props.onConnect()}
         >
-          Connect
-        </Button>
+          <ProviderIcon size={24} />
+          <span>Connect to {props.name}</span>
+        </button>
       </Show>
     </div>
   );

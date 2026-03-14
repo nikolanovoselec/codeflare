@@ -562,13 +562,46 @@
   color: var(--color-text-dimmed);
 }
 
-/* Provider Row — compact row for settings accordion */
+/* Provider Row */
 .provider-row {
+  padding: var(--space-1) 0;
+}
+
+/* Full-width branded Connect button — like "Sign in with GitHub" */
+.provider-row-connect-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 24px;
+  min-height: 52px;
+  border: none;
+  border-radius: var(--radius-xl);
+  color: white;
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: filter var(--transition-fast);
+  letter-spacing: -0.01em;
+}
+
+.provider-row-connect-btn:hover {
+  filter: brightness(1.15);
+}
+
+.provider-row-connect-btn:active {
+  transform: scale(0.98);
+}
+
+/* Connected state row */
+.provider-row-connected {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) 0;
-  min-height: 44px;
+  min-height: 48px;
 }
 
 .provider-row-icon {
@@ -579,18 +612,39 @@
 
 .provider-row-name {
   flex: 1;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: var(--font-medium);
   color: var(--color-text-primary);
 }
 
 .provider-row-badge {
   font-size: var(--text-xs);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: var(--radius-full);
   background: var(--color-success-bg);
   color: var(--color-success);
   border: 1px solid rgba(34, 197, 94, 0.3);
+  font-weight: var(--font-medium);
+}
+
+.provider-row-disconnect {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  transition: color var(--transition-fast);
+}
+
+.provider-row-disconnect:hover {
+  color: var(--color-error);
+}
+
+.provider-row-disconnect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ======================================
