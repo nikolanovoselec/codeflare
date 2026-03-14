@@ -48,6 +48,7 @@ describe('GatePage', () => {
   describe('Pending State', () => {
     it('should show "Account Pending Approval" message', async () => {
       render(() => <GatePage />);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText(/account pending approval/i)).toBeInTheDocument();
@@ -56,6 +57,7 @@ describe('GatePage', () => {
 
     it('should show email from auth status', async () => {
       render(() => <GatePage />);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText('user@example.com')).toBeInTheDocument();
@@ -104,8 +106,11 @@ describe('GatePage', () => {
 
       render(() => <GatePage />);
 
+      // Flush the initial async fetchStatus call
+      await vi.advanceTimersByTimeAsync(0);
+
       await waitFor(() => {
-        expect(screen.getByText(/blocked/i)).toBeInTheDocument();
+        expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
       });
     });
   });
@@ -113,6 +118,7 @@ describe('GatePage', () => {
   describe('Navigation', () => {
     it('should have logout link to /auth/logout', async () => {
       render(() => <GatePage />);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         const logoutLink = screen.getByText(/log\s*out/i);
