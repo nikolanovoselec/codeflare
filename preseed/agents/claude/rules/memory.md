@@ -26,4 +26,6 @@ When the user says "check memory", "update memory", "optimize memory", "compact 
 
 ## Hook-Triggered Summarization
 
-When a `UserPromptSubmit hook additional context` system-reminder appears, you MUST follow its instructions immediately. It runs in the background and does not block your response.
+The memory-capture hook fires every 30 user messages and injects a `UserPromptSubmit hook additional context` system-reminder telling you to spawn a background memory agent.
+
+**Important:** The hook's `additionalContext` can persist in conversation context across multiple turns. Only spawn the agent ONCE per hook trigger — do not re-spawn on every subsequent turn just because the instruction is still visible in context. If the lock file exists (`/home/user/.memory/counter/*.lock`), the agent is already running — do not spawn another.
