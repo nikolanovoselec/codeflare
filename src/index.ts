@@ -147,6 +147,12 @@ app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISO
 app.route('/api/auth', authApiRoutes);
 app.route('/auth', authRedirectRoutes);
 
+// Public auth providers endpoint (outside /api/* to bypass CF Access)
+app.get('/public/auth/providers', async (c) => {
+  const idpList = await c.env.KV.get('setup:idp_list', 'json');
+  return c.json({ providers: idpList || [] });
+});
+
 // Setup routes (public - no auth required)
 app.route('/api/setup', setupRoutes);
 app.route('/public', publicRoutes);

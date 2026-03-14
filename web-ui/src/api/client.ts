@@ -347,9 +347,12 @@ export async function ensureR2Token(): Promise<{ ready: boolean }> {
   return data ?? { ready: false };
 }
 
-// Auth API
+// Auth API — providers endpoint uses /public/ prefix to bypass CF Access
 export async function getAuthProviders(): Promise<{ providers: AuthProvider[] }> {
-  return fetchApi('/auth/providers', {}, AuthProvidersResponseSchema);
+  return baseFetch<{ providers: AuthProvider[] }>('/auth/providers', {}, {
+    basePath: '/public',
+    schema: AuthProvidersResponseSchema,
+  });
 }
 
 export async function getAuthStatus(): Promise<AuthStatus> {
