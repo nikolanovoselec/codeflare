@@ -245,14 +245,6 @@ export function setupMobileInput(
       if (!terminal) return;
       sentViaKeydown = false;
 
-      // Shift+Enter → literal newline (multi-line input)
-      if (e.shiftKey && e.key === 'Enter') {
-        e.preventDefault();
-        sentViaKeydown = true;
-        terminal.input('\n', false);
-        return;
-      }
-
       // Sticky CTRL: if the floating button activated it, treat this keypress as Ctrl+key
       const useCtrl = e.ctrlKey || _ctrlStickyActive;
       if (_ctrlStickyActive) deactivateStickyCtrl();
