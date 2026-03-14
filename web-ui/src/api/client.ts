@@ -22,6 +22,7 @@ import {
   OnboardingConfigResponseSchema,
   AuthStatusResponseSchema,
   AuthProvidersResponseSchema,
+  AccessTierSchema,
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
 import { ApiError, baseFetch } from './fetch-helper';
