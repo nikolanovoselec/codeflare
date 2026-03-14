@@ -1858,6 +1858,25 @@ Fixes 13-14 used absolute `ydisp === 0` to detect browser focus resets. This fal
 
 4. **Tighter reset detection** — requires `previousYdisp > 20` AND `ybase > 20` AND `distanceDrift > 20`. Normal scrollback trimming never produces this signature; browser focus resets always do.
 
+#### Keyboard-Open Scroll Suppression (Fix 16)
+
+With keyboard open, the terminal is in bottom-anchored mode: output auto-follows, touch scrolling is blocked (swipes send arrow keys instead). However, multiple independent scroll mechanisms were fighting each other during output with keyboard open:
+
+1. `flushWriteBuffer` callback called `scrollToBottom()` every 33ms
+2. Keyboard height change effect called `scrollToBottom()` (leading + trailing edge)
+3. ResizeObserver called `scrollToBottom()` ~18 times during 300ms keyboard animation
+4. Fix 15 scroll-reset detector could fire on side effects of the above
+
+This caused visible oscillation (jump up, snap back down) during output with keyboard open.
+
+**Fix 16 changes:**
+
+1. **Skip scroll-reset detector when keyboard open** — the detector is for browser focus-reset bugs which can't happen in keyboard-open mode (touch events are blocked, user can't scroll). Early return in `onScroll` handler when `isVirtualKeyboardOpen()`.
+
+2. **Remove ResizeObserver scrollToBottom when keyboard open** — the keyboard height change effect already handles fit + scrollToBottom during animation. ResizeObserver adding concurrent scrolls was redundant and caused thrash.
+
+The write callback's `scrollToBottom()` remains the single source of truth for bottom-anchoring during keyboard-open output.
+
 #### WS Retryable Close Codes (Fix 5)
 
 The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.
