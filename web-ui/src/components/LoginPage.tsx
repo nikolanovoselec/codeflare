@@ -1,6 +1,7 @@
 import { Component, onMount, createSignal, Show, For } from 'solid-js';
 import { getAuthProviders, getAuthStatus } from '../api/client';
 import type { AuthProvider } from '../types';
+import ScrambleText from './ScrambleText';
 import { logger } from '../lib/logger';
 import '../styles/login-page.css';
 
@@ -29,17 +30,20 @@ const GRAYMATTER_ICON = (
 
 function getProviderIcon(provider: AuthProvider) {
   switch (provider.type) {
-    case 'github':
-      return GITHUB_ICON;
-    case 'google':
-      return GOOGLE_ICON;
-    default:
-      break;
+    case 'github': return GITHUB_ICON;
+    case 'google': return GOOGLE_ICON;
+    default: break;
   }
-  // Match by name for custom OIDC providers
   if (provider.name.toLowerCase().includes('gray matter')) return GRAYMATTER_ICON;
   return null;
 }
+
+const FEATURES = [
+  { icon: '\u26A1', text: 'Ephemeral cloud containers' },
+  { icon: '\uD83E\uDD16', text: 'Multi-agent AI coding' },
+  { icon: '\u2601\uFE0F', text: 'Persistent R2 storage' },
+  { icon: '\uD83D\uDE80', text: 'One-click deploy' },
+];
 
 const LoginPage: Component = () => {
   const [loading, setLoading] = createSignal(true);
@@ -48,7 +52,6 @@ const LoginPage: Component = () => {
   const [blocked, setBlocked] = createSignal(false);
 
   onMount(async () => {
-    // Check if user is already authenticated
     try {
       const status = await getAuthStatus();
       if (status.accessTier === 'standard' || status.accessTier === 'advanced') {
@@ -65,21 +68,20 @@ const LoginPage: Component = () => {
         return;
       }
     } catch {
-      // Not authenticated -- expected, continue to show login
+      // Not authenticated — show login
     }
 
-    // Fetch available auth providers
     try {
       const result = await getAuthProviders();
       if (result.providers.length === 0) {
-        setError('No identity providers configured. Please contact your administrator.');
+        setError('No identity providers configured.');
         setLoading(false);
         return;
       }
       setProviders(result.providers);
     } catch (err) {
       logger.error('Failed to load auth providers:', err);
-      setError('Failed to load identity providers. Please try again later.');
+      setError('Failed to load identity providers.');
     }
 
     setLoading(false);
@@ -87,15 +89,33 @@ const LoginPage: Component = () => {
 
   return (
     <div class="login-page">
-      <div class="login-container">
-        <div class="login-header">
-          <div class="login-logo">
-            <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor">
-              <path d="M12.89 3L14.85 3.4L11.11 21L9.15 20.6L12.89 3M19.59 12L16 8.41V5.58L22.42 12L16 18.41V15.58L19.59 12M1.58 12L8 5.58V8.41L4.41 12L8 15.58V18.41L1.58 12Z" />
-            </svg>
-          </div>
-          <h1 class="login-title">Sign in to Codeflare</h1>
-          <p class="login-subtitle">Choose your identity provider to continue</p>
+      {/* Floating particle layers */}
+      <div class="login-particles login-particles--1" />
+      <div class="login-particles login-particles--2" />
+
+      <div class="login-content">
+        {/* Logo with float animation */}
+        <div class="login-logo">
+          <img src="/logo-original-transparent.png" alt="Codeflare" class="login-logo-img" />
+        </div>
+
+        {/* Title with scramble animation */}
+        <h1 class="login-title">
+          <ScrambleText text="Codeflare" class="login-title-scramble" />
+        </h1>
+
+        <p class="login-subtitle">Cloud development environment powered by AI</p>
+
+        {/* Feature highlights */}
+        <div class="login-features">
+          <For each={FEATURES}>
+            {(feature, i) => (
+              <div class="login-feature" style={{ 'animation-delay': `${0.3 + i() * 0.1}s` }}>
+                <span class="login-feature-icon">{feature.icon}</span>
+                <span class="login-feature-text">{feature.text}</span>
+              </div>
+            )}
+          </For>
         </div>
 
         <Show when={loading()}>
@@ -106,7 +126,7 @@ const LoginPage: Component = () => {
 
         <Show when={blocked()}>
           <div class="login-error">
-            Your account has been blocked. Please contact your administrator for assistance.
+            Your account has been blocked. Please contact your administrator.
           </div>
         </Show>
 
@@ -132,6 +152,8 @@ const LoginPage: Component = () => {
             </For>
           </div>
         </Show>
+
+        <p class="login-footer">Powered by Cloudflare Workers</p>
       </div>
     </div>
   );

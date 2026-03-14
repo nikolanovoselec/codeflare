@@ -144,13 +144,29 @@ async function upsertAccessApp(
   managedAppName: string,
   steps: SetupStep[],
   stepIndex: number,
-  _saasIdpIds?: string[]
+  saasIdpIds?: string[]
 ): Promise<AccessAppResult | null> {
   const appDomain = getManagedAppDomain(customDomain);
   const method = existingAppId ? 'PUT' : 'POST';
   const url = existingAppId
     ? `${CF_API_BASE}/accounts/${accountId}/access/apps/${existingAppId}`
     : `${CF_API_BASE}/accounts/${accountId}/access/apps`;
+
+  // SaaS mode: restrict login methods to social IdPs and auto-redirect if only one.
+  // This is the APPLICATION config (controls login UI), separate from the POLICY
+  // (controls who is allowed). Policy keeps group-based includes for all users.
+  const appBody: Record<string, unknown> = {
+    name: managedAppName,
+    domain: appDomain,
+    destinations: getManagedDestinations(customDomain),
+    type: 'self_hosted',
+    session_duration: '24h',
+    skip_interstitial: true,
+    auto_redirect_to_identity: saasIdpIds ? saasIdpIds.length === 1 : false,
+  };
+  if (saasIdpIds && saasIdpIds.length > 0) {
+    appBody.allowed_idps = saasIdpIds;
+  }
 
   const response = await withSetupRetry(
     () => cfApiCB.execute(() => fetch(url, {
@@ -159,15 +175,7 @@ async function upsertAccessApp(
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      name: managedAppName,
-      domain: appDomain,
-      destinations: getManagedDestinations(customDomain),
-      type: 'self_hosted',
-      session_duration: '24h',
-      auto_redirect_to_identity: false,
-      skip_interstitial: true,
-    }),
+    body: JSON.stringify(appBody),
     signal: AbortSignal.timeout(10000),
   })), 'upsertAccessApp');
 
