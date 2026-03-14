@@ -26,16 +26,14 @@ app.get('/login/:provider', async (c) => {
   }
 
   const authDomain = await c.env.KV.get('setup:auth_domain');
-  const accessAud = await c.env.KV.get('setup:access_aud');
+  const customDomain = await c.env.KV.get('setup:custom_domain');
 
-  if (!authDomain || !accessAud) {
+  if (!authDomain || !customDomain) {
     return c.json({ error: 'Auth not configured' }, 503);
   }
 
-  const appUrl = new URL(c.req.url);
-  const callbackUrl = `${appUrl.protocol}//${appUrl.host}/app/`;
-  // CF Access login with IdP hint: kid=audience tag, idp=provider UUID
-  const loginUrl = `https://${authDomain}/cdn-cgi/access/login?kid=${encodeURIComponent(accessAud)}&redirect_url=${encodeURIComponent(callbackUrl)}&idp=${matched.id}`;
+  // CF Access login URL: path = protected hostname, idp = IdP UUID, redirect_url = relative path
+  const loginUrl = `https://${authDomain}/cdn-cgi/access/login/${customDomain}?idp=${matched.id}&redirect_url=${encodeURIComponent('/app/')}`;
 
   logger.info('Redirecting to identity provider', { provider: matched.id, type: matched.type });
 
