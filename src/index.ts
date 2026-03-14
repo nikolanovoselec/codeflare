@@ -148,12 +148,13 @@ app.route('/api/auth', authApiRoutes);
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
-// Only expose social login providers — filter out enterprise IdPs and OTP.
-const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'google-apps']);
+// Exclude enterprise-only IdPs from the public login page.
+// Everything else (Google, GitHub, Cloudflare SSO, OTP, etc.) is shown.
+const ENTERPRISE_IDP_TYPES = new Set(['saml', 'azureAD']);
 app.get('/public/auth/providers', async (c) => {
   const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>('setup:idp_list', 'json');
-  const socialOnly = (idpList || []).filter(p => SOCIAL_IDP_TYPES.has(p.type));
-  return c.json({ providers: socialOnly });
+  const filtered = (idpList || []).filter(p => !ENTERPRISE_IDP_TYPES.has(p.type) && p.name);
+  return c.json({ providers: filtered });
 });
 
 // Setup routes (public - no auth required)

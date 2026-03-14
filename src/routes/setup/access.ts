@@ -362,7 +362,8 @@ async function listIdentityProviders(
   return [];
 }
 
-const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'google-apps']);
+// IdP types excluded from SaaS mode login — enterprise-only providers
+const ENTERPRISE_IDP_TYPES = new Set(['saml', 'azureAD']);
 
 async function upsertAccessPolicy(
   token: string,
@@ -573,7 +574,7 @@ export async function handleCreateAccessApp(
     // Default mode: use group includes (only allowlisted users).
     let saasLoginMethods: Array<{ id: string }> | undefined;
     if (saasMode) {
-      const socialIdps = idpList.filter(p => SOCIAL_IDP_TYPES.has(p.type));
+      const socialIdps = idpList.filter(p => !ENTERPRISE_IDP_TYPES.has(p.type) && p.name);
       if (socialIdps.length > 0) {
         saasLoginMethods = socialIdps.map(p => ({ id: p.id }));
         logger.info('SaaS mode: configuring Access policy with login_method includes', {
