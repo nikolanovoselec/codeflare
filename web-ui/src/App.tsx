@@ -3,6 +3,7 @@ import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
 import { getUser, getSetupStatus, getAuthProviders, getOnboardingConfig } from './api/client';
+import { ApiError } from './api/fetch-helper';
 import { sessionStore } from './stores/session';
 import { storageStore } from './stores/storage';
 import { terminalStore } from './stores/terminal';
@@ -43,19 +44,14 @@ const AppContent: Component = () => {
       setUserRole(user.role);
       setOnboardingActive(user.onboardingActive);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
-    } catch (err: unknown) {
+    } catch (err) {
       logger.warn('Failed to get user info:', err);
       // SaaS mode: pending/blocked users get 403 from requireActiveUser
-      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 403) {
+      if (err instanceof ApiError && err.status === 403) {
         try {
-          const body = typeof (err as { body?: unknown }).body === 'string'
-            ? JSON.parse((err as { body: string }).body)
-            : (err as { body?: unknown }).body;
-          if (body?.code === 'PENDING') {
-            window.location.href = '/pending';
-            return;
-          }
-          if (body?.code === 'BLOCKED') {
+          const parsed = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
+          const code = parsed && typeof parsed === 'object' && 'code' in parsed ? (parsed as { code: string }).code : null;
+          if (code === 'PENDING' || code === 'BLOCKED') {
             window.location.href = '/pending';
             return;
           }
