@@ -271,6 +271,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           return;
         }
 
+        // Fix 18: Skip detection for scroll events caused by our own post-write
+        // corrections in flushWriteBuffer. These are tagged with a suppression
+        // counter to prevent cross-triggering feedback loops during trim.
+        // Still update baselines so the next unsuppressed event compares correctly.
+        if (terminalStore.isProgrammaticScrollSuppressed(props.sessionId, props.terminalId)) {
+          wasFollowingOutput = ydisp >= ybase;
+          previousYdisp = ydisp;
+          previousDistFromBottom = distFromBottom;
+          return;
+        }
+
         const wasFollowing = wasFollowingOutput;
         wasFollowingOutput = ydisp >= ybase;
 

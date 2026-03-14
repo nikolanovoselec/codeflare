@@ -1949,6 +1949,24 @@ This caused visible oscillation (jump up, snap back down) during output with key
 
 The write callback's `scrollToBottom()` remains the single source of truth for bottom-anchoring during keyboard-open output.
 
+#### Programmatic Scroll Suppression (Fix 18)
+
+**Problem:** During rapid output with scrollback trimming at 400 lines, the terminal oscillated — jumping up, snapping down, producing visual artifacts. Root cause: `scrollToBottom()` and `scrollLines()` called by the post-write guard in `flushWriteBuffer()` fire synchronous `onScroll` events that the scroll-reset detector in `useTerminal.ts` misidentifies as browser focus resets.
+
+**xterm 6.0.0 internal mechanism:** `Viewport._sync()` calls `setScrollDimensions()` BEFORE `setScrollPosition()`. During the dimension update, `ScrollState` constructor clamps `scrollTop` to `max(0, scrollHeight - height)`. This clamped value can leak as an `onScroll` event with `ydisp = 0`, which matches the detector's `suspiciousReset` predicate.
+
+**Note:** Fix 17 (removing all custom corrections) was attempted and REVERTED — xterm does NOT handle viewport position natively during trim. The post-write guard and onScroll detector ARE needed.
+
+**Fix 18 changes:**
+
+1. **Suppression counter** (`scrollSuppressionCounts` map in `terminal.ts`) — tracks when programmatic scroll corrections are in progress. Uses a counter (not boolean) to handle nested/overlapping corrections.
+
+2. **Wrap post-write corrections** — `beginProgrammaticScroll(key)` before `scrollToBottom()` / `scrollLines()`, `endProgrammaticScroll(key)` via `queueMicrotask()` after. The microtask ensures the suppression covers the entire synchronous `onScroll` cascade.
+
+3. **Check suppression in onScroll detector** — early return when `isProgrammaticScrollSuppressed()` is true, but still update tracking baselines (`previousYdisp`, `previousDistFromBottom`, `wasFollowingOutput`) so the next unsuppressed event compares against correct state.
+
+This eliminates the feedback loop without weakening either protection mechanism. The onScroll detector remains active for genuine browser focus resets.
+
 #### WS Retryable Close Codes (Fix 5)
 
 The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.
