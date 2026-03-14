@@ -56,11 +56,19 @@ describe('Setup Access', () => {
     });
   });
 
+  // Mock IdP list response — prepended to every test's fetch chain since
+  // listIdentityProviders() runs first in handleCreateAccessApp()
+  const mockIdpList = [
+    { id: 'idp-google', type: 'google', name: 'Google' },
+    { id: 'idp-github', type: 'github', name: 'GitHub' },
+  ];
+
   describe('handleCreateAccessApp', () => {
     it('creates access groups, app, and policy on fresh setup', async () => {
       const steps: SetupStep[] = [];
 
       // Mock responses in order:
+      // 0. listIdentityProviders
       // 1. listAccessGroups
       // 2. upsertAccessGroup (admin)
       // 3. upsertAccessGroup (user)
@@ -70,6 +78,7 @@ describe('Setup Access', () => {
       // 7. createPolicy
       // 8. fetchOrganization (for auth_domain)
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' })) // create admin group
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-user', name: 'codeflare-users' })) // create user group
@@ -100,6 +109,7 @@ describe('Setup Access', () => {
       const steps: SetupStep[] = [];
 
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfError('Permission denied', 9103)); // create admin group fails
 
@@ -123,12 +133,12 @@ describe('Setup Access', () => {
     it('does not match Access app by name when domain differs (POST not PUT)', async () => {
       const steps: SetupStep[] = [];
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' }))
-        // No user group upsert (all users are admins, regularUsers is empty)
         .mockResolvedValueOnce(cfSuccess([
           { id: 'app-prod', name: 'codeflare', domain: 'prod.example.com/app/*' }
-        ])) // listAccessApps - has app with same name but DIFFERENT domain
+        ])) // listAccessApps
         .mockResolvedValueOnce(cfSuccess({ id: 'app-new', aud: 'aud-new' })) // upsertAccessApp POST
         .mockResolvedValueOnce(cfSuccess([])) // list policies
         .mockResolvedValueOnce(new Response('', { status: 200 })) // create policy
@@ -140,21 +150,20 @@ describe('Setup Access', () => {
         steps, mockKV as unknown as KVNamespace, 'codeflare'
       );
 
-      // Verify the upsertAccessApp call used POST (4th fetch call, index 3)
-      const upsertCall = mockFetch.mock.calls[3];
+      const upsertCall = mockFetch.mock.calls[4]; // shifted +1 for IdP fetch
       expect(upsertCall[1].method).toBe('POST');
-      expect(upsertCall[0]).not.toContain('app-prod'); // Should NOT reference prod app ID
+      expect(upsertCall[0]).not.toContain('app-prod');
     });
 
     it('does not match Access app by /app/* suffix when domain differs', async () => {
       const steps: SetupStep[] = [];
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' }))
-        // No user group upsert (all users are admins, regularUsers is empty)
         .mockResolvedValueOnce(cfSuccess([
           { id: 'app-prod', name: 'other-name', domain: 'prod.example.com/app/*' }
-        ])) // listAccessApps - /app/* suffix but DIFFERENT domain
+        ])) // listAccessApps
         .mockResolvedValueOnce(cfSuccess({ id: 'app-new', aud: 'aud-new' })) // POST new
         .mockResolvedValueOnce(cfSuccess([])) // list policies
         .mockResolvedValueOnce(new Response('', { status: 200 })) // create policy
@@ -166,19 +175,19 @@ describe('Setup Access', () => {
         steps, mockKV as unknown as KVNamespace, 'codeflare'
       );
 
-      const upsertCall = mockFetch.mock.calls[3];
+      const upsertCall = mockFetch.mock.calls[4]; // shifted +1
       expect(upsertCall[1].method).toBe('POST');
     });
 
     it('matches Access app by name when domain also matches (PUT update)', async () => {
       const steps: SetupStep[] = [];
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' }))
-        // No user group upsert (all users are admins, regularUsers is empty)
         .mockResolvedValueOnce(cfSuccess([
           { id: 'app-existing', name: 'codeflare', domain: 'app.example.com/app/*' }
-        ])) // listAccessApps - same name AND domain contains customDomain
+        ])) // listAccessApps
         .mockResolvedValueOnce(cfSuccess({ id: 'app-existing', aud: 'aud-1' })) // PUT update
         .mockResolvedValueOnce(cfSuccess([])) // list policies
         .mockResolvedValueOnce(new Response('', { status: 200 })) // create policy
@@ -190,7 +199,7 @@ describe('Setup Access', () => {
         steps, mockKV as unknown as KVNamespace, 'codeflare'
       );
 
-      const upsertCall = mockFetch.mock.calls[3];
+      const upsertCall = mockFetch.mock.calls[4]; // shifted +1
       expect(upsertCall[1].method).toBe('PUT');
       expect(upsertCall[0]).toContain('app-existing');
     });
@@ -200,9 +209,9 @@ describe('Setup Access', () => {
     it('upsertAccessApp throws SetupError when already-exists retry finds nothing', async () => {
       const steps: SetupStep[] = [];
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' }))
-        // No user group upsert (all users are admins, regularUsers is empty)
         .mockResolvedValueOnce(cfSuccess([])) // listAccessApps (empty)
         .mockResolvedValueOnce(cfError('already exists')) // upsertAccessApp POST fails
         .mockResolvedValueOnce(cfSuccess([])); // retry listAccessApps - still empty
@@ -222,14 +231,10 @@ describe('Setup Access', () => {
     it('should not create a users group with empty members when all allowedUsers are admins', async () => {
       const steps: SetupStep[] = [];
 
-      // When all allowedUsers are also adminUsers, regularUsers = [] (empty).
-      // The bug: upsertAccessGroup was called with empty members for the users group,
-      // which sends include: [] to the CF API and gets rejected.
-      // After fix: user group upsert is skipped entirely when regularUsers is empty.
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' })) // create admin group
-        // No user group creation (regularUsers is empty)
         .mockResolvedValueOnce(cfSuccess([])) // listAccessApps
         .mockResolvedValueOnce(cfSuccess({ id: 'app-1', aud: 'aud-tag-1' })) // upsertAccessApp
         .mockResolvedValueOnce(cfSuccess([])) // list policies
@@ -256,13 +261,10 @@ describe('Setup Access', () => {
     it('should create an Access policy referencing only the admin group when there are no regular users', async () => {
       const steps: SetupStep[] = [];
 
-      // Setup: only admin users, no regular users
-      // After fix, the users group should either be skipped or handled gracefully.
-      // The policy should only reference the admin group.
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' })) // create admin group
-        // No user group creation expected after fix
         .mockResolvedValueOnce(cfSuccess([])) // listAccessApps
         .mockResolvedValueOnce(cfSuccess({ id: 'app-1', aud: 'aud-tag-1' })) // upsertAccessApp
         .mockResolvedValueOnce(cfSuccess([])) // list policies
@@ -301,6 +303,7 @@ describe('Setup Access', () => {
       const steps: SetupStep[] = [];
 
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' })) // create admin group
         .mockResolvedValueOnce(cfSuccess([])) // listAccessApps
@@ -330,9 +333,9 @@ describe('Setup Access', () => {
     it('listAccessApps errors propagate instead of returning empty array', async () => {
       const steps: SetupStep[] = [];
       mockFetch
+        .mockResolvedValueOnce(cfSuccess(mockIdpList)) // listIdentityProviders
         .mockResolvedValueOnce(cfSuccess([])) // listAccessGroups
         .mockResolvedValueOnce(cfSuccess({ id: 'grp-admin', name: 'codeflare-admins' }))
-        // No user group upsert (all users are admins, regularUsers is empty)
         .mockRejectedValueOnce(new Error('Network failure')); // listAccessApps throws
 
       await expect(
