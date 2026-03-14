@@ -662,14 +662,21 @@ Tiers are stored in the KV record at `user:{email}` in the `accessTier` field. E
 |-------|--------|------|---------|
 | `/public/auth/providers` | GET | Public | Returns filtered IdP list (social types + `SAAS_EXTRA_IDPS` UUIDs) |
 | `/api/auth/status` | GET | Identity | Returns email, accessTier, role |
-| `/auth/login/:provider` | GET | Public | Redirects to CF Access with IdP hint |
+| `/auth/login/:provider` | GET | Public | Redirects to `/app/` (CF Access handles auth) |
 | `/auth/logout` | GET | Public | Redirects to CF Access logout |
 
-**CF Access Login URL Format:** `/auth/login/:provider` redirects to `https://{authDomain}/cdn-cgi/access/login/{customDomain}?idp={id}&redirect_url=/app/`. The path segment is the protected hostname (custom domain), not a key ID parameter.
+**Login Flow:** Login buttons link directly to `/app/`. CF Access intercepts unauthenticated requests. With `auto_redirect_to_identity: true` and a single allowed IdP (e.g., GitHub), CF Access skips its login page and redirects directly to the IdP. After authentication, the user lands on `/app/` with a valid `CF_Authorization` cookie.
 
 **IdP Filtering:** The `/public/auth/providers` endpoint filters the full IdP list stored in KV (`setup:idp_list`) to only return social providers (`google`, `github`, `facebook`, `linkedin`) plus any custom OIDC providers whose UUIDs are listed in `SAAS_EXTRA_IDPS`. This endpoint bypasses CF Access (served outside `/api/*`).
 
-**Access Policy:** In SaaS mode, the CF Access policy uses `login_method` includes for ALL configured IdPs (not just social ones). This allows any user who authenticates via any configured provider to reach the Worker, where the three-tier middleware handles authorization. The setup wizard fetches IdPs BEFORE creating the policy to ensure all providers are included.
+**Access Application Config:** In SaaS mode, the setup wizard configures the Access app with:
+- `allowed_idps`: restricted to social IdPs only (controls which IdPs appear on CF Access login page)
+- `auto_redirect_to_identity: true`: skips CF Access login page when only one IdP is allowed
+- `skip_interstitial: true`: skips the "you are being redirected" page
+
+**Access Policy:** The policy uses group-based includes (admin + user groups) regardless of mode. This controls WHO is allowed, while `allowed_idps` controls HOW they authenticate. The Worker's three-tier middleware provides additional authorization via access tiers.
+
+**Login Page:** Branded page with animated logo (float + glow pulse), ScrambleText title animation (JetBrains Mono), floating particle layers, feature highlights, and provider buttons. Served at `/` in SaaS mode. No card container — elements float directly on the gradient background.
 
 ### User Lifecycle
 
