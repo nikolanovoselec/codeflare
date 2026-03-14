@@ -26,6 +26,10 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
   let inputRef: HTMLInputElement | undefined;
 
   const handleConnect = () => {
+    // Open provider page AND expand input in one click
+    if (props.externalUrl) {
+      window.open(props.externalUrl, '_blank');
+    }
     setExpanded(true);
     setTokenValue('');
     requestAnimationFrame(() => inputRef?.focus());
@@ -84,21 +88,21 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
       {/* Disconnected — expanded: inline connect flow */}
       <Show when={!props.connected && expanded()}>
         <div class="provider-row-expand">
+          <span class="provider-row-hint">
+            A new tab opened on {props.name}. Generate a token there, then paste it here:
+          </span>
+
           <Show when={props.externalUrl}>
             <a
-              class="provider-row-external-btn"
-              style={{ background: props.brandColor || 'var(--color-bg-tertiary)', color: 'white' }}
+              class="provider-row-reopen-link"
               href={props.externalUrl}
               target="_blank"
               rel="noopener noreferrer"
               data-testid={props.testId ? `${props.testId}-external` : undefined}
             >
-              <ProviderIcon size={20} fill="white" />
-              <span>{props.externalLabel || `Open ${props.name}`}</span>
+              Didn't open? Click here.
             </a>
           </Show>
-
-          <span class="provider-row-hint">Generate a token above, then paste it here:</span>
 
           <div class="provider-row-input-group">
             <input

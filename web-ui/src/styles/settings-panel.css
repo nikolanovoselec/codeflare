@@ -770,6 +770,16 @@
   color: var(--color-text-muted);
 }
 
+.provider-row-reopen-link {
+  font-size: var(--text-xs);
+  color: var(--color-text-dimmed);
+  text-decoration: underline;
+}
+
+.provider-row-reopen-link:hover {
+  color: var(--color-text-muted);
+}
+
 /* ======================================
    Mobile: fullscreen settings panel
    ====================================== */

@@ -88,7 +88,7 @@ const LlmKeysSection: Component = () => {
   return (
     <>
       <p class="llm-keys-explanation" data-testid="llm-keys-explanation">
-        Optional. Connect external AI models for second opinions while coding.
+        Optional. Used within Claude Code for code reviews and second opinion discussions with ChatGPT and Gemini.
       </p>
 
       <ProviderRow
@@ -127,7 +127,7 @@ const LlmKeysSection: Component = () => {
 
       <div class="setting-row setting-row--column-gap">
         <span class="settings-hint" data-testid="llm-keys-hint">
-          Keys take effect on next session start. Used by the consult-llm MCP tool.
+          Keys take effect on next session start. Say "consult LLMs" in Claude Code to use.
         </span>
       </div>
     </>

@@ -26,11 +26,11 @@ export const GitHubIcon: Component<BrandIconProps> = (props) => (
 /** Cloudflare logo mark */
 export const CloudflareIcon: Component<BrandIconProps> = (props) => (
   <svg
-    viewBox="0 0 24 24"
+    viewBox="-1 2 26 16"
     width={props.size || 24}
     height={props.size || 24}
     class={props.class}
-    style={{ display: 'block', ...props.style }}
+    style={{ display: 'block', overflow: 'visible', ...props.style }}
   >
     <path
       d="M16.51 15.89l.67-2.34a1.44 1.44 0 00-.05-.98 1.08 1.08 0 00-.72-.59l-8.28-.11a.19.19 0 01-.16-.1.2.2 0 01.01-.19c.04-.06.1-.1.17-.11l8.36-.11c.88-.04 1.83-.78 2.15-1.66l.4-1.1a.34.34 0 00.02-.18A5.87 5.87 0 0013.16 4a5.92 5.92 0 00-5.59 3.98A4.15 4.15 0 004.18 8.4 4.49 4.49 0 002 12.54a4.6 4.6 0 00.04.59c0 .04-.02.07-.06.07H1.88A2.89 2.89 0 000 16.11c0 .08.05.14.13.14h16.12c.07 0 .14-.05.16-.12l.1-.24z"
