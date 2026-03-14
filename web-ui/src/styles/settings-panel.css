@@ -770,11 +770,22 @@
   color: var(--color-text-muted);
 }
 
-.provider-row-instructions {
+/* Numbered steps shown above provider buttons */
+.provider-steps {
+  margin: 0 0 var(--space-3) 0;
+  padding-left: var(--space-6);
+  color: var(--color-text-muted);
   font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  line-height: 1.6;
-  white-space: pre-line;
+  line-height: 1.8;
+}
+
+.provider-steps li {
+  padding-left: var(--space-1);
+}
+
+.provider-steps li::marker {
+  color: var(--color-text-dimmed);
+  font-weight: var(--font-semibold);
 }
 
 .provider-row-reopen-link {

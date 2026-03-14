@@ -9,7 +9,6 @@ interface ProviderRowProps {
   externalUrl?: string;
   externalLabel?: string;
   placeholder?: string;
-  instructions?: string;
   connected: boolean;
   onSave: (token: string) => void;
   onDisconnect: () => void;
@@ -89,10 +88,6 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
       {/* Disconnected — expanded: inline connect flow */}
       <Show when={!props.connected && expanded()}>
         <div class="provider-row-expand">
-          <Show when={props.instructions}>
-            <span class="provider-row-instructions">{props.instructions}</span>
-          </Show>
-
           <Show when={props.externalUrl}>
             <a
               class="provider-row-reopen-link"
