@@ -159,20 +159,30 @@ All optional. The defaults work out of the box. I respect your time.
 | `MAX_SESSIONS_USER` | `3` | Max concurrent running sessions per regular user |
 | `MAX_SESSIONS_ADMIN` | `10` | Max concurrent running sessions per admin user |
 | `E2E_BASE_URL` | unset | Custom domain URL for E2E tests (e.g., `https://codeflare.example.com`) |
-| `SAAS_MODE` | `inactive` | Set to `active` to replace Cloudflare Access with custom login + JIT provisioning |
-| `JIT_PROVISIONING` | `disabled` | Set to `enabled` to auto-create accounts for new authenticated users |
-| `JIT_DEFAULT_TIER` | `pending` | Default access tier for auto-provisioned users (`pending`, `user`, `admin`) |
+| `SAAS_MODE` | `inactive` | Set to `active` for custom login page with social IdPs and admin approval gate |
 
 ### SaaS Mode (Custom Login)
 
-Replaces Cloudflare Access with a custom authentication flow. Users log in via identity providers you configure, get auto-provisioned on first visit, and wait for admin approval before accessing the IDE.
+Replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned and require admin approval before accessing the IDE.
 
-1. **Set up identity providers** - configure one or more OAuth/OIDC providers (Google, GitHub, etc.) in your Cloudflare Zero Trust dashboard
-2. **Run the setup wizard** - complete initial setup at your worker URL; SaaS mode configuration is applied on top of the standard setup
-3. **Set GitHub Actions variables** - in your fork under `Settings` > `Secrets and variables` > `Actions` > `Variables`, add `SAAS_MODE=active`, `JIT_PROVISIONING=enabled`, and optionally `JIT_DEFAULT_TIER=pending`
-4. **Deploy** - push to `main` or trigger a manual deploy. New users land on a pending-approval page until an admin promotes them via the dashboard
+**Prerequisites:** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets must be configured (required for any deployment).
 
-See `TECHNICAL.md` Section 8 for the full auth middleware stack, access tiers, and user lifecycle.
+**Setup:**
+
+1. **Configure identity providers** in your [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) — add Google, GitHub, or any OIDC/SAML provider
+2. **Set one GitHub Actions variable** — go to your fork's `Settings` > `Secrets and variables` > `Actions` > `Variables` and add `SAAS_MODE` = `active`
+3. **Deploy** — push to `main` or trigger a manual deploy
+
+**What happens:**
+- Root `/` shows a branded login page with buttons for each configured identity provider
+- New users who sign in are auto-provisioned with `pending` status and see a "waiting for approval" page
+- Admins approve users at `/admin/users` (or via Settings > Administration > Manage Users)
+- Once approved, the pending page auto-redirects to the IDE
+- Admins can set users to `standard` (default mode only) or `advanced` (all modes) tiers
+
+**No SaaS mode?** Leave `SAAS_MODE` unset — the app works exactly as before with Cloudflare Access handling login.
+
+See `TECHNICAL.md` Section 8 for the full auth architecture.
 
 </details>
 

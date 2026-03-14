@@ -251,8 +251,6 @@ jobs:
           ${{ vars.MAX_SESSIONS_ADMIN && format('--var MAX_SESSIONS_ADMIN:{0}', vars.MAX_SESSIONS_ADMIN) || '' }}
           ${{ vars.STRESS_TEST_MODE && format('--var STRESS_TEST_MODE:{0}', vars.STRESS_TEST_MODE) || '' }}
           ${{ vars.SAAS_MODE && format('--var SAAS_MODE:{0}', vars.SAAS_MODE) || '' }}
-          ${{ vars.JIT_PROVISIONING && format('--var JIT_PROVISIONING:{0}', vars.JIT_PROVISIONING) || '' }}
-          ${{ vars.JIT_DEFAULT_TIER && format('--var JIT_DEFAULT_TIER:{0}', vars.JIT_DEFAULT_TIER) || '' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

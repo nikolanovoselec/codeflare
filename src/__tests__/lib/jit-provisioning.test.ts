@@ -30,11 +30,8 @@ describe('resolveOrProvisionUser()', () => {
     } as Env;
   }
 
-  it('creates user with pending tier when SAAS_MODE=active, JIT_PROVISIONING=enabled, and user not in KV', async () => {
-    const env = makeEnv({
-      SAAS_MODE: 'active',
-      JIT_PROVISIONING: 'enabled',
-    });
+  it('creates user with pending tier when SAAS_MODE=active and user not in KV', async () => {
+    const env = makeEnv({ SAAS_MODE: 'active' });
 
     const result = await resolveOrProvisionUser(
       mockKV as unknown as KVNamespace,
@@ -60,10 +57,7 @@ describe('resolveOrProvisionUser()', () => {
       accessTier: 'advanced',
     });
 
-    const env = makeEnv({
-      SAAS_MODE: 'active',
-      JIT_PROVISIONING: 'enabled',
-    });
+    const env = makeEnv({ SAAS_MODE: 'active' });
 
     const result = await resolveOrProvisionUser(
       mockKV as unknown as KVNamespace,
@@ -73,7 +67,6 @@ describe('resolveOrProvisionUser()', () => {
 
     expect(result.role).toBe('admin');
     expect(result.accessTier).toBe('advanced');
-    // put should NOT have been called — no overwrite
     expect(mockKV.put).not.toHaveBeenCalled();
   });
 
@@ -85,10 +78,7 @@ describe('resolveOrProvisionUser()', () => {
       accessTier: 'blocked',
     });
 
-    const env = makeEnv({
-      SAAS_MODE: 'active',
-      JIT_PROVISIONING: 'enabled',
-    });
+    const env = makeEnv({ SAAS_MODE: 'active' });
 
     const result = await resolveOrProvisionUser(
       mockKV as unknown as KVNamespace,
@@ -102,61 +92,11 @@ describe('resolveOrProvisionUser()', () => {
   });
 
   it('throws ForbiddenError when SAAS_MODE is not active and user not in KV', async () => {
-    const env = makeEnv({
-      SAAS_MODE: undefined,
-      JIT_PROVISIONING: 'enabled',
-    });
+    const env = makeEnv({ SAAS_MODE: undefined });
 
     await expect(
       resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'nobody@example.com', env)
     ).rejects.toThrow(ForbiddenError);
-  });
-
-  it('throws ForbiddenError when JIT_PROVISIONING is not enabled and user not in KV', async () => {
-    const env = makeEnv({
-      SAAS_MODE: 'active',
-      JIT_PROVISIONING: undefined,
-    });
-
-    await expect(
-      resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'nobody@example.com', env)
-    ).rejects.toThrow(ForbiddenError);
-  });
-
-  it('uses JIT_DEFAULT_TIER env var when set', async () => {
-    const env = makeEnv({
-      SAAS_MODE: 'active',
-      JIT_PROVISIONING: 'enabled',
-      JIT_DEFAULT_TIER: 'standard',
-    });
-
-    const result = await resolveOrProvisionUser(
-      mockKV as unknown as KVNamespace,
-      'new-std@example.com',
-      env
-    );
-
-    expect(result.accessTier).toBe('standard');
-    expect(mockKV.put).toHaveBeenCalledWith(
-      'user:new-std@example.com',
-      expect.stringContaining('"accessTier":"standard"')
-    );
-  });
-
-  it('defaults to pending when JIT_DEFAULT_TIER is an invalid value', async () => {
-    const env = makeEnv({
-      SAAS_MODE: 'active',
-      JIT_PROVISIONING: 'enabled',
-      JIT_DEFAULT_TIER: 'superuser',
-    });
-
-    const result = await resolveOrProvisionUser(
-      mockKV as unknown as KVNamespace,
-      'bad-tier@example.com',
-      env
-    );
-
-    expect(result.accessTier).toBe('pending');
   });
 
   it('existing users without accessTier default to advanced', async () => {
@@ -166,10 +106,7 @@ describe('resolveOrProvisionUser()', () => {
       role: 'user',
     });
 
-    const env = makeEnv({
-      SAAS_MODE: 'active',
-      JIT_PROVISIONING: 'enabled',
-    });
+    const env = makeEnv({ SAAS_MODE: 'active' });
 
     const result = await resolveOrProvisionUser(
       mockKV as unknown as KVNamespace,
@@ -189,10 +126,7 @@ describe('resolveOrProvisionUser()', () => {
       accessTier: 'standard',
     });
 
-    const env = makeEnv({
-      SAAS_MODE: 'active',
-      JIT_PROVISIONING: 'enabled',
-    });
+    const env = makeEnv({ SAAS_MODE: 'active' });
 
     const result = await resolveOrProvisionUser(
       mockKV as unknown as KVNamespace,

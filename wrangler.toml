@@ -18,10 +18,9 @@ ALLOWED_ORIGINS = ".workers.dev"
 LOG_LEVEL = "info"
 MAX_SESSIONS_USER = "3"
 MAX_SESSIONS_ADMIN = "10"
-# SaaS mode: custom login + JIT provisioning + admin approval (set to "active" to enable)
+# SaaS mode: custom login page, auto-provisioning, admin approval gate
+# Set to "active" via GitHub Actions variable to enable
 # SAAS_MODE = "inactive"
-# JIT_PROVISIONING = "disabled"
-# JIT_DEFAULT_TIER = "pending"
 
 # KV namespace for session metadata
 # The id "placeholder" is for local dev/tests (vitest-pool-workers creates in-memory KV).

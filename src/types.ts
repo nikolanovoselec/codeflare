@@ -62,12 +62,9 @@ export interface Env {
   // Bypass all rate limits for stress testing (set to 'active' to enable)
   STRESS_TEST_MODE?: string;
 
-  // SaaS mode: when 'active', enables multi-tenant access-tier gating
+  // SaaS mode: custom login page with JIT provisioning and admin approval gate.
+  // When 'active', new users are auto-provisioned with 'pending' tier on first login.
   SAAS_MODE?: string;
-  // JIT provisioning: when 'active', auto-create users on first access
-  JIT_PROVISIONING?: string;
-  // Default access tier for JIT-provisioned users
-  JIT_DEFAULT_TIER?: string;
 
 }
 

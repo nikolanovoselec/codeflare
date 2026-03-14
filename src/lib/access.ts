@@ -244,11 +244,10 @@ export async function resolveUserFromKV(
 }
 
 /**
- * Resolve an existing user from KV, or auto-provision a new one when
- * SaaS mode and JIT provisioning are both enabled.
+ * Resolve an existing user from KV, or auto-provision a new one in SaaS mode.
+ * New users are always created with 'pending' tier (requires admin approval).
  *
- * Throws ForbiddenError when the user is not in KV and JIT provisioning
- * conditions are not met.
+ * Throws ForbiddenError when the user is not in KV and SaaS mode is off.
  */
 export async function resolveOrProvisionUser(
   kv: KVNamespace,
@@ -262,21 +261,15 @@ export async function resolveOrProvisionUser(
     return { role: kvEntry.role, accessTier: kvEntry.accessTier ?? 'advanced' };
   }
 
-  const saasActive = isSaasModeActive(env.SAAS_MODE);
-  const jitEnabled = env.JIT_PROVISIONING?.trim().toLowerCase() === 'enabled';
-
-  if (saasActive && jitEnabled) {
-    const rawTier = env.JIT_DEFAULT_TIER?.trim().toLowerCase();
-    const defaultTier: AccessTier = VALID_ACCESS_TIERS.has(rawTier ?? '') ? (rawTier as AccessTier) : 'pending';
-
+  if (isSaasModeActive(env.SAAS_MODE)) {
     await kv.put(`user:${normalizedEmail}`, JSON.stringify({
       addedBy: 'jit',
       addedAt: new Date().toISOString(),
       role: 'user',
-      accessTier: defaultTier,
+      accessTier: 'pending',
     }));
 
-    return { role: 'user', accessTier: defaultTier };
+    return { role: 'user', accessTier: 'pending' };
   }
 
   throw new ForbiddenError('User not in allowlist');

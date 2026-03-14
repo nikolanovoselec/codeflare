@@ -626,86 +626,72 @@ flowchart TD
 
 ## SaaS Mode Authentication
 
-Codeflare supports two deployment modes. The default uses Cloudflare Access for authentication. SaaS mode replaces it with a custom login flow, JIT user provisioning, and admin approval gates.
+When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` access tier and require admin approval.
 
 ### Deployment Modes
 
 | Mode | Auth provider | User provisioning | Access control |
 |------|--------------|-------------------|----------------|
-| **Default** (`SAAS_MODE=inactive`) | Cloudflare Access (JWT) | Manual allowlist via setup wizard | CF Access policies + KV allowlist |
-| **SaaS** (`SAAS_MODE=active`) | Custom login (`/auth/*` routes) | JIT provisioning on first login | Three-tier middleware + KV access tiers |
+| **Default** (no `SAAS_MODE`) | Cloudflare Access (JWT) | Manual allowlist via setup wizard | CF Access policies + KV allowlist |
+| **SaaS** (`SAAS_MODE=active`) | Custom login page + CF Access IdP hints | Auto-provisioned on first login | Three-tier middleware + KV access tiers |
 
 ### Three-Tier Auth Middleware
 
-SaaS mode uses a layered middleware stack that runs on every request to protected routes:
+SaaS mode uses a layered middleware stack on every request to protected routes:
 
-1. **Identity** - Resolves the user from the session cookie or OAuth token. Sets `c.get('user')` with email and metadata. Rejects unauthenticated requests with 401.
-2. **Provisioning** - If the user exists in the identity provider but not in KV, creates a KV record with the default access tier (`JIT_DEFAULT_TIER`). First-time users are provisioned automatically without admin intervention.
-3. **Authorization** - Checks the user's access tier against the route's minimum tier requirement. Returns 403 if the tier is insufficient (e.g., `pending` users cannot access `/app` or `/api/sessions`).
+1. **`requireIdentity`** — Resolves the user from CF Access JWT. If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')` with email, role, and accessTier.
+2. **`requireActiveUser`** — Checks `accessTier` is `standard` or `advanced`. Returns 403 for `pending`/`blocked` users. API requests get JSON error; HTML requests get redirect to `/pending`.
+3. **`requireAdmin`** — Checks `role === 'admin'`. Used for user management endpoints.
+
+When `SAAS_MODE` is not active, `requireActiveUser` (aliased as `authMiddleware`) behaves identically to the original middleware — no tier checking.
 
 ### Access Tiers
 
-| Tier | Can log in | Can use IDE | Admin dashboard | How assigned |
-|------|-----------|-------------|-----------------|-------------|
-| `pending` | Yes | No | No | Default for JIT-provisioned users |
-| `user` | Yes | Yes | No | Admin promotes from `pending` |
-| `admin` | Yes | Yes | Yes | Manual KV entry or first-user bootstrap |
+| Tier | Can log in | Can use IDE | Session modes | How assigned |
+|------|-----------|-------------|---------------|-------------|
+| `pending` | Yes | No | None | Auto-assigned on first login |
+| `standard` | Yes | Yes | `default` only | Admin promotes from `pending` |
+| `advanced` | Yes | Yes | `default` + `advanced` | Admin grants full access |
+| `blocked` | Yes | No | None | Admin blocks user |
 
-Tiers are stored in the KV allowlist record at `user:{email}` in the `tier` field. The existing `role` field (`admin`/`user`) is preserved for backward compatibility with default mode.
-
-### JIT Provisioning
-
-When `JIT_PROVISIONING=enabled`, any authenticated user who passes the identity layer is automatically added to KV on first request. The KV record is created with:
-
-- `tier`: Value of `JIT_DEFAULT_TIER` (default: `pending`)
-- `addedBy`: `jit`
-- `addedAt`: ISO 8601 timestamp
-- `role`: `user`
-
-This means users can sign up and land on a "pending approval" page without any admin action. Admins promote them to `user` tier via the dashboard.
-
-When `JIT_PROVISIONING=disabled` (default), unknown users receive a 403 and must be manually added to the allowlist.
+Tiers are stored in the KV record at `user:{email}` in the `accessTier` field. Existing users without `accessTier` default to `advanced` (backward compat).
 
 ### Auth Routes
 
-SaaS mode registers routes under `/auth/*`, which is why `run_worker_first` includes `/auth/*`:
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/auth/login` | GET | Renders login page or redirects to IdP |
-| `/auth/callback` | GET | OAuth callback - exchanges code for token, sets session cookie |
-| `/auth/logout` | POST | Clears session cookie, redirects to login |
-| `/auth/session` | GET | Returns current session info (email, tier, expiry) |
-
-These routes are unauthenticated (no middleware) - the identity layer only applies to `/app` and `/api` routes.
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/api/auth/providers` | GET | Public | Returns configured IdP list from KV |
+| `/api/auth/status` | GET | Identity | Returns email, accessTier, role |
+| `/auth/login/:provider` | GET | Public | Redirects to CF Access with IdP hint |
+| `/auth/logout` | GET | Public | Redirects to CF Access logout |
 
 ### User Lifecycle
 
 ```mermaid
 flowchart TD
-    A[User visits /auth/login] --> B[Authenticates with IdP]
-    B --> C[/auth/callback sets session cookie]
-    C --> D{JIT_PROVISIONING?}
-    D -->|enabled| E[Create KV record with JIT_DEFAULT_TIER]
-    D -->|disabled| F{User in KV?}
-    F -->|no| G[403 - not provisioned]
-    F -->|yes| H[Load existing tier]
-    E --> I{Tier check}
-    H --> I
-    I -->|pending| J[Pending approval page]
-    I -->|user| K[IDE access /app]
-    I -->|admin| L[IDE + admin dashboard]
+    A[User visits /] --> B[Login page with IdP buttons]
+    B --> C[Click provider → CF Access login]
+    C --> D[CF Access redirects back with JWT]
+    D --> E{User in KV?}
+    E -->|no| F[Auto-provision with pending tier]
+    E -->|yes| G[Load existing tier]
+    F --> H{Tier check}
+    G --> H
+    H -->|pending| I[Pending approval page — polls every 10s]
+    H -->|standard/advanced| J[IDE access /app]
+    H -->|blocked| K[Blocked message + logout]
+    I -->|Admin approves| J
 ```
 
-### Environment Variables
+### Configuration
+
+Only one variable is needed:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `SAAS_MODE` | `inactive` | `active` enables custom login flow, disables CF Access dependency |
-| `JIT_PROVISIONING` | `disabled` | `enabled` auto-creates KV records for new authenticated users |
-| `JIT_DEFAULT_TIER` | `pending` | Default access tier for JIT-provisioned users (`pending`, `user`, `admin`) |
+| `SAAS_MODE` | unset | Set to `active` to enable custom login, auto-provisioning, and admin approval |
 
-All three variables can be set via GitHub Actions repository variables and are passed to the worker at deploy time via `--var` flags in `deploy.yml`.
+Set as a GitHub Actions repository variable. Passed to the worker at deploy time via `--var SAAS_MODE` in `deploy.yml`. Prerequisites: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets (required for any deploy).
 
 ---
 
