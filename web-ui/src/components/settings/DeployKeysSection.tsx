@@ -165,6 +165,23 @@ const DeployKeysSection: Component = () => {
         externalUrl={GITHUB_TOKEN_URL}
         externalLabel="Open GitHub"
         placeholder="github_pat_..."
+        connected={githubConnected()}
+        onSave={(token) => { void handleSaveGithub(token); }}
+        onDisconnect={() => { void handleDisconnectGithub(); }}
+        saving={githubSaving()}
+        disconnecting={githubSaving()}
+        message={githubMessage()}
+        error={githubError()}
+        testId="deploy-github-row"
+      />
+
+      <ProviderRow
+        icon={CloudflareIcon}
+        name="Cloudflare"
+        brandColor="#f38020"
+        externalUrl={CLOUDFLARE_TOKEN_URL}
+        externalLabel="Open Cloudflare"
+        placeholder="Cloudflare API token..."
         connected={cfConnected()}
         onSave={(token) => { void handleSaveCloudflare(token); }}
         onDisconnect={() => { void handleDisconnectCloudflare(); }}
