@@ -32,7 +32,6 @@ interface ConnectProviderModalProps {
 
 const ConnectProviderModal: Component<ConnectProviderModalProps> = (props) => {
   let inputRef: HTMLInputElement | undefined;
-  let triggerRef: HTMLElement | undefined;
   const [tokenValue, setTokenValue] = createSignal('');
 
   const connected = () => !!props.connectedToken;
