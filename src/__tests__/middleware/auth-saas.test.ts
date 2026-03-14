@@ -41,7 +41,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
    * Creates a Hono test app that applies a single auth middleware.
    */
   function createApp(
-    middleware: typeof requireIdentity,
+    middleware: (c: any, next: any) => Promise<any>,
     envOverrides: Partial<Env> = {}
   ) {
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
