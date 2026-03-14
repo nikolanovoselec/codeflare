@@ -765,6 +765,11 @@
   color: var(--color-text-secondary);
 }
 
+.provider-row-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
 /* ======================================
    Mobile: fullscreen settings panel
    ====================================== */

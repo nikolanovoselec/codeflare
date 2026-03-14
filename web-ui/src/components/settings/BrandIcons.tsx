@@ -22,22 +22,22 @@ export const GitHubIcon: Component<BrandIconProps> = (props) => (
   </svg>
 );
 
-/** Cloudflare logo mark */
+/** Cloudflare logo mark — defaults to orange, respects color override via style */
 export const CloudflareIcon: Component<BrandIconProps> = (props) => (
   <svg
     viewBox="0 0 24 24"
     width={props.size || 24}
     height={props.size || 24}
     class={props.class}
-    style={{ display: 'block', ...props.style }}
+    style={{ display: 'block', color: '#f38020', ...props.style }}
   >
     <path
       d="M16.51 15.89l.67-2.34a1.44 1.44 0 00-.05-.98 1.08 1.08 0 00-.72-.59l-8.28-.11a.19.19 0 01-.16-.1.2.2 0 01.01-.19c.04-.06.1-.1.17-.11l8.36-.11c.88-.04 1.83-.78 2.15-1.66l.4-1.1a.34.34 0 00.02-.18A5.87 5.87 0 0013.16 4a5.92 5.92 0 00-5.59 3.98A4.15 4.15 0 004.18 8.4 4.49 4.49 0 002 12.54a4.6 4.6 0 00.04.59c0 .04-.02.07-.06.07H1.88A2.89 2.89 0 000 16.11c0 .08.05.14.13.14h16.12c.07 0 .14-.05.16-.12l.1-.24z"
-      fill="#f38020"
+      fill="currentColor"
     />
     <path
       d="M18.68 8.71a.16.16 0 00-.15-.02.15.15 0 00-.09.12l-.37 1.24a1.44 1.44 0 00.05.98c.14.34.41.58.72.59l3.03.11c.07 0 .12.04.16.1a.2.2 0 01-.01.19.18.18 0 01-.17.11l-3.1.11c-.88.05-1.83.78-2.15 1.67l-.12.31c-.02.07.02.14.09.14h6.95c.07 0 .13-.05.14-.12.17-.66.27-1.35.27-2.07a6.21 6.21 0 00-5.25-6.46z"
-      fill="#faae40"
+      fill="currentColor"
     />
   </svg>
 );

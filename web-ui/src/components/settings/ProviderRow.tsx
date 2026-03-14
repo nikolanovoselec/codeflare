@@ -87,16 +87,18 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
           <Show when={props.externalUrl}>
             <a
               class="provider-row-external-btn"
-              style={{ background: props.brandColor || 'var(--color-bg-tertiary)' }}
+              style={{ background: props.brandColor || 'var(--color-bg-tertiary)', color: 'white' }}
               href={props.externalUrl}
               target="_blank"
               rel="noopener noreferrer"
               data-testid={props.testId ? `${props.testId}-external` : undefined}
             >
-              <ProviderIcon size={20} />
+              <ProviderIcon size={20} style={{ color: 'white' }} />
               <span>{props.externalLabel || `Open ${props.name}`}</span>
             </a>
           </Show>
+
+          <span class="provider-row-hint">Generate a token above, then paste it here:</span>
 
           <div class="provider-row-input-group">
             <input
