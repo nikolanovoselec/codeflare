@@ -237,7 +237,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     {
       let wasFollowingOutput = true;
       let previousYdisp = 0;
-      let previousBaseY = 0;
       let previousDistFromBottom = 0;
       let lastUserScrollIntentAt = 0;
       let isCorrectingScroll = false;
@@ -268,7 +267,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         if (isCorrectingScroll) {
           wasFollowingOutput = ydisp >= ybase;
           previousYdisp = ydisp;
-          previousBaseY = ybase;
           previousDistFromBottom = distFromBottom;
           return;
         }
@@ -329,7 +327,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         }
 
         previousYdisp = ydisp;
-        previousBaseY = ybase;
         previousDistFromBottom = distFromBottom;
       });
     }
