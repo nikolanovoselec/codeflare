@@ -15,6 +15,7 @@ vi.mock('../../middleware/auth', () => ({
 
 vi.mock('../../lib/onboarding', () => ({
   isOnboardingLandingPageActive: vi.fn((val?: string) => val === 'active'),
+  isSaasModeActive: vi.fn((val?: string) => val === 'active'),
 }));
 
 import userProfileRoutes from '../../routes/user-profile';
