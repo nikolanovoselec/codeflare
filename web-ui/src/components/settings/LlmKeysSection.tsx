@@ -98,6 +98,7 @@ const LlmKeysSection: Component = () => {
         externalUrl="https://platform.openai.com/api-keys"
         externalLabel="Open OpenAI"
         placeholder="sk-..."
+        instructions={'A new tab opened on OpenAI.\nClick "Create new secret key" and copy it.\nPaste the key here:'}
         connected={openaiConnected()}
         onSave={(token) => { void handleSaveOpenai(token); }}
         onDisconnect={() => { void handleDisconnectOpenai(); }}
@@ -115,6 +116,7 @@ const LlmKeysSection: Component = () => {
         externalUrl="https://aistudio.google.com/apikey"
         externalLabel="Open Google AI Studio"
         placeholder="AI..."
+        instructions={'A new tab opened on Google AI Studio.\nClick "Create API key" and copy it.\nPaste the key here:'}
         connected={geminiConnected()}
         onSave={(token) => { void handleSaveGemini(token); }}
         onDisconnect={() => { void handleDisconnectGemini(); }}

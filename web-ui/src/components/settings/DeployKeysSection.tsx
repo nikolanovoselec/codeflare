@@ -156,6 +156,7 @@ const DeployKeysSection: Component = () => {
         externalUrl={GITHUB_TOKEN_URL}
         externalLabel="Open GitHub"
         placeholder="github_pat_..."
+        instructions={'A new tab opened on GitHub.\nScroll down and click "Generate token".\nCopy the token and paste it here:'}
         connected={githubConnected()}
         onSave={(token) => { void handleSaveGithub(token); }}
         onDisconnect={() => { void handleDisconnectGithub(); }}
@@ -173,6 +174,7 @@ const DeployKeysSection: Component = () => {
         externalUrl={CLOUDFLARE_TOKEN_URL}
         externalLabel="Open Cloudflare"
         placeholder="Cloudflare API token..."
+        instructions={'A new tab opened on Cloudflare.\nClick "Continue to summary", then "Create Token".\nCopy the token and paste it here:'}
         connected={cfConnected()}
         onSave={(token) => { void handleSaveCloudflare(token); }}
         onDisconnect={() => { void handleDisconnectCloudflare(); }}

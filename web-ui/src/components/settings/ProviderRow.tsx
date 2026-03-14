@@ -9,6 +9,7 @@ interface ProviderRowProps {
   externalUrl?: string;
   externalLabel?: string;
   placeholder?: string;
+  instructions?: string;
   connected: boolean;
   onSave: (token: string) => void;
   onDisconnect: () => void;
@@ -88,9 +89,9 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
       {/* Disconnected — expanded: inline connect flow */}
       <Show when={!props.connected && expanded()}>
         <div class="provider-row-expand">
-          <span class="provider-row-hint">
-            A new tab opened on {props.name}. Generate a token there, then paste it here:
-          </span>
+          <Show when={props.instructions}>
+            <span class="provider-row-instructions">{props.instructions}</span>
+          </Show>
 
           <Show when={props.externalUrl}>
             <a
@@ -100,7 +101,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
               rel="noopener noreferrer"
               data-testid={props.testId ? `${props.testId}-external` : undefined}
             >
-              Didn't open? Click here.
+              Didn't open? Click here to open {props.name}.
             </a>
           </Show>
 
