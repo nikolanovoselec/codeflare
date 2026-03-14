@@ -107,3 +107,11 @@ Never assume tokens are present. Always check first.
 - When creating Cloudflare resources, capture the output IDs and update `wrangler.toml` with real values.
 - Durable Objects do not need pre-provisioning - wrangler handles them automatically during deploy.
 - Tokens configured in Settings take effect on next session start, not immediately.
+- When storing secrets as GitHub Actions secrets, use file redirect instead of pipe:
+  ```bash
+  # WRONG — can store empty values in some environments:
+  printf '%s' "$SECRET" | gh secret set SECRET_NAME
+  # CORRECT — reliable across all environments:
+  TMP=$(mktemp) && echo -n "$SECRET" > "$TMP" && gh secret set SECRET_NAME < "$TMP" && rm "$TMP"
+  ```
+- When running wrangler in CI, use `npx --yes wrangler deploy` (not `cloudflare/wrangler-action`) to always get the latest version and avoid interactive prompts.

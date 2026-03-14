@@ -198,10 +198,11 @@ If not pre-configured, ask the user: "Do you already have a Cloudflare account?"
 
 **If credentials are pre-configured** (from Settings > Push & Deploy):
 
-Store them as GitHub Actions secrets directly — no need to ask the user to paste anything:
-```
-printf '%s' "$CLOUDFLARE_API_TOKEN" | gh secret set CLOUDFLARE_API_TOKEN
-printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | gh secret set CLOUDFLARE_ACCOUNT_ID
+Store them as GitHub Actions secrets directly — no need to ask the user to paste anything.
+Use file redirect (not pipe) because `printf | gh secret set` can store empty values in some environments:
+```bash
+TMP=$(mktemp) && echo -n "$CLOUDFLARE_API_TOKEN" > "$TMP" && gh secret set CLOUDFLARE_API_TOKEN < "$TMP" && rm "$TMP"
+TMP=$(mktemp) && echo -n "$CLOUDFLARE_ACCOUNT_ID" > "$TMP" && gh secret set CLOUDFLARE_ACCOUNT_ID < "$TMP" && rm "$TMP"
 ```
 Verify with `gh secret list`. Tell the user: "Your Cloudflare credentials from Settings have been stored as GitHub secrets for automated deployments." Skip to Step 11.
 
@@ -266,30 +267,35 @@ If the user chooses this:
 
 **Check if the workflow has a deploy step:**
 
-Look at `.github/workflows/ci.yml` for `cloudflare/wrangler-action`.
+Look at `.github/workflows/ci.yml` for a `wrangler deploy` step.
 
 - **If deploy step exists:** Move to Step 12.
 - **If CI workflow exists but no deploy step:** Add the deploy step to the existing `ci.yml`. Rename the workflow from "CI" to "CI & Deploy". Add after any existing steps:
 
 ```yaml
       - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 ```
 
 - **If no workflow exists:** Create `.github/workflows/ci.yml` using the deploy workflow template from `references/workflow-templates.md`.
 
-If the project uses D1 and has a schema file (`schema.sql`, `migrations/*.sql`), add a `preCommands` field to the wrangler-action step so migrations run before each deploy:
+If the project uses D1 and has a schema file (`schema.sql`, `migrations/*.sql`), add a migration step before the deploy step:
 
 ```yaml
+      - name: Apply D1 migrations
+        run: npx --yes wrangler d1 execute <db-name> --remote --file=schema.sql
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          preCommands: wrangler d1 execute <db-name> --remote --file=schema.sql
+        run: npx --yes wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 ```
 
 ### Step 12: Provision Cloudflare Resources

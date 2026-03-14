@@ -195,7 +195,6 @@ const DeployKeysSection: Component = () => {
           <div class="deploy-instructions" data-testid="deploy-github-instructions">
             <ol>
               <li>Click "Connect GitHub" — a new tab will open with permissions pre-selected</li>
-              <li>Under Repository access, select <strong>"All repositories"</strong></li>
               <li>Scroll down and click the green <strong>"Generate token"</strong> button</li>
               <li>Copy the token that appears (you'll only see it once)</li>
               <li>Paste it below and click Save</li>
@@ -280,7 +279,6 @@ const DeployKeysSection: Component = () => {
           <div class="deploy-instructions" data-testid="deploy-cf-instructions">
             <ol>
               <li>Click "Connect Cloudflare" — a new tab will open with permissions pre-selected</li>
-              <li>Under Account Resources, select your account (or "All accounts")</li>
               <li>Click the blue <strong>"Continue to summary"</strong> button at the bottom</li>
               <li>Click <strong>"Create Token"</strong></li>
               <li>Copy the token that appears (you'll only see it once)</li>
