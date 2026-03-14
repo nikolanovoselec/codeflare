@@ -105,6 +105,20 @@ export interface StartupStatusResponse {
   error?: string;
 }
 
+export type AccessTier = 'pending' | 'standard' | 'advanced' | 'blocked';
+
+export interface AuthStatus {
+  email: string;
+  accessTier: AccessTier;
+  role: 'admin' | 'user';
+}
+
+export interface AuthProvider {
+  id: string;
+  type: string;
+  name: string;
+}
+
 // Note: Backend Session includes `userId` which is not exposed to the frontend
 export interface UserInfo {
   email: string;
@@ -113,6 +127,7 @@ export interface UserInfo {
   workerName?: string;
   role?: 'admin' | 'user';
   onboardingActive?: boolean;
+  saasMode?: boolean;
 }
 
 // Terminal connection state (no 'error' — infinite retries mean we never give up)

@@ -20,35 +20,36 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 
 ### Security & Operations
 7. [Authentication](#authentication)
-8. [Security Model](#security-model)
-9. [Rate Limiting](#rate-limiting)
+8. [SaaS Mode Authentication](#saas-mode-authentication)
+9. [Security Model](#security-model)
+10. [Rate Limiting](#rate-limiting)
 
 ### APIs & Configuration
-10. [API Reference](#api-reference)
-11. [Environment Variables](#environment-variables)
-12. [Configuration](#configuration)
+11. [API Reference](#api-reference)
+12. [Environment Variables](#environment-variables)
+13. [Configuration](#configuration)
 
 ### Deployment & Infrastructure
-13. [Container Image](#container-image)
-14. [Container Startup](#container-startup)
-15. [Claude Code Integration](#claude-code-integration)
-16. [CI/CD (GitHub Actions)](#cicd-github-actions)
+14. [Container Image](#container-image)
+15. [Container Startup](#container-startup)
+16. [Claude Code Integration](#claude-code-integration)
+17. [CI/CD (GitHub Actions)](#cicd-github-actions)
 
 ### Development & Testing
-17. [Testing](#testing)
-18. [Development](#development)
-19. [File Structure](#file-structure)
+18. [Testing](#testing)
+19. [Development](#development)
+20. [File Structure](#file-structure)
 
 ### Operations & Debugging
-20. [Troubleshooting](#troubleshooting)
-21. [Debugging Guide](#debugging-guide)
-22. [Cost Analysis](#cost-analysis)
+21. [Troubleshooting](#troubleshooting)
+22. [Debugging Guide](#debugging-guide)
+23. [Cost Analysis](#cost-analysis)
 
 ### Design Documentation
-23. [Architecture Decisions](#architecture-decisions)
-24. [Lessons Learned](#lessons-learned)
-25. [Mobile Terminal Design](#mobile-terminal-design)
-26. [Automatic Memory Capture](#automatic-memory-capture)
+24. [Architecture Decisions](#architecture-decisions)
+25. [Lessons Learned](#lessons-learned)
+26. [Mobile Terminal Design](#mobile-terminal-design)
+27. [Automatic Memory Capture](#automatic-memory-capture)
 
 **Related Documentation:**
 - [README.md](README.md) - Product overview and setup
@@ -620,6 +621,91 @@ flowchart TD
 ### Bucket Auto-Creation
 
 **File:** `src/lib/r2-admin.ts` - `createBucketIfNotExists()` via Cloudflare API on first container start.
+
+---
+
+## SaaS Mode Authentication
+
+Codeflare supports two deployment modes. The default uses Cloudflare Access for authentication. SaaS mode replaces it with a custom login flow, JIT user provisioning, and admin approval gates.
+
+### Deployment Modes
+
+| Mode | Auth provider | User provisioning | Access control |
+|------|--------------|-------------------|----------------|
+| **Default** (`SAAS_MODE=inactive`) | Cloudflare Access (JWT) | Manual allowlist via setup wizard | CF Access policies + KV allowlist |
+| **SaaS** (`SAAS_MODE=active`) | Custom login (`/auth/*` routes) | JIT provisioning on first login | Three-tier middleware + KV access tiers |
+
+### Three-Tier Auth Middleware
+
+SaaS mode uses a layered middleware stack that runs on every request to protected routes:
+
+1. **Identity** - Resolves the user from the session cookie or OAuth token. Sets `c.get('user')` with email and metadata. Rejects unauthenticated requests with 401.
+2. **Provisioning** - If the user exists in the identity provider but not in KV, creates a KV record with the default access tier (`JIT_DEFAULT_TIER`). First-time users are provisioned automatically without admin intervention.
+3. **Authorization** - Checks the user's access tier against the route's minimum tier requirement. Returns 403 if the tier is insufficient (e.g., `pending` users cannot access `/app` or `/api/sessions`).
+
+### Access Tiers
+
+| Tier | Can log in | Can use IDE | Admin dashboard | How assigned |
+|------|-----------|-------------|-----------------|-------------|
+| `pending` | Yes | No | No | Default for JIT-provisioned users |
+| `user` | Yes | Yes | No | Admin promotes from `pending` |
+| `admin` | Yes | Yes | Yes | Manual KV entry or first-user bootstrap |
+
+Tiers are stored in the KV allowlist record at `user:{email}` in the `tier` field. The existing `role` field (`admin`/`user`) is preserved for backward compatibility with default mode.
+
+### JIT Provisioning
+
+When `JIT_PROVISIONING=enabled`, any authenticated user who passes the identity layer is automatically added to KV on first request. The KV record is created with:
+
+- `tier`: Value of `JIT_DEFAULT_TIER` (default: `pending`)
+- `addedBy`: `jit`
+- `addedAt`: ISO 8601 timestamp
+- `role`: `user`
+
+This means users can sign up and land on a "pending approval" page without any admin action. Admins promote them to `user` tier via the dashboard.
+
+When `JIT_PROVISIONING=disabled` (default), unknown users receive a 403 and must be manually added to the allowlist.
+
+### Auth Routes
+
+SaaS mode registers routes under `/auth/*`, which is why `run_worker_first` includes `/auth/*`:
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/auth/login` | GET | Renders login page or redirects to IdP |
+| `/auth/callback` | GET | OAuth callback - exchanges code for token, sets session cookie |
+| `/auth/logout` | POST | Clears session cookie, redirects to login |
+| `/auth/session` | GET | Returns current session info (email, tier, expiry) |
+
+These routes are unauthenticated (no middleware) - the identity layer only applies to `/app` and `/api` routes.
+
+### User Lifecycle
+
+```mermaid
+flowchart TD
+    A[User visits /auth/login] --> B[Authenticates with IdP]
+    B --> C[/auth/callback sets session cookie]
+    C --> D{JIT_PROVISIONING?}
+    D -->|enabled| E[Create KV record with JIT_DEFAULT_TIER]
+    D -->|disabled| F{User in KV?}
+    F -->|no| G[403 - not provisioned]
+    F -->|yes| H[Load existing tier]
+    E --> I{Tier check}
+    H --> I
+    I -->|pending| J[Pending approval page]
+    I -->|user| K[IDE access /app]
+    I -->|admin| L[IDE + admin dashboard]
+```
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SAAS_MODE` | `inactive` | `active` enables custom login flow, disables CF Access dependency |
+| `JIT_PROVISIONING` | `disabled` | `enabled` auto-creates KV records for new authenticated users |
+| `JIT_DEFAULT_TIER` | `pending` | Default access tier for JIT-provisioned users (`pending`, `user`, `admin`) |
+
+All three variables can be set via GitHub Actions repository variables and are passed to the worker at deploy time via `--var` flags in `deploy.yml`.
 
 ---
 

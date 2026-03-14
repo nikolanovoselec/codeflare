@@ -1,0 +1,286 @@
+/* ==========================================================================
+   User Management — admin panel for access tiers
+   ========================================================================== */
+
+.user-mgmt {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: var(--space-6, 1.5rem) var(--space-4, 1rem);
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.user-mgmt-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-6, 1.5rem);
+}
+
+.user-mgmt-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid var(--color-border-subtle, #262626);
+  border-radius: var(--radius-md, 6px);
+  color: var(--color-text-secondary, #a1a1aa);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast, 100ms ease-out),
+    color var(--transition-fast, 100ms ease-out);
+}
+
+.user-mgmt-back:hover {
+  border-color: var(--color-border-default, #3f3f46);
+  color: var(--color-text-primary, #e5e5e5);
+}
+
+.user-mgmt-title {
+  margin: 0;
+  font-size: var(--text-xl, 1.125rem);
+  font-weight: var(--font-bold, 700);
+  color: var(--color-text-primary, #e5e5e5);
+}
+
+.user-mgmt-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2, 0.5rem);
+  font-size: var(--text-xs, 0.75rem);
+  font-weight: var(--font-semibold, 600);
+  color: var(--color-accent, #3b82f6);
+  background: var(--color-accent-muted, rgba(59, 130, 246, 0.15));
+  border-radius: var(--radius-full, 9999px);
+}
+
+/* ==========================================================================
+   Search
+   ========================================================================== */
+
+.user-mgmt-search-input {
+  width: 100%;
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  margin-bottom: var(--space-4, 1rem);
+  background: var(--color-bg-surface, #18181b);
+  border: 1px solid var(--color-border-subtle, #262626);
+  border-radius: var(--radius-md, 6px);
+  color: var(--color-text-primary, #e5e5e5);
+  font-size: var(--text-sm, 0.8125rem);
+  outline: none;
+  transition: border-color var(--transition-fast, 100ms ease-out);
+}
+
+.user-mgmt-search-input::placeholder {
+  color: var(--color-text-muted, #71717a);
+}
+
+.user-mgmt-search-input:focus {
+  border-color: var(--color-accent, #3b82f6);
+}
+
+/* ==========================================================================
+   Error
+   ========================================================================== */
+
+.user-mgmt-error {
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+  margin-bottom: var(--space-4, 1rem);
+  font-size: var(--text-sm, 0.8125rem);
+  color: #fca5a5;
+  background: var(--color-error-bg, rgba(239, 68, 68, 0.1));
+  border: 1px solid var(--color-error-border, rgba(239, 68, 68, 0.3));
+  border-radius: var(--radius-md, 6px);
+  line-height: var(--leading-normal, 1.5);
+}
+
+/* ==========================================================================
+   Sections (grouped by tier)
+   ========================================================================== */
+
+.user-mgmt-section {
+  margin-bottom: var(--space-6, 1.5rem);
+}
+
+.user-mgmt-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  margin-bottom: var(--space-3, 0.75rem);
+  padding-bottom: var(--space-2, 0.5rem);
+  border-bottom: 1px solid var(--color-border-subtle, #262626);
+}
+
+.user-mgmt-section-title {
+  margin: 0;
+  font-size: var(--text-sm, 0.8125rem);
+  font-weight: var(--font-semibold, 600);
+  color: var(--color-text-secondary, #a1a1aa);
+}
+
+.user-mgmt-section-title--pending {
+  color: #fbbf24;
+}
+
+.user-mgmt-section-title--standard {
+  color: #22c55e;
+}
+
+.user-mgmt-section-title--advanced {
+  color: var(--color-accent, #3b82f6);
+}
+
+.user-mgmt-section-title--blocked {
+  color: var(--color-error, #ef4444);
+}
+
+.user-mgmt-count {
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-muted, #71717a);
+  font-weight: var(--font-medium, 500);
+}
+
+/* ==========================================================================
+   Bulk Actions
+   ========================================================================== */
+
+.user-mgmt-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  margin-bottom: var(--space-3, 0.75rem);
+}
+
+.user-mgmt-btn--approve {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 0.25rem);
+  padding: var(--space-1, 0.25rem) var(--space-3, 0.75rem);
+  font-size: var(--text-xs, 0.75rem);
+  font-weight: var(--font-semibold, 600);
+  color: #fff;
+  background: var(--color-success, #22c55e);
+  border: none;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition: background var(--transition-fast, 100ms ease-out);
+}
+
+.user-mgmt-btn--approve:hover {
+  background: #16a34a;
+}
+
+/* ==========================================================================
+   User List
+   ========================================================================== */
+
+.user-mgmt-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 0.25rem);
+}
+
+.user-mgmt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  background: var(--color-bg-surface, #18181b);
+  border: 1px solid var(--color-border-subtle, #262626);
+  border-radius: var(--radius-md, 6px);
+  transition: border-color var(--transition-fast, 100ms ease-out);
+}
+
+.user-mgmt-row:hover {
+  border-color: var(--color-border-default, #3f3f46);
+}
+
+/* ==========================================================================
+   User Info (left side of row)
+   ========================================================================== */
+
+.user-mgmt-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.user-mgmt-email {
+  font-size: var(--text-sm, 0.8125rem);
+  font-weight: var(--font-medium, 500);
+  color: var(--color-text-primary, #e5e5e5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-mgmt-meta {
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-muted, #71717a);
+}
+
+.user-mgmt-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-2, 0.5rem);
+  margin-left: var(--space-2, 0.5rem);
+  font-size: 10px;
+  font-weight: var(--font-semibold, 600);
+  letter-spacing: 0.02em;
+  color: var(--color-accent, #3b82f6);
+  background: var(--color-accent-muted, rgba(59, 130, 246, 0.15));
+  border-radius: var(--radius-full, 9999px);
+}
+
+/* ==========================================================================
+   Tier Select (right side of row)
+   ========================================================================== */
+
+.user-mgmt-tier-select {
+  padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
+  background: var(--color-bg-tertiary, #1f1f23);
+  border: 1px solid var(--color-border-subtle, #262626);
+  border-radius: var(--radius-md, 6px);
+  color: var(--color-text-primary, #e5e5e5);
+  font-size: var(--text-xs, 0.75rem);
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-fast, 100ms ease-out);
+}
+
+.user-mgmt-tier-select:focus {
+  border-color: var(--color-accent, #3b82f6);
+}
+
+.user-mgmt-updating {
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-muted, #71717a);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 640px) {
+  .user-mgmt {
+    padding: var(--space-4, 1rem);
+  }
+
+  .user-mgmt-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .user-mgmt-tier-select {
+    width: 100%;
+  }
+}

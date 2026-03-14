@@ -6,3 +6,7 @@ export function isOnboardingLandingPageActive(value?: string): boolean {
   return value?.trim().toLowerCase() === 'active';
 }
 
+export function isSaasModeActive(value?: string): boolean {
+  return value?.trim().toLowerCase() === 'active';
+}
+

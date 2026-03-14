@@ -21,6 +21,22 @@ const TabPresetSchema = z.object({
 // Session mode enum
 export const SessionModeSchema = z.enum(['default', 'advanced']);
 
+export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
+
+export const AuthStatusResponseSchema = z.object({
+  email: z.string(),
+  accessTier: AccessTierSchema,
+  role: z.enum(['admin', 'user']),
+});
+
+export const AuthProvidersResponseSchema = z.object({
+  providers: z.array(z.object({
+    id: z.string(),
+    type: z.string(),
+    name: z.string(),
+  })),
+});
+
 // User preferences schema
 export const UserPreferencesSchema = z.object({
   lastAgentType: AgentTypeSchema.optional(),
@@ -66,6 +82,7 @@ export const UserResponseSchema = z.object({
   workerName: z.string().optional(),
   role: z.enum(['admin', 'user']).optional(),
   onboardingActive: z.boolean().optional(),
+  saasMode: z.boolean().optional(),
 });
 
 export const SessionsResponseSchema = z.object({
@@ -150,6 +167,7 @@ export const UserEntrySchema = z.object({
   addedBy: z.string(),
   addedAt: z.string(),
   role: z.enum(['admin', 'user']).default('user'),
+  accessTier: AccessTierSchema.optional(),
 });
 
 export const GetUsersResponseSchema = z.object({

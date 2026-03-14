@@ -62,6 +62,13 @@ export interface Env {
   // Bypass all rate limits for stress testing (set to 'active' to enable)
   STRESS_TEST_MODE?: string;
 
+  // SaaS mode: when 'active', enables multi-tenant access-tier gating
+  SAAS_MODE?: string;
+  // JIT provisioning: when 'active', auto-create users on first access
+  JIT_PROVISIONING?: string;
+  // Default access tier for JIT-provisioned users
+  JIT_DEFAULT_TIER?: string;
+
 }
 
 /**
@@ -76,6 +83,7 @@ export interface AccessUser {
   email: string;
   authenticated: boolean;
   role?: UserRole;
+  accessTier?: AccessTier;
 }
 
 /**
@@ -110,6 +118,9 @@ export type AgentType = z.infer<typeof AgentTypeSchema>;
 
 export const SessionModeSchema = z.enum(['default', 'advanced']);
 export type SessionMode = z.infer<typeof SessionModeSchema>;
+
+export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
+export type AccessTier = z.infer<typeof AccessTierSchema>;
 
 /**
  * Configuration for a single terminal tab
