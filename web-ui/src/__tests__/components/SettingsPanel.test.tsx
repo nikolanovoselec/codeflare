@@ -562,7 +562,7 @@ describe('SettingsPanel Component', () => {
       expect(screen.queryByTestId('accordion-header-admin')).not.toBeInTheDocument();
     });
 
-    it('shows "Open Setup & User Management" button text for admins', () => {
+    it('shows "Setup" button text for admins', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -573,7 +573,7 @@ describe('SettingsPanel Component', () => {
       ));
       fireEvent.click(screen.getByTestId('accordion-header-admin'));
 
-      expect(screen.getByRole('button', { name: 'Open Setup & User Management' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Setup' })).toBeInTheDocument();
     });
   });
 
@@ -591,7 +591,7 @@ describe('SettingsPanel Component', () => {
 
       const header = screen.getByTestId('accordion-header-admin');
       expect(header).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Open Setup & User Management' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Setup' })).toBeInTheDocument();
     });
 
     it('hides administration for non-admin', () => {
