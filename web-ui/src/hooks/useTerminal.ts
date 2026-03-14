@@ -153,9 +153,14 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       textarea.setAttribute('data-enable-grammarly', 'false');
     }
 
-    // Ctrl+C/V key handler
+    // Custom key handler: Shift+Enter (newline), Ctrl+C (copy), Ctrl+V (paste)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true;
+      // Shift+Enter → send literal newline (multi-line input in shells/REPLs)
+      if (event.shiftKey && event.key === 'Enter') {
+        term!.input('\n', false);
+        return false;
+      }
       if (event.ctrlKey && event.key === 'c') {
         const selection = term!.getSelection();
         if (selection) {

@@ -220,6 +220,14 @@ export function setupMobileInput(
       if (!terminal) return;
       sentViaKeydown = false;
 
+      // Shift+Enter → literal newline (multi-line input)
+      if (e.shiftKey && e.key === 'Enter') {
+        e.preventDefault();
+        sentViaKeydown = true;
+        terminal.input('\n', false);
+        return;
+      }
+
       const action = resolveKeyAction(
         e.key,
         e.ctrlKey,
