@@ -576,22 +576,9 @@ export async function handleCreateAccessApp(
       audienceTags.push(appResult.aud);
     }
 
-    // Use group-based policy for both SaaS and default mode.
-    // login_method includes broke the OAuth callback ("invalid login session").
-    // Group-based policy works reliably — the Worker handles authorization via access tiers.
-    let saasLoginMethods: Array<{ id: string }> | undefined;
-    if (false) { // Disabled: login_method includes break OAuth callback
-      if (idpList.length > 0) {
-        saasLoginMethods = idpList.map(p => ({ id: p.id }));
-        logger.info('SaaS mode: configuring Access policy with login_method includes', {
-          providers: idpList.map(p => p.type),
-        });
-      } else {
-        logger.warn('SaaS mode: no IdPs found, falling back to group-based policy');
-      }
-    }
-
-    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup?.id ?? null, saasLoginMethods);
+    // Always use group-based policy. login_method includes broke the OAuth callback
+    // ("invalid login session"). The Worker handles authorization via access tiers.
+    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup?.id ?? null);
 
     await storeAccessConfig(token, accountId, kv, audienceTags, groupNames, {
       admin: adminGroup.id,
