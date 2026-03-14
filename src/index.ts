@@ -148,11 +148,15 @@ app.route('/api/auth', authApiRoutes);
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
-// Only show social login providers on the login page.
-const ALLOWED_IDP_TYPES = new Set(['google', 'github', 'facebook', 'linkedin']);
+// Shows social IdPs by type + any custom IdPs listed by UUID in SAAS_EXTRA_IDPS.
+const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'facebook', 'linkedin']);
 app.get('/public/auth/providers', async (c) => {
   const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>('setup:idp_list', 'json');
-  const filtered = (idpList || []).filter(p => ALLOWED_IDP_TYPES.has(p.type));
+  // Parse extra IdP UUIDs from env (comma-separated)
+  const extraIds = new Set(
+    (c.env.SAAS_EXTRA_IDPS || '').split(',').map(s => s.trim()).filter(Boolean)
+  );
+  const filtered = (idpList || []).filter(p => SOCIAL_IDP_TYPES.has(p.type) || extraIds.has(p.id));
   return c.json({ providers: filtered });
 });
 

@@ -65,6 +65,9 @@ export interface Env {
   // SaaS mode: custom login page with JIT provisioning and admin approval gate.
   // When 'active', new users are auto-provisioned with 'pending' tier on first login.
   SAAS_MODE?: string;
+  // Comma-separated CF Access IdP UUIDs to show on login page alongside social providers.
+  // Use for custom OIDC/SAML providers (e.g., Authentik, Okta).
+  SAAS_EXTRA_IDPS?: string;
 
 }
 

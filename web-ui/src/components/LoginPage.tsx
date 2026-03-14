@@ -19,15 +19,26 @@ const GOOGLE_ICON = (
   </svg>
 );
 
-function getProviderIcon(type: string) {
-  switch (type) {
+const GRAYMATTER_ICON = (
+  <svg viewBox="0 0 32 32" width="20" height="20" fill="none" role="presentation">
+    <rect x="0" y="0" width="20" height="20" fill="#808080" />
+    <rect x="5" y="5" width="20" height="20" fill="#FFFFFF" />
+    <rect x="10" y="10" width="20" height="20" fill="#CCCCCC" />
+  </svg>
+);
+
+function getProviderIcon(provider: AuthProvider) {
+  switch (provider.type) {
     case 'github':
       return GITHUB_ICON;
     case 'google':
       return GOOGLE_ICON;
     default:
-      return null;
+      break;
   }
+  // Match by name for custom OIDC providers
+  if (provider.name.toLowerCase().includes('gray matter')) return GRAYMATTER_ICON;
+  return null;
 }
 
 const LoginPage: Component = () => {
@@ -113,7 +124,7 @@ const LoginPage: Component = () => {
                   data-provider={provider.type}
                 >
                   <span class="login-provider-icon">
-                    {getProviderIcon(provider.type)}
+                    {getProviderIcon(provider)}
                   </span>
                   Continue with {provider.name}
                 </a>
