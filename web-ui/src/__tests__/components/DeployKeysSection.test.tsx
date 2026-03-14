@@ -42,7 +42,7 @@ describe('DeployKeysSection Component', () => {
     it('shows Connect buttons when not connected', async () => {
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        const rows = screen.getAllByText('Connect');
+        const rows = screen.getAllByText(/Connect to/);
         expect(rows.length).toBe(2);
       });
     });
@@ -65,10 +65,10 @@ describe('DeployKeysSection Component', () => {
     it('opens GitHub modal when Connect clicked', async () => {
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getAllByText('Connect').length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Connect to/).length).toBeGreaterThan(0);
       });
 
-      const connectButtons = screen.getAllByText('Connect');
+      const connectButtons = screen.getAllByText(/Connect to/);
       fireEvent.click(connectButtons[0].closest('button')!);
 
       await waitFor(() => {
@@ -80,10 +80,10 @@ describe('DeployKeysSection Component', () => {
     it('opens external URL when brand button clicked', async () => {
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getAllByText('Connect').length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Connect to/).length).toBeGreaterThan(0);
       });
 
-      const connectButtons = screen.getAllByText('Connect');
+      const connectButtons = screen.getAllByText(/Connect to/);
       fireEvent.click(connectButtons[0].closest('button')!);
 
       await waitFor(() => {
@@ -102,10 +102,10 @@ describe('DeployKeysSection Component', () => {
 
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getAllByText('Connect').length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Connect to/).length).toBeGreaterThan(0);
       });
 
-      const connectButtons = screen.getAllByText('Connect');
+      const connectButtons = screen.getAllByText(/Connect to/);
       fireEvent.click(connectButtons[0].closest('button')!);
 
       await waitFor(() => {
@@ -124,10 +124,10 @@ describe('DeployKeysSection Component', () => {
     it('closes modal on backdrop click', async () => {
       render(() => <DeployKeysSection />);
       await waitFor(() => {
-        expect(screen.getAllByText('Connect').length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Connect to/).length).toBeGreaterThan(0);
       });
 
-      const connectButtons = screen.getAllByText('Connect');
+      const connectButtons = screen.getAllByText(/Connect to/);
       fireEvent.click(connectButtons[0].closest('button')!);
 
       await waitFor(() => {
