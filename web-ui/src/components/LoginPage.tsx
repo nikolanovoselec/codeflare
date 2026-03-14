@@ -119,7 +119,7 @@ const LoginPage: Component = () => {
             <For each={providers()}>
               {(provider) => (
                 <a
-                  href={`/auth/login/${provider.id}`}
+                  href="/app/"
                   class="login-provider-button"
                   data-provider={provider.type}
                 >
