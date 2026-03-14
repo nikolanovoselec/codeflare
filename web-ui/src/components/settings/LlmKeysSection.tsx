@@ -1,39 +1,7 @@
 import { Component, createSignal, onMount } from 'solid-js';
 import { getLlmKeys, updateLlmKeys } from '../../api/client';
 import ProviderRow from './ProviderRow';
-import ConnectProviderModal from './ConnectProviderModal';
-import type { ProviderConfig } from './ConnectProviderModal';
 import { OpenAIIcon, GeminiIcon } from './BrandIcons';
-
-const OPENAI_PROVIDER: ProviderConfig = {
-  id: 'openai',
-  name: 'OpenAI',
-  icon: OpenAIIcon,
-  brandColor: '#10a37f',
-  externalUrl: 'https://platform.openai.com/api-keys',
-  externalLabel: 'Open OpenAI',
-  placeholder: 'sk-...',
-  instructions: [
-    'Click "Open OpenAI" to go to your API keys page',
-    'Click "Create new secret key" and copy it',
-    'Paste the key below and click Save',
-  ],
-};
-
-const GEMINI_PROVIDER: ProviderConfig = {
-  id: 'gemini',
-  name: 'Gemini',
-  icon: GeminiIcon,
-  brandColor: '#4285f4',
-  externalUrl: 'https://aistudio.google.com/apikey',
-  externalLabel: 'Open Google AI Studio',
-  placeholder: 'AI...',
-  instructions: [
-    'Click "Open Google AI Studio" to go to your API keys page',
-    'Click "Create API key" and copy it',
-    'Paste the key below and click Save',
-  ],
-};
 
 const LlmKeysSection: Component = () => {
   const [openaiKey, setOpenaiKey] = createSignal('');
@@ -44,7 +12,6 @@ const LlmKeysSection: Component = () => {
   const [geminiSaving, setGeminiSaving] = createSignal(false);
   const [geminiMessage, setGeminiMessage] = createSignal<string | null>(null);
   const [geminiError, setGeminiError] = createSignal<string | null>(null);
-  const [modalProvider, setModalProvider] = createSignal<string | null>(null);
 
   const openaiConnected = () => openaiKey().startsWith('****');
   const geminiConnected = () => geminiKey().startsWith('****');
@@ -55,72 +22,64 @@ const LlmKeysSection: Component = () => {
         if (keys.openaiApiKey) setOpenaiKey(keys.openaiApiKey);
         if (keys.geminiApiKey) setGeminiKey(keys.geminiApiKey);
       })
-      .catch(() => { /* keys not loaded */ });
+      .catch(() => {});
   });
 
   const handleSaveOpenai = async (token: string) => {
-    if (openaiSaving()) return;
     setOpenaiSaving(true);
     setOpenaiMessage(null);
     setOpenaiError(null);
-
     try {
       const result = await updateLlmKeys({ openaiApiKey: token });
       setOpenaiKey(result.openaiApiKey || '');
-      setOpenaiMessage('OpenAI connected. Takes effect on next session start.');
+      setOpenaiMessage('Connected. Takes effect on next session.');
     } catch (error) {
-      setOpenaiError(error instanceof Error ? error.message : 'Failed to save OpenAI key.');
+      setOpenaiError(error instanceof Error ? error.message : 'Failed to save.');
     } finally {
       setOpenaiSaving(false);
     }
   };
 
   const handleDisconnectOpenai = async () => {
-    if (openaiSaving()) return;
     setOpenaiSaving(true);
     setOpenaiMessage(null);
     setOpenaiError(null);
-
     try {
       await updateLlmKeys({ openaiApiKey: null });
       setOpenaiKey('');
-      setOpenaiMessage('OpenAI disconnected.');
+      setOpenaiMessage('Disconnected.');
     } catch (error) {
-      setOpenaiError(error instanceof Error ? error.message : 'Failed to disconnect OpenAI.');
+      setOpenaiError(error instanceof Error ? error.message : 'Failed.');
     } finally {
       setOpenaiSaving(false);
     }
   };
 
   const handleSaveGemini = async (token: string) => {
-    if (geminiSaving()) return;
     setGeminiSaving(true);
     setGeminiMessage(null);
     setGeminiError(null);
-
     try {
       const result = await updateLlmKeys({ geminiApiKey: token });
       setGeminiKey(result.geminiApiKey || '');
-      setGeminiMessage('Gemini connected. Takes effect on next session start.');
+      setGeminiMessage('Connected. Takes effect on next session.');
     } catch (error) {
-      setGeminiError(error instanceof Error ? error.message : 'Failed to save Gemini key.');
+      setGeminiError(error instanceof Error ? error.message : 'Failed to save.');
     } finally {
       setGeminiSaving(false);
     }
   };
 
   const handleDisconnectGemini = async () => {
-    if (geminiSaving()) return;
     setGeminiSaving(true);
     setGeminiMessage(null);
     setGeminiError(null);
-
     try {
       await updateLlmKeys({ geminiApiKey: null });
       setGeminiKey('');
-      setGeminiMessage('Gemini disconnected.');
+      setGeminiMessage('Disconnected.');
     } catch (error) {
-      setGeminiError(error instanceof Error ? error.message : 'Failed to disconnect Gemini.');
+      setGeminiError(error instanceof Error ? error.message : 'Failed.');
     } finally {
       setGeminiSaving(false);
     }
@@ -129,20 +88,23 @@ const LlmKeysSection: Component = () => {
   return (
     <>
       <p class="llm-keys-explanation" data-testid="llm-keys-explanation">
-        Optional. These keys let you consult external AI models (GPT, Gemini) for second opinions while coding. Used by the "Consult LLM" tool in Claude Code sessions.
-      </p>
-      <p class="llm-keys-links" data-testid="llm-keys-links">
-        Get keys: <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a> · <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+        Optional. Connect external AI models for second opinions while coding.
       </p>
 
       <ProviderRow
         icon={OpenAIIcon}
         name="OpenAI"
         brandColor="#10a37f"
+        externalUrl="https://platform.openai.com/api-keys"
+        externalLabel="Open OpenAI"
+        placeholder="sk-..."
         connected={openaiConnected()}
-        onConnect={() => { setOpenaiMessage(null); setOpenaiError(null); setModalProvider('openai'); }}
+        onSave={(token) => { void handleSaveOpenai(token); }}
         onDisconnect={() => { void handleDisconnectOpenai(); }}
+        saving={openaiSaving()}
         disconnecting={openaiSaving()}
+        message={openaiMessage()}
+        error={openaiError()}
         testId="llm-openai-row"
       />
 
@@ -150,33 +112,17 @@ const LlmKeysSection: Component = () => {
         icon={GeminiIcon}
         name="Gemini"
         brandColor="#4285f4"
+        externalUrl="https://aistudio.google.com/apikey"
+        externalLabel="Open Google AI Studio"
+        placeholder="AI..."
         connected={geminiConnected()}
-        onConnect={() => { setGeminiMessage(null); setGeminiError(null); setModalProvider('gemini'); }}
-        onDisconnect={() => { void handleDisconnectGemini(); }}
-        disconnecting={geminiSaving()}
-        testId="llm-gemini-row"
-      />
-
-      <ConnectProviderModal
-        isOpen={modalProvider() === 'openai'}
-        provider={OPENAI_PROVIDER}
-        onClose={() => setModalProvider(null)}
-        onSave={(token) => { void handleSaveOpenai(token); }}
-        connectedToken={openaiConnected() ? openaiKey() : undefined}
-        saving={openaiSaving()}
-        message={openaiMessage()}
-        error={openaiError()}
-      />
-
-      <ConnectProviderModal
-        isOpen={modalProvider() === 'gemini'}
-        provider={GEMINI_PROVIDER}
-        onClose={() => setModalProvider(null)}
         onSave={(token) => { void handleSaveGemini(token); }}
-        connectedToken={geminiConnected() ? geminiKey() : undefined}
+        onDisconnect={() => { void handleDisconnectGemini(); }}
         saving={geminiSaving()}
+        disconnecting={geminiSaving()}
         message={geminiMessage()}
         error={geminiError()}
+        testId="llm-gemini-row"
       />
 
       <div class="setting-row setting-row--column-gap">

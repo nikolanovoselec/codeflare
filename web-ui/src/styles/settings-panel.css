@@ -647,6 +647,124 @@
   cursor: not-allowed;
 }
 
+/* Inline expand — connect flow below the button */
+.provider-row-expand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  animation: fadeIn 150ms ease-out;
+}
+
+.provider-row-external-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 20px;
+  min-height: 48px;
+  border: none;
+  border-radius: var(--radius-xl);
+  color: white;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-sans);
+  text-decoration: none;
+  cursor: pointer;
+  transition: filter var(--transition-fast);
+}
+
+.provider-row-external-btn:hover {
+  filter: brightness(1.15);
+  color: white;
+}
+
+.provider-row-input-group {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.provider-row-token-input {
+  flex: 1;
+  padding: 10px 14px;
+  min-height: 44px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-family: var(--font-mono);
+  transition: border-color var(--transition-fast);
+}
+
+.provider-row-token-input:focus {
+  outline: none;
+  border-color: var(--color-border-strong);
+}
+
+.provider-row-token-input::placeholder {
+  color: var(--color-text-dimmed);
+}
+
+.provider-row-save-btn {
+  padding: 10px 20px;
+  min-height: 44px;
+  background: var(--color-accent);
+  border: none;
+  border-radius: var(--radius-lg);
+  color: white;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast);
+}
+
+.provider-row-save-btn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.provider-row-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.provider-row-expand-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.provider-row-error {
+  flex: 1;
+  color: var(--color-error);
+  font-size: var(--text-xs);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.provider-row-message {
+  color: var(--color-success);
+  font-size: var(--text-xs);
+}
+
+.provider-row-cancel {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  margin-left: auto;
+}
+
+.provider-row-cancel:hover {
+  color: var(--color-text-secondary);
+}
+
 /* ======================================
    Mobile: fullscreen settings panel
    ====================================== */

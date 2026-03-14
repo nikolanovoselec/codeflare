@@ -1,9 +1,7 @@
-import { Component, createSignal, onMount } from 'solid-js';
+import { Component, createSignal, onMount, Show, For } from 'solid-js';
 import { getDeployKeys, updateDeployKeys } from '../../api/client';
 import type { DeployKeysResponse } from '../../api/client';
 import ProviderRow from './ProviderRow';
-import ConnectProviderModal from './ConnectProviderModal';
-import type { ProviderConfig } from './ConnectProviderModal';
 import { GitHubIcon, CloudflareIcon } from './BrandIcons';
 
 // GitHub fine-grained PAT template URL with broad scopes pre-filled.
@@ -39,53 +37,18 @@ interface CloudflareAccount {
   name: string;
 }
 
-const GITHUB_PROVIDER: ProviderConfig = {
-  id: 'github',
-  name: 'GitHub',
-  icon: GitHubIcon,
-  brandColor: '#24292f',
-  externalUrl: GITHUB_TOKEN_URL,
-  externalLabel: 'Open GitHub',
-  placeholder: 'github_pat_...',
-  instructions: [
-    'Click "Open GitHub" to create a token with pre-selected permissions',
-    'Click the green "Generate token" button and copy it',
-    'Paste the token below and click Save',
-  ],
-};
-
-const CLOUDFLARE_PROVIDER: ProviderConfig = {
-  id: 'cloudflare',
-  name: 'Cloudflare',
-  icon: CloudflareIcon,
-  brandColor: '#f38020',
-  externalUrl: CLOUDFLARE_TOKEN_URL,
-  externalLabel: 'Open Cloudflare',
-  placeholder: 'Cloudflare API token...',
-  instructions: [
-    'Click "Open Cloudflare" to create a token with pre-selected permissions',
-    'Click "Continue to summary" then "Create Token" and copy it',
-    'Paste the token below and click Save',
-  ],
-};
-
 const DeployKeysSection: Component = () => {
-  // GitHub state
   const [githubToken, setGithubToken] = createSignal('');
   const [githubSaving, setGithubSaving] = createSignal(false);
   const [githubMessage, setGithubMessage] = createSignal<string | null>(null);
   const [githubError, setGithubError] = createSignal<string | null>(null);
 
-  // Cloudflare state
   const [cfToken, setCfToken] = createSignal('');
   const [cfAccountId, setCfAccountId] = createSignal<string | undefined>();
   const [cfAccounts, setCfAccounts] = createSignal<CloudflareAccount[]>([]);
   const [cfSaving, setCfSaving] = createSignal(false);
   const [cfMessage, setCfMessage] = createSignal<string | null>(null);
   const [cfError, setCfError] = createSignal<string | null>(null);
-
-  // Modal state
-  const [modalProvider, setModalProvider] = createSignal<string | null>(null);
 
   const githubConnected = () => githubToken().startsWith('****');
   const cfConnected = () => cfToken().startsWith('****');
@@ -97,64 +60,56 @@ const DeployKeysSection: Component = () => {
         if (keys.cloudflareApiToken) setCfToken(keys.cloudflareApiToken);
         if (keys.cloudflareAccountId) setCfAccountId(keys.cloudflareAccountId);
       })
-      .catch(() => { /* keys not loaded */ });
+      .catch(() => {});
   });
 
   const handleSaveGithub = async (token: string) => {
-    if (githubSaving()) return;
     setGithubSaving(true);
     setGithubMessage(null);
     setGithubError(null);
-
     try {
       const result = await updateDeployKeys({ githubToken: token });
       setGithubToken(result.githubToken || '');
-      setGithubMessage('GitHub connected. Takes effect on next session start.');
+      setGithubMessage('Connected. Takes effect on next session.');
     } catch (error) {
-      setGithubError(error instanceof Error ? error.message : 'Failed to save GitHub token.');
+      setGithubError(error instanceof Error ? error.message : 'Failed to save.');
     } finally {
       setGithubSaving(false);
     }
   };
 
   const handleDisconnectGithub = async () => {
-    if (githubSaving()) return;
     setGithubSaving(true);
     setGithubMessage(null);
     setGithubError(null);
-
     try {
       await updateDeployKeys({ githubToken: null });
       setGithubToken('');
-      setGithubMessage('GitHub disconnected.');
+      setGithubMessage('Disconnected.');
     } catch (error) {
-      setGithubError(error instanceof Error ? error.message : 'Failed to disconnect GitHub.');
+      setGithubError(error instanceof Error ? error.message : 'Failed.');
     } finally {
       setGithubSaving(false);
     }
   };
 
   const handleSaveCloudflare = async (token: string) => {
-    if (cfSaving()) return;
     setCfSaving(true);
     setCfMessage(null);
     setCfError(null);
-
     try {
       const result = await updateDeployKeys({ cloudflareApiToken: token });
       setCfToken(result.cloudflareApiToken || '');
-      if (result.cloudflareAccountId) {
-        setCfAccountId(result.cloudflareAccountId);
-      }
+      if (result.cloudflareAccountId) setCfAccountId(result.cloudflareAccountId);
       if (result.cloudflareAccounts && result.cloudflareAccounts.length > 1) {
         setCfAccounts(result.cloudflareAccounts);
-        setCfMessage('Multiple accounts found. Please select one.');
+        setCfMessage('Select your account below.');
       } else {
         setCfAccounts([]);
-        setCfMessage('Cloudflare connected. Takes effect on next session start.');
+        setCfMessage('Connected. Takes effect on next session.');
       }
     } catch (error) {
-      setCfError(error instanceof Error ? error.message : 'Failed to save Cloudflare token.');
+      setCfError(error instanceof Error ? error.message : 'Failed to save.');
     } finally {
       setCfSaving(false);
     }
@@ -167,28 +122,26 @@ const DeployKeysSection: Component = () => {
       await updateDeployKeys({ cloudflareAccountId: accountId });
       setCfAccountId(accountId);
       setCfAccounts([]);
-      setCfMessage('Cloudflare connected. Takes effect on next session start.');
+      setCfMessage('Connected. Takes effect on next session.');
     } catch (error) {
-      setCfError(error instanceof Error ? error.message : 'Failed to select account.');
+      setCfError(error instanceof Error ? error.message : 'Failed.');
     } finally {
       setCfSaving(false);
     }
   };
 
   const handleDisconnectCloudflare = async () => {
-    if (cfSaving()) return;
     setCfSaving(true);
     setCfMessage(null);
     setCfError(null);
-
     try {
       await updateDeployKeys({ cloudflareApiToken: null });
       setCfToken('');
       setCfAccountId(undefined);
       setCfAccounts([]);
-      setCfMessage('Cloudflare disconnected.');
+      setCfMessage('Disconnected.');
     } catch (error) {
-      setCfError(error instanceof Error ? error.message : 'Failed to disconnect Cloudflare.');
+      setCfError(error instanceof Error ? error.message : 'Failed.');
     } finally {
       setCfSaving(false);
     }
@@ -200,10 +153,16 @@ const DeployKeysSection: Component = () => {
         icon={GitHubIcon}
         name="GitHub"
         brandColor="#24292f"
+        externalUrl={GITHUB_TOKEN_URL}
+        externalLabel="Open GitHub"
+        placeholder="github_pat_..."
         connected={githubConnected()}
-        onConnect={() => { setGithubMessage(null); setGithubError(null); setModalProvider('github'); }}
+        onSave={(token) => { void handleSaveGithub(token); }}
         onDisconnect={() => { void handleDisconnectGithub(); }}
+        saving={githubSaving()}
         disconnecting={githubSaving()}
+        message={githubMessage()}
+        error={githubError()}
         testId="deploy-github-row"
       />
 
@@ -211,37 +170,35 @@ const DeployKeysSection: Component = () => {
         icon={CloudflareIcon}
         name="Cloudflare"
         brandColor="#f38020"
+        externalUrl={CLOUDFLARE_TOKEN_URL}
+        externalLabel="Open Cloudflare"
+        placeholder="Cloudflare API token..."
         connected={cfConnected()}
-        onConnect={() => { setCfMessage(null); setCfError(null); setModalProvider('cloudflare'); }}
+        onSave={(token) => { void handleSaveCloudflare(token); }}
         onDisconnect={() => { void handleDisconnectCloudflare(); }}
+        saving={cfSaving()}
         disconnecting={cfSaving()}
+        message={cfMessage()}
+        error={cfError()}
         testId="deploy-cf-row"
       />
 
-      <ConnectProviderModal
-        isOpen={modalProvider() === 'github'}
-        provider={GITHUB_PROVIDER}
-        onClose={() => setModalProvider(null)}
-        onSave={(token) => { void handleSaveGithub(token); }}
-        connectedToken={githubConnected() ? githubToken() : undefined}
-        saving={githubSaving()}
-        message={githubMessage()}
-        error={githubError()}
-      />
-
-      <ConnectProviderModal
-        isOpen={modalProvider() === 'cloudflare'}
-        provider={CLOUDFLARE_PROVIDER}
-        onClose={() => setModalProvider(null)}
-        onSave={(token) => { void handleSaveCloudflare(token); }}
-        connectedToken={cfConnected() ? cfToken() : undefined}
-        accounts={cfAccounts()}
-        accountId={cfAccountId()}
-        onSelectAccount={(id) => { void handleSelectAccount(id); }}
-        saving={cfSaving()}
-        message={cfMessage()}
-        error={cfError()}
-      />
+      {/* Cloudflare multi-account dropdown */}
+      <Show when={cfAccounts().length > 1}>
+        <div class="provider-row-expand" data-testid="deploy-cf-account-select">
+          <select
+            class="provider-row-token-input"
+            value={cfAccountId() || ''}
+            onChange={(e) => { const val = e.currentTarget.value; if (val) void handleSelectAccount(val); }}
+            data-testid="deploy-cf-account-dropdown"
+          >
+            <option value="" disabled>Choose an account...</option>
+            <For each={cfAccounts()}>
+              {(account) => <option value={account.id}>{account.name}</option>}
+            </For>
+          </select>
+        </div>
+      </Show>
 
       <div class="setting-row setting-row--column-gap">
         <span class="settings-hint" data-testid="deploy-keys-hint">
