@@ -3,7 +3,7 @@ import { mdiAlertCircleOutline } from '@mdi/js';
 import Icon from '../Icon';
 
 interface ProviderRowProps {
-  icon: Component<{ size?: number; class?: string; style?: JSX.CSSProperties }>;
+  icon: Component<{ size?: number; class?: string; style?: JSX.CSSProperties; fill?: string }>;
   name: string;
   brandColor?: string;
   externalUrl?: string;
