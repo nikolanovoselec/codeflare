@@ -25,15 +25,18 @@ app.get('/login/:provider', async (c) => {
     return c.json({ error: 'Unknown provider' }, 404);
   }
 
+  const authDomain = await c.env.KV.get('setup:auth_domain');
   const customDomain = await c.env.KV.get('setup:custom_domain');
 
-  if (!customDomain) {
+  if (!authDomain || !customDomain) {
     return c.json({ error: 'Auth not configured' }, 503);
   }
 
-  // Redirect to the protected URL directly — CF Access intercepts and handles auth.
-  // cf_access_idp_id hints which IdP to use, skipping the CF Access login page.
-  const loginUrl = `https://${customDomain}/app/?cf_access_idp_id=${matched.id}`;
+  // CF Access login with IdP pre-selection for path-scoped apps.
+  // The path after /login/ must match the Access app domain exactly,
+  // including the path prefix (e.g., codeflare.novoselec.ch/app).
+  // Using just the hostname fails with "Unable to find your Access application!"
+  const loginUrl = `https://${authDomain}/cdn-cgi/access/login/${customDomain}/app?idp=${matched.id}`;
 
   logger.info('Redirecting to identity provider', { provider: matched.id, type: matched.type });
 
