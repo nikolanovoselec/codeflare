@@ -143,13 +143,30 @@ async function upsertAccessApp(
   existingAppId: string | null,
   managedAppName: string,
   steps: SetupStep[],
-  stepIndex: number
+  stepIndex: number,
+  saasIdpIds?: string[]
 ): Promise<AccessAppResult | null> {
   const appDomain = getManagedAppDomain(customDomain);
   const method = existingAppId ? 'PUT' : 'POST';
   const url = existingAppId
     ? `${CF_API_BASE}/accounts/${accountId}/access/apps/${existingAppId}`
     : `${CF_API_BASE}/accounts/${accountId}/access/apps`;
+
+  // SaaS mode with exactly one social IdP: auto-redirect skips CF Access login page.
+  // allowed_idps restricts which IdPs are shown if the picker appears.
+  const autoRedirect = saasIdpIds ? saasIdpIds.length === 1 : false;
+  const appBody: Record<string, unknown> = {
+    name: managedAppName,
+    domain: appDomain,
+    destinations: getManagedDestinations(customDomain),
+    type: 'self_hosted',
+    session_duration: '24h',
+    auto_redirect_to_identity: autoRedirect,
+    skip_interstitial: true,
+  };
+  if (saasIdpIds && saasIdpIds.length > 0) {
+    appBody.allowed_idps = saasIdpIds;
+  }
 
   const response = await withSetupRetry(
     () => cfApiCB.execute(() => fetch(url, {
@@ -158,15 +175,7 @@ async function upsertAccessApp(
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      name: managedAppName,
-      domain: appDomain,
-      destinations: getManagedDestinations(customDomain),
-      type: 'self_hosted',
-      session_duration: '24h',
-      auto_redirect_to_identity: false,
-      skip_interstitial: true,
-    }),
+    body: JSON.stringify(appBody),
     signal: AbortSignal.timeout(10000),
   })), 'upsertAccessApp');
 
@@ -550,6 +559,13 @@ export async function handleCreateAccessApp(
     const existingApps = await pruneLegacyAccessApps(token, accountId, customDomain, listedApps, managedAppName);
     const audienceTags: string[] = [];
     const existingManagedApp = await resolveManagedAccessApp(kv, customDomain, existingApps, managedAppName);
+    // In SaaS mode, restrict the Access app to social IdPs only.
+    // With exactly one IdP, auto_redirect_to_identity skips the CF Access login page.
+    const socialTypes = new Set(['google', 'github', 'facebook', 'linkedin']);
+    const saasIdpIds = saasMode
+      ? idpList.filter(p => socialTypes.has(p.type)).map(p => p.id)
+      : undefined;
+
     const appResult = await upsertAccessApp(
       token,
       accountId,
@@ -557,7 +573,8 @@ export async function handleCreateAccessApp(
       existingManagedApp?.id ?? null,
       managedAppName,
       steps,
-      stepIndex
+      stepIndex,
+      saasIdpIds
     );
     if (!appResult) {
       throw new SetupError('Failed to create or update Access application', steps);
