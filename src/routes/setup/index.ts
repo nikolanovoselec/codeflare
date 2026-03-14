@@ -15,7 +15,7 @@ import { handleConfigureCustomDomain } from './custom-domain';
 import { handleCreateAccessApp } from './access';
 import { handleConfigureTurnstile } from './turnstile';
 import handlers from './handlers';
-import { isOnboardingLandingPageActive } from '../../lib/onboarding';
+import { isOnboardingLandingPageActive, isSaasModeActive } from '../../lib/onboarding';
 
 const ConfigureBodySchema = z.object({
   customDomain: z
@@ -176,7 +176,7 @@ app.post('/configure', async (c) => {
         handleConfigureCustomDomain(token, accountId, customDomain, c.req.url, steps, workerName)
       );
       await runStep('create_access_app', () =>
-        handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName)
+        handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE))
       );
 
       const onboardingLandingActive = isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE);

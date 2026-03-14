@@ -347,17 +347,39 @@ async function pruneLegacyAccessApps(
   return existingApps.filter((app) => !staleIds.has(app.id));
 }
 
+async function listIdentityProviders(
+  token: string,
+  accountId: string
+): Promise<Array<{ id: string; type: string; name: string }>> {
+  const res = await cfApiCB.execute(() => fetch(
+    `${CF_API_BASE}/accounts/${accountId}/access/identity_providers`,
+    { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
+  ));
+  const data = await parseCfResponse<Array<{ id: string; type: string; name: string }>>(res);
+  if (data.success && Array.isArray(data.result)) {
+    return data.result.map(p => ({ id: p.id, type: p.type, name: p.name }));
+  }
+  return [];
+}
+
+const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'google-apps']);
+
 async function upsertAccessPolicy(
   token: string,
   accountId: string,
   appId: string,
   adminGroupId: string,
-  userGroupId: string | null
+  userGroupId: string | null,
+  saasLoginMethods?: Array<{ id: string }>
 ): Promise<void> {
-  const include = [
-    { group: { id: adminGroupId } },
-    ...(userGroupId ? [{ group: { id: userGroupId } }] : []),
-  ];
+  // In SaaS mode, use login_method includes (any user who authenticates via
+  // configured social IdPs). In default mode, use group includes (allowlisted users only).
+  const include = saasLoginMethods
+    ? saasLoginMethods.map(m => ({ login_method: { id: m.id } }))
+    : [
+        { group: { id: adminGroupId } },
+        ...(userGroupId ? [{ group: { id: userGroupId } }] : []),
+      ];
 
   let updated = false;
   try {
@@ -477,7 +499,8 @@ export async function handleCreateAccessApp(
   adminUsers: string[],
   steps: SetupStep[],
   kv: KVNamespace,
-  workerName?: string
+  workerName?: string,
+  saasMode?: boolean
 ): Promise<void> {
   const stepIndex = addStep(steps, 'create_access_app');
 
@@ -487,6 +510,13 @@ export async function handleCreateAccessApp(
     const adminSet = new Set(adminUsers.map((email) => email.trim().toLowerCase()));
     const dedupedAllowedUsers = Array.from(new Set(allowedUsers.map((email) => email.trim().toLowerCase())));
     const regularUsers = dedupedAllowedUsers.filter((email) => !adminSet.has(email));
+
+    // Fetch IdPs early — needed for SaaS mode policy AND stored in KV for login page
+    const idpList = await listIdentityProviders(token, accountId);
+    if (idpList.length > 0) {
+      await kv.put('setup:idp_list', JSON.stringify(idpList));
+      logger.info('Stored IdP list in KV', { count: idpList.length });
+    }
 
     const listedGroups = await listAccessGroups(token, accountId);
     const adminGroup = await upsertAccessGroup(
@@ -538,26 +568,28 @@ export async function handleCreateAccessApp(
     if (appResult.aud) {
       audienceTags.push(appResult.aud);
     }
-    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup?.id ?? null);
+
+    // SaaS mode: use login_method includes (any user who authenticates via social IdPs).
+    // Default mode: use group includes (only allowlisted users).
+    let saasLoginMethods: Array<{ id: string }> | undefined;
+    if (saasMode) {
+      const socialIdps = idpList.filter(p => SOCIAL_IDP_TYPES.has(p.type));
+      if (socialIdps.length > 0) {
+        saasLoginMethods = socialIdps.map(p => ({ id: p.id }));
+        logger.info('SaaS mode: configuring Access policy with login_method includes', {
+          providers: socialIdps.map(p => p.type),
+        });
+      } else {
+        logger.warn('SaaS mode: no social IdPs found, falling back to group-based policy');
+      }
+    }
+
+    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup?.id ?? null, saasLoginMethods);
 
     await storeAccessConfig(token, accountId, kv, audienceTags, groupNames, {
       admin: adminGroup.id,
       user: userGroup?.id ?? '',
     }, appResult.id);
-
-    try {
-      const idpRes = await cfApiCB.execute(() => fetch(
-        `${CF_API_BASE}/accounts/${accountId}/access/identity_providers`,
-        { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
-      ));
-      const idpData = await parseCfResponse<Array<{ id: string; type: string; name: string }>>(idpRes);
-      if (idpData.success && Array.isArray(idpData.result)) {
-        const idpList = idpData.result.map(p => ({ id: p.id, type: p.type, name: p.name }));
-        await kv.put('setup:idp_list', JSON.stringify(idpList));
-      }
-    } catch (idpError) {
-      logger.warn('Failed to fetch identity providers', { error: toErrorMessage(idpError) });
-    }
 
     steps[stepIndex].status = 'success';
   } catch (error) {
