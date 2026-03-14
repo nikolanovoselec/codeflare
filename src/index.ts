@@ -24,7 +24,10 @@ import {
 import { createLogger, setLogLevel } from './lib/logger';
 import type { LogLevel } from './lib/logger';
 import { authenticateRequest } from './lib/access';
-import { isOnboardingLandingPageActive } from './lib/onboarding';
+import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboarding';
+import { isActiveUser } from './lib/access-tier';
+import authApiRoutes from './routes/auth';
+import authRedirectRoutes from './routes/auth-redirects';
 
 // Type for app context with request ID
 type AppVariables = {
@@ -140,6 +143,10 @@ app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISO
 // Static assets are served by Cloudflare Workers Assets at /
 // Frontend SPA handles all non-API routes via its own routing
 
+// Auth routes (mounted before setup routes)
+app.route('/api/auth', authApiRoutes);
+app.route('/auth', authRedirectRoutes);
+
 // Setup routes (public - no auth required)
 app.route('/api/setup', setupRoutes);
 app.route('/public', publicRoutes);
@@ -224,7 +231,7 @@ export default {
 
     // Only route API and health requests through Hono
     // Non-API routes fall through to static assets (SPA)
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/public/') || url.pathname === '/health') {
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/public/') || url.pathname === '/health') {
       return app.fetch(request, env, ctx);
     }
 
@@ -242,21 +249,29 @@ export default {
     }
 
     // Root behavior is mode-dependent:
+    // - SaaS mode: redirect active users to /app/, serve SPA (LoginPage) otherwise
     // - default mode: redirect / to /app/
     // - onboarding mode: serve SPA (OnboardingLanding component handles the UI)
     if (path === '/') {
-      if (!onboardingLandingActive) {
+      const saasActive = isSaasModeActive(env.SAAS_MODE);
+      if (saasActive) {
+        try {
+          const { user } = await authenticateRequest(request, env);
+          if (isActiveUser(user.accessTier)) {
+            return redirectWithHeaders('/app/');
+          }
+        } catch {
+          // Not authenticated — serve SPA (LoginPage)
+        }
+      } else if (!onboardingLandingActive) {
         return redirectWithHeaders('/app/');
-      }
-
-      try {
-        // If this browser already has a valid Access session + allowlist membership,
-        // redirect directly to the authenticated app shell.
-        await authenticateRequest(request, env);
-        return redirectWithHeaders('/app/');
-      } catch {
-        // Unauthenticated or not allowlisted users stay on the public landing page.
-        // Fall through to serve the SPA which renders the OnboardingLanding component.
+      } else {
+        try {
+          await authenticateRequest(request, env);
+          return redirectWithHeaders('/app/');
+        } catch {
+          // Unauthenticated — serve landing page
+        }
       }
     }
 

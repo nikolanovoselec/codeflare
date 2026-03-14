@@ -1,12 +1,15 @@
-// users.ts = admin user management (GET/DELETE /api/users). See user.ts for current user identity.
+// users.ts = admin user management (GET/DELETE/PATCH /api/users). See user.ts for current user identity.
 import { Hono } from 'hono';
+import { z } from 'zod';
 import type { Env } from '../types';
+import { AccessTierSchema } from '../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getAllUsers, syncAccessPolicy } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
+import { isSaasModeActive } from '../lib/onboarding';
 
 const logger = createLogger('users');
 
@@ -69,6 +72,31 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   await trySyncAccessPolicy(c.env);
 
   return c.json({ success: true, email });
+});
+
+// PATCH /api/users/:email - Update a user's access tier (admin only)
+app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
+  const email = decodeURIComponent(c.req.param('email'));
+  if (!email) throw new ValidationError('Email parameter is required');
+
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+
+  const schema = z.object({ accessTier: AccessTierSchema });
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+
+  const existing = await c.env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
+  if (!existing) throw new NotFoundError('User', email);
+
+  const updated = { ...existing, accessTier: parsed.data.accessTier };
+  await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
+
+  if (!isSaasModeActive(c.env.SAAS_MODE)) {
+    await trySyncAccessPolicy(c.env);
+  }
+
+  return c.json({ success: true, email, accessTier: parsed.data.accessTier });
 });
 
 export default app;

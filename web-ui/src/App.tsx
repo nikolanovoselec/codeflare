@@ -11,6 +11,9 @@ import './styles/app.css';
 
 // Lazy-load the onboarding landing page (only needed when onboarding mode is active)
 const OnboardingLanding = lazy(() => import('./components/OnboardingLanding'));
+const LoginPage = lazy(() => import('./components/LoginPage'));
+const GatePage = lazy(() => import('./components/GatePage'));
+const UserManagement = lazy(() => import('./components/admin/UserManagement'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -129,6 +132,13 @@ const App: Component = () => {
     <Router>
       <Route path="/setup" component={SetupWizard} />
       <Route path="/" component={OnboardingLanding} />
+      <Route path="/login" component={LoginPage} />
+      <Route path="/pending" component={GatePage} />
+      <Route path="/admin/users" component={() => (
+        <SetupGuard>
+          <UserManagement onBack={() => { window.location.href = '/app/'; }} />
+        </SetupGuard>
+      )} />
       <Route
         path="/*"
         component={() => (

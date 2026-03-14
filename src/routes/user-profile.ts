@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { isOnboardingLandingPageActive } from '../lib/onboarding';
+import { isOnboardingLandingPageActive, isSaasModeActive } from '../lib/onboarding';
 import { getOrCreateScopedR2Token } from '../lib/r2-admin';
 
 /**
@@ -39,6 +39,7 @@ app.get('/', async (c) => {
     bucketName,
     workerName: c.env.CLOUDFLARE_WORKER_NAME || 'codeflare',
     onboardingActive: isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE),
+    saasMode: isSaasModeActive(c.env.SAAS_MODE),
   });
 });
 

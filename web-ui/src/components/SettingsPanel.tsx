@@ -671,6 +671,15 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       Open Setup & User Management
                     </Button>
                   </div>
+                  <div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => { window.location.href = '/admin/users'; }}
+                    >
+                      Manage Users
+                    </Button>
+                  </div>
                   <span class="settings-hint" data-testid="settings-r2-warning">
                     Changing your Cloudflare API token requires re-running setup. R2 credentials and per-user storage tokens depend on the API token — without re-running, file sync and new sessions will break.
                   </span>

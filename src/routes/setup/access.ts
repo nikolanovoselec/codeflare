@@ -544,6 +544,21 @@ export async function handleCreateAccessApp(
       admin: adminGroup.id,
       user: userGroup?.id ?? '',
     }, appResult.id);
+
+    try {
+      const idpRes = await cfApiCB.execute(() => fetch(
+        `${CF_API_BASE}/accounts/${accountId}/access/identity_providers`,
+        { headers: { 'Authorization': `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }
+      ));
+      const idpData = await parseCfResponse<Array<{ id: string; type: string; name: string }>>(idpRes);
+      if (idpData.success && Array.isArray(idpData.result)) {
+        const idpList = idpData.result.map(p => ({ id: p.id, type: p.type, name: p.name }));
+        await kv.put('setup:idp_list', JSON.stringify(idpList));
+      }
+    } catch (idpError) {
+      logger.warn('Failed to fetch identity providers', { error: toErrorMessage(idpError) });
+    }
+
     steps[stepIndex].status = 'success';
   } catch (error) {
     steps[stepIndex].status = 'error';

@@ -9,6 +9,8 @@ import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
 import { createRateLimiter } from '../middleware/rate-limit';
+import { canUseSessionMode } from '../lib/access-tier';
+import { isSaasModeActive } from '../lib/onboarding';
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
@@ -56,6 +58,13 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const parsed = UpdatePreferencesBody.safeParse(raw);
   if (!parsed.success) {
     throw new ValidationError(parsed.error.issues[0].message);
+  }
+
+  if (parsed.data.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
+    const user = c.get('user');
+    if (!canUseSessionMode(user.accessTier, parsed.data.sessionMode)) {
+      throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your access tier`);
+    }
   }
 
   const key = getPreferencesKey(bucketName);
