@@ -292,6 +292,30 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         const wasFollowing = wasFollowingOutput;
         wasFollowingOutput = ydisp >= ybase;
 
+        // Fix 19: Bottom-following re-anchor in onScroll (before render).
+        // xterm's onScroll fires synchronously during the parse loop, BEFORE
+        // the rAF render pass. If the user was following output and got displaced
+        // during scrollback trimming, correct immediately — this prevents the
+        // visible one-frame jitter that occurred with the write callback approach.
+        // User intent (wheel/pointerdown/keydown) is checked to avoid trapping
+        // the user at the bottom when they intentionally scroll up.
+        if (wasFollowing && ydisp < ybase) {
+          const recentIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS
+            || hasRecentScrollIntent(props.sessionId, props.terminalId, USER_SCROLL_GRACE_MS);
+          if (!recentIntent) {
+            isCorrectingScroll = true;
+            try {
+              t.scrollToBottom();
+            } finally {
+              isCorrectingScroll = false;
+            }
+            wasFollowingOutput = true;
+            previousYdisp = t.buffer.active.viewportY;
+            previousDistFromBottom = t.buffer.active.baseY - t.buffer.active.viewportY;
+            return;
+          }
+        }
+
         // Fix 16: When virtual keyboard is open, skip all scroll correction.
         // The terminal is in bottom-anchored mode — the write callback handles
         // scrollToBottom(). Any scroll corrections here fight with the keyboard

@@ -120,22 +120,17 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   const data = buffer.join('');
   buffer.length = 0;
 
-  // Fix 15: Distance-based post-write scroll guard.
-  // Fix 18: Wrap corrections with suppression to prevent onScroll feedback loop.
+  // Fix 19: Bottom-following correction moved to onScroll handler (useTerminal.ts)
+  // where it runs synchronously BEFORE render, eliminating one-frame jitter.
+  // Write callback now only handles scrolled-up user distance correction.
+  // Fix 18 suppression counter still active for scrolled-up corrections.
   terminal.write(data, () => {
-    const afterBaseY = terminal.buffer.active.baseY;
-    const afterY = terminal.buffer.active.viewportY;
-
-    if (wasAtBottom) {
-      if (afterY < afterBaseY) {
-        beginProgrammaticScroll(key);
-        terminal.scrollToBottom();
-        queueMicrotask(() => endProgrammaticScroll(key));
-      }
-      return;
-    }
+    // Bottom-followers are handled by onScroll (Fix 19) — skip here
+    if (wasAtBottom) return;
 
     // Scrolled-up user: check if trim shifted position
+    const afterBaseY = terminal.buffer.active.baseY;
+    const afterY = terminal.buffer.active.viewportY;
     const afterDistFromBottom = afterBaseY - afterY;
     const drift = Math.abs(afterDistFromBottom - beforeDistFromBottom);
     if (drift > 5) {
