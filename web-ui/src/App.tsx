@@ -43,8 +43,26 @@ const AppContent: Component = () => {
       setUserRole(user.role);
       setOnboardingActive(user.onboardingActive);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
-    } catch (err) {
+    } catch (err: unknown) {
       logger.warn('Failed to get user info:', err);
+      // SaaS mode: pending/blocked users get 403 from requireActiveUser
+      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 403) {
+        try {
+          const body = typeof (err as { body?: unknown }).body === 'string'
+            ? JSON.parse((err as { body: string }).body)
+            : (err as { body?: unknown }).body;
+          if (body?.code === 'PENDING') {
+            window.location.href = '/pending';
+            return;
+          }
+          if (body?.code === 'BLOCKED') {
+            window.location.href = '/pending';
+            return;
+          }
+        } catch {
+          // Failed to parse body — fall through to generic error
+        }
+      }
       if (import.meta.env.DEV) {
         setUserName('dev@localhost');
         setUserRole('admin');
