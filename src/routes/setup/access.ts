@@ -362,9 +362,6 @@ async function listIdentityProviders(
   return [];
 }
 
-// Social IdP types allowed for SaaS mode login page + Access policy
-const ALLOWED_IDP_TYPES = new Set(['google', 'github', 'facebook', 'linkedin']);
-
 async function upsertAccessPolicy(
   token: string,
   accountId: string,
