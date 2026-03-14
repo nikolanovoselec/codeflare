@@ -115,7 +115,7 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
       return;
     }
 
-    // Scrolled-up user: check if trim shifted their position
+    // Scrolled-up user: check if trim shifted position
     const afterDistFromBottom = afterBaseY - afterY;
     const drift = Math.abs(afterDistFromBottom - beforeDistFromBottom);
     if (drift > 5) {

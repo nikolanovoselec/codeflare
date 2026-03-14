@@ -274,6 +274,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         const wasFollowing = wasFollowingOutput;
         wasFollowingOutput = ydisp >= ybase;
 
+        // Fix 16: When virtual keyboard is open, skip all scroll correction.
+        // The terminal is in bottom-anchored mode — the write callback handles
+        // scrollToBottom(). Any scroll corrections here fight with the keyboard
+        // effect and write callback, causing visible oscillation.
+        if (isTouchDevice() && isVirtualKeyboardOpen()) {
+          previousYdisp = ydisp;
+          previousDistFromBottom = distFromBottom;
+          return;
+        }
+
         const recentLocalIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS;
         const recentExternalIntent = hasRecentScrollIntent(
           props.sessionId, props.terminalId, USER_SCROLL_GRACE_MS
@@ -354,13 +364,15 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           if (containerEl.clientHeight === 0) return;
           const wasBottom = isAtBottom(term);
           fitAddon.fit();
-          // fit() recalculates rows/cols and can reset the scroll position.
-          // On mobile with keyboard open: always anchor to bottom (user expects prompt).
-          // On desktop/mobile without keyboard: preserve position if user was following output.
-          if (isTouchDevice() && isVirtualKeyboardOpen()) {
-            term.scrollToBottom();
-          } else if (wasBottom) {
-            term.scrollToBottom();
+          // Fix 16: ResizeObserver should NOT call scrollToBottom() when keyboard
+          // is open. The keyboard height change effect (leading + trailing edge)
+          // already handles fit + scrollToBottom during keyboard animation.
+          // Having RO also scroll creates oscillation from competing scroll calls.
+          // Only scroll on desktop/keyboard-closed when user was following output.
+          if (!isTouchDevice() || !isVirtualKeyboardOpen()) {
+            if (wasBottom) {
+              term.scrollToBottom();
+            }
           }
           const cols = term.cols;
           const rows = term.rows;
