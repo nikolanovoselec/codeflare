@@ -839,3 +839,15 @@
     transition: none;
   }
 }
+
+/* Full-width admin action buttons */
+.settings-admin-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+  width: 100%;
+}
+
+.settings-admin-actions .button {
+  width: 100%;
+}

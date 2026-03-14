@@ -660,18 +660,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 </div>
                 <div class="setting-row setting-row--column-gap">
                   <span class="settings-hint">
-                    Re-run the setup wizard to reconfigure domain, users, or secrets
+                    Re-run the setup wizard to reconfigure domain, admins, or secrets
                   </span>
-                  <div>
+                  <div class="settings-admin-actions">
                     <Button
                       variant="secondary"
                       size="sm"
                       onClick={() => { window.location.href = '/setup'; }}
                     >
-                      Open Setup & User Management
+                      Setup
                     </Button>
-                  </div>
-                  <div>
                     <Button
                       variant="secondary"
                       size="sm"
