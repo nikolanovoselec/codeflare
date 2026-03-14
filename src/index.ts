@@ -148,12 +148,11 @@ app.route('/api/auth', authApiRoutes);
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
-// Exclude enterprise-only IdPs from the public login page.
-// Everything else (Google, GitHub, Cloudflare SSO, OTP, etc.) is shown.
-const ENTERPRISE_IDP_TYPES = new Set(['saml', 'azureAD']);
+// Only show social login providers on the login page.
+const ALLOWED_IDP_TYPES = new Set(['google', 'github', 'facebook', 'linkedin']);
 app.get('/public/auth/providers', async (c) => {
   const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>('setup:idp_list', 'json');
-  const filtered = (idpList || []).filter(p => !ENTERPRISE_IDP_TYPES.has(p.type) && p.name);
+  const filtered = (idpList || []).filter(p => ALLOWED_IDP_TYPES.has(p.type));
   return c.json({ providers: filtered });
 });
 
