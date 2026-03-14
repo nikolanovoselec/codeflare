@@ -24,6 +24,18 @@ export function markScrollIntent(sessionId: string, terminalId: string): void {
 }
 
 /**
+ * Check whether a recent scroll intent was registered for a terminal.
+ */
+export function hasRecentScrollIntent(
+  sessionId: string,
+  terminalId: string,
+  windowMs: number
+): boolean {
+  const ts = intentByKey.get(makeKey(sessionId, terminalId)) ?? 0;
+  return Date.now() - ts < windowMs;
+}
+
+/**
  * Clear scroll intent for a terminal (e.g. on dispose).
  */
 export function clearScrollIntent(sessionId: string, terminalId: string): void {
