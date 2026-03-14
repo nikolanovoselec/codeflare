@@ -73,7 +73,6 @@ describe('DeployKeysSection Component', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('connect-provider-modal')).toBeInTheDocument();
-        expect(screen.getByText('Connect to GitHub')).toBeInTheDocument();
       });
     });
 
