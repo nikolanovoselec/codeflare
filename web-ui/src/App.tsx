@@ -2,7 +2,7 @@ import { Component, onMount, onCleanup, createSignal, Show, lazy, type JSX } fro
 import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
-import { getUser, getSetupStatus } from './api/client';
+import { getUser, getSetupStatus, getAuthProviders, getOnboardingConfig } from './api/client';
 import { sessionStore } from './stores/session';
 import { storageStore } from './stores/storage';
 import { terminalStore } from './stores/terminal';
@@ -127,11 +127,65 @@ const SetupGuard: Component<{ children: JSX.Element }> = (props) => {
   );
 };
 
+/**
+ * Root page component — decides which landing to show based on deployment mode.
+ * SaaS mode (providers configured) → LoginPage
+ * Onboarding mode (onboarding active) → OnboardingLanding
+ * Default → redirect to /app/
+ */
+const RootPage: Component = () => {
+  const [mode, setMode] = createSignal<'loading' | 'login' | 'onboarding' | 'redirect'>('loading');
+
+  onMount(async () => {
+    // Check if SaaS mode is active (providers endpoint is public)
+    try {
+      const { providers } = await getAuthProviders();
+      if (providers.length > 0) {
+        setMode('login');
+        return;
+      }
+    } catch {
+      // providers endpoint failed — not in SaaS mode or backend issue
+    }
+
+    // Check if onboarding mode is active
+    try {
+      const config = await getOnboardingConfig();
+      if (config.active) {
+        setMode('onboarding');
+        return;
+      }
+    } catch {
+      // onboarding config failed — default mode
+    }
+
+    // Default mode — redirect to /app/
+    setMode('redirect');
+    window.location.href = '/app/';
+  });
+
+  return (
+    <Show when={mode() !== 'loading'} fallback={
+      <div class="app-loading">
+        <div class="app-loading-spinner" />
+        <span>Loading...</span>
+      </div>
+    }>
+      <Show when={mode() === 'login'}>
+        <LoginPage />
+      </Show>
+      <Show when={mode() === 'onboarding'}>
+        <OnboardingLanding />
+      </Show>
+    </Show>
+  );
+};
+
 const App: Component = () => {
   return (
     <Router>
       <Route path="/setup" component={SetupWizard} />
-      <Route path="/" component={OnboardingLanding} />
+      <Route path="/" component={RootPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/pending" component={GatePage} />
       <Route path="/admin/users" component={() => (
