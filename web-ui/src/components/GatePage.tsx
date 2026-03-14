@@ -25,6 +25,11 @@ const GatePage: Component = () => {
         window.location.href = '/app/';
         return;
       }
+
+      // Stop polling for blocked users — status won't change without admin action
+      if (result.accessTier === 'blocked') {
+        if (pollInterval) clearInterval(pollInterval);
+      }
     } catch (err) {
       logger.error('Failed to fetch auth status:', err);
       setError('Unable to check account status. Retrying...');

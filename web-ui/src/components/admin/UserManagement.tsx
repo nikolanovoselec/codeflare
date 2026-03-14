@@ -208,7 +208,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
 
       {/* Tier sections */}
       <Show when={!loading()}>
-        <For each={TIER_ORDER as unknown as AccessTier[]}>
+        <For each={[...TIER_ORDER]}>
           {(tier) => {
             const sectionUsers = () => groupedUsers()[tier];
             return (

@@ -355,14 +355,20 @@ export async function getAuthStatus(): Promise<AuthStatus> {
   return fetchApi('/auth/status', {}, AuthStatusResponseSchema);
 }
 
+const UpdateUserTierResponseSchema = z.object({
+  success: z.boolean(),
+  email: z.string(),
+  accessTier: z.string(),
+});
+
 export async function updateUserAccessTier(
   email: string,
   accessTier: string
-): Promise<{ success: boolean; email: string; accessTier: string }> {
+): Promise<z.infer<typeof UpdateUserTierResponseSchema>> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'PATCH',
     body: JSON.stringify({ accessTier }),
-  }) as Promise<{ success: boolean; email: string; accessTier: string }>;
+  }, UpdateUserTierResponseSchema);
 }
 
 // Session ID format: 8-24 lowercase alphanumeric characters (matches backend SESSION_ID_PATTERN)

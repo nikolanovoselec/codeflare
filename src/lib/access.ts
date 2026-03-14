@@ -262,6 +262,9 @@ export async function resolveOrProvisionUser(
   }
 
   if (isSaasModeActive(env.SAAS_MODE)) {
+    // Note: concurrent first-login requests may both reach this point and write
+    // identical records. This is benign — both produce the same {role:'user',
+    // accessTier:'pending'} entry. KV eventual consistency prevents true atomicity.
     await kv.put(`user:${normalizedEmail}`, JSON.stringify({
       addedBy: 'jit',
       addedAt: new Date().toISOString(),

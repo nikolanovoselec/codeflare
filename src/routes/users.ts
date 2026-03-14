@@ -76,8 +76,9 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
 
 // PATCH /api/users/:email - Update a user's access tier (admin only)
 app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
-  const email = decodeURIComponent(c.req.param('email'));
-  if (!email) throw new ValidationError('Email parameter is required');
+  const rawEmail = decodeURIComponent(c.req.param('email'));
+  if (!rawEmail) throw new ValidationError('Email parameter is required');
+  const email = rawEmail.trim().toLowerCase();
 
   let raw: unknown;
   try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
@@ -91,6 +92,12 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
 
   const updated = { ...existing, accessTier: parsed.data.accessTier };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
+
+  logger.info('User access tier updated', {
+    email,
+    accessTier: parsed.data.accessTier,
+    updatedBy: c.get('user').email,
+  });
 
   if (!isSaasModeActive(c.env.SAAS_MODE)) {
     await trySyncAccessPolicy(c.env);
