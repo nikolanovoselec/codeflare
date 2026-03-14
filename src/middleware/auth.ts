@@ -1,9 +1,16 @@
 // AUTH: HTTP request authentication middleware.
 // See also: src/index.ts (WebSocket upgrade intercept), src/routes/terminal.ts (WebSocket auth)
+//
+// Three-tier middleware system:
+//   requireIdentity   — authenticate only, no tier gate (pending users pass through)
+//   requireActiveUser — authenticate + tier check when SAAS_MODE is active
+//   requireAdmin      — requires admin role (must be used after requireIdentity or requireActiveUser)
 
 import { Context, Next } from 'hono';
 import { authenticateRequest } from '../lib/access';
 import { ForbiddenError } from '../lib/error-types';
+import { isSaasModeActive } from '../lib/onboarding';
+import { isActiveUser } from '../lib/access-tier';
 import type { Env, AccessUser } from '../types';
 
 /**
@@ -18,18 +25,11 @@ export type AuthVariables = {
 };
 
 /**
- * Auth middleware that validates user authentication via Cloudflare Access
- * Sets `user` and `bucketName` on the context for downstream handlers
- *
- * Delegates to authenticateRequest() which throws AuthError/ForbiddenError
- * on failure — caught by the global error handler in index.ts.
- *
- * Usage:
- *   import { authMiddleware, AuthVariables } from '../middleware/auth';
- *   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
- *   app.use('*', authMiddleware);
+ * requireIdentity — authenticate the request and set user/bucketName on context.
+ * No tier gating: pending and blocked users pass through.
+ * Use for routes that need identity but not an active subscription (e.g. /auth/status).
  */
-export async function authMiddleware(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {
+export async function requireIdentity(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {
   const { user, bucketName } = await authenticateRequest(c.req.raw, c.env);
   c.set('user', user);
   c.set('bucketName', bucketName);
@@ -37,10 +37,47 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: Auth
 }
 
 /**
+ * requireActiveUser — authenticate + enforce access-tier gate when SAAS_MODE is active.
+ *
+ * In SaaS mode:
+ *   - standard / advanced / undefined tier → pass through
+ *   - pending tier + HTML request → redirect to /pending
+ *   - pending tier + API request  → 403 { code: 'PENDING' }
+ *   - blocked tier                → 403 { code: 'BLOCKED' }
+ *
+ * When SAAS_MODE is not set, behaves identically to requireIdentity (backward compat).
+ */
+export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {
+  const { user, bucketName } = await authenticateRequest(c.req.raw, c.env);
+  c.set('user', user);
+  c.set('bucketName', bucketName);
+
+  if (isSaasModeActive(c.env.SAAS_MODE)) {
+    if (!isActiveUser(user.accessTier)) {
+      const accept = c.req.header('Accept') || '';
+      if (accept.includes('text/html')) {
+        return c.redirect('/pending');
+      }
+      const code = user.accessTier === 'blocked' ? 'BLOCKED' : 'PENDING';
+      return c.json({ error: 'Access denied', code }, 403);
+    }
+  }
+
+  return next();
+}
+
+/**
+ * Backward-compatible alias: existing routes that use `authMiddleware` continue to work.
+ * Maps to requireActiveUser so they gain tier gating when SAAS_MODE is enabled.
+ */
+export { requireActiveUser as authMiddleware };
+
+/**
  * Middleware that requires the authenticated user to have admin role.
- * Must be used AFTER authMiddleware (user must already be on context).
+ * Must be used AFTER requireIdentity or requireActiveUser (user must already be on context).
  *
  * Usage:
+ *   app.use('*', authMiddleware);
  *   app.post('/admin-route', requireAdmin, async (c) => { ... });
  */
 export async function requireAdmin(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {

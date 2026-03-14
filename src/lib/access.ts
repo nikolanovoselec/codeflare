@@ -1,7 +1,8 @@
-import type { AccessUser, Env, UserRole } from '../types';
+import type { AccessTier, AccessUser, Env, UserRole } from '../types';
 import { verifyAccessJWT } from './jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
+import { isSaasModeActive } from './onboarding';
 
 const logger = createLogger('access');
 
@@ -15,6 +16,8 @@ let authConfigCachedAt = 0;
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
+
+const VALID_ACCESS_TIERS = new Set<string>(['pending', 'standard', 'advanced', 'blocked']);
 
 /**
  * Reset cached auth config. Call when setup completes or config changes.
@@ -212,14 +215,14 @@ export function getBucketName(email: string, workerName?: string): string {
 }
 
 /**
- * Resolve a user entry from KV, returning role information.
+ * Resolve a user entry from KV, returning role and access tier information.
  * Defaults missing role to 'user' for backward compatibility with
  * entries created before role support was added.
  */
 export async function resolveUserFromKV(
   kv: KVNamespace,
   email: string
-): Promise<{ addedBy: string; addedAt: string; role: UserRole } | null> {
+): Promise<{ addedBy: string; addedAt: string; role: UserRole; accessTier?: AccessTier } | null> {
   const normalizedEmail = normalizeEmail(email);
   const raw = await kv.get(`user:${normalizedEmail}`);
   if (!raw) return null;
@@ -230,12 +233,53 @@ export async function resolveUserFromKV(
     return null;
   }
   if (typeof parsed !== 'object' || parsed === null) return null;
-  const obj = parsed as { addedBy?: unknown; addedAt?: unknown; role?: unknown };
+  const obj = parsed as { addedBy?: unknown; addedAt?: unknown; role?: unknown; accessTier?: unknown };
+  const rawTier = typeof obj.accessTier === 'string' ? obj.accessTier : undefined;
   return {
     addedBy: typeof obj.addedBy === 'string' ? obj.addedBy : 'unknown',
     addedAt: typeof obj.addedAt === 'string' ? obj.addedAt : '',
     role: obj.role === 'admin' ? 'admin' : 'user',
+    accessTier: rawTier && VALID_ACCESS_TIERS.has(rawTier) ? (rawTier as AccessTier) : undefined,
   };
+}
+
+/**
+ * Resolve an existing user from KV, or auto-provision a new one when
+ * SaaS mode and JIT provisioning are both enabled.
+ *
+ * Throws ForbiddenError when the user is not in KV and JIT provisioning
+ * conditions are not met.
+ */
+export async function resolveOrProvisionUser(
+  kv: KVNamespace,
+  email: string,
+  env: Env
+): Promise<{ role: UserRole; accessTier: AccessTier }> {
+  const normalizedEmail = normalizeEmail(email);
+  const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
+
+  if (kvEntry) {
+    return { role: kvEntry.role, accessTier: kvEntry.accessTier ?? 'advanced' };
+  }
+
+  const saasActive = isSaasModeActive(env.SAAS_MODE);
+  const jitEnabled = env.JIT_PROVISIONING?.trim().toLowerCase() === 'enabled';
+
+  if (saasActive && jitEnabled) {
+    const rawTier = env.JIT_DEFAULT_TIER?.trim().toLowerCase();
+    const defaultTier: AccessTier = VALID_ACCESS_TIERS.has(rawTier ?? '') ? (rawTier as AccessTier) : 'pending';
+
+    await kv.put(`user:${normalizedEmail}`, JSON.stringify({
+      addedBy: 'jit',
+      addedAt: new Date().toISOString(),
+      role: 'user',
+      accessTier: defaultTier,
+    }));
+
+    return { role: 'user', accessTier: defaultTier };
+  }
+
+  throw new ForbiddenError('User not in allowlist');
 }
 
 /**
@@ -269,6 +313,15 @@ export async function authenticateRequest(
     const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
     return { user: { ...rawUser, email: normalizedEmail }, bucketName };
   }
+
+  // SaaS mode: use resolveOrProvisionUser for JIT provisioning + accessTier
+  if (isSaasModeActive(env.SAAS_MODE)) {
+    const { role, accessTier } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
+    const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
+    return { user: { ...rawUser, email: normalizedEmail, role, accessTier }, bucketName };
+  }
+
+  // Non-SaaS mode: existing allowlist behavior (no accessTier)
   const kvEntry = await resolveUserFromKV(env.KV, normalizedEmail);
   if (!kvEntry) {
     throw new ForbiddenError('User not in allowlist');
