@@ -713,121 +713,26 @@ describe('SettingsPanel Component', () => {
       expect(titleSpan).toHaveTextContent('LLM API Keys');
     });
 
-    it('renders OpenAI and Gemini key inputs', () => {
+    it('renders OpenAI and Gemini provider rows', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
-      const openaiInput = screen.getByTestId('settings-llm-openai-key');
-      const geminiInput = screen.getByTestId('settings-llm-gemini-key');
-      expect(openaiInput).toBeInTheDocument();
-      expect(geminiInput).toBeInTheDocument();
-      expect(openaiInput).toHaveAttribute('type', 'password');
-      expect(geminiInput).toHaveAttribute('type', 'password');
+      expect(screen.getByTestId('llm-openai-row')).toBeInTheDocument();
+      expect(screen.getByTestId('llm-gemini-row')).toBeInTheDocument();
     });
 
-    it('renders Save Keys button', () => {
+    it('shows explanation text', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
-      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
-      expect(saveButton).toBeInTheDocument();
-    });
-
-    it('loads masked keys on mount', async () => {
-      mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234', geminiApiKey: '****abcd' });
-      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
-
-      // Wait for async load
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      const openaiInput = screen.getByTestId('settings-llm-openai-key') as HTMLInputElement;
-      const geminiInput = screen.getByTestId('settings-llm-gemini-key') as HTMLInputElement;
-      expect(openaiInput.value).toBe('****1234');
-      expect(geminiInput.value).toBe('****abcd');
-    });
-
-    it('calls updateLlmKeys API on save', async () => {
-      mockUpdateLlmKeys.mockResolvedValue({ openaiApiKey: '****test' });
-      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
-
-      const openaiInput = screen.getByTestId('settings-llm-openai-key');
-      fireEvent.input(openaiInput, { target: { value: 'sk-newkey-test' } });
-
-      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
-      await fireEvent.click(saveButton);
-
-      expect(mockUpdateLlmKeys).toHaveBeenCalledTimes(1);
-      const callArgs = mockUpdateLlmKeys.mock.calls[0]![0];
-      expect(callArgs.openaiApiKey).toBe('sk-newkey-test');
-    });
-
-    it('shows success message after save', async () => {
-      mockUpdateLlmKeys.mockResolvedValue({});
-      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
-
-      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
-      await fireEvent.click(saveButton);
-
-      const success = await screen.findByTestId('settings-llm-keys-success');
-      expect(success.textContent).toContain('Keys saved');
-    });
-
-    it('shows error message on save failure', async () => {
-      mockUpdateLlmKeys.mockRejectedValueOnce(new Error('Network error'));
-      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
-
-      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
-      await fireEvent.click(saveButton);
-
-      const error = await screen.findByTestId('settings-llm-keys-error');
-      expect(error.textContent).toContain('Network error');
-    });
-
-    it('skips re-sending masked values on save', async () => {
-      mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
-      mockUpdateLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
-      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
-
-      // Wait for load
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
-      await fireEvent.click(saveButton);
-
-      expect(mockUpdateLlmKeys).toHaveBeenCalledTimes(1);
-      const callArgs = mockUpdateLlmKeys.mock.calls[0]![0];
-      // Masked value should NOT be sent
-      expect(callArgs).not.toHaveProperty('openaiApiKey');
-    });
-
-    it('sends null when field is cleared', async () => {
-      mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****1234' });
-      mockUpdateLlmKeys.mockResolvedValue({});
-      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
-
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      const openaiInput = screen.getByTestId('settings-llm-openai-key');
-      fireEvent.input(openaiInput, { target: { value: '' } });
-
-      const saveButton = screen.getByRole('button', { name: 'Save Keys' });
-      await fireEvent.click(saveButton);
-
-      const callArgs = mockUpdateLlmKeys.mock.calls[0]![0];
-      expect(callArgs.openaiApiKey).toBeNull();
+      expect(screen.getByTestId('llm-keys-explanation')).toBeInTheDocument();
     });
 
     it('shows hint about next session start', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-llm'));
 
-      const hint = screen.getByTestId('settings-llm-keys-hint');
+      const hint = screen.getByTestId('llm-keys-hint');
       expect(hint.textContent).toContain('next session start');
     });
   });

@@ -1,15 +1,12 @@
-import { Component, createSignal, onMount, Show, For } from 'solid-js';
-import { mdiGithub, mdiCloudOutline, mdiCheck, mdiAlertCircleOutline } from '@mdi/js';
-import Icon from '../Icon';
-import Button from '../ui/Button';
+import { Component, createSignal, onMount } from 'solid-js';
 import { getDeployKeys, updateDeployKeys } from '../../api/client';
 import type { DeployKeysResponse } from '../../api/client';
+import ProviderRow from './ProviderRow';
+import ConnectProviderModal from './ConnectProviderModal';
+import type { ProviderConfig } from './ConnectProviderModal';
+import { GitHubIcon, CloudflareIcon } from './BrandIcons';
 
 // GitHub fine-grained PAT template URL with broad scopes pre-filled.
-// Repository: contents, administration, workflows, actions, actions_variables,
-//   pull_requests, issues, deployments, environments, pages, secrets,
-//   statuses, repository_hooks, merge_queues, security_events, custom_properties
-// Account: email_addresses, metadata
 const GITHUB_TOKEN_URL =
   'https://github.com/settings/personal-access-tokens/new?name=Codeflare&description=Push+%26+deploy+from+Codeflare&expires_in=90'
   + '&contents=write&administration=write&workflows=write&actions=write&actions_variables=write'
@@ -19,9 +16,6 @@ const GITHUB_TOKEN_URL =
   + '&metadata=read&email_addresses=read';
 
 // Cloudflare template URL with full Codeflare-level scopes pre-filled.
-// Account: Workers Scripts, KV, Routes, R2, D1, Pages, Containers, Access, API Tokens, Account Settings
-// Zone: DNS, Zone read
-// Decoded JSON array in CLOUDFLARE_TOKEN_SCOPES below.
 const CLOUDFLARE_TOKEN_SCOPES = [
   { key: 'workers_scripts', type: 'edit' },
   { key: 'workers_kv', type: 'edit' },
@@ -45,6 +39,36 @@ interface CloudflareAccount {
   name: string;
 }
 
+const GITHUB_PROVIDER: ProviderConfig = {
+  id: 'github',
+  name: 'GitHub',
+  icon: GitHubIcon,
+  brandColor: '#24292f',
+  externalUrl: GITHUB_TOKEN_URL,
+  externalLabel: 'Open GitHub',
+  placeholder: 'github_pat_...',
+  instructions: [
+    'Click "Open GitHub" to create a token with pre-selected permissions',
+    'Click the green "Generate token" button and copy it',
+    'Paste the token below and click Save',
+  ],
+};
+
+const CLOUDFLARE_PROVIDER: ProviderConfig = {
+  id: 'cloudflare',
+  name: 'Cloudflare',
+  icon: CloudflareIcon,
+  brandColor: '#f38020',
+  externalUrl: CLOUDFLARE_TOKEN_URL,
+  externalLabel: 'Open Cloudflare',
+  placeholder: 'Cloudflare API token...',
+  instructions: [
+    'Click "Open Cloudflare" to create a token with pre-selected permissions',
+    'Click "Continue to summary" then "Create Token" and copy it',
+    'Paste the token below and click Save',
+  ],
+};
+
 const DeployKeysSection: Component = () => {
   // GitHub state
   const [githubToken, setGithubToken] = createSignal('');
@@ -60,6 +84,9 @@ const DeployKeysSection: Component = () => {
   const [cfMessage, setCfMessage] = createSignal<string | null>(null);
   const [cfError, setCfError] = createSignal<string | null>(null);
 
+  // Modal state
+  const [modalProvider, setModalProvider] = createSignal<string | null>(null);
+
   const githubConnected = () => githubToken().startsWith('****');
   const cfConnected = () => cfToken().startsWith('****');
 
@@ -73,13 +100,8 @@ const DeployKeysSection: Component = () => {
       .catch(() => { /* keys not loaded */ });
   });
 
-  const handleSaveGithub = async () => {
+  const handleSaveGithub = async (token: string) => {
     if (githubSaving()) return;
-    const token = githubToken();
-    if (token === '' || token.startsWith('****')) {
-      setGithubError('Paste a new token to save.');
-      return;
-    }
     setGithubSaving(true);
     setGithubMessage(null);
     setGithubError(null);
@@ -112,13 +134,8 @@ const DeployKeysSection: Component = () => {
     }
   };
 
-  const handleSaveCloudflare = async () => {
+  const handleSaveCloudflare = async (token: string) => {
     if (cfSaving()) return;
-    const token = cfToken();
-    if (token === '' || token.startsWith('****')) {
-      setCfError('Paste a new token to save.');
-      return;
-    }
     setCfSaving(true);
     setCfMessage(null);
     setCfError(null);
@@ -131,7 +148,7 @@ const DeployKeysSection: Component = () => {
       }
       if (result.cloudflareAccounts && result.cloudflareAccounts.length > 1) {
         setCfAccounts(result.cloudflareAccounts);
-        setCfMessage('Multiple Cloudflare accounts found. Please select one below.');
+        setCfMessage('Multiple accounts found. Please select one.');
       } else {
         setCfAccounts([]);
         setCfMessage('Cloudflare connected. Takes effect on next session start.');
@@ -179,201 +196,50 @@ const DeployKeysSection: Component = () => {
 
   return (
     <>
-      {/* GitHub */}
-      <section class="settings-section">
-        <div class="settings-section-header">
-          <Icon path={mdiGithub} size={16} />
-          <h3 class="settings-section-title">GitHub</h3>
-          <Show when={githubConnected()}>
-            <span class="deploy-status deploy-status--connected" data-testid="deploy-github-status">
-              <Icon path={mdiCheck} size={14} /> Connected
-            </span>
-          </Show>
-        </div>
+      <ProviderRow
+        icon={GitHubIcon}
+        name="GitHub"
+        connected={githubConnected()}
+        onConnect={() => { setGithubMessage(null); setGithubError(null); setModalProvider('github'); }}
+        onDisconnect={() => { void handleDisconnectGithub(); }}
+        disconnecting={githubSaving()}
+        testId="deploy-github-row"
+      />
 
-        <Show when={!githubConnected()}>
-          <div class="deploy-instructions" data-testid="deploy-github-instructions">
-            <ol>
-              <li>Click "Connect GitHub" — a new tab will open with permissions pre-selected</li>
-              <li>Scroll down and click the green <strong>"Generate token"</strong> button</li>
-              <li>Copy the token that appears (you'll only see it once)</li>
-              <li>Paste it below and click Save</li>
-            </ol>
-          </div>
-          <div class="setting-row setting-row--column-gap">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => window.open(GITHUB_TOKEN_URL, '_blank')}
-              data-testid="deploy-github-connect"
-            >
-              Connect GitHub
-            </Button>
-          </div>
-        </Show>
+      <ProviderRow
+        icon={CloudflareIcon}
+        name="Cloudflare"
+        connected={cfConnected()}
+        onConnect={() => { setCfMessage(null); setCfError(null); setModalProvider('cloudflare'); }}
+        onDisconnect={() => { void handleDisconnectCloudflare(); }}
+        disconnecting={cfSaving()}
+        testId="deploy-cf-row"
+      />
 
-        <div class="setting-row setting-row--column-gap">
-          <Show when={githubConnected()}>
-            <div class="deploy-connected-row">
-              <span class="deploy-masked-token" data-testid="deploy-github-masked">{githubToken()}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={githubSaving()}
-                onClick={() => { void handleDisconnectGithub(); }}
-                data-testid="deploy-github-disconnect"
-              >
-                Disconnect
-              </Button>
-            </div>
-          </Show>
-          <Show when={!githubConnected()}>
-            <input
-              type="password"
-              id="settings-deploy-github-token"
-              class="llm-key-input"
-              value={githubToken()}
-              placeholder="github_pat_..."
-              autocomplete="off"
-              onInput={(e) => setGithubToken(e.currentTarget.value)}
-              data-testid="deploy-github-token-input"
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={githubSaving()}
-              onClick={() => { void handleSaveGithub(); }}
-              data-testid="deploy-github-save"
-            >
-              Save
-            </Button>
-          </Show>
-          <Show when={githubMessage()}>
-            {(message) => (
-              <span class="settings-hint" data-testid="deploy-github-success">{message()}</span>
-            )}
-          </Show>
-          <Show when={githubError()}>
-            {(error) => (
-              <span class="settings-error" data-testid="deploy-github-error">
-                <Icon path={mdiAlertCircleOutline} size={14} /> {error()}
-              </span>
-            )}
-          </Show>
-        </div>
-      </section>
+      <ConnectProviderModal
+        isOpen={modalProvider() === 'github'}
+        provider={GITHUB_PROVIDER}
+        onClose={() => setModalProvider(null)}
+        onSave={(token) => { void handleSaveGithub(token); }}
+        connectedToken={githubConnected() ? githubToken() : undefined}
+        saving={githubSaving()}
+        message={githubMessage()}
+        error={githubError()}
+      />
 
-      {/* Cloudflare */}
-      <section class="settings-section">
-        <div class="settings-section-header">
-          <Icon path={mdiCloudOutline} size={16} />
-          <h3 class="settings-section-title">Cloudflare</h3>
-          <Show when={cfConnected()}>
-            <span class="deploy-status deploy-status--connected" data-testid="deploy-cf-status">
-              <Icon path={mdiCheck} size={14} /> Connected
-            </span>
-          </Show>
-        </div>
-
-        <Show when={!cfConnected()}>
-          <div class="deploy-instructions" data-testid="deploy-cf-instructions">
-            <ol>
-              <li>Click "Connect Cloudflare" — a new tab will open with permissions pre-selected</li>
-              <li>Click the blue <strong>"Continue to summary"</strong> button at the bottom</li>
-              <li>Click <strong>"Create Token"</strong></li>
-              <li>Copy the token that appears (you'll only see it once)</li>
-              <li>Paste it below and click Save</li>
-            </ol>
-          </div>
-          <div class="setting-row setting-row--column-gap">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => window.open(CLOUDFLARE_TOKEN_URL, '_blank')}
-              data-testid="deploy-cf-connect"
-            >
-              Connect Cloudflare
-            </Button>
-          </div>
-        </Show>
-
-        <div class="setting-row setting-row--column-gap">
-          <Show when={cfConnected()}>
-            <div class="deploy-connected-row">
-              <span class="deploy-masked-token" data-testid="deploy-cf-masked">{cfToken()}</span>
-              <Show when={cfAccountId()}>
-                <span class="deploy-account-id" data-testid="deploy-cf-account-id">
-                  Account: {cfAccountId()}
-                </span>
-              </Show>
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={cfSaving()}
-                onClick={() => { void handleDisconnectCloudflare(); }}
-                data-testid="deploy-cf-disconnect"
-              >
-                Disconnect
-              </Button>
-            </div>
-          </Show>
-          <Show when={!cfConnected()}>
-            <input
-              type="password"
-              id="settings-deploy-cf-token"
-              class="llm-key-input"
-              value={cfToken()}
-              placeholder="Cloudflare API token..."
-              autocomplete="off"
-              onInput={(e) => setCfToken(e.currentTarget.value)}
-              data-testid="deploy-cf-token-input"
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={cfSaving()}
-              onClick={() => { void handleSaveCloudflare(); }}
-              data-testid="deploy-cf-save"
-            >
-              Save
-            </Button>
-          </Show>
-
-          {/* Account selection dropdown (multiple accounts) */}
-          <Show when={cfAccounts().length > 1}>
-            <div class="deploy-account-select" data-testid="deploy-cf-account-select">
-              <label for="deploy-cf-account-dropdown">Select account:</label>
-              <select
-                id="deploy-cf-account-dropdown"
-                class="deploy-account-dropdown"
-                value={cfAccountId() || ''}
-                onChange={(e) => { const val = e.currentTarget.value; if (val) void handleSelectAccount(val); }}
-                data-testid="deploy-cf-account-dropdown"
-              >
-                <option value="" disabled>Choose an account...</option>
-                <For each={cfAccounts()}>
-                  {(account) => (
-                    <option value={account.id}>{account.name}</option>
-                  )}
-                </For>
-              </select>
-            </div>
-          </Show>
-
-          <Show when={cfMessage()}>
-            {(message) => (
-              <span class="settings-hint" data-testid="deploy-cf-success">{message()}</span>
-            )}
-          </Show>
-          <Show when={cfError()}>
-            {(error) => (
-              <span class="settings-error" data-testid="deploy-cf-error">
-                <Icon path={mdiAlertCircleOutline} size={14} /> {error()}
-              </span>
-            )}
-          </Show>
-        </div>
-      </section>
+      <ConnectProviderModal
+        isOpen={modalProvider() === 'cloudflare'}
+        provider={CLOUDFLARE_PROVIDER}
+        onClose={() => setModalProvider(null)}
+        onSave={(token) => { void handleSaveCloudflare(token); }}
+        connectedToken={cfConnected() ? cfToken() : undefined}
+        accounts={cfAccounts()}
+        accountId={cfAccountId()}
+        onSelectAccount={(id) => { void handleSelectAccount(id); }}
+        saving={cfSaving()}
+        message={cfMessage()}
+        error={cfError()}
+      />
 
       <div class="setting-row setting-row--column-gap">
         <span class="settings-hint" data-testid="deploy-keys-hint">

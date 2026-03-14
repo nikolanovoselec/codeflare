@@ -1,0 +1,264 @@
+/* ConnectProviderModal — centered modal for provider token flows */
+
+.cpm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  animation: fadeIn 150ms ease-out;
+}
+
+.connect-provider-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(400px, calc(100vw - 48px));
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-8) var(--space-6);
+  z-index: 201;
+  animation: fadeInUp 200ms ease-out;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.cpm-close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.cpm-close:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-muted);
+}
+
+.cpm-icon {
+  margin-top: var(--space-2);
+}
+
+.cpm-heading {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  text-align: center;
+  margin: 0;
+}
+
+.cpm-instructions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.cpm-instructions li {
+  padding-left: var(--space-4);
+  position: relative;
+}
+
+.cpm-instructions li::before {
+  content: counter(list-item);
+  position: absolute;
+  left: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+}
+
+/* Brand-colored external link button */
+.cpm-external-btn {
+  width: 100%;
+  padding: 12px 24px;
+  min-height: 48px;
+  border: none;
+  border-radius: var(--radius-xl);
+  color: white;
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cpm-external-btn:hover {
+  opacity: 0.9;
+}
+
+.cpm-external-btn:active {
+  transform: scale(0.98);
+}
+
+/* Authentik-inspired token input */
+.cpm-token-input {
+  width: 100%;
+  padding: 14px 16px;
+  min-height: 48px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-xl);
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-family: var(--font-mono);
+  text-align: center;
+  transition: border-color var(--transition-fast);
+}
+
+.cpm-token-input:hover {
+  border-color: var(--color-border-default);
+}
+
+.cpm-token-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--glow-accent);
+}
+
+.cpm-token-input::placeholder {
+  color: var(--color-text-dimmed);
+}
+
+/* Save button — accent-colored, full width, rounded */
+.cpm-save-btn {
+  width: 100%;
+  padding: 12px 24px;
+  min-height: 48px;
+  background: var(--color-accent);
+  border: none;
+  border-radius: var(--radius-xl);
+  color: white;
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cpm-save-btn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.cpm-save-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.cpm-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cpm-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Connected state */
+.cpm-masked-token {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+}
+
+.cpm-account-id {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.cpm-account-select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.cpm-account-select label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.cpm-account-dropdown {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-xl);
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.cpm-account-dropdown:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--glow-accent);
+}
+
+/* Messages */
+.cpm-success {
+  color: var(--color-success);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.cpm-error {
+  color: var(--color-error);
+  font-size: var(--text-xs);
+  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  .connect-provider-modal {
+    width: calc(100vw - 32px);
+    padding: var(--space-6) var(--space-4);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .connect-provider-modal,
+  .cpm-backdrop {
+    animation: none;
+  }
+}

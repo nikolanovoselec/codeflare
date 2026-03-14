@@ -6,7 +6,6 @@ import {
   mdiCogOutline,
   mdiFastForward,
   mdiContentPaste,
-  mdiKeyVariant,
   mdiChevronDown,
 } from '@mdi/js';
 import Icon from './Icon';
@@ -16,8 +15,8 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { isTouchDevice, isSamsungBrowser } from '../lib/mobile';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
-import { getLlmKeys, updateLlmKeys } from '../api/client';
 import DeployKeysSection from './settings/DeployKeysSection';
+import LlmKeysSection from './settings/LlmKeysSection';
 import '../styles/settings-panel.css';
 
 interface SettingsPanelProps {
@@ -115,11 +114,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentLoading, setRecreateAgentLoading] = createSignal(false);
   const [recreateAgentMessage, setRecreateAgentMessage] = createSignal<string | null>(null);
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
-  const [llmOpenaiKey, setLlmOpenaiKey] = createSignal('');
-  const [llmGeminiKey, setLlmGeminiKey] = createSignal('');
-  const [llmKeysSaving, setLlmKeysSaving] = createSignal(false);
-  const [llmKeysMessage, setLlmKeysMessage] = createSignal<string | null>(null);
-  const [llmKeysError, setLlmKeysError] = createSignal<string | null>(null);
   const [openGroup, setOpenGroup] = createSignal<AccordionGroup>('appearance');
 
   // Reset accordion to Appearance when panel is closed then reopened (false → true)
@@ -151,14 +145,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     const loaded = loadSettings();
     setSettings(loaded);
     setAccentHexInput(loaded.accentColor || '');
-
-    // Load masked LLM keys
-    getLlmKeys()
-      .then((keys) => {
-        if (keys.openaiApiKey) setLlmOpenaiKey(keys.openaiApiKey);
-        if (keys.geminiApiKey) setLlmGeminiKey(keys.geminiApiKey);
-      })
-      .catch(() => { /* ignore — keys not loaded */ });
   });
 
   // Save settings whenever they change (deferred to skip initial mount)
@@ -238,45 +224,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
       );
     } finally {
       setRecreateAgentLoading(false);
-    }
-  };
-
-  const handleSaveLlmKeys = async () => {
-    if (llmKeysSaving()) return;
-
-    setLlmKeysSaving(true);
-    setLlmKeysMessage(null);
-    setLlmKeysError(null);
-
-    try {
-      const payload: { openaiApiKey?: string | null; geminiApiKey?: string | null } = {};
-
-      // Skip masked values (already stored) — only send changes
-      const openai = llmOpenaiKey();
-      if (openai === '') {
-        payload.openaiApiKey = null; // clear
-      } else if (!openai.startsWith('****')) {
-        payload.openaiApiKey = openai; // new value
-      }
-
-      const gemini = llmGeminiKey();
-      if (gemini === '') {
-        payload.geminiApiKey = null; // clear
-      } else if (!gemini.startsWith('****')) {
-        payload.geminiApiKey = gemini; // new value
-      }
-
-      const result = await updateLlmKeys(payload);
-      // Update inputs with masked values from server
-      setLlmOpenaiKey(result.openaiApiKey || '');
-      setLlmGeminiKey(result.geminiApiKey || '');
-      setLlmKeysMessage('Keys saved. Takes effect on next session start.');
-    } catch (error) {
-      setLlmKeysError(
-        error instanceof Error ? error.message : 'Failed to save LLM keys.'
-      );
-    } finally {
-      setLlmKeysSaving(false);
     }
   };
 
@@ -693,69 +640,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               isOpen={openGroup() === 'llm'}
               onToggle={() => handleAccordionClick('llm')}
             >
-              <p class="llm-keys-explanation" data-testid="llm-keys-explanation">
-                Optional. These keys let you consult external AI models (GPT, Gemini) for second opinions while coding. Used by the "Consult LLM" tool in Claude Code sessions.
-              </p>
-              <p class="llm-keys-links" data-testid="llm-keys-links">
-                Get keys: <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a> · <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
-              </p>
-
-              <section class="settings-section">
-                <div class="settings-section-header">
-                  <Icon path={mdiKeyVariant} size={16} />
-                  <h3 class="settings-section-title">Provider Keys</h3>
-                </div>
-                <div class="setting-row setting-row--column-gap">
-                  <label for="settings-llm-openai-key">OpenAI API Key</label>
-                  <input
-                    type="password"
-                    id="settings-llm-openai-key"
-                    class="llm-key-input"
-                    value={llmOpenaiKey()}
-                    placeholder="sk-..."
-                    autocomplete="off"
-                    onInput={(e) => setLlmOpenaiKey(e.currentTarget.value)}
-                    data-testid="settings-llm-openai-key"
-                  />
-                </div>
-                <div class="setting-row setting-row--column-gap">
-                  <label for="settings-llm-gemini-key">Gemini API Key</label>
-                  <input
-                    type="password"
-                    id="settings-llm-gemini-key"
-                    class="llm-key-input"
-                    value={llmGeminiKey()}
-                    placeholder="AI..."
-                    autocomplete="off"
-                    onInput={(e) => setLlmGeminiKey(e.currentTarget.value)}
-                    data-testid="settings-llm-gemini-key"
-                  />
-                </div>
-                <div class="setting-row setting-row--column-gap">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={llmKeysSaving()}
-                    onClick={() => { void handleSaveLlmKeys(); }}
-                    data-testid="settings-llm-keys-save"
-                  >
-                    Save Keys
-                  </Button>
-                  <span class="settings-hint" data-testid="settings-llm-keys-hint">
-                    Keys take effect on next session start. Used by the consult-llm MCP tool.
-                  </span>
-                  <Show when={llmKeysMessage()}>
-                    {(message) => (
-                      <span class="settings-hint" data-testid="settings-llm-keys-success">{message()}</span>
-                    )}
-                  </Show>
-                  <Show when={llmKeysError()}>
-                    {(error) => (
-                      <span class="settings-error" data-testid="settings-llm-keys-error">{error()}</span>
-                    )}
-                  </Show>
-                </div>
-              </section>
+              <LlmKeysSection />
             </AccordionSection>
           </Show>
 
