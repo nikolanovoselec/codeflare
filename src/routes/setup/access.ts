@@ -570,18 +570,19 @@ export async function handleCreateAccessApp(
       audienceTags.push(appResult.aud);
     }
 
-    // SaaS mode: use login_method includes (any user who authenticates via social IdPs).
+    // SaaS mode: Access policy includes ALL configured IdPs (not just social).
+    // The login page filters to social-only separately via /public/auth/providers.
+    // The policy must allow all IdPs so admins using enterprise IdPs still authenticate.
     // Default mode: use group includes (only allowlisted users).
     let saasLoginMethods: Array<{ id: string }> | undefined;
     if (saasMode) {
-      const socialIdps = idpList.filter(p => ALLOWED_IDP_TYPES.has(p.type));
-      if (socialIdps.length > 0) {
-        saasLoginMethods = socialIdps.map(p => ({ id: p.id }));
+      if (idpList.length > 0) {
+        saasLoginMethods = idpList.map(p => ({ id: p.id }));
         logger.info('SaaS mode: configuring Access policy with login_method includes', {
-          providers: socialIdps.map(p => p.type),
+          providers: idpList.map(p => p.type),
         });
       } else {
-        logger.warn('SaaS mode: no social IdPs found, falling back to group-based policy');
+        logger.warn('SaaS mode: no IdPs found, falling back to group-based policy');
       }
     }
 
