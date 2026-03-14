@@ -144,29 +144,13 @@ async function upsertAccessApp(
   managedAppName: string,
   steps: SetupStep[],
   stepIndex: number,
-  saasIdpIds?: string[]
+  _saasIdpIds?: string[]
 ): Promise<AccessAppResult | null> {
   const appDomain = getManagedAppDomain(customDomain);
   const method = existingAppId ? 'PUT' : 'POST';
   const url = existingAppId
     ? `${CF_API_BASE}/accounts/${accountId}/access/apps/${existingAppId}`
     : `${CF_API_BASE}/accounts/${accountId}/access/apps`;
-
-  // SaaS mode with exactly one social IdP: auto-redirect skips CF Access login page.
-  // allowed_idps restricts which IdPs are shown if the picker appears.
-  const autoRedirect = saasIdpIds ? saasIdpIds.length === 1 : false;
-  const appBody: Record<string, unknown> = {
-    name: managedAppName,
-    domain: appDomain,
-    destinations: getManagedDestinations(customDomain),
-    type: 'self_hosted',
-    session_duration: '24h',
-    auto_redirect_to_identity: autoRedirect,
-    skip_interstitial: true,
-  };
-  if (saasIdpIds && saasIdpIds.length > 0) {
-    appBody.allowed_idps = saasIdpIds;
-  }
 
   const response = await withSetupRetry(
     () => cfApiCB.execute(() => fetch(url, {
@@ -175,7 +159,15 @@ async function upsertAccessApp(
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(appBody),
+    body: JSON.stringify({
+      name: managedAppName,
+      domain: appDomain,
+      destinations: getManagedDestinations(customDomain),
+      type: 'self_hosted',
+      session_duration: '24h',
+      auto_redirect_to_identity: false,
+      skip_interstitial: true,
+    }),
     signal: AbortSignal.timeout(10000),
   })), 'upsertAccessApp');
 
@@ -584,12 +576,11 @@ export async function handleCreateAccessApp(
       audienceTags.push(appResult.aud);
     }
 
-    // SaaS mode: Access policy includes ALL configured IdPs (not just social).
-    // The login page filters to social-only separately via /public/auth/providers.
-    // The policy must allow all IdPs so admins using enterprise IdPs still authenticate.
-    // Default mode: use group includes (only allowlisted users).
+    // Use group-based policy for both SaaS and default mode.
+    // login_method includes broke the OAuth callback ("invalid login session").
+    // Group-based policy works reliably — the Worker handles authorization via access tiers.
     let saasLoginMethods: Array<{ id: string }> | undefined;
-    if (saasMode) {
+    if (false) { // Disabled: login_method includes break OAuth callback
       if (idpList.length > 0) {
         saasLoginMethods = idpList.map(p => ({ id: p.id }));
         logger.info('SaaS mode: configuring Access policy with login_method includes', {
