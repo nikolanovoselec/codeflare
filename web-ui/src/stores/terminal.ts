@@ -87,19 +87,43 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   const buffer = writeBuffers.get(key);
   if (!buffer || buffer.length === 0) return;
 
-  const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+  const beforeBaseY = terminal.buffer.active.baseY;
+  const beforeY = terminal.buffer.active.viewportY;
+  const wasAtBottom = beforeY >= beforeBaseY;
+  const beforeDistFromBottom = beforeBaseY - beforeY;
   const data = buffer.join('');
   buffer.length = 0;
 
-  // Fix 13: Simplified post-write guard. Only handle the common case: user was
-  // following output (at bottom) but xterm didn't keep them there after the write.
-  // The old drop > 3 heuristic and rAF duplicate are removed — they fought with
-  // the onScroll detector in useTerminal.ts, causing terminal oscillation during
-  // output (especially visible on mobile with keyboard open).
-  // The onScroll detector handles browser focus-reset (ydisp === 0) independently.
+  // Fix 15: Distance-based post-write scroll guard.
+  //
+  // For bottom-following users: if xterm moved them away from bottom after
+  // the write, scroll back to bottom. (Same as Fix 13.)
+  //
+  // For scrolled-up users: if the write caused scrollback trimming, xterm
+  // should preserve the viewport position by shifting both baseY and viewportY.
+  // If the distance-from-bottom drifted significantly (>5 lines), correct it.
+  // This handles cases where xterm's internal trim adjustment doesn't perfectly
+  // preserve the user's reading position.
   terminal.write(data, () => {
-    if (wasAtBottom && terminal.buffer.active.viewportY < terminal.buffer.active.baseY) {
-      terminal.scrollToBottom();
+    const afterBaseY = terminal.buffer.active.baseY;
+    const afterY = terminal.buffer.active.viewportY;
+
+    if (wasAtBottom) {
+      if (afterY < afterBaseY) {
+        terminal.scrollToBottom();
+      }
+      return;
+    }
+
+    // Scrolled-up user: check if trim shifted their position
+    const afterDistFromBottom = afterBaseY - afterY;
+    const drift = Math.abs(afterDistFromBottom - beforeDistFromBottom);
+    if (drift > 5) {
+      const targetY = Math.max(0, afterBaseY - beforeDistFromBottom);
+      const delta = targetY - afterY;
+      if (delta !== 0) {
+        terminal.scrollLines(delta);
+      }
     }
   });
 }

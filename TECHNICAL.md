@@ -1820,19 +1820,21 @@ Fixes 9-12 introduced three overlapping scroll-correction mechanisms that fought
 
 7. **Reduced scrollback** from 10,000 to 400 lines (both frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`), so xterm's scrollback buffer is the only history cap.
 
-#### Scroll Position Restoration (Fix 14)
+#### Distance-Based Scroll Stability (Fix 15, supersedes Fix 14)
 
-Fix 13 only corrected the "was following output → snapped to 0 → restore to bottom" case. Users who scrolled up to read history were still vulnerable: the browser focus-reset bug snapped them to `ydisp === 0` and nothing corrected it because `wasFollowing` was false.
+Fixes 13-14 used absolute `ydisp === 0` to detect browser focus resets. This false-positived during scrollback trimming: xterm legitimately decrements ydisp as old lines are removed (399→398→...→1→0). Fix 14 misidentified this as a browser bug and applied incorrect corrections (`scrollLines` with absolute position instead of delta), pinning users at the top.
 
-**Fix 14 changes:**
+**Root cause:** The correct invariant is **distance from bottom** (`baseY - ydisp`), not absolute `ydisp`. During normal trimming, distance stays constant (both baseY and ydisp shift together). During a browser focus reset, ydisp snaps to 0 while baseY stays large, causing distance to jump dramatically.
 
-1. **Added `previousYdisp` tracking** — records the last known scroll position before each `onScroll` event.
+**Fix 15 changes:**
 
-2. **Expanded correction to cover scrolled-up users** — when `ydisp === 0` and `previousYdisp > 0` (regardless of `wasFollowing`), the detector now fires. If the user was following output, restores to bottom. If the user was scrolled up, restores to `previousYdisp` via `scrollLines()`.
+1. **Distance-based detection** — tracks `distanceFromBottom = baseY - ydisp` across onScroll events. A browser reset is detected when `ydisp` drops to 0 AND `distanceDrift > 20` (impossible during normal trimming which changes distance by at most 1-2 lines).
 
-3. **Clamped restore position** — `Math.min(previousYdisp, ybase)` prevents restoring past the end of the buffer after scrollback trimming.
+2. **Distance-based restoration** — restores using `targetY = currentBaseY - savedDistanceFromBottom`, applied as a **delta** (`targetY - currentY`). This is trim-safe because it uses the user's relative position, not absolute coordinates.
 
-4. **Removed `wasFollowing` as a gate** — replaced with `previousYdisp > 0` as the primary guard. This still prevents false-positives when the user is genuinely at line 0.
+3. **Write-side distance guard** — `flushWriteBuffer` now tracks `beforeDistFromBottom` and corrects scrolled-up users if trim drifted their position by more than 5 lines. Previously only bottom-following users were corrected.
+
+4. **Tighter reset detection** — requires `previousYdisp > 20` AND `ybase > 20` AND `distanceDrift > 20`. Normal scrollback trimming never produces this signature; browser focus resets always do.
 
 #### WS Retryable Close Codes (Fix 5)
 

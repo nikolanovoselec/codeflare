@@ -237,6 +237,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     {
       let wasFollowingOutput = true;
       let previousYdisp = 0;
+      let previousBaseY = 0;
+      let previousDistFromBottom = 0;
       let lastUserScrollIntentAt = 0;
       let isCorrectingScroll = false;
       const USER_SCROLL_GRACE_MS = 150;
@@ -260,10 +262,14 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
       scrollDropDisposable = t.onScroll((ydisp: number) => {
         const ybase = t.buffer.active.baseY;
+        const distFromBottom = ybase - ydisp;
 
         // Always update tracking state, even when suppressed
         if (isCorrectingScroll) {
           wasFollowingOutput = ydisp >= ybase;
+          previousYdisp = ydisp;
+          previousBaseY = ybase;
+          previousDistFromBottom = distFromBottom;
           return;
         }
 
@@ -276,31 +282,45 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         );
         const recentUserIntent = recentLocalIntent || recentExternalIntent;
 
-        // Fix 14: Detect browser focus-reset signature (ydisp snaps to 0) and correct.
-        // Two cases:
-        //   1. User was following output (at bottom) → restore to bottom
-        //   2. User was scrolled up (reading history) → restore to previous position
-        // The browser focus-validation bug ALWAYS snaps to ydisp === 0 regardless
-        // of where the user was. Without case 2, users who scroll up to read get
-        // stuck at the top on every output.
-        if (
+        // Fix 15: Distance-based scroll reset detection.
+        //
+        // Previous fixes (13-14) checked `ydisp === 0` to detect browser focus resets.
+        // This false-positived during scrollback trimming: xterm legitimately decrements
+        // ydisp as old lines are removed, eventually reaching 0. Fix 14 misidentified
+        // this as a browser bug and applied wrong corrections (scrollLines with absolute
+        // position instead of delta), pinning users at the top.
+        //
+        // The correct invariant is distance-from-bottom. During normal scrollback
+        // trimming, distance stays roughly constant (both baseY and ydisp shift together).
+        // During a browser focus reset, ydisp snaps to 0 while baseY stays large,
+        // causing distance to jump dramatically.
+        //
+        // Detection: ydisp dropped to 0 AND distance-from-bottom changed by >20 lines
+        // from the previous state. This cannot happen during normal trimming (distance
+        // changes by at most 1-2 lines per trim) but always happens during a browser
+        // focus reset (distance jumps from ~0 to baseY).
+        const distanceDrift = Math.abs(distFromBottom - previousDistFromBottom);
+        const suspiciousReset =
           !recentUserIntent &&
-          ybase > 5 &&
           ydisp === 0 &&
-          previousYdisp > 0
-        ) {
+          previousYdisp > 20 &&
+          ybase > 20 &&
+          distanceDrift > 20;
+
+        if (suspiciousReset) {
           isCorrectingScroll = true;
-          const restoreToBottom = wasFollowing;
-          // Clamp previousYdisp to current ybase (scrollback may have trimmed lines)
-          const restorePosition = Math.min(previousYdisp, ybase);
+          const restoreDistance = wasFollowing ? 0 : previousDistFromBottom;
           queueMicrotask(() => {
             try {
-              if (t.buffer.active.viewportY === 0 && t.buffer.active.baseY > 0) {
-                if (restoreToBottom) {
-                  t.scrollToBottom();
-                } else {
-                  t.scrollLines(restorePosition);
-                }
+              const currentBaseY = t.buffer.active.baseY;
+              const currentY = t.buffer.active.viewportY;
+              if (currentBaseY <= 0) return;
+              const targetY = Math.max(0, currentBaseY - restoreDistance);
+              const delta = targetY - currentY;
+              if (delta !== 0) {
+                t.scrollLines(delta);
+              } else if (restoreDistance === 0) {
+                t.scrollToBottom();
               }
             } finally {
               isCorrectingScroll = false;
@@ -308,8 +328,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           });
         }
 
-        // Track position for restoration (skip when correcting to avoid overwriting)
         previousYdisp = ydisp;
+        previousBaseY = ybase;
+        previousDistFromBottom = distFromBottom;
       });
     }
 
