@@ -211,7 +211,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
       expect(body.error).toBe('Access denied');
     });
 
-    it('redirects pending users to /pending on HTML request (Accept: text/html)', async () => {
+    it('returns 403 PENDING for pending users regardless of Accept header', async () => {
       mockAuthResult.user = {
         email: 'pending@example.com',
         authenticated: true,
@@ -227,8 +227,9 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         },
       });
 
-      expect(res.status).toBe(302);
-      expect(res.headers.get('Location')).toBe('/pending');
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('PENDING');
     });
 
     it('returns 403 with code BLOCKED for blocked users', async () => {

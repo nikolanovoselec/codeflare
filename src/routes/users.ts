@@ -74,8 +74,12 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   return c.json({ success: true, email });
 });
 
-// PATCH /api/users/:email - Update a user's access tier (admin only)
+// PATCH /api/users/:email - Update a user's access tier (admin only, SaaS mode only)
 app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
+  if (!isSaasModeActive(c.env.SAAS_MODE)) {
+    throw new ValidationError('Access tiers are only available in SaaS mode');
+  }
+
   const rawEmail = decodeURIComponent(c.req.param('email'));
   if (!rawEmail) throw new ValidationError('Email parameter is required');
   const email = rawEmail.trim().toLowerCase();
@@ -83,25 +87,30 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   let raw: unknown;
   try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
 
-  const schema = z.object({ accessTier: AccessTierSchema });
-  const parsed = schema.safeParse(raw);
+  const patchSchema = z.object({ accessTier: AccessTierSchema });
+  const parsed = patchSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
 
-  const existing = await c.env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
-  if (!existing) throw new NotFoundError('User', email);
+  // Validate existing record with schema before merging
+  const existingRaw = await c.env.KV.get(`user:${email}`, 'json');
+  if (!existingRaw) throw new NotFoundError('User', email);
+  const kvUserSchema = z.object({
+    addedBy: z.string().default('unknown'),
+    addedAt: z.string().default(''),
+    role: z.enum(['admin', 'user']).default('user'),
+    accessTier: AccessTierSchema.optional(),
+  });
+  const existing = kvUserSchema.parse(existingRaw);
 
   const updated = { ...existing, accessTier: parsed.data.accessTier };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
 
   logger.info('User access tier updated', {
     email,
+    previousTier: existing.accessTier ?? 'unset',
     accessTier: parsed.data.accessTier,
     updatedBy: c.get('user').email,
   });
-
-  if (!isSaasModeActive(c.env.SAAS_MODE)) {
-    await trySyncAccessPolicy(c.env);
-  }
 
   return c.json({ success: true, email, accessTier: parsed.data.accessTier });
 });

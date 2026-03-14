@@ -358,7 +358,7 @@ export async function getAuthStatus(): Promise<AuthStatus> {
 const UpdateUserTierResponseSchema = z.object({
   success: z.boolean(),
   email: z.string(),
-  accessTier: z.string(),
+  accessTier: AccessTierSchema,
 });
 
 export async function updateUserAccessTier(

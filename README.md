@@ -163,8 +163,6 @@ All optional. The defaults work out of the box. I respect your time.
 
 Replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned and require admin approval before accessing the IDE.
 
-**Prerequisites:** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets must be configured (required for any deployment).
-
 **Setup:**
 
 1. **Configure identity providers** in your [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) — add Google, GitHub, or any OIDC/SAML provider

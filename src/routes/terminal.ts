@@ -24,6 +24,8 @@ import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
 import { authenticateRequest } from '../lib/access';
+import { isSaasModeActive } from '../lib/onboarding';
+import { isActiveUser } from '../lib/access-tier';
 import { createLogger } from '../lib/logger';
 import { getContainerSessionsCB } from '../lib/circuit-breakers';
 import { isAllowedOrigin } from '../lib/cors-cache';
@@ -165,6 +167,12 @@ export async function handleWebSocketUpgrade(
         return new Response(JSON.stringify({ error: err.message, code: 'FORBIDDEN' }), { status: 403, headers: jsonHeaders });
       }
       throw err;
+    }
+
+    // SaaS mode: enforce access tier on WebSocket connections (mirrors requireActiveUser)
+    if (isSaasModeActive(env.SAAS_MODE) && !isActiveUser(user.accessTier)) {
+      const code = user.accessTier === 'blocked' ? 'BLOCKED' : 'PENDING';
+      return new Response(JSON.stringify({ error: 'Access denied', code }), { status: 403, headers: jsonHeaders });
     }
 
     if (env.STRESS_TEST_MODE === 'active') {
