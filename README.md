@@ -156,6 +156,7 @@ All optional. The defaults work out of the box. I respect your time.
 | `MAX_SESSIONS_ADMIN` | `10` | Max concurrent running sessions per admin user |
 | `E2E_BASE_URL` | unset | Custom domain URL for E2E tests (e.g., `https://codeflare.example.com`) |
 | `SAAS_MODE` | `inactive` | Set to `active` for custom login page with social IdPs and admin approval gate |
+| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers on the login page (SaaS mode only) |
 | `CF_ACCESS_CLIENT_ID` | unset | CF Access service token client ID (secret — for E2E testing) |
 | `CF_ACCESS_CLIENT_SECRET` | unset | CF Access service token client secret (secret — for E2E testing) |
 
@@ -166,15 +167,16 @@ Replaces the Cloudflare Access interstitial with a branded login page. New users
 **Setup:**
 
 1. **Configure identity providers** in your [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) — add Google, GitHub, or any OIDC/SAML provider
-2. **Set one GitHub Actions variable** — go to your fork's `Settings` > `Secrets and variables` > `Actions` > `Variables` and add `SAAS_MODE` = `active`
-3. **Deploy** — push to `main` or trigger a manual deploy
+2. **Set GitHub Actions variables** — go to your fork's `Settings` > `Secrets and variables` > `Actions` > `Variables` and add `SAAS_MODE` = `active`. If you have custom OIDC providers (not Google/GitHub/Facebook/LinkedIn), also add `SAAS_EXTRA_IDPS` with their UUIDs (comma-separated, from Zero Trust dashboard > Settings > Authentication > Login methods)
+3. **Deploy** — push to `main` or trigger a manual deploy. The setup wizard fetches all configured IdPs before creating the CF Access policy
 
 **What happens:**
-- Root `/` shows a branded login page with buttons for each configured identity provider
+- Root `/` detects SaaS mode and shows a branded login page with social IdP buttons (+ any custom providers from `SAAS_EXTRA_IDPS`)
 - New users who sign in are auto-provisioned with `pending` status and see a "waiting for approval" page
 - Admins approve users at `/admin/users` (or via Settings > Administration > Manage Users)
 - Once approved, the pending page auto-redirects to the IDE
 - Admins can set users to `standard` (default mode only) or `advanced` (all modes) tiers
+- The CF Access policy includes all configured IdPs (not just social) to allow authentication
 
 **No SaaS mode?** Leave `SAAS_MODE` unset — the app works exactly as before with Cloudflare Access handling login.
 

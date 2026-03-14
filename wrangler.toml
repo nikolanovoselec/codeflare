@@ -21,6 +21,9 @@ MAX_SESSIONS_ADMIN = "10"
 # SaaS mode: custom login page, auto-provisioning, admin approval gate
 # Set to "active" via GitHub Actions variable to enable
 # SAAS_MODE = "inactive"
+# Extra IdP UUIDs for custom OIDC providers on login page (comma-separated)
+# Set via GitHub Actions variable; only relevant when SAAS_MODE = "active"
+# SAAS_EXTRA_IDPS = ""
 
 # KV namespace for session metadata
 # The id "placeholder" is for local dev/tests (vitest-pool-workers creates in-memory KV).

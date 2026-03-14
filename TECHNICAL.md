@@ -2,7 +2,7 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-**Last Updated:** 2026-03-13
+**Last Updated:** 2026-03-14
 
 ---
 
@@ -660,10 +660,16 @@ Tiers are stored in the KV record at `user:{email}` in the `accessTier` field. E
 
 | Route | Method | Auth | Purpose |
 |-------|--------|------|---------|
-| `/api/auth/providers` | GET | Public | Returns configured IdP list from KV |
+| `/public/auth/providers` | GET | Public | Returns filtered IdP list (social types + `SAAS_EXTRA_IDPS` UUIDs) |
 | `/api/auth/status` | GET | Identity | Returns email, accessTier, role |
 | `/auth/login/:provider` | GET | Public | Redirects to CF Access with IdP hint |
 | `/auth/logout` | GET | Public | Redirects to CF Access logout |
+
+**CF Access Login URL Format:** `/auth/login/:provider` redirects to `https://{authDomain}/cdn-cgi/access/login/{customDomain}?idp={id}&redirect_url=/app/`. The path segment is the protected hostname (custom domain), not a key ID parameter.
+
+**IdP Filtering:** The `/public/auth/providers` endpoint filters the full IdP list stored in KV (`setup:idp_list`) to only return social providers (`google`, `github`, `facebook`, `linkedin`) plus any custom OIDC providers whose UUIDs are listed in `SAAS_EXTRA_IDPS`. This endpoint bypasses CF Access (served outside `/api/*`).
+
+**Access Policy:** In SaaS mode, the CF Access policy uses `login_method` includes for ALL configured IdPs (not just social ones). This allows any user who authenticates via any configured provider to reach the Worker, where the three-tier middleware handles authorization. The setup wizard fetches IdPs BEFORE creating the policy to ensure all providers are included.
 
 ### User Lifecycle
 
@@ -683,15 +689,26 @@ flowchart TD
     I -->|Admin approves| J
 ```
 
-### Configuration
+### RootPage Mode Detection
 
-Only one variable is needed:
+The frontend `RootPage` component (`web-ui/src/App.tsx`) determines which landing to show:
+
+1. **Probe `/public/auth/providers`** — if it returns providers, show `LoginPage` (SaaS mode)
+2. **Probe `/public/onboarding-config`** — if active, show `OnboardingLanding` (waitlist mode)
+3. **Fallback** — redirect to `/app/` (default mode, CF Access handles login)
+
+This avoids requiring a client-side env variable — the frontend discovers the deployment mode from the backend.
+
+### Configuration
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SAAS_MODE` | unset | Set to `active` to enable custom login, auto-provisioning, and admin approval |
+| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs to include on login page alongside social providers |
 
-Set as a GitHub Actions repository variable. Passed to the worker at deploy time via `--var SAAS_MODE` in `deploy.yml`. Prerequisites: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets (required for any deploy).
+Both are set as GitHub Actions repository variables. Passed to the worker at deploy time via `--var` in `deploy.yml`. Prerequisites: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets (required for any deploy).
+
+**`SAAS_EXTRA_IDPS` usage:** If you have custom OIDC/SAML providers configured in Cloudflare Zero Trust that are not social types (Google, GitHub, Facebook, LinkedIn), add their UUIDs to this variable so they appear on the login page. Find provider UUIDs in the Zero Trust dashboard under `Settings` > `Authentication` > `Login methods`.
 
 ---
 
@@ -998,6 +1015,8 @@ GET `/health`, GET `/api/health`
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
 | `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | Worker secret (optional) |
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | Worker env var |
+| `SAAS_MODE` | `"active"` enables custom login page, auto-provisioning, admin approval | GitHub Actions variable → `--var` at deploy |
+| `SAAS_EXTRA_IDPS` | Comma-separated IdP UUIDs for custom OIDC providers on login page | GitHub Actions variable → `--var` at deploy |
 
 ### Container Environment
 
