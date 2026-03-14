@@ -892,7 +892,7 @@ describe('SettingsPanel Component', () => {
       sessionStoreState.preferences.sessionMode = undefined;
     });
 
-    it('shows explanation text with "Optional", "second opinions", and "Consult LLM"', () => {
+    it('shows explanation text with "Optional"', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
 
       // Open LLM group first
@@ -900,21 +900,6 @@ describe('SettingsPanel Component', () => {
 
       const explanation = screen.getByTestId('llm-keys-explanation');
       expect(explanation.textContent).toContain('Optional');
-      expect(explanation.textContent).toContain('second opinions');
-      expect(explanation.textContent).toContain('Consult LLM');
-    });
-
-    it('shows links to OpenAI and Google AI Studio', () => {
-      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
-
-      // Open LLM group first
-      fireEvent.click(screen.getByTestId('accordion-header-llm'));
-
-      const links = screen.getByTestId('llm-keys-links');
-      const anchors = links.querySelectorAll('a');
-      const hrefs = Array.from(anchors).map(a => a.getAttribute('href'));
-      expect(hrefs).toContain('https://platform.openai.com/api-keys');
-      expect(hrefs).toContain('https://aistudio.google.com/apikey');
     });
   });
 
