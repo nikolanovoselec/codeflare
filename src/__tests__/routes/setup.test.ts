@@ -20,8 +20,19 @@ import { createMockKV } from '../helpers/mock-kv';
 //   - Contains '?': Uses includes() against the full URL (including query string).
 //
 // Patterns are sorted by length descending so more specific patterns match first.
+// Default mock for identity_providers — always present so access setup tests don't break
+const defaultIdpMock: Record<string, (url: string, init?: RequestInit) => Response> = {
+  '/identity_providers': () => new Response(JSON.stringify({
+    success: true, result: [
+      { id: 'idp-google', type: 'google', name: 'Google' },
+      { id: 'idp-github', type: 'github', name: 'GitHub' },
+    ],
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+};
+
 function createUrlMockFetch(responses: Record<string, ((url: string, init?: RequestInit) => Response | Promise<Response>)>) {
-  const sortedEntries = Object.entries(responses).sort((a, b) => b[0].length - a[0].length);
+  const merged = { ...defaultIdpMock, ...responses };
+  const sortedEntries = Object.entries(merged).sort((a, b) => b[0].length - a[0].length);
   return vi.fn((url: string | URL | Request, init?: RequestInit) => {
     const urlString = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
     const urlPath = urlString.split('?')[0];
