@@ -25,15 +25,15 @@ app.get('/login/:provider', async (c) => {
     return c.json({ error: 'Unknown provider' }, 404);
   }
 
-  const authDomain = await c.env.KV.get('setup:auth_domain');
   const customDomain = await c.env.KV.get('setup:custom_domain');
 
-  if (!authDomain || !customDomain) {
+  if (!customDomain) {
     return c.json({ error: 'Auth not configured' }, 503);
   }
 
-  // CF Access login URL: path = protected hostname, idp = IdP UUID, redirect_url = relative path
-  const loginUrl = `https://${authDomain}/cdn-cgi/access/login/${customDomain}?idp=${matched.id}&redirect_url=${encodeURIComponent('/app/')}`;
+  // Redirect to the protected URL directly — CF Access intercepts and handles auth.
+  // cf_access_idp_id hints which IdP to use, skipping the CF Access login page.
+  const loginUrl = `https://${customDomain}/app/?cf_access_idp_id=${matched.id}`;
 
   logger.info('Redirecting to identity provider', { provider: matched.id, type: matched.type });
 
