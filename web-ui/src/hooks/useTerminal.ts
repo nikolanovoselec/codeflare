@@ -153,9 +153,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       textarea.setAttribute('data-enable-grammarly', 'false');
     }
 
-    // Ctrl+C/V key handler
+    // Custom key handler: Shift+Enter (CSI u for Claude Code), Ctrl+C (copy), Ctrl+V (paste)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true;
+      // Shift+Enter → send CSI u encoded sequence so Claude Code can distinguish
+      // it from plain Enter and insert a newline instead of submitting.
+      // Without this, xterm.js sends \r for both Enter and Shift+Enter.
+      if (event.shiftKey && event.key === 'Enter') {
+        term!.input('\x1b[13;2u', false);
+        return false;
+      }
       if (event.ctrlKey && event.key === 'c') {
         const selection = term!.getSelection();
         if (selection) {
