@@ -1986,6 +1986,22 @@ The write callback's `scrollToBottom()` remains the single source of truth for b
 
 This eliminates the feedback loop without weakening either protection mechanism. The onScroll detector remains active for genuine browser focus resets.
 
+#### Bottom-Following Re-Anchor in onScroll (Fix 19)
+
+**Problem:** Users at the bottom following output saw constant flashing/jitter during rapid output with scrollback trimming. The post-write callback correction (Fix 15) ran AFTER xterm rendered, causing a visible two-frame glitch: frame 1 shows wrong position, frame 2 shows corrected position.
+
+**Root cause:** `terminal.write(data, callback)` is async — the callback fires after xterm processes data AND renders via rAF. The correction arrives too late to prevent the bad frame from being painted.
+
+**Key insight (validated by GPT-5.4 + Gemini 3.1 Pro):** xterm's `onScroll` event fires synchronously during the parse loop, BEFORE the rAF render pass. Correcting viewport position in the `onScroll` handler means the fix is applied before the canvas paints — the bad frame is never visible.
+
+**Fix 19 changes:**
+
+1. **Bottom-following correction moved to `onScroll` handler** (`useTerminal.ts`) — when `wasFollowingOutput` is true and `ydisp < ybase`, call `scrollToBottom()` immediately. Uses `isCorrectingScroll` flag to prevent recursion. Checks recent user intent (wheel/pointerdown/keydown) to avoid trapping users at the bottom when they intentionally scroll up.
+
+2. **Write callback simplified** (`terminal.ts`) — bottom-followers skip the callback entirely (handled by `onScroll`). Callback only handles scrolled-up user distance correction, which is less timing-sensitive.
+
+3. **Fix 18 suppression counter preserved** — scrolled-up corrections in the write callback still use `beginProgrammaticScroll`/`endProgrammaticScroll` to prevent detector feedback.
+
 #### WS Retryable Close Codes (Fix 5)
 
 The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.
