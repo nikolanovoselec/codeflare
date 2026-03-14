@@ -34,7 +34,8 @@ app.get('/login/:provider', async (c) => {
 
   const appUrl = new URL(c.req.url);
   const callbackUrl = `${appUrl.protocol}//${appUrl.host}/app/`;
-  const loginUrl = `https://${authDomain}/cdn-cgi/access/login/${accessAud}?redirect_url=${encodeURIComponent(callbackUrl)}&idp=${matched.id}`;
+  // CF Access login with IdP hint: kid=audience tag, idp=provider UUID
+  const loginUrl = `https://${authDomain}/cdn-cgi/access/login?kid=${encodeURIComponent(accessAud)}&redirect_url=${encodeURIComponent(callbackUrl)}&idp=${matched.id}`;
 
   logger.info('Redirecting to identity provider', { provider: matched.id, type: matched.type });
 
