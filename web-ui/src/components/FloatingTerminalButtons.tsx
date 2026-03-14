@@ -1,8 +1,9 @@
 import { Component, Show, createSignal, createEffect, onCleanup } from 'solid-js';
-import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp, mdiSecurity } from '@mdi/js';
+import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp, mdiSecurity, mdiCodeBrackets } from '@mdi/js';
 import Icon from './Icon';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/mobile';
 import { sendTerminalKey } from '../lib/touch-gestures';
+import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive } from '../lib/terminal-mobile-input';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { markScrollIntent } from '../lib/terminal-scroll-intent';
@@ -18,6 +19,7 @@ interface FloatingTerminalButtonsProps {
 const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props) => {
   const [labelsVisible, setLabelsVisible] = createSignal(false);
   const [showLabels, setShowLabels] = createSignal(loadSettings().showButtonLabels !== false);
+  const [ctrlActive, setCtrlActive] = createSignal(false);
 
   // Show labels for 3 seconds each time the floating buttons appear
   createEffect(() => {
@@ -162,6 +164,35 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             title="ESC"
           >
             <Icon path={mdiCancel} size={18} />
+          </button>
+        </div>
+        <div class="floating-btn-row">
+          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>CTRL (STICKY)</span>
+          <button
+            type="button"
+            class={`floating-terminal-btn ${ctrlActive() ? 'floating-terminal-btn--active' : ''}`}
+            tabIndex={-1}
+            onPointerDown={preventFocusSteal}
+            onClick={() => {
+              if (ctrlActive()) {
+                deactivateStickyCtrl();
+                setCtrlActive(false);
+              } else {
+                activateStickyCtrl(() => setCtrlActive(false));
+                setCtrlActive(true);
+                // Auto-deactivate after 5 seconds if no key pressed
+                setTimeout(() => {
+                  if (isStickyCtrlActive()) {
+                    deactivateStickyCtrl();
+                    setCtrlActive(false);
+                  }
+                }, 5000);
+              }
+              refocusTerminal();
+            }}
+            title="CTRL"
+          >
+            <Icon path={mdiCodeBrackets} size={18} />
           </button>
         </div>
         <div class="floating-btn-row">

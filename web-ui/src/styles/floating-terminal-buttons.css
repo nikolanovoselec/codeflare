@@ -33,6 +33,12 @@
   border-color: var(--color-accent);
 }
 
+.floating-terminal-btn--active {
+  background: var(--color-accent, #3b82f6);
+  border-color: var(--color-accent, #3b82f6);
+  color: white;
+}
+
 .floating-terminal-btn svg {
   width: 18px;
   height: 18px;

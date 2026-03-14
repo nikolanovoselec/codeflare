@@ -4,6 +4,31 @@ import { logger } from './logger';
 import { getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
 
 // ---------------------------------------------------------------------------
+// Sticky CTRL modifier for mobile floating button
+// ---------------------------------------------------------------------------
+
+let _ctrlStickyActive = false;
+let _ctrlDeactivateCallback: (() => void) | null = null;
+
+/** Activate sticky Ctrl — next keypress will include Ctrl modifier, then auto-deactivate. */
+export function activateStickyCtrl(onDeactivate?: () => void): void {
+  _ctrlStickyActive = true;
+  _ctrlDeactivateCallback = onDeactivate ?? null;
+}
+
+/** Deactivate sticky Ctrl. */
+export function deactivateStickyCtrl(): void {
+  _ctrlStickyActive = false;
+  if (_ctrlDeactivateCallback) {
+    _ctrlDeactivateCallback();
+    _ctrlDeactivateCallback = null;
+  }
+}
+
+/** Check if sticky Ctrl is active. */
+export function isStickyCtrlActive(): boolean { return _ctrlStickyActive; }
+
+// ---------------------------------------------------------------------------
 // Extracted key-mapping constants and pure dispatch logic (CF-020)
 // ---------------------------------------------------------------------------
 
@@ -228,9 +253,13 @@ export function setupMobileInput(
         return;
       }
 
+      // Sticky CTRL: if the floating button activated it, treat this keypress as Ctrl+key
+      const useCtrl = e.ctrlKey || _ctrlStickyActive;
+      if (_ctrlStickyActive) deactivateStickyCtrl();
+
       const action = resolveKeyAction(
         e.key,
-        e.ctrlKey,
+        useCtrl,
         !!terminal.getSelection(),
       );
 
