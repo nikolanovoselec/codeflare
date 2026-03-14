@@ -167,7 +167,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
           </button>
         </div>
         <div class="floating-btn-row">
-          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>CTRL (STICKY)</span>
+          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>CTRL</span>
           <button
             type="button"
             class={`floating-terminal-btn ${ctrlActive() ? 'floating-terminal-btn--active' : ''}`}

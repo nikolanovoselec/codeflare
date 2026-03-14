@@ -131,8 +131,8 @@ describe('FloatingTerminalButtons', () => {
       render(() => <FloatingTerminalButtons showTerminal={true} />);
 
       const rows = document.querySelectorAll('.floating-btn-row');
-      // 5 always-visible buttons (paste, tab, esc, page-up, scroll-to-bottom) — copy URL is conditional
-      expect(rows.length).toBe(5);
+      // 6 always-visible buttons (paste, tab, esc, ctrl, page-up, scroll-to-bottom) — copy URL is conditional
+      expect(rows.length).toBe(6);
 
       rows.forEach((row) => {
         expect(row.querySelector('.floating-btn-label')).toBeInTheDocument();
