@@ -147,10 +147,13 @@ app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISO
 app.route('/api/auth', authApiRoutes);
 app.route('/auth', authRedirectRoutes);
 
-// Public auth providers endpoint (outside /api/* to bypass CF Access)
+// Public auth providers endpoint (outside /api/* to bypass CF Access).
+// Only expose social login providers — filter out enterprise IdPs and OTP.
+const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'google-apps']);
 app.get('/public/auth/providers', async (c) => {
-  const idpList = await c.env.KV.get('setup:idp_list', 'json');
-  return c.json({ providers: idpList || [] });
+  const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>('setup:idp_list', 'json');
+  const socialOnly = (idpList || []).filter(p => SOCIAL_IDP_TYPES.has(p.type));
+  return c.json({ providers: socialOnly });
 });
 
 // Setup routes (public - no auth required)
