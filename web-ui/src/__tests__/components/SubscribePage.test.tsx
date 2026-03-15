@@ -99,14 +99,12 @@ describe('SubscribePage', () => {
       });
 
       // Simulate Turnstile widget creating a hidden input with token
+      // MutationObserver fires synchronously in jsdom when DOM changes
       const container = screen.getByTestId('turnstile-container');
       const input = document.createElement('input');
       input.name = 'cf-turnstile-response';
       input.value = 'test-token-123';
       container.appendChild(input);
-
-      // Advance timer to trigger turnstile check interval (500ms)
-      await vi.advanceTimersByTimeAsync(500);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Request Access/ })).not.toBeDisabled();
@@ -121,14 +119,12 @@ describe('SubscribePage', () => {
         expect(screen.getByRole('button', { name: /Request Access/ })).toBeInTheDocument();
       });
 
-      // Simulate Turnstile token
+      // Simulate Turnstile token — MutationObserver detects the DOM change
       const container = screen.getByTestId('turnstile-container');
       const input = document.createElement('input');
       input.name = 'cf-turnstile-response';
       input.value = 'valid-token';
       container.appendChild(input);
-
-      await vi.advanceTimersByTimeAsync(500);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Request Access/ })).not.toBeDisabled();
@@ -154,7 +150,9 @@ describe('SubscribePage', () => {
       input.name = 'cf-turnstile-response';
       input.value = 'valid-token';
       container.appendChild(input);
-      await vi.advanceTimersByTimeAsync(500);
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Request Access/ })).not.toBeDisabled();
+      });
       fireEvent.click(screen.getByRole('button', { name: /Request Access/ }));
       await vi.advanceTimersByTimeAsync(100);
 

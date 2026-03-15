@@ -37,10 +37,9 @@ const SubscribePage: Component = () => {
         setSubmitted(true);
       }
 
-      // Load turnstile for pending users with site key (only once)
-      if (result.accessTier === 'pending' && !result.requestedAt && result.turnstileSiteKey && !turnstileReady()) {
+      // Load turnstile script for pending users with site key
+      if (result.accessTier === 'pending' && !result.requestedAt && result.turnstileSiteKey) {
         loadTurnstileScript();
-        startTurnstileCheck();
       }
 
       // Auto-redirect active users
@@ -70,9 +69,14 @@ const SubscribePage: Component = () => {
     document.head.appendChild(script);
   }
 
-  onMount(() => {
-    fetchStatus();
+  onMount(async () => {
+    await fetchStatus();
     pollInterval = setInterval(fetchStatus, POLL_INTERVAL_MS);
+    // Start turnstile watch after initial render if needed
+    const s = status();
+    if (s && s.accessTier === 'pending' && !s.requestedAt && s.turnstileSiteKey) {
+      startTurnstileWatch();
+    }
   });
 
   onCleanup(() => {
@@ -87,30 +91,28 @@ const SubscribePage: Component = () => {
     return Boolean(tokenInput?.value);
   }
 
-  // Poll for turnstile readiness after widget renders
-  let turnstileCheckInterval: ReturnType<typeof setInterval> | undefined;
-  let turnstileCheckTimeout: ReturnType<typeof setTimeout> | undefined;
+  // Watch for turnstile token via MutationObserver (no timers needed)
+  let turnstileObserver: MutationObserver | undefined;
 
-  function startTurnstileCheck() {
-    // Clear any previous check timers
-    if (turnstileCheckInterval) clearInterval(turnstileCheckInterval);
-    if (turnstileCheckTimeout) clearTimeout(turnstileCheckTimeout);
-
-    turnstileCheckInterval = setInterval(() => {
+  function startTurnstileWatch() {
+    if (turnstileObserver) return;
+    // Check if already present
+    if (checkTurnstileToken()) {
+      setTurnstileReady(true);
+      return;
+    }
+    turnstileObserver = new MutationObserver(() => {
       if (checkTurnstileToken()) {
         setTurnstileReady(true);
-        if (turnstileCheckInterval) clearInterval(turnstileCheckInterval);
+        turnstileObserver?.disconnect();
+        turnstileObserver = undefined;
       }
-    }, 500);
-    // Stop checking after 30s
-    turnstileCheckTimeout = setTimeout(() => {
-      if (turnstileCheckInterval) clearInterval(turnstileCheckInterval);
-    }, 30_000);
+    });
+    turnstileObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
   }
 
   onCleanup(() => {
-    if (turnstileCheckInterval) clearInterval(turnstileCheckInterval);
-    if (turnstileCheckTimeout) clearTimeout(turnstileCheckTimeout);
+    turnstileObserver?.disconnect();
   });
 
   async function handleRequestAccess() {
