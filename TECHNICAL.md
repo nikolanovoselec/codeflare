@@ -677,7 +677,9 @@ Tiers are stored in the KV record at `user:{email}` in the `accessTier` field. E
 - `auto_redirect_to_identity: true`: skips CF Access login page and redirects directly to GitHub
 - `skip_interstitial: true`: skips the "you are being redirected" page
 
-**Access Policy:** The policy uses group-based includes (admin + user groups) regardless of mode. This controls WHO is allowed, while `allowed_idps` controls HOW they authenticate. The Worker's three-tier middleware provides additional authorization via access tiers.
+**Access Policy:**
+- **SaaS mode:** `login_method` include with GitHub IdP UUID. Any GitHub-authenticated user passes CF Access. The Worker handles authorization via access tiers (pending/standard/advanced/blocked). User groups are not created.
+- **Default mode:** Group-based includes (admin + user groups). Only allowlisted users pass CF Access.
 
 **Login Page:** Branded page with animated logo (float + glow pulse), ScrambleText title animation (JetBrains Mono), floating particle layers, MDI icon feature highlights, and provider buttons. Served at `/` in SaaS mode. Login buttons use `window.location.href` for full page navigation (avoids SolidJS Router intercepting the click before CF Access can redirect).
 
@@ -1025,8 +1027,8 @@ GET `/health`, GET `/api/health`
 | `LOG_LEVEL` | Min log level (default: "info") | wrangler.toml |
 | `ONBOARDING_LANDING_PAGE` | `"active"` enables public waitlist landing | wrangler.toml |
 | `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | Optional |
-| `RESEND_API_KEY` | Waitlist notification emails | Optional |
-| `WAITLIST_FROM_EMAIL` | Sender identity for waitlist | Optional |
+| `RESEND_API_KEY` | Notification emails (waitlist + access requests) | Optional |
+| `WAITLIST_FROM_EMAIL` | Sender identity for notification emails | Optional |
 | `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | GitHub Actions variable / Worker runtime env |
 | `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
@@ -1242,7 +1244,7 @@ Eight workflows covering deploy, testing, fuzzing, penetration testing, stress t
 |--------|----------|---------|---------|
 | `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` | Wrangler CLI auth, KV operations, container push, worker deploy, secret management |
 | `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` | Identifies the Cloudflare account for all API operations |
-| `RESEND_API_KEY` | Only if `ONBOARDING_LANDING_PAGE=active` | `deploy.yml` | Waitlist notification emails via Resend |
+| `RESEND_API_KEY` | If onboarding or SaaS mode active | `deploy.yml` | Notification emails via Resend (waitlist submissions + access requests) |
 | `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token ID for E2E auth |
 | `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token secret; also used as `SERVICE_AUTH_SECRET` worker secret and KV seeding |
 
