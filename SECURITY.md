@@ -66,7 +66,7 @@ Every response from the worker includes the following security headers:
 ### Container Isolation
 
 - **One container per session:** Each session runs in its own Cloudflare Container. No shared shells, no cross-session file access.
-- **Per-user R2 buckets:** Storage is isolated per user. Bucket names are derived from sanitized email addresses (`codeflare-user-example-com`, max 63 chars).
+- **Per-user R2 buckets:** Storage is isolated per user. Bucket names are derived from sanitized email addresses (format: `{workerName}-{email-sanitized}`, e.g., `codeflare-alice-example-com` for `alice@example.com`, max 63 chars).
 - **Container auth tokens:** Each container DO lifecycle generates a random UUID (`crypto.randomUUID()`) injected into all proxied requests. The terminal server validates this token on every non-exempt path.
 - **No admin credential passthrough:** The admin API token (`CLOUDFLARE_API_TOKEN`) never enters containers. R2 credentials injected into containers are per-user scoped tokens with bucket-level permission boundaries.
 

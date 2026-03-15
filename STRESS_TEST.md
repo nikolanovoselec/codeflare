@@ -26,12 +26,12 @@ To scale concurrency, set `STRESS_TEST_CONCURRENCY` in **Settings > Environments
 
 ### API Throughput (`api-throughput.js`)
 
-Sustained load + spike test across read-only API endpoints.
+Sustained load + spike test across read-only API endpoints simulating dashboard polling behavior.
 
-| Scenario | Duration | Base VUs | Endpoints |
-|----------|----------|----------|-----------|
-| `sustained_load` | 4m (ramp up, hold, ramp down) | 10 | `/health`, `/api/sessions`, `/api/user`, `/api/preferences`, `/api/storage/browse`, `/api/sessions/batch-status` |
-| `spike` | 50s (starts at 4m30s) | 20 | Same |
+| Scenario | Duration | Base VUs | Operations |
+|----------|----------|----------|------------|
+| `sustained_load` | 4m (ramp up, hold, ramp down) | 10 | Dashboard poll: `GET /api/sessions` (list), `GET /api/sessions/batch-status` (single-call status check), Optional: `GET /api/user`, `GET /api/preferences`, `GET /api/storage/browse` |
+| `spike` | 50s (starts at 4m30s) | 20 | Same as sustained_load |
 
 **Thresholds:**
 
@@ -40,10 +40,9 @@ Sustained load + spike test across read-only API endpoints.
 | `http_req_duration` p95 | <5s |
 | `http_req_failed` | <5% |
 | `errors` | <10% |
-| `health_duration` p95 | <1s |
 | `session_list_duration` p95 | <5s |
 
-**Think time:** `think(4, 6)` between poll cycles — matches real frontend's 5s `SESSION_LIST_POLL_INTERVAL_MS`. User/preferences (30% chance) and storage/browse (20% chance) per cycle.
+**Think time:** `think(4, 6)` seconds between poll cycles — matches real frontend's ~5s poll interval. Per cycle: user/preferences (30% chance), storage/browse (20% chance). Remaining 50% of cycles are dashboard-only polling.
 
 ### Session Lifecycle (`session-lifecycle.js`)
 
@@ -51,7 +50,12 @@ Create-read-delete cycle testing session churn with realistic delays between ope
 
 | Scenario | Duration | Base VUs | Operations |
 |----------|----------|----------|------------|
-| `session_churn` | 3m (ramp up, hold, ramp down) | 3 | `POST /api/sessions`, `GET /api/sessions`, `GET /api/sessions/:id`, `DELETE /api/sessions/:id` |
+| `session_churn` | 3m (ramp up, hold, ramp down) | 3 | `POST /api/sessions` (create), `GET /api/sessions` (list), `GET /api/sessions/:id` (get), `POST /api/sessions/:id/stop` (stop), `DELETE /api/sessions/:id` (delete) |
+
+**Rate limits hit by this suite:**
+- Session create: 10/min → max ~1.6 VUs without bypass
+- Session delete: 10/min → max ~1.6 VUs without bypass
+- Session stop: 10/min → max ~1.6 VUs without bypass
 
 **Thresholds:**
 
@@ -61,15 +65,28 @@ Create-read-delete cycle testing session churn with realistic delays between ope
 | `session_delete_duration` p95 | <3s |
 | `errors` | <15% |
 
-**Think time:** `think(3, 8)` after create, `think(2, 5)` between list/get, `think(5, 15)` before delete, `think(10, 30)` between full cycles. Models a user who creates a session, works for a while, then cleans up.
+**Think time:** `think(3, 8)` after create, `think(2, 5)` between list/get/stop, `think(5, 15)` before delete, `think(10, 30)` between full cycles. Models a user who creates a session, works for a while, then cleans up.
 
 ### Storage Operations (`storage-operations.js`)
 
-Upload-browse-download-delete cycle with weighted random file sizes: 60% small (1 KB), 30% medium (20 KB), 10% large (50 KB). ~20% of iterations also test server-side prefix delete (upload 3 files into a folder, then delete the folder via `prefixes`).
+Upload-browse-download-delete cycle simulating cloud IDE usage with weighted random file sizes.
+
+File size distribution:
+- 60% small files (1 KB)
+- 30% medium files (20 KB)
+- 10% large files (50 KB)
+
+Folder delete testing: ~20% of iterations also test server-side prefix delete by uploading 3 files into a folder, then deleting the folder via the `prefixes` parameter (R2 list + batch delete via API).
 
 | Scenario | Duration | Base VUs | Operations |
 |----------|----------|----------|------------|
-| `storage_load` | 3m (ramp up, hold, ramp down) | 5 | `POST /api/storage/upload`, `GET /api/storage/browse`, `GET /api/storage/download`, `POST /api/storage/delete` (keys + prefixes) |
+| `storage_load` | 3m (ramp up, hold, ramp down) | 5 | `POST /api/storage/upload` (simple), `GET /api/storage/browse`, `GET /api/storage/download`, `POST /api/storage/delete` (keys for individual files; prefixes for folders) |
+
+**Rate limits hit by this suite:**
+- Storage upload: 60/min → supports up to 10 VUs at baseline
+- Storage browse: 30/min → max ~5 VUs
+- Storage download: 120/min → max ~20 VUs (not the bottleneck)
+- Storage delete: 20/min → max ~3 VUs
 
 **Thresholds:**
 
@@ -80,7 +97,7 @@ Upload-browse-download-delete cycle with weighted random file sizes: 60% small (
 | `browse_duration` p95 | <3s |
 | `errors` | <15% |
 
-**Think time:** `think(3, 8)` after upload, `think(2, 5)` between browse/download/delete, `think(5, 15)` between full cycles. Models a user editing files in a cloud IDE. Folder prefix delete operations add `think(1, 3)` between folder upload and delete.
+**Think time:** `think(3, 8)` after upload, `think(2, 5)` between browse/download/delete, `think(5, 15)` between full cycles. Models a user editing files in a cloud IDE. Folder prefix delete operations add `think(1, 3)` between folder setup and delete.
 
 ### Stress Test with Rate Limits (`rate-limit-validation.js`)
 
@@ -96,6 +113,23 @@ Validates that rate limits ARE enforced when `STRESS_TEST_MODE` is **not** set. 
 | No server errors | Unexpected error rate < 5% |
 
 **Prerequisite:** `STRESS_TEST_MODE` must NOT be set on the worker (or set to anything other than `"active"`).
+
+## Session Lifecycle Rate Limits Detail
+
+The session lifecycle suite hits multiple 10/min rate limits:
+
+1. **Session create** (`POST /api/sessions`) — 10/min
+2. **Session delete** (`DELETE /api/sessions/:id`) — 10/min
+3. **Session stop** (`POST /api/sessions/:id/stop`) — 10/min
+
+With 3 base VUs and each cycle taking ~20-60 seconds, the VUs are throttled by the 10/min cap (max ~1.6 VUs per operation). `STRESS_TEST_MODE=active` is essential for testing beyond this limit.
+
+The test validates that:
+- Sessions are created successfully (201)
+- Sessions can be fetched (200)
+- Sessions can be stopped (204)
+- Sessions can be deleted (204)
+- Error rates remain <15% throughout
 
 ## Think Time Model
 
@@ -148,30 +182,53 @@ Think times stay constant regardless of concurrency — scaling adds more users 
 
 All VUs share a single CF Access service token (single identity). Without bypass, per-user rate limits block meaningful load testing:
 
-| Rate Limit | Normal | Effect on Stress Tests |
-|------------|--------|----------------------|
-| Session create/delete | 10/min | Max ~1.6 VUs for session lifecycle |
-| Container start | 5/min | Max ~0.8 VUs for container operations |
-| WebSocket connect | 30/min | Max ~5 VUs for WebSocket tests |
+| Rate Limit | Limit | Effective VUs without bypass |
+|------------|-------|------------------------------|
+| Session create | 10/min | Max ~1.6 VUs (one cycle every 6 seconds) |
+| Session delete | 10/min | Max ~1.6 VUs |
+| Session stop | 10/min | Max ~1.6 VUs |
+| Container start | 5/min | Max ~0.8 VUs |
+| WebSocket connect | 30/min | Max ~5 VUs (one connection every 2 seconds) |
+| Storage upload | 60/min | Max ~10 VUs |
+| Storage browse | 30/min | Max ~5 VUs |
 
-Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes. The bypass:
+Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit checks. The bypass:
 
-- Requires the exact string `"active"` -- any other value keeps limits enforced
-- Skips before any KV I/O (zero overhead)
-- Logs a one-time warning per isolate when activated
-- Is implemented in `src/middleware/rate-limit.ts` (HTTP) and `src/routes/terminal.ts` (WebSocket)
+- Requires the exact string `"active"` as an environment variable/secret — any other value keeps limits enforced
+- Skips rate-limit KV reads/writes before they are checked, with zero overhead
+- Logs a one-time warning per isolate when activated (`STRESS_TEST_MODE is active — all HTTP rate limits bypassed`)
+- Is implemented at:
+  - **HTTP requests:** `src/middleware/rate-limit.ts` line 54 (checkRateLimit skipped)
+  - **WebSocket connections:** `src/routes/terminal.ts` line 178 (checkRateLimit skipped)
 
-**Production must never have `STRESS_TEST_MODE` set.**
+**Production must never have `STRESS_TEST_MODE` set.** The flag should only be enabled on integration workers used for load testing.
 
 ## Configuration Reference
 
 ### Worker environment variable
 
-| Variable | Where | Value | Purpose |
-|----------|-------|-------|---------|
-| `STRESS_TEST_MODE` | Integration worker only | `"active"` | Disables all rate limits |
+| Variable | Where | Value | Purpose | Must be exact |
+|----------|-------|-------|---------|---------------|
+| `STRESS_TEST_MODE` | Integration worker only | `"active"` | Disables all rate limits | Yes — any other value (e.g., `"true"`, `"enabled"`) keeps limits enforced |
 
-Set via `wrangler secret put STRESS_TEST_MODE` or `--var STRESS_TEST_MODE=active` at deploy time.
+Set via one of:
+```bash
+# Option 1: Set as environment variable (one-time, this session)
+wrangler secret put STRESS_TEST_MODE
+# Paste: active
+
+# Option 2: Set via command line at deploy time
+wrangler deploy --var STRESS_TEST_MODE=active
+
+# Option 3: Set in wrangler.toml
+[env.integration]
+vars = { STRESS_TEST_MODE = "active" }
+```
+
+After setting, re-deploy the worker for the variable to take effect:
+```bash
+wrangler deploy --env integration
+```
 
 ### GitHub variables (integration environment)
 
@@ -259,8 +316,8 @@ At 50 VUs with realistic think times, this represents approximately **1 000-5 00
 | `e2e/stress/session-lifecycle.js` | Session CRUD churn test |
 | `e2e/stress/storage-operations.js` | R2 storage upload/download/delete cycle |
 | `e2e/stress/rate-limit-validation.js` | Rate limit enforcement validation |
-| `.github/workflows/stress-test.yml` | CI workflow |
-| `src/middleware/rate-limit.ts` | HTTP rate-limit bypass (`STRESS_TEST_MODE`) |
-| `src/routes/terminal.ts` | WebSocket rate-limit bypass (`STRESS_TEST_MODE`) |
-| `src/__tests__/middleware/rate-limit.test.ts` | Unit tests for bypass |
-| `src/__tests__/routes/terminal-ws.test.ts` | Unit tests for WS rate-limit bypass |
+| `.github/workflows/stress-test.yml` | CI workflow orchestration |
+| `src/middleware/rate-limit.ts` | HTTP rate-limit middleware; `STRESS_TEST_MODE` bypass at line 54 |
+| `src/routes/terminal.ts` | WebSocket auth + rate-limit; `STRESS_TEST_MODE` bypass at line 178 |
+| `src/lib/rate-limit-core.ts` | Core rate-limit logic (KV + in-memory fallback) |
+| `src/lib/constants.ts` | `WS_RATE_LIMIT_*` constants (lines 47-53) |
