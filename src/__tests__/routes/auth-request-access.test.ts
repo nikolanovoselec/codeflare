@@ -106,6 +106,34 @@ describe('POST /auth/request-access', () => {
     expect(typeof userData.requestedAt).toBe('string');
   });
 
+  it('returns 200 idempotently when requestedAt already set (no re-notification)', async () => {
+    // User already submitted — requestedAt is set
+    mockKV._set('user:pending@example.com', {
+      addedBy: 'jit',
+      addedAt: '2025-01-01T00:00:00Z',
+      role: 'user',
+      accessTier: 'pending',
+      requestedAt: '2025-01-02T12:00:00Z',
+    });
+
+    // fetch should NOT be called (no Turnstile verify, no email)
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch;
+
+    const app = createApp();
+    const res = await app.request('/auth/request-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ turnstileToken: 'valid-token' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { success: boolean };
+    expect(body.success).toBe(true);
+    // No external calls made (idempotent)
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('returns 400 without Turnstile token', async () => {
     const app = createApp();
     const res = await app.request('/auth/request-access', {

@@ -135,8 +135,14 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
 
   // Record request in KV — update user entry with requestedAt
   const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+
+  // Idempotency: if already requested, return success without re-notifying
+  if (existingRaw && typeof existingRaw.requestedAt === 'string') {
+    return c.json({ success: true });
+  }
+
   const requestedAt = new Date().toISOString();
-  const updated = { ...(existingRaw || {}), requestedAt };
+  const updated = { ...existingRaw, requestedAt };
   await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
 
   // Send admin notification email if Resend is configured
@@ -156,7 +162,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
           body: JSON.stringify({
             from: c.env.WAITLIST_FROM_EMAIL || 'Codeflare <onboarding@resend.dev>',
             to: adminRecipients,
-            subject: `Codeflare access request: ${user.email}`,
+            subject: `Codeflare access request: ${user.email.replace(/[\r\n]/g, '')}`,
             html: [
               '<h2>New Codeflare access request</h2>',
               `<p><strong>Email:</strong> ${escapeXml(user.email)}</p>`,

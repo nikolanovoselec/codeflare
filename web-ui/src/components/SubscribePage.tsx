@@ -82,16 +82,30 @@ const SubscribePage: Component = () => {
   }
 
   // Poll for turnstile readiness after widget renders
+  let turnstileCheckInterval: ReturnType<typeof setInterval> | undefined;
+  let turnstileCheckTimeout: ReturnType<typeof setTimeout> | undefined;
+
   function startTurnstileCheck() {
-    const check = setInterval(() => {
+    // Clear any previous check timers
+    if (turnstileCheckInterval) clearInterval(turnstileCheckInterval);
+    if (turnstileCheckTimeout) clearTimeout(turnstileCheckTimeout);
+
+    turnstileCheckInterval = setInterval(() => {
       if (checkTurnstileToken()) {
         setTurnstileReady(true);
-        clearInterval(check);
+        if (turnstileCheckInterval) clearInterval(turnstileCheckInterval);
       }
     }, 500);
     // Stop checking after 30s
-    setTimeout(() => clearInterval(check), 30_000);
+    turnstileCheckTimeout = setTimeout(() => {
+      if (turnstileCheckInterval) clearInterval(turnstileCheckInterval);
+    }, 30_000);
   }
+
+  onCleanup(() => {
+    if (turnstileCheckInterval) clearInterval(turnstileCheckInterval);
+    if (turnstileCheckTimeout) clearTimeout(turnstileCheckTimeout);
+  });
 
   async function handleRequestAccess() {
     const tokenInput = document.querySelector(
