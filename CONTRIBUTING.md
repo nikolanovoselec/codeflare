@@ -28,7 +28,7 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 | `web-ui/` | Frontend SPA | SolidJS, xterm.js, Vite |
 | `host/` | Container terminal server | Node.js, node-pty |
 | `e2e/` | End-to-end tests | Vitest, Puppeteer |
-| `tutorials/` | Tutorial content seeded into new workspaces | Markdown, assets |
+| `preseed/tutorials/` | Tutorial content seeded into new workspaces | Markdown, assets |
 | `scripts/` | Build and maintenance utilities | Node.js |
 | `.github/workflows/` | CI/CD pipelines | GitHub Actions |
 
