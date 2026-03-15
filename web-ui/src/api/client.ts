@@ -359,6 +359,13 @@ export async function getAuthStatus(): Promise<AuthStatus> {
   return fetchApi('/auth/status', {}, AuthStatusResponseSchema);
 }
 
+export async function requestAccess(turnstileToken: string): Promise<{ success: boolean }> {
+  return fetchApi('/auth/request-access', {
+    method: 'POST',
+    body: JSON.stringify({ turnstileToken }),
+  }, z.object({ success: z.boolean() }));
+}
+
 const UpdateUserTierResponseSchema = z.object({
   success: z.boolean(),
   email: z.string(),

@@ -273,8 +273,8 @@ export default {
           if (isActiveUser(user.accessTier)) {
             return redirectWithHeaders('/app/');
           }
-          // Authenticated but pending/blocked — redirect to gate page
-          return redirectWithHeaders('/pending');
+          // Authenticated but pending/blocked — redirect to subscribe page
+          return redirectWithHeaders('/app/subscribe');
         } catch {
           // Not authenticated — serve SPA (LoginPage)
         }

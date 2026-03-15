@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Gate Page — Pending approval / blocked state
+   Subscribe Page — Access request / status page
    Matches login page visual style (particles, gradient, animations)
    ========================================================================== */
 
@@ -40,7 +40,7 @@
   50% { opacity: 0.4; transform: scale(0.7); }
 }
 
-.gate-page {
+.subscribe-page {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -55,7 +55,7 @@
   position: relative;
 }
 
-.gate-particles {
+.subscribe-particles {
   position: fixed;
   top: -50%;
   left: -50%;
@@ -65,7 +65,7 @@
   z-index: 0;
 }
 
-.gate-particles--1 {
+.subscribe-particles--1 {
   animation: floatLayer1 25s ease-in-out infinite;
   box-shadow:
     80px 120px 0 1px rgba(59, 130, 246, 0.08),
@@ -78,7 +78,7 @@
     700px 450px 0 2px rgba(59, 130, 246, 0.05);
 }
 
-.gate-particles--2 {
+.subscribe-particles--2 {
   animation: driftSlow 35s ease-in-out infinite;
   box-shadow:
     150px 200px 0 1px rgba(59, 130, 246, 0.05),
@@ -89,7 +89,7 @@
     400px 200px 0 2px rgba(59, 130, 246, 0.04);
 }
 
-.gate-content {
+.subscribe-content {
   position: relative;
   z-index: 1;
   text-align: center;
@@ -98,16 +98,16 @@
   animation: fadeSlideUp 0.6s ease-out;
 }
 
-.gate-logo { margin-bottom: 1rem; }
+.subscribe-logo { margin-bottom: 1rem; }
 
-.gate-logo-img {
+.subscribe-logo-img {
   width: 72px;
   height: 72px;
   animation: logoFloat 3s ease-in-out infinite, glowPulse 4s ease-in-out infinite;
   object-fit: contain;
 }
 
-.gate-title-brand {
+.subscribe-title-brand {
   margin: 0 0 1.5rem;
   font-size: 2rem;
   font-weight: 600;
@@ -115,23 +115,28 @@
   letter-spacing: -0.02em;
 }
 
-.gate-title-scramble {
+.subscribe-title-scramble {
   font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
   letter-spacing: 0.04em;
 }
 
-.gate-status-icon {
+.subscribe-status-icon {
   color: var(--color-accent, #3b82f6);
   margin-bottom: 0.75rem;
   filter: drop-shadow(0 2px 8px rgba(59, 130, 246, 0.25));
 }
 
-.gate-status-icon--blocked {
+.subscribe-status-icon--blocked {
   color: #ef4444;
   filter: drop-shadow(0 2px 8px rgba(239, 68, 68, 0.25));
 }
 
-.gate-title {
+.subscribe-status-icon--active {
+  color: #22c55e;
+  filter: drop-shadow(0 2px 8px rgba(34, 197, 94, 0.25));
+}
+
+.subscribe-title {
   margin: 0 0 0.75rem;
   font-size: 1.25rem;
   font-weight: 600;
@@ -139,14 +144,14 @@
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
-.gate-message {
+.subscribe-message {
   margin: 0 0 1rem;
   font-size: 0.875rem;
   color: #a1a1aa;
   line-height: 1.6;
 }
 
-.gate-email {
+.subscribe-email {
   margin-bottom: 1.25rem;
   font-size: 0.8125rem;
   color: #71717a;
@@ -159,7 +164,45 @@
   display: inline-block;
 }
 
-.gate-polling {
+.subscribe-turnstile {
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+.subscribe-action-button {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  background: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  border-radius: 12px;
+  color: #fafafa;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+  transition: all 150ms ease-out;
+  margin-bottom: 1.25rem;
+}
+
+.subscribe-action-button:hover:not(:disabled) {
+  background: #2563eb;
+  box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+.subscribe-action-button:active:not(:disabled) {
+  transform: scale(0.98) translateY(0);
+}
+
+.subscribe-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.subscribe-polling {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -167,7 +210,7 @@
   margin-bottom: 1.5rem;
 }
 
-.gate-pulse {
+.subscribe-pulse {
   width: 8px;
   height: 8px;
   background: var(--color-accent, #3b82f6);
@@ -176,21 +219,21 @@
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
-.gate-polling-text {
+.subscribe-polling-text {
   font-size: 0.75rem;
   color: #52525b;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.03em;
 }
 
-.gate-loading {
+.subscribe-loading {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 2rem 0;
 }
 
-.gate-spinner {
+.subscribe-spinner {
   width: 32px;
   height: 32px;
   border: 3px solid rgba(59, 130, 246, 0.15);
@@ -199,7 +242,7 @@
   animation: spin 1s linear infinite;
 }
 
-.gate-error {
+.subscribe-error {
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
   font-size: 0.8125rem;
@@ -210,7 +253,7 @@
   line-height: 1.5;
 }
 
-.gate-logout-button {
+.subscribe-logout-button {
   display: inline-block;
   padding: 0.625rem 1.5rem;
   background: rgba(24, 24, 27, 0.85);
@@ -227,18 +270,18 @@
   transition: all 150ms ease-out;
 }
 
-.gate-logout-button:hover {
+.subscribe-logout-button:hover {
   background: rgba(24, 24, 27, 0.95);
   border-color: rgba(255, 255, 255, 0.15);
   color: #fafafa;
   transform: translateY(-1px);
 }
 
-.gate-logout-button:active {
+.subscribe-logout-button:active {
   transform: scale(0.98) translateY(0);
 }
 
-.gate-footer {
+.subscribe-footer {
   margin: 2rem 0 0;
   font-size: 0.6875rem;
   color: #3f3f46;
@@ -248,17 +291,17 @@
 }
 
 @media (max-width: 640px) {
-  .gate-content {
+  .subscribe-content {
     max-width: calc(100vw - 32px);
     padding: 1.5rem;
   }
-  .gate-title-brand { font-size: 1.75rem; }
-  .gate-logo-img { width: 56px; height: 56px; }
+  .subscribe-title-brand { font-size: 1.75rem; }
+  .subscribe-logo-img { width: 56px; height: 56px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gate-particles, .gate-logo-img, .gate-content, .gate-pulse {
+  .subscribe-particles, .subscribe-logo-img, .subscribe-content, .subscribe-pulse {
     animation: none !important;
   }
-  .gate-spinner { animation-duration: 2s; }
+  .subscribe-spinner { animation-duration: 2s; }
 }

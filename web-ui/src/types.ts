@@ -111,6 +111,8 @@ export interface AuthStatus {
   email: string;
   accessTier: AccessTier;
   role: 'admin' | 'user';
+  turnstileSiteKey?: string | null;
+  requestedAt?: string | null;
 }
 
 export interface AuthProvider {

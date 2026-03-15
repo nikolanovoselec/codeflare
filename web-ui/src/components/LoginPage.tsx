@@ -59,7 +59,7 @@ const LoginPage: Component = () => {
         return;
       }
       if (status.accessTier === 'pending') {
-        window.location.href = '/pending';
+        window.location.href = '/app/subscribe';
         return;
       }
       if (status.accessTier === 'blocked') {

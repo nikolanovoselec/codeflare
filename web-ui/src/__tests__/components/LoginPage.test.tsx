@@ -95,7 +95,7 @@ describe('LoginPage', () => {
       });
     });
 
-    it('should redirect to /pending if getAuthStatus returns pending user', async () => {
+    it('should redirect to /app/subscribe if getAuthStatus returns pending user', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'user@example.com',
         accessTier: 'pending',
@@ -105,7 +105,7 @@ describe('LoginPage', () => {
       render(() => <LoginPage />);
 
       await waitFor(() => {
-        expect(mockLocation.href).toBe('/pending');
+        expect(mockLocation.href).toBe('/app/subscribe');
       });
     });
 

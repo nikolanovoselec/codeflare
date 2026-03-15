@@ -41,7 +41,7 @@ export async function requireIdentity(c: Context<{ Bindings: Env; Variables: Aut
  *
  * In SaaS mode:
  *   - standard / advanced / undefined tier → pass through
- *   - pending tier + HTML request → redirect to /pending
+ *   - pending tier + HTML request → redirect to /app/subscribe
  *   - pending tier + API request  → 403 { code: 'PENDING' }
  *   - blocked tier                → 403 { code: 'BLOCKED' }
  *

@@ -27,6 +27,8 @@ export const AuthStatusResponseSchema = z.object({
   email: z.string(),
   accessTier: AccessTierSchema,
   role: z.enum(['admin', 'user']),
+  turnstileSiteKey: z.string().nullable().optional(),
+  requestedAt: z.string().nullable().optional(),
 });
 
 export const AuthProvidersResponseSchema = z.object({

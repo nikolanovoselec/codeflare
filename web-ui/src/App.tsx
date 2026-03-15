@@ -13,7 +13,7 @@ import './styles/app.css';
 // Lazy-load the onboarding landing page (only needed when onboarding mode is active)
 const OnboardingLanding = lazy(() => import('./components/OnboardingLanding'));
 const LoginPage = lazy(() => import('./components/LoginPage'));
-const GatePage = lazy(() => import('./components/GatePage'));
+const SubscribePage = lazy(() => import('./components/SubscribePage'));
 const UserManagement = lazy(() => import('./components/admin/UserManagement'));
 
 // Check setup status from API.
@@ -52,7 +52,7 @@ const AppContent: Component = () => {
           const parsed = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
           const code = parsed && typeof parsed === 'object' && 'code' in parsed ? (parsed as { code: string }).code : null;
           if (code === 'PENDING' || code === 'BLOCKED') {
-            window.location.href = '/pending';
+            window.location.href = '/app/subscribe';
             return;
           }
         } catch {
@@ -201,7 +201,7 @@ const App: Component = () => {
       <Route path="/setup" component={SetupWizard} />
       <Route path="/" component={RootPage} />
       <Route path="/login" component={LoginPage} />
-      <Route path="/pending" component={GatePage} />
+      <Route path="/app/subscribe" component={SubscribePage} />
       <Route path="/admin/users" component={() => (
         <SetupGuard>
           <UserManagement onBack={() => { window.location.href = '/app/'; }} />
