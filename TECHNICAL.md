@@ -668,7 +668,9 @@ Tiers are stored in the KV record at `user:{email}` in the `accessTier` field. E
 
 **Login Flow:** Login buttons link directly to `/app/`. CF Access intercepts unauthenticated requests. With `auto_redirect_to_identity: true` and a single allowed IdP (e.g., GitHub), CF Access skips its login page and redirects directly to the IdP. After authentication, the user lands on `/app/` with a valid `CF_Authorization` cookie.
 
-**IdP Filtering:** The `/public/auth/providers` endpoint filters the full IdP list stored in KV (`setup:idp_list`). In SaaS mode, only GitHub is returned (plus any custom providers from `SAAS_EXTRA_IDPS`). In non-SaaS mode, all social providers are shown. This endpoint bypasses CF Access (served outside `/api/*`).
+**IdP Limitation:** CF Access only supports a single IdP with `auto_redirect_to_identity`. Using multiple IdPs requires showing the CF Access login page (which breaks the branded experience). To support multiple social logins (Google, GitHub, etc.) and custom OIDC providers, auth would need to be implemented directly in the Worker, bypassing CF Access entirely. This is planned for the future but not currently implemented.
+
+**IdP Filtering:** The `/public/auth/providers` endpoint filters the full IdP list stored in KV (`setup:idp_list`). In SaaS mode, only GitHub is returned. The `SAAS_EXTRA_IDPS` env var exists for future multi-IdP support but requires the custom Worker auth implementation described above. This endpoint bypasses CF Access (served outside `/api/*`).
 
 **Access Application Config:** In SaaS mode, the setup wizard configures the Access app with:
 - `allowed_idps`: restricted to GitHub only (controls which IdP is available for authentication)
@@ -723,7 +725,7 @@ This avoids requiring a client-side env variable — the frontend discovers the 
 
 Both are set as GitHub Actions repository variables. Passed to the worker at deploy time via `--var` in `deploy.yml`. Prerequisites: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets (required for any deploy).
 
-**`SAAS_EXTRA_IDPS` usage:** In SaaS mode, only GitHub is shown by default. If you have additional OIDC/SAML providers configured in Cloudflare Zero Trust (e.g., Authentik, Okta), add their UUIDs to this variable so they also appear on the login page. Find provider UUIDs in the Zero Trust dashboard under `Settings` > `Authentication` > `Login methods`.
+**`SAAS_EXTRA_IDPS` usage:** Reserved for future multi-IdP support. Currently unused because CF Access only supports a single IdP with instant authentication. Supporting multiple social logins (Google, GitHub, Facebook, LinkedIn) and custom OIDC/SAML providers (Authentik, Okta) is planned — requires implementing auth directly in the Worker to bypass CF Access.
 
 ---
 
