@@ -29,6 +29,7 @@ export const AuthStatusResponseSchema = z.object({
   role: z.enum(['admin', 'user']),
   turnstileSiteKey: z.string().nullable().optional(),
   requestedAt: z.string().nullable().optional(),
+  onboardingComplete: z.boolean().optional(),
 });
 
 export const AuthProvidersResponseSchema = z.object({

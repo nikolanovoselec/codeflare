@@ -366,6 +366,12 @@ export async function requestAccess(turnstileToken: string): Promise<{ success: 
   }, z.object({ success: z.boolean() }));
 }
 
+export async function markOnboardingComplete(): Promise<{ success: boolean }> {
+  return fetchApi('/auth/onboarding-complete', {
+    method: 'POST',
+  }, z.object({ success: z.boolean() }));
+}
+
 const UpdateUserTierResponseSchema = z.object({
   success: z.boolean(),
   email: z.string(),

@@ -62,7 +62,8 @@ const SubscribePage: Component = () => {
 
       if (result.accessTier === 'standard' || result.accessTier === 'advanced') {
         if (pollInterval) clearInterval(pollInterval);
-        window.location.href = '/app/';
+        // Redirect to guided setup if onboarding hasn't been completed yet
+        window.location.href = result.onboardingComplete ? '/app/' : '/app/onboarding';
         return;
       }
 
@@ -295,7 +296,11 @@ const SubscribePage: Component = () => {
             <div class="login-error">{error()}</div>
           </Show>
 
-          <a href="/auth/logout" class="subscribe-logout-button">Log out</a>
+          <a
+            href="/cdn-cgi/access/logout"
+            class="subscribe-logout-button"
+            onClick={(e) => { e.preventDefault(); window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
+          >Log out</a>
         </Show>
 
         <p class="login-footer">Powered by Cloudflare Workers</p>

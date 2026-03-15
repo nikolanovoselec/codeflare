@@ -113,6 +113,7 @@ export interface AuthStatus {
   role: 'admin' | 'user';
   turnstileSiteKey?: string | null;
   requestedAt?: string | null;
+  onboardingComplete?: boolean;
 }
 
 export interface AuthProvider {

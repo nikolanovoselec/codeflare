@@ -24,16 +24,21 @@ app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
   const accessTier = user.accessTier || 'advanced';
 
+  // Read user data from KV for additional fields
+  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+
   // Include turnstile site key and requestedAt for pending users
   let turnstileSiteKey: string | null = null;
   let requestedAt: string | null = null;
   if (accessTier === 'pending') {
     turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
-    const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
     if (userData && typeof userData.requestedAt === 'string') {
       requestedAt = userData.requestedAt;
     }
   }
+
+  // Include onboardingComplete flag for active users
+  const onboardingComplete = userData && userData.onboardingComplete === true;
 
   return c.json({
     email: user.email,
@@ -41,6 +46,7 @@ app.get('/status', requireIdentity, async (c) => {
     role: user.role || 'user',
     turnstileSiteKey,
     requestedAt,
+    onboardingComplete,
   });
 });
 
@@ -178,6 +184,21 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
   }
 
   logger.info('Access request submitted', { email: user.email });
+  return c.json({ success: true });
+});
+
+// POST /api/auth/onboarding-complete — mark guided setup as completed for this user
+app.post('/onboarding-complete', requireIdentity, async (c) => {
+  const user = c.get('user');
+  const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  if (!existingRaw) {
+    throw new ValidationError('User record not found');
+  }
+
+  const updated = { ...existingRaw, onboardingComplete: true };
+  await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
+
+  logger.info('Onboarding marked complete', { email: user.email });
   return c.json({ success: true });
 });
 

@@ -1,5 +1,5 @@
 import { Component, onMount, createSignal, Show, For, type JSX } from 'solid-js';
-import { getDeployKeys, updateDeployKeys } from '../api/client';
+import { getDeployKeys, updateDeployKeys, markOnboardingComplete } from '../api/client';
 import type { DeployKeysResponse } from '../api/client';
 import ProviderRow from './settings/ProviderRow';
 import { GitHubIcon, CloudflareIcon } from './settings/BrandIcons';
@@ -252,7 +252,7 @@ const OnboardingPage: Component = () => {
           href="/app/"
           class="onboarding-skip-btn"
           data-testid="onboarding-skip"
-          onClick={(e) => { e.preventDefault(); window.location.href = '/app/'; }}
+          onClick={(e) => { e.preventDefault(); void markOnboardingComplete().catch(() => {}); window.location.href = '/app/'; }}
         >
           Skip and continue to Codeflare
           <Icon path={mdiArrowRight} size={16} />
@@ -370,7 +370,7 @@ const OnboardingPage: Component = () => {
           href="/app/"
           class="onboarding-continue-btn"
           data-testid="onboarding-continue"
-          onClick={(e) => { e.preventDefault(); window.location.href = '/app/'; }}
+          onClick={(e) => { e.preventDefault(); void markOnboardingComplete().catch(() => {}); window.location.href = '/app/'; }}
         >
           Continue to Codeflare
           <Icon path={mdiArrowRight} size={16} />

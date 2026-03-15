@@ -273,7 +273,7 @@ const Header: Component<HeaderProps> = (props) => {
                 type="button"
                 class="header-user-dropdown-item header-user-dropdown-item--danger"
                 data-testid="header-user-dropdown-logout"
-                onClick={() => { setShowUserMenu(false); window.location.href = '/auth/logout'; }}
+                onClick={() => { setShowUserMenu(false); window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
               >
                 <Icon path={mdiLogout} size={16} />
                 <span>Logout</span>
