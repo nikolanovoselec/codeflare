@@ -38,6 +38,16 @@ It's strongly optimized for mobile - because the best ideas hit while rewatching
 ![Onboarding](docs/images/onboarding.png)
 *Join the waitlist, get approved, log in. No account creation, no password - Cloudflare Access handles it.*
 
+## From idea to live in minutes
+
+Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it.
+
+- **Native GitHub integration** - connect your GitHub account once. Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no token juggling, no manual auth per session.
+- **Native Cloudflare integration** - connect your Cloudflare account once. Deploy Workers, manage D1 databases, R2 storage, KV namespaces, and DNS - all from the terminal, already authenticated.
+- **Specialized skills for build, push, and deploy** - pre-loaded agent skills know how to create Cloudflare Workers projects, configure `wrangler.toml`, push to GitHub, set up CI workflows, and deploy to production. Tell the agent what you want. It builds, pushes, and deploys.
+- **Guided onboarding** - new users get walked through connecting GitHub, Cloudflare, and choosing a coding agent. No prior Cloudflare knowledge required.
+- **Go from idea to live on Cloudflare in minutes** - describe what you want, the agent builds it, pushes to GitHub, deploys to Cloudflare Workers. You get a live URL. The whole loop happens in one terminal session on your phone.
+
 ## What you get
 
 ![Dashboard](docs/images/dashboard.png)
@@ -73,7 +83,7 @@ flowchart LR
     zero cost"]
 ```
 
-Containers scale to zero when idle (no sessions = no bill). Storage persists. Auth is handled by Cloudflare Access - no custom login pages, no token management, no OAuth dance.
+Containers scale to zero when idle (no sessions = no bill). Storage persists. Auth is handled by Cloudflare Access with a branded login page - one-click GitHub OAuth, automatic user provisioning, and admin approval workflow.
 
 ## Setup
 
