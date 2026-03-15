@@ -142,6 +142,7 @@ const LoginPage: Component = () => {
                   href="/app/"
                   class="login-provider-button"
                   data-provider={provider.type}
+                  onClick={(e) => { e.preventDefault(); window.location.href = '/app/'; }}
                 >
                   <span class="login-provider-icon">
                     {getProviderIcon(provider)}
