@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
+import { createMockKV } from '../helpers/mock-kv';
 
 // Mock auth middleware to set user/bucketName without real Access JWT verification
 vi.mock('../../middleware/auth', () => ({
@@ -26,6 +27,7 @@ describe('GET /api/user', () => {
 
     app.use('*', async (c, next) => {
       c.env = {
+        KV: createMockKV() as unknown as KVNamespace,
         CLOUDFLARE_WORKER_NAME: 'codeflare',
         ONBOARDING_LANDING_PAGE: 'inactive',
         ...envOverrides,
