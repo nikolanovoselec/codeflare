@@ -37,6 +37,12 @@ const SubscribePage: Component = () => {
         setSubmitted(true);
       }
 
+      // Load turnstile for pending users with site key (only once)
+      if (result.accessTier === 'pending' && !result.requestedAt && result.turnstileSiteKey && !turnstileReady()) {
+        loadTurnstileScript();
+        startTurnstileCheck();
+      }
+
       // Auto-redirect active users
       if (result.accessTier === 'standard' || result.accessTier === 'advanced') {
         if (pollInterval) clearInterval(pollInterval);
@@ -215,10 +221,6 @@ const SubscribePage: Component = () => {
                   data-sitekey={status()!.turnstileSiteKey!}
                   data-theme="dark"
                   data-size="flexible"
-                  ref={() => {
-                    loadTurnstileScript();
-                    startTurnstileCheck();
-                  }}
                 />
               </div>
 
