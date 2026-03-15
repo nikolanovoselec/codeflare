@@ -1327,7 +1327,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
-**Count:** 68 test files, ~996 tests.
+**Count:** 82 test files.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -1335,7 +1335,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 71 test files, ~1,324 tests.
+**Count:** 76 test files.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
@@ -2105,7 +2105,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 | Content | Default | Advanced |
 |---------|---------|----------|
 | Memory plugin & rule | No | Yes |
-| CI monitoring, environment, no-local-builds rules | Yes | Yes |
+| CI monitoring, environment, no-local-builds, deploy-credentials rules | Yes | Yes |
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes |
 | `block-attributed-commits` hook (CC only) | No | Yes |
@@ -2119,7 +2119,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 
 **Manifest**: `preseed/agents/claude/manifest.json` — object-per-entry with `{ "modes": ["default", "advanced"] }` tags. The generator (`scripts/generate-agent-seed.mjs`) reads the manifest and produces adapted versions for all 6 supported agents.
 
-**Multi-agent generation**: The generator produces 123 seed documents from CC's preseed as the single source of truth. For each non-CC agent (Codex, Gemini CLI, Copilot, OpenCode), it: (1) concatenates applicable rules into a single instructions file per mode, (2) adapts skills with tool name remapping, (3) adapts agent definitions with tool name remapping and `model` field removal. Instructions files are variant-per-mode (same R2 key, different content for default vs advanced). See [Multi-Agent Preseed](#multi-agent-preseed) section below.
+**Multi-agent generation**: The generator produces 124 seed documents from CC's preseed as the single source of truth. For each non-CC agent (Codex, Gemini CLI, Copilot, OpenCode), it: (1) concatenates applicable rules into a single instructions file per mode, (2) adapts skills with tool name remapping, (3) adapts agent definitions with tool name remapping and `model` field removal. Instructions files are variant-per-mode (same R2 key, different content for default vs advanced). See [Multi-Agent Preseed](#multi-agent-preseed) section below.
 
 **Resolver**: `resolveSessionMode(prefs)` in `src/lib/session-mode.ts` — single source of truth for the `?? 'default'` fallback.
 
@@ -2139,7 +2139,7 @@ ECC-derived rules, agents, commands, and skills are preseeded directly to the ag
 
 **Skills (13 files, 11 unique skills)**: `cloudflare-stack`, `ship` (+ 2 reference files), `consult-llm`, `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`. Preseeded to `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for agents that support skills). `consult-llm` is CC-only (depends on MCP tool).
 
-**Rules (27 files, 3 default + 24 advanced-only)**: Core environment rules (`ci-monitoring`, `cloudflare-environment`, `no-local-builds`) in both modes. `memory` rule is advanced-only (depends on MCP memory server). ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs (3 + 5*4 = 23 files, advanced only). Common rules cover security, coding style, and git workflow. Language-specific rules provide conventions for TypeScript, Python, Go, and Swift.
+**Rules (28 files, 4 in both modes + 24 advanced-only)**: Core environment rules (`ci-monitoring`, `cloudflare-environment`, `no-local-builds`, `deploy-credentials`) in both modes. `memory` rule is advanced-only (depends on MCP memory server). ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs (3 + 5*4 = 23 files, advanced only). Common rules cover security, coding style, and git workflow. Language-specific rules provide conventions for TypeScript, Python, Go, and Swift.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds the official Anthropic plugin marketplace URL for user discovery.
 
@@ -2151,13 +2151,13 @@ All preseed content is deployed via the manifest pipeline:
 
 1. Source files in `preseed/agents/claude/` organized by type: `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
 2. `preseed/agents/claude/manifest.json` maps each file to modes (`default`, `advanced`, or both)
-3. `scripts/generate-agent-seed.mjs` reads manifest + files (manifest-driven, ignores non-manifest files like `plugins/cache/`), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array (123 documents across all agents)
+3. `scripts/generate-agent-seed.mjs` reads manifest + files (manifest-driven, ignores non-manifest files like `plugins/cache/`), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array (124 documents across all agents)
 4. On first bucket creation: `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
-**Manifest structure (58 CC source entries)**:
-- `rules/` (27): core (3 default+advanced + 1 advanced-only: memory), common (3), typescript (5), python (5), golang (5), swift (5)
+**Manifest structure (59 total entries)**:
+- `rules/` (28): core (4 default+advanced: ci-monitoring, cloudflare-environment, no-local-builds, deploy-credentials; + 1 advanced-only: memory), common (3), typescript (5), python (5), golang (5), swift (5)
 - `agents/` (7): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, plan, review (advanced only)
 - `skills/` (13): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first
