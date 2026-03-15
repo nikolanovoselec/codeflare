@@ -65,7 +65,7 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 - Set your API key once. It syncs across sessions forever. (It's rclone, but magic sounds better.)
 - Push & Deploy - connect your GitHub and Cloudflare accounts once in Settings. Every session gets automatic auth. No more pasting tokens into terminals like it's 2019.
 - Dashboard for managing sessions, browsing files, and inviting users (or revoking them when they get too creative). Live CPU/memory/disk metrics per session. Three-color status: green (active), yellow (idle but alive), gray (stopped).
-- Scales to zero when idle. You pay for what you use. Nothing when you don't.
+- CPU cost scales to zero when idle. You pay for what you use. Nothing when you don't.
 
 ## Architecture
 
