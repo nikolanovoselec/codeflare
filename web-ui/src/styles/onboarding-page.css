@@ -2,10 +2,14 @@
    Onboarding Page — extends login-page.css with guided setup sections
    ========================================================================== */
 
-/* Override login-page's overflow:hidden so the taller onboarding page scrolls */
-.login-page:has(.onboarding-content) {
+/* Override login-page's overflow:hidden so the taller onboarding page scrolls.
+   Uses explicit modifier class instead of :has() for reliable cross-browser support. */
+.login-page.login-page--scrollable {
   overflow-y: auto;
+  overflow-x: hidden;
   align-items: flex-start;
+  padding-top: 2rem;
+  padding-bottom: 2rem;
 }
 
 .onboarding-content {

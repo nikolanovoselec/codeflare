@@ -249,9 +249,9 @@ function connect() {
 
 **Logout:** Always redirects to `/auth/logout` (backend route in `auth-redirects.ts`). The backend redirects to `https://{authDomain}/cdn-cgi/access/logout?returnTo=https://{customDomain}/`, ensuring the user lands back on the login page instead of the Cloudflare team URL.
 
-**Header User Dropdown:** Clicking the avatar/username in both Header (terminal view) and Dashboard opens a dropdown with three items: Profile (`/app/subscribe`), Guided Setup (`/app/onboarding`), and Logout (`/auth/logout`). Click-outside-to-close pattern reused from bookmarks dropdown.
+**Header User Dropdown:** Clicking the avatar/username in both Header (terminal view) and Dashboard opens a dropdown with three items: Profile (`/app/subscribe`), Guided Setup (`/app/onboarding`), and Logout. Click-outside-to-close pattern reused from bookmarks dropdown. Dashboard dropdown uses `Portal` to escape the panel's `backdrop-filter` stacking context, rendering as a full-width bottom sheet with overlay on mobile. Menu items navigate via `window.location.href` (full page reload) without closing the menu first — closing before navigation caused touch events on mobile to be swallowed before the redirect could fire.
 
-**Onboarding Page (`/app/onboarding`):** Guided setup page for new users. Three sections: (1) Connect GitHub — saves PAT via `updateDeployKeys`, (2) Connect Cloudflare — saves API token, (3) Coding Agents — informational cards linking to signup pages for Claude Code, Codex, Gemini, GitHub Copilot, and OpenCode. Reuses `ProviderRow` and `BrandIcons` from settings. "Skip and Continue to Codeflare" button always visible.
+**Onboarding Page (`/app/onboarding`):** Guided setup page for new users. Three sections: (1) Connect GitHub — saves PAT via `updateDeployKeys`, (2) Connect Cloudflare — saves API token, (3) Coding Agents — informational cards linking to signup pages for 5 supported agents. Reuses `ProviderRow` and `BrandIcons` from settings. "Skip and Continue to Codeflare" button always visible. Uses `login-page--scrollable` modifier class to override `overflow: hidden` on the shared `login-page` container (needed because the page is much taller than login/subscribe).
 
 **Admin Protection:** Admin users always have `advanced` access tier. Backend rejects both tier changes (`PATCH /api/users/:email`) and deletions (`DELETE /api/users/:email`) for admin-role users. Frontend hides tier dropdown and delete button for admins in UserManagement.
 
@@ -307,7 +307,7 @@ flowchart TD
 
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
 
-**Stale user removal during reconfiguration:** When `POST /configure` is re-run with a new `allowedUsers` list, users no longer in the list are removed via `cleanupUserData()` (`src/lib/user-cleanup.ts`), wrapped in `runStep('cleanup_stale_users')` for progress visibility. This performs full cleanup identical to `DELETE /api/users/:email`: destroys all active sessions/containers, deletes bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), deletes the R2 scoped token, empties the R2 bucket (paginated `ListObjectsV2` + `DeleteObjects` via `emptyR2Bucket`), and deletes the bucket via CF API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency).
+**Stale user removal during reconfiguration:** When `POST /configure` is re-run with a new `allowedUsers` list, users no longer in the list are removed via `cleanupUserData()` (`src/lib/user-cleanup.ts`), wrapped in `runStep('cleanup_stale_users')` for progress visibility. This performs full cleanup identical to `DELETE /api/users/:email`: destroys all active sessions/containers, deletes bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), deletes the R2 scoped token, empties the R2 bucket (paginated `ListObjectsV2` + `DeleteObjects` via `emptyR2Bucket`), and deletes the bucket via CF API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency). **Skipped in SaaS mode** because `allowedUsers` only contains admin emails — JIT-provisioned users are managed via User Management, not setup. Admin KV writes in SaaS mode merge with existing entries (preserving `accessTier` and other fields) and always set `accessTier: 'advanced'`.
 
 ### Session Route Architecture
 
@@ -597,7 +597,7 @@ One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/set
 
 ### Access Group Model
 
-Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()`. `GET /api/setup/prefill` reads existing membership for redeploy prefill. Admin-only deployments (0 regular users) are supported: the users group is skipped entirely and the Access policy references only the admin group.
+Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()`. `GET /api/setup/prefill` reads existing membership for redeploy prefill (skipped in SaaS mode — returns empty arrays, admin enters everything manually). Admin-only deployments (0 regular users) are supported: the users group is skipped entirely and the Access policy references only the admin group.
 
 ### Root Redirect
 
@@ -1584,7 +1584,7 @@ Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `de
 
 `DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), deletes the scoped R2 token, empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency when objects were deleted).
 
-If worker-level R2 credentials are not configured (e.g., setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. During reconfiguration, stale user cleanup is wrapped in a `runStep('cleanup_stale_users')` call for NDJSON progress visibility in the setup wizard frontend.
+If worker-level R2 credentials are not configured (e.g., setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. During reconfiguration, stale user cleanup is wrapped in a `runStep('cleanup_stale_users')` call for NDJSON progress visibility in the setup wizard frontend. **SaaS mode exception:** stale user cleanup is skipped entirely during reconfiguration because `allowedUsers` only contains admin emails — JIT-provisioned users would be incorrectly flagged as stale and deleted. JIT users are managed exclusively through the User Management page.
 
 ### Chrome in CI (Ubuntu 22.04)
 

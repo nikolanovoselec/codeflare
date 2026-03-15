@@ -255,7 +255,7 @@ const Header: Component<HeaderProps> = (props) => {
                 href="/app/subscribe"
                 class="header-user-dropdown-item"
                 data-testid="header-user-dropdown-profile"
-                onClick={(e) => { e.preventDefault(); setShowUserMenu(false); window.location.href = '/app/subscribe'; }}
+                onClick={(e) => { e.preventDefault(); window.location.href = '/app/subscribe'; }}
               >
                 <Icon path={mdiAccountOutline} size={16} />
                 <span>Profile</span>
@@ -264,7 +264,7 @@ const Header: Component<HeaderProps> = (props) => {
                 href="/app/onboarding"
                 class="header-user-dropdown-item"
                 data-testid="header-user-dropdown-onboarding"
-                onClick={(e) => { e.preventDefault(); setShowUserMenu(false); window.location.href = '/app/onboarding'; }}
+                onClick={(e) => { e.preventDefault(); window.location.href = '/app/onboarding'; }}
               >
                 <Icon path={mdiRocketLaunchOutline} size={16} />
                 <span>Guided Setup</span>
@@ -273,7 +273,7 @@ const Header: Component<HeaderProps> = (props) => {
                 type="button"
                 class="header-user-dropdown-item header-user-dropdown-item--danger"
                 data-testid="header-user-dropdown-logout"
-                onClick={() => { setShowUserMenu(false); window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
+                onClick={() => { window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
               >
                 <Icon path={mdiLogout} size={16} />
                 <span>Logout</span>
