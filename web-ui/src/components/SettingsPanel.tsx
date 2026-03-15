@@ -665,6 +665,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <Icon path={mdiCogOutline} size={16} />
                   <h3 class="settings-section-title">Setup & Users</h3>
                 </div>
+                <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+                  Configure custom domain and admin users in the Setup Wizard.
+                  Manage user roles and access tiers in User Management.
+                </p>
                 <div class="settings-admin-actions">
                   <button
                     type="button"
@@ -686,7 +690,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   </button>
                 </div>
                 <span class="settings-hint" data-testid="settings-r2-warning">
-                  Changing your Cloudflare API token requires re-running setup.
+                  If you rotate your Cloudflare API token, redeploy with the new token and re-run the Setup Wizard.
                 </span>
               </section>
             </AccordionSection>
