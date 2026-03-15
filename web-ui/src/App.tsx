@@ -1,4 +1,5 @@
 import { Component, onMount, onCleanup, createSignal, Show, lazy, type JSX } from 'solid-js';
+import type { AccessTier } from './types';
 import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
@@ -33,6 +34,7 @@ async function checkSetupStatus(): Promise<boolean | null> {
 const AppContent: Component = () => {
   const [userName, setUserName] = createSignal<string | undefined>();
   const [userRole, setUserRole] = createSignal<'admin' | 'user' | undefined>();
+  const [userAccessTier, setUserAccessTier] = createSignal<AccessTier | undefined>();
   const [onboardingActive, setOnboardingActive] = createSignal<boolean | undefined>();
   const [loading, setLoading] = createSignal(true);
   const [authError, setAuthError] = createSignal<string | null>(null);
@@ -42,6 +44,7 @@ const AppContent: Component = () => {
       const user = await getUser();
       setUserName(user.email);
       setUserRole(user.role);
+      setUserAccessTier(user.accessTier);
       setOnboardingActive(user.onboardingActive);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
     } catch (err) {
@@ -95,7 +98,7 @@ const AppContent: Component = () => {
           </div>
         }
       >
-        <Layout userName={userName()} userRole={userRole()} onboardingActive={onboardingActive()} />
+        <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} onboardingActive={onboardingActive()} />
       </Show>
     </Show>
   );

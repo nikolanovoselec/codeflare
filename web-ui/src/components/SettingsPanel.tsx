@@ -28,6 +28,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   currentUserEmail?: string;
   currentUserRole?: 'admin' | 'user';
+  currentUserAccessTier?: import('../types').AccessTier;
 }
 
 type AccordionGroup = 'appearance' | 'session' | 'deploy' | 'llm' | 'admin';
@@ -135,6 +136,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const isAdmin = () => props.currentUserRole === 'admin';
+  const canUseAdvanced = () => {
+    const tier = props.currentUserAccessTier;
+    // advanced tier or no tier set (backward compat: non-SaaS defaults to full access)
+    return !tier || tier === 'advanced';
+  };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled !== false;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
@@ -451,7 +457,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   Default
                 </label>
                 <label
-                  class={`session-mode-option ${currentSessionMode() === 'advanced' ? 'session-mode-option--selected' : ''}`}
+                  class={`session-mode-option ${currentSessionMode() === 'advanced' ? 'session-mode-option--selected' : ''} ${!canUseAdvanced() ? 'session-mode-option--disabled' : ''}`}
                 >
                   <input
                     type="radio"
@@ -459,6 +465,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     value="advanced"
                     checked={currentSessionMode() === 'advanced'}
                     onChange={() => handleSessionModeChange('advanced')}
+                    disabled={!canUseAdvanced()}
                     role="radio"
                     aria-checked={currentSessionMode() === 'advanced'}
                     data-testid="session-mode-advanced"

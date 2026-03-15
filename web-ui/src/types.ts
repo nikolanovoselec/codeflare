@@ -128,6 +128,7 @@ export interface UserInfo {
   bucketName: string;
   workerName?: string;
   role?: 'admin' | 'user';
+  accessTier?: AccessTier;
   onboardingActive?: boolean;
   saasMode?: boolean;
 }

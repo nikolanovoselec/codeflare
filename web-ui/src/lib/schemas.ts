@@ -83,6 +83,7 @@ export const UserResponseSchema = z.object({
   bucketName: z.string(),
   workerName: z.string().optional(),
   role: z.enum(['admin', 'user']).optional(),
+  accessTier: AccessTierSchema.optional(),
   onboardingActive: z.boolean().optional(),
   saasMode: z.boolean().optional(),
 });

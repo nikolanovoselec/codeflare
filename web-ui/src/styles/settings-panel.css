@@ -535,6 +535,12 @@
   background: var(--color-bg-muted);
 }
 
+.session-mode-option--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* LLM Key Input */
 .llm-key-input {
   width: 100%;
