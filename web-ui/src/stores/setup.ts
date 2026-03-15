@@ -366,6 +366,9 @@ export const setupStore = {
   get accountId() {
     return state.accountId;
   },
+  get saasMode() {
+    return state.saasMode;
+  },
 
   // Actions
   detectToken,
