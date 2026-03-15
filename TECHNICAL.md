@@ -689,10 +689,10 @@ Tiers are stored in the KV record at `user:{email}` in the `accessTier` field. E
 
 **Login Page:** Branded page with animated logo (float + glow pulse), ScrambleText title animation (JetBrains Mono), floating particle layers, MDI icon feature highlights, and provider buttons. Served at `/` in SaaS mode. Login buttons use `window.location.href` for full page navigation (avoids SolidJS Router intercepting the click before CF Access can redirect).
 
-**Subscribe Page (`/app/subscribe`):** Replaces the old `/pending` gate page. Shows tier-based content:
+**Subscribe Page (`/app/subscribe`):** Profile/subscription page accessible via the header user dropdown ("Profile"). Shows tier-based content:
 - **Pending (no request):** Turnstile CAPTCHA + "Request Access" button. Site key delivered via `/api/auth/status`.
-- **Pending (requested):** "Pending Approval" with 10s polling, auto-redirect on approval.
-- **Active:** Green status + link to dashboard.
+- **Pending (requested):** "Pending Approval" with 10s polling. When approved, shows active status (no auto-redirect).
+- **Active (standard/advanced):** Green checkmark, "Your Access is Active" message, and "Continue" button linking to `/app/`. Active users are never auto-redirected — they can always view their status. This page will become the subscription management page (Stripe integration) in a future release.
 - **Blocked:** Red message + logout. Uses `MutationObserver` to detect Turnstile token (no timer-based polling).
 
 ### User Lifecycle
