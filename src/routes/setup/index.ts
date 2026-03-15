@@ -164,14 +164,21 @@ app.post('/configure', async (c) => {
         }
       }
 
-      // Store users in KV with role
+      // Store users in KV with role.
+      // In SaaS mode, preserve existing fields (e.g. accessTier) for admin users
+      // that may already exist from JIT provisioning.
       const adminSet = new Set(normalizedAdmins);
-      const userWrites = normalizedAllowed.map(email => {
+      const isSaas = isSaasModeActive(c.env.SAAS_MODE);
+      const userWrites = normalizedAllowed.map(async (email) => {
         const role = adminSet.has(email) ? 'admin' : 'user';
-        return c.env.KV.put(
-          `user:${email}`,
-          JSON.stringify({ addedBy: 'setup', addedAt: new Date().toISOString(), role })
-        );
+        const base = { addedBy: 'setup', addedAt: new Date().toISOString(), role };
+        if (isSaas) {
+          // Merge with existing KV entry to preserve accessTier and other fields
+          const existing = await c.env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
+          const merged = { ...existing, ...base, accessTier: 'advanced' };
+          return c.env.KV.put(`user:${email}`, JSON.stringify(merged));
+        }
+        return c.env.KV.put(`user:${email}`, JSON.stringify(base));
       });
       await Promise.all(userWrites);
 
