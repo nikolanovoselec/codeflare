@@ -599,7 +599,7 @@ One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/set
 
 ### Access Group Model
 
-Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()`. `GET /api/setup/prefill` reads existing membership for redeploy prefill (skipped in SaaS mode — returns empty arrays, admin enters everything manually). Admin-only deployments (0 regular users) are supported: the users group is skipped entirely and the Access policy references only the admin group.
+Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()` after user mutations — **skipped in SaaS mode** because the Access policy uses `login_method` includes (set by setup); syncing would overwrite them with email/group includes, breaking the policy. `GET /api/setup/prefill` reads existing membership for redeploy prefill (skipped in SaaS mode — returns empty arrays, admin enters everything manually). Admin-only deployments (0 regular users) are supported: the users group is skipped entirely and the Access policy references only the admin group.
 
 ### Root Redirect
 

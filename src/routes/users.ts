@@ -18,6 +18,10 @@ const logger = createLogger('users');
  * Non-fatal: logs errors but does not throw.
  */
 async function trySyncAccessPolicy(env: Env): Promise<void> {
+  // SaaS mode: Access policy uses login_method includes (any GitHub user).
+  // Syncing would overwrite it with email/group includes, breaking the policy.
+  if (isSaasModeActive(env.SAAS_MODE)) return;
+
   try {
     const accountId = await env.KV.get('setup:account_id');
     const domain = await env.KV.get('setup:custom_domain');
