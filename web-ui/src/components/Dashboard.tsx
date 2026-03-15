@@ -1,4 +1,4 @@
-import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect } from 'solid-js';
+import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
@@ -42,7 +42,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
-  let userMenuRef: HTMLDivElement | undefined;
   const [menuState, setMenuState] = createSignal<{ isOpen: boolean; position: { x: number; y: number }; session: SessionWithStatus | null }>({
     isOpen: false,
     position: { x: 0, y: 0 },
@@ -53,13 +52,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
     sessionStore.startR2Polling();
     storageStore.fetchStats();
 
-    const handleClickOutside = (e: MouseEvent) => {
-      if (showUserMenu() && userMenuRef && !userMenuRef.contains(e.target as Node)) {
-        setShowUserMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    onCleanup(() => document.removeEventListener('mousedown', handleClickOutside));
+    // User menu close is handled by the Portal overlay onClick — no document
+    // mousedown listener needed. Document mousedown fires before click on mobile,
+    // racing with button onClick and swallowing navigation events.
   });
 
   // Double requestAnimationFrame to ensure the browser has painted with --expanded
@@ -143,7 +138,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <Portal>
               <Show when={showUserMenu()}>
                 <div class="header-user-dropdown-overlay" data-testid="header-user-dropdown-overlay" onClick={() => setShowUserMenu(false)} />
-                <div class="header-user-dropdown header-user-dropdown--portal" data-testid="header-user-dropdown" ref={userMenuRef}>
+                <div class="header-user-dropdown header-user-dropdown--portal" data-testid="header-user-dropdown">
                   <button
                     type="button"
                     class="header-user-dropdown-item"
