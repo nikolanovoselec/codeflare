@@ -202,7 +202,9 @@ app.post('/configure', async (c) => {
           const merged = { ...existing, ...base, accessTier: 'advanced' };
           return c.env.KV.put(`user:${email}`, JSON.stringify(merged));
         }
-        return c.env.KV.put(`user:${email}`, JSON.stringify(base));
+        // In non-SaaS mode, explicitly set accessTier for admins
+        const entry = role === 'admin' ? { ...base, accessTier: 'advanced' } : base;
+        return c.env.KV.put(`user:${email}`, JSON.stringify(entry));
       });
       await Promise.all(userWrites);
 

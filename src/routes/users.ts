@@ -105,7 +105,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     addedAt: z.string().default(''),
     role: z.enum(['admin', 'user']).default('user'),
     accessTier: AccessTierSchema.optional(),
-  });
+  }).passthrough();
   const existing = kvUserSchema.parse(existingRaw);
 
   // Admin users always have advanced tier — prevent accidental lockout

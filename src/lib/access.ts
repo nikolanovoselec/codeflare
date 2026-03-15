@@ -317,12 +317,12 @@ export async function authenticateRequest(
     return { user: { ...rawUser, email: normalizedEmail, role, accessTier }, bucketName };
   }
 
-  // Non-SaaS mode: existing allowlist behavior (no accessTier)
+  // Non-SaaS mode: existing allowlist behavior
   const kvEntry = await resolveUserFromKV(env.KV, normalizedEmail);
   if (!kvEntry) {
     throw new ForbiddenError('User not in allowlist');
   }
-  const role = kvEntry.role;
+  const { role, accessTier } = kvEntry;
   const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
-  return { user: { ...rawUser, email: normalizedEmail, role }, bucketName };
+  return { user: { ...rawUser, email: normalizedEmail, role, accessTier }, bucketName };
 }
