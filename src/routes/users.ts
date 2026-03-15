@@ -10,6 +10,8 @@ import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
 import { isSaasModeActive } from '../lib/onboarding';
+import { getBucketName } from '../lib/access';
+import { getPreferencesKey } from '../lib/kv-keys';
 
 const logger = createLogger('users');
 
@@ -119,6 +121,17 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
 
   const updated = { ...existing, accessTier: parsed.data.accessTier };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
+
+  // Auto-set sessionMode to 'advanced' for newly promoted advanced users
+  // so their first session seeds advanced skills. Don't override existing choice.
+  if (parsed.data.accessTier === 'advanced') {
+    const bucketName = getBucketName(email, c.env.CLOUDFLARE_WORKER_NAME);
+    const prefsKey = getPreferencesKey(bucketName);
+    const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
+    if (!existingPrefs?.sessionMode) {
+      await c.env.KV.put(prefsKey, JSON.stringify({ ...existingPrefs, sessionMode: 'advanced' }));
+    }
+  }
 
   logger.info('User access tier updated', {
     email,

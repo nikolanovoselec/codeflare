@@ -521,6 +521,130 @@ describe('Users Routes', () => {
       expect(body.accessTier).toBe('standard');
     });
 
+    it('PATCH user to advanced tier auto-sets sessionMode preference', async () => {
+      const saasApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      saasApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          SAAS_MODE: 'active',
+          CLOUDFLARE_WORKER_NAME: 'codeflare',
+        } as unknown as Env;
+        return next();
+      });
+      saasApp.route('/users', usersRoutes);
+      saasApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      mockKV._set('user:newuser@example.com', {
+        addedBy: 'jit',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+        accessTier: 'pending',
+      });
+
+      const res = await saasApp.request('/users/newuser%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessTier: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      // Check that preferences were written with sessionMode: 'advanced'
+      const prefsKey = 'user-prefs:codeflare-newuser-example-com';
+      const prefs = mockKV._store.get(prefsKey);
+      expect(prefs).toBeDefined();
+      const parsed = typeof prefs === 'string' ? JSON.parse(prefs) : prefs;
+      expect(parsed.sessionMode).toBe('advanced');
+    });
+
+    it('PATCH user to advanced does not override existing sessionMode preference', async () => {
+      const saasApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      saasApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          SAAS_MODE: 'active',
+          CLOUDFLARE_WORKER_NAME: 'codeflare',
+        } as unknown as Env;
+        return next();
+      });
+      saasApp.route('/users', usersRoutes);
+      saasApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      mockKV._set('user:existing@example.com', {
+        addedBy: 'jit',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+        accessTier: 'standard',
+      });
+      // User already has preferences with default mode
+      mockKV._set('user-prefs:codeflare-existing-example-com', {
+        sessionMode: 'default',
+        lastAgentType: 'codex',
+      });
+
+      const res = await saasApp.request('/users/existing%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessTier: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      // Existing sessionMode should be preserved
+      const prefsKey = 'user-prefs:codeflare-existing-example-com';
+      const prefs = mockKV._store.get(prefsKey);
+      const parsed = typeof prefs === 'string' ? JSON.parse(prefs) : prefs;
+      expect(parsed.sessionMode).toBe('default');
+      expect(parsed.lastAgentType).toBe('codex');
+    });
+
+    it('PATCH user to standard tier does not write preferences', async () => {
+      const saasApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      saasApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          SAAS_MODE: 'active',
+          CLOUDFLARE_WORKER_NAME: 'codeflare',
+        } as unknown as Env;
+        return next();
+      });
+      saasApp.route('/users', usersRoutes);
+      saasApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      mockKV._set('user:stduser@example.com', {
+        addedBy: 'jit',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+        accessTier: 'pending',
+      });
+
+      await saasApp.request('/users/stduser%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessTier: 'standard' }),
+      });
+
+      // No preferences should be written
+      const prefsKey = 'user-prefs:codeflare-stduser-example-com';
+      expect(mockKV._store.get(prefsKey)).toBeUndefined();
+    });
+
     it('GET /users returns role field for each user', async () => {
       const mockUsers = [
         { email: 'admin@example.com', addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' as const },

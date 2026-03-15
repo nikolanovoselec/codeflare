@@ -3,7 +3,8 @@ import { z } from 'zod';
 import type { Env } from '../../types';
 import { ValidationError, toError } from '../../lib/error-types';
 import { resetSetupCache } from '../../lib/cache-reset';
-import { listAllKvKeys, emailFromKvKey } from '../../lib/kv-keys';
+import { listAllKvKeys, emailFromKvKey, getPreferencesKey } from '../../lib/kv-keys';
+import { getBucketName } from '../../lib/access';
 import { cleanupUserData } from '../../lib/user-cleanup';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { setupRateLimiter, logger, getWorkerNameFromHostname } from './shared';
@@ -207,6 +208,18 @@ app.post('/configure', async (c) => {
         return c.env.KV.put(`user:${email}`, JSON.stringify(entry));
       });
       await Promise.all(userWrites);
+
+      // Auto-set advanced session mode for admin users so their first
+      // session seeds advanced skills and agent rules.
+      const adminPrefsWrites = normalizedAdmins.map(async (email) => {
+        const bucketName = getBucketName(email, workerName);
+        const prefsKey = getPreferencesKey(bucketName);
+        const existingPrefs = await c.env.KV.get(prefsKey, 'json');
+        if (!existingPrefs) {
+          await c.env.KV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
+        }
+      });
+      await Promise.all(adminPrefsWrites);
 
       // Step 4 & 5: Custom domain + CF Access
       await runStep('configure_custom_domain', () =>
