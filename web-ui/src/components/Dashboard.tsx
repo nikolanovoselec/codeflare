@@ -122,7 +122,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
           </div>
           <div class="header-spacer" />
           <div class="header-actions">
-            <div class="header-user-wrapper" ref={userMenuRef}>
+            <div class="header-user-wrapper">
               <button
                 type="button"
                 class="header-user-menu"
@@ -137,8 +137,13 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   <span class="header-user-name">{props.userName}</span>
                 </Show>
               </button>
+            </div>
+            {/* Portal escapes dashboard-panel's backdrop-filter stacking context
+                so position:fixed bottom-sheet works on mobile */}
+            <Portal>
               <Show when={showUserMenu()}>
-                <div class="header-user-dropdown" data-testid="header-user-dropdown">
+                <div class="header-user-dropdown-overlay" data-testid="header-user-dropdown-overlay" onClick={() => setShowUserMenu(false)} />
+                <div class="header-user-dropdown header-user-dropdown--portal" data-testid="header-user-dropdown" ref={userMenuRef}>
                   <a
                     href="/app/subscribe"
                     class="header-user-dropdown-item"
@@ -168,7 +173,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   </button>
                 </div>
               </Show>
-            </div>
+            </Portal>
             <button type="button" class="header-settings-button" data-testid="dashboard-settings-button" title="Settings" onClick={() => props.onSettingsClick?.()}>
               <Icon path={mdiCogOutline} size={20} />
             </button>

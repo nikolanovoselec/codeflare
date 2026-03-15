@@ -17,7 +17,7 @@ const StorageBrowser: Component = () => {
   const [searchQuery, setSearchQuery] = createSignal('');
   const [selectionModeEnabled, setSelectionModeEnabled] = createSignal(false);
   const [showHiddenItems, setShowHiddenItems] = createSignal(false);
-  const workspaceSyncEnabled = createMemo(() => sessionStore.preferences.workspaceSyncEnabled !== false);
+  const workspaceSyncEnabled = createMemo(() => sessionStore.preferences.workspaceSyncEnabled === true);
 
   let searchInputRef: HTMLInputElement | undefined;
 

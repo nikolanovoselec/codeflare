@@ -374,6 +374,43 @@
           color: var(--color-error);
         }
 
+        /* Portal variant: used in Dashboard where backdrop-filter breaks position:fixed */
+        .header-user-dropdown--portal {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          top: auto;
+          min-width: auto;
+          border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+          z-index: 300;
+          padding: var(--space-3);
+          animation: header-user-dropdown-slide-up 200ms ease-out;
+        }
+
+        .header-user-dropdown--portal .header-user-dropdown-item {
+          padding: 14px 16px;
+          font-size: 16px;
+        }
+
+        .header-user-dropdown-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.4);
+          z-index: 299;
+        }
+
+        @keyframes header-user-dropdown-slide-up {
+          from {
+            opacity: 0;
+            transform: translateY(100%);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
         .header-user-avatar {
           flex-shrink: 0;
         }

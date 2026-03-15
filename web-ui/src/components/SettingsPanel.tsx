@@ -141,7 +141,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     // advanced tier or no tier set (backward compat: non-SaaS defaults to full access)
     return !tier || tier === 'advanced';
   };
-  const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled !== false;
+  const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
 

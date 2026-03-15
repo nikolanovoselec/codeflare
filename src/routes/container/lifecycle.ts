@@ -401,7 +401,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const shortContainerId = containerId.substring(0, CONTAINER_ID_DISPLAY_LENGTH);
     const preferencesKey = getPreferencesKey(bucketName);
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
-    const workspaceSyncEnabled = preferences.workspaceSyncEnabled !== false;
+    const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     const sessionMode = resolveSessionMode(preferences);
 
