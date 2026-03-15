@@ -2,7 +2,7 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-**Last Updated:** 2026-03-14
+**Last Updated:** 2026-03-15
 
 ---
 
@@ -640,7 +640,7 @@ When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial w
 SaaS mode uses a layered middleware stack on every request to protected routes:
 
 1. **`requireIdentity`** — Resolves the user from CF Access JWT. If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')` with email, role, and accessTier.
-2. **`requireActiveUser`** — Checks `accessTier` is `standard` or `advanced`. Returns 403 for `pending`/`blocked` users. API requests get JSON error; HTML requests get redirect to `/pending`.
+2. **`requireActiveUser`** — Checks `accessTier` is `standard` or `advanced`. Returns 403 for `pending`/`blocked` users. API requests get JSON error; the frontend redirects to `/app/subscribe`.
 3. **`requireAdmin`** — Checks `role === 'admin'`. Used for user management endpoints.
 
 When `SAAS_MODE` is not active, `requireActiveUser` (aliased as `authMiddleware`) behaves identically to the original middleware — no tier checking.
@@ -660,40 +660,48 @@ Tiers are stored in the KV record at `user:{email}` in the `accessTier` field. E
 
 | Route | Method | Auth | Purpose |
 |-------|--------|------|---------|
-| `/public/auth/providers` | GET | Public | Returns filtered IdP list (social types + `SAAS_EXTRA_IDPS` UUIDs) |
-| `/api/auth/status` | GET | Identity | Returns email, accessTier, role |
+| `/public/auth/providers` | GET | Public | Returns filtered IdP list (GitHub in SaaS mode + `SAAS_EXTRA_IDPS` UUIDs) |
+| `/api/auth/status` | GET | Identity | Returns email, accessTier, role, turnstileSiteKey, requestedAt |
+| `/api/auth/request-access` | POST | Identity | Turnstile-verified access request for pending users (3/hr rate limit) |
 | `/auth/login/:provider` | GET | Public | Redirects to `/app/` (CF Access handles auth) |
 | `/auth/logout` | GET | Public | Redirects to CF Access logout |
 
 **Login Flow:** Login buttons link directly to `/app/`. CF Access intercepts unauthenticated requests. With `auto_redirect_to_identity: true` and a single allowed IdP (e.g., GitHub), CF Access skips its login page and redirects directly to the IdP. After authentication, the user lands on `/app/` with a valid `CF_Authorization` cookie.
 
-**IdP Filtering:** The `/public/auth/providers` endpoint filters the full IdP list stored in KV (`setup:idp_list`) to only return social providers (`google`, `github`, `facebook`, `linkedin`) plus any custom OIDC providers whose UUIDs are listed in `SAAS_EXTRA_IDPS`. This endpoint bypasses CF Access (served outside `/api/*`).
+**IdP Filtering:** The `/public/auth/providers` endpoint filters the full IdP list stored in KV (`setup:idp_list`). In SaaS mode, only GitHub is returned (plus any custom providers from `SAAS_EXTRA_IDPS`). In non-SaaS mode, all social providers are shown. This endpoint bypasses CF Access (served outside `/api/*`).
 
 **Access Application Config:** In SaaS mode, the setup wizard configures the Access app with:
-- `allowed_idps`: restricted to social IdPs only (controls which IdPs appear on CF Access login page)
-- `auto_redirect_to_identity: true`: skips CF Access login page when only one IdP is allowed
+- `allowed_idps`: restricted to GitHub only (controls which IdP is available for authentication)
+- `auto_redirect_to_identity: true`: skips CF Access login page and redirects directly to GitHub
 - `skip_interstitial: true`: skips the "you are being redirected" page
 
 **Access Policy:** The policy uses group-based includes (admin + user groups) regardless of mode. This controls WHO is allowed, while `allowed_idps` controls HOW they authenticate. The Worker's three-tier middleware provides additional authorization via access tiers.
 
-**Login Page:** Branded page with animated logo (float + glow pulse), ScrambleText title animation (JetBrains Mono), floating particle layers, feature highlights, and provider buttons. Served at `/` in SaaS mode. No card container — elements float directly on the gradient background.
+**Login Page:** Branded page with animated logo (float + glow pulse), ScrambleText title animation (JetBrains Mono), floating particle layers, MDI icon feature highlights, and provider buttons. Served at `/` in SaaS mode. Login buttons use `window.location.href` for full page navigation (avoids SolidJS Router intercepting the click before CF Access can redirect).
+
+**Subscribe Page (`/app/subscribe`):** Replaces the old `/pending` gate page. Shows tier-based content:
+- **Pending (no request):** Turnstile CAPTCHA + "Request Access" button. Site key delivered via `/api/auth/status`.
+- **Pending (requested):** "Pending Approval" with 10s polling, auto-redirect on approval.
+- **Active:** Green status + link to dashboard.
+- **Blocked:** Red message + logout. Uses `MutationObserver` to detect Turnstile token (no timer-based polling).
 
 ### User Lifecycle
 
 ```mermaid
 flowchart TD
-    A[User visits /] --> B[Login page with IdP buttons]
-    B --> C[Click provider → CF Access login]
+    A[User visits /] --> B[Login page with GitHub button]
+    B --> C[Click → CF Access → GitHub OAuth]
     C --> D[CF Access redirects back with JWT]
     D --> E{User in KV?}
     E -->|no| F[Auto-provision with pending tier]
     E -->|yes| G[Load existing tier]
     F --> H{Tier check}
     G --> H
-    H -->|pending| I[Pending approval page — polls every 10s]
+    H -->|pending| I[/app/subscribe — Turnstile + Request Access]
+    I -->|Submit| I2[Pending approval — polls every 10s]
     H -->|standard/advanced| J[IDE access /app]
     H -->|blocked| K[Blocked message + logout]
-    I -->|Admin approves| J
+    I2 -->|Admin approves| J
 ```
 
 ### RootPage Mode Detection
@@ -715,7 +723,7 @@ This avoids requiring a client-side env variable — the frontend discovers the 
 
 Both are set as GitHub Actions repository variables. Passed to the worker at deploy time via `--var` in `deploy.yml`. Prerequisites: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets (required for any deploy).
 
-**`SAAS_EXTRA_IDPS` usage:** If you have custom OIDC/SAML providers configured in Cloudflare Zero Trust that are not social types (Google, GitHub, Facebook, LinkedIn), add their UUIDs to this variable so they appear on the login page. Find provider UUIDs in the Zero Trust dashboard under `Settings` > `Authentication` > `Login methods`.
+**`SAAS_EXTRA_IDPS` usage:** In SaaS mode, only GitHub is shown by default. If you have additional OIDC/SAML providers configured in Cloudflare Zero Trust (e.g., Authentik, Okta), add their UUIDs to this variable so they also appear on the login page. Find provider UUIDs in the Zero Trust dashboard under `Settings` > `Authentication` > `Login methods`.
 
 ---
 
