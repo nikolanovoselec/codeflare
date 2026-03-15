@@ -326,16 +326,16 @@ describe('Dashboard', () => {
     expect(icon?.getAttribute('data-path')).toBe(mdiXml);
   });
 
-  it('logout dropdown item redirects to /auth/logout', () => {
+  it('logout dropdown item redirects to /cdn-cgi/access/logout with returnTo', () => {
     const originalLocation = window.location;
-    const mockLocation = { ...originalLocation, href: '' };
+    const mockLocation = { ...originalLocation, href: '', origin: 'https://codeflare.example.com' };
     Object.defineProperty(window, 'location', { value: mockLocation, writable: true });
 
     render(() => <Dashboard {...defaultProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
     fireEvent.click(screen.getByTestId('header-user-dropdown-logout'));
 
-    expect(mockLocation.href).toBe('/auth/logout');
+    expect(mockLocation.href).toContain('/cdn-cgi/access/logout?returnTo=');
 
     Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
   });

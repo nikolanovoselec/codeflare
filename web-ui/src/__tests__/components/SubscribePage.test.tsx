@@ -197,11 +197,12 @@ describe('SubscribePage', () => {
   });
 
   describe('Active User', () => {
-    it('should show green "Your Access is Active" for standard users', async () => {
+    it('should redirect to /app/ for standard users with onboarding complete', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
         role: 'user',
+        onboardingComplete: true,
       });
 
       render(() => <SubscribePage />);
@@ -212,11 +213,27 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should show green "Your Access is Active" for advanced users', async () => {
+    it('should redirect to /app/onboarding for standard users without onboarding complete', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        role: 'user',
+      });
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(mockLocation.href).toBe('/app/onboarding');
+      });
+    });
+
+    it('should redirect to /app/ for advanced users with onboarding complete', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'admin@example.com',
         accessTier: 'advanced',
         role: 'admin',
+        onboardingComplete: true,
       });
 
       render(() => <SubscribePage />);
@@ -246,7 +263,7 @@ describe('SubscribePage', () => {
   });
 
   describe('Auto-redirect', () => {
-    it('should auto-redirect to /app/ when status becomes active during polling', async () => {
+    it('should auto-redirect to /app/onboarding when status becomes active during polling', async () => {
       mockedGetAuthStatus
         .mockResolvedValueOnce({
           email: 'user@example.com',
@@ -271,20 +288,20 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(10_000);
 
       await waitFor(() => {
-        expect(mockLocation.href).toBe('/app/');
+        expect(mockLocation.href).toBe('/app/onboarding');
       });
     });
   });
 
   describe('Navigation', () => {
-    it('should have logout link to /auth/logout', async () => {
+    it('should have logout link to /cdn-cgi/access/logout', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         const logoutLink = screen.getByText(/log\s*out/i);
         expect(logoutLink).toBeInTheDocument();
-        expect(logoutLink.closest('a')).toHaveAttribute('href', '/auth/logout');
+        expect(logoutLink.closest('a')).toHaveAttribute('href', '/cdn-cgi/access/logout');
       });
     });
   });
