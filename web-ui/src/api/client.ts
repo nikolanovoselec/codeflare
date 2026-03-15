@@ -382,6 +382,12 @@ export async function updateUserAccessTier(
   }, UpdateUserTierResponseSchema);
 }
 
+export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {
+  return fetchApi(`/users/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+  }, z.object({ success: z.boolean(), email: z.string() }));
+}
+
 // Session ID format: 8-24 lowercase alphanumeric characters (matches backend SESSION_ID_PATTERN)
 const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
 

@@ -1,6 +1,5 @@
 import { Component, createSignal, createMemo, onMount, For, Show } from 'solid-js';
-import { getUsers, type UserEntry } from '../../api/client';
-import { updateUserAccessTier } from '../../api/client';
+import { getUsers, type UserEntry, updateUserAccessTier, deleteUser } from '../../api/client';
 import type { AccessTier } from '../../types';
 import '../../styles/user-management.css';
 
@@ -44,6 +43,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
   const [error, setError] = createSignal<string | null>(null);
   const [searchQuery, setSearchQuery] = createSignal('');
   const [updatingEmails, setUpdatingEmails] = createSignal<ReadonlySet<string>>(new Set());
+  const [deletingEmails, setDeletingEmails] = createSignal<ReadonlySet<string>>(new Set());
 
   onMount(async () => {
     try {
@@ -162,6 +162,31 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     }
   };
 
+  const handleDeleteUser = async (email: string) => {
+    if (!confirm(`Delete ${email} and all their data (sessions, storage, credentials)? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingEmails((prev) => {
+      const next = new Set(prev);
+      next.add(email);
+      return next;
+    });
+
+    try {
+      await deleteUser(email);
+      setUsers((prev) => prev.filter((u) => u.email !== email));
+    } catch (err) {
+      setError(`Failed to delete ${email}: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDeletingEmails((prev) => {
+        const next = new Set(prev);
+        next.delete(email);
+        return next;
+      });
+    }
+  };
+
   return (
     <div class="user-mgmt">
       {/* Header */}
@@ -255,21 +280,34 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                             when={!updatingEmails().has(user.email)}
                             fallback={<span class="user-mgmt-updating">Updating...</span>}
                           >
-                            <select
-                              class="user-mgmt-tier-select"
-                              value={user.resolvedTier}
-                              onChange={(e) => {
-                                const newTier = e.currentTarget.value as AccessTier;
-                                if (newTier !== user.resolvedTier) {
-                                  void handleTierChange(user.email, newTier);
-                                }
-                              }}
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="standard">Standard</option>
-                              <option value="advanced">Advanced</option>
-                              <option value="blocked">Blocked</option>
-                            </select>
+                            <div class="user-mgmt-actions">
+                              <select
+                                class="user-mgmt-tier-select"
+                                value={user.resolvedTier}
+                                onChange={(e) => {
+                                  const newTier = e.currentTarget.value as AccessTier;
+                                  if (newTier !== user.resolvedTier) {
+                                    void handleTierChange(user.email, newTier);
+                                  }
+                                }}
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="standard">Standard</option>
+                                <option value="advanced">Advanced</option>
+                                <option value="blocked">Blocked</option>
+                              </select>
+                              <Show when={user.role !== 'admin'}>
+                                <button
+                                  type="button"
+                                  class="user-mgmt-btn--delete"
+                                  disabled={deletingEmails().has(user.email)}
+                                  onClick={() => { void handleDeleteUser(user.email); }}
+                                  title="Delete user and all data"
+                                >
+                                  {deletingEmails().has(user.email) ? '...' : '\u00D7'}
+                                </button>
+                              </Show>
+                            </div>
                           </Show>
                         </div>
                       )}
