@@ -41,6 +41,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [userMenuPos, setUserMenuPos] = createSignal<{ top: number; right: number }>({ top: 0, right: 0 });
+  let userBtnRef: HTMLButtonElement | undefined;
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
   const [menuState, setMenuState] = createSignal<{ isOpen: boolean; position: { x: number; y: number }; session: SessionWithStatus | null }>({
     isOpen: false,
@@ -120,10 +122,17 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <div class="header-user-wrapper">
               <button
                 type="button"
+                ref={userBtnRef}
                 class="header-user-menu"
                 data-testid="header-user-menu"
                 title="User menu"
-                onClick={() => setShowUserMenu(!showUserMenu())}
+                onClick={() => {
+                  if (!showUserMenu() && userBtnRef) {
+                    const rect = userBtnRef.getBoundingClientRect();
+                    setUserMenuPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+                  }
+                  setShowUserMenu(!showUserMenu());
+                }}
               >
                 <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
                   <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
@@ -138,7 +147,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <Portal>
               <Show when={showUserMenu()}>
                 <div class="header-user-dropdown-overlay" data-testid="header-user-dropdown-overlay" onClick={() => setShowUserMenu(false)}>
-                  <div class="header-user-dropdown header-user-dropdown--portal" data-testid="header-user-dropdown" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    class="header-user-dropdown header-user-dropdown--portal"
+                    data-testid="header-user-dropdown"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` }}
+                  >
                     <button
                       type="button"
                       class="header-user-dropdown-item"

@@ -385,9 +385,7 @@
         }
 
         .header-user-dropdown--portal {
-          position: absolute;
-          top: 56px;
-          right: var(--space-4);
+          position: fixed;
           min-width: 180px;
           border-radius: var(--radius-lg);
           padding: var(--space-1);
