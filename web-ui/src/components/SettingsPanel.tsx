@@ -7,6 +7,10 @@ import {
   mdiFastForward,
   mdiContentPaste,
   mdiChevronDown,
+  mdiWrenchOutline,
+  mdiAccountGroupOutline,
+  mdiFileDocumentRefreshOutline,
+  mdiRobotOutline,
 } from '@mdi/js';
 import Icon from './Icon';
 import Button from './ui/Button';
@@ -526,25 +530,18 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   Restart the session after changing this switch for it to take effect.
                 </span>
               </div>
-              <div class="setting-row setting-row--column-gap">
-                <div class="setting-row setting-row--split" data-testid="settings-recreate-docs-row">
-                  <span class="settings-hint settings-hint--primary" data-testid="settings-recreate-docs-label">
-                    Recreate getting-started documentation
-                  </span>
-                  <div class="settings-recreate-docs-action">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      loading={recreateDocsLoading()}
-                      onClick={() => { void handleRecreateDocs(); }}
-                    >
-                      Recreate
-                    </Button>
-                  </div>
-                </div>
-                <span class="settings-hint" data-testid="settings-recreate-docs-hint">
-                  Writes files from the repository `preseed/tutorials/` folder into your R2 root.
-                </span>
+              <div class="settings-admin-actions" data-testid="settings-recreate-docs-row">
+                <button
+                  type="button"
+                  class="provider-row-connect-btn"
+                  style={{ background: '#0d9488' }}
+                  disabled={recreateDocsLoading()}
+                  onClick={() => { void handleRecreateDocs(); }}
+                  data-testid="settings-recreate-docs-label"
+                >
+                  <Icon path={mdiFileDocumentRefreshOutline} size={24} style={{ color: 'white' }} />
+                  <span>{recreateDocsLoading() ? 'Recreating...' : 'Recreate Documentation'}</span>
+                </button>
                 <Show when={recreateDocsMessage()}>
                   {(message) => (
                     <span class="settings-hint" data-testid="settings-recreate-docs-success">{message()}</span>
@@ -556,25 +553,18 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   )}
                 </Show>
               </div>
-              <div class="setting-row setting-row--column-gap">
-                <div class="setting-row setting-row--split" data-testid="settings-recreate-agent-row">
-                  <span class="settings-hint settings-hint--primary" data-testid="settings-recreate-agent-label">
-                    Recreate AI agent skills & rules
-                  </span>
-                  <div class="settings-recreate-docs-action">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      loading={recreateAgentLoading()}
-                      onClick={() => { void handleRecreateAgentConfigs(); }}
-                    >
-                      Recreate
-                    </Button>
-                  </div>
-                </div>
-                <span class="settings-hint" data-testid="settings-recreate-agent-hint">
-                  Writes AI agent configuration files (skills, rules) into your R2 storage.
-                </span>
+              <div class="settings-admin-actions" data-testid="settings-recreate-agent-row">
+                <button
+                  type="button"
+                  class="provider-row-connect-btn"
+                  style={{ background: '#6d28d9' }}
+                  disabled={recreateAgentLoading()}
+                  onClick={() => { void handleRecreateAgentConfigs(); }}
+                  data-testid="settings-recreate-agent-label"
+                >
+                  <Icon path={mdiRobotOutline} size={24} style={{ color: 'white' }} />
+                  <span>{recreateAgentLoading() ? 'Recreating...' : 'Recreate Agent Skills & Rules'}</span>
+                </button>
                 <Show when={recreateAgentMessage()}>
                   {(message) => (
                     <span class="settings-hint" data-testid="settings-recreate-agent-success">{message()}</span>
@@ -656,32 +646,31 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <section class="settings-section">
                 <div class="settings-section-header">
                   <Icon path={mdiCogOutline} size={16} />
-                  <h3 class="settings-section-title">Setup</h3>
+                  <h3 class="settings-section-title">Setup & Users</h3>
                 </div>
-                <div class="setting-row setting-row--column-gap">
-                  <span class="settings-hint">
-                    Re-run the setup wizard to reconfigure domain, admins, or secrets
-                  </span>
-                  <div class="settings-admin-actions">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => { window.location.href = '/setup'; }}
-                    >
-                      Setup
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => { window.location.href = '/admin/users'; }}
-                    >
-                      Manage Users
-                    </Button>
-                  </div>
-                  <span class="settings-hint" data-testid="settings-r2-warning">
-                    Changing your Cloudflare API token requires re-running setup. R2 credentials and per-user storage tokens depend on the API token — without re-running, file sync and new sessions will break.
-                  </span>
+                <div class="settings-admin-actions">
+                  <button
+                    type="button"
+                    class="provider-row-connect-btn"
+                    style={{ background: '#2563eb' }}
+                    onClick={() => { window.location.href = '/setup'; }}
+                  >
+                    <Icon path={mdiWrenchOutline} size={24} style={{ color: 'white' }} />
+                    <span>Setup Wizard</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="provider-row-connect-btn"
+                    style={{ background: '#7c3aed' }}
+                    onClick={() => { window.location.href = '/admin/users'; }}
+                  >
+                    <Icon path={mdiAccountGroupOutline} size={24} style={{ color: 'white' }} />
+                    <span>Manage Users</span>
+                  </button>
                 </div>
+                <span class="settings-hint" data-testid="settings-r2-warning">
+                  Changing your Cloudflare API token requires re-running setup.
+                </span>
               </section>
             </AccordionSection>
           </Show>

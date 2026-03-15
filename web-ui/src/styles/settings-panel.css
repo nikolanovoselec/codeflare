@@ -595,6 +595,12 @@
   transform: scale(0.98);
 }
 
+.provider-row-connect-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: none;
+}
+
 /* Connected state row */
 .provider-row-connected {
   display: flex;
