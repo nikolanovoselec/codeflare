@@ -48,7 +48,7 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 - **Guided onboarding** - new users get walked through connecting GitHub, Cloudflare, and choosing a coding agent. No prior Cloudflare knowledge required.
 
 ![Guided Setup](docs/images/guided-setup.png)
-*Connect your accounts and pick a coding agent. No prior Cloudflare knowledge required.*
+*Connect your accounts and pick a coding agent. No prior Cloudflare or GitHub knowledge required.*
 
 - **Go from idea to live on Cloudflare in minutes** - describe what you want, the agent builds it, pushes to GitHub, deploys to Cloudflare Workers. You get a live URL. The whole loop happens in one terminal session on your phone.
 
