@@ -197,23 +197,7 @@ describe('SubscribePage', () => {
   });
 
   describe('Active User', () => {
-    it('should redirect to /app/ for standard users with onboarding complete', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'active@example.com',
-        accessTier: 'standard',
-        role: 'user',
-        onboardingComplete: true,
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(mockLocation.href).toBe('/app/');
-      });
-    });
-
-    it('should redirect to /app/onboarding for standard users without onboarding complete', async () => {
+    it('should show active status for standard users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -224,23 +208,26 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(mockLocation.href).toBe('/app/onboarding');
+        expect(screen.getByText(/Your Access is Active/)).toBeInTheDocument();
+        expect(screen.getByText('Continue')).toBeInTheDocument();
+        expect(mockLocation.href).toBe('');
       });
     });
 
-    it('should redirect to /app/ for advanced users with onboarding complete', async () => {
+    it('should show active status for advanced users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'admin@example.com',
         accessTier: 'advanced',
         role: 'admin',
-        onboardingComplete: true,
       });
 
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(mockLocation.href).toBe('/app/');
+        expect(screen.getByText(/Your Access is Active/)).toBeInTheDocument();
+        expect(screen.getByText('Continue')).toBeInTheDocument();
+        expect(mockLocation.href).toBe('');
       });
     });
   });
