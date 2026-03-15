@@ -1,4 +1,4 @@
-import { Component, onMount, createSignal, Show, For } from 'solid-js';
+import { Component, onMount, createSignal, Show, For, type JSX } from 'solid-js';
 import { getDeployKeys, updateDeployKeys } from '../api/client';
 import type { DeployKeysResponse } from '../api/client';
 import ProviderRow from './settings/ProviderRow';
@@ -43,7 +43,7 @@ interface CodingAgent {
   description: string;
   url: string;
   brandColor: string;
-  icon: () => ReturnType<typeof import('solid-js').JSX.Element>;
+  icon: () => JSX.Element;
 }
 
 const CODING_AGENTS: CodingAgent[] = [
