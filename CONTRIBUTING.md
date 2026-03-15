@@ -68,7 +68,7 @@ npm run test:e2e:ui-mobile         # Mobile
 If you add or modify API endpoints that should be rate-limited, run:
 
 ```bash
-npx vitest run src/__tests__/routes/rate-limits.test.ts
+npm test -- src/__tests__/routes/rate-limits.test.ts
 ```
 
 See `src/middleware/rate-limit.ts` for the rate limiting implementation and `STRESS_TEST.md` for load testing details.
@@ -108,11 +108,11 @@ Example: `fix/websocket-reconnect-race-condition`
 
 ### Pull Request Process
 
-1. Create a feature branch from `main`.
+1. Create a feature branch from `develop`.
 2. Make your changes. Write tests for new functionality.
 3. Ensure all tests pass locally (`npm test` and `cd web-ui && npm test` at minimum).
 4. Run linting and type checking -- CI will reject PRs that fail these.
-5. Open a pull request against `main` with a clear description of the change and its motivation.
+5. Open a pull request against `develop` with a clear description of the change and its motivation.
 6. CI runs automatically on all PRs: lint, tests, typecheck, security audit, dependency review, and CodeQL analysis.
 
 ### What Makes a Good PR

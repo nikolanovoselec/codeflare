@@ -25,7 +25,12 @@ Codeflare delegates authentication entirely to **Cloudflare Access**:
 - **User authentication:** CF Access validates identity via configured identity providers (Google, GitHub, etc.) and issues JWTs. The worker verifies JWTs against CF Access JWKS endpoints using RS256.
 - **Service tokens:** E2E tests and automated systems authenticate via `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers, or via `X-Service-Auth` header matching the `SERVICE_AUTH_SECRET` worker secret.
 - **Email normalization:** User emails are trimmed and lowercased before KV lookup to prevent casing-based bypass.
-- **KV allowlist:** Only users present in the KV allowlist can access the application. Role-based access control (admin/user) determines session limits and management capabilities.
+- **Three-tier access control** enforced via middleware:
+  - `requireIdentity`: Authenticates request only, permits all users (pending, standard, advanced, blocked).
+  - `requireActiveUser`: Authenticates + enforces tier gating when SaaS mode is active. Pending/blocked users receive 403 error. Active tiers: `standard`, `advanced`, or `undefined` (non-SaaS).
+  - `requireAdmin`: Requires `role: 'admin'`. Must follow requireIdentity or requireActiveUser.
+- **SaaS mode (JIT provisioning):** When `SAAS_MODE=active`, new users are auto-provisioned with `pending` tier (requires admin approval). Redirects pending users to `/app/subscribe` on HTML requests, or returns 403 with code `PENDING` on API requests. Blocked users receive 403 with code `BLOCKED`.
+- **Session limits:** Configurable per role via `MAX_SESSIONS_USER` (default 3) and `MAX_SESSIONS_ADMIN` (default 10). Enforced at container creation time.
 
 ### Security Headers
 
@@ -53,6 +58,10 @@ Every response from the worker includes the following security headers:
 - **Body size limit:** 64 KiB on all `/api/*` routes. Storage upload routes are exempt for file uploads.
 - **Session ID validation:** `SESSION_ID_PATTERN = /^[a-z0-9]{8,24}$/` - strict alphanumeric, length-bounded.
 - **CORS enforcement:** `matchesPattern()` enforces domain boundaries with dot-prefix matching. `.workers.dev` matches `x.workers.dev` but NOT `evil-workers.dev`.
+
+### CSRF Protection
+
+- **X-Requested-With header:** All state-changing requests (POST, PUT, DELETE, PATCH) require the `X-Requested-With` header. This is validated by `authenticateRequest()` in `src/lib/access.ts` before request processing, preventing cross-site form submission attacks.
 
 ### Container Isolation
 
