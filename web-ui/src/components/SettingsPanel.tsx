@@ -19,6 +19,8 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { isTouchDevice, isSamsungBrowser } from '../lib/mobile';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
+import { getUser } from '../api/client';
+import type { AccessTier } from '../types';
 import DeployKeysSection from './settings/DeployKeysSection';
 import LlmKeysSection from './settings/LlmKeysSection';
 import '../styles/settings-panel.css';
@@ -121,12 +123,20 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
   const [openGroup, setOpenGroup] = createSignal<AccordionGroup>('appearance');
 
+  // Live access tier — refreshed from API each time panel opens so tier
+  // upgrades take effect without a full page reload.
+  const [liveAccessTier, setLiveAccessTier] = createSignal<AccessTier | undefined>(props.currentUserAccessTier);
+
   // Reset accordion to Appearance when panel is closed then reopened (false → true)
   createEffect(on(
     () => props.isOpen,
     (isOpen, prevIsOpen) => {
       if (isOpen && prevIsOpen === false) {
         setOpenGroup('appearance');
+        // Re-fetch access tier on panel open
+        getUser().then((user) => {
+          if (user.accessTier) setLiveAccessTier(user.accessTier);
+        }).catch(() => {});
       }
     }
   ));
@@ -137,7 +147,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   const isAdmin = () => props.currentUserRole === 'admin';
   const canUseAdvanced = () => {
-    const tier = props.currentUserAccessTier;
+    // Admins always have advanced access regardless of stored tier
+    if (isAdmin()) return true;
+    const tier = liveAccessTier();
     // advanced tier or no tier set (backward compat: non-SaaS defaults to full access)
     return !tier || tier === 'advanced';
   };

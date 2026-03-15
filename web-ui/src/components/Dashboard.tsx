@@ -137,35 +137,36 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 so position:fixed bottom-sheet works on mobile */}
             <Portal>
               <Show when={showUserMenu()}>
-                <div class="header-user-dropdown-overlay" data-testid="header-user-dropdown-overlay" onClick={() => setShowUserMenu(false)} />
-                <div class="header-user-dropdown header-user-dropdown--portal" data-testid="header-user-dropdown">
-                  <button
-                    type="button"
-                    class="header-user-dropdown-item"
-                    data-testid="header-user-dropdown-profile"
-                    onClick={() => { window.location.href = '/app/subscribe'; }}
-                  >
-                    <Icon path={mdiAccountOutline} size={16} />
-                    <span>Profile</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="header-user-dropdown-item"
-                    data-testid="header-user-dropdown-onboarding"
-                    onClick={() => { window.location.href = '/app/onboarding'; }}
-                  >
-                    <Icon path={mdiRocketLaunchOutline} size={16} />
-                    <span>Guided Setup</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="header-user-dropdown-item header-user-dropdown-item--danger"
-                    data-testid="header-user-dropdown-logout"
-                    onClick={() => { window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
-                  >
-                    <Icon path={mdiLogout} size={16} />
-                    <span>Logout</span>
-                  </button>
+                <div class="header-user-dropdown-overlay" data-testid="header-user-dropdown-overlay" onClick={() => setShowUserMenu(false)}>
+                  <div class="header-user-dropdown header-user-dropdown--portal" data-testid="header-user-dropdown" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      class="header-user-dropdown-item"
+                      data-testid="header-user-dropdown-profile"
+                      onClick={() => { window.location.href = '/app/subscribe'; }}
+                    >
+                      <Icon path={mdiAccountOutline} size={16} />
+                      <span>Profile</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="header-user-dropdown-item"
+                      data-testid="header-user-dropdown-onboarding"
+                      onClick={() => { window.location.href = '/app/onboarding'; }}
+                    >
+                      <Icon path={mdiRocketLaunchOutline} size={16} />
+                      <span>Guided Setup</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="header-user-dropdown-item header-user-dropdown-item--danger"
+                      data-testid="header-user-dropdown-logout"
+                      onClick={() => { window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
+                    >
+                      <Icon path={mdiLogout} size={16} />
+                      <span>Logout</span>
+                    </button>
+                  </div>
                 </div>
               </Show>
             </Portal>
