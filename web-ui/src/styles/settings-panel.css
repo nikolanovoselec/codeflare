@@ -787,7 +787,7 @@
   margin: 0 0 var(--space-3) 0;
   padding-left: var(--space-6);
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   line-height: 1.8;
 }
 
