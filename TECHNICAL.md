@@ -251,7 +251,9 @@ function connect() {
 
 **Header User Dropdown:** Clicking the avatar/username in both Header (terminal view) and Dashboard opens a dropdown with three items: Profile (`/app/subscribe`), Guided Setup (`/app/onboarding`), and Logout. Header uses click-outside-to-close pattern. Dashboard uses `Portal` with the dropdown nested inside the overlay as a child (not a sibling) — `stopPropagation` on the dropdown div prevents touch events from reaching the overlay's `onClick`. This parent/child structure is critical for mobile: sibling fixed elements cause the overlay to intercept touches before button click events fire, removing the dropdown from DOM and swallowing the navigation. Renders as a bottom sheet on mobile.
 
-**Onboarding Page (`/app/onboarding`):** Guided setup page for new users. Three sections: (1) Connect GitHub — saves PAT via `updateDeployKeys`, (2) Connect Cloudflare — saves API token, (3) Coding Agents — informational cards linking to signup pages for 5 supported agents. Reuses `ProviderRow` and `BrandIcons` from settings. "Skip and Continue to Codeflare" button always visible. Uses standalone `.onboarding-page` container (`position: fixed; inset: 0; overflow-y: auto`) instead of `.login-page` — same pattern as `.setup-wizard` — because `.login-page` has `overflow: hidden` that blocks scrolling.
+**Onboarding Page (`/app/onboarding`):** Guided setup page for new users. Three sections: (1) Connect GitHub — saves PAT via `updateDeployKeys`, (2) Connect Cloudflare — saves API token, (3) Coding Agents — informational cards linking to signup pages for 5 supported agents. Reuses `ProviderRow` and `BrandIcons` from settings. "Skip and Continue to Codeflare" button always visible. Uses standalone `.onboarding-page` container (`position: fixed; inset: 0; overflow-y: auto`) instead of `.login-page` — same pattern as `.setup-wizard` — because `.login-page` has `overflow: hidden` that blocks scrolling. **First-time redirect:** In SaaS mode, `AppContent` checks `onboardingComplete` from `/api/user` — if `false`, redirects to `/app/onboarding`. The Skip/Continue buttons call `POST /api/user/onboarding-complete` which sets `onboardingComplete: true` in the user's KV entry. Subsequent visits go directly to the dashboard. Users can always revisit via the header dropdown ("Guided Setup").
+
+**Font consistency:** Login, subscribe, and onboarding pages all use `JetBrains Mono` monospace font via `font-family` on `.login-content` and `.onboarding-content` root containers. All child text inherits — no sans-serif fallback.
 
 **Admin Protection:** Admin users always have `advanced` access tier and can switch between default/advanced session modes freely. `canUseAdvanced()` in SettingsPanel returns `true` for admins regardless of stored `accessTier` — prevents admin lockout when JIT-provisioned with `pending` tier before being promoted. Backend rejects both tier changes (`PATCH /api/users/:email`) and deletions (`DELETE /api/users/:email`) for admin-role users. Frontend hides tier dropdown and delete button for admins in UserManagement.
 
@@ -948,7 +950,8 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/user` | Authenticated user info (includes `onboardingActive`) |
+| GET | `/api/user` | Authenticated user info (includes `onboardingActive`, `onboardingComplete`) |
+| POST | `/api/user/onboarding-complete` | Mark guided setup as visited (sets KV flag) |
 | GET | `/api/user/r2-status` | R2 credential status for current user |
 | POST | `/api/user/ensure-r2-token` | Create scoped R2 token if missing (rate limited) |
 | GET | `/api/users` | List allowed users (admin only) |
