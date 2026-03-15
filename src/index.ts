@@ -148,15 +148,19 @@ app.route('/api/auth', authApiRoutes);
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
-// Shows social IdPs by type + any custom IdPs listed by UUID in SAAS_EXTRA_IDPS.
+// SaaS mode: show GitHub only + any custom IdPs listed by UUID in SAAS_EXTRA_IDPS.
+// Non-SaaS: show all social IdPs + extra IdPs.
 const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'facebook', 'linkedin']);
 app.get('/public/auth/providers', async (c) => {
   const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>('setup:idp_list', 'json');
-  // Parse extra IdP UUIDs from env (comma-separated)
   const extraIds = new Set(
     (c.env.SAAS_EXTRA_IDPS || '').split(',').map(s => s.trim()).filter(Boolean)
   );
-  const filtered = (idpList || []).filter(p => SOCIAL_IDP_TYPES.has(p.type) || extraIds.has(p.id));
+  const saas = isSaasModeActive(c.env.SAAS_MODE);
+  const filtered = (idpList || []).filter(p => {
+    if (extraIds.has(p.id)) return true;
+    return saas ? p.type === 'github' : SOCIAL_IDP_TYPES.has(p.type);
+  });
   return c.json({ providers: filtered });
 });
 

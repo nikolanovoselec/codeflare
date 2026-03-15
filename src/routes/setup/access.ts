@@ -559,11 +559,10 @@ export async function handleCreateAccessApp(
     const existingApps = await pruneLegacyAccessApps(token, accountId, customDomain, listedApps, managedAppName);
     const audienceTags: string[] = [];
     const existingManagedApp = await resolveManagedAccessApp(kv, customDomain, existingApps, managedAppName);
-    // In SaaS mode, restrict the Access app to social IdPs only.
+    // In SaaS mode, restrict the Access app to GitHub only.
     // With exactly one IdP, auto_redirect_to_identity skips the CF Access login page.
-    const socialTypes = new Set(['google', 'github', 'facebook', 'linkedin']);
     const saasIdpIds = saasMode
-      ? idpList.filter(p => socialTypes.has(p.type)).map(p => p.id)
+      ? idpList.filter(p => p.type === 'github').map(p => p.id)
       : undefined;
 
     const appResult = await upsertAccessApp(
