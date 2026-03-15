@@ -180,7 +180,9 @@ app.post('/configure', async (c) => {
       );
 
       const onboardingLandingActive = isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE);
-      if (onboardingLandingActive) {
+      const saasMode = isSaasModeActive(c.env.SAAS_MODE);
+      // Turnstile is needed for onboarding landing (waitlist) AND SaaS mode (access requests)
+      if (onboardingLandingActive || saasMode) {
         await runStep('configure_turnstile', () =>
           handleConfigureTurnstile(token, accountId, customDomain, steps, c.env.KV, workerName, c.req.url)
         );
