@@ -537,7 +537,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   Restart the session after changing this switch for it to take effect.
                 </span>
               </div>
-              <div class="settings-admin-actions" data-testid="settings-recreate-docs-row">
+              <div class="settings-admin-actions">
                 <button
                   type="button"
                   class="provider-row-connect-btn"
@@ -547,7 +547,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   data-testid="settings-recreate-docs-label"
                 >
                   <Icon path={mdiFileDocumentRefreshOutline} size={24} style={{ color: 'white' }} />
-                  <span>{recreateDocsLoading() ? 'Recreating...' : 'Recreate Documentation'}</span>
+                  <span>{recreateDocsLoading() ? 'Recreating...' : 'Recreate Docs & Examples'}</span>
                 </button>
                 <Show when={recreateDocsMessage()}>
                   {(message) => (
@@ -559,8 +559,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     <span class="settings-error" data-testid="settings-recreate-docs-error">{error()}</span>
                   )}
                 </Show>
-              </div>
-              <div class="settings-admin-actions" data-testid="settings-recreate-agent-row">
                 <button
                   type="button"
                   class="provider-row-connect-btn"

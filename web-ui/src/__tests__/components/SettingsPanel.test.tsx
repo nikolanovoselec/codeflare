@@ -199,10 +199,7 @@ describe('SettingsPanel Component', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
-      const row = screen.getByTestId('settings-recreate-docs-row');
-      expect(row).toBeInTheDocument();
-
-      const button = within(row).getByRole('button', { name: /Recreate Documentation/ });
+      const button = screen.getByTestId('settings-recreate-docs-label');
       expect(button).toBeInTheDocument();
     });
 
@@ -210,8 +207,7 @@ describe('SettingsPanel Component', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
-      const row = screen.getByTestId('settings-recreate-docs-row');
-      const button = within(row).getByRole('button', { name: /Recreate Documentation/ });
+      const button = screen.getByTestId('settings-recreate-docs-label');
       await fireEvent.click(button);
 
       expect(mockRecreateGettingStartedDocs).toHaveBeenCalledTimes(1);
@@ -224,8 +220,7 @@ describe('SettingsPanel Component', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
-      const row = screen.getByTestId('settings-recreate-docs-row');
-      const button = within(row).getByRole('button', { name: /Recreate Documentation/ });
+      const button = screen.getByTestId('settings-recreate-docs-label');
       await fireEvent.click(button);
 
       const error = await screen.findByTestId('settings-recreate-docs-error');
