@@ -107,10 +107,6 @@ In your fork: `Settings` > `Secrets and variables` > `Actions` > `New repository
 
 Add each as a separate secret. Name goes in the **Name** field, value in **Secret**. Click **Add secret** after each one.
 
-**Optional secrets:**
-- `RESEND_API_KEY` - for sending approval/rejection emails in SaaS mode or onboarding landing page (see [Configuration](#configuration) section)
-- `CF_ACCESS_CLIENT_SECRET` - for E2E testing (see [Configuration](#configuration) section)
-
 ### 3. Deploy
 
 Go to your fork: `Actions` > `Deploy` > `Run workflow` > Branch: `main` > **Run workflow**. GitHub Actions builds, tests, and deploys to Cloudflare Workers. Takes about 2 minutes - go grab a coffee.
