@@ -375,31 +375,23 @@
         }
 
         /* Portal variant: overlay wraps the dropdown (parent, not sibling).
-           Prevents mobile touch events from hitting the overlay instead of
-           the dropdown buttons — stopPropagation on the dropdown div blocks
-           the overlay's onClick from firing when buttons are tapped. */
+           Desktop: transparent overlay, dropdown positioned top-right like Header.
+           Mobile: dark overlay, bottom-sheet style. */
         .header-user-dropdown-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0, 0, 0, 0.4);
+          background: transparent;
           z-index: 299;
-          display: flex;
-          align-items: flex-end;
-          justify-content: center;
         }
 
         .header-user-dropdown--portal {
-          position: relative;
-          width: 100%;
-          min-width: auto;
-          border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-          padding: var(--space-3);
-          animation: header-user-dropdown-slide-up 200ms ease-out;
-        }
-
-        .header-user-dropdown--portal .header-user-dropdown-item {
-          padding: 14px 16px;
-          font-size: 16px;
+          position: absolute;
+          top: 56px;
+          right: var(--space-4);
+          min-width: 180px;
+          border-radius: var(--radius-lg);
+          padding: var(--space-1);
+          animation: header-bookmark-slide-in 150ms ease-out;
         }
 
         @keyframes header-user-dropdown-slide-up {
@@ -606,8 +598,9 @@
             font-size: 14px;
           }
 
-          /* User dropdown: bottom sheet on mobile */
-          .header-user-dropdown {
+          /* User dropdown: bottom sheet on mobile (both inline and portal variants) */
+          .header-user-dropdown,
+          .header-user-dropdown--portal {
             position: fixed;
             top: auto;
             bottom: 0;
@@ -615,12 +608,25 @@
             right: 0;
             min-width: auto;
             border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-            animation: none;
+            animation: header-user-dropdown-slide-up 200ms ease-out;
             z-index: 200;
             padding: var(--space-3);
           }
 
-          .header-user-dropdown-item {
+          .header-user-dropdown-overlay {
+            background: rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+          }
+
+          .header-user-dropdown--portal {
+            position: relative;
+            width: 100%;
+          }
+
+          .header-user-dropdown-item,
+          .header-user-dropdown--portal .header-user-dropdown-item {
             padding: 14px 16px;
             font-size: 16px;
           }
