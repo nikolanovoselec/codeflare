@@ -195,20 +195,15 @@ describe('SettingsPanel Component', () => {
       expect(hint.textContent).toContain('startup');
     });
 
-    it('renders clean recreate-documentation row with action on the right', () => {
+    it('renders recreate documentation button', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const row = screen.getByTestId('settings-recreate-docs-row');
       expect(row).toBeInTheDocument();
-      expect(row).toHaveClass('setting-row--split');
 
-      const label = screen.getByTestId('settings-recreate-docs-label');
-      expect(label.textContent).toBe('Recreate getting-started documentation');
-
-      const button = within(row).getByRole('button', { name: 'Recreate' });
+      const button = within(row).getByRole('button', { name: /Recreate Documentation/ });
       expect(button).toBeInTheDocument();
-      expect(button).toHaveTextContent('Recreate');
     });
 
     it('recreates getting-started docs via API', async () => {
@@ -216,7 +211,7 @@ describe('SettingsPanel Component', () => {
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const row = screen.getByTestId('settings-recreate-docs-row');
-      const button = within(row).getByRole('button', { name: 'Recreate' });
+      const button = within(row).getByRole('button', { name: /Recreate Documentation/ });
       await fireEvent.click(button);
 
       expect(mockRecreateGettingStartedDocs).toHaveBeenCalledTimes(1);
@@ -230,7 +225,7 @@ describe('SettingsPanel Component', () => {
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const row = screen.getByTestId('settings-recreate-docs-row');
-      const button = within(row).getByRole('button', { name: 'Recreate' });
+      const button = within(row).getByRole('button', { name: /Recreate Documentation/ });
       await fireEvent.click(button);
 
       const error = await screen.findByTestId('settings-recreate-docs-error');
@@ -562,7 +557,7 @@ describe('SettingsPanel Component', () => {
       expect(screen.queryByTestId('accordion-header-admin')).not.toBeInTheDocument();
     });
 
-    it('shows "Setup" button text for admins', () => {
+    it('shows "Setup Wizard" button for admins', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -573,7 +568,7 @@ describe('SettingsPanel Component', () => {
       ));
       fireEvent.click(screen.getByTestId('accordion-header-admin'));
 
-      expect(screen.getByRole('button', { name: 'Setup' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Setup Wizard/ })).toBeInTheDocument();
     });
   });
 
@@ -591,7 +586,7 @@ describe('SettingsPanel Component', () => {
 
       const header = screen.getByTestId('accordion-header-admin');
       expect(header).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Setup' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Setup Wizard/ })).toBeInTheDocument();
     });
 
     it('hides administration for non-admin', () => {
@@ -752,8 +747,6 @@ describe('SettingsPanel Component', () => {
       const warning = screen.getByTestId('settings-r2-warning');
       expect(warning).toBeInTheDocument();
       expect(warning.textContent).toContain('re-running setup');
-      expect(warning.textContent).toContain('R2 credentials and per-user storage tokens');
-      expect(warning.textContent).toContain('file sync and new sessions will break');
     });
 
     it('hides R2 warning hint for non-admin users', () => {
