@@ -101,6 +101,12 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
     throw new ForbiddenError('Account is blocked');
   }
 
+  // Idempotency: if already requested, return success without re-notifying
+  const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  if (existingRaw && typeof existingRaw.requestedAt === 'string') {
+    return c.json({ success: true });
+  }
+
   // Parse body
   let raw: unknown;
   try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
@@ -131,14 +137,6 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
       errorCodes: verification['error-codes'],
     });
     throw new ForbiddenError('CAPTCHA verification failed');
-  }
-
-  // Record request in KV — update user entry with requestedAt
-  const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
-
-  // Idempotency: if already requested, return success without re-notifying
-  if (existingRaw && typeof existingRaw.requestedAt === 'string') {
-    return c.json({ success: true });
   }
 
   const requestedAt = new Date().toISOString();

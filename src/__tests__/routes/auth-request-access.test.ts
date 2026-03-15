@@ -165,8 +165,8 @@ describe('POST /auth/request-access', () => {
     });
 
     expect(res.status).toBe(403);
-    const body = await res.json() as { error: string };
-    expect(body.error.toLowerCase()).toContain('captcha');
+    const body = await res.json() as { error: string; code: string };
+    expect(body.code).toBe('FORBIDDEN');
   });
 
   it('returns 400 for already-active user', async () => {
@@ -205,8 +205,8 @@ describe('POST /auth/request-access', () => {
     });
 
     expect(res.status).toBe(403);
-    const body = await res.json() as { error: string };
-    expect(body.error.toLowerCase()).toContain('blocked');
+    const body = await res.json() as { error: string; code: string };
+    expect(body.code).toBe('FORBIDDEN');
   });
 
   it('includes turnstileSiteKey and requestedAt in GET /auth/status for pending users', async () => {
