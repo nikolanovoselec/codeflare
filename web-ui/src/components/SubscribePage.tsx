@@ -22,12 +22,7 @@ import Icon from './Icon';
 import { logger } from '../lib/logger';
 import '../styles/subscribe-page.css';
 
-interface Feature {
-  icon: string;
-  content: () => ReturnType<typeof import('solid-js').Component>;
-}
-
-const FEATURES: Feature[] = [
+const FEATURES: Array<{ icon: string; content: () => unknown }> = [
   { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
   { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
   { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration</> },
