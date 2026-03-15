@@ -36,7 +36,7 @@ Codeflare is an ephemeral cloud IDE that runs entirely in your browser. Every se
 
 It's strongly optimized for mobile - because the best ideas hit while rewatching your favorite show for the 15th time, and your PC is just too far away.
 
-**Try it:** [codeflare.graymatter.ch](https://codeflare.graymatter.ch) (gated behind a waitlist - I'm not an animal)
+**Try it:** [codeflare.ch](https://codeflare.ch)
 
 ## From idea to live in minutes
 
