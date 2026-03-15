@@ -142,8 +142,11 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </Show>
               </button>
             </div>
-            {/* Portal escapes dashboard-panel's backdrop-filter stacking context
-                so position:fixed bottom-sheet works on mobile */}
+            {/* Portal escapes dashboard-panel's backdrop-filter stacking context.
+                Profile and Guided Setup use plain <a> tags — SolidJS Router's
+                top-level DOM listener intercepts clicks for client-side navigation.
+                No onClick handlers = no touch event race conditions on mobile.
+                Logout uses window.location.href since it's a real server redirect. */}
             <Portal>
               <Show when={showUserMenu()}>
                 <div class="header-user-dropdown-overlay" data-testid="header-user-dropdown-overlay" onClick={() => setShowUserMenu(false)}>
@@ -153,24 +156,22 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     onClick={(e) => e.stopPropagation()}
                     style={{ top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` }}
                   >
-                    <button
-                      type="button"
+                    <a
+                      href="/app/subscribe"
                       class="header-user-dropdown-item"
                       data-testid="header-user-dropdown-profile"
-                      onClick={() => { window.location.href = '/app/subscribe'; }}
                     >
                       <Icon path={mdiAccountOutline} size={16} />
                       <span>Profile</span>
-                    </button>
-                    <button
-                      type="button"
+                    </a>
+                    <a
+                      href="/app/onboarding"
                       class="header-user-dropdown-item"
                       data-testid="header-user-dropdown-onboarding"
-                      onClick={() => { window.location.href = '/app/onboarding'; }}
                     >
                       <Icon path={mdiRocketLaunchOutline} size={16} />
                       <span>Guided Setup</span>
-                    </button>
+                    </a>
                     <button
                       type="button"
                       class="header-user-dropdown-item header-user-dropdown-item--danger"

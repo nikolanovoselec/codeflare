@@ -250,26 +250,27 @@ const Header: Component<HeaderProps> = (props) => {
               <span class="header-user-name">{props.userName}</span>
             </Show>
           </button>
+          {/* Profile and Guided Setup use plain <a> tags — SolidJS Router's
+              top-level DOM listener intercepts clicks for client-side navigation.
+              No onClick handlers = no touch event race conditions on mobile. */}
           <Show when={showUserMenu()}>
             <div class="header-user-dropdown" data-testid="header-user-dropdown">
-              <button
-                type="button"
+              <a
+                href="/app/subscribe"
                 class="header-user-dropdown-item"
                 data-testid="header-user-dropdown-profile"
-                onClick={() => { window.location.href = '/app/subscribe'; }}
               >
                 <Icon path={mdiAccountOutline} size={16} />
                 <span>Profile</span>
-              </button>
-              <button
-                type="button"
+              </a>
+              <a
+                href="/app/onboarding"
                 class="header-user-dropdown-item"
                 data-testid="header-user-dropdown-onboarding"
-                onClick={() => { window.location.href = '/app/onboarding'; }}
               >
                 <Icon path={mdiRocketLaunchOutline} size={16} />
                 <span>Guided Setup</span>
-              </button>
+              </a>
               <button
                 type="button"
                 class="header-user-dropdown-item header-user-dropdown-item--danger"
