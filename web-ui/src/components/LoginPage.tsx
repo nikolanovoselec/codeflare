@@ -1,10 +1,11 @@
-import { Component, onMount, createSignal, Show, For } from 'solid-js';
+import { Component, onMount, createSignal, Show, For, type JSX } from 'solid-js';
 import {
   mdiRocketLaunchOutline,
   mdiCellphoneLink,
   mdiCloudLockOutline,
   mdiCellphoneScreenshot,
   mdiSourceBranch,
+  mdiLightningBolt,
 } from '@mdi/js';
 import { getAuthProviders, getAuthStatus } from '../api/client';
 import type { AuthProvider } from '../types';
@@ -46,12 +47,13 @@ function getProviderIcon(provider: AuthProvider) {
   return null;
 }
 
-const FEATURES: Array<{ icon: string; content: () => unknown }> = [
+const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
   { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
   { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration</> },
   { icon: mdiCloudLockOutline, content: () => <>Data persisted & encrypted at rest</> },
   { icon: mdiCellphoneScreenshot, content: () => <>Optimized for mobiles & foldables</> },
+  { icon: mdiLightningBolt, content: () => <>From idea to deployment in minutes</> },
 ];
 
 const LoginPage: Component = () => {
