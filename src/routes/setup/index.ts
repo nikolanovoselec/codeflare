@@ -85,6 +85,16 @@ app.post('/configure', async (c) => {
   const { customDomain, allowedUsers, adminUsers, allowedOrigins } = parsed.data;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
+  // During reconfiguration, prevent admin from removing themselves
+  const currentUser = c.get('user');
+  if (currentUser?.email) {
+    const normalizedCurrentEmail = currentUser.email.trim().toLowerCase();
+    const normalizedAdminList = adminUsers.map(e => e.trim().toLowerCase());
+    if (!normalizedAdminList.includes(normalizedCurrentEmail)) {
+      throw new ValidationError('You cannot remove yourself from the admin list');
+    }
+  }
+
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
@@ -145,14 +155,28 @@ app.post('/configure', async (c) => {
       const normalizedAdmins = [...new Set(adminUsers.map(e => e.trim().toLowerCase()))];
 
       // Remove stale users not in the new allowedUsers list (full cleanup).
-      // Skip in SaaS mode — JIT-provisioned users aren't in the admin-only
-      // allowedUsers list and would be incorrectly deleted during reconfiguration.
-      if (!isSaasModeActive(c.env.SAAS_MODE)) {
+      // In SaaS mode, only clean up removed admins — JIT-provisioned regular
+      // users are managed via User Management, not setup.
+      {
         const allowedSet = new Set(normalizedAllowed);
         const existingUserKeys = await listAllKvKeys(c.env.KV, 'user:');
-        const staleEmails = existingUserKeys
-          .filter(key => !allowedSet.has(emailFromKvKey(key.name)))
-          .map(key => emailFromKvKey(key.name));
+        const isSaasMode = isSaasModeActive(c.env.SAAS_MODE);
+
+        const staleEmails: string[] = [];
+        for (const key of existingUserKeys) {
+          const email = emailFromKvKey(key.name);
+          if (allowedSet.has(email)) continue;
+
+          if (isSaasMode) {
+            // In SaaS mode, only remove users who were admins (not JIT regular users)
+            const userData = await c.env.KV.get(key.name, 'json') as { role?: string } | null;
+            if (userData?.role === 'admin') {
+              staleEmails.push(email);
+            }
+          } else {
+            staleEmails.push(email);
+          }
+        }
 
         if (staleEmails.length > 0) {
           await runStep('cleanup_stale_users', async () => {
