@@ -143,7 +143,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
-  const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
+  const currentSessionMode = () => isAdmin() ? 'advanced' : (sessionStore.preferences.sessionMode ?? 'default');
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
