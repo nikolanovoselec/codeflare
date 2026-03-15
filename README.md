@@ -33,10 +33,10 @@ Codeflare is an ephemeral cloud IDE that runs entirely in your browser. Every se
 
 It's strongly optimized for mobile - because the best ideas hit while rewatching your favorite show for the 15th time, and your PC is just too far away.
 
-**Try it:** [codeflare.graymatter.ch](https://codeflare.graymatter.ch) (gated behind a waitlist - I'm not an animal)
+![Login](docs/images/login.png)
+*One click to sign in. No account creation, no passwords — GitHub OAuth handles it.*
 
-![Onboarding](docs/images/onboarding.png)
-*Join the waitlist, get approved, log in. No account creation, no password - Cloudflare Access handles it.*
+**Try it:** [codeflare.graymatter.ch](https://codeflare.graymatter.ch) (gated behind a waitlist - I'm not an animal)
 
 ## From idea to live in minutes
 
@@ -46,6 +46,10 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 - **Native Cloudflare integration** - connect your Cloudflare account once. Deploy Workers, manage D1 databases, R2 storage, KV namespaces, and DNS - all from the terminal, already authenticated.
 - **Specialized skills for build, push, and deploy** - pre-loaded agent skills know how to create Cloudflare Workers projects, configure `wrangler.toml`, push to GitHub, set up CI workflows, and deploy to production. Tell the agent what you want. It builds, pushes, and deploys.
 - **Guided onboarding** - new users get walked through connecting GitHub, Cloudflare, and choosing a coding agent. No prior Cloudflare knowledge required.
+
+![Guided Setup](docs/images/guided-setup.png)
+*Connect your accounts and pick a coding agent. No prior Cloudflare knowledge required.*
+
 - **Go from idea to live on Cloudflare in minutes** - describe what you want, the agent builds it, pushes to GitHub, deploys to Cloudflare Workers. You get a live URL. The whole loop happens in one terminal session on your phone.
 
 ## What you get
