@@ -144,20 +144,24 @@ app.post('/configure', async (c) => {
       const normalizedAllowed = [...new Set(allowedUsers.map(e => e.trim().toLowerCase()))];
       const normalizedAdmins = [...new Set(adminUsers.map(e => e.trim().toLowerCase()))];
 
-      // Remove stale users not in the new allowedUsers list (full cleanup)
-      const allowedSet = new Set(normalizedAllowed);
-      const existingUserKeys = await listAllKvKeys(c.env.KV, 'user:');
-      const staleEmails = existingUserKeys
-        .filter(key => !allowedSet.has(emailFromKvKey(key.name)))
-        .map(key => emailFromKvKey(key.name));
+      // Remove stale users not in the new allowedUsers list (full cleanup).
+      // Skip in SaaS mode — JIT-provisioned users aren't in the admin-only
+      // allowedUsers list and would be incorrectly deleted during reconfiguration.
+      if (!isSaasModeActive(c.env.SAAS_MODE)) {
+        const allowedSet = new Set(normalizedAllowed);
+        const existingUserKeys = await listAllKvKeys(c.env.KV, 'user:');
+        const staleEmails = existingUserKeys
+          .filter(key => !allowedSet.has(emailFromKvKey(key.name)))
+          .map(key => emailFromKvKey(key.name));
 
-      if (staleEmails.length > 0) {
-        await runStep('cleanup_stale_users', async () => {
-          for (const staleEmail of staleEmails) {
-            logger.info('Removing stale user with full cleanup', { email: staleEmail });
-            await cleanupUserData(staleEmail, c.env);
-          }
-        });
+        if (staleEmails.length > 0) {
+          await runStep('cleanup_stale_users', async () => {
+            for (const staleEmail of staleEmails) {
+              logger.info('Removing stale user with full cleanup', { email: staleEmail });
+              await cleanupUserData(staleEmail, c.env);
+            }
+          });
+        }
       }
 
       // Store users in KV with role
