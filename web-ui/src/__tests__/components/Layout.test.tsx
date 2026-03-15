@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { render, screen, cleanup } from '@solidjs/testing-library';
 
 // Mock all child components to isolate Layout testing
 vi.mock('../../components/Header', () => ({
