@@ -61,10 +61,8 @@ const SubscribePage: Component = () => {
       }
 
       if (result.accessTier === 'standard' || result.accessTier === 'advanced') {
+        // Stop polling — user is approved, show the active state UI
         if (pollInterval) clearInterval(pollInterval);
-        // Redirect to guided setup if onboarding hasn't been completed yet
-        window.location.href = result.onboardingComplete ? '/app/' : '/app/onboarding';
-        return;
       }
 
       if (result.accessTier === 'blocked') {
@@ -213,7 +211,7 @@ const SubscribePage: Component = () => {
             <h2 class="subscribe-title">Your Access is Active</h2>
             <p class="subscribe-message">Your account is approved and ready to use.</p>
             <div class="subscribe-email">{status()!.email}</div>
-            <a href="/app/" class="subscribe-action-button">Go to Dashboard</a>
+            <a href="/app/" class="subscribe-action-button">Continue</a>
           </Show>
 
           {/* Pending — not yet requested */}

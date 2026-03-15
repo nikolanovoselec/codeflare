@@ -262,8 +262,8 @@ describe('SubscribePage', () => {
     });
   });
 
-  describe('Auto-redirect', () => {
-    it('should auto-redirect to /app/onboarding when status becomes active during polling', async () => {
+  describe('Active user view', () => {
+    it('should show active status with Continue button when approved during polling', async () => {
       mockedGetAuthStatus
         .mockResolvedValueOnce({
           email: 'user@example.com',
@@ -288,7 +288,8 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(10_000);
 
       await waitFor(() => {
-        expect(mockLocation.href).toBe('/app/onboarding');
+        expect(screen.getByText(/Your Access is Active/)).toBeInTheDocument();
+        expect(screen.getByText('Continue')).toBeInTheDocument();
       });
     });
   });
