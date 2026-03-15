@@ -87,6 +87,7 @@ export const UserResponseSchema = z.object({
   accessTier: AccessTierSchema.optional(),
   onboardingActive: z.boolean().optional(),
   saasMode: z.boolean().optional(),
+  onboardingComplete: z.boolean().optional(),
 });
 
 export const SessionsResponseSchema = z.object({

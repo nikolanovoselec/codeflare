@@ -48,6 +48,11 @@ const AppContent: Component = () => {
       setUserAccessTier(user.accessTier);
       setOnboardingActive(user.onboardingActive);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
+      // First-time user: redirect to guided setup
+      if (user.saasMode && !user.onboardingComplete) {
+        window.location.href = '/app/onboarding';
+        return;
+      }
     } catch (err) {
       logger.warn('Failed to get user info:', err);
       // SaaS mode: pending/blocked users get 403 from requireActiveUser

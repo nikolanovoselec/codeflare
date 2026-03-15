@@ -32,6 +32,10 @@ app.get('/', async (c) => {
   const user = c.get('user');
   const bucketName = c.get('bucketName');
 
+  // Read onboardingComplete from user's KV entry
+  const kvRaw = await c.env.KV.get(`user:${user.email}`, 'json') as { onboardingComplete?: boolean } | null;
+  const onboardingComplete = kvRaw?.onboardingComplete === true;
+
   return c.json({
     email: user.email,
     authenticated: user.authenticated,
@@ -41,7 +45,21 @@ app.get('/', async (c) => {
     workerName: c.env.CLOUDFLARE_WORKER_NAME || 'codeflare',
     onboardingActive: isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE),
     saasMode: isSaasModeActive(c.env.SAAS_MODE),
+    onboardingComplete,
   });
+});
+
+/**
+ * POST /api/user/onboarding-complete
+ * Marks the current user's onboarding as complete so they go to dashboard next time.
+ */
+app.post('/onboarding-complete', async (c) => {
+  const user = c.get('user');
+  const kvRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  if (kvRaw) {
+    await c.env.KV.put(`user:${user.email}`, JSON.stringify({ ...kvRaw, onboardingComplete: true }));
+  }
+  return c.json({ success: true });
 });
 
 /**

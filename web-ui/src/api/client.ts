@@ -336,6 +336,12 @@ export async function getOnboardingConfig(): Promise<OnboardingConfigResponse> {
   });
 }
 
+// Mark onboarding as complete for the current user
+export async function markOnboardingComplete(): Promise<{ success: boolean }> {
+  const data = await fetchApi<{ success: boolean }>('/user/onboarding-complete', { method: 'POST' });
+  return data ?? { success: false };
+}
+
 // R2 scoped token readiness
 export async function getR2Status(): Promise<{ ready: boolean }> {
   const data = await fetchApi<{ ready: boolean }>('/user/r2-status', {});

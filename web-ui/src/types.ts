@@ -132,6 +132,7 @@ export interface UserInfo {
   accessTier?: AccessTier;
   onboardingActive?: boolean;
   saasMode?: boolean;
+  onboardingComplete?: boolean;
 }
 
 // Terminal connection state (no 'error' — infinite retries mean we never give up)
