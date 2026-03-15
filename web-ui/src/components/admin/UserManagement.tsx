@@ -1,6 +1,8 @@
 import { Component, createSignal, createMemo, onMount, For, Show } from 'solid-js';
+import { mdiArrowExpandLeft } from '@mdi/js';
 import { getUsers, type UserEntry, updateUserAccessTier, deleteUser } from '../../api/client';
 import type { AccessTier } from '../../types';
+import Icon from '../Icon';
 import '../../styles/user-management.css';
 
 interface UserManagementProps {
@@ -198,7 +200,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
           title="Go back"
           aria-label="Go back"
         >
-          &larr;
+          <Icon path={mdiArrowExpandLeft} size={20} />
         </button>
         <h1 class="user-mgmt-title">User Management</h1>
         <Show when={!loading()}>
