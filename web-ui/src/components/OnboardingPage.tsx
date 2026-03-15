@@ -252,7 +252,7 @@ const OnboardingPage: Component = () => {
           href="/app/"
           class="onboarding-skip-btn"
           data-testid="onboarding-skip"
-          onClick={(e) => { e.preventDefault(); void markOnboardingComplete().catch(() => {}); window.location.href = '/app/'; }}
+          onClick={async (e) => { e.preventDefault(); await markOnboardingComplete().catch(() => {}); window.location.href = '/app/'; }}
         >
           Skip and continue to Codeflare
           <Icon path={mdiArrowRight} size={16} />
@@ -370,7 +370,7 @@ const OnboardingPage: Component = () => {
           href="/app/"
           class="onboarding-continue-btn"
           data-testid="onboarding-continue"
-          onClick={(e) => { e.preventDefault(); void markOnboardingComplete().catch(() => {}); window.location.href = '/app/'; }}
+          onClick={async (e) => { e.preventDefault(); await markOnboardingComplete().catch(() => {}); window.location.href = '/app/'; }}
         >
           Continue to Codeflare
           <Icon path={mdiArrowRight} size={16} />
