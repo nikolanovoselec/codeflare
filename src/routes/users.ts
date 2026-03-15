@@ -61,9 +61,15 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     throw new ValidationError('Cannot remove yourself');
   }
 
-  const existing = await c.env.KV.get(`user:${email}`);
+  const existing = await c.env.KV.get(`user:${email}`, 'json');
   if (!existing) {
     throw new NotFoundError('User', email);
+  }
+
+  // Admin users can only be removed via Setup, not via user management
+  const parsed = existing as { role?: string };
+  if (parsed.role === 'admin') {
+    throw new ValidationError('Cannot delete admin users — remove from admin list in Setup instead');
   }
 
   const result = await cleanupUserData(email, c.env);
@@ -101,6 +107,11 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     accessTier: AccessTierSchema.optional(),
   });
   const existing = kvUserSchema.parse(existingRaw);
+
+  // Admin users always have advanced tier — prevent accidental lockout
+  if (existing.role === 'admin') {
+    throw new ValidationError('Cannot change admin access tier');
+  }
 
   const updated = { ...existing, accessTier: parsed.data.accessTier };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));

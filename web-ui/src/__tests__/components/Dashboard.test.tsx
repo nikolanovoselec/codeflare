@@ -124,7 +124,6 @@ describe('Dashboard', () => {
     viewState: 'dashboard' as const,
     userName: 'nikola@novoselec.ch',
     onSettingsClick: vi.fn(),
-    onLogout: vi.fn(),
   };
 
   beforeEach(() => {
@@ -188,10 +187,12 @@ describe('Dashboard', () => {
     expect(screen.getByTestId('dashboard-settings-button')).toBeInTheDocument();
   });
 
-  it('renders logout button in panel header', () => {
+  it('renders user dropdown menu when avatar clicked', () => {
     render(() => <Dashboard {...defaultProps} />);
 
-    expect(screen.getByTestId('dashboard-logout-button')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('header-user-menu'));
+    expect(screen.getByTestId('header-user-dropdown')).toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
   });
 
   it('renders tips rotator in left column', () => {
@@ -325,13 +326,18 @@ describe('Dashboard', () => {
     expect(icon?.getAttribute('data-path')).toBe(mdiXml);
   });
 
-  it('calls onLogout when logout button clicked', () => {
-    const onLogout = vi.fn();
-    render(() => <Dashboard {...defaultProps} onLogout={onLogout} />);
+  it('logout dropdown item redirects to /auth/logout', () => {
+    const originalLocation = window.location;
+    const mockLocation = { ...originalLocation, href: '' };
+    Object.defineProperty(window, 'location', { value: mockLocation, writable: true });
 
-    fireEvent.click(screen.getByTestId('dashboard-logout-button'));
+    render(() => <Dashboard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId('header-user-menu'));
+    fireEvent.click(screen.getByTestId('header-user-dropdown-logout'));
 
-    expect(onLogout).toHaveBeenCalledTimes(1);
+    expect(mockLocation.href).toBe('/auth/logout');
+
+    Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
   });
 
   // === Session Limit Tests ===

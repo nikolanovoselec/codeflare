@@ -308,7 +308,6 @@ const Layout: Component<LayoutProps> = (props) => {
           viewState={viewState()}
           userName={props.userName}
           onSettingsClick={handleSettingsClick}
-          onLogout={() => { window.location.href = '/cdn-cgi/access/logout'; }}
         />
       </div>
 

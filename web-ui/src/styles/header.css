@@ -331,6 +331,49 @@
           }
         }
 
+        .header-user-wrapper {
+          position: relative;
+        }
+
+        .header-user-dropdown {
+          position: absolute;
+          top: calc(100% + 8px);
+          right: 0;
+          min-width: 180px;
+          background: var(--color-bg-elevated);
+          border: 1px solid var(--color-border-default);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-lg);
+          padding: var(--space-1);
+          z-index: 80;
+          animation: header-bookmark-slide-in 150ms ease-out;
+        }
+
+        .header-user-dropdown-item {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          width: 100%;
+          padding: 8px 12px;
+          border: none;
+          border-radius: var(--radius-md);
+          background: transparent;
+          color: var(--color-text-primary);
+          font-size: var(--text-sm);
+          text-decoration: none;
+          cursor: pointer;
+          transition: background var(--transition-fast);
+        }
+
+        .header-user-dropdown-item:hover {
+          background: var(--color-bg-muted);
+        }
+
+        .header-user-dropdown-item--danger:hover {
+          background: var(--color-error-muted);
+          color: var(--color-error);
+        }
+
         .header-user-avatar {
           flex-shrink: 0;
         }
@@ -472,7 +515,6 @@
         @media (max-width: 640px) {
           .header-storage-button,
           .header-settings-button,
-          .header-logout-button,
           .header-bookmarks-button,
           .header-dashboard-button {
             width: 44px;
@@ -523,6 +565,25 @@
             height: 44px;
             padding: 0 16px;
             font-size: 14px;
+          }
+
+          /* User dropdown: bottom sheet on mobile */
+          .header-user-dropdown {
+            position: fixed;
+            top: auto;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            min-width: auto;
+            border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+            animation: none;
+            z-index: 200;
+            padding: var(--space-3);
+          }
+
+          .header-user-dropdown-item {
+            padding: 14px 16px;
+            font-size: 16px;
           }
 
           .header-user-name {

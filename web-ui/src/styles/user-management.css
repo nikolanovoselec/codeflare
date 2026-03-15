@@ -259,6 +259,13 @@
   border-color: var(--color-accent, #3b82f6);
 }
 
+.user-mgmt-tier-fixed {
+  padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-muted, #71717a);
+  font-style: italic;
+}
+
 .user-mgmt-updating {
   font-size: var(--text-xs, 0.75rem);
   color: var(--color-text-muted, #71717a);

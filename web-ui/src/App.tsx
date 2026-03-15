@@ -16,6 +16,7 @@ const OnboardingLanding = lazy(() => import('./components/OnboardingLanding'));
 const LoginPage = lazy(() => import('./components/LoginPage'));
 const SubscribePage = lazy(() => import('./components/SubscribePage'));
 const UserManagement = lazy(() => import('./components/admin/UserManagement'));
+const OnboardingPage = lazy(() => import('./components/OnboardingPage'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -205,6 +206,7 @@ const App: Component = () => {
       <Route path="/" component={RootPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/app/subscribe" component={SubscribePage} />
+      <Route path="/app/onboarding" component={OnboardingPage} />
       <Route path="/admin/users" component={() => (
         <SetupGuard>
           <UserManagement onBack={() => { window.location.href = '/app/'; }} />

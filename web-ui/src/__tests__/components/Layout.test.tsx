@@ -12,9 +12,7 @@ vi.mock('../../components/TerminalArea', () => ({
     (window as any).__terminalAreaProps = props;
     return (
       <main data-testid="terminal-area">
-        <button data-testid="logout-trigger" onClick={() => props.onLogout?.()}>
-          Logout
-        </button>
+        Terminal Area
       </main>
     );
   }
@@ -371,70 +369,16 @@ describe('Layout Component', () => {
   // =========================================================================
   // Logout Behavior
   //
-  // Logout must ALWAYS redirect to '/cdn-cgi/access/logout' to properly
-  // clear the CF_Authorization cookie. Previously, onboardingActive=true
-  // redirected to '/' which left the user authenticated via Cloudflare Access.
+  // Logout is now handled by the Dashboard/Header user dropdown internally,
+  // not via a prop from Layout. Layout no longer passes onLogout to TerminalArea.
   // =========================================================================
 
   describe('Logout Behavior', () => {
-    it('redirects to /cdn-cgi/access/logout even when onboardingActive is true', () => {
-      const originalLocation = window.location;
-      const mockLocation = { ...originalLocation, href: '' };
-      Object.defineProperty(window, 'location', {
-        value: mockLocation,
-        writable: true,
-      });
-
-      render(() => <Layout userName="test@example.com" userRole="user" onboardingActive={true} />);
-
-      fireEvent.click(screen.getByTestId('logout-trigger'));
-
-      expect(mockLocation.href).toBe('/cdn-cgi/access/logout');
-
-      Object.defineProperty(window, 'location', {
-        value: originalLocation,
-        writable: true,
-      });
-    });
-
-    it('redirects to /cdn-cgi/access/logout when onboardingActive is false', () => {
-      const originalLocation = window.location;
-      const mockLocation = { ...originalLocation, href: '' };
-      Object.defineProperty(window, 'location', {
-        value: mockLocation,
-        writable: true,
-      });
-
-      render(() => <Layout userName="test@example.com" userRole="user" onboardingActive={false} />);
-
-      fireEvent.click(screen.getByTestId('logout-trigger'));
-
-      expect(mockLocation.href).toBe('/cdn-cgi/access/logout');
-
-      Object.defineProperty(window, 'location', {
-        value: originalLocation,
-        writable: true,
-      });
-    });
-
-    it('defaults to /cdn-cgi/access/logout when onboardingActive is not provided', () => {
-      const originalLocation = window.location;
-      const mockLocation = { ...originalLocation, href: '' };
-      Object.defineProperty(window, 'location', {
-        value: mockLocation,
-        writable: true,
-      });
-
+    it('does not pass onLogout prop to TerminalArea', () => {
       render(() => <Layout userName="test@example.com" userRole="user" />);
 
-      fireEvent.click(screen.getByTestId('logout-trigger'));
-
-      expect(mockLocation.href).toBe('/cdn-cgi/access/logout');
-
-      Object.defineProperty(window, 'location', {
-        value: originalLocation,
-        writable: true,
-      });
+      const props = (window as any).__terminalAreaProps;
+      expect(props.onLogout).toBeUndefined();
     });
   });
 

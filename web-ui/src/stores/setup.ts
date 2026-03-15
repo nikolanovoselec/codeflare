@@ -163,6 +163,7 @@ async function loadExistingConfig(): Promise<void> {
     }
 
     if (statusRes.configured) {
+      // Reconfiguration: load existing config so admin can see what's set
       const usersRes = await api.getUsers();
       setState(
         produce((s) => {
@@ -179,6 +180,11 @@ async function loadExistingConfig(): Promise<void> {
           }
         })
       );
+      return;
+    }
+
+    // Initial setup: in SaaS mode, admin enters everything manually (no prefill)
+    if (statusRes.saasMode) {
       return;
     }
 

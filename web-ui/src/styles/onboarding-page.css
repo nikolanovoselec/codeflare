@@ -1,0 +1,201 @@
+/* ==========================================================================
+   Onboarding Page — extends login-page.css with guided setup sections
+   ========================================================================== */
+
+.onboarding-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  max-width: 520px;
+  width: 100%;
+  padding: 2rem;
+  animation: fadeSlideUp 0.6s ease-out;
+  margin: 0 auto;
+}
+
+/* Header */
+.onboarding-header {
+  margin-bottom: 1.5rem;
+}
+
+/* Skip button (top) */
+.onboarding-skip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  margin-bottom: 2rem;
+  background: rgba(24, 24, 27, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: #a1a1aa;
+  font-size: 0.8125rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 150ms ease-out;
+}
+
+.onboarding-skip-btn:hover {
+  background: rgba(24, 24, 27, 0.85);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #fafafa;
+}
+
+/* Sections */
+.onboarding-section {
+  text-align: left;
+  margin-bottom: 2rem;
+  padding: 1.25rem;
+  background: rgba(24, 24, 27, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.onboarding-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fafafa;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.onboarding-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-accent, #3b82f6);
+  color: #fafafa;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.onboarding-section-description {
+  margin: 0 0 1rem;
+  font-size: 0.8125rem;
+  color: #71717a;
+  line-height: 1.6;
+}
+
+/* CF account select */
+.onboarding-cf-account-select {
+  margin-top: 0.75rem;
+}
+
+/* Coding agents grid */
+.onboarding-agents-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.onboarding-agent-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(24, 24, 27, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: #fafafa;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 150ms ease-out;
+}
+
+.onboarding-agent-card:hover {
+  background: rgba(24, 24, 27, 0.95);
+  border-color: var(--agent-color, rgba(255, 255, 255, 0.2));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+
+.onboarding-agent-card:active {
+  transform: scale(0.98) translateY(0);
+}
+
+.onboarding-agent-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--agent-color, #a1a1aa);
+  flex-shrink: 0;
+}
+
+.onboarding-agent-info {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.onboarding-agent-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.onboarding-agent-description {
+  font-size: 0.75rem;
+  color: #52525b;
+}
+
+/* Continue button (bottom) */
+.onboarding-continue-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 2rem;
+  margin-top: 1rem;
+  background: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  border-radius: 12px;
+  color: #fafafa;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+  transition: all 150ms ease-out;
+}
+
+.onboarding-continue-btn:hover {
+  background: #2563eb;
+  box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+.onboarding-continue-btn:active {
+  transform: scale(0.98) translateY(0);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .onboarding-content {
+    max-width: calc(100vw - 32px);
+    padding: 1.5rem 1rem;
+  }
+
+  .onboarding-section {
+    padding: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-content {
+    animation: none !important;
+  }
+}

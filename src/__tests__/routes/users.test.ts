@@ -410,6 +410,117 @@ describe('Users Routes', () => {
       expect(body).toHaveProperty('code', 'NOT_FOUND');
     });
 
+    it('DELETE admin user returns 400 — admins cannot be deleted via user management', async () => {
+      const app = createTestAppWithRole('admin@example.com', 'admin');
+      mockKV._set('user:other-admin@example.com', {
+        addedBy: 'setup',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'admin',
+      });
+
+      const res = await app.request('/users/other-admin%40example.com', {
+        method: 'DELETE',
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toMatch(/admin/i);
+    });
+
+    it('DELETE non-admin user succeeds normally', async () => {
+      const app = createTestAppWithRole('admin@example.com', 'admin');
+      mockKV._set('user:regular@example.com', {
+        addedBy: 'admin@example.com',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+      });
+
+      const res = await app.request('/users/regular%40example.com', {
+        method: 'DELETE',
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { success: boolean };
+      expect(body.success).toBe(true);
+    });
+
+    it('PATCH admin user tier returns 400 — cannot change admin access tier', async () => {
+      const app = createTestAppWithRole('admin@example.com', 'admin');
+      // Need SAAS_MODE for PATCH to work
+      (app as any)._useMW = true;
+      // Re-create with SAAS_MODE
+      const saasApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      saasApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          SAAS_MODE: 'active',
+        } as unknown as Env;
+        return next();
+      });
+      saasApp.route('/users', usersRoutes);
+      saasApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      mockKV._set('user:target-admin@example.com', {
+        addedBy: 'setup',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'admin',
+        accessTier: 'advanced',
+      });
+
+      const res = await saasApp.request('/users/target-admin%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessTier: 'standard' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toMatch(/admin/i);
+    });
+
+    it('PATCH non-admin user tier succeeds in SaaS mode', async () => {
+      const saasApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      saasApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          SAAS_MODE: 'active',
+        } as unknown as Env;
+        return next();
+      });
+      saasApp.route('/users', usersRoutes);
+      saasApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      mockKV._set('user:regular@example.com', {
+        addedBy: 'admin@example.com',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+        accessTier: 'pending',
+      });
+
+      const res = await saasApp.request('/users/regular%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessTier: 'standard' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { success: boolean; accessTier: string };
+      expect(body.success).toBe(true);
+      expect(body.accessTier).toBe('standard');
+    });
+
     it('GET /users returns role field for each user', async () => {
       const mockUsers = [
         { email: 'admin@example.com', addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' as const },

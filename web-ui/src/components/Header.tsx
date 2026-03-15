@@ -3,6 +3,9 @@ import {
   mdiXml,
   mdiCogOutline,
   mdiAccountCircle,
+  mdiAccountOutline,
+  mdiRocketLaunchOutline,
+  mdiLogout,
   mdiViewDashboardOutline,
   mdiBookOutline,
   mdiDelete,
@@ -49,12 +52,14 @@ interface HeaderProps {
  * +-----------------------------------------------------------------------------------+
  */
 const Header: Component<HeaderProps> = (props) => {
+  const [showUserMenu, setShowUserMenu] = createSignal(false);
   const [showBookmarksMenu, setShowBookmarksMenu] = createSignal(false);
   const [showCreateBookmark, setShowCreateBookmark] = createSignal(false);
   const [bookmarkName, setBookmarkName] = createSignal('');
   const [bookmarkError, setBookmarkError] = createSignal<string | null>(null);
   const [editingPresetId, setEditingPresetId] = createSignal<string | null>(null);
   const [editingPresetName, setEditingPresetName] = createSignal('');
+  let userMenuRef: HTMLDivElement | undefined;
   let bookmarksMenuRef: HTMLDivElement | undefined;
   let bookmarkInputRef: HTMLInputElement | undefined;
   let renameInputRef: HTMLInputElement | undefined;
@@ -77,6 +82,9 @@ const Header: Component<HeaderProps> = (props) => {
   };
 
   const handleClickOutside = (e: MouseEvent) => {
+    if (showUserMenu() && userMenuRef && !userMenuRef.contains(e.target as Node)) {
+      setShowUserMenu(false);
+    }
     if (!showBookmarksMenu()) return;
     if (bookmarksMenuRef && !bookmarksMenuRef.contains(e.target as Node)) {
       closeBookmarksMenu();
@@ -225,15 +233,54 @@ const Header: Component<HeaderProps> = (props) => {
           </button>
         </Show>
 
-        {/* User menu */}
-        <button type="button" class="header-user-menu" data-testid="header-user-menu" title="User menu">
-          <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
-            <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
+        {/* User menu with dropdown */}
+        <div class="header-user-wrapper" ref={userMenuRef}>
+          <button
+            type="button"
+            class="header-user-menu"
+            data-testid="header-user-menu"
+            title="User menu"
+            onClick={() => setShowUserMenu(!showUserMenu())}
+          >
+            <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
+              <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
+            </Show>
+            <Show when={props.userName}>
+              <span class="header-user-name">{props.userName}</span>
+            </Show>
+          </button>
+          <Show when={showUserMenu()}>
+            <div class="header-user-dropdown" data-testid="header-user-dropdown">
+              <a
+                href="/app/subscribe"
+                class="header-user-dropdown-item"
+                data-testid="header-user-dropdown-profile"
+                onClick={(e) => { e.preventDefault(); setShowUserMenu(false); window.location.href = '/app/subscribe'; }}
+              >
+                <Icon path={mdiAccountOutline} size={16} />
+                <span>Profile</span>
+              </a>
+              <a
+                href="/app/onboarding"
+                class="header-user-dropdown-item"
+                data-testid="header-user-dropdown-onboarding"
+                onClick={(e) => { e.preventDefault(); setShowUserMenu(false); window.location.href = '/app/onboarding'; }}
+              >
+                <Icon path={mdiRocketLaunchOutline} size={16} />
+                <span>Guided Setup</span>
+              </a>
+              <button
+                type="button"
+                class="header-user-dropdown-item header-user-dropdown-item--danger"
+                data-testid="header-user-dropdown-logout"
+                onClick={() => { setShowUserMenu(false); window.location.href = '/auth/logout'; }}
+              >
+                <Icon path={mdiLogout} size={16} />
+                <span>Logout</span>
+              </button>
+            </div>
           </Show>
-          <Show when={props.userName}>
-            <span class="header-user-name">{props.userName}</span>
-          </Show>
-        </button>
+        </div>
 
         {/* Bookmarks button */}
         <div class="header-bookmarks-wrapper" ref={bookmarksMenuRef}>

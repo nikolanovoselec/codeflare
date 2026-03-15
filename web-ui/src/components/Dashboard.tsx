@@ -1,6 +1,6 @@
-import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
+import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiLogout } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
@@ -34,14 +34,15 @@ interface DashboardProps {
   viewState: 'dashboard' | 'expanding' | 'collapsing';
   userName?: string;
   onSettingsClick?: () => void;
-  onLogout?: () => void;
 }
 
 const Dashboard: Component<DashboardProps> = (props) => {
   const [collapseReady, setCollapseReady] = createSignal(false);
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
+  const [showUserMenu, setShowUserMenu] = createSignal(false);
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
+  let userMenuRef: HTMLDivElement | undefined;
   const [menuState, setMenuState] = createSignal<{ isOpen: boolean; position: { x: number; y: number }; session: SessionWithStatus | null }>({
     isOpen: false,
     position: { x: 0, y: 0 },
@@ -51,6 +52,14 @@ const Dashboard: Component<DashboardProps> = (props) => {
   onMount(() => {
     sessionStore.startR2Polling();
     storageStore.fetchStats();
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (showUserMenu() && userMenuRef && !userMenuRef.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    onCleanup(() => document.removeEventListener('mousedown', handleClickOutside));
   });
 
   // Double requestAnimationFrame to ensure the browser has painted with --expanded
@@ -113,19 +122,55 @@ const Dashboard: Component<DashboardProps> = (props) => {
           </div>
           <div class="header-spacer" />
           <div class="header-actions">
-            <button type="button" class="header-user-menu" title="User menu">
-              <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
-                <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
+            <div class="header-user-wrapper" ref={userMenuRef}>
+              <button
+                type="button"
+                class="header-user-menu"
+                data-testid="header-user-menu"
+                title="User menu"
+                onClick={() => setShowUserMenu(!showUserMenu())}
+              >
+                <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
+                  <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
+                </Show>
+                <Show when={props.userName}>
+                  <span class="header-user-name">{props.userName}</span>
+                </Show>
+              </button>
+              <Show when={showUserMenu()}>
+                <div class="header-user-dropdown" data-testid="header-user-dropdown">
+                  <a
+                    href="/app/subscribe"
+                    class="header-user-dropdown-item"
+                    data-testid="header-user-dropdown-profile"
+                    onClick={(e) => { e.preventDefault(); setShowUserMenu(false); window.location.href = '/app/subscribe'; }}
+                  >
+                    <Icon path={mdiAccountOutline} size={16} />
+                    <span>Profile</span>
+                  </a>
+                  <a
+                    href="/app/onboarding"
+                    class="header-user-dropdown-item"
+                    data-testid="header-user-dropdown-onboarding"
+                    onClick={(e) => { e.preventDefault(); setShowUserMenu(false); window.location.href = '/app/onboarding'; }}
+                  >
+                    <Icon path={mdiRocketLaunchOutline} size={16} />
+                    <span>Guided Setup</span>
+                  </a>
+                  <button
+                    type="button"
+                    class="header-user-dropdown-item header-user-dropdown-item--danger"
+                    data-testid="header-user-dropdown-logout"
+                    onClick={() => { setShowUserMenu(false); window.location.href = '/auth/logout'; }}
+                  >
+                    <Icon path={mdiLogout} size={16} />
+                    <span>Logout</span>
+                  </button>
+                </div>
               </Show>
-              <Show when={props.userName}>
-                <span class="header-user-name">{props.userName}</span>
-              </Show>
-            </button>
+            </div>
             <button type="button" class="header-settings-button" data-testid="dashboard-settings-button" title="Settings" onClick={() => props.onSettingsClick?.()}>
               <Icon path={mdiCogOutline} size={20} />
-            </button>
-            <button type="button" class="header-logout-button" data-testid="dashboard-logout-button" title="Logout" onClick={() => props.onLogout?.()}>
-              <Icon path={mdiLogout} size={20} />
             </button>
           </div>
         </div>

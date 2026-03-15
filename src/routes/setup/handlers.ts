@@ -113,6 +113,11 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     return c.json({ adminUsers: [], allowedUsers: [] });
   }
 
+  // SaaS mode: admin enters everything manually, no prefill from CF Access groups
+  if (c.env.SAAS_MODE === 'active') {
+    return c.json({ adminUsers: [], allowedUsers: [] });
+  }
+
   try {
     const workerName = getWorkerNameFromHostname(c.req.url, c.env.CLOUDFLARE_WORKER_NAME);
     const groupNames = getAccessGroupNames(workerName);

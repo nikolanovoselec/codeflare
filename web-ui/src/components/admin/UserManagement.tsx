@@ -281,22 +281,25 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                             fallback={<span class="user-mgmt-updating">Updating...</span>}
                           >
                             <div class="user-mgmt-actions">
-                              <select
-                                class="user-mgmt-tier-select"
-                                value={user.resolvedTier}
-                                onChange={(e) => {
-                                  const newTier = e.currentTarget.value as AccessTier;
-                                  if (newTier !== user.resolvedTier) {
-                                    void handleTierChange(user.email, newTier);
-                                  }
-                                }}
+                              <Show
+                                when={user.role !== 'admin'}
+                                fallback={<span class="user-mgmt-tier-fixed">Advanced</span>}
                               >
-                                <option value="pending">Pending</option>
-                                <option value="standard">Standard</option>
-                                <option value="advanced">Advanced</option>
-                                <option value="blocked">Blocked</option>
-                              </select>
-                              <Show when={user.role !== 'admin'}>
+                                <select
+                                  class="user-mgmt-tier-select"
+                                  value={user.resolvedTier}
+                                  onChange={(e) => {
+                                    const newTier = e.currentTarget.value as AccessTier;
+                                    if (newTier !== user.resolvedTier) {
+                                      void handleTierChange(user.email, newTier);
+                                    }
+                                  }}
+                                >
+                                  <option value="pending">Pending</option>
+                                  <option value="standard">Standard</option>
+                                  <option value="advanced">Advanced</option>
+                                  <option value="blocked">Blocked</option>
+                                </select>
                                 <button
                                   type="button"
                                   class="user-mgmt-btn--delete"
