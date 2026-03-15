@@ -742,7 +742,7 @@ describe('SettingsPanel Component', () => {
 
       const warning = screen.getByTestId('settings-r2-warning');
       expect(warning).toBeInTheDocument();
-      expect(warning.textContent).toContain('re-running setup');
+      expect(warning.textContent).toContain('re-run the Setup Wizard');
     });
 
     it('hides R2 warning hint for non-admin users', () => {
