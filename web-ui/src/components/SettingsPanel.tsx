@@ -553,7 +553,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <button
                   type="button"
                   class="provider-row-connect-btn"
-                  style={{ background: '#0d9488' }}
+                  style={{ background: '#0891b2' }}
                   disabled={recreateDocsLoading()}
                   onClick={() => { void handleRecreateDocs(); }}
                   data-testid="settings-recreate-docs-label"
@@ -574,7 +574,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <button
                   type="button"
                   class="provider-row-connect-btn"
-                  style={{ background: '#d97706' }}
+                  style={{ background: '#e11d48' }}
                   disabled={recreateAgentLoading()}
                   onClick={() => { void handleRecreateAgentConfigs(); }}
                   data-testid="settings-recreate-agent-label"
