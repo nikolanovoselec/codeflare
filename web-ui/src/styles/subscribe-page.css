@@ -120,6 +120,54 @@
   letter-spacing: 0.04em;
 }
 
+.subscribe-subtitle {
+  margin: 0 0 2rem;
+  font-size: 0.8125rem;
+  color: #71717a;
+  line-height: 1.7;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@keyframes featureFadeIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.subscribe-features {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.subscribe-feature {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  opacity: 0;
+  animation: featureFadeIn 0.4s ease-out forwards;
+}
+
+.subscribe-feature-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: #52525b;
+}
+
+.subscribe-feature-text {
+  font-size: 0.8125rem;
+  color: #71717a;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+}
+
 .subscribe-status-icon {
   color: var(--color-accent, #3b82f6);
   margin-bottom: 0.75rem;
@@ -300,8 +348,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .subscribe-particles, .subscribe-logo-img, .subscribe-content, .subscribe-pulse {
+  .subscribe-particles, .subscribe-logo-img, .subscribe-content, .subscribe-pulse, .subscribe-feature {
     animation: none !important;
   }
+  .subscribe-feature { opacity: 1; }
   .subscribe-spinner { animation-duration: 2s; }
 }

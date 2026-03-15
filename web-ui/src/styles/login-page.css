@@ -144,9 +144,12 @@
 
 .login-subtitle {
   margin: 0 0 2rem;
-  font-size: 0.9375rem;
-  color: #a1a1aa;
-  line-height: 1.5;
+  font-size: 0.8125rem;
+  color: #71717a;
+  line-height: 1.7;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* ── Features ── */
@@ -168,7 +171,13 @@
 }
 
 .login-feature-icon {
-  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: #52525b;
 }
 
 .login-feature-text {

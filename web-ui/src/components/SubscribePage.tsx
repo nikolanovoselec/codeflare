@@ -7,12 +7,28 @@ declare global {
   }
 }
 
-import { Component, onMount, onCleanup, createSignal, Show } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, Show, For } from 'solid-js';
+import {
+  mdiRocketLaunchOutline,
+  mdiCellphoneLink,
+  mdiSourceBranch,
+  mdiCloudLockOutline,
+  mdiCellphoneScreenshot,
+} from '@mdi/js';
 import { getAuthStatus, requestAccess } from '../api/client';
 import type { AuthStatus } from '../types';
 import ScrambleText from './ScrambleText';
+import Icon from './Icon';
 import { logger } from '../lib/logger';
 import '../styles/subscribe-page.css';
+
+const FEATURES: Array<{ icon: string; text: string }> = [
+  { icon: mdiRocketLaunchOutline, text: 'Ready to code in seconds' },
+  { icon: mdiCellphoneLink, text: 'Runs on any device with a browser' },
+  { icon: mdiSourceBranch, text: 'GitHub & Cloudflare integration' },
+  { icon: mdiCloudLockOutline, text: 'Data persisted & encrypted at rest' },
+  { icon: mdiCellphoneScreenshot, text: 'Optimized for mobiles & foldables' },
+];
 
 const POLL_INTERVAL_MS = 10_000;
 
@@ -168,6 +184,26 @@ const SubscribePage: Component = () => {
         <h1 class="subscribe-title-brand">
           <ScrambleText text="Codeflare" class="subscribe-title-scramble" />
         </h1>
+
+        <p class="subscribe-subtitle">
+          Ephemeral cloud development putting five coding agents
+          into the palm of your hand. Running in the cloud and ready
+          when and wherever you are, because you never know when
+          the next idea will strike.
+        </p>
+
+        <div class="subscribe-features">
+          <For each={FEATURES}>
+            {(feature, i) => (
+              <div class="subscribe-feature" style={{ 'animation-delay': `${0.3 + i() * 0.1}s` }}>
+                <span class="subscribe-feature-icon">
+                  <Icon path={feature.icon} size={16} />
+                </span>
+                <span class="subscribe-feature-text">{feature.text}</span>
+              </div>
+            )}
+          </For>
+        </div>
 
         <Show when={loading()}>
           <div class="subscribe-loading">

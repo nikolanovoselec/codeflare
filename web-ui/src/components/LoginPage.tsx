@@ -1,7 +1,16 @@
 import { Component, onMount, createSignal, Show, For } from 'solid-js';
+import {
+  mdiRocketLaunchOutline,
+  mdiCellphoneLink,
+  mdiGithub,
+  mdiCloudLockOutline,
+  mdiCellphoneScreenshot,
+  mdiSourceBranch,
+} from '@mdi/js';
 import { getAuthProviders, getAuthStatus } from '../api/client';
 import type { AuthProvider } from '../types';
 import ScrambleText from './ScrambleText';
+import Icon from './Icon';
 import { logger } from '../lib/logger';
 import '../styles/login-page.css';
 
@@ -38,11 +47,12 @@ function getProviderIcon(provider: AuthProvider) {
   return null;
 }
 
-const FEATURES = [
-  { icon: '\u26A1', text: 'Ephemeral cloud containers' },
-  { icon: '\uD83E\uDD16', text: 'Multi-agent AI coding' },
-  { icon: '\u2601\uFE0F', text: 'Persistent R2 storage' },
-  { icon: '\uD83D\uDE80', text: 'One-click deploy' },
+const FEATURES: Array<{ icon: string; text: string }> = [
+  { icon: mdiRocketLaunchOutline, text: 'Ready to code in seconds' },
+  { icon: mdiCellphoneLink, text: 'Runs on any device with a browser' },
+  { icon: mdiSourceBranch, text: 'GitHub & Cloudflare integration' },
+  { icon: mdiCloudLockOutline, text: 'Data persisted & encrypted at rest' },
+  { icon: mdiCellphoneScreenshot, text: 'Optimized for mobiles & foldables' },
 ];
 
 const LoginPage: Component = () => {
@@ -104,14 +114,21 @@ const LoginPage: Component = () => {
           <ScrambleText text="Codeflare" class="login-title-scramble" />
         </h1>
 
-        <p class="login-subtitle">Cloud development environment powered by AI</p>
+        <p class="login-subtitle">
+          Ephemeral cloud development putting five coding agents
+          into the palm of your hand. Running in the cloud and ready
+          when and wherever you are, because you never know when
+          the next idea will strike.
+        </p>
 
         {/* Feature highlights */}
         <div class="login-features">
           <For each={FEATURES}>
             {(feature, i) => (
               <div class="login-feature" style={{ 'animation-delay': `${0.3 + i() * 0.1}s` }}>
-                <span class="login-feature-icon">{feature.icon}</span>
+                <span class="login-feature-icon">
+                  <Icon path={feature.icon} size={16} />
+                </span>
                 <span class="login-feature-text">{feature.text}</span>
               </div>
             )}
