@@ -144,24 +144,24 @@ const Dashboard: Component<DashboardProps> = (props) => {
               <Show when={showUserMenu()}>
                 <div class="header-user-dropdown-overlay" data-testid="header-user-dropdown-overlay" onClick={() => setShowUserMenu(false)} />
                 <div class="header-user-dropdown header-user-dropdown--portal" data-testid="header-user-dropdown" ref={userMenuRef}>
-                  <a
-                    href="/app/subscribe"
+                  <button
+                    type="button"
                     class="header-user-dropdown-item"
                     data-testid="header-user-dropdown-profile"
-                    onClick={(e) => { e.preventDefault(); window.location.href = '/app/subscribe'; }}
+                    onClick={() => { window.location.href = '/app/subscribe'; }}
                   >
                     <Icon path={mdiAccountOutline} size={16} />
                     <span>Profile</span>
-                  </a>
-                  <a
-                    href="/app/onboarding"
+                  </button>
+                  <button
+                    type="button"
                     class="header-user-dropdown-item"
                     data-testid="header-user-dropdown-onboarding"
-                    onClick={(e) => { e.preventDefault(); window.location.href = '/app/onboarding'; }}
+                    onClick={() => { window.location.href = '/app/onboarding'; }}
                   >
                     <Icon path={mdiRocketLaunchOutline} size={16} />
                     <span>Guided Setup</span>
-                  </a>
+                  </button>
                   <button
                     type="button"
                     class="header-user-dropdown-item header-user-dropdown-item--danger"

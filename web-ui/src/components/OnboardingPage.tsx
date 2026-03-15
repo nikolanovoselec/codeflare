@@ -229,7 +229,7 @@ const OnboardingPage: Component = () => {
   };
 
   return (
-    <div class="login-page login-page--scrollable">
+    <div class="onboarding-page">
       <div class="login-particles login-particles--1" />
       <div class="login-particles login-particles--2" />
 

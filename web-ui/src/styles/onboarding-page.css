@@ -1,15 +1,20 @@
 /* ==========================================================================
-   Onboarding Page — extends login-page.css with guided setup sections
+   Onboarding Page — standalone scrollable container (same pattern as setup-wizard)
+   Does NOT use .login-page because its overflow:hidden blocks scrolling.
    ========================================================================== */
 
-/* Override login-page's overflow:hidden so the taller onboarding page scrolls.
-   Uses explicit modifier class instead of :has() for reliable cross-browser support. */
-.login-page.login-page--scrollable {
+.onboarding-page {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   overflow-y: auto;
-  overflow-x: hidden;
-  align-items: flex-start;
-  padding-top: 2rem;
-  padding-bottom: 2rem;
+  background: linear-gradient(135deg,
+    hsl(217, 20%, 4%) 0%,
+    hsl(217, 40%, 9%) 35%,
+    hsl(217, 44%, 13%) 65%,
+    hsl(217, 38%, 8%) 100%);
 }
 
 .onboarding-content {
