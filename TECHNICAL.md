@@ -835,11 +835,11 @@ When the limit is exceeded: HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: 
 | `/api/sessions/:id/stop` | POST | 10/min | `session-stop` |
 | `/api/user/ensure-r2-token` | POST | 5/min | `ensure-r2-token` |
 | `/api/sessions` | POST | 10/min | `session-create` |
-| `/api/container/start` | POST | 10/min | `container-start` |
+| `/api/container/start` | POST | 5/min | `container-start` |
 | `/api/users/:email` | DELETE | 20/min | `user-mutation` |
 | `/api/setup/status` | GET | 30/min | `setup-status` |
-| `/api/setup/detect-token` | GET | 5/min | `setup-configure` |
-| `/api/setup/prefill` | GET | 5/min | `setup-configure` |
+| `/api/setup/detect-token` | GET | 10/min | `setup-detect-token` |
+| `/api/setup/prefill` | GET | 10/min | `setup-prefill` |
 | `/api/setup/configure` | POST | 5/min | `setup-configure` |
 | `PATCH /api/preferences` | PATCH | 20/min | `preferences-patch` |
 | `POST /public/waitlist` | POST | 5/min | `waitlist-submit` |
