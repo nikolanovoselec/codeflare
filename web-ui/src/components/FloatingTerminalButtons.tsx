@@ -188,7 +188,10 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
                   }
                 }, 5000);
               }
-              refocusTerminal();
+              // Don't call refocusTerminal() here — onPointerDown already
+              // prevents focus steal, and re-focusing causes a blur→focus
+              // cycle on Samsung that triggers spurious keyboard events
+              // which consume the sticky CTRL before the user types.
             }}
             title="CTRL"
           >
