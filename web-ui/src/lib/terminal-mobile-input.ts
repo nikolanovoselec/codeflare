@@ -245,9 +245,12 @@ export function setupMobileInput(
       if (!terminal) return;
       sentViaKeydown = false;
 
-      // Sticky CTRL: if the floating button activated it, treat this keypress as Ctrl+key
+      // Sticky CTRL: if the floating button activated it, treat this keypress as Ctrl+key.
+      // On mobile virtual keyboards, keydown often fires with key='Unidentified' or 'Process'.
+      // In that case, don't consume sticky CTRL here — let the 'input' event handler use it.
       const useCtrl = e.ctrlKey || _ctrlStickyActive;
-      if (_ctrlStickyActive) deactivateStickyCtrl();
+      const keyIdentified = e.key !== 'Unidentified' && e.key !== 'Process';
+      if (_ctrlStickyActive && keyIdentified) deactivateStickyCtrl();
 
       const action = resolveKeyAction(
         e.key,
@@ -291,6 +294,16 @@ export function setupMobileInput(
       if (!terminal) return;
       const val = input.value;
       if (val) {
+        // Sticky CTRL not consumed by keydown (key was 'Unidentified') — apply here
+        if (_ctrlStickyActive && val.length === 1) {
+          deactivateStickyCtrl();
+          const code = val.toLowerCase().charCodeAt(0);
+          if (code >= 97 && code <= 122) {
+            terminal.input(String.fromCharCode(code - 96), false);
+            input.value = '';
+            return;
+          }
+        }
         terminal.input(val, false);
         input.value = '';
       }
