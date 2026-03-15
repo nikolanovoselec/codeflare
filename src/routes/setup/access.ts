@@ -539,8 +539,10 @@ export async function handleCreateAccessApp(
       throw new Error(`Could not resolve Access group ${groupNames.admin}`);
     }
 
+    // In SaaS mode, skip user group creation — Access policy uses login_method
+    // instead of groups, and the Worker handles authorization via access tiers.
     let userGroup: AccessGroupResult | null = null;
-    if (regularUsers.length > 0) {
+    if (!saasMode && regularUsers.length > 0) {
       userGroup = await upsertAccessGroup(
         token,
         accountId,
@@ -583,9 +585,13 @@ export async function handleCreateAccessApp(
       audienceTags.push(appResult.aud);
     }
 
-    // Always use group-based policy. login_method includes broke the OAuth callback
-    // ("invalid login session"). The Worker handles authorization via access tiers.
-    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup?.id ?? null);
+    // SaaS mode: login_method include (anyone who authenticates via GitHub can enter).
+    // The Worker's three-tier middleware handles authorization via access tiers.
+    // Default mode: group-based include (only allowlisted users).
+    const saasLoginMethods = saasMode && saasIdpIds
+      ? saasIdpIds.map(id => ({ id }))
+      : undefined;
+    await upsertAccessPolicy(token, accountId, appResult.id, adminGroup.id, userGroup?.id ?? null, saasLoginMethods);
 
     await storeAccessConfig(token, accountId, kv, audienceTags, groupNames, {
       admin: adminGroup.id,
