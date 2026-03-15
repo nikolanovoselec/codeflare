@@ -103,6 +103,10 @@ In your fork: `Settings` > `Secrets and variables` > `Actions` > `New repository
 
 Add each as a separate secret. Name goes in the **Name** field, value in **Secret**. Click **Add secret** after each one.
 
+**Optional secrets:**
+- `RESEND_API_KEY` - for sending approval/rejection emails in SaaS mode or onboarding landing page (see [Configuration](#configuration) section)
+- `CF_ACCESS_CLIENT_SECRET` - for E2E testing (see [Configuration](#configuration) section)
+
 ### 3. Deploy
 
 Go to your fork: `Actions` > `Deploy` > `Run workflow` > Branch: `main` > **Run workflow**. GitHub Actions builds, tests, and deploys to Cloudflare Workers. Takes about 2 minutes - go grab a coffee.
@@ -169,6 +173,9 @@ All optional. The defaults work out of the box. I respect your time.
 | `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers on the login page (SaaS mode only) |
 | `CF_ACCESS_CLIENT_ID` | unset | CF Access service token client ID (secret — for E2E testing) |
 | `CF_ACCESS_CLIENT_SECRET` | unset | CF Access service token client secret (secret — for E2E testing) |
+| `RESEND_API_KEY` | unset | Resend API key (secret — for sending admin approval/rejection emails in SaaS or onboarding mode) |
+| `TURNSTILE_SITE_KEY` | unset | Cloudflare Turnstile site key (for CAPTCHA on public waitlist, required when `ONBOARDING_LANDING_PAGE=active`) |
+| `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification, required when `ONBOARDING_LANDING_PAGE=active`) |
 
 ### SaaS Mode (Custom Login)
 
@@ -177,13 +184,22 @@ Replaces the Cloudflare Access interstitial with a branded login page. New users
 **Setup:**
 
 1. **Configure identity providers** in your [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) — add Google, GitHub, or any OIDC/SAML provider
-2. **Set GitHub Actions variables** — go to your fork's `Settings` > `Secrets and variables` > `Actions` > `Variables` and add `SAAS_MODE` = `active`. If you have custom OIDC providers (not Google/GitHub/Facebook/LinkedIn), also add `SAAS_EXTRA_IDPS` with their UUIDs (comma-separated, from Zero Trust dashboard > Settings > Authentication > Login methods)
-3. **Deploy** — push to `main` or trigger a manual deploy. The setup wizard fetches all configured IdPs before creating the CF Access policy
+
+2. **Set GitHub Actions secrets** (if you want to send approval/rejection emails):
+   - Go to your fork: `Settings` > `Secrets and variables` > `Actions` > `New repository secret`
+   - Add `RESEND_API_KEY` — get your API key from [resend.com](https://resend.com/) (used to send emails when users are approved or rejected)
+
+3. **Set GitHub Actions variables** — go to your fork's `Settings` > `Secrets and variables` > `Actions` > `Variables` and add:
+   - `SAAS_MODE` = `active` (enables SaaS mode)
+   - `SAAS_EXTRA_IDPS` = comma-separated IdP UUIDs (optional, only if you have custom OIDC/SAML providers beyond Google/GitHub/Facebook/LinkedIn — get UUIDs from Zero Trust dashboard > Settings > Authentication > Login methods)
+
+4. **Deploy** — push to `main` or trigger a manual deploy. The setup wizard fetches all configured IdPs before creating the CF Access policy.
 
 **What happens:**
 - Root `/` detects SaaS mode and shows a branded login page with social IdP buttons (+ any custom providers from `SAAS_EXTRA_IDPS`)
 - New users who sign in are auto-provisioned with `pending` status and see a "waiting for approval" page
 - Admins approve users at `/admin/users` (or via Settings > Administration > Manage Users)
+- If `RESEND_API_KEY` is set, admins receive an email notification when users request access; users receive approval/rejection emails
 - Once approved, the pending page auto-redirects to the IDE
 - Admins can set users to `standard` (default mode only) or `advanced` (all modes) tiers
 - The CF Access policy includes all configured IdPs (not just social) to allow authentication

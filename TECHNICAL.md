@@ -640,7 +640,7 @@ flowchart TD
 
 ## SaaS Mode Authentication
 
-When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` access tier and require admin approval.
+When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` access tier and require admin approval. This section documents the complete SaaS auth flow from initial setup through user approval to session management.
 
 ### Deployment Modes
 
@@ -649,99 +649,254 @@ When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial w
 | **Default** (no `SAAS_MODE`) | Cloudflare Access (JWT) | Manual allowlist via setup wizard | CF Access policies + KV allowlist |
 | **SaaS** (`SAAS_MODE=active`) | Custom login page + CF Access IdP hints | Auto-provisioned on first login | Three-tier middleware + KV access tiers |
 
+### Complete SaaS Authentication Flow
+
+The diagram below shows the entire journey from first visitor to approved, active user:
+
+```mermaid
+flowchart TD
+    A["Visitor arrives at domain"] --> B["CF Access intercepts request<br/>(no JWT cookie)"]
+    B --> C{"Access policy<br/>login_method check"}
+    C -->|not authenticated| D["Redirect to GitHub OAuth<br/>(auto_redirect_to_identity=true)"]
+    D --> E["User completes GitHub login"]
+    E --> F["CF Access mints JWT<br/>(CF_Authorization cookie)"]
+    F --> G["Redirect to /app/<br/>with CF_Authorization cookie"]
+    G --> H["Request reaches Worker<br/>with CF Access JWT"]
+    H --> I["authenticateRequest verifies JWT<br/>from JWKS at auth_domain"]
+    I --> J["Extract user email<br/>from JWT claims"]
+    J --> K{"User in KV?<br/>user:{email} record"}
+    K -->|no| L["JIT Provision:<br/>new record with pending tier"]
+    K -->|yes| M["Load existing<br/>access tier"]
+    L --> N["requireActiveUser check"]
+    M --> N
+    N -->|tier=pending| O["Redirect to /app/subscribe"]
+    N -->|tier=standard| P["Allow IDE access"]
+    N -->|tier=advanced| P
+    N -->|tier=blocked| Q["Redirect: blocked message"]
+    O --> R["SubscribePage shows Turnstile"]
+    R --> S["User completes CAPTCHA"]
+    S --> T["POST /api/auth/request-access<br/>with turnstileToken"]
+    T --> U["Verify token with Turnstile API"]
+    U --> V["Set requestedAt timestamp<br/>in KV user record"]
+    V --> W["Send admin notification<br/>via Resend email"]
+    W --> X["SubscribePage polls /api/auth/status<br/>every 10 seconds"]
+    X --> Y{"Admin approves?<br/>sets tier to standard"}
+    Y -->|no| X
+    Y -->|yes| Z["Frontend detects tier change"]
+    Z --> AA["Show 'Access Granted' state"]
+    AA --> AB["User clicks Continue → /app/"]
+    AB --> P
+    P --> AC["Session created with tier"]
+    AC --> AD["Tier controls session mode<br/>standard=default only<br/>advanced=default+advanced"]
+```
+
+This flow highlights the key architectural choice: **CF Access handles authentication (identity), while the Worker handles authorization (access control)**. CF Access only knows "is this person GitHub-authenticated?" while the Worker enforces the business logic: "is this person an approved tier?"
+
 ### Three-Tier Auth Middleware
 
-SaaS mode uses a layered middleware stack on every request to protected routes:
+SaaS mode uses a layered middleware stack on every request to protected routes. See `src/middleware/auth.ts`:
 
-1. **`requireIdentity`** — Resolves the user from CF Access JWT. If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')` with email, role, and accessTier.
-2. **`requireActiveUser`** — Checks `accessTier` is `standard` or `advanced`. Returns 403 for `pending`/`blocked` users. API requests get JSON error; the frontend redirects to `/app/subscribe`.
-3. **`requireAdmin`** — Checks `role === 'admin'`. Used for user management endpoints.
+1. **`requireIdentity`** — Resolves the user from CF Access JWT (verified via JWKS at auth_domain). If the user is not in KV, auto-provisions them with `pending` tier via `resolveOrProvisionUser()`. Sets `c.get('user')` with email, role, and accessTier. Used for endpoints like `/api/auth/status` where pending users need to see Turnstile and request-access button.
 
-When `SAAS_MODE` is not active, `requireActiveUser` (aliased as `authMiddleware`) behaves identically to the original middleware — no tier checking.
+2. **`requireActiveUser`** — Authenticates (same as requireIdentity) then checks `accessTier` is `standard` or `advanced`. When SAAS_MODE is active:
+   - Pending users on API routes get 403 JSON: `{ error: 'Access denied', code: 'PENDING' }`
+   - Pending users on HTML requests get 403 but frontend catches it and redirects to `/app/subscribe`
+   - Blocked users get 403 JSON: `{ error: 'Access denied', code: 'BLOCKED' }`
+   - Standard/advanced users pass through
+
+   When SAAS_MODE is NOT active, requireActiveUser behaves identically to requireIdentity (no tier checking, backward compat).
+
+3. **`requireAdmin`** — Checks `role === 'admin'`. Must be used AFTER requireIdentity or requireActiveUser. Used for `/admin/*` and user management endpoints.
 
 ### Access Tiers
 
 | Tier | Can log in | Can use IDE | Session modes | How assigned |
 |------|-----------|-------------|---------------|-------------|
-| `pending` | Yes | No | None | Auto-assigned on first login |
-| `standard` | Yes | Yes | `default` only | Admin promotes from `pending` |
-| `advanced` | Yes | Yes | `default` + `advanced` | Admin grants full access |
-| `blocked` | Yes | No | None | Admin blocks user |
+| `pending` | Yes | No | None | Auto-assigned on first login (JIT provisioning) |
+| `standard` | Yes | Yes | `default` only | Admin manually promotes from `pending` in User Management |
+| `advanced` | Yes | Yes | `default` + `advanced` | Admin manually grants full access (or users created via allowedUsers list at setup) |
+| `blocked` | Yes | No | None | Admin blocks user to revoke IDE access without deleting record |
 
-Tiers are stored in the KV record at `user:{email}` in the `accessTier` field. Existing users without `accessTier` default to `advanced` (backward compat).
+Tiers are stored in the KV record at `user:{email}` in the `accessTier` field (JSON value is `{ addedBy, addedAt, role, accessTier }`). Existing users without `accessTier` default to `advanced` (backward compatibility with setups created before tier support).
 
-### Auth Routes
+The tier logic is defined in `src/lib/access-tier.ts`:
+- `isActiveUser(tier)` — returns true if tier is `standard`, `advanced`, or undefined
+- `allowedSessionModes(tier)` — returns array of modes user can select: `advanced` tier gets both `default` and `advanced`, `standard` gets only `default`
+- `canUseSessionMode(tier, mode)` — checks if a specific mode is allowed
 
-| Route | Method | Auth | Purpose |
-|-------|--------|------|---------|
-| `/public/auth/providers` | GET | Public | Returns filtered IdP list (GitHub in SaaS mode + `SAAS_EXTRA_IDPS` UUIDs) |
-| `/api/auth/status` | GET | Identity | Returns email, accessTier, role, turnstileSiteKey, requestedAt |
-| `/api/auth/request-access` | POST | Identity | Turnstile-verified access request for pending users (3/hr rate limit) |
-| `/auth/login/:provider` | GET | Public | Redirects to `/app/` (CF Access handles auth) |
-| `/auth/logout` | GET | Public | Redirects to CF Access logout |
+### CF Access Configuration Strategy
 
-**Login Flow:** Login buttons link directly to `/app/`. CF Access intercepts unauthenticated requests. With `auto_redirect_to_identity: true` and a single allowed IdP (e.g., GitHub), CF Access skips its login page and redirects directly to the IdP. After authentication, the user lands on `/app/` with a valid `CF_Authorization` cookie.
+The setup wizard (Step 5 in `src/routes/setup/index.ts`) calls `handleCreateAccessApp()` in `src/routes/setup/access.ts` to configure Cloudflare Access. The key architectural decision is **login_method vs. groups**.
 
-**IdP Limitation:** CF Access only supports a single IdP with `auto_redirect_to_identity`. Using multiple IdPs requires showing the CF Access login page (which breaks the branded experience). To support multiple social logins (Google, GitHub, etc.) and custom OIDC providers, auth would need to be implemented directly in the Worker, bypassing CF Access entirely. This is planned for the future but not currently implemented.
+#### Why login_method in SaaS mode (not groups)
 
-**IdP Filtering:** The `/public/auth/providers` endpoint filters the full IdP list stored in KV (`setup:idp_list`). In SaaS mode, only GitHub is returned. The `SAAS_EXTRA_IDPS` env var exists for future multi-IdP support but requires the custom Worker auth implementation described above. This endpoint bypasses CF Access (served outside `/api/*`).
+- **Groups (default mode):** `include: { group: { id: adminGroupId } }, { group: { id: userGroupId } }` — CF Access only allows users in these specific allowlisted groups. Works for closed deployments with known user emails.
 
-**Access Application Config:** In SaaS mode, the setup wizard configures the Access app with:
-- `allowed_idps`: restricted to GitHub only (controls which IdP is available for authentication)
-- `auto_redirect_to_identity: true`: skips CF Access login page and redirects directly to GitHub
-- `skip_interstitial: true`: skips the "you are being redirected" page
+- **login_method (SaaS mode):** `include: { login_method: { id: githubIdpId } }` — CF Access allows ANY GitHub-authenticated user. The Worker then enforces per-user access tiers (pending/standard/advanced/blocked) based on KV records. This enables open SaaS signup.
 
-**Access Policy:**
-- **SaaS mode:** `login_method` include with GitHub IdP UUID. Any GitHub-authenticated user passes CF Access. The Worker handles authorization via access tiers (pending/standard/advanced/blocked). User groups are not created.
-- **Default mode:** Group-based includes (admin + user groups). Only allowlisted users pass CF Access.
+The policy is created via `upsertAccessPolicy()` at line 384-465 of `src/routes/setup/access.ts`:
+- If `saasLoginMethods` array is provided, use `login_method` includes (SaaS mode)
+- Otherwise, use `group` includes (default mode)
 
-**Login Page:** Branded page with animated logo (float + glow pulse), ScrambleText title animation (JetBrains Mono), floating particle layers, MDI icon feature highlights, and provider buttons. Served at `/` in SaaS mode. Login buttons use `window.location.href` for full page navigation (avoids SolidJS Router intercepting the click before CF Access can redirect).
+In SaaS mode, the admin group is NOT included in the policy because admin status is enforced by the Worker (via `requireAdmin` middleware), not CF Access. This allows admins to be demoted without Cloudflare API calls.
 
-**Subscribe Page (`/app/subscribe`):** Profile/subscription page accessible via the header user dropdown ("Profile"). Shows tier-based content:
-- **Pending (no request):** Turnstile CAPTCHA + "Request Access" button. Site key delivered via `/api/auth/status`.
-- **Pending (requested):** "Pending Approval" with 10s polling. When approved, shows active status (no auto-redirect).
-- **Active (standard/advanced):** Green checkmark, "Your Access is Active" message, and "Continue" button linking to `/app/`. Active users are never auto-redirected — they can always view their status. This page will become the subscription management page (Stripe integration) in a future release.
-- **Blocked:** Red message + logout. Uses `MutationObserver` to detect Turnstile token (no timer-based polling).
+#### Why syncAccessPolicy is skipped in SaaS mode
 
-### User Lifecycle
+Later deployments should NOT call `syncAccessPolicy()` if SaaS mode is active. If called, it would overwrite the `login_method` policy with `group` includes, breaking open signup. Currently there is no sync function, but this is documented for future maintainers.
 
-```mermaid
-flowchart TD
-    A[User visits /] --> B[Login page with GitHub button]
-    B --> C[Click → CF Access → GitHub OAuth]
-    C --> D[CF Access redirects back with JWT]
-    D --> E{User in KV?}
-    E -->|no| F[Auto-provision with pending tier]
-    E -->|yes| G[Load existing tier]
-    F --> H{Tier check}
-    G --> H
-    H -->|pending| I[/app/subscribe — Turnstile + Request Access]
-    I -->|Submit| I2[Pending approval — polls every 10s]
-    H -->|standard/advanced| J[IDE access /app]
-    H -->|blocked| K[Blocked message + logout]
-    I2 -->|Admin approves| J
+#### Access Application Configuration
+
+The setup wizard configures the Access app (created/updated via `upsertAccessApp()` at line 147-217) with these SaaS-specific settings:
+
+```typescript
+appBody = {
+  name: managedAppName,
+  domain: appDomain,
+  destinations: [...'/app/*', '/api/*', '/setup', ...],
+  type: 'self_hosted',
+  session_duration: '24h',
+  skip_interstitial: true,
+  auto_redirect_to_identity: saasIdpIds ? saasIdpIds.length === 1 : false,
+  allowed_idps: saasIdpIds,  // [githubIdpId] in SaaS mode
+}
 ```
 
-### RootPage Mode Detection
+Key points:
+- `allowed_idps: [githubIdpId]` — restricts the login UI to show only GitHub (if multiple IdPs exist in the account)
+- `auto_redirect_to_identity: true` (when exactly one IdP) — skips the CF Access login page and redirects directly to GitHub OAuth, creating a seamless branded experience
+- `skip_interstitial: true` — skips the "you are being redirected" page after OAuth completes
+- `session_duration: '24h'` — CF Access JWT is valid for 24 hours; user must re-authenticate when cookie expires
 
-The frontend `RootPage` component (`web-ui/src/App.tsx`) determines which landing to show:
+The IdP list is fetched early and stored in KV (`setup:idp_list`) for frontend use. See line 533-538 of `src/routes/setup/access.ts`.
 
-1. **Probe `/public/auth/providers`** — if it returns providers, show `LoginPage` (SaaS mode)
-2. **Probe `/public/onboarding-config`** — if active, show `OnboardingLanding` (waitlist mode)
-3. **Fallback** — redirect to `/app/` (default mode, CF Access handles login)
+### JIT User Provisioning
 
-This avoids requiring a client-side env variable — the frontend discovers the deployment mode from the backend.
+When a GitHub-authenticated user (verified CF Access JWT) makes their first request to a protected endpoint:
 
-### Configuration
+1. `authenticateRequest()` in `src/lib/access.ts` extracts the user's email from the JWT
+2. `resolveUserFromKV()` looks up `user:{email}` — not found (first login)
+3. If SAAS_MODE is active, `resolveOrProvisionUser()` creates a new KV record:
+   ```json
+   {
+     "addedBy": "jit",
+     "addedAt": "2025-03-15T12:00:00Z",
+     "role": "user",
+     "accessTier": "pending"
+   }
+   ```
+4. The user is returned with `accessTier: 'pending'`
+5. If the route uses `requireActiveUser`, it rejects with 403 → frontend redirects to `/app/subscribe`
+
+**Concurrency note:** KV has eventual consistency. If two requests for the same new user arrive simultaneously, both may reach the JIT provision step and write identical records. This is benign — both produce the same result. KV's per-key serialization prevents split-brain scenarios.
+
+**Stale user cleanup:** Admins can manually delete users via the User Management UI (`web-ui/src/components/admin/UserManagement.tsx`). There is no automatic cleanup of pending users who never request access. A future enhancement could archive records after 30 days of inactivity.
+
+### First-Time Onboarding Redirect
+
+When an active user logs in for the first time, the frontend (`web-ui/src/App.tsx` at line 52-54) checks:
+```typescript
+if (user.saasMode && !user.onboardingComplete) {
+  window.location.href = '/app/onboarding';
+  return;
+}
+```
+
+The `onboardingComplete` flag is set in KV when the user calls `POST /api/auth/onboarding-complete` (line 192-205 of `src/routes/auth.ts`). This allows the setup wizard or onboarding page to mark guided setup as finished, and the user won't be redirected again.
+
+### Access Request Flow (Pending → Approval)
+
+When a pending user submits an access request via `/app/subscribe`:
+
+1. **Turnstile verification:** The frontend renders a Cloudflare Turnstile CAPTCHA (data-sitekey from `/api/auth/status`). User completes the challenge, obtaining a token.
+
+2. **Rate limiting:** `POST /api/auth/request-access` is rate-limited to 3 requests per hour per user (see `src/routes/auth.ts` line 55-59). This prevents spam.
+
+3. **Idempotency:** If `requestedAt` is already set in the user's KV record, the endpoint returns success without re-notifying admins (line 113-116).
+
+4. **Admin notification:** If `RESEND_API_KEY` env var is set, the Worker sends an email to all admins with the user's email and request timestamp (line 154-186). Email is sent via Resend API.
+
+5. **Polling:** The frontend polls `/api/auth/status` every 10 seconds (line 36 of `src/components/SubscribePage.tsx`). When the admin approves the user (changing `accessTier` to `standard` or `advanced`), the poll detects the change and updates the UI to "Access Granted".
+
+6. **No auto-redirect:** Active users are NOT automatically redirected from `/app/subscribe`. They choose when to click "Continue". This allows them to always see their account status. (This was a key lesson learned: automatic redirects create confusion when the user wants to verify their account status.)
+
+### Session Mode Upgrade (Auto-Advanced)
+
+When the frontend detects a tier change to `advanced`, it can optionally upgrade the user's `sessionMode` preference from `default` to `advanced` (if stored in KV). See `src/lib/access-tier.ts` at line 7-10 for the tier-to-modes mapping. This allows users to immediately use advanced sessions after promotion.
+
+### Logout Flow
+
+`GET /auth/logout` in `src/routes/auth-redirects.ts`:
+
+1. Retrieves `setup:auth_domain` from KV (set during setup)
+2. Computes `returnTo` URL (custom domain root or fallback)
+3. Redirects to CF Access logout endpoint:
+   ```
+   https://{auth_domain}/cdn-cgi/access/logout?returnTo={encodeURIComponent(returnTo)}
+   ```
+4. CF Access clears the `CF_Authorization` cookie and redirects back to returnTo
+
+The frontend calls this via `window.location.href = '/cdn-cgi/access/logout?returnTo=...'` directly (see `web-ui/src/components/SubscribePage.tsx` line 298-300), which also works because `/cdn-cgi/access/logout` is a CF Access system endpoint.
+
+### Frontend Components
+
+#### LoginPage (`web-ui/src/components/LoginPage.tsx`)
+
+Shown at `/` when `SAAS_MODE=active` and providers are configured. Features:
+- Detects if the current user is already authenticated (pending, standard, advanced, or blocked)
+- If tier is pending/standard/advanced, redirects to `/app/`; if blocked, shows blocked message
+- If unauthenticated, fetches providers from `/public/auth/providers` and renders GitHub login button
+- Uses `window.location.href` to navigate (avoids SolidJS Router intercepting the navigation)
+- Animated logo (float + glow), ScrambleText title animation, feature highlights with MDI icons
+
+#### SubscribePage (`web-ui/src/components/SubscribePage.tsx`)
+
+Shown at `/app/subscribe` for pending and approved users. States:
+- **Loading:** Shows spinner while fetching `/api/auth/status`
+- **Pending (no request):** Renders Turnstile CAPTCHA + "Request Access" button. Turnstile script is dynamically loaded from `https://challenges.cloudflare.com/turnstile/v0/api.js`. Uses `MutationObserver` to detect when Turnstile token appears in the DOM (rather than polling a timer).
+- **Pending (requested):** Shows "Pending Approval" with pulsing indicator. Polls `/api/auth/status` every 10 seconds.
+- **Active (standard/advanced):** Shows green checkmark, "Your Access is Active", and "Continue" button.
+- **Blocked:** Shows red message + logout link.
+
+#### RootPage (`web-ui/src/App.tsx` lines 159-205)
+
+Determines deployment mode and renders appropriate landing:
+1. Calls `/public/auth/providers` (public, no auth required) — if it returns providers, show LoginPage (SaaS mode)
+2. Calls `/public/onboarding-config` (public) — if active, show OnboardingLanding
+3. Otherwise, redirect to `/app/` (default mode with CF Access)
+
+This avoids needing a client-side env variable. The frontend auto-detects the mode from the backend.
+
+### Environment Variables for SaaS Mode
+
+Set as GitHub Actions repository variables (not secrets, since they're non-sensitive).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `SAAS_MODE` | unset | Set to `active` to enable custom login, auto-provisioning, and admin approval |
-| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs to include on login page alongside social providers |
+| `SAAS_MODE` | unset | Set to `active` to enable custom login, JIT provisioning, and admin approval |
+| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for future multi-IdP support (currently unused) |
+| `RESEND_API_KEY` | unset | Resend email API token for admin notifications on access requests |
+| `WAITLIST_FROM_EMAIL` | `Codeflare <onboarding@resend.dev>` | From address for admin notification emails |
+| `ONBOARDING_LANDING_PAGE` | unset | Set to `active` to show waitlist/onboarding page at `/` instead of login |
 
-Both are set as GitHub Actions repository variables. Passed to the worker at deploy time via `--var` in `deploy.yml`. Prerequisites: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets (required for any deploy).
+Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--var` in `deploy.yml`.
 
-**`SAAS_EXTRA_IDPS` usage:** Reserved for future multi-IdP support. Currently unused because CF Access only supports a single IdP with instant authentication. Supporting multiple social logins (Google, GitHub, Facebook, LinkedIn) and custom OIDC/SAML providers (Authentik, Okta) is planned — requires implementing auth directly in the Worker to bypass CF Access.
+### Common Pitfalls and Lessons Learned
+
+These issues were discovered and fixed during SaaS mode implementation:
+
+1. **Auto-redirect loops:** Early versions auto-redirected pending users from `/app/subscribe` to themselves when admin approved (e.g., on page load after approval, redirect back to `/app/subscribe`). Fixed by removing auto-redirect; users now click "Continue" manually. This also allows users to verify their tier was actually updated.
+
+2. **Stale JWT cache:** The Worker cached auth config (auth_domain, access_aud) for 5 minutes. If setup changed during that window, old JWT would fail to verify. Fixed by adding auth config cache invalidation via `resetAuthConfigCache()` called after setup completes.
+
+3. **Policy overwrite on reconfigure:** If admin re-ran setup with the same SaaS mode config, the access policy would be re-synced (if a sync function existed). This would overwrite `login_method` with `group` includes if the function didn't check the mode. Fixed by not calling sync in SaaS mode (and documenting this constraint).
+
+4. **Concurrent first-login writes:** KV eventual consistency means two simultaneous first-logins could write the same user record twice. This is actually benign (idempotent), but the code includes a note about it for future maintainers.
+
+5. **CSRF on state-changing requests:** Early versions didn't check for `X-Requested-With` header on POST/PUT/DELETE. Added in `authenticateRequest()` at line 292-298 of `src/lib/access.ts`.
+
+6. **Email header spoofing post-setup:** If auth was configured (auth_domain set), the Worker would reject requests without a valid JWT, preventing header spoofing via `cf-access-authenticated-user-email`. This is intentional (line 154-158 of `src/lib/access.ts`).
+
+7. **Service token auth for e2e tests:** Added support for `X-Service-Auth` header with custom secret for CI/e2e tests that can't go through CF Access (line 112-139).
 
 ---
 
@@ -842,6 +997,7 @@ When the limit is exceeded: HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: 
 | `/api/setup/prefill` | GET | 10/min | `setup-prefill` |
 | `/api/setup/configure` | POST | 5/min | `setup-configure` |
 | `PATCH /api/preferences` | PATCH | 20/min | `preferences-patch` |
+| `POST /api/auth/request-access` | POST | 3/hr | `request-access` |
 | `POST /public/waitlist` | POST | 5/min | `waitlist-submit` |
 
 **Adding a new rate limiter:**
