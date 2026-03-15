@@ -169,7 +169,7 @@ All optional. The defaults work out of the box. I respect your time.
 | `MAX_SESSIONS_USER` | `3` | Max concurrent running sessions per regular user |
 | `MAX_SESSIONS_ADMIN` | `10` | Max concurrent running sessions per admin user |
 | `E2E_BASE_URL` | unset | Custom domain URL for E2E tests (e.g., `https://codeflare.example.com`) |
-| `SAAS_MODE` | `inactive` | Set to `active` for custom login page with social IdPs and admin approval gate |
+| `SAAS_MODE` | `inactive` | Set to `active` for custom login page with social IdPs, guided onboarding, user management, and admin approval gate. See [TECHNICAL.md](TECHNICAL.md) Section 8 for full auth architecture. |
 | `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers on the login page (SaaS mode only) |
 | `CF_ACCESS_CLIENT_ID` | unset | CF Access service token client ID (secret — for E2E testing) |
 | `CF_ACCESS_CLIENT_SECRET` | unset | CF Access service token client secret (secret — for E2E testing) |
@@ -179,34 +179,9 @@ All optional. The defaults work out of the box. I respect your time.
 
 ### SaaS Mode (Custom Login)
 
-Replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned and require admin approval before accessing the IDE.
+Set `SAAS_MODE=active` to replace the Cloudflare Access interstitial with a branded login page, guided onboarding, user management, and admin approval workflow. New users authenticate via GitHub OAuth, get auto-provisioned with `pending` status, and require admin approval before accessing the IDE. Leave `SAAS_MODE` unset for the default Cloudflare Access login.
 
-**Setup:**
-
-1. **Configure identity providers** in your [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) — add Google, GitHub, or any OIDC/SAML provider
-
-2. **Set GitHub Actions secrets** (if you want to send approval/rejection emails):
-   - Go to your fork: `Settings` > `Secrets and variables` > `Actions` > `New repository secret`
-   - Add `RESEND_API_KEY` — get your API key from [resend.com](https://resend.com/) (used to send emails when users are approved or rejected)
-
-3. **Set GitHub Actions variables** — go to your fork's `Settings` > `Secrets and variables` > `Actions` > `Variables` and add:
-   - `SAAS_MODE` = `active` (enables SaaS mode)
-   - `SAAS_EXTRA_IDPS` = comma-separated IdP UUIDs (optional, only if you have custom OIDC/SAML providers beyond Google/GitHub/Facebook/LinkedIn — get UUIDs from Zero Trust dashboard > Settings > Authentication > Login methods)
-
-4. **Deploy** — push to `main` or trigger a manual deploy. The setup wizard fetches all configured IdPs before creating the CF Access policy.
-
-**What happens:**
-- Root `/` detects SaaS mode and shows a branded login page with social IdP buttons (+ any custom providers from `SAAS_EXTRA_IDPS`)
-- New users who sign in are auto-provisioned with `pending` status and see a "waiting for approval" page
-- Admins approve users at `/admin/users` (or via Settings > Administration > Manage Users)
-- If `RESEND_API_KEY` is set, admins receive an email notification when users request access; users receive approval/rejection emails
-- Once approved, the pending page auto-redirects to the IDE
-- Admins can set users to `standard` (default mode only) or `advanced` (all modes) tiers
-- The CF Access policy includes all configured IdPs (not just social) to allow authentication
-
-**No SaaS mode?** Leave `SAAS_MODE` unset — the app works exactly as before with Cloudflare Access handling login.
-
-See `TECHNICAL.md` Section 8 for the full auth architecture.
+See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth flow diagrams, and common pitfalls.
 
 </details>
 
