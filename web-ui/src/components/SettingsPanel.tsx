@@ -143,7 +143,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
-  const currentSessionMode = () => isAdmin() ? 'advanced' : (sessionStore.preferences.sessionMode ?? 'default');
+  const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
@@ -626,8 +626,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             <DeployKeysSection />
           </AccordionSection>
 
-          {/* ── LLM API Keys (advanced mode only) ── */}
-          <Show when={currentSessionMode() === 'advanced'}>
+          {/* ── LLM API Keys (visible to admins and advanced-tier users) ── */}
+          <Show when={isAdmin() || canUseAdvanced()}>
             <AccordionSection
               group="llm"
               title="LLM API Keys"
