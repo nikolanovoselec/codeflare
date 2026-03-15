@@ -626,8 +626,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             <DeployKeysSection />
           </AccordionSection>
 
-          {/* ── LLM API Keys (visible to admins and advanced-tier users) ── */}
-          <Show when={isAdmin() || canUseAdvanced()}>
+          {/* ── LLM API Keys (advanced session mode only) ── */}
+          <Show when={canUseAdvanced() && currentSessionMode() === 'advanced'}>
             <AccordionSection
               group="llm"
               title="LLM API Keys"
