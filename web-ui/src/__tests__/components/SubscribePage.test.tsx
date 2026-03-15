@@ -57,7 +57,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Request Access/)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /Request Access/ })).toBeInTheDocument();
       });
     });
 
