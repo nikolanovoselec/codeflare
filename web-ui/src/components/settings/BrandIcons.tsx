@@ -26,7 +26,7 @@ export const GitHubIcon: Component<BrandIconProps> = (props) => (
 /** Cloudflare logo mark */
 export const CloudflareIcon: Component<BrandIconProps> = (props) => (
   <svg
-    viewBox="-1 1 27 18"
+    viewBox="-1 0 27 20"
     width={props.size || 24}
     height={props.size || 24}
     class={props.class}

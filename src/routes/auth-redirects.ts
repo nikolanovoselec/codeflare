@@ -21,8 +21,11 @@ app.get('/login/:provider', async (c) => {
 
 app.get('/logout', async (c) => {
   const authDomain = await c.env.KV.get('setup:auth_domain');
-  const appUrl = new URL(c.req.url);
-  const returnTo = `${appUrl.protocol}//${appUrl.host}/`;
+  const customDomain = await c.env.KV.get('setup:custom_domain');
+  // Redirect to custom domain root after logout (login page)
+  const returnTo = customDomain
+    ? `https://${customDomain}/`
+    : `${new URL(c.req.url).protocol}//${new URL(c.req.url).host}/`;
 
   if (authDomain) {
     return c.redirect(

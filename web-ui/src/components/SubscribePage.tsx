@@ -22,12 +22,17 @@ import Icon from './Icon';
 import { logger } from '../lib/logger';
 import '../styles/subscribe-page.css';
 
-const FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiRocketLaunchOutline, text: 'Ready to code in seconds' },
-  { icon: mdiCellphoneLink, text: 'Runs on any device with a browser' },
-  { icon: mdiSourceBranch, text: 'GitHub & Cloudflare integration' },
-  { icon: mdiCloudLockOutline, text: 'Data persisted & encrypted at rest' },
-  { icon: mdiCellphoneScreenshot, text: 'Optimized for mobiles & foldables' },
+interface Feature {
+  icon: string;
+  content: () => ReturnType<typeof import('solid-js').Component>;
+}
+
+const FEATURES: Feature[] = [
+  { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
+  { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
+  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration</> },
+  { icon: mdiCloudLockOutline, content: () => <>Data persisted & encrypted at rest</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Optimized for mobiles & foldables</> },
 ];
 
 const POLL_INTERVAL_MS = 10_000;
@@ -186,10 +191,8 @@ const SubscribePage: Component = () => {
         </h1>
 
         <p class="subscribe-subtitle">
-          Ephemeral cloud development putting five coding agents
-          into the palm of your hand. Running in the cloud and ready
-          when and wherever you are, because you never know when
-          the next idea will strike.
+          Five coding agents in the palm of your hand.
+          Ready when you are, wherever you are.
         </p>
 
         <div class="subscribe-features">
@@ -199,7 +202,7 @@ const SubscribePage: Component = () => {
                 <span class="subscribe-feature-icon">
                   <Icon path={feature.icon} size={16} />
                 </span>
-                <span class="subscribe-feature-text">{feature.text}</span>
+                <span class="subscribe-feature-text">{feature.content()}</span>
               </div>
             )}
           </For>
