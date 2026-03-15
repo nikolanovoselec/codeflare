@@ -1,4 +1,4 @@
-import { Component, For, createSignal, onMount } from 'solid-js';
+import { Component, For, Show, createSignal, onMount } from 'solid-js';
 import { setupStore } from '../../stores/setup';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -85,40 +85,42 @@ const ConfigureStep: Component = () => {
         </div>
       </div>
 
-      {/* Regular Users (Optional) */}
-      <div class="setup-field">
-        <label class="setup-field-label">Regular Users</label>
-        <p class="setup-field-description">
-          Can use Codeflare but cannot manage users
-        </p>
-        <div class="email-input-row">
-          <Input
-            value={regularEmailInput()}
-            onInput={(value) => setRegularEmailInput(value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddRegularEmail(); } }}
-            placeholder="user@example.com"
-          />
-          <Button onClick={handleAddRegularEmail} variant="secondary" size="sm">
-            Add
-          </Button>
+      {/* Regular Users (Optional) — hidden in SaaS mode */}
+      <Show when={!setupStore.saasMode}>
+        <div class="setup-field">
+          <label class="setup-field-label">Regular Users</label>
+          <p class="setup-field-description">
+            Can use Codeflare but cannot manage users
+          </p>
+          <div class="email-input-row">
+            <Input
+              value={regularEmailInput()}
+              onInput={(value) => setRegularEmailInput(value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddRegularEmail(); } }}
+              placeholder="user@example.com"
+            />
+            <Button onClick={handleAddRegularEmail} variant="secondary" size="sm">
+              Add
+            </Button>
+          </div>
+          <div class="email-tags">
+            <For each={setupStore.allowedUsers}>
+              {(email) => (
+                <span class="email-tag">
+                  {email}
+                  <button
+                    type="button"
+                    class="email-tag-remove"
+                    onClick={() => setupStore.removeAllowedUser(email)}
+                  >
+                    x
+                  </button>
+                </span>
+              )}
+            </For>
+          </div>
         </div>
-        <div class="email-tags">
-          <For each={setupStore.allowedUsers}>
-            {(email) => (
-              <span class="email-tag">
-                {email}
-                <button
-                  type="button"
-                  class="email-tag-remove"
-                  onClick={() => setupStore.removeAllowedUser(email)}
-                >
-                  x
-                </button>
-              </span>
-            )}
-          </For>
-        </div>
-      </div>
+      </Show>
 
       {/* Navigation */}
       <div class="setup-actions">

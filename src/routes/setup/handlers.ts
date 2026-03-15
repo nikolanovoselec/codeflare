@@ -21,8 +21,9 @@ handlers.get('/status', statusRateLimiter, async (c) => {
   const setupComplete = await c.env.KV.get('setup:complete');
   const configured = setupComplete === 'true';
   const customDomain = configured ? await c.env.KV.get('setup:custom_domain') : null;
+  const saasMode = c.env.SAAS_MODE === 'active';
 
-  return c.json({ configured, ...(customDomain && { customDomain }) });
+  return c.json({ configured, ...(customDomain && { customDomain }), saasMode });
 });
 
 /**

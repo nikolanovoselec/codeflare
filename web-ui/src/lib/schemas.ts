@@ -148,6 +148,7 @@ export const SetupStatusResponseSchema = z.object({
   configured: z.boolean(),
   tokenDetected: z.boolean().optional(),
   customDomain: z.string().optional(),
+  saasMode: z.boolean().optional(),
 });
 
 export const DetectTokenResponseSchema = z.object({

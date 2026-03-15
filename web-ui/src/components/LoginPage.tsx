@@ -2,7 +2,6 @@ import { Component, onMount, createSignal, Show, For } from 'solid-js';
 import {
   mdiRocketLaunchOutline,
   mdiCellphoneLink,
-  mdiGithub,
   mdiCloudLockOutline,
   mdiCellphoneScreenshot,
   mdiSourceBranch,
