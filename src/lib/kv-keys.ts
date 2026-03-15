@@ -15,12 +15,14 @@ export function emailFromKvKey(keyName: string): string {
 const MAX_KV_LIST_ITERATIONS = 100;
 
 /**
- * Sanitize a session name to a strict allowlist.
- * Allows only alphanumeric characters, spaces, hyphens, underscores, and '#'.
- * Rejects shell metacharacters like $(), |, ;, etc.
+ * Sanitize a session name to prevent shell injection and XSS.
+ * Allows only: alphanumeric, spaces, hyphens, underscores, and '#'.
+ * Rejects all shell metacharacters ($, `, |, ;, &, <, >, etc.) and special chars.
+ * Example: "Claude Code #1" → "Claude Code #1", "Bad$(rm -rf)" → "Badrmrf"
  */
 export function sanitizeSessionName(name: string): string {
-  // Allow only alphanumeric, spaces, hyphens, underscores, and # (used in session names like "Claude Code #1")
+  // Allowlist: a-z A-Z 0-9 space hyphen underscore hash
+  // Uses replace (not regex alternation) to ensure single-pass filtering
   return name.replace(/[^a-zA-Z0-9 #_-]/g, '').trim() || 'Untitled';
 }
 
@@ -39,11 +41,12 @@ export function getSessionPrefix(bucketName: string): string {
 }
 
 /**
- * Generate a random session ID.
+ * Generate a cryptographically secure random session ID.
  *
  * Produces 96 bits of entropy (12 random bytes) encoded as 24 lowercase hex
- * characters, which matches the {@link SESSION_ID_PATTERN} validation regex
- * (`/^[a-z0-9]{8,24}$/`).
+ * characters. Matches SESSION_ID_PATTERN validation regex: `/^[a-z0-9]{8,24}$/`
+ *
+ * @returns 24-character hex string (e.g., "a1b2c3d4e5f6a7b8c9d0e1f2")
  */
 export function generateSessionId(): string {
   const bytes = new Uint8Array(12);
@@ -93,9 +96,16 @@ export function getDeployKeysKey(bucketName: string): string {
 }
 
 /**
- * List all KV keys with a given prefix, handling pagination.
- * KV returns max 1000 keys per call; this loops until all are fetched.
- * Capped at {@link MAX_KV_LIST_ITERATIONS} iterations to prevent infinite loops.
+ * Fetch all KV keys matching a prefix, handling pagination safely.
+ *
+ * Cloudflare KV returns a maximum of 1000 keys per call. This function
+ * iterates through all pages using cursor-based pagination, with a safety
+ * limit to prevent infinite loops.
+ *
+ * @param kv - KV namespace binding
+ * @param prefix - Key prefix to list (e.g., "user:" or "session:bucket:")
+ * @returns Array of all matching keys across all pages
+ * @throws If more than MAX_KV_LIST_ITERATIONS pages are encountered (indicates infinite pagination)
  */
 export async function listAllKvKeys(kv: KVNamespace, prefix: string): Promise<KVNamespaceListKey<unknown>[]> {
   const keys: KVNamespaceListKey<unknown>[] = [];

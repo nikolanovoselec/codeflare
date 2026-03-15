@@ -122,8 +122,9 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   const updated = { ...existing, accessTier: parsed.data.accessTier };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
 
-  // Auto-set sessionMode to 'advanced' for newly promoted advanced users
-  // so their first session seeds advanced skills. Don't override existing choice.
+  // Auto-set sessionMode to 'advanced' for newly promoted advanced users.
+  // This ensures their first session seeds advanced agent skills and rules.
+  // Existing sessionMode preferences are NOT overridden.
   if (parsed.data.accessTier === 'advanced') {
     const bucketName = getBucketName(email, c.env.CLOUDFLARE_WORKER_NAME);
     const prefsKey = getPreferencesKey(bucketName);

@@ -389,8 +389,10 @@ async function upsertAccessPolicy(
   userGroupId: string | null,
   saasLoginMethods?: Array<{ id: string }>
 ): Promise<void> {
-  // In SaaS mode, use login_method includes (any user who authenticates via
-  // configured social IdPs). In default mode, use group includes (allowlisted users only).
+  // Policy include strategy (determines who passes CF Access):
+  // - SaaS mode: login_method includes (any user authenticating via GitHub).
+  //   Worker applies access-tier gating. Admin group NOT in policy (Worker checks role).
+  // - Default mode: group includes (admin + user groups with allowlisted emails).
   const include = saasLoginMethods
     ? saasLoginMethods.map(m => ({ login_method: { id: m.id } }))
     : [

@@ -54,9 +54,12 @@ export async function getAllUsers(kv: KVNamespace): Promise<UserEntry[]> {
 }
 
 /**
- * Update CF Access policy to include all users from KV.
- * Updates all Access apps that belong to the configured domain
- * (root domain entry or path-scoped entries like /app/*, /api/*, /setup/*).
+ * Sync CF Access policy to match current KV users (non-SaaS mode only).
+ * Updates admin and user Access groups with emails from KV.
+ * Then updates all Access apps' policies to reference these groups.
+ *
+ * In SaaS mode, this is skipped because policies use login_method includes
+ * instead of group includes. User authorization is handled by access tiers.
  */
 export async function syncAccessPolicy(
   token: string,
@@ -74,6 +77,7 @@ export async function syncAccessPolicy(
   const userGroupNameFromKv = await kv.get('setup:access_group_user_name');
   let include: Array<Record<string, unknown>>;
 
+  // When group IDs are available, update them with current email lists
   const canUseGroups = Boolean(adminGroupId && userGroupId);
   if (canUseGroups) {
     const groupsRes = await cfApiCB.execute(() =>
@@ -84,6 +88,7 @@ export async function syncAccessPolicy(
     );
     const groupsData = await groupsRes.json() as CfAccessGroupsResponse;
 
+    // Resolve group names from API or KV cache
     const groupsById = new Map((groupsData.result || []).map((group) => [group.id, group.name]));
     const adminGroupName = adminGroupNameFromKv || groupsById.get(adminGroupId!);
     const userGroupName = userGroupNameFromKv || groupsById.get(userGroupId!);
@@ -135,7 +140,8 @@ export async function syncAccessPolicy(
     include = emails.map((email) => ({ email: { email } }));
   }
 
-  // Find the access app by domain
+  // Fetch all Access apps and filter to those matching the configured domain
+  // (exact match or path-scoped like domain/app/*, domain/api/*, domain/setup/*)
   const appsRes = await cfApiCB.execute(() =>
     fetch(`${CF_API_BASE}/accounts/${accountId}/access/apps`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -152,7 +158,7 @@ export async function syncAccessPolicy(
   const matchingApps = (appsData.result || []).filter((app) =>
     app.domain === domain || app.domain.startsWith(`${domain}/`)
   );
-  if (matchingApps.length === 0) return;
+  if (matchingApps.length === 0) return; // No apps for this domain — nothing to sync
 
   await Promise.all(matchingApps.map(async (app) => {
     // Get existing policies
