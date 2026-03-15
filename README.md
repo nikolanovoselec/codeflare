@@ -1,5 +1,8 @@
 # <img src="docs/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
+![Login](docs/images/login.png)
+*One click to sign in. No account creation, no passwords — GitHub OAuth handles it.*
+
 You're not sure which AI coding agent is the best. Neither is anyone else. So Codeflare gives you all of them - at the same time. Six agents, six tabs, one browser. No guardrails, no permission prompts, no risk. Every session runs in an isolated container that deletes itself when you're done. Your files persist. Your bad decisions don't.
 
 It runs wherever you happen to find yourself - on the Cloudflare edge that spans the planet, accessible from anything with a browser. Your phone, your tablet, your partner's laptop while they're not looking. Because the best commits in history were made from places without desks.
@@ -32,9 +35,6 @@ Codeflare is an ephemeral cloud IDE that runs entirely in your browser. Every se
 *Swipe up/down with the keyboard open to navigate like arrow keys. Swipe left/right to scroll terminal text horizontally.*
 
 It's strongly optimized for mobile - because the best ideas hit while rewatching your favorite show for the 15th time, and your PC is just too far away.
-
-![Login](docs/images/login.png)
-*One click to sign in. No account creation, no passwords — GitHub OAuth handles it.*
 
 **Try it:** [codeflare.graymatter.ch](https://codeflare.graymatter.ch) (gated behind a waitlist - I'm not an animal)
 
