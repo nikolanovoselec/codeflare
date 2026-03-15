@@ -71,6 +71,12 @@ async function resolveManagedAccessApp(
   existingApps: AccessApp[],
   managedAppName: string
 ): Promise<AccessApp | null> {
+  // 4-tier fallback strategy to find existing Access app:
+  // 1. Exact domain match (highest specificity)
+  // 2. Stored app ID from prior setup
+  // 3. Name match + domain validation (prevent cross-env collision)
+  // 4. /app/* suffix + domain validation (prevent cross-env collision)
+
   const desiredDomain = getManagedAppDomain(customDomain);
   const byDesiredDomain = existingApps.find((app) => app.domain === desiredDomain) ?? null;
   if (byDesiredDomain) {
@@ -85,7 +91,8 @@ async function resolveManagedAccessApp(
     }
   }
 
-  // Fallback for fresh KV + pre-existing Access app: prefer a uniquely named managed app.
+  // Tier 3: Name match + domain validation
+  // Handles fresh KV + pre-existing Access app from prior setup
   const byManagedName = existingApps.filter((app) => app.name === managedAppName && app.domain.includes(customDomain));
   if (byManagedName.length === 1) {
     return byManagedName[0];
@@ -98,6 +105,7 @@ async function resolveManagedAccessApp(
     return byManagedName[0];
   }
 
+  // Tier 4: /app/* suffix + domain validation (legacy app format)
   const byAppSuffix = existingApps.filter((app) => app.domain.endsWith('/app/*') && app.domain.includes(customDomain));
   if (byAppSuffix.length === 1) {
     return byAppSuffix[0];
@@ -152,9 +160,10 @@ async function upsertAccessApp(
     ? `${CF_API_BASE}/accounts/${accountId}/access/apps/${existingAppId}`
     : `${CF_API_BASE}/accounts/${accountId}/access/apps`;
 
-  // SaaS mode: restrict login methods to social IdPs and auto-redirect if only one.
-  // This is the APPLICATION config (controls login UI), separate from the POLICY
-  // (controls who is allowed). Policy keeps group-based includes for all users.
+  // SaaS mode: configure app to restrict login methods to social IdPs.
+  // Note: This is the APPLICATION config (controls login UI), separate from the POLICY
+  // (controls who is allowed). In SaaS mode, the policy uses login_method includes,
+  // allowing any authenticated user. Worker enforces access-tier authorization.
   const appBody: Record<string, unknown> = {
     name: managedAppName,
     domain: appDomain,
@@ -164,6 +173,7 @@ async function upsertAccessApp(
     skip_interstitial: true,
     auto_redirect_to_identity: saasIdpIds ? saasIdpIds.length === 1 : false,
   };
+  // Restrict login to GitHub IdP in SaaS mode (social IdP)
   if (saasIdpIds && saasIdpIds.length > 0) {
     appBody.allowed_idps = saasIdpIds;
   }
@@ -539,8 +549,9 @@ export async function handleCreateAccessApp(
       throw new Error(`Could not resolve Access group ${groupNames.admin}`);
     }
 
-    // In SaaS mode, skip user group creation — Access policy uses login_method
-    // instead of groups, and the Worker handles authorization via access tiers.
+    // In SaaS mode, skip user group creation because:
+    // - Access policy uses login_method includes (any authenticated GitHub user)
+    // - Worker enforces per-user access-tier authorization (pending/standard/advanced)
     let userGroup: AccessGroupResult | null = null;
     if (!saasMode && regularUsers.length > 0) {
       userGroup = await upsertAccessGroup(
@@ -561,8 +572,9 @@ export async function handleCreateAccessApp(
     const existingApps = await pruneLegacyAccessApps(token, accountId, customDomain, listedApps, managedAppName);
     const audienceTags: string[] = [];
     const existingManagedApp = await resolveManagedAccessApp(kv, customDomain, existingApps, managedAppName);
-    // In SaaS mode, restrict the Access app to GitHub only.
-    // With exactly one IdP, auto_redirect_to_identity skips the CF Access login page.
+
+    // In SaaS mode, restrict the Access app to GitHub IdP only.
+    // With exactly one IdP, auto_redirect_to_identity=true skips the CF Access login interstitial.
     const saasIdpIds = saasMode
       ? idpList.filter(p => p.type === 'github').map(p => p.id)
       : undefined;
@@ -585,9 +597,10 @@ export async function handleCreateAccessApp(
       audienceTags.push(appResult.aud);
     }
 
-    // SaaS mode: login_method include (anyone who authenticates via GitHub can enter).
-    // The Worker's three-tier middleware handles authorization via access tiers.
-    // Default mode: group-based include (only allowlisted users).
+    // Access policy includes strategy:
+    // - SaaS mode: login_method include (any GitHub-authenticated user passes CF Access).
+    //   Worker enforces per-user access-tier authorization (pending/standard/advanced).
+    // - Default mode: group-based includes (only allowlisted email addresses).
     const saasLoginMethods = saasMode && saasIdpIds
       ? saasIdpIds.map(id => ({ id }))
       : undefined;

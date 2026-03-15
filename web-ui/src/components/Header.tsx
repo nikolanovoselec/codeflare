@@ -41,6 +41,7 @@ interface HeaderProps {
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
+  // Note: logout is handled via CF Access at /cdn-cgi/access/logout
 }
 
 /**

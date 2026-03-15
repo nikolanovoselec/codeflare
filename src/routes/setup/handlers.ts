@@ -15,12 +15,14 @@ const handlers = new Hono<{ Bindings: Env }>();
 
 /**
  * GET /api/setup/status
- * Check if setup is complete (public endpoint)
+ * Check if setup is complete and return configuration (public endpoint)
+ * Returns: { configured: boolean, customDomain?: string, saasMode: boolean }
  */
 handlers.get('/status', statusRateLimiter, async (c) => {
   const setupComplete = await c.env.KV.get('setup:complete');
   const configured = setupComplete === 'true';
   const customDomain = configured ? await c.env.KV.get('setup:custom_domain') : null;
+  // saasMode reflects env var, not KV (set at deploy time, not runtime)
   const saasMode = c.env.SAAS_MODE === 'active';
 
   return c.json({ configured, ...(customDomain && { customDomain }), saasMode });
@@ -30,12 +32,13 @@ handlers.get('/status', statusRateLimiter, async (c) => {
  * GET /api/setup/detect-token
  * Detect whether CLOUDFLARE_API_TOKEN is present in the environment (secret binding),
  * verify it against the Cloudflare API, and return account info.
+ * Returns: { detected: boolean, valid?: boolean, account?: { id, name }, error?: string }
  */
 handlers.get('/detect-token', detectTokenRateLimiter, async (c) => {
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   if (!token) {
-    return c.json({ detected: false, error: 'Deploy with GitHub Actions first' });
+    return c.json({ detected: false, error: 'CLOUDFLARE_API_TOKEN not found (set as GitHub Actions secret)' });
   }
 
   try {
@@ -104,8 +107,10 @@ async function resolveAccountId(token: string, kv: KVNamespace): Promise<string 
 /**
  * GET /api/setup/prefill
  * Best-effort prefill for setup wizard when setup is not completed yet.
- * Pulls admin/user lists from Cloudflare Access groups.
+ * Pulls admin/user lists from Cloudflare Access groups (non-SaaS mode only).
+ * SaaS mode: skipped (admin enters users manually via User Management).
  * Intentionally does NOT prefill custom domain.
+ * Returns: { adminUsers: string[], allowedUsers: string[] }
  */
 handlers.get('/prefill', prefillRateLimiter, async (c) => {
   const token = c.env.CLOUDFLARE_API_TOKEN;

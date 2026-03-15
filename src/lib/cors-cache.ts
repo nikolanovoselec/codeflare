@@ -20,10 +20,11 @@ const CORS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
  * Get the cached KV origins. Returns null if cache is empty or expired.
  */
 function getCachedKvOrigins(): string[] | null {
-  if (cachedKvOrigins !== null && Date.now() - cacheTimestamp > CORS_CACHE_TTL_MS) {
-    cachedKvOrigins = null; // Expired
+  if (cachedKvOrigins !== null && Date.now() - cacheTimestamp < CORS_CACHE_TTL_MS) {
+    return cachedKvOrigins; // Cache still valid
   }
-  return cachedKvOrigins;
+  cachedKvOrigins = null; // Expired or empty
+  return null;
 }
 
 /**

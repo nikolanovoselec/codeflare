@@ -147,7 +147,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       }
     }
 
-    // JWT verification failed
+    // JWT verification failed for all expected audiences
     return { email: '', authenticated: false };
   }
 
@@ -164,8 +164,9 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     return { email: normalizeEmail(email), authenticated: true };
   }
 
-  // Service token authentication
-  // When CF Access validates service token, it passes through cf-access-client-id
+  // Service token authentication (fallback)
+  // When CF Access validates a service token, it passes through cf-access-client-id header.
+  // Only used if no JWT was available (JWT takes precedence).
   const serviceTokenClientId = request.headers.get('cf-access-client-id');
 
   if (serviceTokenClientId) {

@@ -19,9 +19,10 @@ app.get('/providers', async (c) => {
   return c.json({ providers: idpList || [] });
 });
 
-// Requires identity (pending users can access)
+// Requires identity (pending, active, and blocked users can access)
 app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
+  // Default to 'advanced' if tier is unset (pre-setup or service auth)
   const accessTier = user.accessTier || 'advanced';
 
   // Read user data from KV for additional fields
@@ -50,7 +51,7 @@ app.get('/status', requireIdentity, async (c) => {
   });
 });
 
-// Rate limit: 3 requests per hour per user
+// Rate limit for access requests: 3 per hour per user (SaaS mode only)
 const requestAccessRateLimiter = createRateLimiter({
   windowMs: 3_600_000,
   maxRequests: 3,
@@ -92,9 +93,10 @@ async function verifyTurnstileToken(
   return response.json() as Promise<TurnstileVerificationResult>;
 }
 
-// POST /api/auth/request-access — pending users request access with Turnstile captcha
+// POST /api/auth/request-access — pending users request access with Turnstile captcha (SaaS mode)
 app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c) => {
   const user = c.get('user');
+  // Default to 'advanced' if tier is unset (pre-setup or service auth)
   const accessTier = user.accessTier || 'advanced';
 
   // Already active users don't need to request
@@ -122,12 +124,12 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
     throw new ValidationError(parsed.error.issues[0].message);
   }
 
-  // Verify Turnstile
+  // Verify Turnstile token (required for SaaS mode access request gating)
   const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
     || await c.env.KV.get('setup:turnstile_secret_key');
 
   if (!turnstileSecret) {
-    throw new ValidationError('Access requests are not configured');
+    throw new ValidationError('Turnstile is not configured for access requests');
   }
 
   const remoteIp = c.req.header('CF-Connecting-IP') || null;

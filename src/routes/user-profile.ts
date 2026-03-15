@@ -23,10 +23,10 @@ app.use('*', authMiddleware);
 
 /**
  * GET /api/user
- * Returns authenticated user info
+ * Returns authenticated user info including access tier, onboarding status, and configuration
  *
- * Note: Bucket creation is handled by POST /api/container/start,
- * so we don't create it here to avoid unnecessary latency.
+ * Note: Bucket creation is handled by POST /api/container/start.
+ * This endpoint does NOT create buckets — it only reads user metadata.
  */
 app.get('/', async (c) => {
   const user = c.get('user');

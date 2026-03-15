@@ -197,16 +197,16 @@ export class container extends Container<Env> {
       await this.ctx.storage.put('tabConfig', r2Creds.tabConfig);
     }
 
-    // Store LLM API keys (not persisted to DO storage — read fresh from KV each start)
+    // Store LLM API keys in instance memory only (not persisted to DO storage; injected per container start)
     if (r2Creds?.openaiApiKey) this._openaiApiKey = r2Creds.openaiApiKey;
     if (r2Creds?.geminiApiKey) this._geminiApiKey = r2Creds.geminiApiKey;
 
-    // Store deploy credentials (not persisted — read fresh from KV each start)
+    // Store deploy credentials in instance memory only (not persisted to DO storage; injected per container start)
     if (r2Creds?.githubToken) this._githubToken = r2Creds.githubToken;
     if (r2Creds?.cloudflareApiToken) this._cloudflareApiToken = r2Creds.cloudflareApiToken;
     if (r2Creds?.cloudflareAccountId) this._cloudflareAccountId = r2Creds.cloudflareAccountId;
 
-    // Store session mode (not persisted — re-sent every start, same as LLM keys)
+    // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
     if (r2Creds?.sessionMode) this._sessionMode = r2Creds.sessionMode;
 
     // Use Worker-provided R2 credentials (most reliable — Worker definitely has secrets)

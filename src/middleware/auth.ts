@@ -26,7 +26,7 @@ export type AuthVariables = {
 
 /**
  * requireIdentity — authenticate the request and set user/bucketName on context.
- * No tier gating: pending and blocked users pass through.
+ * No tier gating: pending, blocked, and unrecognized users pass through.
  * Use for routes that need identity but not an active subscription (e.g. /auth/status).
  */
 export async function requireIdentity(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {

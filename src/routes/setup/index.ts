@@ -125,7 +125,8 @@ app.post('/configure', async (c) => {
     };
 
     try {
-      // Acquire KV-based lock to prevent concurrent configure runs
+      // Acquire KV-based lock to prevent concurrent configure runs (60s timeout).
+      // If lock exists and is not stale, another setup is in progress.
       const existingLock = await c.env.KV.get(lockKey);
       if (existingLock) {
         const lockTime = parseInt(existingLock, 10);
@@ -135,6 +136,7 @@ app.post('/configure', async (c) => {
         }
         logger.warn('Overriding stale setup lock', { lockAge: Date.now() - lockTime });
       }
+      // Write lock with 5-minute expiry to ensure cleanup if request dies
       await c.env.KV.put(lockKey, String(Date.now()), { expirationTtl: 300 });
       lockAcquired = true;
 
