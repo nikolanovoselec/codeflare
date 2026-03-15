@@ -37,9 +37,10 @@ const SubscribePage: Component = () => {
         setSubmitted(true);
       }
 
-      // Load turnstile script for pending users with site key
+      // Load turnstile for pending users with site key
       if (result.accessTier === 'pending' && !result.requestedAt && result.turnstileSiteKey) {
         loadTurnstileScript();
+        startTurnstileWatch();
       }
 
       // Auto-redirect active users
@@ -69,14 +70,9 @@ const SubscribePage: Component = () => {
     document.head.appendChild(script);
   }
 
-  onMount(async () => {
-    await fetchStatus();
+  onMount(() => {
+    fetchStatus();
     pollInterval = setInterval(fetchStatus, POLL_INTERVAL_MS);
-    // Start turnstile watch after initial render if needed
-    const s = status();
-    if (s && s.accessTier === 'pending' && !s.requestedAt && s.turnstileSiteKey) {
-      startTurnstileWatch();
-    }
   });
 
   onCleanup(() => {

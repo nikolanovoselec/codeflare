@@ -19,7 +19,7 @@ describe('SubscribePage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
 
     // Default: pending user with turnstile key, no request yet
     mockedGetAuthStatus.mockResolvedValue({
@@ -54,7 +54,7 @@ describe('SubscribePage', () => {
   describe('Pending State (no request yet)', () => {
     it('should show "Request Access" title for pending user', async () => {
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText(/Request Access/)).toBeInTheDocument();
@@ -63,7 +63,7 @@ describe('SubscribePage', () => {
 
     it('should show email from auth status', async () => {
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText('user@example.com')).toBeInTheDocument();
@@ -72,7 +72,7 @@ describe('SubscribePage', () => {
 
     it('should show Turnstile container when site key is present', async () => {
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByTestId('turnstile-container')).toBeInTheDocument();
@@ -81,7 +81,7 @@ describe('SubscribePage', () => {
 
     it('should show disabled Request Access button until Turnstile validates', async () => {
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         const button = screen.getByRole('button', { name: /Request Access/ });
@@ -92,7 +92,7 @@ describe('SubscribePage', () => {
 
     it('should enable button after Turnstile token appears in DOM', async () => {
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Request Access/ })).toBeDisabled();
@@ -113,7 +113,7 @@ describe('SubscribePage', () => {
 
     it('should submit request with Turnstile token on button click', async () => {
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Request Access/ })).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe('SubscribePage', () => {
       });
 
       fireEvent.click(screen.getByRole('button', { name: /Request Access/ }));
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(mockedRequestAccess).toHaveBeenCalledWith('valid-token');
@@ -142,7 +142,7 @@ describe('SubscribePage', () => {
   describe('Pending State (request submitted)', () => {
     it('should show "Pending Approval" after successful request submission', async () => {
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       // Simulate token + submit
       const container = screen.getByTestId('turnstile-container');
@@ -154,7 +154,7 @@ describe('SubscribePage', () => {
         expect(screen.getByRole('button', { name: /Request Access/ })).not.toBeDisabled();
       });
       fireEvent.click(screen.getByRole('button', { name: /Request Access/ }));
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText(/Pending Approval/)).toBeInTheDocument();
@@ -171,7 +171,7 @@ describe('SubscribePage', () => {
       });
 
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText(/Pending Approval/)).toBeInTheDocument();
@@ -188,7 +188,7 @@ describe('SubscribePage', () => {
       });
 
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText(/Checking status/)).toBeInTheDocument();
@@ -205,7 +205,7 @@ describe('SubscribePage', () => {
       });
 
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(mockLocation.href).toBe('/app/');
@@ -220,7 +220,7 @@ describe('SubscribePage', () => {
       });
 
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(mockLocation.href).toBe('/app/');
@@ -237,7 +237,7 @@ describe('SubscribePage', () => {
       });
 
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
@@ -279,7 +279,7 @@ describe('SubscribePage', () => {
   describe('Navigation', () => {
     it('should have logout link to /auth/logout', async () => {
       render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         const logoutLink = screen.getByText(/log\s*out/i);
