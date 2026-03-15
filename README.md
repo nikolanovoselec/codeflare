@@ -215,7 +215,7 @@ See `TECHNICAL.md` Section 8 for the full auth architecture.
 - Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
 - AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
 - Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`) with JWT verification.
-- API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
+- API tokens stay in GitHub and Cloudflare by default. If you connect GitHub and Cloudflare in Push & Deploy (optional), those tokens are injected into your container so the agent can push code and deploy for you. They're stored encrypted in KV, scoped per user, and never shared across sessions.
 - Security headers: HSTS, CSP, X-Frame-Options, Referrer-Policy on every response.
 - Rate limiting: KV-backed, per-user limits on session creation, container starts, and WebSocket connections. Returns 429 with `Retry-After` header when exceeded.
 - Input validation: Zod schemas, 64 KiB body limit.
