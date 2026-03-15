@@ -49,10 +49,12 @@ const ProgressStep: Component = () => {
   };
 
   const handleLaunch = () => {
+    // Navigate to custom domain root — CF Access will handle auth redirect.
+    // Going directly to /app would trigger a 403 before the auth cookie is set.
     if (setupStore.customDomainUrl) {
-      window.location.href = `${setupStore.customDomainUrl}/app`;
+      window.location.href = setupStore.customDomainUrl;
     } else {
-      window.location.href = '/app/';
+      window.location.href = '/';
     }
   };
 
