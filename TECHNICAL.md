@@ -114,11 +114,11 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 **`collectMetrics()` Heartbeat (every 5s):**
 1. Checks `this.ctx.container?.running` - returns early (no re-arm) if container is dead
 2. Fetches `/activity` via `getTcpPort()` - uses three-tier idle detection based on frontend visibility heartbeat:
-   - **New host + heartbeat received** (`lastHeartbeatAt` is a number): renew only if heartbeat within `HEARTBEAT_STALE_MS` (5 min) AND WS connected. Stale heartbeat = user walked away with tab open.
+   - **New host + heartbeat received** (`lastHeartbeatAt` is a number): renew only if ALL three conditions met: WS connected, heartbeat within `HEARTBEAT_STALE_MS` (5 min), AND user input within `INPUT_IDLE_TIMEOUT_MS` (30 min). Stale heartbeat = tab hidden. Stale input = user walked away.
    - **Old host** (`lastHeartbeatAt === undefined`): legacy input-based fallback. Renew if WS connected AND (`lastInputAt` recent within 30 min OR `lastInputAt === null` within 5-min grace period from `containerStartedAt`).
    - **New host, no heartbeat** (`lastHeartbeatAt === null`): don't renew. Container stops after `sleepAfter`.
    - Non-OK `/activity` response: don't renew (broken activity endpoint shouldn't keep containers alive).
-   - Activity/keepalive logs are at `debug` level to reduce noise.
+   - Activity/keepalive logs are at info level for all renewal decisions.
 3. Fetches `/health` via `getTcpPort()` - reads cpu/mem/hdd/syncStatus
 4. Writes metrics to KV session record (`session.metrics`)
 5. Re-arms schedule if container still running
@@ -139,8 +139,10 @@ flowchart TD
     WSClients -->|No| NoRenew["Don't renew<br/>(let container idle to sleepAfter)"]
     WSClients -->|Yes| HBCheck{"lastHeartbeatAt?"}
     HBCheck -->|"number"| HBRecent{"heartbeat within<br/>5 min?"}
-    HBRecent -->|Yes| Renew["renewActivityTimeout()<br/>(keepalive)"]
-    HBRecent -->|No| NoRenewStale["Don't renew<br/>(user walked away)"]
+    HBRecent -->|Yes| InputCheck{"input within<br/>30 min?"}
+    InputCheck -->|Yes| Renew["renewActivityTimeout()<br/>(keepalive)"]
+    InputCheck -->|No| NoRenewInput["Don't renew<br/>(no typing — user idle)"]
+    HBRecent -->|No| NoRenewStale["Don't renew<br/>(tab hidden)"]
     HBCheck -->|"undefined<br/>(old host)"| LegacyInput{"Legacy: input recent<br/>or in grace period?"}
     LegacyInput -->|Yes| Renew
     LegacyInput -->|No| NoRenewLegacy["Don't renew<br/>(idle — no input)"]
@@ -149,13 +151,14 @@ flowchart TD
     NoRenew --> FetchHealth
     NoRenewErr --> FetchHealth
     NoRenewStale --> FetchHealth
+    NoRenewInput --> FetchHealth
     NoRenewLegacy --> FetchHealth
     NoRenewNull --> FetchHealth
     FetchHealth --> WriteKV["Write metrics to KV"]
     WriteKV --> ReArm["schedule(5, 'collectMetrics')<br/>(unconditional if container.running)"]
 ```
 
-**`onActivityExpired()` Override:** Checks `/activity` for active WS clients and frontend visibility heartbeat. If active WS + recent heartbeat (within `HEARTBEAT_STALE_MS` = 5 min) -> `renewActivityTimeout()`. If active WS + stale/null heartbeat -> `this.stop('SIGTERM')` (user walked away). If old host (`lastHeartbeatAt === undefined`) + active WS -> legacy fallback, renews. If no WS clients -> `this.stop('SIGTERM')`. If `/activity` returns non-OK or the fetch throws, calls `this.stop('SIGTERM')` -- by the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed.
+**`onActivityExpired()` Override:** Checks `/activity` for active WS clients, frontend visibility heartbeat, and recent user input. Renews only if ALL conditions met: active WS + recent heartbeat (within 5 min) + recent input (within 30 min). If any signal is stale -> `this.stop('SIGTERM')`. Old host (`lastHeartbeatAt === undefined`) + active WS + recent input -> legacy fallback, renews. No WS clients -> `this.stop('SIGTERM')`. Non-OK `/activity` or fetch error -> `this.stop('SIGTERM')`. By the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed.
 
 **`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
@@ -197,7 +200,7 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null, lastHeartbeatAt: number | null }`. Used by both `collectMetrics()` (keepalive heartbeat + idle detection) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected). `lastInputAt` is the Unix timestamp (ms) of the last real user keyboard input — any keystroke that reaches `ptyProcess.write()` after stripping terminal response sequences (CPR, OSC, DA). `lastHeartbeatAt` is the Unix timestamp (ms) of the last frontend visibility heartbeat — `null` if no heartbeat received yet. The DO uses three states: `undefined` (old host, field absent = legacy fallback), `null` (new host, no heartbeat), `number` (check recency against `HEARTBEAT_STALE_MS`).
 
-**Idle Detection (Visibility Heartbeat):** The primary idle detection signal is the frontend visibility heartbeat. The frontend sends `{"type":"heartbeat"}` through WebSocket every 60s (`HEARTBEAT_INTERVAL_MS`) when `document.visibilityState === 'visible'`. The host tracks `lastHeartbeatAt` via `activityTracker.recordHeartbeat()`. The Container DO's `collectMetrics()` (every 5s) checks: if `lastHeartbeatAt` is a recent timestamp (within `HEARTBEAT_STALE_MS` = 5 min) AND WS clients are connected, the container stays alive. If the heartbeat is stale or absent, the container stops after `sleepAfter` (30 min). This means a user who switches tabs or walks away sees the container stop after ~35 min (5 min stale threshold + 30 min `sleepAfter`). **Legacy fallback** for old host images (without heartbeat support, `lastHeartbeatAt === undefined` in response): uses input-based detection with a 5-min null grace period from `containerStartedAt` — fixes the original bug where `lastInputAt === null` kept containers alive forever.
+**Idle Detection (Visibility Heartbeat + Input):** Container stays alive only when ALL conditions are met: WS connected, recent heartbeat (tab visible within 5 min), AND recent user input (typed within 30 min). The frontend sends `{"type":"heartbeat"}` through WebSocket every 60s (`HEARTBEAT_INTERVAL_MS`) when `document.visibilityState === 'visible'`. The host tracks `lastHeartbeatAt` via `activityTracker.recordHeartbeat()`. The Container DO's `collectMetrics()` (every 5s) checks both signals. If either heartbeat or input is stale, the container stops after `sleepAfter` (30 min). Scenarios: tab hidden → stops in ~35 min; tab visible but no typing for 30 min → stops in ~60 min; browser closed → stops in ~35 min. **Legacy fallback** for old host images (without heartbeat support, `lastHeartbeatAt === undefined` in response): uses input-based detection with a 5-min null grace period from `containerStartedAt`.
 
 **WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, process-name) as JSON. No application-level ping/pong -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
