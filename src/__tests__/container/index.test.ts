@@ -723,7 +723,7 @@ describe('container DO class', () => {
       // Container is running, /activity returns active connections
       mockContainerRuntime.running = true;
       mockTcpPortFetch.mockResolvedValue(
-        new Response(JSON.stringify({ hasActiveConnections: true, connectedClients: 2 }), {
+        new Response(JSON.stringify({ hasActiveConnections: true, connectedClients: 2, lastInputAt: Date.now() }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -839,6 +839,29 @@ describe('container DO class', () => {
           connectedClients: 1,
           lastInputAt: now - 60_000,
           lastHeartbeatAt: now - 6 * 60 * 1000,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.collectMetrics();
+
+      expect(renewSpy).not.toHaveBeenCalled();
+    });
+
+    it('does NOT renew when heartbeat is recent but input is stale (>30 min)', async () => {
+      const instance = await createRunningInstance();
+      const now = Date.now();
+
+      // Recent heartbeat (30s ago) but stale input (31 min ago)
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: now - 31 * 60 * 1000,
+          lastHeartbeatAt: now - 30_000,
         }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
         .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
           status: 200, headers: { 'Content-Type': 'application/json' },
@@ -1040,12 +1063,12 @@ describe('container DO class', () => {
       mockContainerRuntime.running = true;
       const now = Date.now();
 
-      // Active WS connections with recent heartbeat (30s ago)
+      // Active WS connections with recent heartbeat (30s ago) AND recent input
       mockTcpPortFetch.mockResolvedValue(
         new Response(JSON.stringify({
           hasActiveConnections: true,
           connectedClients: 1,
-          lastInputAt: null,
+          lastInputAt: now - 60_000,  // typed 1 min ago
           lastHeartbeatAt: now - 30_000,
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       );
