@@ -112,7 +112,7 @@ app.post('/initiate', async (c) => {
   const { endpoint } = await getR2Config(c.env);
 
   const url = `${getR2Url(endpoint, bucketName, sanitizedKey)}?uploads`;
-  const response = await r2Client.fetch(url, { method: 'POST' });
+  const response = await r2Client.fetch(url, { method: 'POST', headers: getSseHeaders(c.env) });
 
   if (!response.ok) {
     throw new ContainerError('upload', `R2 InitiateMultipartUpload failed: ${response.status}`);

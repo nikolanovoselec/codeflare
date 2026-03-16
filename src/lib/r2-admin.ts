@@ -248,12 +248,15 @@ export async function getOrCreateScopedR2Token(
     await kv.delete(kvKey);
   } else {
     const cached = await getAndDecrypt<CachedR2Token>(kv, kvKey, cryptoKey ?? null);
-    if (cached) {
+    if (cached && cached.bucketName === bucketName) {
       return {
         accessKeyId: cached.accessKeyId,
         secretAccessKey: cached.secretAccessKey,
         tokenId: cached.tokenId,
       };
+    }
+    if (cached && cached.bucketName !== bucketName) {
+      await kv.delete(kvKey);
     }
   }
 

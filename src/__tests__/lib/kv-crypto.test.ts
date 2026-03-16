@@ -1,7 +1,7 @@
 /**
  * KV encryption primitives — AES-256-GCM via Web Crypto API
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 
 import {
@@ -30,20 +30,33 @@ describe('kv-crypto', () => {
       expect(cryptoKey.usages).toContain('encrypt');
       expect(cryptoKey.usages).toContain('decrypt');
     });
+
+    it('rejects key that decodes to less than 32 bytes', async () => {
+      const shortKey = btoa(String.fromCharCode(...new Uint8Array(16)));
+      await expect(importEncryptionKey(shortKey)).rejects.toThrow('exactly 32 bytes');
+    });
+
+    it('rejects key that decodes to more than 32 bytes', async () => {
+      const longKey = btoa(String.fromCharCode(...new Uint8Array(48)));
+      await expect(importEncryptionKey(longKey)).rejects.toThrow('exactly 32 bytes');
+    });
+
+    it('rejects invalid base64', async () => {
+      await expect(importEncryptionKey('not!valid!base64!!!')).rejects.toThrow();
+    });
   });
 
   describe('encryptForKV / decryptFromKV', () => {
-    it('produces a base64 string different from plaintext input', async () => {
+    it('produces a v1: prefixed string different from input', async () => {
       const base64Key = await generateTestKeyBase64();
       const key = await importEncryptionKey(base64Key);
       const plaintext = 'hello world';
 
-      const encrypted = await encryptForKV(plaintext, key);
+      const encrypted = await encryptForKV(plaintext, key, 'test-key');
 
       expect(typeof encrypted).toBe('string');
       expect(encrypted).not.toBe(plaintext);
-      // Should be valid base64
-      expect(() => atob(encrypted)).not.toThrow();
+      expect(encrypted.startsWith('v1:')).toBe(true);
     });
 
     it('round-trips: encrypt then decrypt returns original', async () => {
@@ -51,8 +64,8 @@ describe('kv-crypto', () => {
       const key = await importEncryptionKey(base64Key);
       const plaintext = '{"openaiApiKey":"sk-test123","geminiApiKey":"AIza-xyz"}';
 
-      const encrypted = await encryptForKV(plaintext, key);
-      const decrypted = await decryptFromKV(encrypted, key);
+      const encrypted = await encryptForKV(plaintext, key, 'my-kv-key');
+      const decrypted = await decryptFromKV(encrypted.slice(3), key, 'my-kv-key');
 
       expect(decrypted).toBe(plaintext);
     });
@@ -62,21 +75,34 @@ describe('kv-crypto', () => {
       const key = await importEncryptionKey(base64Key);
       const plaintext = 'same input every time';
 
-      const encrypted1 = await encryptForKV(plaintext, key);
-      const encrypted2 = await encryptForKV(plaintext, key);
+      const encrypted1 = await encryptForKV(plaintext, key, 'k');
+      const encrypted2 = await encryptForKV(plaintext, key, 'k');
 
       expect(encrypted1).not.toBe(encrypted2);
     });
 
     it('throws on wrong key', async () => {
-      const key1Base64 = await generateTestKeyBase64();
-      const key2Base64 = await generateTestKeyBase64();
-      const key1 = await importEncryptionKey(key1Base64);
-      const key2 = await importEncryptionKey(key2Base64);
+      const key1 = await importEncryptionKey(await generateTestKeyBase64());
+      const key2 = await importEncryptionKey(await generateTestKeyBase64());
 
-      const encrypted = await encryptForKV('secret data', key1);
+      const encrypted = await encryptForKV('secret data', key1, 'k');
 
-      await expect(decryptFromKV(encrypted, key2)).rejects.toThrow();
+      await expect(decryptFromKV(encrypted.slice(3), key2, 'k')).rejects.toThrow();
+    });
+
+    it('throws when AAD (kvKey) does not match', async () => {
+      const key = await importEncryptionKey(await generateTestKeyBase64());
+
+      const encrypted = await encryptForKV('secret', key, 'key-a');
+
+      await expect(decryptFromKV(encrypted.slice(3), key, 'key-b')).rejects.toThrow();
+    });
+
+    it('rejects payload shorter than IV + GCM tag (28 bytes)', async () => {
+      const key = await importEncryptionKey(await generateTestKeyBase64());
+      const shortPayload = btoa('tooshort');
+
+      await expect(decryptFromKV(shortPayload, key, 'k')).rejects.toThrow('too short');
     });
   });
 
@@ -87,13 +113,12 @@ describe('kv-crypto', () => {
       mockKV = createMockKV();
     });
 
-    it('with encrypted value + correct key -> returns parsed JSON', async () => {
+    it('with v1: encrypted value + correct key -> returns parsed JSON', async () => {
       const base64Key = await generateTestKeyBase64();
       const key = await importEncryptionKey(base64Key);
       const data = { openaiApiKey: 'sk-test', geminiApiKey: 'AIza-test' };
 
-      // Manually encrypt and store
-      const encrypted = await encryptForKV(JSON.stringify(data), key);
+      const encrypted = await encryptForKV(JSON.stringify(data), key, 'test-key');
       await mockKV.put('test-key', encrypted);
 
       const result = await getAndDecrypt<typeof data>(mockKV as any, 'test-key', key);
@@ -101,11 +126,22 @@ describe('kv-crypto', () => {
       expect(result).toEqual(data);
     });
 
-    it('with corrupted/invalid value + key -> returns null (no throw)', async () => {
+    it('with corrupted v1: value + key -> returns null (no throw)', async () => {
       const base64Key = await generateTestKeyBase64();
       const key = await importEncryptionKey(base64Key);
 
-      await mockKV.put('test-key', 'this-is-not-encrypted-data');
+      await mockKV.put('test-key', 'v1:not-valid-encrypted-data');
+
+      const result = await getAndDecrypt(mockKV as any, 'test-key', key);
+
+      expect(result).toBeNull();
+    });
+
+    it('with non-JSON non-v1: garbage + key -> returns null', async () => {
+      const base64Key = await generateTestKeyBase64();
+      const key = await importEncryptionKey(base64Key);
+
+      await mockKV.put('test-key', 'this-is-not-encrypted-or-json');
 
       const result = await getAndDecrypt(mockKV as any, 'test-key', key);
 
@@ -122,8 +158,7 @@ describe('kv-crypto', () => {
     });
 
     it('with missing key in KV -> returns null', async () => {
-      const base64Key = await generateTestKeyBase64();
-      const key = await importEncryptionKey(base64Key);
+      const key = await importEncryptionKey(await generateTestKeyBase64());
 
       const result = await getAndDecrypt(mockKV as any, 'nonexistent', key);
 
@@ -150,16 +185,37 @@ describe('kv-crypto', () => {
       // Should return the correct data
       expect(result).toEqual(data);
 
-      // The stored value should now be encrypted (no longer valid JSON)
+      // Wait for fire-and-forget migration write-back
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // The stored value should now be encrypted (v1: prefix)
       const rawStored = mockKV._store.get('test-key');
       expect(rawStored).toBeDefined();
-      let isValidJson = true;
-      try { JSON.parse(rawStored!); } catch { isValidJson = false; }
-      expect(isValidJson).toBe(false);
+      expect(rawStored!.startsWith('v1:')).toBe(true);
 
       // Verify the re-encrypted value can be decrypted
-      const decrypted = await decryptFromKV(rawStored!, key);
+      const decrypted = await decryptFromKV(rawStored!.slice(3), key, 'test-key');
       expect(JSON.parse(decrypted)).toEqual(data);
+    });
+
+    it('plaintext JSON + encryption key + write-back failure -> still returns data', async () => {
+      const base64Key = await generateTestKeyBase64();
+      const key = await importEncryptionKey(base64Key);
+      const data = { openaiApiKey: 'sk-keep-me' };
+
+      // Store as plaintext JSON
+      mockKV._set('test-key', data);
+
+      // Make kv.put throw to simulate transient KV error
+      const originalPut = mockKV.put;
+      mockKV.put = vi.fn().mockRejectedValue(new Error('KV write failed'));
+
+      // Should still return the parsed data despite migration failure
+      const result = await getAndDecrypt<typeof data>(mockKV as any, 'test-key', key);
+      expect(result).toEqual(data);
+
+      // Restore
+      mockKV.put = originalPut;
     });
   });
 
@@ -170,7 +226,7 @@ describe('kv-crypto', () => {
       mockKV = createMockKV();
     });
 
-    it('with key -> stores encrypted string (not valid JSON)', async () => {
+    it('with key -> stores v1: prefixed encrypted string', async () => {
       const base64Key = await generateTestKeyBase64();
       const key = await importEncryptionKey(base64Key);
       const data = { openaiApiKey: 'sk-secret' };
@@ -179,7 +235,8 @@ describe('kv-crypto', () => {
 
       const stored = mockKV._store.get('test-key');
       expect(stored).toBeDefined();
-      // Should not be valid JSON (it's encrypted base64)
+      expect(stored!.startsWith('v1:')).toBe(true);
+      // Should not be valid JSON (it's encrypted)
       expect(() => JSON.parse(stored!)).toThrow();
     });
 

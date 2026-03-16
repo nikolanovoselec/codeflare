@@ -18,7 +18,6 @@ const storagePreviewRateLimiter = createRateLimiter({
 });
 
 const MAX_TEXT_SIZE = 1_048_576; // 1MB
-const PRESIGN_EXPIRY_SECONDS = 900; // 15 minutes
 
 function isTextContentType(contentType: string): boolean {
   if (contentType.startsWith('text/')) return true;
@@ -30,10 +29,6 @@ function isTextContentType(contentType: string): boolean {
   if (contentType === 'application/toml') return true;
   if (contentType === 'application/x-sh') return true;
   return false;
-}
-
-function isImageContentType(contentType: string): boolean {
-  return contentType.startsWith('image/');
 }
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -78,26 +73,7 @@ app.get('/', async (c) => {
     });
   }
 
-  // Images: return presigned URL
-  if (isImageContentType(contentType)) {
-    const presignUrl = new URL(objectUrl);
-    presignUrl.searchParams.set('X-Amz-Expires', String(PRESIGN_EXPIRY_SECONDS));
-
-    const signedRequest = await r2Client.sign(presignUrl.toString(), {
-      method: 'GET',
-      aws: { signQuery: true },
-      headers: getSseHeaders(c.env),
-    });
-
-    return c.json({
-      type: 'image',
-      url: signedRequest.url,
-      size,
-      lastModified,
-    });
-  }
-
-  // Binary or large text files: return metadata only
+  // Non-text files: return metadata only
   return c.json({
     type: 'binary',
     size,

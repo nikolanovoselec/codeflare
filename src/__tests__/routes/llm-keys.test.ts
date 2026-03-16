@@ -184,7 +184,7 @@ describe('LLM Keys routes', () => {
       return app;
     }
 
-    it('stores encrypted value when ENCRYPTION_KEY set', async () => {
+    it('stores encrypted value with v1: prefix when ENCRYPTION_KEY set', async () => {
       const app = createEncryptedTestApp();
       await app.request('/api/llm-keys', {
         method: 'PUT',
@@ -192,12 +192,10 @@ describe('LLM Keys routes', () => {
         body: JSON.stringify({ openaiApiKey: 'sk-encrypted-test' }),
       });
 
-      // The raw stored value should NOT be valid JSON (it's encrypted)
       const rawStored = mockKV._store.get('llm-keys:test-bucket');
       expect(rawStored).toBeDefined();
-      let isValidJson = true;
-      try { JSON.parse(rawStored!); } catch { isValidJson = false; }
-      expect(isValidJson).toBe(false);
+      expect(rawStored!.startsWith('v1:')).toBe(true);
+      expect(() => JSON.parse(rawStored!)).toThrow();
     });
 
     it('GET decrypts correctly when ENCRYPTION_KEY set', async () => {
@@ -246,12 +244,13 @@ describe('LLM Keys routes', () => {
       expect(body.openaiApiKey).toBe('****1234');
       expect(body.geminiApiKey).toBe('****test');
 
-      // The raw KV value should now be encrypted (no longer valid JSON)
+      // Wait for fire-and-forget migration write-back
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // The raw KV value should now be encrypted (v1: prefix)
       const rawStored = mockKV._store.get('llm-keys:test-bucket');
       expect(rawStored).toBeDefined();
-      let isValidJson = true;
-      try { JSON.parse(rawStored!); } catch { isValidJson = false; }
-      expect(isValidJson).toBe(false);
+      expect(rawStored!.startsWith('v1:')).toBe(true);
     });
   });
 

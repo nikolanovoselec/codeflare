@@ -2,6 +2,8 @@
  * R2 SSE-C (Server-Side Encryption with Customer-Provided Keys) header generation
  */
 import { describe, it, expect } from 'vitest';
+import { createHash } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 
 import { getSseHeaders, getSseCopyHeaders } from '../../lib/r2-sse';
 
@@ -34,14 +36,12 @@ describe('r2-sse', () => {
       expect(headers).toEqual({});
     });
 
-    it('MD5 value is a valid base64 string', () => {
+    it('MD5 value is a valid base64 string of 16 bytes', () => {
       const key = generateTestKeyBase64();
       const headers = getSseHeaders({ ENCRYPTION_KEY: key });
       const md5Value = headers['x-amz-server-side-encryption-customer-key-MD5'];
 
-      // Should be valid base64 — decoding should not throw
       expect(() => atob(md5Value)).not.toThrow();
-      // MD5 produces 16 bytes -> 24 chars in base64 (with padding)
       expect(atob(md5Value).length).toBe(16);
     });
 
@@ -51,6 +51,42 @@ describe('r2-sse', () => {
       const h2 = getSseHeaders({ ENCRYPTION_KEY: key });
 
       expect(h1).toEqual(h2);
+    });
+
+    it('produces correct MD5 for known 32-byte key (known-answer vector)', () => {
+      // 32 bytes of 0x42 ('B')
+      const rawKey = new Uint8Array(32).fill(0x42);
+      const base64Key = btoa(String.fromCharCode(...rawKey));
+
+      // Compute expected MD5 using node:crypto as reference
+      const expectedMd5 = createHash('md5').update(Buffer.from(rawKey)).digest('base64');
+
+      const headers = getSseHeaders({ ENCRYPTION_KEY: base64Key });
+      expect(headers['x-amz-server-side-encryption-customer-key-MD5']).toBe(expectedMd5);
+    });
+
+    it('produces correct MD5 for all-zeros 32-byte key', () => {
+      const rawKey = new Uint8Array(32).fill(0x00);
+      const base64Key = btoa(String.fromCharCode(...rawKey));
+      const expectedMd5 = createHash('md5').update(Buffer.from(rawKey)).digest('base64');
+
+      const headers = getSseHeaders({ ENCRYPTION_KEY: base64Key });
+      expect(headers['x-amz-server-side-encryption-customer-key-MD5']).toBe(expectedMd5);
+    });
+
+    it('produces correct MD5 for sequential-byte 32-byte key', () => {
+      const rawKey = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) rawKey[i] = i;
+      const base64Key = btoa(String.fromCharCode(...rawKey));
+      const expectedMd5 = createHash('md5').update(Buffer.from(rawKey)).digest('base64');
+
+      const headers = getSseHeaders({ ENCRYPTION_KEY: base64Key });
+      expect(headers['x-amz-server-side-encryption-customer-key-MD5']).toBe(expectedMd5);
+    });
+
+    it('rejects key that decodes to wrong length', () => {
+      const shortKey = btoa(String.fromCharCode(...new Uint8Array(16)));
+      expect(() => getSseHeaders({ ENCRYPTION_KEY: shortKey })).toThrow('exactly 32 bytes');
     });
   });
 
