@@ -208,7 +208,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Your Access is Active/)).toBeInTheDocument();
+        expect(screen.getByText(/Your Account is Active/)).toBeInTheDocument();
         expect(screen.getByText('Continue')).toBeInTheDocument();
         expect(mockLocation.href).toBe('');
       });
@@ -225,7 +225,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Your Access is Active/)).toBeInTheDocument();
+        expect(screen.getByText(/Your Account is Active/)).toBeInTheDocument();
         expect(screen.getByText('Continue')).toBeInTheDocument();
         expect(mockLocation.href).toBe('');
       });
@@ -275,7 +275,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(10_000);
 
       await waitFor(() => {
-        expect(screen.getByText(/Your Access is Active/)).toBeInTheDocument();
+        expect(screen.getByText(/Your Account is Active/)).toBeInTheDocument();
         expect(screen.getByText('Continue')).toBeInTheDocument();
       });
     });
