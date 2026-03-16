@@ -30,12 +30,17 @@ jobs:
           fi
           echo "Confirmed: nuking all R2 buckets in ${{ inputs.environment }}"
 
-      - name: List and delete all codeflare-* R2 buckets
+      - name: Install rclone
+        run: |
+          curl -sSf https://rclone.org/install.sh | sudo bash
+          rclone version
+
+      - name: Nuke all user R2 buckets
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || '' }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || '' }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           CF_API="https://api.cloudflare.com/client/v4"
@@ -44,6 +49,24 @@ jobs:
             echo "::error::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID not set"
             exit 1
           fi
+
+          if [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ]; then
+            echo "::error::R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY not set (required for rclone purge)"
+            exit 1
+          fi
+
+          # Create rclone config
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${R2_ACCESS_KEY_ID}
+          secret_access_key = ${R2_SECRET_ACCESS_KEY}
+          endpoint = https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com
+          acl = private
+          no_check_bucket = true
+          EOF
 
           # List all R2 buckets (paginated)
           BUCKETS=""
@@ -54,15 +77,15 @@ jobs:
               URL="${URL}&cursor=${CURSOR}"
             fi
             RESPONSE=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" "$URL")
-            PAGE_BUCKETS=$(echo "$RESPONSE" | jq -r '.result[].name // empty' 2>/dev/null)
+            PAGE_BUCKETS=$(echo "$RESPONSE" | jq -r '.result.buckets[].name // empty' 2>/dev/null)
             BUCKETS="$BUCKETS $PAGE_BUCKETS"
             CURSOR=$(echo "$RESPONSE" | jq -r '.result_info.cursor // empty' 2>/dev/null)
             if [ -z "$CURSOR" ]; then break; fi
           done
 
-          # Filter to codeflare-* buckets
+          # Filter to worker-name-* buckets
           WORKER_NAME="${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}"
-          MATCHED=$(echo "$BUCKETS" | tr ' ' '\n' | grep "^${WORKER_NAME}-" | sort -u)
+          MATCHED=$(echo "$BUCKETS" | tr ' ' '\n' | grep "^${WORKER_NAME}-" | sort -u || true)
           COUNT=$(echo "$MATCHED" | grep -c . || true)
 
           if [ "$COUNT" -eq 0 ]; then
@@ -74,86 +97,17 @@ jobs:
           echo "$MATCHED"
           echo ""
 
-          # Delete each bucket (empty via S3 API, then delete via CF API)
+          # Purge each bucket (rclone purge deletes all objects + the bucket itself)
           DELETED=0
           FAILED=0
           for BUCKET in $MATCHED; do
             echo "--- Nuking: $BUCKET ---"
-
-            # Empty bucket via S3 DeleteObjects (requires R2 S3 credentials)
-            if [ -n "$R2_ACCESS_KEY_ID" ] && [ -n "$R2_SECRET_ACCESS_KEY" ]; then
-              # Use aws CLI with R2 endpoint for bulk delete
-              export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
-              export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
-              R2_ENDPOINT="https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com"
-
-              # List and delete all objects (loop until empty)
-              OBJECTS_DELETED=0
-              while true; do
-                KEYS=$(aws s3api list-objects-v2 \
-                  --bucket "$BUCKET" \
-                  --max-items 1000 \
-                  --endpoint-url "$R2_ENDPOINT" \
-                  --query 'Contents[].Key' \
-                  --output text 2>/dev/null || echo "")
-
-                if [ -z "$KEYS" ] || [ "$KEYS" = "None" ]; then
-                  break
-                fi
-
-                # Build delete JSON
-                DELETE_JSON='{"Objects":['
-                FIRST=true
-                for KEY in $KEYS; do
-                  if [ "$FIRST" = true ]; then FIRST=false; else DELETE_JSON="${DELETE_JSON},"; fi
-                  DELETE_JSON="${DELETE_JSON}{\"Key\":\"${KEY}\"}"
-                done
-                DELETE_JSON="${DELETE_JSON}],\"Quiet\":true}"
-
-                aws s3api delete-objects \
-                  --bucket "$BUCKET" \
-                  --delete "$DELETE_JSON" \
-                  --endpoint-url "$R2_ENDPOINT" 2>/dev/null || true
-
-                KEY_COUNT=$(echo "$KEYS" | wc -w)
-                OBJECTS_DELETED=$((OBJECTS_DELETED + KEY_COUNT))
-              done
-
-              if [ "$OBJECTS_DELETED" -gt 0 ]; then
-                echo "  Deleted $OBJECTS_DELETED objects"
-                sleep 2  # R2 eventual consistency
-              fi
-            else
-              echo "  WARNING: No R2 S3 credentials — skipping object deletion, bucket delete may fail if not empty"
-            fi
-
-            # Delete the bucket via CF API (retry for eventual consistency)
-            BUCKET_DELETED=false
-            for ATTEMPT in 1 2 3; do
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-                -X DELETE \
-                -H "Authorization: Bearer $CF_API_TOKEN" \
-                "$CF_API/accounts/$CF_ACCOUNT_ID/r2/buckets/$BUCKET")
-
-              if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
-                echo "  Bucket deleted (attempt $ATTEMPT)"
-                BUCKET_DELETED=true
-                break
-              elif [ "$HTTP_CODE" = "404" ]; then
-                echo "  Bucket already gone"
-                BUCKET_DELETED=true
-                break
-              else
-                echo "  Delete attempt $ATTEMPT failed (HTTP $HTTP_CODE)"
-                if [ "$ATTEMPT" -lt 3 ]; then sleep $((ATTEMPT * 2)); fi
-              fi
-            done
-
-            if [ "$BUCKET_DELETED" = true ]; then
+            if rclone purge "r2:${BUCKET}" 2>&1; then
+              echo "  Purged"
               DELETED=$((DELETED + 1))
             else
+              echo "  ::warning::Failed to purge bucket: $BUCKET"
               FAILED=$((FAILED + 1))
-              echo "  ::warning::Failed to delete bucket: $BUCKET"
             fi
           done
 
@@ -165,3 +119,6 @@ jobs:
             echo "::warning::$FAILED bucket(s) could not be deleted"
           fi
           echo "Buckets will be recreated with SSE-C encryption on next user session start."
+
+          # Clean up credentials
+          rm -f ~/.config/rclone/rclone.conf
