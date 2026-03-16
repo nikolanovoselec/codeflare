@@ -178,12 +178,6 @@ All optional. The defaults work out of the box. I respect your time.
 | `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification, required when `ONBOARDING_LANDING_PAGE=active`) |
 | `KV_ENCRYPTION_KEY` | unset | Optional. Encrypts API keys in KV (AES-256-GCM) and file contents in R2 (SSE-C). Generate with `openssl rand -base64 32`, then add as GitHub Actions secret. |
 
-### SaaS Mode (Custom Login)
-
-Set `SAAS_MODE=active` to replace the Cloudflare Access interstitial with a branded login page, guided onboarding, user management, and admin approval workflow. New users authenticate via GitHub OAuth, get auto-provisioned with `pending` status, and require admin approval before accessing the IDE. Leave `SAAS_MODE` unset for the default Cloudflare Access login.
-
-See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth flow diagrams, and common pitfalls.
-
 </details>
 
 ## Security
