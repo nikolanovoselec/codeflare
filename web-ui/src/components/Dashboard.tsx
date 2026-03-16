@@ -154,7 +154,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     class="header-user-dropdown header-user-dropdown--portal"
                     data-testid="header-user-dropdown"
                     onClick={(e) => e.stopPropagation()}
-                    style={{ top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` }}
+                    style={window.innerWidth > 640 ? { top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` } : undefined}
                   >
                     <a
                       href="/app/subscribe"
