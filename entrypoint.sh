@@ -135,6 +135,16 @@ RCLONE_EOF
     sed -i "s|PLACEHOLDER_SECRET_KEY|${R2_SECRET_ACCESS_KEY}|" "$USER_HOME/.config/rclone/rclone.conf"
     sed -i "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" "$USER_HOME/.config/rclone/rclone.conf"
 
+    # Append SSE-C config for R2 encryption at rest (optional)
+    if [ -n "${R2_ENCRYPTION_KEY:-}" ]; then
+        KEY_MD5=$(printf '%s' "$R2_ENCRYPTION_KEY" | base64 -d | md5sum | cut -d' ' -f1 | xxd -r -p | base64)
+        cat >> "$USER_HOME/.config/rclone/rclone.conf" << SSEEOF
+sse_customer_key = ${R2_ENCRYPTION_KEY}
+sse_customer_key_md5 = ${KEY_MD5}
+SSEEOF
+        echo "[entrypoint] R2 SSE-C encryption configured for rclone"
+    fi
+
     chmod 600 "$USER_HOME/.config/rclone/rclone.conf"
     echo "[entrypoint] rclone config created"
     return 0
@@ -254,6 +264,18 @@ RCLONE_FILTERS_COMMON=(
 # In default mode, exclude entire .memory/ directory (no persistent memory)
 if [ "${SESSION_MODE:-default}" != "advanced" ]; then
     RCLONE_FILTERS_COMMON+=('--filter' '- .memory/**')
+fi
+
+# Exclude agent credential files when API key is provided via env var
+# (agent reads from env, credential file is unnecessary and would leak plaintext to R2)
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    RCLONE_FILTERS_COMMON+=('--filter' '- .claude/.credentials.json')
+fi
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+    RCLONE_FILTERS_COMMON+=('--filter' '- .codex/auth.json')
+fi
+if [ -n "${GEMINI_API_KEY:-}" ]; then
+    RCLONE_FILTERS_COMMON+=('--filter' '- .gemini/oauth_creds.json')
 fi
 
 if [ "$SYNC_MODE" = "metadata" ]; then
@@ -877,8 +899,8 @@ if [ -n "${SESSION_ID:-}" ]; then
     mkdir -p "$USER_HOME/.memory/counter"
 fi
 
-# Configure consult-llm-mcp MCP server when LLM API keys are present
-if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
+# Configure consult-llm-mcp MCP server (gated on user preference + at least one key)
+if [ "${CONSULT_LLM_ENABLED:-false}" = "true" ] && { [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; }; then
     # Build env object with only the keys that are set
     LLM_ENV="{}"
     if [ -n "${OPENAI_API_KEY:-}" ]; then
@@ -962,6 +984,12 @@ if [ "${FAST_CLI_START:-true}" != "false" ]; then
     # Codex: dismiss version notification (excluded from rclone sync)
     mkdir -p "$USER_HOME/.codex"
     echo '{"dismissed_version":"999.0.0"}' > "$USER_HOME/.codex/version.json"
+fi
+
+# Pre-authenticate Codex with API key (TUI doesn't auto-detect env var)
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+    printf '%s' "$OPENAI_API_KEY" | codex login --with-api-key 2>/dev/null || true
+    echo "[entrypoint] Codex pre-authenticated via OPENAI_API_KEY"
 fi
 
 # Configure tab auto-start
