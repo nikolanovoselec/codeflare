@@ -769,6 +769,297 @@ describe('container DO class', () => {
     });
   });
 
+  describe('collectMetrics heartbeat-based renewal', () => {
+    // Helper to create a running container instance with KV mocks
+    async function createRunningInstance() {
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({
+        id: 'sess123',
+        status: 'running',
+        name: 'Test',
+        metrics: {},
+      });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      mockContainerRuntime.running = true;
+
+      // Mock schedule to prevent re-arm error
+      vi.spyOn(instance, 'schedule' as any).mockResolvedValue(undefined);
+
+      // Trigger onStart to set containerStartedAt
+      vi.spyOn(instance, 'deleteSchedules' as any).mockImplementation(() => {});
+      await instance.onStart();
+
+      return instance;
+    }
+
+    it('renews when heartbeat is recent (within 5 min)', async () => {
+      const instance = await createRunningInstance();
+      const now = Date.now();
+
+      // /activity returns recent heartbeat (30s ago)
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: null,
+          lastHeartbeatAt: now - 30_000,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        // /health response for metrics collection
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.collectMetrics();
+
+      expect(renewSpy).toHaveBeenCalled();
+    });
+
+    it('does NOT renew when heartbeat is stale (>5 min ago)', async () => {
+      const instance = await createRunningInstance();
+      const now = Date.now();
+
+      // /activity returns stale heartbeat (6 min ago)
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: now - 60_000,
+          lastHeartbeatAt: now - 6 * 60 * 1000,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.collectMetrics();
+
+      expect(renewSpy).not.toHaveBeenCalled();
+    });
+
+    it('does NOT renew when lastHeartbeatAt is null (new host, no heartbeat)', async () => {
+      const instance = await createRunningInstance();
+
+      // /activity returns null heartbeat (new host, never received heartbeat)
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: null,
+          lastHeartbeatAt: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.collectMetrics();
+
+      expect(renewSpy).not.toHaveBeenCalled();
+    });
+
+    it('falls back to legacy input-based check when lastHeartbeatAt is undefined (old host)', async () => {
+      const instance = await createRunningInstance();
+      const now = Date.now();
+
+      // /activity returns NO lastHeartbeatAt field (old host without heartbeat support)
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: now - 60_000, // typed 1 min ago — recent
+          // lastHeartbeatAt is ABSENT (undefined)
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.collectMetrics();
+
+      expect(renewSpy).toHaveBeenCalled();
+    });
+
+    it('legacy: null grace period expires after 5 min (no renewal)', async () => {
+      // Need to create instance with containerStartedAt in the past (>5 min ago)
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({
+        id: 'sess123',
+        status: 'running',
+        name: 'Test',
+        metrics: {},
+      });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      mockContainerRuntime.running = true;
+      vi.spyOn(instance, 'schedule' as any).mockResolvedValue(undefined);
+      vi.spyOn(instance, 'deleteSchedules' as any).mockImplementation(() => {});
+
+      // Trigger onStart to set containerStartedAt
+      await instance.onStart();
+
+      // Backdate containerStartedAt to 6 minutes ago
+      (instance as any).containerStartedAt = Date.now() - 6 * 60 * 1000;
+
+      // /activity returns old host (no lastHeartbeatAt) with null lastInputAt
+      // Grace period expired (containerStartedAt > 5 min ago) — should NOT renew
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: null,
+          // lastHeartbeatAt absent (old host)
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.collectMetrics();
+
+      expect(renewSpy).not.toHaveBeenCalled();
+    });
+
+    it('legacy: null grace period active within 5 min (renewal)', async () => {
+      const instance = await createRunningInstance();
+      // containerStartedAt was just set by onStart() — within 5 min
+
+      // /activity returns old host (no lastHeartbeatAt) with null lastInputAt
+      // Grace period active (containerStartedAt < 5 min ago) — should renew
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: null,
+          // lastHeartbeatAt absent (old host)
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.collectMetrics();
+
+      expect(renewSpy).toHaveBeenCalled();
+    });
+
+    it('does NOT renew on non-OK /activity response', async () => {
+      const instance = await createRunningInstance();
+
+      // /activity returns 500
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response('error', { status: 500 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.collectMetrics();
+
+      expect(renewSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onActivityExpired heartbeat-aware', () => {
+    it('stops when heartbeat is stale', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      mockContainerRuntime.running = true;
+      const now = Date.now();
+
+      // Active WS connections but stale heartbeat (6 min ago)
+      mockTcpPortFetch.mockResolvedValue(
+        new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: now - 60_000,
+          lastHeartbeatAt: now - 6 * 60 * 1000,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      );
+
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+
+      await instance.onActivityExpired();
+
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+      expect(renewSpy).not.toHaveBeenCalled();
+    });
+
+    it('renews when heartbeat is recent', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+      });
+
+      mockContainerRuntime.running = true;
+      const now = Date.now();
+
+      // Active WS connections with recent heartbeat (30s ago)
+      mockTcpPortFetch.mockResolvedValue(
+        new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: null,
+          lastHeartbeatAt: now - 30_000,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      );
+
+      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+
+      await instance.onActivityExpired();
+
+      expect(renewSpy).toHaveBeenCalled();
+      expect(stopSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('mock contract verification (FIX-53)', () => {
     /**
      * Verify that the mock Container base class used in these tests has the

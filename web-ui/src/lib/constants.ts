@@ -126,3 +126,12 @@ export const CONTEXT_EXPIRY_MS = 30 * 60 * 1000; // 30m — matches backend slee
 /** Delay before closing all WebSocket connections when on dashboard (ms).
  *  Gives the user a grace period to return to the terminal view without a full reconnect. */
 export const DASHBOARD_WS_DISCONNECT_DELAY_MS = 60_000;
+
+// =============================================================================
+// Visibility Heartbeat
+// =============================================================================
+
+/** Interval for sending visibility heartbeats through WebSocket.
+ *  The container DO considers heartbeats stale after 5 minutes,
+ *  so 60s interval gives ~5 missed heartbeats before considered idle. */
+export const HEARTBEAT_INTERVAL_MS = 60_000;

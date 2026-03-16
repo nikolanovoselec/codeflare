@@ -6,9 +6,10 @@ import assert from 'node:assert/strict';
  *
  * The logic mirrors the control-message parsing gate:
  *   1. If short enough and starts with '{', attempt JSON parse.
- *   2. Recognized control types (resize) are NOT user input.
+ *   2. Recognized control types (resize, heartbeat) are NOT user input.
  *   3. Data-type messages ARE user input (typed keystrokes sent as JSON).
- *   4. Parse failures or non-JSON → raw terminal bytes → user input.
+ *   4. Unknown JSON with a string 'type' field is silently ignored (NOT user input).
+ *   5. Parse failures or non-JSON → raw terminal bytes → user input.
  *
  * Note: Application-level ping/pong was removed — Cloudflare's runtime handles
  * protocol-level WebSocket keepalive automatically for DO/Container connections.
@@ -30,7 +31,17 @@ function classifyWsMessage(rawMessage) {
         return { isUserInput: true, type: 'data' };
       }
 
-      // Unknown JSON type — falls through to raw input
+      if (msg.type === 'heartbeat') {
+        return { isUserInput: false, type: 'heartbeat' };
+      }
+
+      // Guard: any JSON with a string type field that we don't handle
+      // should NOT fall through to raw PTY write
+      if (typeof msg.type === 'string') {
+        return { isUserInput: false, type: 'unknown-typed-json' };
+      }
+
+      // No type field — falls through to raw input
       return { isUserInput: true, type: 'unknown-json' };
     } catch {
       // Not valid JSON — treat as raw terminal input
@@ -59,8 +70,26 @@ describe('WS input classification', () => {
     assert.equal(result.type, 'data');
   });
 
-  it('{"type":"ping"} falls through to unknown-json (no longer a control message)', () => {
+  it('{"type":"heartbeat"} is NOT classified as user input', () => {
+    const result = classifyWsMessage(JSON.stringify({ type: 'heartbeat' }));
+    assert.equal(result.isUserInput, false);
+    assert.equal(result.type, 'heartbeat');
+  });
+
+  it('{"type":"ping"} is silently ignored (unknown type with string type field)', () => {
     const result = classifyWsMessage(JSON.stringify({ type: 'ping' }));
+    assert.equal(result.isUserInput, false);
+    assert.equal(result.type, 'unknown-typed-json');
+  });
+
+  it('unknown JSON with string type field does NOT fall through to PTY', () => {
+    const result = classifyWsMessage(JSON.stringify({ type: 'future-msg', foo: 'bar' }));
+    assert.equal(result.isUserInput, false);
+    assert.equal(result.type, 'unknown-typed-json');
+  });
+
+  it('JSON without type field falls through to raw input', () => {
+    const result = classifyWsMessage(JSON.stringify({ foo: 'bar' }));
     assert.equal(result.isUserInput, true);
     assert.equal(result.type, 'unknown-json');
   });

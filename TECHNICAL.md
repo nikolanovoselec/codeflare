@@ -107,13 +107,18 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, confirmed stable with keepalive heartbeat).
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, confirmed stable with visibility-heartbeat-based keepalive).
 
 **SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 5-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
 
 **`collectMetrics()` Heartbeat (every 5s):**
 1. Checks `this.ctx.container?.running` - returns early (no re-arm) if container is dead
-2. Fetches `/activity` via `getTcpPort()` - if active WS clients, checks `lastInputAt`: if user hasn't typed for 30 minutes, calls `this.stop('SIGTERM')` (idle kill despite open WS). Otherwise calls `renewActivityTimeout()` (keepalive). If `/activity` fails, renews as safety net (don't kill container on transient errors). Activity/keepalive logs are at `debug` level to reduce noise.
+2. Fetches `/activity` via `getTcpPort()` - uses three-tier idle detection based on frontend visibility heartbeat:
+   - **New host + heartbeat received** (`lastHeartbeatAt` is a number): renew only if heartbeat within `HEARTBEAT_STALE_MS` (5 min) AND WS connected. Stale heartbeat = user walked away with tab open.
+   - **Old host** (`lastHeartbeatAt === undefined`): legacy input-based fallback. Renew if WS connected AND (`lastInputAt` recent within 30 min OR `lastInputAt === null` within 5-min grace period from `containerStartedAt`).
+   - **New host, no heartbeat** (`lastHeartbeatAt === null`): don't renew. Container stops after `sleepAfter`.
+   - Non-OK `/activity` response: don't renew (broken activity endpoint shouldn't keep containers alive).
+   - Activity/keepalive logs are at `debug` level to reduce noise.
 3. Fetches `/health` via `getTcpPort()` - reads cpu/mem/hdd/syncStatus
 4. Writes metrics to KV session record (`session.metrics`)
 5. Re-arms schedule if container still running
@@ -128,18 +133,29 @@ flowchart TD
     CRunning -->|Yes| IDs{"identifiers exist?<br/>(sessionId + bucketName)"}
     IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
     IDs -->|Yes| FetchAct["Fetch /activity<br/>from container"]
-    FetchAct --> WSClients{"Active WS clients?"}
-    WSClients -->|Yes| InputCheck{"lastInputAt > 30min ago?"}
-    InputCheck -->|Yes| IdleKill["this.stop('SIGTERM')<br/>(idle kill — no user input)"]
-    InputCheck -->|No| Renew["renewActivityTimeout()<br/>(keepalive)"]
+    FetchAct --> ActOK{"Response OK?"}
+    ActOK -->|No| NoRenewErr["Don't renew<br/>(broken endpoint)"]
+    ActOK -->|Yes| WSClients{"Active WS clients?"}
     WSClients -->|No| NoRenew["Don't renew<br/>(let container idle to sleepAfter)"]
+    WSClients -->|Yes| HBCheck{"lastHeartbeatAt?"}
+    HBCheck -->|"number"| HBRecent{"heartbeat within<br/>5 min?"}
+    HBRecent -->|Yes| Renew["renewActivityTimeout()<br/>(keepalive)"]
+    HBRecent -->|No| NoRenewStale["Don't renew<br/>(user walked away)"]
+    HBCheck -->|"undefined<br/>(old host)"| LegacyInput{"Legacy: input recent<br/>or in grace period?"}
+    LegacyInput -->|Yes| Renew
+    LegacyInput -->|No| NoRenewLegacy["Don't renew<br/>(idle — no input)"]
+    HBCheck -->|"null<br/>(no heartbeat)"| NoRenewNull["Don't renew<br/>(new host, no heartbeat)"]
     Renew --> FetchHealth["Fetch /health<br/>from container"]
     NoRenew --> FetchHealth
+    NoRenewErr --> FetchHealth
+    NoRenewStale --> FetchHealth
+    NoRenewLegacy --> FetchHealth
+    NoRenewNull --> FetchHealth
     FetchHealth --> WriteKV["Write metrics to KV"]
     WriteKV --> ReArm["schedule(5, 'collectMetrics')<br/>(unconditional if container.running)"]
 ```
 
-**`onActivityExpired()` Override:** Checks `/activity` for active WS clients. If clients connected -> `renewActivityTimeout()`. If no clients -> `this.stop('SIGTERM')`. If `/activity` returns non-OK or the fetch throws, calls `this.stop('SIGTERM')` -- by the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed (meaning `collectMetrics` saw no active WS clients for 30 min), so an unreachable activity endpoint confirms the container is dead.
+**`onActivityExpired()` Override:** Checks `/activity` for active WS clients and frontend visibility heartbeat. If active WS + recent heartbeat (within `HEARTBEAT_STALE_MS` = 5 min) -> `renewActivityTimeout()`. If active WS + stale/null heartbeat -> `this.stop('SIGTERM')` (user walked away). If old host (`lastHeartbeatAt === undefined`) + active WS -> legacy fallback, renews. If no WS clients -> `this.stop('SIGTERM')`. If `/activity` returns non-OK or the fetch throws, calls `this.stop('SIGTERM')` -- by the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed.
 
 **`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
@@ -175,13 +191,13 @@ sequenceDiagram
 
 **File:** `host/src/server.ts` - Node.js/TypeScript server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
-Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (WebSocket connection state + user input timestamps: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`) for hibernation decisions via `GET /activity`.
+Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (WebSocket connection state + user input timestamps + frontend visibility heartbeat: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`, `lastHeartbeatAt`) for hibernation decisions via `GET /activity`. WS message handler routes `{"type":"heartbeat"}` to `activityTracker.recordHeartbeat()` without writing to PTY. Unknown JSON `type` strings are silently ignored (guard against future message types leaking to PTY).
 
 **Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. Paths called via `getTcpPort().fetch()` (which bypasses the DO's `fetch()` override that injects the auth header) must be in the `authExemptPaths` Set at `host/src/server.ts`: `['/health', '/activity']`. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
 
-**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null }`. Used by both `collectMetrics()` (keepalive heartbeat + idle input detection) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected). `lastInputAt` is the Unix timestamp (ms) of the last real user keyboard input — any keystroke that reaches `ptyProcess.write()` after stripping terminal response sequences (CPR, OSC, DA). Includes typing commands, Enter, Ctrl+C, arrow keys, tab completion. Does NOT include mouse events, browser-side UI interactions, or terminal output from agents.
+**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null, lastHeartbeatAt: number | null }`. Used by both `collectMetrics()` (keepalive heartbeat + idle detection) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected). `lastInputAt` is the Unix timestamp (ms) of the last real user keyboard input — any keystroke that reaches `ptyProcess.write()` after stripping terminal response sequences (CPR, OSC, DA). `lastHeartbeatAt` is the Unix timestamp (ms) of the last frontend visibility heartbeat — `null` if no heartbeat received yet. The DO uses three states: `undefined` (old host, field absent = legacy fallback), `null` (new host, no heartbeat), `number` (check recency against `HEARTBEAT_STALE_MS`).
 
-**Idle Input Detection:** `collectMetrics()` (every 5s) reads `lastInputAt` from `/activity`. The container's `sleepAfter` timer is only renewed when BOTH conditions are true: (1) WebSocket clients are connected, AND (2) user input is recent (within 30 minutes) or `null` (user just arrived, hasn't typed yet). Once the user types for the first time, the 30-minute idle clock starts. If either condition fails, `renewActivityTimeout()` is not called and the SDK's `sleepAfter` (30 minutes) counts down naturally. Worst case: a user gets ~60 minutes total (30 min since last keystroke + 30 min sleepAfter countdown). This prevents browser tabs left open from keeping containers alive indefinitely.
+**Idle Detection (Visibility Heartbeat):** The primary idle detection signal is the frontend visibility heartbeat. The frontend sends `{"type":"heartbeat"}` through WebSocket every 60s (`HEARTBEAT_INTERVAL_MS`) when `document.visibilityState === 'visible'`. The host tracks `lastHeartbeatAt` via `activityTracker.recordHeartbeat()`. The Container DO's `collectMetrics()` (every 5s) checks: if `lastHeartbeatAt` is a recent timestamp (within `HEARTBEAT_STALE_MS` = 5 min) AND WS clients are connected, the container stays alive. If the heartbeat is stale or absent, the container stops after `sleepAfter` (30 min). This means a user who switches tabs or walks away sees the container stop after ~35 min (5 min stale threshold + 30 min `sleepAfter`). **Legacy fallback** for old host images (without heartbeat support, `lastHeartbeatAt === undefined` in response): uses input-based detection with a 5-min null grace period from `containerStartedAt` — fixes the original bug where `lastInputAt === null` kept containers alive forever.
 
 **WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, process-name) as JSON. No application-level ping/pong -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
@@ -328,7 +344,7 @@ flowchart TD
 
 **Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` -- prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
 
-**Session Stop Flow (idle):** `onActivityExpired()` detects no active WS clients (or unreachable activity endpoint) -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV.
+**Session Stop Flow (idle):** `onActivityExpired()` detects no active WS clients, stale/missing visibility heartbeat, or unreachable activity endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV.
 
 ---
 
@@ -386,10 +402,10 @@ stateDiagram-v2
     initializing --> error : error
     running --> stopping : stop
     stopping --> stopped : poll stopped
-    running --> stopped : onActivityExpired (no WS clients)
+    running --> stopped : onActivityExpired (no WS or stale heartbeat)
 ```
 
-**Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> no WS clients (or unreachable endpoint) -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule -> KV status = `'stopped'`
+**Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> no WS clients or stale/missing visibility heartbeat (or unreachable endpoint) -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule -> KV status = `'stopped'`
 
 **Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so no KV write)
 
@@ -400,8 +416,9 @@ flowchart TD
     subgraph Idle["Idle Stop"]
         I1["sleepAfter expires"] --> I2["onActivityExpired()"]
         I2 --> I3["Check /activity"]
-        I3 --> I4["No WS clients"]
-        I4 --> I5["this.stop('SIGTERM')"]
+        I3 --> I4{"WS + recent heartbeat?"}
+        I4 -->|Yes| I4R["renewActivityTimeout()"]
+        I4 -->|No| I5["this.stop('SIGTERM')"]
         I5 --> I6["onStop()"]
         I6 --> I7["KV status = 'stopped'"]
         I6 -.- IN["Identifiers INTACT<br/>so onStop() writes KV"]
@@ -1883,7 +1900,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
 **Count:** 12 test files, ~86 tests.
 **Run:** `cd host && npm test`
-**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
+**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + heartbeat tracking, WebSocket input classification (including heartbeat routing), server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
 
 ### Property-Based Fuzz Tests
 
@@ -2048,7 +2065,7 @@ codeflare/
 │   │   ├── session.ts        # Session class — PTY management, tab lifecycle
 │   │   ├── session-manager.ts # SessionManager class, PREWARM_SESSION_ID constant
 │   │   ├── metrics.ts        # System metrics collection (disk usage, sync status)
-│   │   ├── activity-tracker.ts # WS connection + user input tracking for idle detection
+│   │   ├── activity-tracker.ts # WS connection + user input + visibility heartbeat tracking for idle detection
 │   │   ├── prewarm-config.ts # PTY pre-warm configuration (first-output readiness)
 │   │   └── types.ts          # Shared TypeScript types
 │   ├── __tests__/            # Host unit tests (12 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, host fixes, fuzz, memory merge/cleanup)
@@ -2279,7 +2296,7 @@ Architectural principles and design rationale.
 1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
 2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
 3. **Resilient bisync over auto-resync** - `--resilient` + `--recover` handle transient failures without losing deletion tracking. `--resync` is only used for initial baseline establishment (see AD14).
-4. **SDK-managed lifecycle with heartbeat** - `sleepAfter` with `collectMetrics` heartbeat keeps containers alive during active use. Renewal requires BOTH active WS clients AND recent user input (within 30 min). The heartbeat compensates for WS frames bypassing `renewActivityTimeout()`. Idle browser tabs (connected but no typing) cause the container to stop after ~60 min max.
+4. **SDK-managed lifecycle with visibility heartbeat** - `sleepAfter` with `collectMetrics` heartbeat keeps containers alive during active use. Renewal requires BOTH active WS clients AND a recent frontend visibility heartbeat (within 5 min). The `collectMetrics` heartbeat compensates for WS frames bypassing `renewActivityTimeout()`. The visibility heartbeat (sent every 60s when tab is visible) replaces the old input-based detection. Browser tabs left open but backgrounded cause the container to stop after ~35 min (5 min stale threshold + 30 min `sleepAfter`). Legacy host images without heartbeat support fall back to input-based detection with a 5-min null grace period.
 5. **`onStop()` must set KV status and clear schedules** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV (otherwise other devices see stale 'running' status) and call `deleteSchedules('collectMetrics')` to kill the alarm loop (otherwise zombie alarms fire on a dead container indefinitely).
 6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
 7. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.

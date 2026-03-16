@@ -379,7 +379,16 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
           return;
         }
 
-        // Unknown type or wrong field types — fall through to raw input
+        if (msg.type === 'heartbeat') {
+          activityTracker.recordHeartbeat();
+          return;
+        }
+
+        // Guard: any JSON with a type string field that we don't handle
+        // should NOT fall through to raw PTY write
+        if (typeof msg.type === 'string') {
+          return;
+        }
       } catch {
         // Not valid JSON — treat as raw terminal input
       }

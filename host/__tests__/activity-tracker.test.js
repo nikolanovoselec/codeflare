@@ -84,4 +84,46 @@ describe('activity-tracker', () => {
     assert.equal('lastPtyOutputMs' in info, false);
     assert.equal('lastWsActivityMs' in info, false);
   });
+
+  it('lastHeartbeatAt is null initially', () => {
+    const sessionManager = { clients: new Map(), sessions: new Map() };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.equal(info.lastHeartbeatAt, null);
+  });
+
+  it('recordHeartbeat sets lastHeartbeatAt to current time', () => {
+    const before = Date.now();
+    tracker.recordHeartbeat();
+    const after = Date.now();
+    const sessionManager = { clients: new Map(), sessions: new Map() };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.ok(info.lastHeartbeatAt >= before);
+    assert.ok(info.lastHeartbeatAt <= after);
+  });
+
+  it('recordHeartbeat does NOT affect lastInputAt', () => {
+    tracker.recordHeartbeat();
+    const sessionManager = { clients: new Map(), sessions: new Map() };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.equal(info.lastInputAt, null, 'lastInputAt should remain null');
+    assert.notEqual(info.lastHeartbeatAt, null, 'lastHeartbeatAt should be set');
+  });
+
+  it('recordInput does NOT affect lastHeartbeatAt', () => {
+    tracker.recordInput();
+    const sessionManager = { clients: new Map(), sessions: new Map() };
+    const info = tracker.getActivityInfo(sessionManager);
+    assert.notEqual(info.lastInputAt, null, 'lastInputAt should be set');
+    assert.equal(info.lastHeartbeatAt, null, 'lastHeartbeatAt should remain null');
+  });
+
+  it('multiple recordHeartbeat calls update timestamp', async () => {
+    tracker.recordHeartbeat();
+    const sessionManager = { clients: new Map(), sessions: new Map() };
+    const first = tracker.getActivityInfo(sessionManager).lastHeartbeatAt;
+    await new Promise(r => setTimeout(r, 50));
+    tracker.recordHeartbeat();
+    const second = tracker.getActivityInfo(sessionManager).lastHeartbeatAt;
+    assert.ok(second > first, 'second heartbeat should have later timestamp');
+  });
 });

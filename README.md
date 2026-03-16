@@ -82,8 +82,8 @@ flowchart LR
     isolated per session, pre-warmed PTY"]
     D --> E["R2
     per-user storage, bisync every 60s"]
-    D -. "idle after 30m
-    (no WebSocket clients)" .-> F["Hibernated
+    D -. "idle after ~35m
+    (no visibility heartbeat)" .-> F["Hibernated
     zero cost"]
 ```
 

@@ -47,6 +47,7 @@ export interface ActivityInfo {
   readonly activeSessions: number;
   readonly disconnectedForMs: number | null;
   readonly lastInputAt: number | null;
+  readonly lastHeartbeatAt: number | null;
 }
 
 /** Minimal SessionManager surface needed by the activity tracker. */
@@ -61,6 +62,7 @@ export interface ActivityTracker {
   recordClientConnected(): void;
   recordAllClientsDisconnected(): void;
   recordInput(): void;
+  recordHeartbeat(): void;
   getActivityInfo(sessionManager: ActivitySessionManager | null | undefined): ActivityInfo;
 }
 

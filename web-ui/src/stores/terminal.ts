@@ -7,6 +7,7 @@ import { logger } from '../lib/logger';
 import {
   WS_RETRY_DELAY_MS,
   WS_RETRYABLE_CLOSE_CODES,
+  HEARTBEAT_INTERVAL_MS,
 } from '../lib/constants';
 import {
   registerUrlDetectionDeps,
@@ -69,6 +70,7 @@ const [state, setState] = createStore<{
 const connections = new Map<string, WebSocket>();
 const terminals = new Map<string, Terminal>();
 const retryTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const heartbeatIntervals = new Map<string, ReturnType<typeof setInterval>>();
 const abortControllers = new Map<string, AbortController>();
 
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
@@ -335,6 +337,19 @@ function connect(
         logger.debug(`[Terminal ${key}] Sent initial resize: ${cols}x${rows}`);
       }
 
+      // Visibility heartbeat: send every 60s when tab is visible
+      // The container DO uses this to decide whether to keep the container alive
+      const hbKey = key;  // capture for closure
+      if (document.visibilityState === 'visible') {
+        ws.send(JSON.stringify({ type: 'heartbeat' }));
+      }
+      const hbInterval = setInterval(() => {
+        if (document.visibilityState === 'visible' && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'heartbeat' }));
+        }
+      }, HEARTBEAT_INTERVAL_MS);
+      heartbeatIntervals.set(hbKey, hbInterval);
+
     };
 
     function handleWebSocketMessage(event: MessageEvent): void {
@@ -438,6 +453,13 @@ function connect(
       retryTimeouts.delete(key);
     }
 
+    // Clear heartbeat interval
+    const hbInterval = heartbeatIntervals.get(key);
+    if (hbInterval) {
+      clearInterval(hbInterval);
+      heartbeatIntervals.delete(key);
+    }
+
     disconnect(sessionId, terminalId);
   };
 }
@@ -455,6 +477,13 @@ function disconnect(sessionId: string, terminalId: string): void {
   if (controller) {
     controller.abort();
     abortControllers.delete(key);
+  }
+
+  // Clear heartbeat interval
+  const hbInterval = heartbeatIntervals.get(key);
+  if (hbInterval) {
+    clearInterval(hbInterval);
+    heartbeatIntervals.delete(key);
   }
 
   // Bug 1 fix: Dispose input handler before closing WebSocket
@@ -524,6 +553,7 @@ function disposeSession(sessionId: string): void {
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
   cleanupMapByPrefix(pendingFlushes, prefix, (rafId) => clearTimeout(rafId));
   cleanupMapByPrefix(writeBuffers, prefix);
+  cleanupMapByPrefix(heartbeatIntervals, prefix, (interval) => clearInterval(interval));
 
   // Clean up state
   setState(produce((s) => {
@@ -561,6 +591,12 @@ function disposeAll(): void {
     clearTimeout(timeout);
   }
   retryTimeouts.clear();
+
+  // Clear all heartbeat intervals
+  for (const interval of heartbeatIntervals.values()) {
+    clearInterval(interval);
+  }
+  heartbeatIntervals.clear();
 
   // Cancel all pending write flushes
   for (const rafId of pendingFlushes.values()) {
@@ -696,6 +732,12 @@ function disconnectAll(): void {
     ws.close(1000, 'dashboard-disconnect');
   }
   connections.clear();
+
+  // Clear all heartbeat intervals
+  for (const interval of heartbeatIntervals.values()) {
+    clearInterval(interval);
+  }
+  heartbeatIntervals.clear();
 
   // Clear pending retries — we intentionally disconnected
   for (const timeout of retryTimeouts.values()) {

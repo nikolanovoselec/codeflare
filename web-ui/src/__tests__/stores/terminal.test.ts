@@ -1130,6 +1130,137 @@ describe('Terminal Store', () => {
 
   });
 
+  describe('visibility heartbeat', () => {
+    // Helper: stub document.visibilityState (read-only property)
+    function stubVisibilityState(state: DocumentVisibilityState): void {
+      Object.defineProperty(document, 'visibilityState', {
+        value: state,
+        writable: true,
+        configurable: true,
+      });
+    }
+
+    afterEach(() => {
+      // Restore default
+      stubVisibilityState('visible');
+    });
+
+    it('should send heartbeat immediately on WS open when tab is visible', async () => {
+      stubVisibilityState('visible');
+      const terminal = createMockTerminal();
+      const sendSpy = vi.fn();
+      const OriginalWebSocket = globalThis.WebSocket;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        send = sendSpy;
+        constructor(url: string) {
+          super(url);
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should have sent resize AND heartbeat
+      expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'heartbeat' }));
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('should NOT send heartbeat on WS open when tab is hidden', async () => {
+      stubVisibilityState('hidden');
+      const terminal = createMockTerminal();
+      const sendSpy = vi.fn();
+      const OriginalWebSocket = globalThis.WebSocket;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        send = sendSpy;
+        constructor(url: string) {
+          super(url);
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should have sent resize but NOT heartbeat
+      const heartbeatCalls = sendSpy.mock.calls.filter(
+        (call: unknown[]) => call[0] === JSON.stringify({ type: 'heartbeat' })
+      );
+      expect(heartbeatCalls.length).toBe(0);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('should create heartbeat interval on WS open', async () => {
+      const terminal = createMockTerminal();
+      const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should have called setInterval with 60000ms (HEARTBEAT_INTERVAL_MS)
+      const heartbeatIntervalCall = setIntervalSpy.mock.calls.find(
+        (call) => call[1] === 60_000
+      );
+      expect(heartbeatIntervalCall).toBeDefined();
+
+      setIntervalSpy.mockRestore();
+    });
+
+    it('should clear heartbeat interval on disconnect', async () => {
+      const terminal = createMockTerminal();
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      clearIntervalSpy.mockClear();
+      terminalStore.disconnect(sessionId, terminalId);
+
+      // clearInterval should have been called (for the heartbeat interval)
+      expect(clearIntervalSpy).toHaveBeenCalled();
+
+      clearIntervalSpy.mockRestore();
+    });
+
+    it('should clear all heartbeat intervals on disconnectAll via disposeAll', async () => {
+      const terminal1 = createMockTerminal();
+      const terminal2 = createMockTerminal();
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+
+      terminalStore.connect('session-1', '1', terminal1);
+      terminalStore.connect('session-2', '1', terminal2);
+      await vi.advanceTimersByTimeAsync(0);
+
+      clearIntervalSpy.mockClear();
+      terminalStore.disposeAll();
+
+      // clearInterval should have been called at least twice (one per heartbeat)
+      expect(clearIntervalSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+      clearIntervalSpy.mockRestore();
+    });
+
+    it('should clear heartbeat intervals on disposeSession', async () => {
+      const terminal1 = createMockTerminal();
+      const terminal2 = createMockTerminal();
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+
+      terminalStore.connect(sessionId, '1', terminal1);
+      terminalStore.connect(sessionId, '2', terminal2);
+      await vi.advanceTimersByTimeAsync(0);
+
+      clearIntervalSpy.mockClear();
+      terminalStore.disposeSession(sessionId);
+
+      // clearInterval should have been called for heartbeat intervals of that session
+      expect(clearIntervalSpy).toHaveBeenCalled();
+
+      clearIntervalSpy.mockRestore();
+    });
+  });
+
   describe('cleanupMapByPrefix', () => {
     it('cleanupMapByPrefix removes matching keys and calls teardown', () => {
       const map = new Map<string, number>();

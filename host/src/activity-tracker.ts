@@ -1,8 +1,9 @@
 /**
  * Activity tracker for smart hibernation.
  *
- * Tracks WebSocket client connection/disconnection events and user input
- * timestamps to determine container idle time for hibernation decisions.
+ * Tracks WebSocket client connection/disconnection events, user input
+ * timestamps, and frontend visibility heartbeats to determine container
+ * idle time for hibernation decisions.
  */
 
 import type { ActivityTracker, ActivityInfo, ActivitySessionManager } from './types.js';
@@ -27,6 +28,11 @@ export function createActivityTracker(): ActivityTracker {
       lastInputAt = Date.now();
     },
 
+    // Called on every frontend visibility heartbeat (browser tab is visible)
+    recordHeartbeat(): void {
+      lastHeartbeatAt = Date.now();
+    },
+
     getActivityInfo(sessionManager: ActivitySessionManager | null | undefined): ActivityInfo {
       const connectedClients = sessionManager ? sessionManager.clients.size : 0;
       const hasActiveConnections = connectedClients > 0;
@@ -47,12 +53,14 @@ export function createActivityTracker(): ActivityTracker {
         activeSessions,
         disconnectedForMs,
         lastInputAt,
+        lastHeartbeatAt,
       };
     },
   };
 
   // Track last user input timestamp (null = no input yet since container start)
   let lastInputAt: number | null = null;
+  let lastHeartbeatAt: number | null = null;
 
   return tracker;
 }
