@@ -1,8 +1,8 @@
 /**
  * Activity tracker for smart hibernation.
  *
- * Tracks WebSocket client connection/disconnection events to determine
- * container idle time for hibernation decisions.
+ * Tracks WebSocket client connection/disconnection events and user input
+ * timestamps to determine container idle time for hibernation decisions.
  */
 
 import type { ActivityTracker, ActivityInfo, ActivitySessionManager } from './types.js';
@@ -20,6 +20,11 @@ export function createActivityTracker(): ActivityTracker {
     // Called when the GLOBAL client count drops to 0
     recordAllClientsDisconnected(): void {
       tracker.lastAllDisconnectedAt = Date.now();
+    },
+
+    // Called on every real user input (ptyProcess.write with filtered data)
+    recordInput(): void {
+      lastInputAt = Date.now();
     },
 
     getActivityInfo(sessionManager: ActivitySessionManager | null | undefined): ActivityInfo {
@@ -41,8 +46,13 @@ export function createActivityTracker(): ActivityTracker {
         connectedClients,
         activeSessions,
         disconnectedForMs,
+        lastInputAt,
       };
     },
   };
+
+  // Track last user input timestamp (null = no input yet since container start)
+  let lastInputAt: number | null = null;
+
   return tracker;
 }

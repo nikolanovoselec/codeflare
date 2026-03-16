@@ -534,14 +534,32 @@ export class container extends Container<Env> {
         this.renewActivityTimeout();
         // Don't return — still need to push metrics and re-arm schedule below
       } else {
-        const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number };
-        if (activity.hasActiveConnections) {
+        const activity = await activityRes.json() as { hasActiveConnections: boolean; connectedClients: number; lastInputAt: number | null };
+
+        // Container stays alive only if BOTH conditions are true:
+        // 1. WebSocket clients are connected (browser tab open)
+        // 2. User typed something within the last 30 minutes, OR hasn't typed yet
+        //    (lastInputAt === null means container just started — give them time)
+        // Once the user types for the first time, the 30-min idle clock starts.
+        // If either condition fails after that, don't renew — sleepAfter expires.
+        const INPUT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+        const now = Date.now();
+        const lastInput = activity.lastInputAt;
+        const inputIdleMs = lastInput !== null ? now - lastInput : null;
+        const inputRecent = lastInput === null || inputIdleMs! <= INPUT_IDLE_TIMEOUT_MS;
+
+        if (activity.hasActiveConnections && inputRecent) {
           this.renewActivityTimeout();
-          this.logger.debug('collectMetrics: renewed sleepAfter (active WS clients)', {
+          this.logger.debug('collectMetrics: renewed sleepAfter (active WS + recent input)', {
             connectedClients: activity.connectedClients,
+            lastInputAgoMs: inputIdleMs,
           });
         } else {
-          this.logger.debug('collectMetrics: no active WS clients, skipping renewal');
+          this.logger.debug('collectMetrics: not renewing sleepAfter', {
+            hasActiveConnections: activity.hasActiveConnections,
+            inputRecent,
+            lastInputAgoMs: inputIdleMs,
+          });
         }
       }
     } catch (err) {

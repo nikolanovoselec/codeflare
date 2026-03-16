@@ -288,6 +288,9 @@ export class Session {
       const filtered = stripTerminalResponses(data);
       if (filtered) {
         this.ptyProcess.write(filtered);
+        if (this._activityTracker) {
+          this._activityTracker.recordInput();
+        }
       }
     }
   }
