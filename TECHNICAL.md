@@ -252,7 +252,7 @@ function connect() {
 
 **Header User Dropdown:** Clicking the avatar/username in both Header (terminal view) and Dashboard opens a dropdown with three items: Profile (`/app/subscribe`), Guided Setup (`/app/onboarding`), and Logout. Profile and Guided Setup use plain `<a href>` tags with no `onClick` handlers — SolidJS Router's top-level DOM listener intercepts clicks for client-side navigation (no full page reload, no white flash on dark backgrounds). This is critical for mobile: previous attempts using `<button>` + `window.location.href` or `onClick` handlers failed due to touch event race conditions with Portal DOM removal. Logout uses `window.location.href` since it's a real server redirect. Dashboard dropdown uses `Portal` with the dropdown nested inside the overlay as a child (not a sibling) — `stopPropagation` on the dropdown div prevents touch events from reaching the overlay's `onClick`. Desktop: positioned below avatar via `getBoundingClientRect()`. Mobile: bottom sheet.
 
-**Onboarding Page (`/app/onboarding`):** Guided setup page for new users. Three sections: (1) Connect GitHub — saves PAT via `updateDeployKeys`, (2) Connect Cloudflare — saves API token, (3) Coding Agents — informational cards linking to signup pages for 6 supported agents. Reuses `ProviderRow` and `BrandIcons` from settings. "Skip and Continue to Codeflare" button always visible. Uses standalone `.onboarding-page` container (`position: fixed; inset: 0; overflow-y: auto`) instead of `.login-page` — same pattern as `.setup-wizard` — because `.login-page` has `overflow: hidden` that blocks scrolling. **First-time redirect:** In SaaS mode, `AppContent` checks `onboardingComplete` from `/api/user` — if `false`, redirects to `/app/onboarding`. The Skip/Continue buttons call `POST /api/user/onboarding-complete` which sets `onboardingComplete: true` in the user's KV entry. Subsequent visits go directly to the dashboard. Users can always revisit via the header dropdown ("Guided Setup").
+**Onboarding Page (`/app/onboarding`):** Guided setup page for new users. Three sections: (1) Connect GitHub — saves PAT via `updateDeployKeys`, (2) Connect Cloudflare — saves API token, (3) Coding Agents — interactive ProviderRows for Anthropic/Codex/Gemini, derived Copilot status, OpenCode/Bash info badges, with page-level 3-step instructions. Reuses `ProviderRow` and `BrandIcons` from settings. "Skip and Continue to Codeflare" button always visible. Uses standalone `.onboarding-page` container (`position: fixed; inset: 0; overflow-y: auto`) instead of `.login-page` — same pattern as `.setup-wizard` — because `.login-page` has `overflow: hidden` that blocks scrolling. **First-time redirect:** In SaaS mode, `AppContent` checks `onboardingComplete` from `/api/user` — if `false`, redirects to `/app/onboarding`. The Skip/Continue buttons call `POST /api/user/onboarding-complete` which sets `onboardingComplete: true` in the user's KV entry. Subsequent visits go directly to the dashboard. Users can always revisit via the header dropdown ("Guided Setup").
 
 **Font consistency:** Login, subscribe, and onboarding pages all use `JetBrains Mono` monospace font via `font-family` on `.login-content` and `.onboarding-content` root containers. All child text inherits — no sans-serif fallback.
 
@@ -534,6 +534,10 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 **Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/.bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the shutdown trap to skip the final bisync — losing any files created during the session.
 
+**SSE-C encryption:** When `R2_ENCRYPTION_KEY` is set, `rclone.conf` includes SSE-C configuration (`sse_customer_key`, `sse_customer_key_md5`, `sse_customer_algorithm = AES256`) so all bisync read/write operations transparently encrypt and decrypt file contents.
+
+**Conditional credential file exclusion:** When agent API keys are injected via env vars, bisync filters conditionally exclude credential files to prevent stale on-disk credentials from overwriting env-var-injected auth: `.claude/.credentials.json` (when `ANTHROPIC_API_KEY` set), `.codex/auth.json` (when `OPENAI_API_KEY` set), `.gemini/oauth_creds.json` (when `GEMINI_API_KEY` set).
+
 ## Memory Persistence
 
 Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persists across sessions using per-session JSONL files synced to R2. **Memory persistence is gated on `SESSION_MODE=advanced`** — in default mode, the entire `.memory/` directory is excluded from rclone sync and merge/cleanup are skipped (MCP memory still works in-session but doesn't survive container recreate).
@@ -551,7 +555,7 @@ Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persist
 
 ### LLM Consultation (consult-llm-mcp)
 
-When `OPENAI_API_KEY` or `GEMINI_API_KEY` env vars are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`. This enables Claude Code to query external LLMs via the `consult_llm` MCP tool. Keys are stored in KV as `llm-keys:{bucketName}`, managed via `PUT /api/llm-keys`, and injected as container env vars during `setBucketName()`. Keys are NOT persisted in DO storage — read fresh from KV on each container start.
+Gated by the `consultLlmEnabled` user preference (default: `false`). Requires `CONSULT_LLM_ENABLED=true` AND at least one OpenAI or Gemini key. When both conditions are met, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`. This enables Claude Code to query external LLMs via the `consult_llm` MCP tool. Keys are stored in KV as `llm-keys:{bucketName}`, managed via `PUT /api/llm-keys`, and injected as container env vars during `setBucketName()`. Keys are NOT persisted in DO storage — read fresh from KV on each container start.
 
 **Skill trigger phrases:** "discuss with llms", "consult llms", "ask llms", "get a second opinion", "ask ChatGPT", "consult Gemini", "ask GPT", "ask another AI".
 
@@ -578,7 +582,7 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 **Git credential helper:** `entrypoint.sh` configures `git config --global credential.helper` when `GH_TOKEN` is present, enabling `git push` without `gh auth login`.
 
-**Token scopes:** GitHub (19 permissions pre-filled via template URL), Cloudflare (13 scopes pre-filled). Both URLs use provider-specific template mechanisms to pre-select permissions.
+**Token scopes:** GitHub (permissions pre-filled via template URL, now includes Copilot Requests, Chat, and Editor Context scopes), Cloudflare (13 scopes pre-filled). Both URLs use provider-specific template mechanisms to pre-select permissions.
 
 **Frontend:** `web-ui/src/components/settings/DeployKeysSection.tsx` — self-contained component with connect/disconnect flows for both providers, multi-account Cloudflare dropdown, and token masking.
 
@@ -960,6 +964,20 @@ HSTS is also applied to all redirect responses via `secureRedirect()` helper, in
 ### Body Limit
 
 64 KiB on all `/api/*` routes (storage routes exempt for file uploads).
+
+### Credential Encryption at Rest
+
+Optional encryption enabled by setting `KV_ENCRYPTION_KEY` (base64-encoded 256-bit key, generate with `openssl rand -base64 32`).
+
+**KV encryption (AES-256-GCM via Web Crypto API):** All values stored under `llm-keys:*` and `deploy-keys:*` KV prefixes are encrypted before write and decrypted on read. Each value gets a unique 12-byte IV prepended to the ciphertext. API responses always return masked values (`****` + last 4 chars), never plaintext keys.
+
+**R2 SSE-C encryption:** When `KV_ENCRYPTION_KEY` is set, R2 file contents are encrypted via S3 Server-Side Encryption with Customer-Provided Keys (SSE-C). The Worker passes SSE-C headers on S3 PutObject/GetObject requests. Inside the container, `R2_ENCRYPTION_KEY` is injected as an env var and rclone.conf is configured with the SSE-C key for transparent encrypt/decrypt during bisync.
+
+**Credential file sync exclusion:** When agent API keys are provided via env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`), the corresponding credential files (`.claude/.credentials.json`, `.codex/auth.json`, `.gemini/oauth_creds.json`) are excluded from bisync filters. This prevents stale credential files from overwriting env-var-injected auth.
+
+**Backward compatibility:** When `KV_ENCRYPTION_KEY` is not set, KV values are stored and read as plaintext (existing behavior). R2 operations proceed without SSE-C headers.
+
+**BREAKING: late-enablement.** Enabling `KV_ENCRYPTION_KEY` on an existing deployment causes the deploy workflow to delete all R2 bucket contents and all `llm-keys:*` / `deploy-keys:*` KV entries. User preferences, session history, and other KV data are unaffected. All users must re-enter their API keys and deploy credentials. R2 buckets are re-seeded automatically on next session start.
 
 ## Rate Limiting
 
@@ -1433,15 +1451,15 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
-`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
+`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle), `consultLlmEnabled` (boolean, optional — controls consult-llm MCP server, default: `false`, cannot activate unless OpenAI or Gemini key connected). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
 
-### LLM API Keys
+### Coding Agent Keys
 
 GET `/api/llm-keys` — returns masked keys (`****` + last 4 chars), never full keys.
-PUT `/api/llm-keys` — set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys.
-DELETE `/api/llm-keys` — removes all LLM keys from KV.
+PUT `/api/llm-keys` — set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null, anthropicApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `KV_ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
+DELETE `/api/llm-keys` — removes all coding agent keys from KV.
 
-Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected as `OPENAI_API_KEY` / `GEMINI_API_KEY` env vars. The `entrypoint.sh` detects these env vars and configures the `consult-llm-mcp` MCP server in `~/.claude.json`. The LLM Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
+Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected as `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` env vars. The `entrypoint.sh` detects these env vars and configures the `consult-llm-mcp` MCP server in `~/.claude.json`. The Coding Agent Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
 
 ### Public (Onboarding)
 
@@ -1478,6 +1496,7 @@ GET `/health`, GET `/api/health`
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | Worker env var |
 | `SAAS_MODE` | `"active"` enables custom login page, auto-provisioning, admin approval | GitHub Actions variable → `--var` at deploy |
 | `SAAS_EXTRA_IDPS` | Comma-separated IdP UUIDs for custom OIDC providers on login page | GitHub Actions variable → `--var` at deploy |
+| `KV_ENCRYPTION_KEY` | AES-256-GCM encryption key for `llm-keys:*` and `deploy-keys:*` KV entries, also used as R2 SSE-C key | Wrangler secret (optional) |
 
 ### Container Environment
 
@@ -1497,6 +1516,9 @@ GET `/health`, GET `/api/health`
 | `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default) | Worker -> DO |
 | `OPENAI_API_KEY` | OpenAI API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
 | `GEMINI_API_KEY` | Gemini API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
+| `ANTHROPIC_API_KEY` | Anthropic API key for agent auto-login | Worker -> DO (from KV `llm-keys:{bucket}`) |
+| `CONSULT_LLM_ENABLED` | Gates consult-llm MCP server (default: `'false'`) | Worker -> DO (from KV `user-prefs:{bucket}`) |
+| `R2_ENCRYPTION_KEY` | Rclone SSE-C encryption config | Worker -> DO (from `env.KV_ENCRYPTION_KEY`) |
 | `SESSION_MODE` | Session mode (`'default'` or `'advanced'`) — controls memory persistence and rclone filters | Worker -> DO via `setBucketName` |
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
 | `BROWSER` | Points to `open-url` shim that exits 1 | Dockerfile ENV (`/usr/local/bin/open-url`) |
@@ -1758,6 +1780,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
+**Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption), `r2-sse.test.ts` (R2 SSE-C encryption).
 
 ### Frontend Tests
 
@@ -1765,12 +1788,14 @@ Six parallel jobs, each running lightweight external probes against the producti
 **Count:** 76 test files.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
+**Notable test files:** `LlmKeysSection.test.tsx` (coding agent keys UI).
 
 ### Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
 **Count:** 12 test files, ~86 tests.
 **Run:** `cd host && npm test`
+**Notable test files:** `entrypoint-agent-keys.test.js` (agent key env var injection and credential file exclusion).
 **Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
 
 ### Property-Based Fuzz Tests

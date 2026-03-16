@@ -176,6 +176,7 @@ All optional. The defaults work out of the box. I respect your time.
 | `RESEND_API_KEY` | unset | Resend API key (secret — for sending admin approval/rejection emails in SaaS or onboarding mode) |
 | `TURNSTILE_SITE_KEY` | unset | Cloudflare Turnstile site key (for CAPTCHA on public waitlist, required when `ONBOARDING_LANDING_PAGE=active`) |
 | `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification, required when `ONBOARDING_LANDING_PAGE=active`) |
+| `KV_ENCRYPTION_KEY` | unset | Optional. Encrypts API keys in KV (AES-256-GCM) and file contents in R2 (SSE-C). Generate with `openssl rand -base64 32`, then add as GitHub Actions secret. |
 
 ### SaaS Mode (Custom Login)
 
@@ -197,7 +198,10 @@ See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth
 - Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning.
 - Automated penetration testing: weekly CI workflow validates auth gate, security headers, TLS configuration, injection resistance, and information disclosure. See [PENTEST.md](PENTEST.md) for the latest report.
 - GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph.
+- Optional encryption at rest (set `KV_ENCRYPTION_KEY`): KV — API keys and deploy credentials are encrypted with AES-256-GCM before storage, decrypted on read, and masked in all API responses. R2 — file contents are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys). R2 sync — agent credential files (`.claude/.credentials.json`, `.codex/auth.json`, `.gemini/oauth_creds.json`) are excluded from bisync when the corresponding API keys are provided via env vars.
 - For vulnerability reporting, see [SECURITY.md](SECURITY.md).
+
+> **Warning:** If you deploy Codeflare without `KV_ENCRYPTION_KEY` and add it later, the deploy workflow will automatically delete all existing R2 bucket contents and all `llm-keys:*` / `deploy-keys:*` KV entries. User preferences, session history, and other KV data are NOT affected. All users will need to re-enter their API keys and deploy credentials. R2 buckets are re-seeded automatically on next session start.
 
 ## Testing
 
