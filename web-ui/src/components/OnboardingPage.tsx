@@ -336,7 +336,7 @@ const OnboardingPage: Component = () => {
           <div class="onboarding-section" data-testid="onboarding-agents-section">
             <h2 class="onboarding-section-title">
               <span class="onboarding-step-number">3</span>
-              Get a Coding Agent
+              Grab a Coding Agent subscription
             </h2>
             <p class="onboarding-section-description">
               Codeflare is your IDE — you need at least one coding agent subscription to start coding.
@@ -376,7 +376,7 @@ const OnboardingPage: Component = () => {
           <Icon path={mdiArrowRight} size={16} />
         </a>
 
-        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f6821f' }}>Region: Earth</span></p>
+        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
       </div>
     </div>
   );
