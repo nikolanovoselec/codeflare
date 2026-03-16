@@ -19,6 +19,7 @@ import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
 import type { Logger } from '../../lib/logger';
+import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 
 // ---------------------------------------------------------------------------
 // Extracted helpers (FIX-8)
@@ -38,9 +39,12 @@ function buildSetBucketNameBody(params: {
   fastStartEnabled: boolean;
   openaiApiKey?: string;
   geminiApiKey?: string;
+  anthropicApiKey?: string;
   githubToken?: string;
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;
+  consultLlmEnabled?: boolean;
+  r2EncryptionKey?: string;
   sessionMode: string;
 }): string {
   return JSON.stringify({
@@ -55,9 +59,12 @@ function buildSetBucketNameBody(params: {
     fastStartEnabled: params.fastStartEnabled,
     ...(params.openaiApiKey && { openaiApiKey: params.openaiApiKey }),
     ...(params.geminiApiKey && { geminiApiKey: params.geminiApiKey }),
+    ...(params.anthropicApiKey && { anthropicApiKey: params.anthropicApiKey }),
     githubToken: params.githubToken ?? null,
     cloudflareApiToken: params.cloudflareApiToken ?? null,
     cloudflareAccountId: params.cloudflareAccountId ?? null,
+    ...(params.consultLlmEnabled !== undefined && { consultLlmEnabled: params.consultLlmEnabled }),
+    ...(params.r2EncryptionKey && { r2EncryptionKey: params.r2EncryptionKey }),
     sessionMode: params.sessionMode,
   });
 }
@@ -215,9 +222,12 @@ export async function configureContainerDO(params: {
   fastStartEnabled: boolean;
   openaiApiKey?: string;
   geminiApiKey?: string;
+  anthropicApiKey?: string;
   githubToken?: string;
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;
+  consultLlmEnabled?: boolean;
+  r2EncryptionKey?: string;
   sessionMode: string;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
@@ -235,9 +245,12 @@ export async function configureContainerDO(params: {
     fastStartEnabled: params.fastStartEnabled,
     openaiApiKey: params.openaiApiKey,
     geminiApiKey: params.geminiApiKey,
+    anthropicApiKey: params.anthropicApiKey,
     githubToken: params.githubToken,
     cloudflareApiToken: params.cloudflareApiToken,
     cloudflareAccountId: params.cloudflareAccountId,
+    consultLlmEnabled: params.consultLlmEnabled,
+    r2EncryptionKey: params.r2EncryptionKey,
     sessionMode: params.sessionMode,
   });
 
@@ -406,10 +419,11 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const sessionMode = resolveSessionMode(preferences);
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
+    const cryptoKey = await getOrImportKey(c.env);
     const llmKeysKey = getLlmKeysKey(bucketName);
-    const llmKeys = await c.env.KV.get<LlmKeys>(llmKeysKey, 'json');
+    const llmKeys = await getAndDecrypt<LlmKeys>(c.env.KV, llmKeysKey, cryptoKey);
     const deployKeysKey = getDeployKeysKey(bucketName);
-    const deployKeys = await c.env.KV.get<DeployKeys>(deployKeysKey, 'json');
+    const deployKeys = await getAndDecrypt<DeployKeys>(c.env.KV, deployKeysKey, cryptoKey);
 
     // Step 2: Ensure R2 bucket exists and seed if new
     const { r2Config } = await ensureBucketAndSeed({
@@ -442,9 +456,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       fastStartEnabled,
       openaiApiKey: llmKeys?.openaiApiKey,
       geminiApiKey: llmKeys?.geminiApiKey,
+      anthropicApiKey: llmKeys?.anthropicApiKey,
       githubToken: deployKeys?.githubToken,
       cloudflareApiToken: deployKeys?.cloudflareApiToken,
       cloudflareAccountId: deployKeys?.cloudflareAccountId,
+      consultLlmEnabled: preferences.consultLlmEnabled,
+      r2EncryptionKey: c.env.KV_ENCRYPTION_KEY,
       sessionMode,
       logger: reqLogger,
     });

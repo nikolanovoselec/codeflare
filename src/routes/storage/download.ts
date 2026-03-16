@@ -6,6 +6,7 @@ import { getR2Config } from '../../lib/r2-config';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { ValidationError, ContainerError } from '../../lib/error-types';
 import { validateKey } from './validation';
+import { getSseHeaders } from '../../lib/r2-sse';
 
 /**
  * Build a safe Content-Disposition header value.
@@ -48,7 +49,7 @@ app.get('/', async (c) => {
   // Sign the request for R2 auth and stream the response through the worker.
   // Previously this returned a 302 redirect to a presigned R2 URL, but that
   // caused CORS failures since the browser followed the redirect cross-origin.
-  const signedRequest = await r2Client.sign(objectUrl, { method: 'GET' });
+  const signedRequest = await r2Client.sign(objectUrl, { method: 'GET', headers: getSseHeaders(c.env) });
   const r2Response = await fetch(signedRequest);
 
   if (!r2Response.ok) {

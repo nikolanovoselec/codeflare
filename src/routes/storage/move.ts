@@ -8,6 +8,7 @@ import { ValidationError, ContainerError } from '../../lib/error-types';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 import { validateKey, MAX_KEY_LENGTH } from './validation';
+import { getSseHeaders, getSseCopyHeaders } from '../../lib/r2-sse';
 
 const logger = createLogger('storage-move');
 
@@ -50,6 +51,8 @@ app.post('/', async (c) => {
     method: 'PUT',
     headers: {
       'x-amz-copy-source': `/${encodeURIComponent(bucketName)}/${body.source.split('/').map(encodeURIComponent).join('/')}`,
+      ...getSseHeaders(c.env),
+      ...getSseCopyHeaders(c.env),
     },
   });
 

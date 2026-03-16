@@ -8,10 +8,12 @@ import type { Env, LlmKeys } from '../types';
 import { getLlmKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
+import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
 
 const UpdateLlmKeysBody = z.object({
   openaiApiKey: z.string().max(256).nullable().optional(),
   geminiApiKey: z.string().max(256).nullable().optional(),
+  anthropicApiKey: z.string().max(256).nullable().optional(),
 }).strict();
 
 /**
@@ -34,12 +36,14 @@ app.use('*', authMiddleware);
  */
 app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
-  const key = getLlmKeysKey(bucketName);
-  const stored = await c.env.KV.get<LlmKeys>(key, 'json');
+  const kvKey = getLlmKeysKey(bucketName);
+  const cryptoKey = await getOrImportKey(c.env);
+  const stored = await getAndDecrypt<LlmKeys>(c.env.KV, kvKey, cryptoKey);
 
   return c.json({
     openaiApiKey: maskKey(stored?.openaiApiKey),
     geminiApiKey: maskKey(stored?.geminiApiKey),
+    anthropicApiKey: maskKey(stored?.anthropicApiKey),
   });
 });
 
@@ -60,7 +64,8 @@ app.put('/', async (c) => {
   }
 
   const kvKey = getLlmKeysKey(bucketName);
-  const existing = await c.env.KV.get<LlmKeys>(kvKey, 'json') || {};
+  const cryptoKey = await getOrImportKey(c.env);
+  const existing = await getAndDecrypt<LlmKeys>(c.env.KV, kvKey, cryptoKey) || {};
   const updated: LlmKeys = { ...existing };
 
   // null = delete, undefined = no change, string = set
@@ -76,16 +81,23 @@ app.put('/', async (c) => {
     updated.geminiApiKey = parsed.data.geminiApiKey;
   }
 
-  // If both keys are cleared, remove the KV entry entirely
-  if (!updated.openaiApiKey && !updated.geminiApiKey) {
+  if (parsed.data.anthropicApiKey === null) {
+    delete updated.anthropicApiKey;
+  } else if (typeof parsed.data.anthropicApiKey === 'string') {
+    updated.anthropicApiKey = parsed.data.anthropicApiKey;
+  }
+
+  // If all keys are cleared, remove the KV entry entirely
+  if (!updated.openaiApiKey && !updated.geminiApiKey && !updated.anthropicApiKey) {
     await c.env.KV.delete(kvKey);
   } else {
-    await c.env.KV.put(kvKey, JSON.stringify(updated));
+    await encryptAndStore(c.env.KV, kvKey, updated, cryptoKey);
   }
 
   return c.json({
     openaiApiKey: maskKey(updated.openaiApiKey),
     geminiApiKey: maskKey(updated.geminiApiKey),
+    anthropicApiKey: maskKey(updated.anthropicApiKey),
   });
 });
 

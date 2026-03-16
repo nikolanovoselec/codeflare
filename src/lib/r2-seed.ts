@@ -3,6 +3,7 @@ import { createR2Client, getR2Url } from './r2-client';
 import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS } from './agent-seed.generated';
 import { createLogger } from './logger';
+import { getSseHeaders } from './r2-sse';
 
 const logger = createLogger('r2-seed');
 
@@ -35,7 +36,7 @@ async function seedDocuments(
     const headResults = await Promise.allSettled(
       documents.map(async (doc) => {
         const url = getR2Url(endpoint, bucketName, doc.key);
-        const res = await r2Client.fetch(url, { method: 'HEAD' });
+        const res = await r2Client.fetch(url, { method: 'HEAD', headers: getSseHeaders(env) });
         return { doc, exists: res.ok, status: res.status };
       })
     );
@@ -59,7 +60,7 @@ async function seedDocuments(
         const url = getR2Url(endpoint, bucketName, doc.key);
         const res = await r2Client.fetch(url, {
           method: 'PUT',
-          headers: { 'Content-Type': doc.contentType },
+          headers: { 'Content-Type': doc.contentType, ...getSseHeaders(env) },
           body: doc.content,
         });
         if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
@@ -77,7 +78,7 @@ async function seedDocuments(
         const url = getR2Url(endpoint, bucketName, doc.key);
         const res = await r2Client.fetch(url, {
           method: 'PUT',
-          headers: { 'Content-Type': doc.contentType },
+          headers: { 'Content-Type': doc.contentType, ...getSseHeaders(env) },
           body: doc.content,
         });
         if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);

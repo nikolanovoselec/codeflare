@@ -69,6 +69,9 @@ export interface Env {
   // Use for custom OIDC/SAML providers (e.g., Authentik, Okta).
   SAAS_EXTRA_IDPS?: string;
 
+  // Optional AES-256 key (base64) for encrypting KV values and R2 files (SSE-C).
+  // Set via wrangler secret. When absent, credentials stored as plaintext.
+  KV_ENCRYPTION_KEY?: string;
 }
 
 /**
@@ -150,6 +153,7 @@ export interface UserPreferences {
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
+  consultLlmEnabled?: boolean;
 }
 
 /**
@@ -158,6 +162,7 @@ export interface UserPreferences {
 export interface LlmKeys {
   openaiApiKey?: string;
   geminiApiKey?: string;
+  anthropicApiKey?: string;
 }
 
 /**

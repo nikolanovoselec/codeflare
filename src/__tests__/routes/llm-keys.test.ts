@@ -53,6 +53,7 @@ describe('LLM Keys routes', () => {
       const body = await res.json() as Record<string, unknown>;
       expect(body.openaiApiKey).toBeUndefined();
       expect(body.geminiApiKey).toBeUndefined();
+      expect(body.anthropicApiKey).toBeUndefined();
     });
 
     it('returns masked keys when keys exist', async () => {
@@ -160,6 +161,177 @@ describe('LLM Keys routes', () => {
         body: JSON.stringify({ unknownField: 'value' }),
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('GET /api/llm-keys — anthropicApiKey', () => {
+    it('returns masked anthropicApiKey when stored', async () => {
+      mockKV._set('llm-keys:test-bucket', {
+        anthropicApiKey: 'sk-ant-abcdef1234567890xxxx',
+      } satisfies LlmKeys);
+
+      const app = createTestApp();
+      const res = await app.request('/api/llm-keys');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.anthropicApiKey).toBe('****xxxx');
+    });
+
+    it('returns undefined for anthropicApiKey when no keys stored', async () => {
+      const app = createTestApp();
+      const res = await app.request('/api/llm-keys');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.anthropicApiKey).toBeUndefined();
+    });
+
+    it('returns all three masked keys when all stored', async () => {
+      mockKV._set('llm-keys:test-bucket', {
+        openaiApiKey: 'sk-openai1234',
+        geminiApiKey: 'AIzaSy-gemini',
+        anthropicApiKey: 'sk-ant-anthro',
+      } satisfies LlmKeys);
+
+      const app = createTestApp();
+      const res = await app.request('/api/llm-keys');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.openaiApiKey).toBe('****1234');
+      expect(body.geminiApiKey).toBe('****mini');
+      expect(body.anthropicApiKey).toBe('****thro');
+    });
+  });
+
+  describe('PUT /api/llm-keys — anthropicApiKey', () => {
+    it('stores anthropicApiKey and returns masked', async () => {
+      const app = createTestApp();
+      const res = await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ anthropicApiKey: 'sk-ant-newkey1234' }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.anthropicApiKey).toBe('****1234');
+
+      const stored = await mockKV.get('llm-keys:test-bucket', 'json') as LlmKeys;
+      expect(stored.anthropicApiKey).toBe('sk-ant-newkey1234');
+    });
+
+    it('clears anthropicApiKey when null sent; other keys remain', async () => {
+      mockKV._set('llm-keys:test-bucket', {
+        openaiApiKey: 'sk-keep',
+        anthropicApiKey: 'sk-ant-remove',
+      });
+
+      const app = createTestApp();
+      const res = await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ anthropicApiKey: null }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.anthropicApiKey).toBeUndefined();
+      expect(body.openaiApiKey).toBe('****keep');
+    });
+
+    it('leaves anthropicApiKey unchanged when field omitted', async () => {
+      mockKV._set('llm-keys:test-bucket', { anthropicApiKey: 'sk-ant-stay' });
+
+      const app = createTestApp();
+      const res = await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openaiApiKey: 'sk-new-openai' }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.anthropicApiKey).toBe('****stay');
+      expect(body.openaiApiKey).toBe('****nai!');
+    });
+
+    it('deletes KV entry when all three keys cleared', async () => {
+      mockKV._set('llm-keys:test-bucket', {
+        openaiApiKey: 'sk-old',
+        geminiApiKey: 'AI-old',
+        anthropicApiKey: 'sk-ant-old',
+      });
+
+      const app = createTestApp();
+      await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openaiApiKey: null, geminiApiKey: null, anthropicApiKey: null }),
+      });
+
+      expect(mockKV.delete).toHaveBeenCalledWith('llm-keys:test-bucket');
+    });
+  });
+
+  describe('PUT /api/llm-keys — encryption', () => {
+    function createEncryptedTestApp() {
+      const app = new Hono<{ Bindings: Env }>();
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as any);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+      app.use('*', async (c, next) => {
+        // Generate a real AES-256 key for encryption tests
+        const rawKey = crypto.getRandomValues(new Uint8Array(32));
+        const base64Key = btoa(String.fromCharCode(...rawKey));
+        (c.env as any) = { KV: mockKV, KV_ENCRYPTION_KEY: base64Key };
+        return next();
+      });
+      app.route('/api/llm-keys', llmKeysRoutes);
+      return app;
+    }
+
+    it('stores encrypted value when KV_ENCRYPTION_KEY set', async () => {
+      const app = createEncryptedTestApp();
+      await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openaiApiKey: 'sk-encrypted-test' }),
+      });
+
+      // The raw stored value should NOT be valid JSON (it's encrypted)
+      const rawStored = mockKV._store.get('llm-keys:test-bucket');
+      expect(rawStored).toBeDefined();
+      let isValidJson = true;
+      try { JSON.parse(rawStored!); } catch { isValidJson = false; }
+      expect(isValidJson).toBe(false);
+    });
+
+    it('GET decrypts correctly when KV_ENCRYPTION_KEY set', async () => {
+      const app = createEncryptedTestApp();
+
+      // First store via PUT (encrypted)
+      await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openaiApiKey: 'sk-roundtrip-test1234' }),
+      });
+
+      // Then read via GET (should decrypt and mask)
+      const res = await app.request('/api/llm-keys');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.openaiApiKey).toBe('****1234');
+    });
+
+    it('GET returns empty for corrupted KV data with encryption key', async () => {
+      // Store invalid (non-encrypted) data directly in KV
+      mockKV._store.set('llm-keys:test-bucket', 'corrupted-data-not-encrypted');
+
+      const app = createEncryptedTestApp();
+      const res = await app.request('/api/llm-keys');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      // Should return undefined keys (not crash)
+      expect(body.openaiApiKey).toBeUndefined();
+      expect(body.geminiApiKey).toBeUndefined();
+      expect(body.anthropicApiKey).toBeUndefined();
     });
   });
 

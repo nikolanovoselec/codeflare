@@ -8,6 +8,7 @@ import type { Env, DeployKeys } from '../types';
 import { getDeployKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
+import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
 
 const UpdateDeployKeysBody = z.object({
   githubToken: z.string().max(256).nullable().optional(),
@@ -78,8 +79,9 @@ app.use('*', authMiddleware);
  */
 app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
-  const key = getDeployKeysKey(bucketName);
-  const stored = await c.env.KV.get<DeployKeys>(key, 'json');
+  const kvKey = getDeployKeysKey(bucketName);
+  const cryptoKey = await getOrImportKey(c.env);
+  const stored = await getAndDecrypt<DeployKeys>(c.env.KV, kvKey, cryptoKey);
 
   return c.json({
     githubToken: maskToken(stored?.githubToken),
@@ -105,7 +107,8 @@ app.put('/', async (c) => {
   }
 
   const kvKey = getDeployKeysKey(bucketName);
-  const existing = await c.env.KV.get<DeployKeys>(kvKey, 'json') || {};
+  const cryptoKey = await getOrImportKey(c.env);
+  const existing = await getAndDecrypt<DeployKeys>(c.env.KV, kvKey, cryptoKey) || {};
   const updated: DeployKeys = { ...existing };
   let cloudflareAccounts: CloudflareAccount[] | undefined;
 
@@ -143,7 +146,7 @@ app.put('/', async (c) => {
   if (!updated.githubToken && !updated.cloudflareApiToken) {
     await c.env.KV.delete(kvKey);
   } else {
-    await c.env.KV.put(kvKey, JSON.stringify(updated));
+    await encryptAndStore(c.env.KV, kvKey, updated, cryptoKey);
   }
 
   return c.json({

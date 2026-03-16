@@ -18,6 +18,7 @@ const UpdatePreferencesBody = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
+  consultLlmEnabled: z.boolean().optional(),
 }).strict();
 
 const preferencesPatchRateLimiter = createRateLimiter({
