@@ -241,6 +241,7 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
       'test-api-token',
       'codeflare-test-example-com',
       expect.anything(), // KV namespace
+      null, // cryptoKey (no ENCRYPTION_KEY set)
     );
   });
 

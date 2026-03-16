@@ -192,6 +192,7 @@ describe('User Profile Routes', () => {
         'test-token',
         'codeflare-abc123',
         expect.anything(), // KV namespace
+        null, // cryptoKey (no ENCRYPTION_KEY set)
       );
     });
 

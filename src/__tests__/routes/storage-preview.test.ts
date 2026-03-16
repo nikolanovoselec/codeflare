@@ -103,7 +103,7 @@ describe('Storage Preview Routes', () => {
       expect(body.lastModified).toBe('Mon, 01 Jan 2024 00:00:00 GMT');
     });
 
-    it('returns image preview with presigned URL', async () => {
+    it('returns binary metadata for image files (no presigned URL)', async () => {
       // HEAD request to get metadata
       mockFetch.mockResolvedValueOnce(createHeadResponse(50000, 'image/png', 'Mon, 01 Jan 2024 00:00:00 GMT'));
 
@@ -114,12 +114,10 @@ describe('Storage Preview Routes', () => {
 
       const body = await res.json() as {
         type: string;
-        url: string;
         size: number;
         lastModified: string;
       };
-      expect(body.type).toBe('image');
-      expect(body.url).toContain('X-Amz-Signature');
+      expect(body.type).toBe('binary');
       expect(body.size).toBe(50000);
       expect(body.lastModified).toBe('Mon, 01 Jan 2024 00:00:00 GMT');
     });
@@ -214,7 +212,7 @@ describe('Storage Preview Routes', () => {
       expect(body.content).toBe(jsonContent);
     });
 
-    it('handles JPEG images', async () => {
+    it('handles JPEG images as binary metadata', async () => {
       mockFetch.mockResolvedValueOnce(createHeadResponse(100000, 'image/jpeg', 'Mon, 01 Jan 2024 00:00:00 GMT'));
 
       const app = createApp();
@@ -222,9 +220,9 @@ describe('Storage Preview Routes', () => {
       const res = await app.request('/preview?key=photo.jpg');
       expect(res.status).toBe(200);
 
-      const body = await res.json() as { type: string; url: string };
-      expect(body.type).toBe('image');
-      expect(body.url).toBeTruthy();
+      const body = await res.json() as { type: string; size: number };
+      expect(body.type).toBe('binary');
+      expect(body.size).toBe(100000);
     });
 
     it('returns 500 when HEAD request fails', async () => {
