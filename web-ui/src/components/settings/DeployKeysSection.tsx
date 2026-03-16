@@ -11,7 +11,8 @@ const GITHUB_TOKEN_URL =
   + '&pull_requests=write&issues=write&deployments=write&environments=write&pages=write'
   + '&secrets=write&statuses=write&repository_hooks=write&merge_queues=write'
   + '&security_events=write&custom_properties=write&discussions=write'
-  + '&metadata=read&email_addresses=read';
+  + '&metadata=read&email_addresses=read'
+  + '&user_copilot_requests=read&copilot_messages=read&copilot_editor_context=read';
 
 // Cloudflare template URL with full Codeflare-level scopes pre-filled.
 const CLOUDFLARE_TOKEN_SCOPES = [

@@ -59,6 +59,22 @@ export const OpenAIIcon: Component<BrandIconProps> = (props) => (
   </svg>
 );
 
+/** Anthropic burst mark (// symbol) */
+export const AnthropicIcon: Component<BrandIconProps> = (props) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={props.size || 24}
+    height={props.size || 24}
+    class={props.class}
+    style={{ display: 'block', ...props.style }}
+  >
+    <path
+      d="M4.709 15.955l4.397-11.91h1.853l-4.476 11.91H4.709zm8.984 0l4.397-11.91h1.853l-4.476 11.91h-1.774z"
+      fill={props.fill || 'currentColor'}
+    />
+  </svg>
+);
+
 /** Google Gemini sparkle mark */
 export const GeminiIcon: Component<BrandIconProps> = (props) => (
   <svg

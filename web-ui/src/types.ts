@@ -28,6 +28,7 @@ export interface UserPreferences {
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
+  consultLlmEnabled?: boolean;
 }
 
 /** Mirrors backend Session type (see src/types.ts). Keep in sync manually. */

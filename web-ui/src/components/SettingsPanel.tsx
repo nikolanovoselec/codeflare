@@ -108,7 +108,7 @@ const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
   session: 'Startup behavior & workspace sync',
   deploy: 'Connect GitHub & Cloudflare for one-click deploy',
-  llm: 'Optional — connect GPT & Gemini for second opinions',
+  llm: 'Anthropic, OpenAI, Gemini & Copilot',
   admin: 'Setup wizard & user management',
 };
 
@@ -638,18 +638,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             <DeployKeysSection />
           </AccordionSection>
 
-          {/* ── LLM API Keys (advanced session mode only) ── */}
-          <Show when={canUseAdvanced() && currentSessionMode() === 'advanced'}>
-            <AccordionSection
-              group="llm"
-              title="LLM API Keys"
-              subtitle={ACCORDION_SUBTITLES.llm}
-              isOpen={openGroup() === 'llm'}
-              onToggle={() => handleAccordionClick('llm')}
-            >
-              <LlmKeysSection />
-            </AccordionSection>
-          </Show>
+          {/* ── Coding Agent Keys ── */}
+          <AccordionSection
+            group="llm"
+            title="Coding Agent Keys"
+            subtitle={ACCORDION_SUBTITLES.llm}
+            isOpen={openGroup() === 'llm'}
+            onToggle={() => handleAccordionClick('llm')}
+          >
+            <LlmKeysSection />
+          </AccordionSection>
 
           {/* ── Administration (admin only) ── */}
           <Show when={isAdmin()}>

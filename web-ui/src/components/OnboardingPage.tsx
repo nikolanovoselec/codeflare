@@ -1,8 +1,8 @@
-import { Component, onMount, createSignal, Show, For, type JSX } from 'solid-js';
-import { getDeployKeys, updateDeployKeys, markOnboardingComplete } from '../api/client';
-import type { DeployKeysResponse } from '../api/client';
+import { Component, onMount, createSignal, Show, For } from 'solid-js';
+import { getDeployKeys, updateDeployKeys, getLlmKeys, updateLlmKeys, markOnboardingComplete } from '../api/client';
+import type { DeployKeysResponse, LlmKeysResponse } from '../api/client';
 import ProviderRow from './settings/ProviderRow';
-import { GitHubIcon, CloudflareIcon } from './settings/BrandIcons';
+import { GitHubIcon, CloudflareIcon, AnthropicIcon, OpenAIIcon, GeminiIcon } from './settings/BrandIcons';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
 import { mdiArrowRight } from '@mdi/js';
@@ -10,14 +10,15 @@ import { logger } from '../lib/logger';
 import '../styles/login-page.css';
 import '../styles/onboarding-page.css';
 
-// GitHub fine-grained PAT template URL (same as DeployKeysSection)
+// GitHub fine-grained PAT template URL with Copilot scopes
 const GITHUB_TOKEN_URL =
   'https://github.com/settings/personal-access-tokens/new?name=Codeflare&description=Push+%26+deploy+from+Codeflare&expires_in=90'
   + '&contents=write&administration=write&workflows=write&actions=write&actions_variables=write'
   + '&pull_requests=write&issues=write&deployments=write&environments=write&pages=write'
   + '&secrets=write&statuses=write&repository_hooks=write&merge_queues=write'
   + '&security_events=write&custom_properties=write&discussions=write'
-  + '&metadata=read&email_addresses=read';
+  + '&metadata=read&email_addresses=read'
+  + '&user_copilot_requests=read&copilot_messages=read&copilot_editor_context=read';
 
 // Cloudflare template URL (same as DeployKeysSection)
 const CLOUDFLARE_TOKEN_SCOPES = [
@@ -37,72 +38,6 @@ const CLOUDFLARE_TOKEN_SCOPES = [
 ];
 const CLOUDFLARE_TOKEN_URL =
   `https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=${encodeURIComponent(JSON.stringify(CLOUDFLARE_TOKEN_SCOPES))}&accountId=%2A&zoneId=all&name=Codeflare`;
-
-interface CodingAgent {
-  name: string;
-  description: string;
-  url: string;
-  brandColor: string;
-  icon: () => JSX.Element;
-}
-
-const CODING_AGENTS: CodingAgent[] = [
-  {
-    name: 'Claude Code',
-    description: 'AI coding agent by Anthropic',
-    url: 'https://console.anthropic.com/',
-    brandColor: '#d4a27f',
-    icon: () => (
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-        <path d="M4.709 15.955l4.397-11.91h1.853l-4.476 11.91H4.709zm8.984 0l4.397-11.91h1.853l-4.476 11.91h-1.774z" />
-      </svg>
-    ),
-  },
-  {
-    name: 'Codex',
-    description: 'AI coding agent by OpenAI',
-    url: 'https://platform.openai.com/signup',
-    brandColor: '#10a37f',
-    icon: () => (
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-        <path d="M22.28 9.37a5.98 5.98 0 00-.52-4.93 6.07 6.07 0 00-6.55-2.89A5.98 5.98 0 0010.69.02a6.07 6.07 0 00-5.8 4.22 5.99 5.99 0 00-4 2.9 6.07 6.07 0 00.75 7.12 5.98 5.98 0 00.52 4.93 6.07 6.07 0 006.55 2.89 5.98 5.98 0 004.52 1.53 6.07 6.07 0 005.8-4.22 5.99 5.99 0 004-2.9 6.07 6.07 0 00-.75-7.12zM13.21 21.45c-1.24 0-2.44-.42-3.41-1.2l.17-.1 5.66-3.27a.92.92 0 00.46-.8V10.1l2.39 1.38c.03.01.04.04.05.07v6.61a4.55 4.55 0 01-5.32 4.49v.8zm-9.52-4.2a4.5 4.5 0 01-.54-3.05l.17.1 5.66 3.27a.93.93 0 00.92 0l6.91-3.99v2.76c0 .04-.01.07-.04.09l-5.72 3.3a4.56 4.56 0 01-7.36-2.48zM2.54 7.86a4.52 4.52 0 012.37-1.98v6.74c0 .33.18.64.46.8l6.91 3.99-2.39 1.38a.09.09 0 01-.09 0L4.08 15.5A4.56 4.56 0 012.54 7.86zm16.34 3.8l-6.91-3.99 2.39-1.38a.09.09 0 01.09 0l5.72 3.3a4.55 4.55 0 01-.7 8.22v-6.74a.93.93 0 00-.46-.8l-.13-.61zm2.38-3.1l-.17-.1-5.66-3.27a.93.93 0 00-.92 0L7.6 9.18V6.42c0-.04.01-.07.04-.09l5.72-3.3a4.56 4.56 0 017.1 4.72l-.2-.19zM6.72 13.9L4.33 12.52a.09.09 0 01-.05-.07V5.84A4.55 4.55 0 0111.73 3l-.17.1-5.66 3.27a.92.92 0 00-.46.8l-.72 6.73zm1.3-2.8L12 8.65l3.98 2.3v4.59L12 17.84l-3.98-2.3V11.1z" />
-      </svg>
-    ),
-  },
-  {
-    name: 'Gemini',
-    description: 'AI coding agent by Google',
-    url: 'https://aistudio.google.com/',
-    brandColor: '#4285f4',
-    icon: () => (
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-        <path d="M12 0C12 6.627 6.627 12 0 12c6.627 0 12 5.373 12 12 0-6.627 5.373-12 12-12-6.627 0-12-5.373-12-12z" />
-      </svg>
-    ),
-  },
-  {
-    name: 'GitHub Copilot',
-    description: 'AI coding agent by GitHub',
-    url: 'https://github.com/features/copilot',
-    brandColor: '#6e5494',
-    icon: () => (
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-        <path d="M12 2C6.48 2 2 6.58 2 12.24c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-1.05-.01-1.9-2.78.62-3.37-1.21-3.37-1.21-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.58 2.35 1.12 2.92.86.09-.67.35-1.12.63-1.38-2.22-.26-4.55-1.14-4.55-5.08 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.31.1-2.73 0 0 .84-.27 2.75 1.05A9.25 9.25 0 0112 6.4a9.2 9.2 0 012.5.35c1.9-1.32 2.74-1.05 2.74-1.05.55 1.42.2 2.47.1 2.73.64.72 1.03 1.64 1.03 2.76 0 3.95-2.33 4.82-4.56 5.07.36.31.68.92.68 1.86 0 1.34-.01 2.42-.01 2.75 0 .27.18.59.69.49A10.26 10.26 0 0022 12.24C22 6.58 17.52 2 12 2z" />
-      </svg>
-    ),
-  },
-  {
-    name: 'OpenCode',
-    description: 'Open-source AI coding agent',
-    url: 'https://opencode.ai/',
-    brandColor: '#e5e5e5',
-    icon: () => (
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-        <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z" />
-      </svg>
-    ),
-  },
-];
 
 interface CloudflareAccount {
   id: string;
@@ -126,17 +61,46 @@ const OnboardingPage: Component = () => {
   const [cfMessage, setCfMessage] = createSignal<string | null>(null);
   const [cfError, setCfError] = createSignal<string | null>(null);
 
+  // LLM key state — Anthropic
+  const [anthropicKey, setAnthropicKey] = createSignal('');
+  const [anthropicSaving, setAnthropicSaving] = createSignal(false);
+  const [anthropicMessage, setAnthropicMessage] = createSignal<string | null>(null);
+  const [anthropicError, setAnthropicError] = createSignal<string | null>(null);
+
+  // LLM key state — OpenAI (Codex)
+  const [openaiKey, setOpenaiKey] = createSignal('');
+  const [openaiSaving, setOpenaiSaving] = createSignal(false);
+  const [openaiMessage, setOpenaiMessage] = createSignal<string | null>(null);
+  const [openaiError, setOpenaiError] = createSignal<string | null>(null);
+
+  // LLM key state — Gemini
+  const [geminiKey, setGeminiKey] = createSignal('');
+  const [geminiSaving, setGeminiSaving] = createSignal(false);
+  const [geminiMessage, setGeminiMessage] = createSignal<string | null>(null);
+  const [geminiError, setGeminiError] = createSignal<string | null>(null);
+
   const githubConnected = () => githubToken().startsWith('****');
   const cfConnected = () => cfToken().startsWith('****');
+  const anthropicConnected = () => anthropicKey().startsWith('****');
+  const openaiConnected = () => openaiKey().startsWith('****');
+  const geminiConnected = () => geminiKey().startsWith('****');
+  // Copilot uses the GitHub token from deploy keys
+  const copilotConnected = () => githubConnected();
 
   onMount(async () => {
     try {
-      const keys: DeployKeysResponse = await getDeployKeys();
-      if (keys.githubToken) setGithubToken(keys.githubToken);
-      if (keys.cloudflareApiToken) setCfToken(keys.cloudflareApiToken);
-      if (keys.cloudflareAccountId) setCfAccountId(keys.cloudflareAccountId);
+      const [deployKeys, llmKeys] = await Promise.all([
+        getDeployKeys().catch(() => ({} as DeployKeysResponse)),
+        getLlmKeys().catch(() => ({} as LlmKeysResponse)),
+      ]);
+      if (deployKeys.githubToken) setGithubToken(deployKeys.githubToken);
+      if (deployKeys.cloudflareApiToken) setCfToken(deployKeys.cloudflareApiToken);
+      if (deployKeys.cloudflareAccountId) setCfAccountId(deployKeys.cloudflareAccountId);
+      if (llmKeys.anthropicApiKey) setAnthropicKey(llmKeys.anthropicApiKey);
+      if (llmKeys.openaiApiKey) setOpenaiKey(llmKeys.openaiApiKey);
+      if (llmKeys.geminiApiKey) setGeminiKey(llmKeys.geminiApiKey);
     } catch (err) {
-      logger.warn('Failed to load deploy keys:', err);
+      logger.warn('Failed to load keys:', err);
     } finally {
       setLoading(false);
     }
@@ -228,6 +192,99 @@ const OnboardingPage: Component = () => {
     }
   };
 
+  // LLM key handlers — Anthropic
+  const handleSaveAnthropic = async (token: string) => {
+    setAnthropicSaving(true);
+    setAnthropicMessage(null);
+    setAnthropicError(null);
+    try {
+      const result = await updateLlmKeys({ anthropicApiKey: token });
+      setAnthropicKey(result.anthropicApiKey || '');
+      setAnthropicMessage('Connected. Takes effect on next session.');
+    } catch (error) {
+      setAnthropicError(error instanceof Error ? error.message : 'Failed to save.');
+    } finally {
+      setAnthropicSaving(false);
+    }
+  };
+
+  const handleDisconnectAnthropic = async () => {
+    setAnthropicSaving(true);
+    setAnthropicMessage(null);
+    setAnthropicError(null);
+    try {
+      await updateLlmKeys({ anthropicApiKey: null });
+      setAnthropicKey('');
+      setAnthropicMessage('Disconnected.');
+    } catch (error) {
+      setAnthropicError(error instanceof Error ? error.message : 'Failed.');
+    } finally {
+      setAnthropicSaving(false);
+    }
+  };
+
+  // LLM key handlers — OpenAI (Codex)
+  const handleSaveOpenai = async (token: string) => {
+    setOpenaiSaving(true);
+    setOpenaiMessage(null);
+    setOpenaiError(null);
+    try {
+      const result = await updateLlmKeys({ openaiApiKey: token });
+      setOpenaiKey(result.openaiApiKey || '');
+      setOpenaiMessage('Connected. Takes effect on next session.');
+    } catch (error) {
+      setOpenaiError(error instanceof Error ? error.message : 'Failed to save.');
+    } finally {
+      setOpenaiSaving(false);
+    }
+  };
+
+  const handleDisconnectOpenai = async () => {
+    setOpenaiSaving(true);
+    setOpenaiMessage(null);
+    setOpenaiError(null);
+    try {
+      await updateLlmKeys({ openaiApiKey: null });
+      setOpenaiKey('');
+      setOpenaiMessage('Disconnected.');
+    } catch (error) {
+      setOpenaiError(error instanceof Error ? error.message : 'Failed.');
+    } finally {
+      setOpenaiSaving(false);
+    }
+  };
+
+  // LLM key handlers — Gemini
+  const handleSaveGemini = async (token: string) => {
+    setGeminiSaving(true);
+    setGeminiMessage(null);
+    setGeminiError(null);
+    try {
+      const result = await updateLlmKeys({ geminiApiKey: token });
+      setGeminiKey(result.geminiApiKey || '');
+      setGeminiMessage('Connected. Takes effect on next session.');
+    } catch (error) {
+      setGeminiError(error instanceof Error ? error.message : 'Failed to save.');
+    } finally {
+      setGeminiSaving(false);
+    }
+  };
+
+  const handleDisconnectGemini = async () => {
+    setGeminiSaving(true);
+    setGeminiMessage(null);
+    setGeminiError(null);
+    try {
+      await updateLlmKeys({ geminiApiKey: null });
+      setGeminiKey('');
+      setGeminiMessage('Disconnected.');
+    } catch (error) {
+      setGeminiError(error instanceof Error ? error.message : 'Failed.');
+    } finally {
+      setGeminiSaving(false);
+    }
+  };
+
   return (
     <div class="onboarding-page">
       <div class="login-particles login-particles--1" />
@@ -257,6 +314,13 @@ const OnboardingPage: Component = () => {
           Skip and continue to Codeflare
           <Icon path={mdiArrowRight} size={16} />
         </a>
+
+        {/* 3-step instructions */}
+        <ol class="provider-steps">
+          <li>Click a provider button to open their console</li>
+          <li>Create an <span style={{ color: '#4ade80' }}>API KEY</span> on the provider page</li>
+          <li>Come back here, paste the key and save</li>
+        </ol>
 
         <Show when={!loading()} fallback={
           <div class="login-loading">
@@ -332,35 +396,88 @@ const OnboardingPage: Component = () => {
             </Show>
           </div>
 
-          {/* Section 3: Coding Agents */}
+          {/* Section 3: Connect Coding Agents */}
           <div class="onboarding-section" data-testid="onboarding-agents-section">
             <h2 class="onboarding-section-title">
               <span class="onboarding-step-number">3</span>
-              Get a Coding Agent
+              Connect Coding Agents
             </h2>
             <p class="onboarding-section-description">
-              Codeflare is your IDE — you need at least one coding agent subscription to start coding.
-              Sign up with any of the providers below.
+              Connect your API keys so coding agents can run inside Codeflare sessions.
             </p>
-            <div class="onboarding-agents-grid">
-              <For each={CODING_AGENTS}>
-                {(agent) => (
-                  <a
-                    href={agent.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="onboarding-agent-card"
-                    data-testid={`onboarding-agent-${agent.name.toLowerCase().replace(/\s+/g, '-')}`}
-                    style={{ '--agent-color': agent.brandColor }}
-                  >
-                    <span class="onboarding-agent-icon">{agent.icon()}</span>
-                    <span class="onboarding-agent-info">
-                      <span class="onboarding-agent-name">{agent.name}</span>
-                      <span class="onboarding-agent-description">{agent.description}</span>
-                    </span>
-                  </a>
-                )}
-              </For>
+
+            <ProviderRow
+              icon={AnthropicIcon}
+              name="Anthropic"
+              brandColor="#d4a27f"
+              externalUrl="https://console.anthropic.com/settings/keys"
+              externalLabel="Open Anthropic"
+              placeholder="sk-ant-..."
+              connected={anthropicConnected()}
+              onSave={(token) => { void handleSaveAnthropic(token); }}
+              onDisconnect={() => { void handleDisconnectAnthropic(); }}
+              saving={anthropicSaving()}
+              disconnecting={anthropicSaving()}
+              message={anthropicMessage()}
+              error={anthropicError()}
+              testId="onboarding-anthropic-row"
+            />
+
+            <ProviderRow
+              icon={OpenAIIcon}
+              name="Codex"
+              brandColor="#10a37f"
+              externalUrl="https://platform.openai.com/api-keys"
+              externalLabel="Open OpenAI"
+              placeholder="sk-..."
+              connected={openaiConnected()}
+              onSave={(token) => { void handleSaveOpenai(token); }}
+              onDisconnect={() => { void handleDisconnectOpenai(); }}
+              saving={openaiSaving()}
+              disconnecting={openaiSaving()}
+              message={openaiMessage()}
+              error={openaiError()}
+              testId="onboarding-codex-row"
+            />
+
+            <ProviderRow
+              icon={GeminiIcon}
+              name="Gemini"
+              brandColor="#4285f4"
+              externalUrl="https://aistudio.google.com/apikey"
+              externalLabel="Open Google AI Studio"
+              placeholder="AI..."
+              connected={geminiConnected()}
+              onSave={(token) => { void handleSaveGemini(token); }}
+              onDisconnect={() => { void handleDisconnectGemini(); }}
+              saving={geminiSaving()}
+              disconnecting={geminiSaving()}
+              message={geminiMessage()}
+              error={geminiError()}
+              testId="onboarding-gemini-row"
+            />
+
+            {/* Copilot status — read-only, derived from GitHub connection */}
+            <div class="provider-row" data-testid="onboarding-copilot-row">
+              <div class="provider-row-connected" style={{ opacity: copilotConnected() ? 1 : 0.6 }}>
+                <span class="provider-row-icon">
+                  <GitHubIcon size={28} />
+                </span>
+                <span class="provider-row-name">Copilot</span>
+                <span class="provider-row-badge" style={{ background: copilotConnected() ? undefined : 'var(--color-bg-tertiary)' }}>
+                  {copilotConnected() ? 'connected' : 'disconnected'}
+                </span>
+              </div>
+            </div>
+
+            {/* Info badges */}
+            <div style={{ display: 'flex', gap: 'var(--space-2)', "margin-top": 'var(--space-2)' }}>
+              <span class="provider-row-badge" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
+                OpenCode
+              </span>
+              <span class="provider-row-badge" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
+                Bash
+              </span>
             </div>
           </div>
         </Show>

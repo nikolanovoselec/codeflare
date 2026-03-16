@@ -47,6 +47,7 @@ export const UserPreferencesSchema = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
+  consultLlmEnabled: z.boolean().optional(),
 });
 
 // Preset API response schemas
@@ -272,6 +273,7 @@ export const StoragePreviewBinaryResponseSchema = z.object({
 
 // LLM API keys response schema
 export const LlmKeysResponseSchema = z.object({
+  anthropicApiKey: z.string().optional(),
   openaiApiKey: z.string().optional(),
   geminiApiKey: z.string().optional(),
 });

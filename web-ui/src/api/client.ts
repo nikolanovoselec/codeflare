@@ -288,7 +288,7 @@ export async function getLlmKeys(): Promise<LlmKeysResponse> {
   return fetchApi('/llm-keys', {}, LlmKeysResponseSchema);
 }
 
-export async function updateLlmKeys(keys: { openaiApiKey?: string | null; geminiApiKey?: string | null }): Promise<LlmKeysResponse> {
+export async function updateLlmKeys(keys: { anthropicApiKey?: string | null; openaiApiKey?: string | null; geminiApiKey?: string | null }): Promise<LlmKeysResponse> {
   return fetchApi('/llm-keys', {
     method: 'PUT',
     body: JSON.stringify(keys),

@@ -132,6 +132,20 @@ describe('DeployKeysSection Component', () => {
     });
   });
 
+  describe('copilot scopes', () => {
+    it('GitHub external link includes Copilot scopes', async () => {
+      render(() => <DeployKeysSection />);
+      await waitFor(() => {
+        expect(screen.getByText(/Connect to GitHub/)).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText(/Connect to GitHub/).closest('button')!);
+      await waitFor(() => {
+        const link = screen.getByTestId('deploy-github-row-external') as HTMLAnchorElement;
+        expect(link.href).toContain('user_copilot_requests=read');
+      });
+    });
+  });
+
   describe('hint text', () => {
     it('shows hint about next session start', async () => {
       render(() => <DeployKeysSection />);

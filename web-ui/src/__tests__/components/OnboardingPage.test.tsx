@@ -6,6 +6,9 @@ import OnboardingPage from '../../components/OnboardingPage';
 vi.mock('../../api/client', () => ({
   getDeployKeys: vi.fn(),
   updateDeployKeys: vi.fn(),
+  getLlmKeys: vi.fn(),
+  updateLlmKeys: vi.fn(),
+  markOnboardingComplete: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 // Mock ProviderRow to simplify testing
@@ -22,6 +25,9 @@ vi.mock('../../components/settings/ProviderRow', () => ({
 vi.mock('../../components/settings/BrandIcons', () => ({
   GitHubIcon: () => <svg data-testid="github-icon" />,
   CloudflareIcon: () => <svg data-testid="cloudflare-icon" />,
+  AnthropicIcon: () => <svg data-testid="anthropic-icon" />,
+  OpenAIIcon: () => <svg data-testid="openai-icon" />,
+  GeminiIcon: () => <svg data-testid="gemini-icon" />,
 }));
 
 // Mock ScrambleText
@@ -29,10 +35,12 @@ vi.mock('../../components/ScrambleText', () => ({
   default: (props: any) => <span>{props.text}</span>,
 }));
 
-import { getDeployKeys, updateDeployKeys } from '../../api/client';
+import { getDeployKeys, updateDeployKeys, getLlmKeys, updateLlmKeys } from '../../api/client';
 
 const mockedGetDeployKeys = vi.mocked(getDeployKeys);
 const mockedUpdateDeployKeys = vi.mocked(updateDeployKeys);
+const mockedGetLlmKeys = vi.mocked(getLlmKeys);
+const mockedUpdateLlmKeys = vi.mocked(updateLlmKeys);
 
 describe('OnboardingPage', () => {
   let mockLocation: { href: string };
@@ -44,6 +52,8 @@ describe('OnboardingPage', () => {
     // Default: no tokens connected
     mockedGetDeployKeys.mockResolvedValue({});
     mockedUpdateDeployKeys.mockResolvedValue({});
+    mockedGetLlmKeys.mockResolvedValue({});
+    mockedUpdateLlmKeys.mockResolvedValue({});
 
     // Mock window.location
     originalLocation = window.location;
@@ -104,36 +114,76 @@ describe('OnboardingPage', () => {
     });
   });
 
-  it('shows 5 coding agent cards with correct names', async () => {
+  it('renders Claude Code ProviderRow', async () => {
     render(() => <OnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('onboarding-agent-claude-code')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-agent-codex')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-agent-gemini')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-agent-github-copilot')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-agent-opencode')).toBeInTheDocument();
+      expect(screen.getByTestId('onboarding-anthropic-row')).toBeInTheDocument();
     });
   });
 
-  it('coding agent cards link to correct signup URLs', async () => {
+  it('renders Codex ProviderRow', async () => {
     render(() => <OnboardingPage />);
 
     await waitFor(() => {
-      const claudeCard = screen.getByTestId('onboarding-agent-claude-code');
-      expect(claudeCard).toHaveAttribute('href', 'https://console.anthropic.com/');
+      expect(screen.getByTestId('onboarding-codex-row')).toBeInTheDocument();
+    });
+  });
 
-      const codexCard = screen.getByTestId('onboarding-agent-codex');
-      expect(codexCard).toHaveAttribute('href', 'https://platform.openai.com/signup');
+  it('renders Gemini ProviderRow', async () => {
+    render(() => <OnboardingPage />);
 
-      const geminiCard = screen.getByTestId('onboarding-agent-gemini');
-      expect(geminiCard).toHaveAttribute('href', 'https://aistudio.google.com/');
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-gemini-row')).toBeInTheDocument();
+    });
+  });
 
-      const copilotCard = screen.getByTestId('onboarding-agent-github-copilot');
-      expect(copilotCard).toHaveAttribute('href', 'https://github.com/features/copilot');
+  it('shows 3-step provider instructions', async () => {
+    render(() => <OnboardingPage />);
 
-      const opencodeCard = screen.getByTestId('onboarding-agent-opencode');
-      expect(opencodeCard).toHaveAttribute('href', 'https://opencode.ai/');
+    await waitFor(() => {
+      const ol = document.querySelector('ol.provider-steps');
+      expect(ol).toBeInTheDocument();
+      expect(ol!.querySelectorAll('li').length).toBe(3);
+    });
+  });
+
+  it('Section 3 title is Connect Coding Agents', async () => {
+    render(() => <OnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Connect Coding Agents')).toBeInTheDocument();
+    });
+  });
+
+  it('OpenCode and Bash info badges present', async () => {
+    render(() => <OnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('OpenCode')).toBeInTheDocument();
+      expect(screen.getByText('Bash')).toBeInTheDocument();
+    });
+  });
+
+  it('Copilot shows connected when GitHub connected', async () => {
+    mockedGetDeployKeys.mockResolvedValue({ githubToken: '****gh' });
+
+    render(() => <OnboardingPage />);
+
+    await waitFor(() => {
+      const copilotRow = screen.getByTestId('onboarding-copilot-row');
+      expect(copilotRow).toBeInTheDocument();
+      expect(copilotRow.textContent).toMatch(/connected/i);
+    });
+  });
+
+  it('Copilot shows disconnected when GitHub not connected', async () => {
+    render(() => <OnboardingPage />);
+
+    await waitFor(() => {
+      const copilotRow = screen.getByTestId('onboarding-copilot-row');
+      expect(copilotRow).toBeInTheDocument();
+      expect(copilotRow.textContent).toMatch(/disconnected/i);
     });
   });
 
@@ -155,13 +205,13 @@ describe('OnboardingPage', () => {
     });
   });
 
-  it('renders section 3 header about coding agent subscription', async () => {
+  it('renders section 3 header about coding agents', async () => {
     render(() => <OnboardingPage />);
 
     await waitFor(() => {
       const section = screen.getByTestId('onboarding-agents-section');
       expect(section).toBeInTheDocument();
-      expect(section.textContent).toMatch(/at least one/i);
+      expect(section.textContent).toMatch(/Connect Coding Agents/i);
     });
   });
 });
