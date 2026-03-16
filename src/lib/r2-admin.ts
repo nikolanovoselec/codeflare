@@ -6,6 +6,7 @@ import { createLogger } from './logger';
 import { r2AdminCB } from './circuit-breakers';
 import { CF_API_BASE } from './constants';
 import { parseCfResponse } from './cf-api';
+import { getAndDecrypt, encryptAndStore } from './kv-crypto';
 
 const logger = createLogger('r2-admin');
 
@@ -237,6 +238,7 @@ export async function getOrCreateScopedR2Token(
   apiToken: string,
   bucketName: string,
   kv: KVNamespace,
+  cryptoKey?: CryptoKey | null,
   options?: { forceFresh?: boolean }
 ): Promise<ScopedR2TokenResult> {
   const kvKey = `r2token:${email}`;
@@ -245,13 +247,12 @@ export async function getOrCreateScopedR2Token(
     pendingTokenCreations.delete(email);
     await kv.delete(kvKey);
   } else {
-    const cached = await kv.get(kvKey);
+    const cached = await getAndDecrypt<CachedR2Token>(kv, kvKey, cryptoKey ?? null);
     if (cached) {
-      const parsed = JSON.parse(cached) as CachedR2Token;
       return {
-        accessKeyId: parsed.accessKeyId,
-        secretAccessKey: parsed.secretAccessKey,
-        tokenId: parsed.tokenId,
+        accessKeyId: cached.accessKeyId,
+        secretAccessKey: cached.secretAccessKey,
+        tokenId: cached.tokenId,
       };
     }
   }
@@ -271,7 +272,7 @@ export async function getOrCreateScopedR2Token(
         bucketName,
         createdAt: new Date().toISOString(),
       };
-      await kv.put(kvKey, JSON.stringify(kvValue));
+      await encryptAndStore(kv, kvKey, kvValue, cryptoKey ?? null);
 
       return result;
     } finally {

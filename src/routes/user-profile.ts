@@ -5,6 +5,7 @@ import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isOnboardingLandingPageActive, isSaasModeActive } from '../lib/onboarding';
 import { getOrCreateScopedR2Token } from '../lib/r2-admin';
+import { getOrImportKey } from '../lib/kv-crypto';
 
 /**
  * Rate limiter for ensure-r2-token
@@ -86,7 +87,8 @@ app.post('/ensure-r2-token', ensureR2TokenRateLimiter, async (c) => {
   }
 
   try {
-    await getOrCreateScopedR2Token(user.email, accountId, c.env.CLOUDFLARE_API_TOKEN, bucketName, c.env.KV);
+    const cryptoKey = await getOrImportKey(c.env);
+    await getOrCreateScopedR2Token(user.email, accountId, c.env.CLOUDFLARE_API_TOKEN, bucketName, c.env.KV, cryptoKey);
     return c.json({ ready: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

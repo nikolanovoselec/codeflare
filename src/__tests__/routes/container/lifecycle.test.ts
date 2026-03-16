@@ -335,4 +335,71 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     });
     expect(setBucketNameCalls).toHaveLength(0);
   });
+
+  // --- KV encryption pipeline tests ---
+
+  /** Helper: start a session and return the setBucketName body */
+  async function startSessionAndGetBody(
+    envOverrides?: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    const sessionKey = 'session:codeflare-test-example-com:test-session';
+    mockKV._set(sessionKey, {
+      id: 'test-session',
+      name: 'Test',
+      status: 'stopped',
+      createdAt: '2024-01-01T00:00:00Z',
+    } satisfies Partial<Session>);
+
+    mockGetOrCreateScopedR2Token.mockResolvedValue({
+      accessKeyId: 'scoped-ak',
+      secretAccessKey: 'scoped-sk',
+      tokenId: 'scoped-tok',
+    });
+
+    // Build test app with optional env overrides
+    const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+    app.use('*', async (c, next) => {
+      c.env = {
+        KV: mockKV as unknown as KVNamespace,
+        CLOUDFLARE_API_TOKEN: 'test-api-token',
+        R2_ACCESS_KEY_ID: 'account-level-ak',
+        R2_SECRET_ACCESS_KEY: 'account-level-sk',
+        CONTAINER: {} as any,
+        ...envOverrides,
+      } as unknown as Env;
+      c.set('user' as any, { email: 'test@example.com', authenticated: true, role: 'admin' });
+      c.set('bucketName' as any, 'codeflare-test-example-com');
+      c.set('requestId' as any, 'test-req-id');
+      return next();
+    });
+    app.route('/container', lifecycleRoutes);
+    app.onError((err, c) => {
+      if (err instanceof AppError) return c.json(err.toJSON(), err.statusCode as any);
+      return c.json({ error: err.message }, 500);
+    });
+
+    const res = await app.fetch(
+      new Request('http://localhost/container/start?sessionId=test-session', { method: 'POST' }),
+      {} as Env,
+      mockExecutionCtx as unknown as ExecutionContext,
+    );
+    expect(res.status).toBe(200);
+
+    const fetchCalls = mockContainerStub.fetch.mock.calls;
+    const call = fetchCalls.find((c: any[]) => (c[0] as Request).url.includes('setBucketName'));
+    expect(call).toBeDefined();
+    return new Request(call![0]).clone().json() as Promise<Record<string, unknown>>;
+  }
+
+  it('KV_ENCRYPTION_KEY flows through as r2EncryptionKey', async () => {
+    // Must be exactly 32 bytes base64-encoded (AES-256 requirement)
+    const testKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(0x42)));
+    const body = await startSessionAndGetBody({ KV_ENCRYPTION_KEY: testKey });
+    expect(body.r2EncryptionKey).toBe(testKey);
+  });
+
+  it('r2EncryptionKey absent when KV_ENCRYPTION_KEY not set', async () => {
+    const body = await startSessionAndGetBody();
+    expect(body.r2EncryptionKey).toBeUndefined();
+  });
 });

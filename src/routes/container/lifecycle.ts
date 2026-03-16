@@ -19,6 +19,7 @@ import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
 import type { Logger } from '../../lib/logger';
+import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 
 // ---------------------------------------------------------------------------
 // Extracted helpers (FIX-8)
@@ -41,6 +42,7 @@ function buildSetBucketNameBody(params: {
   githubToken?: string;
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;
+  r2EncryptionKey?: string;
   sessionMode: string;
 }): string {
   return JSON.stringify({
@@ -58,6 +60,7 @@ function buildSetBucketNameBody(params: {
     githubToken: params.githubToken ?? null,
     cloudflareApiToken: params.cloudflareApiToken ?? null,
     cloudflareAccountId: params.cloudflareAccountId ?? null,
+    ...(params.r2EncryptionKey && { r2EncryptionKey: params.r2EncryptionKey }),
     sessionMode: params.sessionMode,
   });
 }
@@ -72,6 +75,7 @@ async function setupR2Credentials(
   r2AccountId: string,
   bucketName: string,
   logger: Logger,
+  cryptoKey?: CryptoKey | null,
 ): Promise<{ accessKeyId: string; secretAccessKey: string; tokenId: string }> {
   try {
     return await getOrCreateScopedR2Token(
@@ -80,6 +84,7 @@ async function setupR2Credentials(
       env.CLOUDFLARE_API_TOKEN,
       bucketName,
       env.KV,
+      cryptoKey,
     );
   } catch (error) {
     logger.error('Failed to create scoped R2 token', toError(error), { bucketName });
@@ -218,6 +223,7 @@ export async function configureContainerDO(params: {
   githubToken?: string;
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;
+  r2EncryptionKey?: string;
   sessionMode: string;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
@@ -238,6 +244,7 @@ export async function configureContainerDO(params: {
     githubToken: params.githubToken,
     cloudflareApiToken: params.cloudflareApiToken,
     cloudflareAccountId: params.cloudflareAccountId,
+    r2EncryptionKey: params.r2EncryptionKey,
     sessionMode: params.sessionMode,
   });
 
@@ -406,10 +413,11 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const sessionMode = resolveSessionMode(preferences);
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
+    const cryptoKey = await getOrImportKey(c.env);
     const llmKeysKey = getLlmKeysKey(bucketName);
-    const llmKeys = await c.env.KV.get<LlmKeys>(llmKeysKey, 'json');
+    const llmKeys = await getAndDecrypt<LlmKeys>(c.env.KV, llmKeysKey, cryptoKey);
     const deployKeysKey = getDeployKeysKey(bucketName);
-    const deployKeys = await c.env.KV.get<DeployKeys>(deployKeysKey, 'json');
+    const deployKeys = await getAndDecrypt<DeployKeys>(c.env.KV, deployKeysKey, cryptoKey);
 
     // Step 2: Ensure R2 bucket exists and seed if new
     const { r2Config } = await ensureBucketAndSeed({
@@ -420,7 +428,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     });
 
     // Step 3: Get scoped R2 credentials
-    const scopedCreds = await setupR2Credentials(c.env, user.email, r2Config.accountId, bucketName, reqLogger);
+    const scopedCreds = await setupR2Credentials(c.env, user.email, r2Config.accountId, bucketName, reqLogger, cryptoKey);
 
     // Get container instance
     const container = getContainer(c.env.CONTAINER, containerId);
@@ -445,6 +453,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       githubToken: deployKeys?.githubToken,
       cloudflareApiToken: deployKeys?.cloudflareApiToken,
       cloudflareAccountId: deployKeys?.cloudflareAccountId,
+      r2EncryptionKey: c.env.KV_ENCRYPTION_KEY,
       sessionMode,
       logger: reqLogger,
     });

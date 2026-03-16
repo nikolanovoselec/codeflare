@@ -69,6 +69,9 @@ export interface Env {
   // Use for custom OIDC/SAML providers (e.g., Authentik, Okta).
   SAAS_EXTRA_IDPS?: string;
 
+  // Optional AES-256 key (base64) for encrypting KV values at rest.
+  // Set via wrangler secret. When absent, credentials stored as plaintext.
+  KV_ENCRYPTION_KEY?: string;
 }
 
 /**

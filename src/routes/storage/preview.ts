@@ -7,6 +7,7 @@ import { ValidationError, ContainerError } from '../../lib/error-types';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 import { validateKey } from './validation';
+import { getSseHeaders } from '../../lib/r2-sse';
 
 const logger = createLogger('storage-preview');
 
@@ -53,7 +54,7 @@ app.get('/', async (c) => {
   const objectUrl = getR2Url(endpoint, bucketName, key);
 
   // HEAD request to get metadata without downloading the full object
-  const headResponse = await r2Client.fetch(objectUrl, { method: 'HEAD' });
+  const headResponse = await r2Client.fetch(objectUrl, { method: 'HEAD', headers: getSseHeaders(c.env) });
 
   if (!headResponse.ok) {
     logger.error('R2 HEAD failed', undefined, { status: headResponse.status, bucketName, key });
@@ -66,7 +67,7 @@ app.get('/', async (c) => {
 
   // Text files under 1MB: return content inline
   if (isTextContentType(contentType) && size <= MAX_TEXT_SIZE) {
-    const getResponse = await r2Client.fetch(objectUrl, { method: 'GET' });
+    const getResponse = await r2Client.fetch(objectUrl, { method: 'GET', headers: getSseHeaders(c.env) });
     const content = await getResponse.text();
 
     return c.json({
@@ -85,6 +86,7 @@ app.get('/', async (c) => {
     const signedRequest = await r2Client.sign(presignUrl.toString(), {
       method: 'GET',
       aws: { signQuery: true },
+      headers: getSseHeaders(c.env),
     });
 
     return c.json({

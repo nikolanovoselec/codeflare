@@ -163,6 +163,98 @@ describe('LLM Keys routes', () => {
     });
   });
 
+  describe('PUT /api/llm-keys — encryption', () => {
+    // Generate key ONCE so PUT and GET share the same key
+    const rawKey = crypto.getRandomValues(new Uint8Array(32));
+    const stableBase64Key = btoa(String.fromCharCode(...rawKey));
+
+    function createEncryptedTestApp() {
+      const app = new Hono<{ Bindings: Env }>();
+      app.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as any);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+      app.use('*', async (c, next) => {
+        (c.env as any) = { KV: mockKV, KV_ENCRYPTION_KEY: stableBase64Key };
+        return next();
+      });
+      app.route('/api/llm-keys', llmKeysRoutes);
+      return app;
+    }
+
+    it('stores encrypted value when KV_ENCRYPTION_KEY set', async () => {
+      const app = createEncryptedTestApp();
+      await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openaiApiKey: 'sk-encrypted-test' }),
+      });
+
+      // The raw stored value should NOT be valid JSON (it's encrypted)
+      const rawStored = mockKV._store.get('llm-keys:test-bucket');
+      expect(rawStored).toBeDefined();
+      let isValidJson = true;
+      try { JSON.parse(rawStored!); } catch { isValidJson = false; }
+      expect(isValidJson).toBe(false);
+    });
+
+    it('GET decrypts correctly when KV_ENCRYPTION_KEY set', async () => {
+      const app = createEncryptedTestApp();
+
+      // First store via PUT (encrypted)
+      await app.request('/api/llm-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openaiApiKey: 'sk-roundtrip-test1234' }),
+      });
+
+      // Then read via GET (should decrypt and mask)
+      const res = await app.request('/api/llm-keys');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.openaiApiKey).toBe('****1234');
+    });
+
+    it('GET returns empty for corrupted KV data with encryption key', async () => {
+      // Store invalid (non-encrypted) data directly in KV
+      mockKV._store.set('llm-keys:test-bucket', 'corrupted-data-not-encrypted');
+
+      const app = createEncryptedTestApp();
+      const res = await app.request('/api/llm-keys');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      // Should return undefined keys (not crash)
+      expect(body.openaiApiKey).toBeUndefined();
+      expect(body.geminiApiKey).toBeUndefined();
+    });
+
+    it('GET migrates plaintext to encrypted', async () => {
+      // Pre-populate with plaintext JSON (legacy pre-encryption entry)
+      mockKV._set('llm-keys:test-bucket', {
+        openaiApiKey: 'sk-migrate-test1234',
+        geminiApiKey: 'AIza-migrate-test',
+      } satisfies LlmKeys);
+
+      const app = createEncryptedTestApp();
+
+      // GET should return masked keys (migration happens transparently)
+      const res = await app.request('/api/llm-keys');
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.openaiApiKey).toBe('****1234');
+      expect(body.geminiApiKey).toBe('****test');
+
+      // The raw KV value should now be encrypted (no longer valid JSON)
+      const rawStored = mockKV._store.get('llm-keys:test-bucket');
+      expect(rawStored).toBeDefined();
+      let isValidJson = true;
+      try { JSON.parse(rawStored!); } catch { isValidJson = false; }
+      expect(isValidJson).toBe(false);
+    });
+  });
+
   describe('DELETE /api/llm-keys', () => {
     it('removes all keys from KV', async () => {
       mockKV._set('llm-keys:test-bucket', { openaiApiKey: 'sk-delete-me' });
