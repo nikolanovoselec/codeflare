@@ -963,15 +963,108 @@ HSTS is also applied to all redirect responses via `secureRedirect()` helper, in
 
 ### Credential Encryption at Rest
 
-Optional encryption enabled by setting `ENCRYPTION_KEY` (base64-encoded 256-bit key, generate with `openssl rand -base64 32`).
+Optional encryption for all user secrets and workspace files, enabled by setting `ENCRYPTION_KEY` (base64-encoded 256-bit key). Generate with `openssl rand -base64 32`. Set as a GitHub Actions repository secret named `ENCRYPTION_KEY` — the deploy workflow passes it to the Worker via `wrangler secret put`.
 
-**KV encryption (AES-256-GCM via Web Crypto API):** All values stored under `llm-keys:*`, `deploy-keys:*`, and `r2token:*` KV prefixes are encrypted before write and decrypted on read. Each value gets a unique 12-byte IV prepended to the ciphertext. API responses always return masked values (`****` + last 4 chars), never plaintext keys.
+#### Key generation and setup
 
-**Transparent migration:** When `ENCRYPTION_KEY` is enabled on an existing deployment, pre-existing plaintext KV entries are transparently migrated to encrypted format on first read. `getAndDecrypt()` tries decryption first; if that fails, it attempts `JSON.parse` (plaintext legacy) and re-encrypts the value via write-back. Subsequent reads use the fast decrypt path. No data loss, no downtime.
+```bash
+# Generate a cryptographically secure 32-byte key
+openssl rand -base64 32
+# Output example: oBmGaRVT1W84oLgeTGif09kBlXxJkMs9uaoiqnCTJC0=
 
-**R2 SSE-C encryption:** When `ENCRYPTION_KEY` is set, R2 file contents are encrypted via S3 Server-Side Encryption with Customer-Provided Keys (SSE-C). The Worker passes SSE-C headers on S3 PutObject/GetObject/HeadObject/CopyObject requests. Inside the container, `ENCRYPTION_KEY` is injected as an env var and rclone.conf is configured with the SSE-C key for transparent encrypt/decrypt during bisync.
+# Add as GitHub Actions secret (Settings > Secrets and variables > Actions)
+# Secret name: ENCRYPTION_KEY
+# Secret value: <paste the base64 string>
+```
 
-**Backward compatibility:** When `ENCRYPTION_KEY` is not set, KV values are stored and read as plaintext (existing behavior). R2 operations proceed without SSE-C headers.
+The key must decode to exactly 32 bytes. Arbitrary strings, passwords, or non-base64 values are rejected at import time with a clear error.
+
+#### What gets encrypted
+
+| Storage | KV key pattern | Data | Encryption |
+|---------|---------------|------|------------|
+| KV | `llm-keys:{bucket}` | OpenAI, Gemini API keys | AES-256-GCM |
+| KV | `deploy-keys:{bucket}` | GitHub PAT, Cloudflare API token, account ID | AES-256-GCM |
+| KV | `r2token:{email}` | Scoped R2 access key, secret key, token ID | AES-256-GCM |
+| R2 | All objects in user buckets | Workspace files, agent configs, credentials | SSE-C (AES-256) |
+
+Everything else (`user-prefs:*`, `session:*`, `user:*`, `setup:*`, `storage-stats:*`) stays plaintext — no secrets in those entries.
+
+#### KV encryption (AES-256-GCM via Web Crypto API)
+
+Implementation: `src/lib/kv-crypto.ts`
+
+**Ciphertext format:** `v1:` + base64(12-byte random IV + AES-256-GCM ciphertext + 16-byte auth tag). The `v1:` prefix distinguishes encrypted values from plaintext JSON, enabling format evolution without breaking existing data.
+
+**AAD (Additional Authenticated Data):** The KV key name (e.g., `llm-keys:codeflare-user-example-com`) is bound to the ciphertext as AAD. This prevents ciphertext from being copied between KV keys — decryption fails if the key name doesn't match.
+
+**Key caching:** The CryptoKey is imported once per Worker isolate lifetime and cached in module-level state. Subsequent requests reuse the cached key without re-importing.
+
+**API responses** always return masked values (`****` + last 4 chars), never plaintext keys — regardless of whether encryption is enabled.
+
+#### Transparent KV migration
+
+When `ENCRYPTION_KEY` is enabled on an existing deployment with plaintext KV entries:
+
+1. `getAndDecrypt()` reads the raw value as text
+2. If value starts with `v1:` → decrypt with AES-256-GCM → return parsed JSON (fast path)
+3. If value is valid JSON without `v1:` prefix → plaintext legacy entry → parse and return
+4. Fire-and-forget: re-encrypt the plaintext value and write back to KV (`kv.put` runs asynchronously, never blocks the response)
+5. Subsequent reads hit the fast decrypt path (step 2)
+
+The write-back is fire-and-forget — if the KV write fails (transient error, rate limit), the caller still gets the correct data. Migration retries automatically on the next read. No data loss, no downtime.
+
+**Race condition safety:** Two concurrent requests can both read the same plaintext entry and both write encrypted copies. This is safe because both workers encrypt the same plaintext — whichever write wins is equally valid. Real updates go through `encryptAndStore()` which always encrypts directly.
+
+#### R2 SSE-C encryption
+
+Implementation: `src/lib/r2-sse.ts`
+
+When `ENCRYPTION_KEY` is set, all R2 object operations include SSE-C headers:
+
+| S3 operation | Route | Headers |
+|-------------|-------|---------|
+| PutObject | `upload.ts` (simple + multipart part) | `getSseHeaders()` |
+| InitiateMultipartUpload | `upload.ts` | `getSseHeaders()` |
+| GetObject | `download.ts`, `preview.ts` | `getSseHeaders()` |
+| HeadObject | `preview.ts`, `r2-seed.ts` | `getSseHeaders()` |
+| CopyObject | `move.ts` | `getSseHeaders()` + `getSseCopyHeaders()` |
+| PutObject (seed) | `r2-seed.ts` | `getSseHeaders()` |
+
+SSE-C headers: `x-amz-server-side-encryption-customer-algorithm: AES256`, `x-amz-server-side-encryption-customer-key: <base64 key>`, `x-amz-server-side-encryption-customer-key-MD5: <base64 MD5 of raw key bytes>`. The MD5 is computed via `node:crypto createHash('md5')`.
+
+**Rclone integration:** `ENCRYPTION_KEY` is passed from Worker → Durable Object → container env var. In `entrypoint.sh`, when present, `sse_customer_key_base64` and `sse_customer_algorithm = AES256` are appended to `rclone.conf`. Rclone auto-computes the MD5 from the base64 key. All bisync operations (initial restore, periodic sync, shutdown sync) transparently encrypt/decrypt.
+
+**Cloudflare dashboard impact:** With SSE-C enabled, files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable — the dashboard doesn't have the encryption key. Downloads through the app work normally (Worker decrypts transparently).
+
+#### R2 bucket migration
+
+Enabling SSE-C on an existing deployment requires re-uploading all R2 objects with SSE-C headers. Existing unencrypted objects remain readable without headers, but new objects written with SSE-C can only be read with SSE-C. For a clean encrypted state:
+
+1. Enable `ENCRYPTION_KEY` in GitHub secrets and deploy
+2. For each existing user bucket: download all objects (unencrypted GET), re-upload with SSE-C headers (PUT with `getSseHeaders()`)
+3. Verify by starting a session — rclone bisync should complete without errors
+
+New deployments that set `ENCRYPTION_KEY` from the start require no migration — all seeded files are encrypted at creation.
+
+#### Key pipeline
+
+```mermaid
+flowchart TD
+    GH["GitHub Actions Secret<br/>ENCRYPTION_KEY"] -->|wrangler secret put| WS["Worker Secret<br/>Env.ENCRYPTION_KEY"]
+    WS -->|getOrImportKey| CK["CryptoKey<br/>AES-256-GCM"]
+    WS -->|getSseHeaders| SSE["SSE-C Headers<br/>x-amz-server-side-encryption-*"]
+    WS -->|setBucketName body| DO["Durable Object<br/>_encryptionKey"]
+    CK -->|getAndDecrypt / encryptAndStore| KV["KV Encryption<br/>llm-keys, deploy-keys, r2token"]
+    SSE -->|fetch with headers| R2W["R2 Worker Calls<br/>upload, download, preview, move, seed"]
+    DO -->|container env var| CE["Container ENV<br/>ENCRYPTION_KEY"]
+    CE -->|entrypoint.sh| RC["rclone.conf<br/>sse_customer_key_base64"]
+    RC -->|bisync| R2C["R2 Container Sync<br/>restore, periodic, shutdown"]
+```
+
+#### Backward compatibility
+
+When `ENCRYPTION_KEY` is not set: KV values are stored and read as plaintext JSON (existing behavior). R2 operations proceed without SSE-C headers. No code paths change — `getOrImportKey()` returns `null`, `getSseHeaders()` returns `{}`, and all encryption wrappers fall through to direct KV/R2 calls.
 
 ## Rate Limiting
 
@@ -1428,7 +1521,7 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | GET | `/api/storage/download` | Download file |
 | POST | `/api/storage/delete` | Delete objects by key and/or prefix (server-side bulk delete) |
 | POST | `/api/storage/move` | Move/rename object |
-| GET | `/api/storage/preview` | Preview file content |
+| GET | `/api/storage/preview` | Preview file content (text files inline, others return metadata only) |
 | GET | `/api/storage/stats` | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
 | POST | `/api/storage/seed/getting-started` | Seed tutorial docs |
 | POST | `/api/storage/seed/agent-configs` | Recreate AI agent skills & rules (overwrites, respects session mode) |
@@ -1510,7 +1603,7 @@ GET `/health`, GET `/api/health`
 | `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default) | Worker -> DO |
 | `OPENAI_API_KEY` | OpenAI API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
 | `GEMINI_API_KEY` | Gemini API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
-| `ENCRYPTION_KEY` | Rclone SSE-C encryption config | Worker -> DO (from `env.ENCRYPTION_KEY`) |
+| `ENCRYPTION_KEY` | AES-256 key (base64) for rclone SSE-C. Appended to `rclone.conf` as `sse_customer_key_base64`. | Worker -> DO (from `env.ENCRYPTION_KEY`) |
 | `SESSION_MODE` | Session mode (`'default'` or `'advanced'`) — controls memory persistence and rclone filters | Worker -> DO via `setBucketName` |
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
 | `BROWSER` | Points to `open-url` shim that exits 1 | Dockerfile ENV (`/usr/local/bin/open-url`) |
