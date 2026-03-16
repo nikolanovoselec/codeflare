@@ -208,8 +208,7 @@ const SubscribePage: Component = () => {
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
               </svg>
             </div>
-            <h2 class="subscribe-title">Your Access is Active</h2>
-            <p class="subscribe-message">Your account is approved and ready to use.</p>
+            <h2 class="subscribe-title">Your Account is Active</h2>
             <div class="subscribe-email">{status()!.email}</div>
             <a href="/app/" class="subscribe-action-button">Continue</a>
           </Show>
@@ -301,7 +300,7 @@ const SubscribePage: Component = () => {
           >Log out</a>
         </Show>
 
-        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f6821f' }}>Region: Earth</span></p>
+        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
       </div>
     </div>
   );
