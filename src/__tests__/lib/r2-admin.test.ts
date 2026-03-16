@@ -337,13 +337,22 @@ describe('r2-admin', () => {
       get: ReturnType<typeof vi.fn>;
       put: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
+      _value: string | null;
     };
 
     beforeEach(() => {
       mockKV = {
-        get: vi.fn(),
+        get: vi.fn(async (_key: string, type?: string) => {
+          const val = mockKV._value;
+          if (!val) return null;
+          if (type === 'json' && typeof val === 'string') {
+            try { return JSON.parse(val); } catch { return val; }
+          }
+          return val;
+        }),
         put: vi.fn(),
         delete: vi.fn(),
+        _value: null as string | null,
       };
     });
 
@@ -355,14 +364,14 @@ describe('r2-admin', () => {
         bucketName: 'my-bucket',
         createdAt: '2024-01-01T00:00:00Z',
       };
-      mockKV.get.mockResolvedValue(JSON.stringify(cached));
+      mockKV._value = JSON.stringify(cached);
 
       const result = await getOrCreateScopedR2Token(
         'user@example.com', 'account-123', 'api-token', 'my-bucket',
         mockKV as unknown as KVNamespace,
       );
 
-      expect(mockKV.get).toHaveBeenCalledWith('r2token:user@example.com');
+      expect(mockKV.get).toHaveBeenCalledWith('r2token:user@example.com', 'json');
       expect(result.accessKeyId).toBe('cached-ak');
       expect(result.secretAccessKey).toBe('cached-sk');
       // Should NOT have called fetch (no token creation)
@@ -370,7 +379,7 @@ describe('r2-admin', () => {
     });
 
     it('should create new token if KV returns null, write to KV, return creds', async () => {
-      mockKV.get.mockResolvedValue(null);
+      mockKV._value = null;
 
       // Mock the createScopedR2Token call (via fetch) - new /tokens format
       mockFetch.mockResolvedValueOnce(
@@ -400,7 +409,7 @@ describe('r2-admin', () => {
     });
 
     it('should return creds directly (in-memory) without KV read-back', async () => {
-      mockKV.get.mockResolvedValue(null);
+      mockKV._value = null;
 
       mockFetch.mockResolvedValueOnce(
         new Response(JSON.stringify({
@@ -419,7 +428,7 @@ describe('r2-admin', () => {
     });
 
     it('should deduplicate concurrent getOrCreateScopedR2Token calls for the same email (FIX-7)', async () => {
-      mockKV.get.mockResolvedValue(null);
+      mockKV._value = null;
 
       // Mock token creation - should only be called ONCE despite two concurrent calls
       let createCount = 0;
@@ -474,6 +483,7 @@ describe('r2-admin', () => {
       const result = await getOrCreateScopedR2Token(
         'user@example.com', 'account-123', 'api-token', 'my-bucket',
         mockKV as unknown as KVNamespace,
+        null,
         { forceFresh: true },
       );
 
