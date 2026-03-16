@@ -8,6 +8,7 @@ import {
   mdiLightningBolt,
 } from '@mdi/js';
 import { getAuthProviders, getAuthStatus } from '../api/client';
+import { CloudflareIcon } from './settings/BrandIcons';
 import type { AuthProvider } from '../types';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
@@ -170,7 +171,7 @@ const LoginPage: Component = () => {
           </div>
         </Show>
 
-        <p class="login-footer">Made in Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span></p>
+        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f6821f' }}>Region: Earth</span> on <CloudflareIcon size={14} style={{ display: 'inline-block', 'vertical-align': 'middle', 'margin-left': '2px' }} /></p>
       </div>
     </div>
   );

@@ -21,6 +21,7 @@ import type { AuthStatus } from '../types';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
 import { logger } from '../lib/logger';
+import { CloudflareIcon } from './settings/BrandIcons';
 import '../styles/login-page.css';
 import '../styles/subscribe-page.css';
 
@@ -301,7 +302,7 @@ const SubscribePage: Component = () => {
           >Log out</a>
         </Show>
 
-        <p class="login-footer">Made in Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span></p>
+        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f6821f' }}>Region: Earth</span> on <CloudflareIcon size={14} style={{ display: 'inline-block', 'vertical-align': 'middle', 'margin-left': '2px' }} /></p>
       </div>
     </div>
   );

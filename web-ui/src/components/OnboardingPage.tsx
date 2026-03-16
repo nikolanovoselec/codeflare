@@ -376,7 +376,7 @@ const OnboardingPage: Component = () => {
           <Icon path={mdiArrowRight} size={16} />
         </a>
 
-        <p class="login-footer">Made in Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span></p>
+        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f6821f' }}>Region: Earth</span> on <CloudflareIcon size={14} style={{ display: 'inline-block', 'vertical-align': 'middle', 'margin-left': '2px' }} /></p>
       </div>
     </div>
   );
