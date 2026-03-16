@@ -296,15 +296,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Set KV encryption key as worker secret (optional)
+      - name: Set encryption key as worker secret (optional)
         run: |
-          if [ -z "${KV_ENC_KEY}" ]; then
-            echo "No KV_ENCRYPTION_KEY — credentials stored as plaintext in KV"
+          if [ -z "${ENC_KEY}" ]; then
+            echo "No ENCRYPTION_KEY — credentials stored as plaintext, R2 uses default encryption"
             exit 0
           fi
-          printf '%s' "${KV_ENC_KEY}" | npx wrangler secret put KV_ENCRYPTION_KEY --name "${WORKER_NAME}" 2>/dev/null
-          echo "KV encryption key set (AES-256-GCM)"
+          printf '%s' "${ENC_KEY}" | npx wrangler secret put ENCRYPTION_KEY --name "${WORKER_NAME}" 2>/dev/null
+          echo "Encryption key set (AES-256-GCM for KV, SSE-C for R2)"
         env:
-          KV_ENC_KEY: ${{ secrets.KV_ENCRYPTION_KEY }}
+          ENC_KEY: ${{ secrets.ENCRYPTION_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

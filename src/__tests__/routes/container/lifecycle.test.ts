@@ -391,15 +391,15 @@ describe('Container Lifecycle - Scoped R2 Tokens', () => {
     return new Request(call![0]).clone().json() as Promise<Record<string, unknown>>;
   }
 
-  it('KV_ENCRYPTION_KEY flows through as r2EncryptionKey', async () => {
+  it('ENCRYPTION_KEY flows through as encryptionKey', async () => {
     // Must be exactly 32 bytes base64-encoded (AES-256 requirement)
     const testKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(0x42)));
-    const body = await startSessionAndGetBody({ KV_ENCRYPTION_KEY: testKey });
-    expect(body.r2EncryptionKey).toBe(testKey);
+    const body = await startSessionAndGetBody({ ENCRYPTION_KEY: testKey });
+    expect(body.encryptionKey).toBe(testKey);
   });
 
-  it('r2EncryptionKey absent when KV_ENCRYPTION_KEY not set', async () => {
+  it('encryptionKey absent when ENCRYPTION_KEY not set', async () => {
     const body = await startSessionAndGetBody();
-    expect(body.r2EncryptionKey).toBeUndefined();
+    expect(body.encryptionKey).toBeUndefined();
   });
 });

@@ -176,7 +176,7 @@ All optional. The defaults work out of the box. I respect your time.
 | `RESEND_API_KEY` | unset | Resend API key (secret — for sending admin approval/rejection emails in SaaS or onboarding mode) |
 | `TURNSTILE_SITE_KEY` | unset | Cloudflare Turnstile site key (for CAPTCHA on public waitlist, required when `ONBOARDING_LANDING_PAGE=active`) |
 | `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification, required when `ONBOARDING_LANDING_PAGE=active`) |
-| `KV_ENCRYPTION_KEY` | unset | Optional. Encrypts API keys in KV (AES-256-GCM) and file contents in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded (AES-256 requirement). Generate with `openssl rand -base64 32`, then add as a GitHub Actions repository secret. Arbitrary strings will not work. |
+| `ENCRYPTION_KEY` | unset | Optional. Encrypts API keys in KV (AES-256-GCM) and file contents in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded (AES-256 requirement). Generate with `openssl rand -base64 32`, then add as a GitHub Actions repository secret. Arbitrary strings will not work. |
 
 ### SaaS Mode (Custom Login)
 
@@ -198,7 +198,7 @@ See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth
 - Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning.
 - Automated penetration testing: weekly CI workflow validates auth gate, security headers, TLS configuration, injection resistance, and information disclosure. See [PENTEST.md](PENTEST.md) for the latest report.
 - GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph.
-- Optional encryption at rest (set `KV_ENCRYPTION_KEY`): KV — API keys and deploy credentials are encrypted with AES-256-GCM before storage, decrypted on read, and masked in all API responses. R2 — file contents are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys). Existing plaintext KV entries are transparently migrated to encrypted format on first read.
+- Optional encryption at rest (set `ENCRYPTION_KEY`): KV — API keys and deploy credentials are encrypted with AES-256-GCM before storage, decrypted on read, and masked in all API responses. R2 — file contents are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys). Existing plaintext KV entries are transparently migrated to encrypted format on first read.
 - For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
 ## Testing

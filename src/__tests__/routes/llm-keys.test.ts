@@ -177,14 +177,14 @@ describe('LLM Keys routes', () => {
         return c.json({ error: 'Unexpected error' }, 500);
       });
       app.use('*', async (c, next) => {
-        (c.env as any) = { KV: mockKV, KV_ENCRYPTION_KEY: stableBase64Key };
+        (c.env as any) = { KV: mockKV, ENCRYPTION_KEY: stableBase64Key };
         return next();
       });
       app.route('/api/llm-keys', llmKeysRoutes);
       return app;
     }
 
-    it('stores encrypted value when KV_ENCRYPTION_KEY set', async () => {
+    it('stores encrypted value when ENCRYPTION_KEY set', async () => {
       const app = createEncryptedTestApp();
       await app.request('/api/llm-keys', {
         method: 'PUT',
@@ -200,7 +200,7 @@ describe('LLM Keys routes', () => {
       expect(isValidJson).toBe(false);
     });
 
-    it('GET decrypts correctly when KV_ENCRYPTION_KEY set', async () => {
+    it('GET decrypts correctly when ENCRYPTION_KEY set', async () => {
       const app = createEncryptedTestApp();
 
       // First store via PUT (encrypted)

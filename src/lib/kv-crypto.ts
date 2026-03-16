@@ -2,7 +2,7 @@
  * KV encryption primitives — AES-256-GCM via Web Crypto API.
  *
  * Encrypts/decrypts credential values stored in KV (llm-keys, deploy-keys, r2token).
- * When KV_ENCRYPTION_KEY is not set, all operations fall back to plaintext JSON.
+ * When ENCRYPTION_KEY is not set, all operations fall back to plaintext JSON.
  */
 
 /** Module-level cache for imported CryptoKey */
@@ -106,20 +106,20 @@ export async function encryptAndStore(
 
 /**
  * Get or import the encryption key from environment.
- * Returns null if KV_ENCRYPTION_KEY is not set.
+ * Returns null if ENCRYPTION_KEY is not set.
  * Caches the imported key for the lifetime of the Worker isolate.
  */
 export async function getOrImportKey(
-  env: { KV_ENCRYPTION_KEY?: string },
+  env: { ENCRYPTION_KEY?: string },
 ): Promise<CryptoKey | null> {
-  if (!env.KV_ENCRYPTION_KEY) return null;
+  if (!env.ENCRYPTION_KEY) return null;
 
   // Return cached key if the source matches
-  if (cachedKey && cachedKeySource === env.KV_ENCRYPTION_KEY) {
+  if (cachedKey && cachedKeySource === env.ENCRYPTION_KEY) {
     return cachedKey;
   }
 
-  cachedKey = await importEncryptionKey(env.KV_ENCRYPTION_KEY);
-  cachedKeySource = env.KV_ENCRYPTION_KEY;
+  cachedKey = await importEncryptionKey(env.ENCRYPTION_KEY);
+  cachedKeySource = env.ENCRYPTION_KEY;
   return cachedKey;
 }

@@ -114,7 +114,7 @@ export class container extends Container<Env> {
   private _githubToken: string | null = null;
   private _cloudflareApiToken: string | null = null;
   private _cloudflareAccountId: string | null = null;
-  private _r2EncryptionKey: string | null = null;
+  private _encryptionKey: string | null = null;
   private _sessionMode: string = 'default';
   private _containerAuthToken: string | null = null;
   private _sessionId: string | null = null;
@@ -179,7 +179,7 @@ export class container extends Container<Env> {
     githubToken?: string;
     cloudflareApiToken?: string;
     cloudflareAccountId?: string;
-    r2EncryptionKey?: string;
+    encryptionKey?: string;
     sessionMode?: string;
   }): Promise<void> {
     this._bucketName = name;
@@ -208,8 +208,8 @@ export class container extends Container<Env> {
     if (r2Creds?.cloudflareApiToken) this._cloudflareApiToken = r2Creds.cloudflareApiToken;
     if (r2Creds?.cloudflareAccountId) this._cloudflareAccountId = r2Creds.cloudflareAccountId;
 
-    // Store R2 encryption key in instance memory
-    if (r2Creds?.r2EncryptionKey) this._r2EncryptionKey = r2Creds.r2EncryptionKey;
+    // Store encryption key in instance memory
+    if (r2Creds?.encryptionKey) this._encryptionKey = r2Creds.encryptionKey;
 
     // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
     if (r2Creds?.sessionMode) this._sessionMode = r2Creds.sessionMode;
@@ -292,8 +292,8 @@ export class container extends Container<Env> {
       // LLM API keys (injected for consult-llm-mcp MCP server)
       ...(this._openaiApiKey && { OPENAI_API_KEY: this._openaiApiKey }),
       ...(this._geminiApiKey && { GEMINI_API_KEY: this._geminiApiKey }),
-      // R2 encryption key for rclone SSE-C
-      ...(this._r2EncryptionKey && { R2_ENCRYPTION_KEY: this._r2EncryptionKey }),
+      // Encryption key for rclone SSE-C
+      ...(this._encryptionKey && { ENCRYPTION_KEY: this._encryptionKey }),
       // Deploy credentials (GitHub + Cloudflare for push & deploy)
       ...(this._githubToken && { GH_TOKEN: this._githubToken }),
       ...(this._cloudflareApiToken && { CLOUDFLARE_API_TOKEN: this._cloudflareApiToken }),
@@ -328,7 +328,7 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, r2EncryptionKey, sessionMode } =
+      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
@@ -344,7 +344,7 @@ export class container extends Container<Env> {
           githubToken?: string;
           cloudflareApiToken?: string;
           cloudflareAccountId?: string;
-          r2EncryptionKey?: string;
+          encryptionKey?: string;
           sessionMode?: string;
         };
 
@@ -402,8 +402,8 @@ export class container extends Container<Env> {
           this._cloudflareAccountId = cloudflareAccountId || null;
           prefsChanged = true;
         }
-        if (r2EncryptionKey !== undefined) {
-          this._r2EncryptionKey = r2EncryptionKey || null;
+        if (encryptionKey !== undefined) {
+          this._encryptionKey = encryptionKey || null;
           prefsChanged = true;
         }
         if (sessionMode) {
@@ -453,7 +453,7 @@ export class container extends Container<Env> {
         githubToken,
         cloudflareApiToken,
         cloudflareAccountId,
-        r2EncryptionKey,
+        encryptionKey,
         sessionMode,
       });
 
@@ -657,7 +657,7 @@ export class container extends Container<Env> {
       this._githubToken = null;
       this._cloudflareApiToken = null;
       this._cloudflareAccountId = null;
-      this._r2EncryptionKey = null;
+      this._encryptionKey = null;
       this._sessionMode = 'default';
       this.logger.info('Operational storage cleared');
     } catch (err) {

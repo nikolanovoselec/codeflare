@@ -205,20 +205,20 @@ describe('kv-crypto', () => {
   });
 
   describe('getOrImportKey', () => {
-    it('returns null when KV_ENCRYPTION_KEY not set', async () => {
+    it('returns null when ENCRYPTION_KEY not set', async () => {
       const result = await getOrImportKey({});
       expect(result).toBeNull();
     });
 
-    it('returns CryptoKey when KV_ENCRYPTION_KEY is set', async () => {
+    it('returns CryptoKey when ENCRYPTION_KEY is set', async () => {
       const base64Key = await generateTestKeyBase64();
-      const result = await getOrImportKey({ KV_ENCRYPTION_KEY: base64Key });
+      const result = await getOrImportKey({ ENCRYPTION_KEY: base64Key });
 
       expect(result).toBeInstanceOf(CryptoKey);
     });
 
-    it('returns null for undefined KV_ENCRYPTION_KEY', async () => {
-      const result = await getOrImportKey({ KV_ENCRYPTION_KEY: undefined });
+    it('returns null for undefined ENCRYPTION_KEY', async () => {
+      const result = await getOrImportKey({ ENCRYPTION_KEY: undefined });
       expect(result).toBeNull();
     });
   });

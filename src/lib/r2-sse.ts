@@ -1,7 +1,7 @@
 /**
  * R2 SSE-C (Server-Side Encryption with Customer-Provided Keys) header generation.
  *
- * When KV_ENCRYPTION_KEY is set, generates the required S3-compatible headers
+ * When ENCRYPTION_KEY is set, generates the required S3-compatible headers
  * for encrypting/decrypting R2 objects at rest. Used by storage routes and r2-seed.
  */
 
@@ -107,17 +107,17 @@ function computeKeyMd5(base64Key: string): string {
 
 /**
  * Generate SSE-C headers for R2 PUT/GET/HEAD operations.
- * Returns empty object when KV_ENCRYPTION_KEY is not set.
+ * Returns empty object when ENCRYPTION_KEY is not set.
  */
 export function getSseHeaders(
-  env: { KV_ENCRYPTION_KEY?: string },
+  env: { ENCRYPTION_KEY?: string },
 ): Record<string, string> {
-  if (!env.KV_ENCRYPTION_KEY) return {};
+  if (!env.ENCRYPTION_KEY) return {};
 
   return {
     'x-amz-server-side-encryption-customer-algorithm': 'AES256',
-    'x-amz-server-side-encryption-customer-key': env.KV_ENCRYPTION_KEY,
-    'x-amz-server-side-encryption-customer-key-MD5': computeKeyMd5(env.KV_ENCRYPTION_KEY),
+    'x-amz-server-side-encryption-customer-key': env.ENCRYPTION_KEY,
+    'x-amz-server-side-encryption-customer-key-MD5': computeKeyMd5(env.ENCRYPTION_KEY),
   };
 }
 
@@ -126,13 +126,13 @@ export function getSseHeaders(
  * Required when copying an SSE-C encrypted object (e.g., move.ts).
  */
 export function getSseCopyHeaders(
-  env: { KV_ENCRYPTION_KEY?: string },
+  env: { ENCRYPTION_KEY?: string },
 ): Record<string, string> {
-  if (!env.KV_ENCRYPTION_KEY) return {};
+  if (!env.ENCRYPTION_KEY) return {};
 
   return {
     'x-amz-copy-source-server-side-encryption-customer-algorithm': 'AES256',
-    'x-amz-copy-source-server-side-encryption-customer-key': env.KV_ENCRYPTION_KEY,
-    'x-amz-copy-source-server-side-encryption-customer-key-MD5': computeKeyMd5(env.KV_ENCRYPTION_KEY),
+    'x-amz-copy-source-server-side-encryption-customer-key': env.ENCRYPTION_KEY,
+    'x-amz-copy-source-server-side-encryption-customer-key-MD5': computeKeyMd5(env.ENCRYPTION_KEY),
   };
 }

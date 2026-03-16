@@ -963,15 +963,15 @@ HSTS is also applied to all redirect responses via `secureRedirect()` helper, in
 
 ### Credential Encryption at Rest
 
-Optional encryption enabled by setting `KV_ENCRYPTION_KEY` (base64-encoded 256-bit key, generate with `openssl rand -base64 32`).
+Optional encryption enabled by setting `ENCRYPTION_KEY` (base64-encoded 256-bit key, generate with `openssl rand -base64 32`).
 
 **KV encryption (AES-256-GCM via Web Crypto API):** All values stored under `llm-keys:*`, `deploy-keys:*`, and `r2token:*` KV prefixes are encrypted before write and decrypted on read. Each value gets a unique 12-byte IV prepended to the ciphertext. API responses always return masked values (`****` + last 4 chars), never plaintext keys.
 
-**Transparent migration:** When `KV_ENCRYPTION_KEY` is enabled on an existing deployment, pre-existing plaintext KV entries are transparently migrated to encrypted format on first read. `getAndDecrypt()` tries decryption first; if that fails, it attempts `JSON.parse` (plaintext legacy) and re-encrypts the value via write-back. Subsequent reads use the fast decrypt path. No data loss, no downtime.
+**Transparent migration:** When `ENCRYPTION_KEY` is enabled on an existing deployment, pre-existing plaintext KV entries are transparently migrated to encrypted format on first read. `getAndDecrypt()` tries decryption first; if that fails, it attempts `JSON.parse` (plaintext legacy) and re-encrypts the value via write-back. Subsequent reads use the fast decrypt path. No data loss, no downtime.
 
-**R2 SSE-C encryption:** When `KV_ENCRYPTION_KEY` is set, R2 file contents are encrypted via S3 Server-Side Encryption with Customer-Provided Keys (SSE-C). The Worker passes SSE-C headers on S3 PutObject/GetObject/HeadObject/CopyObject requests. Inside the container, `R2_ENCRYPTION_KEY` is injected as an env var and rclone.conf is configured with the SSE-C key for transparent encrypt/decrypt during bisync.
+**R2 SSE-C encryption:** When `ENCRYPTION_KEY` is set, R2 file contents are encrypted via S3 Server-Side Encryption with Customer-Provided Keys (SSE-C). The Worker passes SSE-C headers on S3 PutObject/GetObject/HeadObject/CopyObject requests. Inside the container, `ENCRYPTION_KEY` is injected as an env var and rclone.conf is configured with the SSE-C key for transparent encrypt/decrypt during bisync.
 
-**Backward compatibility:** When `KV_ENCRYPTION_KEY` is not set, KV values are stored and read as plaintext (existing behavior). R2 operations proceed without SSE-C headers.
+**Backward compatibility:** When `ENCRYPTION_KEY` is not set, KV values are stored and read as plaintext (existing behavior). R2 operations proceed without SSE-C headers.
 
 ## Rate Limiting
 
@@ -1450,7 +1450,7 @@ GET `/api/preferences`, PATCH `/api/preferences`
 ### LLM API Keys
 
 GET `/api/llm-keys` — returns masked keys (`****` + last 4 chars), never full keys.
-PUT `/api/llm-keys` — set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `KV_ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
+PUT `/api/llm-keys` — set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
 DELETE `/api/llm-keys` — removes all LLM keys from KV.
 
 Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected as `OPENAI_API_KEY` / `GEMINI_API_KEY` env vars. The `entrypoint.sh` detects these env vars and configures the `consult-llm-mcp` MCP server in `~/.claude.json`. The LLM Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
@@ -1490,7 +1490,7 @@ GET `/health`, GET `/api/health`
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | Worker env var |
 | `SAAS_MODE` | `"active"` enables custom login page, auto-provisioning, admin approval | GitHub Actions variable → `--var` at deploy |
 | `SAAS_EXTRA_IDPS` | Comma-separated IdP UUIDs for custom OIDC providers on login page | GitHub Actions variable → `--var` at deploy |
-| `KV_ENCRYPTION_KEY` | AES-256-GCM encryption key for `llm-keys:*`, `deploy-keys:*`, and `r2token:*` KV entries, also used as R2 SSE-C key | Wrangler secret (optional) |
+| `ENCRYPTION_KEY` | AES-256-GCM encryption key for `llm-keys:*`, `deploy-keys:*`, and `r2token:*` KV entries, also used as R2 SSE-C key | Wrangler secret (optional) |
 
 ### Container Environment
 
@@ -1510,7 +1510,7 @@ GET `/health`, GET `/api/health`
 | `FAST_CLI_START` | Disables auto-update for all 5 AI tools when `'true'` (default) | Worker -> DO |
 | `OPENAI_API_KEY` | OpenAI API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
 | `GEMINI_API_KEY` | Gemini API key for consult-llm-mcp MCP server (optional) | Worker -> DO (from KV `llm-keys:{bucket}`) |
-| `R2_ENCRYPTION_KEY` | Rclone SSE-C encryption config | Worker -> DO (from `env.KV_ENCRYPTION_KEY`) |
+| `ENCRYPTION_KEY` | Rclone SSE-C encryption config | Worker -> DO (from `env.ENCRYPTION_KEY`) |
 | `SESSION_MODE` | Session mode (`'default'` or `'advanced'`) — controls memory persistence and rclone filters | Worker -> DO via `setBucketName` |
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | Dockerfile ENV (`/root/.cache/node-compile-cache`) |
 | `BROWSER` | Points to `open-url` shim that exits 1 | Dockerfile ENV (`/usr/local/bin/open-url`) |

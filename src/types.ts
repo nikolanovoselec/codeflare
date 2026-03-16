@@ -71,7 +71,7 @@ export interface Env {
 
   // Optional AES-256 key (base64) for encrypting KV values at rest.
   // Set via wrangler secret. When absent, credentials stored as plaintext.
-  KV_ENCRYPTION_KEY?: string;
+  ENCRYPTION_KEY?: string;
 }
 
 /**

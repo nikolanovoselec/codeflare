@@ -42,7 +42,7 @@ function buildSetBucketNameBody(params: {
   githubToken?: string;
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;
-  r2EncryptionKey?: string;
+  encryptionKey?: string;
   sessionMode: string;
 }): string {
   return JSON.stringify({
@@ -60,7 +60,7 @@ function buildSetBucketNameBody(params: {
     githubToken: params.githubToken ?? null,
     cloudflareApiToken: params.cloudflareApiToken ?? null,
     cloudflareAccountId: params.cloudflareAccountId ?? null,
-    ...(params.r2EncryptionKey && { r2EncryptionKey: params.r2EncryptionKey }),
+    ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
   });
 }
@@ -223,7 +223,7 @@ export async function configureContainerDO(params: {
   githubToken?: string;
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;
-  r2EncryptionKey?: string;
+  encryptionKey?: string;
   sessionMode: string;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
@@ -244,7 +244,7 @@ export async function configureContainerDO(params: {
     githubToken: params.githubToken,
     cloudflareApiToken: params.cloudflareApiToken,
     cloudflareAccountId: params.cloudflareAccountId,
-    r2EncryptionKey: params.r2EncryptionKey,
+    encryptionKey: params.encryptionKey,
     sessionMode: params.sessionMode,
   });
 
@@ -453,7 +453,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       githubToken: deployKeys?.githubToken,
       cloudflareApiToken: deployKeys?.cloudflareApiToken,
       cloudflareAccountId: deployKeys?.cloudflareAccountId,
-      r2EncryptionKey: c.env.KV_ENCRYPTION_KEY,
+      encryptionKey: c.env.ENCRYPTION_KEY,
       sessionMode,
       logger: reqLogger,
     });
