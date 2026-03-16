@@ -135,6 +135,17 @@ RCLONE_EOF
     sed -i "s|PLACEHOLDER_SECRET_KEY|${R2_SECRET_ACCESS_KEY}|" "$USER_HOME/.config/rclone/rclone.conf"
     sed -i "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" "$USER_HOME/.config/rclone/rclone.conf"
 
+    # Append SSE-C config for R2 encryption at rest (optional)
+    if [ -n "${ENCRYPTION_KEY:-}" ]; then
+        KEY_MD5=$(printf '%s' "$ENCRYPTION_KEY" | base64 -d | md5sum | cut -d' ' -f1 | xxd -r -p | base64)
+        cat >> "$USER_HOME/.config/rclone/rclone.conf" << SSEEOF
+sse_customer_key = ${ENCRYPTION_KEY}
+sse_customer_key_md5 = ${KEY_MD5}
+sse_customer_algorithm = AES256
+SSEEOF
+        echo "[entrypoint] R2 SSE-C encryption configured for rclone"
+    fi
+
     chmod 600 "$USER_HOME/.config/rclone/rclone.conf"
     echo "[entrypoint] rclone config created"
     return 0
