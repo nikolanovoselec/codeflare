@@ -21,10 +21,12 @@ describe('DeployKeysSection Component', () => {
     vi.clearAllMocks();
     mockGetDeployKeys.mockResolvedValue({});
     mockUpdateDeployKeys.mockResolvedValue({});
+    vi.stubGlobal('open', vi.fn());
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   describe('provider rows', () => {

@@ -410,7 +410,7 @@ describe('Users Routes', () => {
       expect(body).toHaveProperty('code', 'NOT_FOUND');
     });
 
-    it('DELETE admin user returns 400 — admins cannot be deleted via user management', async () => {
+    it('DELETE admin user returns 400 - admins cannot be deleted via user management', async () => {
       const app = createTestAppWithRole('admin@example.com', 'admin');
       mockKV._set('user:other-admin@example.com', {
         addedBy: 'setup',
@@ -444,7 +444,7 @@ describe('Users Routes', () => {
       expect(body.success).toBe(true);
     });
 
-    it('PATCH admin user tier returns 400 — cannot change admin access tier', async () => {
+    it('PATCH admin user tier returns 400 - cannot change admin access tier', async () => {
       const app = createTestAppWithRole('admin@example.com', 'admin');
       // Need SAAS_MODE for PATCH to work
       (app as any)._useMW = true;

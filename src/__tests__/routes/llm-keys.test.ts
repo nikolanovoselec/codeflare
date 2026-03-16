@@ -163,7 +163,7 @@ describe('LLM Keys routes', () => {
     });
   });
 
-  describe('PUT /api/llm-keys — encryption', () => {
+  describe('PUT /api/llm-keys - encryption', () => {
     // Generate key ONCE so PUT and GET share the same key
     const rawKey = crypto.getRandomValues(new Uint8Array(32));
     const stableBase64Key = btoa(String.fromCharCode(...rawKey));
