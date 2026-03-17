@@ -1,26 +1,20 @@
 import { Component, createSignal, createEffect, on, Show, onMount, JSX } from 'solid-js';
 import {
   mdiClose,
-  mdiPaletteOutline,
-  mdiCloudSyncOutline,
   mdiCogOutline,
-  mdiFastForward,
-  mdiContentPaste,
   mdiChevronDown,
   mdiWrenchOutline,
   mdiAccountGroupOutline,
-  mdiFileDocumentRefreshOutline,
-  mdiRobotOutline,
 } from '@mdi/js';
 import Icon from './Icon';
-import Button from './ui/Button';
-import { loadSettings, saveSettings, defaultSettings, applyAccentColor, isValidHex } from '../lib/settings';
+import { loadSettings, saveSettings, defaultSettings } from '../lib/settings';
 import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
-import { isTouchDevice, isSamsungBrowser } from '../lib/mobile';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import { getUser } from '../api/client';
 import type { AccessTier } from '../types';
+import AppearanceSection from './settings/AppearanceSection';
+import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
 import LlmKeysSection from './settings/LlmKeysSection';
 import '../styles/settings-panel.css';
@@ -101,8 +95,6 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
     </div>
   );
 };
-
-const DEFAULT_ACCENT_HEX = '#3b82f6';
 
 const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
@@ -291,147 +283,14 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             isOpen={openGroup() === 'appearance'}
             onToggle={() => handleAccordionClick('appearance')}
           >
-            {/* Accent Color */}
-            <section class="settings-section">
-              <div class="settings-section-header">
-                <Icon path={mdiPaletteOutline} size={16} />
-                <h3 class="settings-section-title">Accent Color</h3>
-              </div>
-              <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
-                Customize the UI accent color
-              </p>
-              <div class="accent-color-row">
-                <span
-                  class="accent-color-swatch"
-                  style={{
-                    background: accentHexInput() && isValidHex(accentHexInput())
-                      ? (accentHexInput().startsWith('#') ? accentHexInput() : `#${accentHexInput()}`)
-                      : DEFAULT_ACCENT_HEX,
-                  }}
-                  data-testid="accent-color-swatch"
-                />
-                <input
-                  type="text"
-                  class="accent-color-input"
-                  value={accentHexInput()}
-                  placeholder={DEFAULT_ACCENT_HEX}
-                  maxLength={7}
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  spellcheck={false}
-                  onInput={(e) => {
-                    const val = e.currentTarget.value;
-                    setAccentHexInput(val);
-                    if (isValidHex(val)) {
-                      const normalized = val.startsWith('#') ? val : `#${val}`;
-                      applyAccentColor(normalized);
-                      updateSetting('accentColor', normalized);
-                    }
-                  }}
-                  data-testid="accent-color-input"
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setAccentHexInput('');
-                    applyAccentColor(undefined);
-                    updateSetting('accentColor', undefined as unknown as Settings['accentColor']);
-                  }}
-                  data-testid="accent-color-reset"
-                >
-                  Reset
-                </Button>
-              </div>
-              <a
-                class="accent-color-link"
-                href="https://htmlcolorcodes.com/color-picker/"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Find colors at htmlcolorcodes.com
-              </a>
-            </section>
-
-            {/* Tips & Tricks */}
-            <section class="settings-section">
-              <div class="setting-row setting-row--clickable" onClick={(e) => {
-                if (!(e.target as HTMLElement).closest('.toggle')) updateSetting('showTips', !showTips());
-              }}>
-                <label for="settings-show-tips">Show tips on dashboard</label>
-                <button
-                  type="button"
-                  id="settings-show-tips"
-                  class={`toggle ${showTips() ? 'toggle-on' : ''}`}
-                  onClick={() => updateSetting('showTips', !showTips())}
-                  role="switch"
-                  aria-checked={showTips()}
-                  data-testid="settings-show-tips-toggle"
-                >
-                  <span class="toggle-thumb" />
-                </button>
-              </div>
-              <div class="setting-row setting-row--column-gap">
-                <span class="settings-hint">
-                  Show rotating tips & tricks on the dashboard. When disabled, a welcome card is shown instead.
-                </span>
-              </div>
-            </section>
-
-            {/* Button Labels — mobile only */}
-            <Show when={isTouchDevice()}>
-              <section class="settings-section">
-                <div class="setting-row setting-row--clickable" onClick={(e) => {
-                  if (!(e.target as HTMLElement).closest('.toggle')) updateSetting('showButtonLabels', !showButtonLabels());
-                }}>
-                  <label for="settings-button-labels">Show button labels</label>
-                  <button
-                    type="button"
-                    id="settings-button-labels"
-                    class={`toggle ${showButtonLabels() ? 'toggle-on' : ''}`}
-                    onClick={() => updateSetting('showButtonLabels', !showButtonLabels())}
-                    role="switch"
-                    aria-checked={showButtonLabels()}
-                    data-testid="settings-button-labels-toggle"
-                  >
-                    <span class="toggle-thumb" />
-                  </button>
-                </div>
-                <div class="setting-row setting-row--column-gap">
-                  <span class="settings-hint">
-                    Briefly show text labels next to floating terminal buttons when the keyboard opens.
-                  </span>
-                </div>
-              </section>
-            </Show>
-
-            {/* Samsung — Samsung only */}
-            <Show when={isSamsungBrowser}>
-              <section class="settings-section">
-                <div class="setting-row setting-row--clickable" onClick={(e) => {
-                  if (!(e.target as HTMLElement).closest('.toggle')) updateSetting('samsungAddressBarTop', !samsungAddressBarTop());
-                }}>
-                  <label for="settings-samsung-bar-top">Address bar at top</label>
-                  <button
-                    type="button"
-                    id="settings-samsung-bar-top"
-                    class={`toggle ${samsungAddressBarTop() ? 'toggle-on' : ''}`}
-                    onClick={() => updateSetting('samsungAddressBarTop', !samsungAddressBarTop())}
-                    role="switch"
-                    aria-checked={samsungAddressBarTop()}
-                    data-testid="settings-samsung-bar-top-toggle"
-                  >
-                    <span class="toggle-thumb" />
-                  </button>
-                </div>
-                <div class="setting-row setting-row--column-gap">
-                  <span class="settings-hint">
-                    Enable if your Samsung Internet address bar is at the top. Fixes keyboard button positioning.
-                  </span>
-                </div>
-              </section>
-            </Show>
+            <AppearanceSection
+              accentHexInput={accentHexInput}
+              setAccentHexInput={setAccentHexInput}
+              showTips={showTips}
+              showButtonLabels={showButtonLabels}
+              samsungAddressBarTop={samsungAddressBarTop}
+              updateSetting={updateSetting}
+            />
           </AccordionSection>
 
           {/* ── Session Defaults ── */}
@@ -442,189 +301,25 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             isOpen={openGroup() === 'session'}
             onToggle={() => handleAccordionClick('session')}
           >
-            {/* Session Mode */}
-            <section class="settings-section">
-              <div class="settings-section-header">
-                <h3 class="settings-section-title">Session Mode</h3>
-              </div>
-              <div
-                class="session-mode-control"
-                role="radiogroup"
-                aria-label="Session mode"
-                data-testid="session-mode-control"
-              >
-                <label
-                  class={`session-mode-option ${currentSessionMode() === 'default' ? 'session-mode-option--selected' : ''}`}
-                >
-                  <input
-                    type="radio"
-                    name="session-mode"
-                    value="default"
-                    checked={currentSessionMode() === 'default'}
-                    onChange={() => handleSessionModeChange('default')}
-                    role="radio"
-                    aria-checked={currentSessionMode() === 'default'}
-                    data-testid="session-mode-default"
-                  />
-                  Default
-                </label>
-                <label
-                  class={`session-mode-option ${currentSessionMode() === 'advanced' ? 'session-mode-option--selected' : ''} ${!canUseAdvanced() ? 'session-mode-option--disabled' : ''}`}
-                >
-                  <input
-                    type="radio"
-                    name="session-mode"
-                    value="advanced"
-                    checked={currentSessionMode() === 'advanced'}
-                    onChange={() => handleSessionModeChange('advanced')}
-                    disabled={!canUseAdvanced()}
-                    role="radio"
-                    aria-checked={currentSessionMode() === 'advanced'}
-                    data-testid="session-mode-advanced"
-                  />
-                  Advanced
-                </label>
-              </div>
-              <div class="setting-row setting-row--column-gap">
-                <span class="settings-hint" data-testid="session-mode-hint">
-                  Controls which AI skills and rules are preseeded. Click "Recreate" below to apply.
-                </span>
-              </div>
-            </section>
-
-            {/* Agent Startup / Fast Start */}
-            <section class="settings-section">
-              <div class="settings-section-header">
-                <Icon path={mdiFastForward} size={16} />
-                <h3 class="settings-section-title">Agent Startup</h3>
-              </div>
-              <div class="setting-row setting-row--clickable" onClick={(e) => {
-                if (!(e.target as HTMLElement).closest('.toggle')) handleFastStartToggle();
-              }}>
-                <label for="settings-fast-start">Fast Start</label>
-                <button
-                  type="button"
-                  id="settings-fast-start"
-                  class={`toggle ${fastStartEnabled() ? 'toggle-on' : ''}`}
-                  onClick={handleFastStartToggle}
-                  role="switch"
-                  aria-checked={fastStartEnabled()}
-                  data-testid="settings-fast-start-toggle"
-                >
-                  <span class="toggle-thumb" />
-                </button>
-              </div>
-              <div class="setting-row setting-row--column-gap">
-                <span class="settings-hint" data-testid="settings-fast-start-hint">
-                  Launch pre-installed CLI versions for instant startup. Turn off to allow tools to auto-update on launch (slower startup, latest features).
-                </span>
-              </div>
-            </section>
-
-            {/* R2 Sync */}
-            <section class="settings-section">
-              <div class="settings-section-header">
-                <Icon path={mdiCloudSyncOutline} size={16} />
-                <h3 class="settings-section-title">R2 Sync</h3>
-              </div>
-              <div class="setting-row setting-row--clickable" onClick={(e) => {
-                if (!(e.target as HTMLElement).closest('.toggle')) handleWorkspaceSyncToggle();
-              }}>
-                <label for="settings-workspace-sync">Sync Workspace Folder</label>
-                <button
-                  type="button"
-                  id="settings-workspace-sync"
-                  class={`toggle ${workspaceSyncEnabled() ? 'toggle-on' : ''}`}
-                  onClick={handleWorkspaceSyncToggle}
-                  role="switch"
-                  aria-checked={workspaceSyncEnabled()}
-                  data-testid="settings-workspace-sync-toggle"
-                >
-                  <span class="toggle-thumb" />
-                </button>
-              </div>
-              <div class="setting-row setting-row--column-gap">
-                <span class="settings-hint" data-testid="settings-workspace-sync-hint">
-                  Workspace sync increases startup time. Prefer cloning repositories fresh inside each session.
-                  Restart the session after changing this switch for it to take effect.
-                </span>
-              </div>
-              <div class="settings-admin-actions">
-                <button
-                  type="button"
-                  class="provider-row-connect-btn"
-                  style={{ background: '#0891b2' }}
-                  disabled={recreateDocsLoading()}
-                  onClick={() => { void handleRecreateDocs(); }}
-                  data-testid="settings-recreate-docs-label"
-                >
-                  <Icon path={mdiFileDocumentRefreshOutline} size={24} style={{ color: 'white' }} />
-                  <span>{recreateDocsLoading() ? 'Recreating...' : 'Recreate Docs & Examples'}</span>
-                </button>
-                <Show when={recreateDocsMessage()}>
-                  {(message) => (
-                    <span class="settings-hint" data-testid="settings-recreate-docs-success">{message()}</span>
-                  )}
-                </Show>
-                <Show when={recreateDocsError()}>
-                  {(error) => (
-                    <span class="settings-error" data-testid="settings-recreate-docs-error">{error()}</span>
-                  )}
-                </Show>
-                <button
-                  type="button"
-                  class="provider-row-connect-btn"
-                  style={{ background: '#e11d48' }}
-                  disabled={recreateAgentLoading()}
-                  onClick={() => { void handleRecreateAgentConfigs(); }}
-                  data-testid="settings-recreate-agent-label"
-                >
-                  <Icon path={mdiRobotOutline} size={24} style={{ color: 'white' }} />
-                  <span>{recreateAgentLoading() ? 'Recreating...' : 'Recreate Agent Skills & Rules'}</span>
-                </button>
-                <Show when={recreateAgentMessage()}>
-                  {(message) => (
-                    <span class="settings-hint" data-testid="settings-recreate-agent-success">{message()}</span>
-                  )}
-                </Show>
-                <Show when={recreateAgentError()}>
-                  {(error) => (
-                    <span class="settings-error" data-testid="settings-recreate-agent-error">{error()}</span>
-                  )}
-                </Show>
-              </div>
-            </section>
-
-            {/* Clipboard — desktop only */}
-            <Show when={!isTouchDevice()}>
-              <section class="settings-section">
-                <div class="settings-section-header">
-                  <Icon path={mdiContentPaste} size={16} />
-                  <h3 class="settings-section-title">Clipboard</h3>
-                </div>
-                <div class="setting-row setting-row--clickable" onClick={(e) => {
-                  if (!(e.target as HTMLElement).closest('.toggle')) updateSetting('clipboardAccess', !clipboardAccess());
-                }}>
-                  <label for="settings-clipboard-access">Allow paste from clipboard</label>
-                  <button
-                    type="button"
-                    id="settings-clipboard-access"
-                    class={`toggle ${clipboardAccess() ? 'toggle-on' : ''}`}
-                    onClick={() => updateSetting('clipboardAccess', !clipboardAccess())}
-                    role="switch"
-                    aria-checked={clipboardAccess()}
-                    data-testid="settings-clipboard-access-toggle"
-                  >
-                    <span class="toggle-thumb" />
-                  </button>
-                </div>
-                <div class="setting-row setting-row--column-gap">
-                  <span class="settings-hint">
-                    Allow right-click paste from clipboard. Works best in Chrome; unreliable in other browsers. When enabled, your browser may prompt for clipboard permission.
-                  </span>
-                </div>
-              </section>
-            </Show>
+            <SessionSection
+              currentSessionMode={currentSessionMode}
+              canUseAdvanced={canUseAdvanced}
+              fastStartEnabled={fastStartEnabled}
+              workspaceSyncEnabled={workspaceSyncEnabled}
+              clipboardAccess={clipboardAccess}
+              recreateDocsLoading={recreateDocsLoading}
+              recreateDocsMessage={recreateDocsMessage}
+              recreateDocsError={recreateDocsError}
+              recreateAgentLoading={recreateAgentLoading}
+              recreateAgentMessage={recreateAgentMessage}
+              recreateAgentError={recreateAgentError}
+              onSessionModeChange={handleSessionModeChange}
+              onFastStartToggle={handleFastStartToggle}
+              onWorkspaceSyncToggle={handleWorkspaceSyncToggle}
+              onRecreateDocs={() => { void handleRecreateDocs(); }}
+              onRecreateAgentConfigs={() => { void handleRecreateAgentConfigs(); }}
+              updateSetting={updateSetting}
+            />
           </AccordionSection>
 
           {/* ── Push & Deploy ── */}
