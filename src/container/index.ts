@@ -709,15 +709,18 @@ export class container extends Container<Env> {
         this.renewActivityTimeout();
         return;
       }
+
+      this.logger.info(`onActivityExpired: ${decision.reason}, stopping container`, {
+        connectedClients: activity.connectedClients,
+        heartbeatAgeMs: decision.heartbeatAgeMs,
+        lastInputAgoMs: decision.inputIdleMs,
+      });
     } catch (err) {
       this.logger.warn('onActivityExpired: failed to check activity, stopping', {
         error: err instanceof Error ? err.message : String(err),
       });
-      await this.stop('SIGTERM');
-      return;
     }
 
-    this.logger.info('onActivityExpired: no recent activity, stopping container');
     await this.stop('SIGTERM');
   }
 

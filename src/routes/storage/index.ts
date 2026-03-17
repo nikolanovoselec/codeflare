@@ -1,6 +1,6 @@
 /**
  * Storage routes aggregator
- * Combines browse, upload, delete, and move routes into a single Hono app
+ * Combines browse, upload, delete, download, preview, seed, and stats routes
  * with shared auth middleware and body size overrides for upload routes.
  */
 import { Hono } from 'hono';
