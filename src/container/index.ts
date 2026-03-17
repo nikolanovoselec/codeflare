@@ -515,7 +515,7 @@ export class container extends Container<Env> {
     this.logger.info('Container started');
     // Clear any stale schedule rows from previous runs before arming fresh
     try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-    await this.schedule(5, 'collectMetrics');
+    await this.schedule(60, 'collectMetrics');
   }
 
   async collectMetrics(): Promise<void> {
@@ -605,7 +605,7 @@ export class container extends Container<Env> {
     // re-arm, onStart() will restart the loop on next container start.
     if (this.ctx.container?.running) {
       try {
-        await this.schedule(5, 'collectMetrics');
+        await this.schedule(60, 'collectMetrics');
       } catch {
         // DO is shutting down or destroyed
       }
