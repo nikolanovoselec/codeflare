@@ -85,12 +85,21 @@ const SubscribePage: Component = () => {
   }
 
   onMount(() => {
+    // Override global overflow:hidden on html/body so this standalone page can scroll.
+    // Capture previous values so cleanup restores exact prior state (not blank).
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+
+    onCleanup(() => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      if (pollInterval) clearInterval(pollInterval);
+    });
+
     fetchStatus();
     pollInterval = setInterval(fetchStatus, POLL_INTERVAL_MS);
-  });
-
-  onCleanup(() => {
-    if (pollInterval) clearInterval(pollInterval);
   });
 
   function checkTurnstileToken(): boolean {

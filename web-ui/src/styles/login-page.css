@@ -47,18 +47,22 @@
 /* ── Page ── */
 
 .login-page {
+  position: fixed;
+  inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(135deg,
     hsl(217, 20%, 4%) 0%,
     hsl(217, 40%, 9%) 35%,
     hsl(217, 44%, 13%) 65%,
     hsl(217, 38%, 8%) 100%);
-  overflow: hidden;
-  position: relative;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── Floating particles ── */

@@ -56,14 +56,12 @@ app.get('/', requireAdmin, async (c) => {
 
 // DELETE /api/users/:email - Remove a user (admin only)
 app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
-  const email = decodeURIComponent(c.req.param('email'));
+  const rawEmail = c.req.param('email');
+  if (!rawEmail) throw new ValidationError('Email parameter is required');
+  const email = rawEmail.trim().toLowerCase();
   const currentUser = c.get('user');
 
-  if (!email) {
-    throw new ValidationError('Email parameter is required');
-  }
-
-  if (email === currentUser.email) {
+  if (email === currentUser.email.trim().toLowerCase()) {
     throw new ValidationError('Cannot remove yourself');
   }
 
@@ -92,7 +90,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     throw new ValidationError('Access tiers are only available in SaaS mode');
   }
 
-  const rawEmail = decodeURIComponent(c.req.param('email'));
+  const rawEmail = c.req.param('email');
   if (!rawEmail) throw new ValidationError('Email parameter is required');
   const email = rawEmail.trim().toLowerCase();
 

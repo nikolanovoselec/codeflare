@@ -82,6 +82,18 @@ let usingVirtualKeyboardAPI = false;
 export const isSamsungBrowser = typeof navigator !== 'undefined'
   ? /SamsungBrowser/i.test(navigator.userAgent) : false;
 
+/**
+ * Detect iOS/iPadOS devices. Used for platform-specific focus behavior:
+ * iOS Safari requires synchronous .focus() in user-gesture handlers to
+ * open the virtual keyboard, while Android needs setTimeout(0) for
+ * reliable cross-frame iframe focus timing.
+ */
+export function isIOSDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 let baselineInnerHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
 const [viewportGrowth, setViewportGrowth] = createSignal(0);
 

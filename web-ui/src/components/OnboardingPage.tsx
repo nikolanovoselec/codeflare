@@ -1,4 +1,4 @@
-import { Component, onMount, createSignal, Show, For, type JSX } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
 import { getDeployKeys, updateDeployKeys, markOnboardingComplete } from '../api/client';
 import type { DeployKeysResponse } from '../api/client';
 import ProviderRow from './settings/ProviderRow';
@@ -130,6 +130,18 @@ const OnboardingPage: Component = () => {
   const cfConnected = () => cfToken().startsWith('****');
 
   onMount(async () => {
+    // Override global overflow:hidden on html/body so this standalone page can scroll.
+    // Capture previous values so cleanup restores exact prior state (not blank).
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+
+    onCleanup(() => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+    });
+
     try {
       const keys: DeployKeysResponse = await getDeployKeys();
       if (keys.githubToken) setGithubToken(keys.githubToken);
