@@ -2,7 +2,7 @@ import { Component, Show, createSignal, createEffect } from 'solid-js';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '../hooks/useTerminal';
 import InitProgress from './InitProgress';
-import { isTouchDevice, getKeyboardHeight, enableVirtualKeyboardOverlay } from '../lib/mobile';
+import { isTouchDevice, isIOSDevice, getKeyboardHeight, enableVirtualKeyboardOverlay } from '../lib/mobile';
 import { getRemoveFocusGuard, getIframeInput } from '../lib/xterm-internals';
 import '../styles/terminal.css';
 
@@ -78,7 +78,7 @@ const Terminal: Component<TerminalProps> = (props) => {
       <div
         ref={(el) => { _containerEl = el; containerRef(el); }}
         class="terminal-container"
-        onClick={() => {
+        on:click={() => {
           const term = terminal();
           if (isTouchDevice() && term) {
             getRemoveFocusGuard(term)?.();
@@ -87,17 +87,19 @@ const Terminal: Component<TerminalProps> = (props) => {
             // stack or the virtual keyboard never opens. Android Chrome and Samsung
             // Internet need setTimeout(0) for reliable cross-frame focus timing on
             // iframe inputs. We branch on platform to satisfy both constraints.
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-              || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-            const iframeInput = getIframeInput(term);
+            // Uses on:click (direct addEventListener) instead of onClick (SolidJS
+            // delegation) so iOS Safari recognizes it as a user gesture.
             const doFocus = () => {
-              if (iframeInput) {
-                iframeInput.focus({ preventScroll: true });
+              const t = terminal();
+              if (!t) return;
+              const input = getIframeInput(t);
+              if (input) {
+                input.focus({ preventScroll: true });
               } else {
-                term?.textarea?.focus({ preventScroll: true });
+                t.textarea?.focus({ preventScroll: true });
               }
             };
-            if (isIOS) {
+            if (isIOSDevice()) {
               doFocus();
             } else {
               setTimeout(doFocus, 0);
