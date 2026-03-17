@@ -206,11 +206,6 @@ export const DeleteResponseSchema = z.object({
   errors: z.array(z.object({ key: z.string(), error: z.string() })),
 });
 
-export const MoveResponseSchema = z.object({
-  source: z.string(),
-  destination: z.string(),
-  warning: z.string().optional(),
-});
 
 export const MultipartInitResponseSchema = z.object({
   uploadId: z.string(),

@@ -9,7 +9,6 @@ vi.mock('../../api/storage', () => ({
   completeMultipartUpload: vi.fn(),
   abortMultipartUpload: vi.fn(),
   deleteFiles: vi.fn(),
-  moveFile: vi.fn(),
   getStats: vi.fn(),
   getPreview: vi.fn(),
 }));
@@ -38,7 +37,6 @@ const mockInitiateMultipartUpload = vi.mocked(storageApi.initiateMultipartUpload
 const mockUploadPart = vi.mocked(storageApi.uploadPart);
 const mockCompleteMultipartUpload = vi.mocked(storageApi.completeMultipartUpload);
 const mockDeleteFiles = vi.mocked(storageApi.deleteFiles);
-const mockMoveFile = vi.mocked(storageApi.moveFile);
 const mockGetStats = vi.mocked(storageApi.getStats);
 const mockGetPreview = vi.mocked(storageApi.getPreview);
 const mockShouldUseMultipart = vi.mocked(shouldUseMultipart);
@@ -492,32 +490,6 @@ describe('Storage Store', () => {
     });
   });
 
-  describe('moveFile()', () => {
-    it('should call moveFile API and refresh listing', async () => {
-      mockMoveFile.mockResolvedValue({
-        source: 'workspace/old.txt',
-        destination: 'workspace/new.txt',
-      });
-      mockBrowseStorage.mockResolvedValue({
-        objects: [],
-        prefixes: [],
-        isTruncated: false,
-      });
-
-      await storageStore.moveFile('workspace/old.txt', 'workspace/new.txt');
-
-      expect(mockMoveFile).toHaveBeenCalledWith('workspace/old.txt', 'workspace/new.txt');
-      expect(mockBrowseStorage).toHaveBeenCalled();
-    });
-
-    it('should set error on failure', async () => {
-      mockMoveFile.mockRejectedValue(new Error('Move failed'));
-
-      await storageStore.moveFile('workspace/a.txt', 'workspace/b.txt');
-
-      expect(storageStore.error).toBe('Move failed');
-    });
-  });
 
   describe('selection', () => {
     it('toggleSelect should add key to selectedKeys', () => {

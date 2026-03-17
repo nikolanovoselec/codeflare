@@ -1,6 +1,6 @@
 /**
  * Storage routes aggregator
- * Combines browse, upload, delete, and move routes into a single Hono app
+ * Combines browse, upload, delete, download, preview, seed, and stats routes
  * with shared auth middleware and body size overrides for upload routes.
  */
 import { Hono } from 'hono';
@@ -10,7 +10,6 @@ import { authMiddleware, AuthVariables } from '../../middleware/auth';
 import browseRoutes from './browse';
 import uploadRoutes from './upload';
 import deleteRoutes from './delete';
-import moveRoutes from './move';
 import statsRoutes from './stats';
 import downloadRoutes from './download';
 import previewRoutes from './preview';
@@ -29,7 +28,6 @@ app.use('/upload', bodyLimit({ maxSize: 10 * 1024 * 1024 }));    // 10MB for sim
 app.route('/browse', browseRoutes);     // → GET  /api/storage/browse
 app.route('/upload', uploadRoutes);     // → POST /api/storage/upload, /upload/initiate, etc.
 app.route('/delete', deleteRoutes);     // → POST /api/storage/delete
-app.route('/move', moveRoutes);         // → POST /api/storage/move
 app.route('/stats', statsRoutes);       // → GET  /api/storage/stats
 app.route('/download', downloadRoutes); // → GET  /api/storage/download
 app.route('/preview', previewRoutes);   // → GET  /api/storage/preview

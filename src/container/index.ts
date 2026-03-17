@@ -27,6 +27,8 @@ import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { getSessionKey } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
+import { evaluateActivity } from '../lib/activity-policy';
+import type { ActivityState } from '../lib/activity-policy';
 
 const SESSION_ID_KEY = '_sessionId';
 
@@ -513,7 +515,7 @@ export class container extends Container<Env> {
     this.logger.info('Container started');
     // Clear any stale schedule rows from previous runs before arming fresh
     try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
-    await this.schedule(5, 'collectMetrics');
+    await this.schedule(60, 'collectMetrics');
   }
 
   async collectMetrics(): Promise<void> {
@@ -538,64 +540,20 @@ export class container extends Container<Env> {
         // Don't renew on non-OK — broken activity endpoint shouldn't keep containers alive
         this.logger.warn('collectMetrics: /activity returned non-OK, NOT renewing', { status: activityRes.status });
       } else {
-        const activity = await activityRes.json() as {
-          hasActiveConnections: boolean;
-          connectedClients: number;
-          lastInputAt: number | null;
-          lastHeartbeatAt?: number | null;  // undefined = old host, null = new host no heartbeat, number = timestamp
-        };
+        const activity = await activityRes.json() as ActivityState;
+        const decision = evaluateActivity(activity, this.containerStartedAt, Date.now());
 
-        const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 minutes
-        const INPUT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-        const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes from container start
-        const now = Date.now();
-        const lastInput = activity.lastInputAt;
-        const inputIdleMs = lastInput !== null ? now - lastInput : null;
-
-        let renewed = false;
-
-        // Input check shared by both new and legacy paths
-        const inGracePeriod = (now - this.containerStartedAt) <= GRACE_PERIOD_MS;
-        const inputRecent = (lastInput === null && inGracePeriod) ||
-                            (lastInput !== null && inputIdleMs! <= INPUT_IDLE_TIMEOUT_MS);
-
-        if (activity.hasActiveConnections) {
-          if (activity.lastHeartbeatAt !== undefined && activity.lastHeartbeatAt !== null) {
-            // New host: require BOTH heartbeat recent AND input recent
-            const heartbeatAgeMs = now - activity.lastHeartbeatAt;
-            const heartbeatRecent = heartbeatAgeMs <= HEARTBEAT_STALE_MS;
-            if (heartbeatRecent && inputRecent) {
-              this.renewActivityTimeout();
-              renewed = true;
-            }
-            this.logger.info('collectMetrics: heartbeat+input check', {
-              renewed,
-              heartbeatAgeMs,
-              inputRecent,
-              lastInputAgoMs: inputIdleMs,
-              connectedClients: activity.connectedClients,
-            });
-          } else if (activity.lastHeartbeatAt === undefined) {
-            // Old host without heartbeat support: legacy input-based fallback
-            if (inputRecent) {
-              this.renewActivityTimeout();
-              renewed = true;
-            }
-            this.logger.info('collectMetrics: legacy input-based check', {
-              renewed,
-              lastInputAgoMs: inputIdleMs,
-              inGracePeriod,
-              connectedClients: activity.connectedClients,
-            });
-          } else {
-            // New host, lastHeartbeatAt === null: no heartbeat ever received, don't renew
-            this.logger.info('collectMetrics: new host, no heartbeat received, not renewing', {
-              connectedClients: activity.connectedClients,
-            });
-          }
-        } else {
-          this.logger.info('collectMetrics: no active connections, not renewing');
+        if (decision.renew) {
+          this.renewActivityTimeout();
         }
+
+        this.logger.info(`collectMetrics: ${decision.reason}`, {
+          renewed: decision.renew,
+          heartbeatAgeMs: decision.heartbeatAgeMs,
+          inputRecent: decision.inputRecent,
+          lastInputAgoMs: decision.inputIdleMs,
+          connectedClients: activity.connectedClients,
+        });
       }
     } catch (err) {
       this.logger.warn('collectMetrics: activity check failed', {
@@ -647,7 +605,7 @@ export class container extends Container<Env> {
     // re-arm, onStart() will restart the loop on next container start.
     if (this.ctx.container?.running) {
       try {
-        await this.schedule(5, 'collectMetrics');
+        await this.schedule(60, 'collectMetrics');
       } catch {
         // DO is shutting down or destroyed
       }
@@ -739,58 +697,30 @@ export class container extends Container<Env> {
         await this.stop('SIGTERM');
         return;
       }
-      const activity = await res.json() as {
-        hasActiveConnections: boolean;
-        connectedClients: number;
-        lastHeartbeatAt?: number | null;
-        lastInputAt: number | null;
-      };
+      const activity = await res.json() as ActivityState;
+      const decision = evaluateActivity(activity, this.containerStartedAt, Date.now());
 
-      const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
-      const INPUT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-      const GRACE_PERIOD_MS = 5 * 60 * 1000;
-      const now = Date.now();
-      const lastInput = activity.lastInputAt;
-      const inputIdleMs = lastInput !== null ? now - lastInput : null;
-      const inGracePeriod = (now - this.containerStartedAt) <= GRACE_PERIOD_MS;
-      const inputRecent = (lastInput === null && inGracePeriod) ||
-                          (lastInput !== null && inputIdleMs! <= INPUT_IDLE_TIMEOUT_MS);
-
-      // Check heartbeat + input (new host), or WS + input (old host)
-      if (activity.hasActiveConnections) {
-        if (activity.lastHeartbeatAt !== undefined && activity.lastHeartbeatAt !== null) {
-          const heartbeatRecent = (now - activity.lastHeartbeatAt) <= HEARTBEAT_STALE_MS;
-          if (heartbeatRecent && inputRecent) {
-            this.logger.info('onActivityExpired: active WS + recent heartbeat + recent input, renewing', {
-              connectedClients: activity.connectedClients,
-              heartbeatAgeMs: now - activity.lastHeartbeatAt,
-              lastInputAgoMs: inputIdleMs,
-            });
-            this.renewActivityTimeout();
-            return;
-          }
-        } else if (activity.lastHeartbeatAt === undefined) {
-          // Old host: fall back to WS + input check (legacy behavior)
-          if (inputRecent) {
-            this.logger.info('onActivityExpired: legacy host, active WS + recent input, renewing', {
-              connectedClients: activity.connectedClients,
-              lastInputAgoMs: inputIdleMs,
-            });
-            this.renewActivityTimeout();
-            return;
-          }
-        }
-        // Not renewing: stale heartbeat, stale input, or no heartbeat received
+      if (decision.renew) {
+        this.logger.info(`onActivityExpired: ${decision.reason}, renewing`, {
+          connectedClients: activity.connectedClients,
+          heartbeatAgeMs: decision.heartbeatAgeMs,
+          lastInputAgoMs: decision.inputIdleMs,
+        });
+        this.renewActivityTimeout();
+        return;
       }
+
+      this.logger.info(`onActivityExpired: ${decision.reason}, stopping container`, {
+        connectedClients: activity.connectedClients,
+        heartbeatAgeMs: decision.heartbeatAgeMs,
+        lastInputAgoMs: decision.inputIdleMs,
+      });
     } catch (err) {
       this.logger.warn('onActivityExpired: failed to check activity, stopping', {
         error: err instanceof Error ? err.message : String(err),
       });
-      await this.stop('SIGTERM');
-      return;
     }
 
-    this.logger.info('onActivityExpired: no recent activity, stopping container');
     await this.stop('SIGTERM');
   }
 

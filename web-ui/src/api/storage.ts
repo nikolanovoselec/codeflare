@@ -3,7 +3,6 @@ import {
   StorageListResultSchema,
   UploadResponseSchema,
   DeleteResponseSchema,
-  MoveResponseSchema,
   MultipartInitResponseSchema,
   MultipartPartResponseSchema,
   MultipartCompleteResponseSchema,
@@ -111,13 +110,6 @@ export async function deleteFiles(
   }, DeleteResponseSchema);
 }
 
-// Move/rename file
-export async function moveFile(source: string, destination: string): Promise<{ source: string; destination: string; warning?: string }> {
-  return storageFetch('/storage/move', {
-    method: 'POST',
-    body: JSON.stringify({ source, destination }),
-  }, MoveResponseSchema);
-}
 
 // Storage stats
 type StorageStatsResponse = z.infer<typeof StorageStatsResponseSchema>;

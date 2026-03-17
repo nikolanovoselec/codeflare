@@ -203,6 +203,74 @@ describe('handleWebSocketUpgrade', () => {
     expect(response.status).toBe(403);
   });
 
+  describe('SaaS mode access tier gating', () => {
+    it('returns 403 with code PENDING when SAAS_MODE=active and accessTier=pending', async () => {
+      (mockEnv as any).SAAS_MODE = 'active';
+      mockAuthResult.result = {
+        user: { email: 'test@example.com', authenticated: true, accessTier: 'pending' } as any,
+        bucketName: 'test-bucket',
+      };
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+      expect(response.status).toBe(403);
+
+      const body = await response.json() as { error: string; code: string };
+      expect(body.error).toBe('Access denied');
+      expect(body.code).toBe('PENDING');
+    });
+
+    it('returns 403 with code BLOCKED when SAAS_MODE=active and accessTier=blocked', async () => {
+      (mockEnv as any).SAAS_MODE = 'active';
+      mockAuthResult.result = {
+        user: { email: 'test@example.com', authenticated: true, accessTier: 'blocked' } as any,
+        bucketName: 'test-bucket',
+      };
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+      expect(response.status).toBe(403);
+
+      const body = await response.json() as { error: string; code: string };
+      expect(body.error).toBe('Access denied');
+      expect(body.code).toBe('BLOCKED');
+    });
+
+    it('proceeds when SAAS_MODE=active and accessTier=standard', async () => {
+      (mockEnv as any).SAAS_MODE = 'active';
+      mockAuthResult.result = {
+        user: { email: 'test@example.com', authenticated: true, accessTier: 'standard' } as any,
+        bucketName: 'test-bucket',
+      };
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+      // 200 = successful container forward (not 403)
+      expect(response.status).toBe(200);
+    });
+
+    it('proceeds regardless of accessTier when SAAS_MODE is inactive', async () => {
+      // SAAS_MODE not set (default in beforeEach)
+      mockAuthResult.result = {
+        user: { email: 'test@example.com', authenticated: true, accessTier: 'pending' } as any,
+        bucketName: 'test-bucket',
+      };
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+      // Should proceed to container forward, not be blocked
+      expect(response.status).toBe(200);
+    });
+  });
+
   describe('stress test mode bypass', () => {
     it('WebSocket rate limit KV calls skipped when STRESS_TEST_MODE === "active"', async () => {
       (mockEnv as any).STRESS_TEST_MODE = 'active';

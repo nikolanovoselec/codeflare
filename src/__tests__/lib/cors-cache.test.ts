@@ -174,6 +174,47 @@ describe('cors-cache', () => {
       });
     });
 
+    describe('matchesPattern adversarial edge cases', () => {
+      it('rejects prefix injection where hostname ends with pattern but lacks dot boundary', async () => {
+        const env = createEnv({ ALLOWED_ORIGINS: '.workers.dev' });
+        mockKV._store.set('setup:custom_domain', 'claude.example.com');
+
+        // "xclaude.example.com" shares a suffix with "claude.example.com"
+        // but is NOT a subdomain — there is no dot before "claude"
+        expect(await isAllowedOrigin('https://xclaude.example.com', env)).toBe(false);
+      });
+
+      it('rejects completely unrelated domain that shares no suffix', async () => {
+        const env = createEnv({ ALLOWED_ORIGINS: 'example.com' });
+
+        expect(await isAllowedOrigin('https://evil.com', env)).toBe(false);
+      });
+
+      it('handles empty origin string gracefully', async () => {
+        const env = createEnv({ ALLOWED_ORIGINS: '.workers.dev' });
+        mockKV._store.set('setup:custom_domain', 'claude.example.com');
+
+        expect(await isAllowedOrigin('', env)).toBe(false);
+      });
+
+      it('normalizes case: uppercase origin matches lowercase pattern', async () => {
+        const env = createEnv({ ALLOWED_ORIGINS: '.workers.dev' });
+        mockKV._store.set('setup:custom_domain', 'claude.example.com');
+
+        // Browsers send lowercase, but test the case-insensitive path
+        expect(await isAllowedOrigin('https://CLAUDE.EXAMPLE.COM', env)).toBe(true);
+      });
+
+      it('dot-prefixed pattern matches subdomain but not the bare domain', async () => {
+        const env = createEnv({ ALLOWED_ORIGINS: '.example.com' });
+
+        // ".example.com" requires a label before the dot, so "sub.example.com" matches
+        expect(await isAllowedOrigin('https://sub.example.com', env)).toBe(true);
+        // "example.com" does NOT end with ".example.com" — no leading dot present
+        expect(await isAllowedOrigin('https://example.com', env)).toBe(false);
+      });
+    });
+
     describe('KV error handling', () => {
       it('falls back gracefully when KV read fails', async () => {
         const env = createEnv({ ALLOWED_ORIGINS: '.workers.dev' });

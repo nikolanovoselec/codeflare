@@ -12,7 +12,6 @@ import {
   browseStorage,
   uploadFile,
   deleteFiles,
-  moveFile,
   initiateMultipartUpload,
   uploadPart,
   completeMultipartUpload,
@@ -153,42 +152,6 @@ describe('Storage API Client', () => {
     });
   });
 
-  // ==========================================================================
-  // moveFile
-  // ==========================================================================
-  describe('moveFile', () => {
-    it('sends POST with source and destination', async () => {
-      mockFetch.mockResolvedValueOnce(
-        mockResponse({ source: 'old.txt', destination: 'new.txt' })
-      );
-
-      await moveFile('old.txt', 'new.txt');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/storage/move',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ source: 'old.txt', destination: 'new.txt' }),
-        })
-      );
-    });
-
-    it('returns source, destination, and optional warning', async () => {
-      mockFetch.mockResolvedValueOnce(
-        mockResponse({
-          source: 'old.txt',
-          destination: 'new.txt',
-          warning: 'File overwritten',
-        })
-      );
-
-      const result = await moveFile('old.txt', 'new.txt');
-
-      expect(result.source).toBe('old.txt');
-      expect(result.destination).toBe('new.txt');
-      expect(result.warning).toBe('File overwritten');
-    });
-  });
 
   // ==========================================================================
   // Multipart upload

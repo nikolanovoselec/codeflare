@@ -126,11 +126,11 @@ describe('Container Metrics', () => {
   });
 
   describe('onStart', () => {
-    it('should call schedule(5, "collectMetrics") on start', async () => {
+    it('should call schedule(60, "collectMetrics") on start', async () => {
       await containerInstance.onStart();
 
       // Check that schedule was called with correct args
-      expect(testState.scheduleCalls).toContainEqual([5, 'collectMetrics']);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
   });
 
@@ -179,7 +179,7 @@ describe('Container Metrics', () => {
       await containerInstance.collectMetrics();
 
       // Should re-arm with schedule(5, 'collectMetrics')
-      expect(testState.scheduleCalls).toContainEqual([5, 'collectMetrics']);
+      expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
     });
 
     it('should not re-arm schedule if container is not running', async () => {
