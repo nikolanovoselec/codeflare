@@ -61,7 +61,7 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   const email = rawEmail.trim().toLowerCase();
   const currentUser = c.get('user');
 
-  if (email === currentUser.email) {
+  if (email === currentUser.email.trim().toLowerCase()) {
     throw new ValidationError('Cannot remove yourself');
   }
 

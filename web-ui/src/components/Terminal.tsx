@@ -83,17 +83,24 @@ const Terminal: Component<TerminalProps> = (props) => {
           if (isTouchDevice() && term) {
             getRemoveFocusGuard(term)?.();
             enableVirtualKeyboardOverlay();
-            // Focus must be synchronous within the click handler (no setTimeout).
-            // iOS Safari only opens the virtual keyboard when .focus() runs in
-            // the same call stack as the user-initiated tap. Deferring via
-            // setTimeout(…, 0) breaks the user-gesture chain and the keyboard
-            // never appears. Chrome Android is more lenient but synchronous
-            // focus works correctly on all platforms.
+            // iOS Safari requires .focus() synchronously in the user-gesture call
+            // stack or the virtual keyboard never opens. Android Chrome and Samsung
+            // Internet need setTimeout(0) for reliable cross-frame focus timing on
+            // iframe inputs. We branch on platform to satisfy both constraints.
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+              || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
             const iframeInput = getIframeInput(term);
-            if (iframeInput) {
-              iframeInput.focus({ preventScroll: true });
+            const doFocus = () => {
+              if (iframeInput) {
+                iframeInput.focus({ preventScroll: true });
+              } else {
+                term?.textarea?.focus({ preventScroll: true });
+              }
+            };
+            if (isIOS) {
+              doFocus();
             } else {
-              term?.textarea?.focus({ preventScroll: true });
+              setTimeout(doFocus, 0);
             }
           }
         }}
