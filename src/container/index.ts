@@ -27,7 +27,6 @@ import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { getSessionKey } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
-import { evaluateActivity } from '../lib/activity-policy';
 import type { ActivityState } from '../lib/activity-policy';
 
 const SESSION_ID_KEY = '_sessionId';
@@ -100,7 +99,7 @@ export class container extends Container<Env> {
 
   // Container goes to sleep after this duration of inactivity (no HTTP fetch() calls).
   // collectMetrics() heartbeat and onActivityExpired() keep it alive while WS clients are connected.
-  override sleepAfter = '30m';
+  override sleepAfter = '3m'; // Short for testing — production should be '30m'
 
   // Environment variables - set via property assignment in updateEnvVars()
   private _bucketName: string | null = null;
@@ -121,6 +120,8 @@ export class container extends Container<Env> {
   private _containerAuthToken: string | null = null;
   private _sessionId: string | null = null;
   private containerStartedAt = 0;
+  /** Last seen lastInputAt from /activity — used to detect NEW input for renewal. */
+  private lastSeenInputAt: number | null = null;
 
   // Map-based dispatch for internal routes
   private readonly internalRoutes: Map<string, (request: Request) => Promise<Response> | Response>;
@@ -541,18 +542,25 @@ export class container extends Container<Env> {
         this.logger.warn('collectMetrics: /activity returned non-OK, NOT renewing', { status: activityRes.status });
       } else {
         const activity = await activityRes.json() as ActivityState;
-        const decision = evaluateActivity(activity, this.containerStartedAt, Date.now());
 
-        if (decision.renew) {
+        // Renew sleepAfter only when NEW input is detected (lastInputAt changed).
+        // This ensures the sleepAfter timer runs from the last actual input, not
+        // from the last poll cycle — giving exactly sleepAfter duration of idle
+        // time before the container stops (no 2x overshoot).
+        const hasNewInput = activity.lastInputAt !== null
+          && activity.lastInputAt !== this.lastSeenInputAt;
+
+        if (hasNewInput) {
           this.renewActivityTimeout();
         }
+        this.lastSeenInputAt = activity.lastInputAt;
 
-        this.logger.info(`collectMetrics: ${decision.reason}`, {
-          renewed: decision.renew,
-          heartbeatAgeMs: decision.heartbeatAgeMs,
-          inputRecent: decision.inputRecent,
-          lastInputAgoMs: decision.inputIdleMs,
+        this.logger.info('collectMetrics: activity check', {
+          renewed: hasNewInput,
+          lastInputAt: activity.lastInputAt,
+          lastSeenInputAt: this.lastSeenInputAt,
           connectedClients: activity.connectedClients,
+          hasActiveConnections: activity.hasActiveConnections,
         });
       }
     } catch (err) {
@@ -698,22 +706,26 @@ export class container extends Container<Env> {
         return;
       }
       const activity = await res.json() as ActivityState;
-      const decision = evaluateActivity(activity, this.containerStartedAt, Date.now());
 
-      if (decision.renew) {
-        this.logger.info(`onActivityExpired: ${decision.reason}, renewing`, {
+      // Check for new input one last time before stopping.
+      // If user typed since the last collectMetrics poll, renew.
+      const hasNewInput = activity.lastInputAt !== null
+        && activity.lastInputAt !== this.lastSeenInputAt;
+
+      if (hasNewInput) {
+        this.lastSeenInputAt = activity.lastInputAt;
+        this.logger.info('onActivityExpired: new input detected, renewing', {
+          lastInputAt: activity.lastInputAt,
           connectedClients: activity.connectedClients,
-          heartbeatAgeMs: decision.heartbeatAgeMs,
-          lastInputAgoMs: decision.inputIdleMs,
         });
         this.renewActivityTimeout();
         return;
       }
 
-      this.logger.info(`onActivityExpired: ${decision.reason}, stopping container`, {
+      this.logger.info('onActivityExpired: no new input, stopping container', {
+        lastInputAt: activity.lastInputAt,
+        lastSeenInputAt: this.lastSeenInputAt,
         connectedClients: activity.connectedClients,
-        heartbeatAgeMs: decision.heartbeatAgeMs,
-        lastInputAgoMs: decision.inputIdleMs,
       });
     } catch (err) {
       this.logger.warn('onActivityExpired: failed to check activity, stopping', {

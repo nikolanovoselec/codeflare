@@ -9,7 +9,13 @@ const testState = vi.hoisted(() => ({
   storedSessionId: 'testsession123456' as string | undefined,
   storedBucketName: 'test-bucket' as string | null,
   containerRunning: true,
-  tcpFetchResult: {
+  activityResult: {
+    hasActiveConnections: true,
+    connectedClients: 1,
+    lastInputAt: Date.now(),
+    lastHeartbeatAt: Date.now(),
+  } as Record<string, unknown>,
+  healthResult: {
     cpu: '45%',
     mem: '1024MB',
     hdd: '2.5GB',
@@ -38,11 +44,14 @@ vi.mock('@cloudflare/containers', () => {
         container: {
           get running() { return testState.containerRunning; },
           getTcpPort: () => ({
-            fetch: async () => {
+            fetch: async (url: string) => {
               if (testState.tcpFetchShouldFail) {
                 throw new Error('Connection refused');
               }
-              return new Response(JSON.stringify(testState.tcpFetchResult), {
+              const body = url.includes('/activity')
+                ? testState.activityResult
+                : testState.healthResult;
+              return new Response(JSON.stringify(body), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' },
               });
@@ -102,7 +111,13 @@ describe('Container Metrics', () => {
     testState.storedSessionId = 'testsession123456';
     testState.storedBucketName = 'test-bucket';
     testState.tcpFetchShouldFail = false;
-    testState.tcpFetchResult = {
+    testState.activityResult = {
+      hasActiveConnections: true,
+      connectedClients: 1,
+      lastInputAt: Date.now(),
+      lastHeartbeatAt: Date.now(),
+    };
+    testState.healthResult = {
       cpu: '45%',
       mem: '1024MB',
       hdd: '2.5GB',
