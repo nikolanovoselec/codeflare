@@ -112,6 +112,7 @@ vi.mock('../../components/InitProgress', () => ({
 // Tests that need touch behavior must override isTouchDevice per-test.
 vi.mock('../../lib/mobile', () => ({
   isTouchDevice: vi.fn(() => false),
+  isIOSDevice: vi.fn(() => false),
   isVirtualKeyboardOpen: vi.fn(() => false),
   getKeyboardHeight: vi.fn(() => 0),
   enableVirtualKeyboardOverlay: vi.fn(),
