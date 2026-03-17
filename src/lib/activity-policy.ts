@@ -9,13 +9,13 @@
  */
 
 /** Heartbeat older than this is considered stale (5 minutes). */
-export const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
 
 /** Input older than this means the user is idle (30 minutes). */
-export const INPUT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const INPUT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Grace period after container start where missing input is tolerated (5 minutes). */
-export const GRACE_PERIOD_MS = 5 * 60 * 1000;
+const GRACE_PERIOD_MS = 5 * 60 * 1000;
 
 /** The activity signals coming from the terminal server's /activity endpoint. */
 export interface ActivityState {
@@ -31,7 +31,7 @@ export interface ActivityState {
  * call-sites branch on; the remaining fields are diagnostic context useful
  * for structured logging.
  */
-export interface ActivityDecision {
+interface ActivityDecision {
   readonly renew: boolean;
   /** Which code-path was taken — handy for log messages. */
   readonly reason:

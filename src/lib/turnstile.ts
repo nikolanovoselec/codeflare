@@ -1,4 +1,4 @@
-export interface TurnstileVerificationResult {
+interface TurnstileVerificationResult {
   success: boolean;
   'error-codes'?: string[];
 }
