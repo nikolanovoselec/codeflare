@@ -7,6 +7,7 @@ import { getAllUsers } from '../../lib/access-policy';
 import { isOnboardingLandingPageActive } from '../../lib/onboarding';
 import { escapeXml } from '../../lib/xml-utils';
 import { createLogger } from '../../lib/logger';
+import { verifyTurnstileToken } from '../../lib/turnstile';
 
 const logger = createLogger('public-routes');
 
@@ -14,11 +15,6 @@ const WaitlistRequestSchema = z.object({
   email: z.string().email('Valid email is required'),
   turnstileToken: z.string().min(1, 'Turnstile token is required'),
 });
-
-interface TurnstileVerificationResult {
-  success: boolean;
-  'error-codes'?: string[];
-}
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -35,31 +31,6 @@ app.use('*', async (c, next) => {
   return next();
 });
 
-async function verifyTurnstileToken(
-  token: string,
-  secret: string,
-  remoteIp: string | null
-): Promise<TurnstileVerificationResult> {
-  const body = new URLSearchParams();
-  body.append('secret', secret);
-  body.append('response', token);
-  if (remoteIp) {
-    body.append('remoteip', remoteIp);
-  }
-
-  const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-    signal: AbortSignal.timeout(10_000),
-  });
-
-  if (!response.ok) {
-    return { success: false, 'error-codes': [`http_${response.status}`] };
-  }
-
-  return response.json() as Promise<TurnstileVerificationResult>;
-}
 
 async function sendWaitlistEmail(params: {
   resendApiKey: string;
@@ -80,14 +51,14 @@ async function sendWaitlistEmail(params: {
     body: JSON.stringify({
       from,
       to,
-      subject: `Codeflare waitlist request: ${submittedEmail}`,
+      subject: `Codeflare waitlist request: ${submittedEmail.replace(/[\r\n]/g, '')}`,
       html: [
         '<h2>New Codeflare waitlist submission</h2>',
         `<p><strong>Email:</strong> ${escapeXml(submittedEmail)}</p>`,
         `<p><strong>Submitted at:</strong> ${submittedAtIso}</p>`,
         `<p><strong>IP:</strong> ${escapeXml(remoteIp || 'unknown')}</p>`,
       ].join('\n'),
-      reply_to: submittedEmail,
+      reply_to: submittedEmail.replace(/[\r\n]/g, ''),
     }),
   });
 

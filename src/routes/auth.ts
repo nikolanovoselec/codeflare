@@ -8,6 +8,7 @@ import { isActiveUser } from '../lib/access-tier';
 import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
+import { verifyTurnstileToken } from '../lib/turnstile';
 
 const logger = createLogger('auth-routes');
 
@@ -62,36 +63,6 @@ const RequestAccessSchema = z.object({
   turnstileToken: z.string().min(1, 'Turnstile token is required'),
 });
 
-interface TurnstileVerificationResult {
-  success: boolean;
-  'error-codes'?: string[];
-}
-
-async function verifyTurnstileToken(
-  token: string,
-  secret: string,
-  remoteIp: string | null
-): Promise<TurnstileVerificationResult> {
-  const body = new URLSearchParams();
-  body.append('secret', secret);
-  body.append('response', token);
-  if (remoteIp) {
-    body.append('remoteip', remoteIp);
-  }
-
-  const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-    signal: AbortSignal.timeout(10_000),
-  });
-
-  if (!response.ok) {
-    return { success: false, 'error-codes': [`http_${response.status}`] };
-  }
-
-  return response.json() as Promise<TurnstileVerificationResult>;
-}
 
 // POST /api/auth/request-access — pending users request access with Turnstile captcha (SaaS mode)
 app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c) => {
@@ -175,7 +146,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
               `<p><strong>Requested at:</strong> ${requestedAt}</p>`,
               `<p><strong>IP:</strong> ${escapeXml(remoteIp || 'unknown')}</p>`,
             ].join('\n'),
-            reply_to: user.email,
+            reply_to: user.email.replace(/[\r\n]/g, ''),
           }),
         });
       }

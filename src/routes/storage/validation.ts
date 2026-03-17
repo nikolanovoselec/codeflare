@@ -10,20 +10,20 @@ export function validateKey(key: string, label = 'key'): string {
   if (!key || typeof key !== 'string') {
     throw new ValidationError(`${label} is required`);
   }
-  key = key.replace(/\0/g, '');
-  if (key.length > MAX_KEY_LENGTH) {
+  const sanitized = key.replace(/\0/g, '');
+  if (sanitized.length > MAX_KEY_LENGTH) {
     throw new ValidationError(`${label} must be at most ${MAX_KEY_LENGTH} characters`);
   }
-  if (key.includes('..')) {
+  if (sanitized.includes('..')) {
     throw new ValidationError(`Invalid ${label}: path traversal not allowed`);
   }
-  if (key.startsWith('/')) {
+  if (sanitized.startsWith('/')) {
     throw new ValidationError(`Invalid ${label}: must not start with /`);
   }
   for (const protected_ of PROTECTED_PATHS) {
-    if (key.startsWith(protected_) || key.includes(`/${protected_}`)) {
+    if (sanitized.startsWith(protected_) || sanitized.includes(`/${protected_}`)) {
       throw new ValidationError(`Cannot access protected path: ${protected_}`);
     }
   }
-  return key;
+  return sanitized;
 }
