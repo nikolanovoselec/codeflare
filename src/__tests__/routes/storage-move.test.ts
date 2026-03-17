@@ -118,7 +118,7 @@ describe('Storage Move Routes', () => {
         destination: 'workspace/new.ts',
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(207);
       const body = await res.json() as { source: string; destination: string; warning?: string };
       expect(body.source).toBe('workspace/old.ts');
       expect(body.destination).toBe('workspace/new.ts');
@@ -138,7 +138,7 @@ describe('Storage Move Routes', () => {
         destination: 'workspace/new.ts',
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(207);
       const body = await res.json() as { source: string; destination: string; warning?: string };
       expect(body.warning).toContain('original could not be deleted');
     });
