@@ -85,11 +85,19 @@ const SubscribePage: Component = () => {
   }
 
   onMount(() => {
+    // Override global overflow:hidden on html/body so this standalone page can scroll
+    // (the global rule exists for the terminal view but breaks standalone pages on Safari iOS)
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+
     fetchStatus();
     pollInterval = setInterval(fetchStatus, POLL_INTERVAL_MS);
   });
 
   onCleanup(() => {
+    // Restore global overflow:hidden for the terminal view
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
     if (pollInterval) clearInterval(pollInterval);
   });
 

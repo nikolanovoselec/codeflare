@@ -1,4 +1,4 @@
-import { Component, onMount, createSignal, Show, For, type JSX } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
 import { getDeployKeys, updateDeployKeys, markOnboardingComplete } from '../api/client';
 import type { DeployKeysResponse } from '../api/client';
 import ProviderRow from './settings/ProviderRow';
@@ -130,6 +130,11 @@ const OnboardingPage: Component = () => {
   const cfConnected = () => cfToken().startsWith('****');
 
   onMount(async () => {
+    // Override global overflow:hidden on html/body so this standalone page can scroll
+    // (the global rule exists for the terminal view but breaks standalone pages on Safari iOS)
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+
     try {
       const keys: DeployKeysResponse = await getDeployKeys();
       if (keys.githubToken) setGithubToken(keys.githubToken);
@@ -140,6 +145,12 @@ const OnboardingPage: Component = () => {
     } finally {
       setLoading(false);
     }
+  });
+
+  onCleanup(() => {
+    // Restore global overflow:hidden for the terminal view
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
   });
 
   // GitHub handlers
