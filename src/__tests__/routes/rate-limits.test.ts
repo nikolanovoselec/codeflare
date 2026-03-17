@@ -58,7 +58,6 @@ vi.mock('@cloudflare/containers', () => ({
 
 import uploadRoutes from '../../routes/storage/upload';
 import deleteRoutes from '../../routes/storage/delete';
-import moveRoutes from '../../routes/storage/move';
 import seedRoutes from '../../routes/storage/seed';
 import downloadRoutes from '../../routes/storage/download';
 import previewRoutes from '../../routes/storage/preview';
@@ -162,26 +161,6 @@ describe('Rate limit coverage', () => {
     });
   });
 
-  // ── Storage move (20/min) ────────────────────────────────────────
-
-  describe('POST /move - storage-move (20/min)', () => {
-    it('blocks after 20 requests', async () => {
-      const app = createTestApp({
-        routes: [{ path: '/move', handler: moveRoutes }],
-        mockKV,
-        envOverrides: storageEnv(),
-      });
-      mockR2Fetch.mockResolvedValue(new Response('', { status: 200 }));
-
-      await assertRateLimited(20, () =>
-        app.request('/move', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ source: 'a.txt', destination: 'b.txt' }),
-        })
-      );
-    });
-  });
 
   // ── Storage seed (3/min, shared) ─────────────────────────────────
 

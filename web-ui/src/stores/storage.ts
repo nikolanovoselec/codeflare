@@ -254,14 +254,6 @@ export const storageStore = {
     }
   },
 
-  async moveFile(source: string, destination: string) {
-    try {
-      await storageApi.moveFile(source, destination);
-      await storageStore.browse();
-    } catch (err) {
-      setState('error', err instanceof Error ? err.message : String(err));
-    }
-  },
 
   toggleSelect(key: string) {
     setState(produce((s) => {

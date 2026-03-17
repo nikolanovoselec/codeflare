@@ -28,7 +28,6 @@ const mockSetSelection = vi.fn();
 const mockUploadFiles = vi.fn();
 const mockSelectAll = vi.fn();
 const mockClearSelection = vi.fn();
-const mockMoveFile = vi.fn();
 const mockSearchFiles = vi.fn((_q: string) => ({ objects: mockObjects, prefixes: mockPrefixes }));
 const mockFetchStats = vi.fn();
 const mockOpenPreview = vi.fn();
@@ -81,7 +80,6 @@ vi.mock('../../stores/storage', () => ({
     uploadFiles: (...args: any[]) => mockUploadFiles(...args),
     selectAll: (...args: any[]) => mockSelectAll(...args),
     clearSelection: (...args: any[]) => mockClearSelection(...args),
-    moveFile: (...args: any[]) => mockMoveFile(...args),
     searchFiles: (q: string) => mockSearchFiles(q),
     fetchStats: (...args: any[]) => mockFetchStats(...args),
     openPreview: (...args: any[]) => mockOpenPreview(...args),
