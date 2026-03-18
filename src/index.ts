@@ -13,6 +13,8 @@ import preferenceRoutes from './routes/preferences';
 import llmKeysRoutes from './routes/llm-keys';
 import deployKeysRoutes from './routes/deploy-keys';
 import publicRoutes from './routes/public/index';
+import usageRoutes from './routes/usage';
+import adminTiersRoutes from './routes/admin/tiers';
 import { REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, CORS_MAX_AGE_SECONDS } from './lib/constants';
 import { AppError } from './lib/error-types';
 import { isAllowedOrigin } from './lib/cors-cache';
@@ -179,6 +181,8 @@ app.route('/api/presets', presetRoutes);
 app.route('/api/preferences', preferenceRoutes);
 app.route('/api/llm-keys', llmKeysRoutes);
 app.route('/api/deploy-keys', deployKeysRoutes);
+app.route('/api/usage', usageRoutes);
+app.route('/api/admin/tiers', adminTiersRoutes);
 
 // 404 fallback - only for API routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

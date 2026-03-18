@@ -394,6 +394,42 @@ export async function updateUserTier(
 /** @deprecated Use updateUserTier instead */
 export const updateUserAccessTier = updateUserTier;
 
+const UsageResponseSchema = z.object({
+  dailySeconds: z.number(),
+  monthlySeconds: z.number(),
+  monthlyQuotaSeconds: z.number().nullable(),
+  tier: z.string(),
+});
+
+export async function getUsage(): Promise<z.infer<typeof UsageResponseSchema>> {
+  return fetchApi('/usage', {}, UsageResponseSchema);
+}
+
+const TiersResponseSchema = z.object({
+  tiers: z.array(z.object({
+    id: z.string(),
+    displayName: z.string(),
+    monthlySeconds: z.number().nullable(),
+    maxSessions: z.number(),
+    sessionModes: z.array(z.string()),
+    canLogin: z.boolean(),
+    order: z.number(),
+    isDefault: z.boolean(),
+    priceMonthly: z.number().nullable(),
+  })),
+});
+
+export async function getTiers(): Promise<z.infer<typeof TiersResponseSchema>> {
+  return fetchApi('/admin/tiers', {}, TiersResponseSchema);
+}
+
+export async function updateTiers(tiers: unknown[]): Promise<{ success: boolean }> {
+  return fetchApi('/admin/tiers', {
+    method: 'PUT',
+    body: JSON.stringify(tiers),
+  }, z.object({ success: z.boolean() }));
+}
+
 export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'DELETE',
