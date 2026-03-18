@@ -144,8 +144,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     // Admins always have advanced access regardless of stored tier
     if (isAdmin()) return true;
     const tier = liveAccessTier();
-    // advanced tier or no tier set (backward compat: non-SaaS defaults to full access)
-    return !tier || tier === 'advanced';
+    // Tiers with advanced mode: advanced, max, unlimited
+    // No tier set = backward compat (non-SaaS defaults to full access)
+    return !tier || tier === 'advanced' || tier === 'max' || tier === 'unlimited';
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;

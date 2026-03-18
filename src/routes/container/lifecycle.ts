@@ -119,9 +119,23 @@ export async function validateSessionAndCheckLimits(params: {
     throw new NotFoundError('Session', sessionId);
   }
 
-  // Session limit check: enforce max concurrent running sessions per role.
+  // Session limit check: enforce max concurrent running sessions.
+  // In SaaS mode, use tier-based limit (overrides role-based). Otherwise use role-based.
   // Bypass when stress testing so E2E suites can start unlimited containers.
   if (env.STRESS_TEST_MODE !== 'active') {
+    // Resolve effective session limit: tier-based in SaaS mode, role-based otherwise
+    let effectiveMaxSessions = maxSessions;
+    if (isSaasModeActive(env.SAAS_MODE)) {
+      try {
+        const tiers = await getTierConfig(env.KV);
+        const tierValue = subscriptionTier ?? accessTier;
+        const tier = getUserTier(tierValue, tiers);
+        effectiveMaxSessions = tier.maxSessions;
+      } catch {
+        // Fall back to role-based limit on error
+      }
+    }
+
     const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
     const sessionSettled = await Promise.allSettled(
       sessionKeys.map(key => env.KV.get<Session>(key.name, 'json'))
@@ -133,9 +147,9 @@ export async function validateSessionAndCheckLimits(params: {
       (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
     ).length;
 
-    if (runningCount >= maxSessions) {
+    if (runningCount >= effectiveMaxSessions) {
       throw new RateLimitError(
-        `Session limit reached (${runningCount}/${maxSessions}). Stop an existing session to start a new one.`
+        `Session limit reached (${runningCount}/${effectiveMaxSessions}). Stop an existing session to start a new one.`
       );
     }
   }
