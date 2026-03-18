@@ -271,9 +271,9 @@ function connect() {
 
 **Font consistency:** Login, subscribe, and onboarding pages all use `JetBrains Mono` monospace font via `font-family` on `.login-content` and `.onboarding-content` root containers. All child text inherits — no sans-serif fallback.
 
-**Admin Protection:** Admin users always have `advanced` access tier and can switch between default/advanced session modes freely. `canUseAdvanced()` in SettingsPanel returns `true` for admins regardless of stored `accessTier` — prevents admin lockout when JIT-provisioned with `pending` tier before being promoted. Backend rejects both tier changes (`PATCH /api/users/:email`) and deletions (`DELETE /api/users/:email`) for admin-role users. Frontend hides tier dropdown and delete button for admins in UserManagement.
+**Admin Protection:** Admin users always have `unlimited` subscription tier and can switch between default/advanced session modes freely. `canUseAdvanced()` in SettingsPanel returns `true` for admins regardless of stored tier — prevents admin lockout when JIT-provisioned with `pending` tier before being promoted. Backend rejects both tier changes (`PATCH /api/users/:email`) and deletions (`DELETE /api/users/:email`) for admin-role users. Frontend hides tier dropdown and delete button for admins in UserManagement.
 
-**Live Access Tier Refresh:** `SettingsPanel` re-fetches `/api/user` each time it opens, updating a `liveAccessTier` signal. This ensures tier upgrades (admin promotes user from `standard` to `advanced`) take effect without a full page reload — the user just needs to close and reopen Settings.
+**Live Tier Refresh:** `SettingsPanel` re-fetches `/api/user` each time it opens, updating a `liveAccessTier` signal with `subscriptionTier ?? accessTier`. This ensures tier upgrades (admin promotes user to a higher tier) take effect without a full page reload — the user just needs to close and reopen Settings.
 
 **Auto-advanced session mode:** When a user is promoted to `advanced` tier via `PATCH /api/users/:email`, the backend also writes `sessionMode: 'advanced'` to their preferences (`user-prefs:{bucketName}`) if no `sessionMode` is set yet. This ensures their first bucket creation seeds advanced skills and agent rules. Existing user preferences (where `sessionMode` is already set) are not overridden. Admin users created by setup also get `sessionMode: 'advanced'` in their preferences automatically.
 
@@ -331,7 +331,7 @@ flowchart TD
 
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
 
-**Stale user removal during reconfiguration:** When `POST /configure` is re-run with a new `allowedUsers` list, users no longer in the list are removed via `cleanupUserData()` (`src/lib/user-cleanup.ts`), wrapped in `runStep('cleanup_stale_users')` for progress visibility. This performs full cleanup identical to `DELETE /api/users/:email`: destroys all active sessions/containers, deletes bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), deletes the R2 scoped token, empties the R2 bucket (paginated `ListObjectsV2` + `DeleteObjects` via `emptyR2Bucket`), and deletes the bucket via CF API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency). **SaaS mode:** only admin-role users removed from the admin list are cleaned up — JIT-provisioned regular users are preserved (managed via User Management, not setup). Each existing KV user is checked for `role: 'admin'` before deletion. Admin KV writes merge with existing entries (preserving `accessTier`) and always set `accessTier: 'advanced'`. **Self-removal prevention:** during reconfiguration, the backend rejects the request if the current authenticated user is not in the submitted admin list (`ValidationError: 'You cannot remove yourself from the admin list'`). The Zod schema enforces at least 1 admin user.
+**Stale user removal during reconfiguration:** When `POST /configure` is re-run with a new `allowedUsers` list, users no longer in the list are removed via `cleanupUserData()` (`src/lib/user-cleanup.ts`), wrapped in `runStep('cleanup_stale_users')` for progress visibility. This performs full cleanup identical to `DELETE /api/users/:email`: destroys all active sessions/containers, deletes bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`, `timekeeper:`), deletes the R2 scoped token, empties the R2 bucket (paginated `ListObjectsV2` + `DeleteObjects` via `emptyR2Bucket`), and deletes the bucket via CF API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency). **SaaS mode:** only admin-role users removed from the admin list are cleaned up — JIT-provisioned regular users are preserved (managed via User Management, not setup). Each existing KV user is checked for `role: 'admin'` before deletion. Admin KV writes merge with existing entries (preserving tier fields) and always set `subscriptionTier: 'unlimited'`. **Self-removal prevention:** during reconfiguration, the backend rejects the request if the current authenticated user is not in the submitted admin list (`ValidationError: 'You cannot remove yourself from the admin list'`). The Zod schema enforces at least 1 admin user.
 
 ### Session Route Architecture
 
@@ -659,14 +659,14 @@ flowchart TD
 
 ## SaaS Mode Authentication
 
-When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` access tier and require admin approval. This section documents the complete SaaS auth flow from initial setup through user approval to session management.
+When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` subscription tier and require admin approval. This section documents the complete SaaS auth flow from initial setup through user approval to session management.
 
 ### Deployment Modes
 
 | Mode | Auth provider | User provisioning | Access control |
 |------|--------------|-------------------|----------------|
 | **Default** (no `SAAS_MODE`) | Cloudflare Access (JWT) | Manual allowlist via setup wizard | CF Access policies + KV allowlist |
-| **SaaS** (`SAAS_MODE=active`) | Custom login page + CF Access IdP hints | Auto-provisioned on first login | Three-tier middleware + KV access tiers |
+| **SaaS** (`SAAS_MODE=active`) | Custom login page + CF Access IdP hints | Auto-provisioned on first login | Three-tier middleware + KV subscription tiers |
 
 ### Complete SaaS Authentication Flow
 
@@ -685,7 +685,7 @@ flowchart TD
     I --> J["Extract user email<br/>from JWT claims"]
     J --> K{"User in KV?<br/>user:{email} record"}
     K -->|no| L["JIT Provision:<br/>new record with pending tier"]
-    K -->|yes| M["Load existing<br/>access tier"]
+    K -->|yes| M["Load existing<br/>subscription tier"]
     L --> N["requireActiveUser check"]
     M --> N
     N -->|tier=pending| O["Redirect to /app/subscribe"]
@@ -715,9 +715,9 @@ This flow highlights the key architectural choice: **CF Access handles authentic
 
 SaaS mode uses a layered middleware stack on every request to protected routes. See `src/middleware/auth.ts`:
 
-1. **`requireIdentity`** — Resolves the user from CF Access JWT (verified via JWKS at auth_domain). If the user is not in KV, auto-provisions them with `pending` tier via `resolveOrProvisionUser()`. Sets `c.get('user')` with email, role, and accessTier. Used for endpoints like `/api/auth/status` where pending users need to see Turnstile and request-access button.
+1. **`requireIdentity`** — Resolves the user from CF Access JWT (verified via JWKS at auth_domain). If the user is not in KV, auto-provisions them with `pending` tier via `resolveOrProvisionUser()`. Sets `c.get('user')` with email, role, subscriptionTier, and accessTier. Used for endpoints like `/api/auth/status` where pending users need to see Turnstile and request-access button.
 
-2. **`requireActiveUser`** — Authenticates (same as requireIdentity) then checks `accessTier` is `standard` or `advanced`. When SAAS_MODE is active:
+2. **`requireActiveUser`** — Authenticates (same as requireIdentity) then checks `subscriptionTier ?? accessTier` is an active tier (free/trial/standard/advanced/max/unlimited). When SAAS_MODE is active:
    - Pending users on API routes get 403 JSON: `{ error: 'Access denied', code: 'PENDING' }`
    - Pending users on HTML requests get 403 but frontend catches it and redirects to `/app/subscribe`
    - Blocked users get 403 JSON: `{ error: 'Access denied', code: 'BLOCKED' }`
@@ -727,21 +727,95 @@ SaaS mode uses a layered middleware stack on every request to protected routes. 
 
 3. **`requireAdmin`** — Checks `role === 'admin'`. Must be used AFTER requireIdentity or requireActiveUser. Used for `/admin/*` and user management endpoints.
 
-### Access Tiers
+### Subscription Tiers
 
-| Tier | Can log in | Can use IDE | Session modes | How assigned |
-|------|-----------|-------------|---------------|-------------|
-| `pending` | Yes | No | None | Auto-assigned on first login (JIT provisioning) |
-| `standard` | Yes | Yes | `default` only | Admin manually promotes from `pending` in User Management |
-| `advanced` | Yes | Yes | `default` + `advanced` | Admin manually grants full access (or users created via allowedUsers list at setup) |
-| `blocked` | Yes | No | None | Admin blocks user to revoke IDE access without deleting record |
+Codeflare uses an 8-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes:
 
-Tiers are stored in the KV record at `user:{email}` in the `accessTier` field (JSON value is `{ addedBy, addedAt, role, accessTier }`). Existing users without `accessTier` default to `advanced` (backward compatibility with setups created before tier support).
+| Tier | Can log in | Monthly Hours | Max Sessions | Session Modes | How assigned |
+|------|-----------|-------------|-------------|---------------|-------------|
+| `blocked` | No | 0 | 0 | None | Admin blocks user |
+| `pending` | Yes (subscribe page) | 0 | 0 | None | Auto-assigned on first login (JIT provisioning) |
+| `free` | Yes | 2h | 1 | `default` | Admin assigns |
+| `trial` | Yes | 5h | 2 | `default` | Admin assigns (time-limited) |
+| `standard` | Yes | 10h | 3 | `default` | Default tier, admin promotes from `pending` |
+| `advanced` | Yes | 50h | 5 | `default` + `advanced` | Admin grants |
+| `max` | Yes | 200h | 10 | `default` + `advanced` | Admin grants |
+| `unlimited` | Yes | Unlimited | 10 | `default` + `advanced` | Admin/setup-created users |
 
-The tier logic is defined in `src/lib/access-tier.ts`:
-- `isActiveUser(tier)` — returns true if tier is `standard`, `advanced`, or undefined
-- `allowedSessionModes(tier)` — returns array of modes user can select: `advanced` tier gets both `default` and `advanced`, `standard` gets only `default`
-- `canUseSessionMode(tier, mode)` — checks if a specific mode is allowed
+Tiers are stored in the KV record at `user:{email}` in the `subscriptionTier` field. The legacy `accessTier` field is also maintained for backward compatibility — code reads `subscriptionTier` first, falls back to `accessTier`.
+
+Tier defaults are hardcoded in `src/lib/subscription.ts:getDefaultTiers()` and can be customized by admins via the `tiers:config` KV key (Settings > Administration > Subscription Tiers). The `getTierConfig()` function reads from KV with fallback to defaults.
+
+The tier logic is defined in `src/lib/subscription.ts`:
+- `isActiveTier(tier)` — returns true for free/trial/standard/advanced/max/unlimited (and undefined for backward compat)
+- `getUserTier(tierValue, tiers)` — resolves tier config from tier value string
+- `getMaxSessionsForTier(tierValue, tiers)` — returns max concurrent sessions
+- `getAllowedSessionModes(tierValue, tiers)` — returns allowed session modes
+
+Legacy bridge in `src/lib/access-tier.ts` delegates to `subscription.ts` so existing code continues to work.
+
+### Timekeeper DO (Usage Tracking)
+
+One Timekeeper Durable Object per user tracks compute usage. Container DOs ping Timekeeper with monotonic `totalSeconds` per session every 60 seconds. Timekeeper computes deltas, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes.
+
+```
+Container DO (session 1) ── ping ──→ Timekeeper DO (user X)
+Container DO (session 2) ── ping ──→ Timekeeper DO (user X)
+                                           │
+                                  flush every 5 min (alarm)
+                                           │
+                                           ▼
+                                KV: timekeeper:{bucketName}
+```
+
+**Ping handler** (`POST /ping`): receives `{ bucketName, sessionId, totalSeconds, email }`, computes delta per session, accumulates pendingSeconds, arms alarm, performs quota check. Returns `{ quotaExceeded, totalMonthlySeconds }`.
+
+**Usage query** (`GET /usage`): returns real-time usage (KV flushed + pending). Used by paygate and `/api/usage` route.
+
+**Alarm flush**: reads KV record, adds pendingSeconds to daily/weekly/monthly/yearly/allTime counters, handles rollovers, writes back. Resets pendingSeconds only after successful KV write. Retries on failure (30s backoff).
+
+**Mid-session eviction**: when Timekeeper returns `quotaExceeded: true`, the Container DO calls `stop('SIGTERM')` for graceful shutdown.
+
+KV value shape at `timekeeper:{bucketName}`:
+```typescript
+interface UsageRecord {
+  today:     { date: string; seconds: number };     // "2026-03-18"
+  thisWeek:  { weekStart: string; seconds: number }; // "2026-03-17" (Monday)
+  thisMonth: { month: string; seconds: number };     // "2026-03"
+  thisYear:  { year: string; seconds: number };      // "2026"
+  allTime:   { seconds: number };
+  lastUpdatedAt: string;
+}
+```
+
+### Paygate Enforcement
+
+Session start (`POST /api/container/start`) checks tier-based usage quota in `validateSessionAndCheckLimits()`:
+1. Resolves user's tier from `subscriptionTier ?? accessTier`
+2. Reads monthly usage from `timekeeper:{bucketName}` KV
+3. Compares against `tier.monthlySeconds` (skip for `null`/unlimited)
+4. Throws `QuotaExceededError` (HTTP 402, code `QUOTA_EXCEEDED`) if exceeded
+5. Skips for non-SaaS mode and stress test mode, fail-open on KV errors
+
+Frontend detects `code === 'QUOTA_EXCEEDED'` via `ApiError.code` field and shows upgrade CTA.
+
+### Usage Pages
+
+- `/app/usage` — SVG progress ring for monthly quota, stat cards (today/month/tier), polls every 30s
+- `/app/plan` — tier comparison grid with pricing, "Coming soon" buttons
+- Layout warning banners at 80%/95%/100% usage thresholds
+
+### Migration Strategy
+
+Deploy new code first (backward compat), then run migration script:
+1. New code reads `subscriptionTier` first, falls back to `accessTier`
+2. `scripts/migrate-tiers.ts` adds `subscriptionTier` to all `user:*` KV records
+3. Admins → `unlimited`, missing → `standard` (SaaS) / `unlimited` (non-SaaS)
+4. Old `accessTier` kept for rollback safety
+
+### Access Tiers (Legacy)
+
+The original 4-tier system (`pending`/`standard`/`advanced`/`blocked`) is preserved for backward compatibility. New code uses `subscriptionTier` with fallback to `accessTier`. See Subscription Tiers above for the replacement.
 
 ### CF Access Configuration Strategy
 
@@ -751,7 +825,7 @@ The setup wizard (Step 5 in `src/routes/setup/index.ts`) calls `handleCreateAcce
 
 - **Groups (default mode):** `include: { group: { id: adminGroupId } }, { group: { id: userGroupId } }` — CF Access only allows users in these specific allowlisted groups. Works for closed deployments with known user emails.
 
-- **login_method (SaaS mode):** `include: { login_method: { id: githubIdpId } }` — CF Access allows ANY GitHub-authenticated user. The Worker then enforces per-user access tiers (pending/standard/advanced/blocked) based on KV records. This enables open SaaS signup.
+- **login_method (SaaS mode):** `include: { login_method: { id: githubIdpId } }` — CF Access allows ANY GitHub-authenticated user. The Worker then enforces per-user subscription tiers (blocked/pending/free/trial/standard/advanced/max/unlimited) based on KV records. This enables open SaaS signup.
 
 The policy is created via `upsertAccessPolicy()` at line 384-465 of `src/routes/setup/access.ts`:
 - If `saasLoginMethods` array is provided, use `login_method` includes (SaaS mode)
@@ -800,10 +874,11 @@ When a GitHub-authenticated user (verified CF Access JWT) makes their first requ
      "addedBy": "jit",
      "addedAt": "2025-03-15T12:00:00Z",
      "role": "user",
-     "accessTier": "pending"
+     "accessTier": "pending",
+     "subscriptionTier": "pending"
    }
    ```
-4. The user is returned with `accessTier: 'pending'`
+4. The user is returned with `subscriptionTier: 'pending'`
 5. If the route uses `requireActiveUser`, it rejects with 403 → frontend redirects to `/app/subscribe`
 
 **Concurrency note:** KV has eventual consistency. If two requests for the same new user arrive simultaneously, both may reach the JIT provision step and write identical records. This is benign — both produce the same result. KV's per-key serialization prevents split-brain scenarios.
@@ -834,13 +909,13 @@ When a pending user submits an access request via `/app/subscribe`:
 
 4. **Admin notification:** If `RESEND_API_KEY` env var is set, the Worker sends an email to all admins with the user's email and request timestamp (line 154-186). Email is sent via Resend API.
 
-5. **Polling:** The frontend polls `/api/auth/status` every 10 seconds (line 36 of `src/components/SubscribePage.tsx`). When the admin approves the user (changing `accessTier` to `standard` or `advanced`), the poll detects the change and updates the UI to "Access Granted".
+5. **Polling:** The frontend polls `/api/auth/status` every 10 seconds (line 36 of `src/components/SubscribePage.tsx`). When the admin approves the user (changing `subscriptionTier` to any active tier like `standard` or `advanced`), the poll detects the change and updates the UI to "Access Granted".
 
 6. **No auto-redirect:** Active users are NOT automatically redirected from `/app/subscribe`. They choose when to click "Continue". This allows them to always see their account status. (This was a key lesson learned: automatic redirects create confusion when the user wants to verify their account status.)
 
 ### Session Mode Upgrade (Auto-Advanced)
 
-When the frontend detects a tier change to `advanced`, it can optionally upgrade the user's `sessionMode` preference from `default` to `advanced` (if stored in KV). See `src/lib/access-tier.ts` at line 7-10 for the tier-to-modes mapping. This allows users to immediately use advanced sessions after promotion.
+When an admin changes a user's tier to `advanced`, `max`, or `unlimited`, the backend auto-sets `sessionMode` to `advanced` in user preferences (if not already set). See `src/lib/subscription.ts:getAllowedSessionModes()` for the tier-to-modes mapping. This allows users to immediately use advanced sessions after promotion.
 
 ### Logout Flow
 
@@ -1333,8 +1408,8 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 **SaaS-specific behavior:**
 - The Access app is configured with `allowed_idps` restricted to GitHub IdP only (if available).
 - The policy uses `login_method` includes (any GitHub-authenticated user passes CF Access) instead of group includes.
-- The user group is skipped entirely — Worker enforces per-user access-tier authorization (pending/standard/advanced).
-- Admin users created via allowedUsers have `accessTier: 'advanced'` set automatically.
+- The user group is skipped entirely — Worker enforces per-user subscription tier authorization (8 tiers).
+- Admin users created via allowedUsers have `subscriptionTier: 'unlimited'` set automatically.
 
 **Step 6 -- `configure_turnstile` (conditional)**
 
@@ -1476,7 +1551,7 @@ The following KV keys are written during setup. All keys use the `setup:` prefix
 | `setup:turnstile_secret_key` | step 6 | Turnstile widget secret |
 | `setup:idp_list` | step 5 | JSON array of IdP objects (id, type, name) |
 
-User records are stored separately under the `user:{email}` key pattern with a JSON value containing `addedBy`, `addedAt`, `role` (`"admin"` or `"user"`), and `accessTier` (SaaS mode only).
+User records are stored separately under the `user:{email}` key pattern with a JSON value containing `addedBy`, `addedAt`, `role` (`"admin"` or `"user"`), `subscriptionTier` (8 values), and legacy `accessTier`. Usage tracking data is stored at `timekeeper:{bucketName}`. Tier configuration is at `tiers:config`.
 
 #### Authentication
 
@@ -2270,7 +2345,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 | AD31 | Root container is intentional | <details><summary>rclone mount, tool installation, and user workspace access all require root</summary><br>The Dockerfile has no USER directive; all container processes run as root. Dropping privileges post-init via gosu was evaluated and rejected because tool installation (user-initiated npm install -g, etc.) and rclone FUSE mount operations continue throughout the container lifetime, not just during init. The security boundary is network isolation via the Durable Object proxy — only the DO can reach the container's port 8080. Container auth token (random UUID per DO lifecycle) validates all proxied requests. User note: "this is by design."</details> |
 | AD32 | ENCRYPTION_KEY is optional | <details><summary>Optional encryption eases onboarding; operators accept plaintext KV storage as trade-off</summary><br>When ENCRYPTION_KEY is absent, LLM API keys, GitHub tokens, and Cloudflare API tokens are stored as plaintext JSON in KV with no warning. This is an intentional deployment-complexity trade-off. New deployers can get a running instance without generating and managing an encryption key. The target audience is self-hosted single-user/small-team deployments where the operator and the user are the same person. A startup warning when ENCRYPTION_KEY is absent is a recommended future improvement. Operators who want encryption set ENCRYPTION_KEY.</details> |
 | AD33 | Pre-setup CSRF risk accepted | <details><summary>Bootstrap window is seconds to minutes; AD10 trade-off applies</summary><br>createConditionalSetupAuth() calls next() directly when setup is not complete, bypassing the X-Requested-With CSRF check. AD10 accepts the open pre-setup endpoint as a bootstrap necessity. The pre-setup CSRF risk is accepted under the same rationale: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact workers.dev URL during its unconfigured window. Adding Origin validation to the pre-setup path is a low-cost future hardening.</details> |
-| AD34 | WebSocket auth bypass of Hono middleware | <details><summary>workerd constraint — WS upgrades cannot use Hono middleware; parallel auth path is manually synchronized</summary><br>WebSocket upgrades must be intercepted before the Hono middleware chain (documented workaround for cloudflare/workerd#2319). This creates a parallel auth path replicating authentication, CORS, rate limiting, and access-tier gating. The duplication is explicit and documented. Any change to the Hono middleware auth chain must be manually mirrored in the WebSocket handler. SaaS tier gating tests for the parallel path are tracked as a fix item.</details> |
+| AD34 | WebSocket auth bypass of Hono middleware | <details><summary>workerd constraint — WS upgrades cannot use Hono middleware; parallel auth path is manually synchronized</summary><br>WebSocket upgrades must be intercepted before the Hono middleware chain (documented workaround for cloudflare/workerd#2319). This creates a parallel auth path replicating authentication, CORS, rate limiting, and subscription-tier gating. The duplication is explicit and documented. Any change to the Hono middleware auth chain must be manually mirrored in the WebSocket handler. SaaS tier gating tests for the parallel path are tracked as a fix item.</details> |
 | AD35 | splash-cursor-logic.ts old-style constructor with any types | <details><summary>Vendored creative/WebGL code — TypeScript coverage not worth the refactoring effort</summary><br>An old-style constructor function with this: any causes all downstream pointer/rendering functions to use any types. AD19 covers as any casts in this module. The constructor is adapted from a visual effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.</details> |
 
 #### AD: Stress Test Rate-Limit Bypass is Integration-Only

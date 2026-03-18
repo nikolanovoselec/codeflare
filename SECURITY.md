@@ -27,10 +27,12 @@ Codeflare delegates authentication entirely to **Cloudflare Access**:
 - **Email normalization:** User emails are trimmed and lowercased before KV lookup to prevent casing-based bypass.
 - **Three-tier access control** enforced via middleware:
   - `requireIdentity`: Authenticates request only, permits all users (pending, standard, advanced, blocked).
-  - `requireActiveUser`: Authenticates + enforces tier gating when SaaS mode is active. Pending/blocked users receive 403 error. Active tiers: `standard`, `advanced`, or `undefined` (non-SaaS).
+  - `requireActiveUser`: Authenticates + enforces subscription tier gating when SaaS mode is active. Pending/blocked users receive 403 error. Active tiers: `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`, or `undefined` (non-SaaS backward compat).
   - `requireAdmin`: Requires `role: 'admin'`. Must follow requireIdentity or requireActiveUser.
 - **SaaS mode (JIT provisioning):** When `SAAS_MODE=active`, new users are auto-provisioned with `pending` tier (requires admin approval). Redirects pending users to `/app/subscribe` on HTML requests, or returns 403 with code `PENDING` on API requests. Blocked users receive 403 with code `BLOCKED`.
-- **Session limits:** Configurable per role via `MAX_SESSIONS_USER` (default 3) and `MAX_SESSIONS_ADMIN` (default 10). Enforced at container creation time.
+- **Subscription tier-based access control:** 8-tier system (blocked/pending/free/trial/standard/advanced/max/unlimited) controls compute hours, session limits, and session modes. Quota enforcement is server-side only — frontend displays are informational. Service tokens are treated as `unlimited` tier. Non-SaaS deployments resolve all users to `unlimited`.
+- **Usage quota enforcement:** Monthly compute hours enforced at session start (HTTP 402) and mid-session via Timekeeper DO ping. Server-side only — cannot be bypassed by frontend manipulation.
+- **Session limits:** Tier-based (`maxSessions` per tier config), with env var fallback via `MAX_SESSIONS_USER` (default 3) and `MAX_SESSIONS_ADMIN` (default 10). Enforced at container creation time.
 
 ### Security Headers
 

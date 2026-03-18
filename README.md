@@ -186,6 +186,10 @@ See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth
 
 </details>
 
+## Subscription Tiers
+
+When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system controlling monthly compute hours, concurrent sessions, and session modes. Tiers: `blocked`, `pending`, `free` (2h), `trial` (5h), `standard` (10h), `advanced` (50h), `max` (200h), `unlimited`. Admins configure tier limits in Settings > Administration > Subscription Tiers. Usage is tracked per-user via a Timekeeper Durable Object and displayed on the `/app/usage` page. Session starts are gated by quota enforcement (HTTP 402 when exceeded). Mid-session eviction stops containers that exceed their quota. Non-SaaS deployments default to unlimited.
+
 ## Security
 
 - Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
