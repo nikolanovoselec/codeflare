@@ -131,7 +131,3 @@ export const DASHBOARD_WS_DISCONNECT_DELAY_MS = 60_000;
 // Visibility Heartbeat
 // =============================================================================
 
-/** Interval for sending visibility heartbeats through WebSocket.
- *  The container DO considers heartbeats stale after 5 minutes,
- *  so 60s interval gives ~5 missed heartbeats before considered idle. */
-export const HEARTBEAT_INTERVAL_MS = 60_000;

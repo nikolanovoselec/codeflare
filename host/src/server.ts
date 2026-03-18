@@ -380,7 +380,8 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
         }
 
         if (msg.type === 'heartbeat') {
-          activityTracker.recordHeartbeat();
+          // Heartbeat messages from legacy frontends — acknowledged but ignored.
+          // Idle detection is now based on input change detection, not heartbeats.
           return;
         }
 
