@@ -859,7 +859,7 @@ Two authorization modes exist for session modes:
 1. **Fast path** (`access-tier.ts:allowedSessionModes`) — hardcoded defaults matching `getDefaultTiers()`. Used when tier config is not available.
 2. **Config-aware** (`access-tier.ts:canUseSessionModeWithConfig`) — reads from tier config, respecting admin overrides via `tiers:config` KV. Used in preferences route for session mode changes.
 
-Similarly, `canUserLogin()` in `subscription.ts` reads the `canLogin` field from tier config, while `isActiveTier()` uses a hardcoded fast-path set. Both are available for different authorization contexts.
+The `canLogin` field in tier config is defined for future use (e.g., blocking authentication entirely at the CF Access level). Currently, `isActiveTier()` handles the authorization gate: pending/blocked are rejected by `requireActiveUser`, while all 6 active tiers pass through. The `sessionTotals` map in Timekeeper DO is capped at 30 entries with automatic eviction of the oldest to prevent unbounded growth.
 
 ### Default Tier Behavior
 
