@@ -11,6 +11,7 @@ import { authenticateRequest } from '../lib/access';
 import { ForbiddenError } from '../lib/error-types';
 import { isSaasModeActive } from '../lib/onboarding';
 import { isActiveUser } from '../lib/access-tier';
+import { canUserLogin, getTierConfig } from '../lib/subscription';
 import type { Env, AccessUser } from '../types';
 
 /**
@@ -52,10 +53,14 @@ export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: A
   c.set('user', user);
   c.set('bucketName', bucketName);
 
-  const effectiveTier = user.subscriptionTier ?? user.accessTier;
-  if (isSaasModeActive(c.env.SAAS_MODE) && !isActiveUser(effectiveTier)) {
-    const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
-    return c.json({ error: 'Access denied', code }, 403);
+  if (isSaasModeActive(c.env.SAAS_MODE)) {
+    const effectiveTier = user.subscriptionTier ?? user.accessTier;
+    // Config-aware login check: respects canLogin field from admin tier config (cached 60s)
+    const tiers = await getTierConfig(c.env.KV);
+    if (!canUserLogin(effectiveTier, tiers)) {
+      const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
+      return c.json({ error: 'Access denied', code }, 403);
+    }
   }
 
   return next();
