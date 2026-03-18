@@ -316,6 +316,17 @@ export class container extends Container<Env> {
     const handler = this.internalRoutes.get(routeKey);
     if (handler) return handler(request);
 
+    // Reject non-internal requests when the container is not running.
+    // This prevents WebSocket reconnect attempts from waking a hibernated
+    // container via super.fetch() (which triggers the SDK's startIfNotRunning).
+    // The DO knows the container state authoritatively — no KV read needed.
+    if (!this.ctx.container?.running) {
+      return new Response(JSON.stringify({ error: 'Container not running' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     // Inject container auth token for requests proxied to the container
     if (this._containerAuthToken) {
       const authedRequest = new Request(request, {
