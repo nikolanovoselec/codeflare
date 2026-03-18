@@ -76,12 +76,6 @@ export interface Env {
   // Timekeeper Durable Object for per-user usage tracking
   TIMEKEEPER?: DurableObjectNamespace;
 
-  // Quota configuration env vars (fallback when tiers:config not in KV)
-  QUOTA_FREE_HOURS?: string;
-  QUOTA_TRIAL_HOURS?: string;
-  QUOTA_STANDARD_HOURS?: string;
-  QUOTA_ADVANCED_HOURS?: string;
-  QUOTA_MAX_HOURS?: string;
 }
 
 /**

@@ -119,23 +119,20 @@ export async function validateSessionAndCheckLimits(params: {
     throw new NotFoundError('Session', sessionId);
   }
 
-  // Session limit check: enforce max concurrent running sessions.
-  // In SaaS mode, use tier-based limit (overrides role-based). Otherwise use role-based.
-  // Bypass when stress testing so E2E suites can start unlimited containers.
+  // Session limit + quota checks. Bypass when stress testing.
   if (env.STRESS_TEST_MODE !== 'active') {
-    // Resolve effective session limit: tier-based in SaaS mode, role-based otherwise
-    let effectiveMaxSessions = maxSessions;
-    if (isSaasModeActive(env.SAAS_MODE)) {
+    // Resolve tier once for both session limit and quota checks (cached 60s)
+    const isSaas = isSaasModeActive(env.SAAS_MODE);
+    let resolvedTier: ReturnType<typeof getUserTier> | null = null;
+    if (isSaas) {
       try {
         const tiers = await getTierConfig(env.KV);
-        const tierValue = subscriptionTier ?? accessTier;
-        const tier = getUserTier(tierValue, tiers);
-        effectiveMaxSessions = tier.maxSessions;
-      } catch {
-        // Fall back to role-based limit on error
-      }
+        resolvedTier = getUserTier(subscriptionTier ?? accessTier, tiers);
+      } catch { /* fall back to role-based */ }
     }
 
+    // Session limit: tier-based in SaaS mode, role-based otherwise
+    const effectiveMaxSessions = resolvedTier?.maxSessions ?? maxSessions;
     const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
     const sessionSettled = await Promise.allSettled(
       sessionKeys.map(key => env.KV.get<Session>(key.name, 'json'))
@@ -152,17 +149,9 @@ export async function validateSessionAndCheckLimits(params: {
         `Session limit reached (${runningCount}/${effectiveMaxSessions}). Stop an existing session to start a new one.`
       );
     }
-  }
 
-  // Tier-based usage quota check (SaaS mode only, skip for stress test)
-  if (isSaasModeActive(env.SAAS_MODE) && env.STRESS_TEST_MODE !== 'active') {
-    try {
-      const tiers = await getTierConfig(env.KV);
-      const tierValue = subscriptionTier ?? accessTier;
-      const tier = getUserTier(tierValue, tiers);
-
-      // Skip quota check for unlimited tiers
-      if (tier.monthlySeconds !== null) {
+    // Usage quota check (SaaS mode only)
+    if (isSaas && resolvedTier && resolvedTier.monthlySeconds !== null) {
         // Read usage from Timekeeper KV (approximate — real-time check happens on Timekeeper DO)
         const usageRecord = await env.KV.get(getTimekeeperKey(bucketName), 'json') as { thisMonth?: { month: string; seconds: number } } | null;
         const now = new Date();
@@ -170,17 +159,17 @@ export async function validateSessionAndCheckLimits(params: {
         const monthlySeconds = (usageRecord?.thisMonth?.month === currentMonth)
           ? usageRecord.thisMonth.seconds : 0;
 
-        if (monthlySeconds >= tier.monthlySeconds) {
+        if (monthlySeconds >= resolvedTier.monthlySeconds!) {
           const usedHours = Math.round(monthlySeconds / 3600);
-          const quotaHours = Math.round(tier.monthlySeconds / 3600);
+          const quotaHours = Math.round(resolvedTier.monthlySeconds! / 3600);
           throw new QuotaExceededError(
             `Monthly compute quota reached (${usedHours}h / ${quotaHours}h). Upgrade your plan.`
           );
         }
+      } catch (err) {
+        // Re-throw QuotaExceededError, ignore other errors (fail-open)
+        if (err instanceof QuotaExceededError) throw err;
       }
-    } catch (err) {
-      // Re-throw QuotaExceededError, ignore other errors (fail-open)
-      if (err instanceof QuotaExceededError) throw err;
     }
   }
 

@@ -143,6 +143,14 @@ export class Timekeeper {
     }
     this.sessionTotals[body.sessionId] = body.totalSeconds;
 
+    // Evict stale session entries to prevent unbounded growth (keep max 30)
+    const MAX_SESSION_ENTRIES = 30;
+    const keys = Object.keys(this.sessionTotals);
+    if (keys.length > MAX_SESSION_ENTRIES) {
+      const toRemove = keys.slice(0, keys.length - MAX_SESSION_ENTRIES);
+      for (const k of toRemove) delete this.sessionTotals[k];
+    }
+
     this.pendingSeconds += delta;
 
     // Persist to DO storage
