@@ -16,6 +16,7 @@ import { deleteScopedR2Token } from './r2-admin';
 import { CF_API_BASE } from './constants';
 import { createLogger } from './logger';
 import { toError } from './error-types';
+import { getAndDecrypt, getOrImportKey } from './kv-crypto';
 
 const logger = createLogger('user-cleanup');
 
@@ -72,8 +73,11 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   ]);
 
   // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
+  // Must use getAndDecrypt — r2token values are encrypted when ENCRYPTION_KEY is set.
+  // Raw KV.get('json') throws SyntaxError on the "v1:..." ciphertext prefix.
   const accountId = await env.KV.get('setup:account_id');
-  const r2TokenData = await env.KV.get(`r2token:${email}`, 'json') as { tokenId?: string; accessKeyId?: string; secretAccessKey?: string } | null;
+  const cryptoKey = await getOrImportKey(env);
+  const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${email}`, cryptoKey);
 
   // --- Block C: R2 scoped token cleanup ---
   try {
