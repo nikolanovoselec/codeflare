@@ -114,6 +114,12 @@ const TIER_CONFIG_CACHE_TTL_MS = 60_000; // 1 minute
 let cachedTierConfig: SubscriptionTierConfig[] | null = null;
 let tierConfigCachedAt = 0;
 
+/** Reset the tier config cache. Call in tests or when config is known to have changed. */
+export function resetTierConfigCache(): void {
+  cachedTierConfig = null;
+  tierConfigCachedAt = 0;
+}
+
 /**
  * Read tier configuration from KV with 1-minute cache, falling back to defaults.
  */

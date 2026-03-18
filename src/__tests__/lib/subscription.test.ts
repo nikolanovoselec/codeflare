@@ -12,6 +12,7 @@ import {
   isActiveTier,
   getMaxSessionsForTier,
   getAllowedSessionModes,
+  resetTierConfigCache,
 } from '../../lib/subscription';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -314,6 +315,7 @@ describe('getTierConfig', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    resetTierConfigCache();
   });
 
   it('returns defaults when no config in KV', async () => {

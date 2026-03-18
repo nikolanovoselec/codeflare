@@ -10,7 +10,7 @@ import { Context, Next } from 'hono';
 import { authenticateRequest } from '../lib/access';
 import { ForbiddenError } from '../lib/error-types';
 import { isSaasModeActive } from '../lib/onboarding';
-import { canUserLogin, getTierConfig } from '../lib/subscription';
+import { isActiveTier, getTierConfig } from '../lib/subscription';
 import type { Env, AccessUser } from '../types';
 
 /**
@@ -54,9 +54,10 @@ export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: A
 
   if (isSaasModeActive(c.env.SAAS_MODE)) {
     const effectiveTier = user.subscriptionTier ?? user.accessTier;
-    // Config-aware login check: respects canLogin field from admin tier config (cached 60s)
-    const tiers = await getTierConfig(c.env.KV);
-    if (!canUserLogin(effectiveTier, tiers)) {
+    // isActiveTier: blocked/pending → false (403), active tiers → true (pass)
+    // Note: canLogin in tier config controls authentication (pending=true → can see subscribe page).
+    // requireActiveUser controls IDE access — pending users are blocked from API routes.
+    if (!isActiveTier(effectiveTier)) {
       const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
       return c.json({ error: 'Access denied', code }, 403);
     }
