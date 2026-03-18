@@ -5,7 +5,7 @@ import SettingsPanel from './SettingsPanel';
 import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
-import { sessionStore } from '../stores/session';
+import { sessionStore, getUsageWarningLevel } from '../stores/session';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
@@ -35,6 +35,7 @@ interface LayoutProps {
  * +------------------------------------------------------------------+
  */
 const Layout: Component<LayoutProps> = (props) => {
+  const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
@@ -268,6 +269,23 @@ const Layout: Component<LayoutProps> = (props) => {
           <button type="button" onClick={() => window.location.reload()}>
             Refresh
           </button>
+        </div>
+      </Show>
+
+      {/* Usage quota warning banners */}
+      <Show when={usageWarning() === '80'}>
+        <div class="layout-auth-banner layout-usage-warning" data-testid="usage-warning-80">
+          <span>You've used 80% of your monthly compute quota. <a href="/app/plan">Upgrade plan</a></span>
+        </div>
+      </Show>
+      <Show when={usageWarning() === '95'}>
+        <div class="layout-auth-banner layout-usage-critical" data-testid="usage-warning-95">
+          <span>You've used 95% of your monthly compute quota. <a href="/app/plan">Upgrade now</a></span>
+        </div>
+      </Show>
+      <Show when={usageWarning() === '100'}>
+        <div class="layout-auth-banner layout-usage-exceeded" data-testid="usage-warning-100">
+          <span>Monthly compute quota exceeded. Sessions cannot start until quota resets. <a href="/app/plan">Upgrade plan</a></span>
         </div>
       </Show>
 
