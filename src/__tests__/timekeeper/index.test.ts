@@ -162,18 +162,19 @@ describe('Timekeeper DO', () => {
     });
 
     it('returns quotaExceeded=true when at quota', async () => {
-      // Free tier: 7200s
-      mockKV.get.mockImplementation(async (key: string) => {
+      // Free tier: 7200s. Mock must handle both get(key) and get(key, 'json') calls.
+      const usageRecord = {
+        today: { date: '2026-03-18', seconds: 0 },
+        thisWeek: { weekStart: '2026-03-16', seconds: 0 },
+        thisMonth: { month: '2026-03', seconds: 7100 },
+        thisYear: { year: '2026', seconds: 7100 },
+        allTime: { seconds: 7100 },
+        lastUpdatedAt: '2026-03-18T00:00:00Z',
+      };
+      mockKV.get.mockImplementation(async (key: string, type?: string) => {
         if (key === 'tiers:config') return null;
         if (key.startsWith('user:')) return JSON.stringify({ subscriptionTier: 'free', role: 'user' });
-        if (key.startsWith('timekeeper:')) return JSON.stringify({
-          today: { date: '2026-03-18', seconds: 0 },
-          thisWeek: { weekStart: '2026-03-16', seconds: 0 },
-          thisMonth: { month: '2026-03', seconds: 7100 },
-          thisYear: { year: '2026', seconds: 7100 },
-          allTime: { seconds: 7100 },
-          lastUpdatedAt: '2026-03-18T00:00:00Z',
-        });
+        if (key.startsWith('timekeeper:')) return type === 'json' ? usageRecord : JSON.stringify(usageRecord);
         return null;
       });
       const tk = createTimekeeper();
@@ -366,6 +367,7 @@ describe('Timekeeper DO', () => {
         if (key === 'bucketName') return 'cf-alice';
         if (key === 'email') return 'alice@example.com';
         if (key === 'sessionTotals') return JSON.stringify({ sess1: 200 });
+        if (key === 'lastFlushedMonthlyTotal') return 0;
         return undefined;
       });
 
