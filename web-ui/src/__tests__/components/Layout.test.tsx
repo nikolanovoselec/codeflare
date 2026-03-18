@@ -75,7 +75,10 @@ vi.mock('../../stores/session', () => ({
     stopSessionListPolling: vi.fn(),
     presets: [],
     preferences: {},
-  }
+  },
+  getUsageWarningLevel: vi.fn(() => 'none'),
+  isAtUsageQuota: vi.fn(() => false),
+  setUsageState: vi.fn(),
 }));
 
 vi.mock('../../stores/terminal', () => ({

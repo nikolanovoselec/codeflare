@@ -67,6 +67,7 @@ vi.mock('../../stores/session', () => {
       },
       _setR2Ready: (ready: boolean) => { _r2Ready = ready; },
     },
+    isAtUsageQuota: () => false,
   };
 });
 
