@@ -391,8 +391,6 @@ export async function updateUserTier(
   }, UpdateUserTierResponseSchema);
 }
 
-/** @deprecated Use updateUserTier instead */
-export const updateUserAccessTier = updateUserTier;
 
 const UsageResponseSchema = z.object({
   dailySeconds: z.number(),
