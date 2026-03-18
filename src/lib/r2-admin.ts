@@ -224,6 +224,38 @@ export async function deleteScopedR2Token(
   }
 }
 
+/**
+ * Check if a Cloudflare API token still exists and is active.
+ * Returns false on 404 (deleted) or any error (non-fatal — triggers fresh creation).
+ */
+async function verifyTokenExists(
+  accountId: string,
+  apiToken: string,
+  tokenId: string,
+): Promise<boolean> {
+  try {
+    const response = await r2AdminCB.execute(() =>
+      fetch(
+        `${CF_API_BASE}/accounts/${accountId}/tokens/${tokenId}`,
+        {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${apiToken}` },
+          signal: AbortSignal.timeout(5_000),
+        }
+      )
+    );
+    // Only treat 404 as definitive proof the token is gone.
+    // Transient errors (429, 500, 502, etc.) should NOT invalidate the cache —
+    // deleting a valid KV entry during a CF API blip turns a recoverable outage
+    // into a hard 401 for rclone.
+    if (response.status === 404) return false;
+    return true;
+  } catch {
+    // Network error or circuit breaker open — assume token may be valid
+    return true;
+  }
+}
+
 /** In-memory dedup cache to prevent concurrent token creation for the same email. */
 const pendingTokenCreations = new Map<string, Promise<ScopedR2TokenResult>>();
 
@@ -249,13 +281,22 @@ export async function getOrCreateScopedR2Token(
   } else {
     const cached = await getAndDecrypt<CachedR2Token>(kv, kvKey, cryptoKey ?? null);
     if (cached && cached.bucketName === bucketName) {
-      return {
-        accessKeyId: cached.accessKeyId,
-        secretAccessKey: cached.secretAccessKey,
-        tokenId: cached.tokenId,
-      };
-    }
-    if (cached && cached.bucketName !== bucketName) {
+      // Verify the cached token still exists on Cloudflare.
+      // Tokens can be deleted externally (user cleanup, manual deletion, bucket purge)
+      // while the KV cache still references them, causing 401 errors in rclone.
+      const tokenAlive = await verifyTokenExists(accountId, apiToken, cached.tokenId);
+      if (tokenAlive) {
+        return {
+          accessKeyId: cached.accessKeyId,
+          secretAccessKey: cached.secretAccessKey,
+          tokenId: cached.tokenId,
+        };
+      }
+      logger.info('Cached R2 token no longer valid, creating fresh token', {
+        email, tokenId: cached.tokenId, bucketName,
+      });
+      await kv.delete(kvKey);
+    } else if (cached && cached.bucketName !== bucketName) {
       await kv.delete(kvKey);
     }
   }
