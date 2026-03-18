@@ -833,9 +833,17 @@ Tier change notifications are sent via Resend API (`src/lib/email.ts`). The `sen
 
 The Timekeeper DO persists all critical state to DO storage: `pendingSeconds`, `sessionTotals`, `bucketName`, `email`, and `lastFlushedMonthlyTotal`. On cold start, the constructor restores all fields via `blockConcurrencyWhile()`. The `lastFlushedMonthlyTotal` is updated both after alarm flush (successful KV write) and after KV re-read during ping quota checks, ensuring accurate quota enforcement after DO eviction.
 
-### Access Tiers (Legacy)
+### Legacy AccessTier Backward Compatibility
 
-The original 4-tier system (`pending`/`standard`/`advanced`/`blocked`) is preserved for backward compatibility. New code uses `subscriptionTier` with fallback to `accessTier`. See Subscription Tiers above for the replacement.
+The original 4-tier system (`pending`/`standard`/`advanced`/`blocked`) is preserved for backward compatibility. New code uses `subscriptionTier` with fallback to `accessTier`. When writing tier changes via `PATCH /api/users/:email`, both fields are written: `subscriptionTier` gets the exact new value, while `accessTier` gets the nearest valid legacy value (new tiers like `free`, `trial`, `max`, `unlimited` map to `'advanced'` in the legacy field). This prevents `AccessTierSchema.safeParse` from rejecting unknown values and silently falling back to `'advanced'` on subsequent reads that only check `accessTier`.
+
+### Real-Time Usage Data
+
+The `/api/usage` endpoint queries the Timekeeper DO directly (`GET /usage` on the DO) for real-time data that includes both KV-flushed seconds and in-memory pending seconds. This eliminates the up-to-5-minute staleness of reading KV alone. Falls back to KV when the `TIMEKEEPER` binding is unavailable. The batch-status endpoint (`GET /api/sessions/batch-status`) still reads from KV for performance (it runs on every poll cycle), accepting the 5-minute staleness window for display purposes. Authoritative quota enforcement on session start reads KV (approximate), while mid-session enforcement via Timekeeper DO ping is real-time.
+
+### Timekeeper DO Storage Configuration
+
+The Timekeeper DO uses standard Durable Object key-value storage (`ctx.storage.get`/`put`/`setAlarm`), not the SQLite storage API. The wrangler.toml migration uses `new_classes` (not `new_sqlite_classes`). This is a plain DO — alarm-based flush, KV projection, crash recovery via DO storage.
 
 ### CF Access Configuration Strategy
 
