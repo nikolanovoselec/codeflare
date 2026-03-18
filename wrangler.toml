@@ -65,7 +65,7 @@ new_sqlite_classes = ["container"]
 
 [[migrations]]
 tag = "v2"
-new_sqlite_classes = ["timekeeper"]
+new_classes = ["timekeeper"]
 
 # Static assets (frontend) with SPA routing
 [assets]

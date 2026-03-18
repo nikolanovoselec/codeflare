@@ -171,8 +171,6 @@ export const UsageRecordSchema = z.object({
 });
 export type UsageRecord = z.infer<typeof UsageRecordSchema>;
 
-/** Usage summary shape returned by batch-status and /api/usage (not exported — defined inline in route handlers). */
-// type UsageSummary = { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }
 
 /**
  * Configuration for a single terminal tab

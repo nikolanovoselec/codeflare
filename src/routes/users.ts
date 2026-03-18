@@ -128,7 +128,12 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     throw new ValidationError('Cannot change admin subscription tier');
   }
 
-  const updated = { ...existing, subscriptionTier: newTier, accessTier: newTier };
+  // Map new tier to nearest valid AccessTier for backward compat.
+  // New tiers (free/trial/max/unlimited) don't exist in the old 4-value schema —
+  // writing them raw would cause AccessTierSchema.safeParse to reject → fallback 'advanced'.
+  const LEGACY_TIERS = new Set(['pending', 'standard', 'advanced', 'blocked']);
+  const legacyAccessTier = LEGACY_TIERS.has(newTier) ? newTier : 'advanced';
+  const updated = { ...existing, subscriptionTier: newTier, accessTier: legacyAccessTier };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
 
   // Auto-set sessionMode to 'advanced' for tiers that support it.
@@ -161,7 +166,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     env: c.env,
   });
 
-  return c.json({ success: true, email, subscriptionTier: newTier, accessTier: newTier });
+  return c.json({ success: true, email, subscriptionTier: newTier, accessTier: legacyAccessTier });
 });
 
 export default app;

@@ -1,6 +1,6 @@
 /**
  * Usage API route — returns current user's usage and tier information.
- * Reads from timekeeper:{bucketName} KV key.
+ * Queries Timekeeper DO for real-time data when available, falls back to KV.
  */
 import { Hono } from 'hono';
 import type { Env, UsageRecord } from '../types';
@@ -14,16 +14,33 @@ app.use('*', authMiddleware);
 app.get('/', async (c) => {
   const user = c.get('user');
   const bucketName = c.get('bucketName');
-  const kvKey = getTimekeeperKey(bucketName);
 
-  const [record, tiers] = await Promise.all([
-    c.env.KV.get<UsageRecord>(kvKey, 'json'),
-    getTierConfig(c.env.KV),
-  ]);
-
+  const tiers = await getTierConfig(c.env.KV);
   const tierValue = user.subscriptionTier ?? user.accessTier;
   const tier = getUserTier(tierValue, tiers);
 
+  // Try real-time data from Timekeeper DO (includes pending unflushed seconds)
+  if (c.env.TIMEKEEPER) {
+    try {
+      const tkId = c.env.TIMEKEEPER.idFromName(bucketName);
+      const tk = c.env.TIMEKEEPER.get(tkId);
+      const res = await tk.fetch(new Request('http://timekeeper/usage'));
+      if (res.ok) {
+        const live = await res.json() as { dailySeconds: number; monthlySeconds: number };
+        return c.json({
+          dailySeconds: live.dailySeconds,
+          monthlySeconds: live.monthlySeconds,
+          monthlyQuotaSeconds: tier.monthlySeconds,
+          tier: tier.id,
+        });
+      }
+    } catch {
+      // Fall through to KV
+    }
+  }
+
+  // Fallback: read from KV (stale by up to 5 minutes)
+  const record = await c.env.KV.get<UsageRecord>(getTimekeeperKey(bucketName), 'json');
   const now = new Date();
   const currentMonth = getUtcMonthString(now);
   const currentDate = getUtcDateString(now);
