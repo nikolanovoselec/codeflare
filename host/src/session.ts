@@ -26,21 +26,57 @@ const PROCESS_NAME_POLL_MS = 2000;
 /**
  * Strip terminal emulator response sequences from input before writing to PTY.
  *
- * When xterm.js responds to queries from PTY programs (DSR cursor position,
- * OSC background color, device attributes), the responses travel back through
- * WebSocket and can pollute stdin of programs reading user input — e.g.,
- * `gh secret set` reads an OSC 11 response instead of the pasted secret.
+ * When xterm.js responds to queries from PTY programs (DSR, device attributes,
+ * focus/mouse reports), the responses travel back through WebSocket and can
+ * pollute stdin — e.g., `gh secret set` reads an OSC 11 response as the secret.
  *
- * These patterns are terminal responses, never user-typed input:
- * - CPR (Cursor Position Report): \e[<row>;<col>R  — response to DSR \e[6n
- * - OSC 10/11/12 responses: \e]1x;rgb:...ST       — response to \e]11;?\e\\
- * - DA1 (Device Attributes): \e[?<params>c         — response to \e[c
+ * Returns the cleaned string (for writing to PTY). The caller also uses this
+ * to decide whether to count the data as "user input" for idle detection.
  */
 function stripTerminalResponses(data: string): string {
   return data
-    .replace(/\x1b\[\d+;\d+R/g, '')
-    .replace(/\x1b\]1[012];[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-    .replace(/\x1b\[\?[\d;]*c/g, '');
+    .replace(/\x1b\[\d+;\d+R/g, '')                              // CPR
+    .replace(/\x1b\]1[012];[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')   // OSC 10/11/12
+    .replace(/\x1b\[\?[\d;]*c/g, '');                             // DA1
+}
+
+/**
+ * Check if data contains actual user input for idle detection.
+ *
+ * Whitelist approach — only these count as "user is active":
+ * - Printable characters (typing/pasting)
+ * - Control keys: Enter, Backspace, Tab, Ctrl+key
+ * - Arrow keys, Home, End, PgUp, PgDn, Delete, Insert, Function keys
+ * - Alt+key combinations
+ * - Mouse clicks (SGR press events ending in M, not m which is release)
+ *
+ * Everything else (terminal responses, focus reports, mouse movement,
+ * device attributes, OSC/DCS replies) does NOT count.
+ */
+function containsUserInput(data: string): boolean {
+  const cleaned = data
+    // Mark user-input ESC sequences before stripping all ESC sequences
+    // Arrow keys / cursor movement (CSI A-H)
+    .replace(/\x1b\[[A-H]/g, '\x01')
+    // Function keys (CSI <num> ~)
+    .replace(/\x1b\[\d+~/g, '\x01')
+    // SS3 keypad/function keys (ESC O + letter)
+    .replace(/\x1bO[A-Za-z]/g, '\x01')
+    // Alt+key (ESC + printable char)
+    .replace(/\x1b[\x20-\x7e]/g, '\x01')
+    // Mouse clicks only — SGR press ends with M (release ends with m, ignore)
+    .replace(/\x1b\[<\d+;\d+;\d+M/g, '\x01')
+    // Strip ALL remaining ESC sequences (responses, reports, mouse movement, etc.)
+    .replace(/\x1b\[[\s\S]*?[\x40-\x7e]/g, '')    // CSI
+    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, '') // OSC
+    .replace(/\x1bP[\s\S]*?(?:\x07|\x1b\\)/g, '')  // DCS
+    .replace(/\x1b_[\s\S]*?(?:\x07|\x1b\\)/g, '')  // APC
+    .replace(/\x1b\^[\s\S]*?(?:\x07|\x1b\\)/g, '') // PM
+    .replace(/\x1bX[\s\S]*?(?:\x07|\x1b\\)/g, '')  // SOS
+    .replace(/\x1b./g, '');                          // Any other ESC + byte
+
+  // Anything left is: printable chars, control keys, or our \x01 markers
+  return /[\x01-\x1a\x20-\x7e\x7f\u0080-\uffff]/.test(cleaned);
 }
 
 // Forward reference — SessionManager is imported only as a type to avoid
@@ -282,13 +318,15 @@ export class Session {
   /**
    * Write data to the PTY, stripping terminal emulator responses that
    * xterm.js sent back through WebSocket (CPR, OSC, DA sequences).
+   * Only counts as "user input" for idle detection if the data contains
+   * actual keypresses/clicks (not terminal protocol chatter).
    */
   write(data: string): void {
     if (this.ptyProcess) {
       const filtered = stripTerminalResponses(data);
       if (filtered) {
         this.ptyProcess.write(filtered);
-        if (this._activityTracker) {
+        if (this._activityTracker && containsUserInput(data)) {
           this._activityTracker.recordInput();
         }
       }
