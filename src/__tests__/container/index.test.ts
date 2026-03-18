@@ -311,6 +311,76 @@ describe('container DO class', () => {
     });
   });
 
+  describe('fetch gate — 503 when container not running', () => {
+    it('should return 503 for non-internal routes when container is not running', async () => {
+      mockContainerRuntime.running = false;
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/some-route', {
+        method: 'GET',
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(503);
+    });
+
+    it('should allow internal routes when container is not running', async () => {
+      mockContainerRuntime.running = false;
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/getBucketName', {
+        method: 'GET',
+      });
+
+      const response = await instance.fetch(request);
+      // Internal routes are handled by the route map before the gate
+      expect(response.status).toBe(200);
+      const body = await response.json() as { bucketName: string | null };
+      expect(body).toHaveProperty('bucketName');
+    });
+
+    it('should proxy non-internal routes when container is running', async () => {
+      mockContainerRuntime.running = true;
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/some-route', {
+        method: 'GET',
+      });
+
+      const response = await instance.fetch(request);
+      // Should fall through to mocked super.fetch which returns 'base fetch'
+      const text = await response.text();
+      expect(text).toBe('base fetch');
+    });
+
+    it('should return JSON error body with correct Content-Type', async () => {
+      mockContainerRuntime.running = false;
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/some-route', {
+        method: 'GET',
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(503);
+      expect(response.headers.get('Content-Type')).toBe('application/json');
+      const body = await response.json() as { error: string };
+      expect(body.error).toBe('Container not running');
+    });
+  });
+
   describe('destroy', () => {
     it('calls super.destroy() and cleans up operational storage', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {

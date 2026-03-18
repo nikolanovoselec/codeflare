@@ -2,7 +2,7 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-03-18
 
 ---
 
@@ -106,18 +106,19 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, confirmed stable with visibility-heartbeat-based keepalive).
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, renewed only on new user input via input-change detection).
 
-**SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 5-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
+**SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 60-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
 
-**`collectMetrics()` Heartbeat (every 5s):**
+**`collectMetrics()` Input-Change Detection (every 60s):**
 1. Checks `this.ctx.container?.running` - returns early (no re-arm) if container is dead
-2. Fetches `/activity` via `getTcpPort()` - uses three-tier idle detection based on frontend visibility heartbeat:
-   - **New host + heartbeat received** (`lastHeartbeatAt` is a number): renew only if ALL three conditions met: WS connected, heartbeat within `HEARTBEAT_STALE_MS` (5 min), AND user input within `INPUT_IDLE_TIMEOUT_MS` (30 min). Stale heartbeat = tab hidden. Stale input = user walked away.
-   - **Old host** (`lastHeartbeatAt === undefined`): legacy input-based fallback. Renew if WS connected AND (`lastInputAt` recent within 30 min OR `lastInputAt === null` within 5-min grace period from `containerStartedAt`).
-   - **New host, no heartbeat** (`lastHeartbeatAt === null`): don't renew. Container stops after `sleepAfter`.
-   - Non-OK `/activity` response: don't renew (broken activity endpoint shouldn't keep containers alive).
-   - Activity/keepalive logs are at info level for all renewal decisions.
+2. Fetches `/activity` via `getTcpPort()` - uses input-change detection to decide whether to renew `sleepAfter`:
+   - Reads `lastInputAt` from the activity response (Unix timestamp of last real user input)
+   - Compares to `this.lastSeenInputAt` (the value from the previous poll)
+   - **New input detected** (`lastInputAt !== null && lastInputAt !== lastSeenInputAt`): calls `renewActivityTimeout()` to reset the 30-minute `sleepAfter` timer
+   - **No new input**: does not renew — the `sleepAfter` timer continues counting down from the last renewal
+   - Non-OK `/activity` response: does not renew (broken activity endpoint should not keep containers alive)
+   - Activity logs are at info level for all renewal decisions
 3. Fetches `/health` via `getTcpPort()` - reads cpu/mem/hdd/syncStatus
 4. Writes metrics to KV session record (`session.metrics`)
 5. Re-arms schedule if container still running
@@ -127,37 +128,24 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ```mermaid
 flowchart TD
-    CM["collectMetrics() fires<br/>(every 5s)"] --> CRunning{"container.running?"}
+    CM["collectMetrics() fires<br/>(every 60s)"] --> CRunning{"container.running?"}
     CRunning -->|No| Exit1["Early return, no re-arm<br/>(loop dies -- container dead)"]
-    CRunning -->|Yes| IDs{"identifiers exist?<br/>(sessionId + bucketName)"}
-    IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
-    IDs -->|Yes| FetchAct["Fetch /activity<br/>from container"]
+    CRunning -->|Yes| FetchAct["Fetch /activity<br/>from container"]
     FetchAct --> ActOK{"Response OK?"}
     ActOK -->|No| NoRenewErr["Don't renew<br/>(broken endpoint)"]
-    ActOK -->|Yes| WSClients{"Active WS clients?"}
-    WSClients -->|No| NoRenew["Don't renew<br/>(let container idle to sleepAfter)"]
-    WSClients -->|Yes| HBCheck{"lastHeartbeatAt?"}
-    HBCheck -->|"number"| HBRecent{"heartbeat within<br/>5 min?"}
-    HBRecent -->|Yes| InputCheck{"input within<br/>30 min?"}
-    InputCheck -->|Yes| Renew["renewActivityTimeout()<br/>(keepalive)"]
-    InputCheck -->|No| NoRenewInput["Don't renew<br/>(no typing — user idle)"]
-    HBRecent -->|No| NoRenewStale["Don't renew<br/>(tab hidden)"]
-    HBCheck -->|"undefined<br/>(old host)"| LegacyInput{"Legacy: input recent<br/>or in grace period?"}
-    LegacyInput -->|Yes| Renew
-    LegacyInput -->|No| NoRenewLegacy["Don't renew<br/>(idle — no input)"]
-    HBCheck -->|"null<br/>(no heartbeat)"| NoRenewNull["Don't renew<br/>(new host, no heartbeat)"]
+    ActOK -->|Yes| InputChanged{"lastInputAt changed<br/>since last poll?"}
+    InputChanged -->|Yes| Renew["renewActivityTimeout()<br/>(reset 30m sleepAfter)"]
+    InputChanged -->|No| NoRenew["Don't renew<br/>(no new input)"]
     Renew --> FetchHealth["Fetch /health<br/>from container"]
     NoRenew --> FetchHealth
     NoRenewErr --> FetchHealth
-    NoRenewStale --> FetchHealth
-    NoRenewInput --> FetchHealth
-    NoRenewLegacy --> FetchHealth
-    NoRenewNull --> FetchHealth
-    FetchHealth --> WriteKV["Write metrics to KV"]
-    WriteKV --> ReArm["schedule(5, 'collectMetrics')<br/>(unconditional if container.running)"]
+    FetchHealth --> IDs{"identifiers exist?<br/>(sessionId + bucketName)"}
+    IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
+    IDs -->|Yes| WriteKV["Write metrics to KV"]
+    WriteKV --> ReArm["schedule(60, 'collectMetrics')<br/>(if container.running)"]
 ```
 
-**`onActivityExpired()` Override:** Checks `/activity` for active WS clients, frontend visibility heartbeat, and recent user input. Renews only if ALL conditions met: active WS + recent heartbeat (within 5 min) + recent input (within 30 min). If any signal is stale -> `this.stop('SIGTERM')`. Old host (`lastHeartbeatAt === undefined`) + active WS + recent input -> legacy fallback, renews. No WS clients -> `this.stop('SIGTERM')`. Non-OK `/activity` or fetch error -> `this.stop('SIGTERM')`. By the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed.
+**`onActivityExpired()` Override:** Performs a final input-change check before stopping. Fetches `/activity` and compares `lastInputAt` to `lastSeenInputAt`. If new input was received since the last `collectMetrics` poll (i.e., user typed between the last poll and expiry), renews `sleepAfter` and returns. Otherwise calls `this.stop('SIGTERM')`. Container not running, non-OK `/activity` response, or fetch error all result in `this.stop('SIGTERM')`. By the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed.
 
 **`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
@@ -193,19 +181,24 @@ sequenceDiagram
 
 **File:** `host/src/server.ts` - Node.js/TypeScript server inside the container. Single port 8080 for WebSocket + REST + health/metrics.
 
-Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (WebSocket connection state + user input timestamps + frontend visibility heartbeat: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`, `lastHeartbeatAt`) for hibernation decisions via `GET /activity`. WS message handler routes `{"type":"heartbeat"}` to `activityTracker.recordHeartbeat()` without writing to PTY. Unknown JSON `type` strings are silently ignored (guard against future message types leaking to PTY).
+Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads sync status from `/tmp/sync-status.json` and exposes via `/health`. Activity tracking (WebSocket connection state + user input timestamps: `hasActiveConnections`, `connectedClients`, `activeSessions`, `disconnectedForMs`, `lastInputAt`) for hibernation decisions via `GET /activity`. Unknown JSON `type` strings are silently ignored (guard against future message types leaking to PTY).
 
 **Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. Paths called via `getTcpPort().fetch()` (which bypasses the DO's `fetch()` override that injects the auth header) must be in the `authExemptPaths` Set at `host/src/server.ts`: `['/health', '/activity']`. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
 
-**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null, lastHeartbeatAt: number | null }`. Used by both `collectMetrics()` (keepalive heartbeat + idle detection) and `onActivityExpired()` (idle detection). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected). `lastInputAt` is the Unix timestamp (ms) of the last real user keyboard input — any keystroke that reaches `ptyProcess.write()` after stripping terminal response sequences (CPR, OSC, DA). `lastHeartbeatAt` is the Unix timestamp (ms) of the last frontend visibility heartbeat — `null` if no heartbeat received yet. The DO uses three states: `undefined` (old host, field absent = legacy fallback), `null` (new host, no heartbeat), `number` (check recency against `HEARTBEAT_STALE_MS`).
+**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null }`. Used by both `collectMetrics()` (input-change detection) and `onActivityExpired()` (final input check). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected). `lastInputAt` is the Unix timestamp (ms) of the last real user input — determined by `containsUserInput()` after `stripTerminalResponses()` removes terminal protocol chatter (CPR, OSC, DA). The DO compares `lastInputAt` to its `lastSeenInputAt` field to detect new input between polls.
 
-**Idle Detection (Visibility Heartbeat + Input):** Container stays alive only when ALL conditions are met: WS connected, recent heartbeat (tab visible within 5 min), AND recent user input (typed within 30 min). The frontend sends `{"type":"heartbeat"}` through WebSocket every 60s (`HEARTBEAT_INTERVAL_MS`) when `document.visibilityState === 'visible'`. The host tracks `lastHeartbeatAt` via `activityTracker.recordHeartbeat()`. The Container DO's `collectMetrics()` (every 5s) checks both signals. If either heartbeat or input is stale, the container stops after `sleepAfter` (30 min). Scenarios: tab hidden → stops in ~35 min; tab visible but no typing for 30 min → stops in ~60 min; browser closed → stops in ~35 min. **Legacy fallback** for old host images (without heartbeat support, `lastHeartbeatAt === undefined` in response): uses input-based detection with a 5-min null grace period from `containerStartedAt`.
+**Idle Detection (Input-Change Detection):** The Container DO's `collectMetrics()` polls `/activity` every 60s and compares `lastInputAt` to its stored `lastSeenInputAt`. If the value changed (new user input), `renewActivityTimeout()` resets the 30-minute `sleepAfter` timer. If no new input is detected across polls, the timer counts down and the container stops after 30 minutes of idle time. `containsUserInput()` in `host/src/session.ts` uses a whitelist approach — only actual keypresses count (printable characters, control keys, arrow keys, function keys, Alt+key, mouse clicks). Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to the PTY. Scenarios: user stops typing → container stops in ~30 min; browser closed → container stops in ~30 min (no further input to detect).
+
+**WebSocket Wake-Loop Prevention:** Three layers prevent browser auto-reconnect from waking a hibernated container in an infinite stop/start cycle:
+1. **DO fetch gate** (`container/index.ts`): The `fetch()` override returns 503 when `!this.ctx.container?.running` for all non-internal routes. This is authoritative (the DO knows container state directly, no KV read needed) and prevents `super.fetch()` from triggering the SDK's `startIfNotRunning`.
+2. **Terminal route guard** (`routes/terminal.ts`): Rejects WebSocket upgrade requests with 503 when `session.status === 'stopped'` in KV. This is defense-in-depth — catches requests before they reach the DO.
+3. **Frontend disposal** (`stores/session.ts`): The session poller detects running→stopped transitions and calls `terminalStore.disposeSession(sessionId)`, which kills all WebSocket retry loops for that session. Fresh `connect()` calls are only made when the user explicitly starts the session again.
 
 **WebSocket Protocol:** Raw terminal data (NOT JSON-wrapped). Control messages (resize, process-name) as JSON. No application-level ping/pong -- Cloudflare handles protocol-level WebSocket keepalive for DO/Container connections. Headless terminal (xterm SerializeAddon) captures full state for reconnection.
 
 **PTY:** Spawns `bash -l` (login shell for .bashrc) with `xterm-256color`, truecolor support.
 
-**Terminal emulator response stripping:** The PTY input handler strips terminal emulator responses (CSI sequences like `\x1b[?1;2c` and DA/DSR replies) from WebSocket input before writing to the PTY. These responses are generated by xterm.js in reply to terminal queries issued by CLI tools, and can appear as garbage characters in the terminal when echoed back through the PTY.
+**Terminal emulator response stripping:** `stripTerminalResponses()` in `host/src/session.ts` strips terminal emulator responses (CPR, OSC 10/11/12, DA1) from WebSocket input before writing to the PTY. These responses are generated by xterm.js in reply to terminal queries issued by CLI tools (e.g., `gh secret set` reads an OSC 11 response as the secret value). `containsUserInput()` then classifies the original data using a whitelist approach: printable characters, control keys (Enter, Backspace, Tab, Ctrl+key), arrow keys, function keys, Alt+key, and mouse clicks count as user input for idle detection. Terminal protocol chatter (CSI/OSC/DCS/APC sequences, focus reports, mouse movement/release) does not count. The `Session.write()` method calls both: PTY receives the filtered data, and `activityTracker.recordInput()` is called only when `containsUserInput()` returns true.
 
 ### Frontend (SolidJS + xterm.js)
 
@@ -245,7 +238,7 @@ sequenceDiagram
 
 #### Polling and Consistency
 
-**Polling Interval:** `SESSION_LIST_POLL_INTERVAL_MS = 5000` -- matches the DO's `collectMetrics` 5s push cycle. Polling faster wastes requests since KV data doesn't change between pushes. `CONTEXT_EXPIRY_MS = 30 * 60 * 1000` (30m) matches backend `sleepAfter` for accurate context-expired detection.
+**Polling Interval:** `SESSION_LIST_POLL_INTERVAL_MS = 5000` -- frontend polls at 5s for responsive UI. The DO's `collectMetrics` pushes metrics to KV every 60s, so metrics may be up to ~60s stale on the dashboard. `CONTEXT_EXPIRY_MS = 30 * 60 * 1000` (30m) matches backend `sleepAfter` for accurate context-expired detection.
 
 **KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully -- `SessionStatCard` shows last-known metrics for recently-stopped sessions.
 
@@ -346,7 +339,7 @@ flowchart TD
 
 **Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` -- prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
 
-**Session Stop Flow (idle):** `onActivityExpired()` detects no active WS clients, stale/missing visibility heartbeat, or unreachable activity endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV.
+**Session Stop Flow (idle):** `onActivityExpired()` detects no new user input since last `collectMetrics` poll, or unreachable activity endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV.
 
 ---
 
@@ -404,10 +397,10 @@ stateDiagram-v2
     initializing --> error : error
     running --> stopping : stop
     stopping --> stopped : poll stopped
-    running --> stopped : onActivityExpired (no WS or stale heartbeat)
+    running --> stopped : onActivityExpired (no new input)
 ```
 
-**Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> no WS clients or stale/missing visibility heartbeat (or unreachable endpoint) -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule -> KV status = `'stopped'`
+**Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> `lastInputAt` unchanged since last poll (no new input) or unreachable endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule -> KV status = `'stopped'`
 
 **Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so no KV write)
 
@@ -418,7 +411,7 @@ flowchart TD
     subgraph Idle["Idle Stop"]
         I1["sleepAfter expires"] --> I2["onActivityExpired()"]
         I2 --> I3["Check /activity"]
-        I3 --> I4{"WS + recent heartbeat?"}
+        I3 --> I4{"lastInputAt changed<br/>since last poll?"}
         I4 -->|Yes| I4R["renewActivityTimeout()"]
         I4 -->|No| I5["this.stop('SIGTERM')"]
         I5 --> I6["onStop()"]
@@ -467,8 +460,8 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph ContainerDO["Container DO"]
-        A1["collectMetrics()<br/>every 5s"]
-        A2["/activity check<br/>renews timeout"]
+        A1["collectMetrics()<br/>every 60s"]
+        A2["/activity check<br/>renews on new input"]
         A3["/health fetch<br/>writes KV metrics"]
         A4["Zombie DO detection:<br/>missing IDs = early return,<br/>no re-arm"]
         A1 --> A2 --> A3
@@ -934,7 +927,9 @@ Cloudflare Access protects all authenticated surfaces (see Section [Authenticati
 
 The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
 
-**Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `r2-admin.ts` (called from `lifecycle.ts`), which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
+**Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `r2-admin.ts` (called from `lifecycle.ts`), which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` (encrypted via AES-256-GCM when `ENCRYPTION_KEY` is set) and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
+
+**R2 token verification:** Cached tokens are validated before use via `verifyTokenExists()` in `r2-admin.ts`. This calls `GET /accounts/{accountId}/tokens/{tokenId}` through the circuit breaker. Only a 404 response (token definitively deleted) invalidates the cache and triggers fresh token creation. Transient errors (429, 500, 502, network errors, circuit breaker open) assume the token is still valid — this prevents a Cloudflare API blip from unnecessarily deleting a valid KV entry and causing rclone 401 errors. The verification runs on every `getOrCreateScopedR2Token()` cache hit.
 
 ### Container Auth Token
 
@@ -1902,7 +1897,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
 **Count:** 12 test files, ~86 tests.
 **Run:** `cd host && npm test`
-**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + heartbeat tracking, WebSocket input classification (including heartbeat routing), server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
+**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
 
 ### Property-Based Fuzz Tests
 
@@ -2067,7 +2062,7 @@ codeflare/
 │   │   ├── session.ts        # Session class — PTY management, tab lifecycle
 │   │   ├── session-manager.ts # SessionManager class, PREWARM_SESSION_ID constant
 │   │   ├── metrics.ts        # System metrics collection (disk usage, sync status)
-│   │   ├── activity-tracker.ts # WS connection + user input + visibility heartbeat tracking for idle detection
+│   │   ├── activity-tracker.ts # WS connection + user input tracking for idle detection (input-change based)
 │   │   ├── prewarm-config.ts # PTY pre-warm configuration (first-output readiness)
 │   │   └── types.ts          # Shared TypeScript types
 │   ├── __tests__/            # Host unit tests (12 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, host fixes, fuzz, memory merge/cleanup)
@@ -2149,7 +2144,7 @@ Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `de
 
 ### R2 Bucket Cleanup on User Deletion
 
-`DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), deletes the scoped R2 token, empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency when objects were deleted).
+`DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), reads the scoped R2 token via `getAndDecrypt()` (required because `r2token:{email}` values are encrypted when `ENCRYPTION_KEY` is set — raw `KV.get('json')` throws `SyntaxError` on the `v1:...` ciphertext prefix), deletes the scoped R2 token, empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency when objects were deleted).
 
 If worker-level R2 credentials are not configured (e.g., setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. During reconfiguration, stale user cleanup is wrapped in a `runStep('cleanup_stale_users')` call for NDJSON progress visibility in the setup wizard frontend. **SaaS mode:** only admin-role users removed from the admin list are cleaned up — JIT-provisioned regular users are preserved. Each user's KV entry is checked for `role: 'admin'` before qualifying for removal.
 
@@ -2252,7 +2247,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 | AD10 | Open setup endpoint before first configure | <details><summary>Bootstrap problem - no auth before auth is configured</summary><br>`/api/setup/configure` is public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet - that's what setup configures).<br><br>**Trade-off**: A narrow window (seconds to minutes) exists where any actor could claim the deployment. Accepted because the target audience is self-hosted single-user/small-team deployments where the deployer is watching the process.<br><br>**Mitigation**: `setup:complete` KV flag prevents re-configuration. Rate limiting applies to setup routes.<br><br>**Future**: A one-time bootstrap secret injected at deploy time would close this window entirely.</details> |
 | AD11 | Suffix-pattern CORS with credentials | <details><summary><code>matchesPattern()</code> with domain-boundary enforcement</summary><br>Default `ALLOWED_ORIGINS` includes `.workers.dev` as a suffix pattern, with `Access-Control-Allow-Credentials: true` on matching responses.<br><br>**Trade-off**: Any `*.workers.dev` subdomain passes the CORS check. Accepted because: `matchesPattern()` enforces domain boundaries (`evil-workers.dev` does NOT match), custom domains replace the wildcard, `ALLOWED_ORIGINS` is configurable, and CF Access JWT is the primary auth gate.<br><br>**Mitigation**: Setup adds `.workers.dev` suffix and `.{customDomain}` suffix to `setup:allowed_origins` in KV.<br><br>**Future**: Restricting credentialed CORS to exact known hosts would tighten the trust surface.</details> |
 | AD12 | KV-based setup lock (non-atomic) | <details><summary>Read-then-write pattern, acceptable for one-time setup</summary><br>Read `setup:complete`, check if false, perform setup, write true. Not atomic - two simultaneous requests could both proceed.<br><br>**Trade-off**: Accepted because setup is a one-time operation by a single admin. Each sub-step (CF API calls) is individually idempotent - duplicate execution produces the same result. Worst case is redundant API calls, not corrupted state.<br><br>**Future**: Moving to a Durable Object would provide strict serialization, deferred until there's evidence of the race occurring.</details> |
-| AD13 | Per-user scoped R2 tokens | <details><summary>Each container gets an R2 token scoped to its user's bucket only</summary><br>Replaces previous shared credential model. Token lifecycle:<br>1. **Creation**: `getOrCreateScopedR2Token()` creates token with Object Read+Write policy restricted to user's bucket<br>2. **Caching**: Token data cached in KV as `r2token:{email}` - survives container restarts<br>3. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config<br>4. **Revocation**: `deleteScopedR2Token()` on user deletion<br><br>**Trade-off**: Requires `API Tokens: Edit` permission on deploy token (broader than ideal). Accepted because manual R2 credential management per user is operationally impractical.</details> |
+| AD13 | Per-user scoped R2 tokens | <details><summary>Each container gets an R2 token scoped to its user's bucket only</summary><br>Replaces previous shared credential model. Token lifecycle:<br>1. **Creation**: `getOrCreateScopedR2Token()` creates token with Object Read+Write policy restricted to user's bucket<br>2. **Caching**: Token data cached in KV as `r2token:{email}` (encrypted via AES-256-GCM) - survives container restarts<br>3. **Verification**: `verifyTokenExists()` validates cached tokens via `GET /tokens/{id}` before use. Only 404 invalidates; transient errors assume valid (prevents API blips from causing rclone 401s)<br>4. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config<br>5. **Revocation**: `deleteScopedR2Token()` on user deletion<br><br>**Trade-off**: Requires `API Tokens: Edit` permission on deploy token (broader than ideal). Accepted because manual R2 credential management per user is operationally impractical.</details> |
 | AD14 | Never auto-`--resync` on bisync failure | <details><summary><code>--resilient</code> + <code>--recover</code> for self-healing instead</summary><br>`--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses pending deletions - if side A deleted a file and bisync fails before propagating, `--resync` resurrects it from side B.<br><br>**Instead**: `--resilient` (continue past non-critical errors) + `--recover` (reconstruct corrupted listings) + `--max-delete 100` (allow bulk deletions). Daemon retries in 60s on failure.<br><br>**Manual `--resync`** is safe in `establish_bisync_baseline()` on container startup because one-way restore runs first.</details> |
 | AD15 | TabConfigSchema allows arbitrary command strings | <details><summary><code>z.string().max(200)</code> — no additional security risk</summary><br>Users already have full root shell access inside their own ephemeral container. Restricting tab commands provides no additional security benefit since the container is their sandbox.</details> |
 | AD16 | entrypoint.sh ~1010 lines complexity | <details><summary>Battle-tested, rewrite risk > benefit</summary><br>Handles Alpine→Debian migration, PTY pre-warm, rclone sync orchestration, tab autostart, and graceful shutdown. Accumulated complexity reflects real-world edge cases discovered over months of production use. A rewrite risks reintroducing solved bugs for marginal readability gains.</details> |
@@ -2316,15 +2311,15 @@ Architectural principles and design rationale.
 1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
 2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
 3. **Resilient bisync over auto-resync** - `--resilient` + `--recover` handle transient failures without losing deletion tracking. `--resync` is only used for initial baseline establishment (see AD14).
-4. **SDK-managed lifecycle with visibility heartbeat** - `sleepAfter` with `collectMetrics` heartbeat keeps containers alive during active use. Renewal requires BOTH active WS clients AND a recent frontend visibility heartbeat (within 5 min). The `collectMetrics` heartbeat compensates for WS frames bypassing `renewActivityTimeout()`. The visibility heartbeat (sent every 60s when tab is visible) replaces the old input-based detection. Browser tabs left open but backgrounded cause the container to stop after ~35 min (5 min stale threshold + 30 min `sleepAfter`). Legacy host images without heartbeat support fall back to input-based detection with a 5-min null grace period.
+4. **SDK-managed lifecycle with input-change detection** - `sleepAfter` with `collectMetrics` input-change detection keeps containers alive during active use. The DO polls `/activity` every 60s and compares `lastInputAt` to the previous value. Renewal only happens when new user input is detected (the value changed). This is simpler and more reliable than the previous heartbeat-based approach (which required frontend 60s heartbeat intervals, three-tier evaluation logic with heartbeat staleness, and legacy fallback paths). Input-change detection has a single signal: did the user type something new? Container stops ~30 min after the last user input.
 5. **`onStop()` must set KV status and clear schedules** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV (otherwise other devices see stale 'running' status) and call `deleteSchedules('collectMetrics')` to kill the alarm loop (otherwise zombie alarms fire on a dead container indefinitely).
 6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
 7. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
 8. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
 9. **CPU metrics show load average, not utilization** - `os.loadavg()[0] / cpus * 100` measures run queue depth. Values >100% are normal.
-10. **Downgrade verbose heartbeat logs to debug** - Per-cycle keepalive logs at `info` level generate enormous log volume (every 5s per container). Once keepalive is confirmed stable, downgrade to `debug`.
+10. **Downgrade verbose activity logs to debug** - Per-cycle activity check logs at `info` level generate log volume (every 60s per container). Once input-change detection is confirmed stable, downgrade to `debug`.
 11. **Stateless dashboard polling preserves hibernation** - Dashboard status endpoints must be pure KV reads with zero DO contact. Touching DOs resets `sleepAfter` on every poll, preventing containers from ever hibernating.
-12. **Polling interval should match push cadence** - Frontend poll frequency should equal the backend push cycle. Polling faster wastes requests since data doesn't change between pushes.
+12. **Polling interval vs push cadence** - The backend pushes metrics to KV every 60s (`collectMetrics`). The frontend polls at 5s for responsive session status updates (start/stop transitions). Metrics on the dashboard may be up to ~60s stale.
 13. **rclone version upgrades can break bisync** - The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage. Additionally, `--max-delete 100` is required on all bisync commands — the default 50% threshold aborts syncs when bulk deletions (e.g., deleting a workspace folder) remove more than half the tracked files. **Warning**: `--resync` should never be used as an automatic recovery mechanism — it destroys bisync's deletion tracking (see AD14).
 14. **Never auto-`--resync` on bisync failure** - `--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses any pending deletions — if side A deleted a file and bisync fails before propagating, `--resync` resurrects the file from side B. Use `--resilient` + `--recover` for self-healing: `--resilient` allows bisync to continue past non-critical errors, and `--recover` automatically reconstructs corrupted listing files without losing state. Manual `--resync` is still available via `establish_bisync_baseline()` on container startup (one-way restore runs first, so no data loss).
 15. **Never `docker system prune` in CI deploy workflows** - `docker system prune -af` in the deploy workflow nukes the Docker layer cache on self-hosted runners, causing every subsequent build to pull all layers from scratch. This triggers Docker Hub 429 rate limit errors when base images need re-downloading. Let Docker manage its own cache; only prune manually if disk space is critical.

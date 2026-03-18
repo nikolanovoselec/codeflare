@@ -1231,6 +1231,53 @@ describe('Session Store', () => {
     });
   });
 
+  describe('disposeSession on server-side stop', () => {
+    beforeEach(async () => {
+      mockGetSessions.mockResolvedValue([
+        {
+          id: 'session-1',
+          name: 'Test Session',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        },
+      ]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
+      }, maxSessions: 3 });
+      await sessionStore.loadSessions();
+      // Mark session as running in existingStatuses
+      sessionStore.updateSessionStatus('session-1', 'running');
+    });
+
+    it('calls disposeSession when session transitions from running to stopped', async () => {
+      const mockDisposeSession = vi.mocked(terminal.terminalStore.disposeSession);
+      mockDisposeSession.mockClear();
+
+      // Batch status now reports stopped — container hibernated/crashed
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'stopped', ptyActive: false },
+      }, maxSessions: 3 });
+
+      await sessionStore.loadSessions();
+
+      expect(mockDisposeSession).toHaveBeenCalledWith('session-1');
+    });
+
+    it('does not call disposeSession when session stays running', async () => {
+      const mockDisposeSession = vi.mocked(terminal.terminalStore.disposeSession);
+      mockDisposeSession.mockClear();
+
+      // Batch status still reports running — no transition
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
+      }, maxSessions: 3 });
+
+      await sessionStore.loadSessions();
+
+      expect(mockDisposeSession).not.toHaveBeenCalled();
+    });
+  });
+
   describe('auth expiry detection', () => {
     beforeEach(async () => {
       mockGetSessions.mockResolvedValue([

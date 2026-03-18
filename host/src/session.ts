@@ -55,25 +55,28 @@ function stripTerminalResponses(data: string): string {
  */
 function containsUserInput(data: string): boolean {
   const cleaned = data
-    // Mark user-input ESC sequences before stripping all ESC sequences
+    // 1. Mark known user-input CSI sequences FIRST (before CSI stripping)
     // Arrow keys / cursor movement (CSI A-H)
     .replace(/\x1b\[[A-H]/g, '\x01')
     // Function keys (CSI <num> ~)
     .replace(/\x1b\[\d+~/g, '\x01')
-    // SS3 keypad/function keys (ESC O + letter)
-    .replace(/\x1bO[A-Za-z]/g, '\x01')
-    // Alt+key (ESC + printable char)
-    .replace(/\x1b[\x20-\x7e]/g, '\x01')
     // Mouse clicks only — SGR press ends with M (release ends with m, ignore)
     .replace(/\x1b\[<\d+;\d+;\d+M/g, '\x01')
-    // Strip ALL remaining ESC sequences (responses, reports, mouse movement, etc.)
-    .replace(/\x1b\[[\s\S]*?[\x40-\x7e]/g, '')    // CSI
+    // SS3 keypad/function keys (ESC O + letter)
+    .replace(/\x1bO[A-Za-z]/g, '\x01')
+    // 2. Strip ALL multi-byte ESC sequences (CSI, OSC, DCS, APC, PM, SOS)
+    .replace(/\x1b\[[\s\S]*?[\x40-\x7e]/g, '')    // CSI (responses, reports, etc.)
     .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, '') // OSC
     .replace(/\x1bP[\s\S]*?(?:\x07|\x1b\\)/g, '')  // DCS
     .replace(/\x1b_[\s\S]*?(?:\x07|\x1b\\)/g, '')  // APC
     .replace(/\x1b\^[\s\S]*?(?:\x07|\x1b\\)/g, '') // PM
     .replace(/\x1bX[\s\S]*?(?:\x07|\x1b\\)/g, '')  // SOS
-    .replace(/\x1b./g, '');                          // Any other ESC + byte
+    // 3. AFTER stripping multi-byte sequences, mark Alt+key (ESC + printable)
+    // Must come AFTER CSI/OSC/DCS stripping — otherwise ESC+[ (CSI introducer)
+    // gets matched as Alt+[ and breaks all CSI sequence processing.
+    .replace(/\x1b[\x20-\x7e]/g, '\x01')
+    // 4. Catch any remaining ESC + single byte
+    .replace(/\x1b./g, '');
 
   // Anything left is: printable chars, control keys, or our \x01 markers
   return /[\x01-\x1a\x20-\x7e\x7f\u0080-\uffff]/.test(cleaned);
