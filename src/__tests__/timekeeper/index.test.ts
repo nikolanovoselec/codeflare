@@ -372,6 +372,8 @@ describe('Timekeeper DO', () => {
       });
 
       const tk = createTimekeeper();
+      // Allow blockConcurrencyWhile async to complete (constructor fire-and-forget)
+      await new Promise((r) => setTimeout(r, 0));
       // Fetch usage to verify pending was restored
       const res = await tk.fetch(new Request('http://timekeeper/usage'));
       const body = await res.json() as { monthlySeconds: number };
