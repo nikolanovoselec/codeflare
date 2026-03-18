@@ -742,3 +742,34 @@ export const sessionStore = {
   _resetMissCounters: () => sessionMissCounters.clear(),
   _resetAuthExpired: () => setAuthExpired(false),
 };
+
+// ── Usage quota state (separate from session store for isolation) ──
+
+interface UsageState {
+  monthlySeconds: number;
+  monthlyQuotaSeconds: number | null;
+}
+
+let _usageState: UsageState = { monthlySeconds: 0, monthlyQuotaSeconds: null };
+
+export function setUsageState(monthly: number, quota: number | null): void {
+  _usageState = { monthlySeconds: monthly, monthlyQuotaSeconds: quota };
+}
+
+export function isAtUsageQuota(): boolean {
+  const { monthlySeconds, monthlyQuotaSeconds } = _usageState;
+  if (monthlyQuotaSeconds === null) return false;
+  return monthlySeconds >= monthlyQuotaSeconds;
+}
+
+export type UsageWarningLevel = 'none' | '80' | '95' | '100';
+
+export function getUsageWarningLevel(): UsageWarningLevel {
+  const { monthlySeconds, monthlyQuotaSeconds } = _usageState;
+  if (monthlyQuotaSeconds === null || monthlyQuotaSeconds === 0) return 'none';
+  const pct = (monthlySeconds / monthlyQuotaSeconds) * 100;
+  if (pct >= 100) return '100';
+  if (pct >= 95) return '95';
+  if (pct >= 80) return '80';
+  return 'none';
+}

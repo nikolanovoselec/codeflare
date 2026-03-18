@@ -48,3 +48,46 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Send a tier change notification email to a user and admin.
+ */
+export async function sendTierChangeNotification(opts: {
+  userEmail: string;
+  previousTier: string;
+  newTier: string;
+  changedBy: string;
+  adminEmails: string[];
+  env: { RESEND_API_KEY?: string; WAITLIST_FROM_EMAIL?: string };
+}): Promise<void> {
+  const { userEmail, previousTier, newTier, changedBy, adminEmails, env } = opts;
+
+  // Notify user
+  await sendEmail({
+    to: [userEmail],
+    subject: `Your Codeflare plan has been updated to ${newTier}`,
+    html: [
+      '<h2>Plan Update</h2>',
+      `<p>Your Codeflare subscription has been changed from <strong>${previousTier}</strong> to <strong>${newTier}</strong>.</p>`,
+      `<p>Changed by: ${changedBy}</p>`,
+    ].join('\n'),
+    env,
+  });
+
+  // Notify admins
+  if (adminEmails.length > 0) {
+    await sendEmail({
+      to: adminEmails,
+      subject: `Tier change: ${userEmail} → ${newTier}`,
+      html: [
+        '<h2>Tier Change Notification</h2>',
+        `<p><strong>User:</strong> ${userEmail}</p>`,
+        `<p><strong>Previous tier:</strong> ${previousTier}</p>`,
+        `<p><strong>New tier:</strong> ${newTier}</p>`,
+        `<p><strong>Changed by:</strong> ${changedBy}</p>`,
+      ].join('\n'),
+      replyTo: changedBy,
+      env,
+    });
+  }
+}

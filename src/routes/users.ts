@@ -10,6 +10,7 @@ import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
 import { isSaasModeActive } from '../lib/onboarding';
+import { sendTierChangeNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey } from '../lib/kv-keys';
 
@@ -140,11 +141,24 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     }
   }
 
+  const previousTier = existing.subscriptionTier ?? existing.accessTier ?? 'unset';
   logger.info('User subscription tier updated', {
     email,
-    previousTier: existing.subscriptionTier ?? existing.accessTier ?? 'unset',
+    previousTier,
     subscriptionTier: newTier,
     updatedBy: c.get('user').email,
+  });
+
+  // Fire-and-forget tier change notification email
+  const adminUsers = await getAllUsers(c.env.KV);
+  const adminEmails = adminUsers.filter((u) => u.role === 'admin').map((u) => u.email);
+  void sendTierChangeNotification({
+    userEmail: email,
+    previousTier,
+    newTier,
+    changedBy: c.get('user').email,
+    adminEmails,
+    env: c.env,
   });
 
   return c.json({ success: true, email, subscriptionTier: newTier, accessTier: newTier });

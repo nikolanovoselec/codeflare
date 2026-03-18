@@ -12,9 +12,11 @@ import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, ContainerError, NotFoundError, RateLimitError, toError, toErrorMessage } from '../../lib/error-types';
+import { AppError, ContainerError, NotFoundError, RateLimitError, QuotaExceededError, toError, toErrorMessage } from '../../lib/error-types';
+import { getTierConfig, getUserTier } from '../../lib/subscription';
+import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix } from '../../lib/kv-keys';
+import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
@@ -104,8 +106,10 @@ export async function validateSessionAndCheckLimits(params: {
   bucketName: string;
   sessionId: string;
   maxSessions: number;
+  subscriptionTier?: string;
+  accessTier?: string;
 }): Promise<Session> {
-  const { env, bucketName, sessionId, maxSessions } = params;
+  const { env, bucketName, sessionId, maxSessions, subscriptionTier, accessTier } = params;
 
   const sessionKey = getSessionKey(bucketName, sessionId);
   const sessionData = await env.KV.get<Session>(sessionKey, 'json');
@@ -131,6 +135,36 @@ export async function validateSessionAndCheckLimits(params: {
       throw new RateLimitError(
         `Session limit reached (${runningCount}/${maxSessions}). Stop an existing session to start a new one.`
       );
+    }
+  }
+
+  // Tier-based usage quota check (SaaS mode only, skip for stress test)
+  if (isSaasModeActive(env.SAAS_MODE) && env.STRESS_TEST_MODE !== 'active') {
+    try {
+      const tiers = await getTierConfig(env.KV);
+      const tierValue = subscriptionTier ?? accessTier;
+      const tier = getUserTier(tierValue, tiers);
+
+      // Skip quota check for unlimited tiers
+      if (tier.monthlySeconds !== null) {
+        // Read usage from Timekeeper KV (approximate — real-time check happens on Timekeeper DO)
+        const usageRecord = await env.KV.get(getTimekeeperKey(bucketName), 'json') as { thisMonth?: { month: string; seconds: number } } | null;
+        const now = new Date();
+        const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+        const monthlySeconds = (usageRecord?.thisMonth?.month === currentMonth)
+          ? usageRecord.thisMonth.seconds : 0;
+
+        if (monthlySeconds >= tier.monthlySeconds) {
+          const usedHours = Math.round(monthlySeconds / 3600);
+          const quotaHours = Math.round(tier.monthlySeconds / 3600);
+          throw new QuotaExceededError(
+            `Monthly compute quota reached (${usedHours}h / ${quotaHours}h). Upgrade your plan.`
+          );
+        }
+      }
+    } catch (err) {
+      // Re-throw QuotaExceededError, ignore other errors (fail-open)
+      if (err instanceof QuotaExceededError) throw err;
     }
   }
 
@@ -396,12 +430,14 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const user = c.get('user');
     const maxSessions = getMaxSessions(user.role, c.env);
 
-    // Step 1: Validate session and check limits
+    // Step 1: Validate session and check limits (including usage quota)
     const sessionData = await validateSessionAndCheckLimits({
       env: c.env,
       bucketName,
       sessionId,
       maxSessions,
+      subscriptionTier: user.subscriptionTier,
+      accessTier: user.accessTier,
     });
 
     const containerId = getContainerId(bucketName, sessionId);
