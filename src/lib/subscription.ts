@@ -163,20 +163,9 @@ export function isActiveTier(tier: SubscriptionTier | string | undefined): boole
   return ACTIVE_TIERS.has(tier);
 }
 
-/**
- * Config-aware login check that respects the canLogin field from tier config.
- * Falls back to isActiveTier() if no matching tier found in config.
- */
-export function canUserLogin(
-  tierValue: SubscriptionTier | string | undefined,
-  tiers: SubscriptionTierConfig[]
-): boolean {
-  if (tierValue === undefined) return true;
-  const safeTiers = tiers.length > 0 ? tiers : getDefaultTiers();
-  const tier = safeTiers.find((t) => t.id === tierValue);
-  if (!tier) return isActiveTier(tierValue);
-  return tier.canLogin;
-}
+// canUserLogin(tierValue, tiers) — config-aware login check respecting canLogin field.
+// Not yet wired — pending/blocked distinction is handled by isActiveTier() in middleware.
+// Re-export when login-level auth (distinct from IDE access) needs config-aware enforcement.
 
 /**
  * Get the max concurrent sessions allowed for a tier.
