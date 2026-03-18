@@ -152,22 +152,21 @@ export async function validateSessionAndCheckLimits(params: {
 
     // Usage quota check (SaaS mode only)
     if (isSaas && resolvedTier && resolvedTier.monthlySeconds !== null) {
-        // Read usage from Timekeeper KV (approximate — real-time check happens on Timekeeper DO)
+      try {
         const usageRecord = await env.KV.get(getTimekeeperKey(bucketName), 'json') as { thisMonth?: { month: string; seconds: number } } | null;
         const now = new Date();
         const currentMonth = getUtcMonthString(now);
         const monthlySeconds = (usageRecord?.thisMonth?.month === currentMonth)
           ? usageRecord.thisMonth.seconds : 0;
 
-        if (monthlySeconds >= resolvedTier.monthlySeconds!) {
+        if (monthlySeconds >= resolvedTier.monthlySeconds) {
           const usedHours = Math.round(monthlySeconds / 3600);
-          const quotaHours = Math.round(resolvedTier.monthlySeconds! / 3600);
+          const quotaHours = Math.round(resolvedTier.monthlySeconds / 3600);
           throw new QuotaExceededError(
             `Monthly compute quota reached (${usedHours}h / ${quotaHours}h). Upgrade your plan.`
           );
         }
       } catch (err) {
-        // Re-throw QuotaExceededError, ignore other errors (fail-open)
         if (err instanceof QuotaExceededError) throw err;
       }
     }
