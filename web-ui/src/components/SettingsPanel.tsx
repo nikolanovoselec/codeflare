@@ -17,6 +17,7 @@ import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
 import LlmKeysSection from './settings/LlmKeysSection';
+import SubscriptionManagement from './settings/SubscriptionManagement';
 import '../styles/settings-panel.css';
 
 interface SettingsPanelProps {
@@ -388,6 +389,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <span class="settings-hint" data-testid="settings-r2-warning">
                   If you rotate your Cloudflare API token, redeploy with the new token and re-run the Setup Wizard.
                 </span>
+              </section>
+              <section class="settings-section">
+                <div class="settings-section-header">
+                  <Icon path={mdiCogOutline} size={16} />
+                  <h3 class="settings-section-title">Subscription Tiers</h3>
+                </div>
+                <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+                  Configure monthly hours, concurrent sessions, and session modes for each tier.
+                </p>
+                <SubscriptionManagement />
               </section>
             </AccordionSection>
           </Show>
