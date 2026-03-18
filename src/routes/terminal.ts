@@ -216,6 +216,16 @@ export async function handleWebSocketUpgrade(
       });
     }
 
+    // Reject WebSocket connections to stopped/hibernated sessions.
+    // Without this, the browser's auto-reconnect logic wakes the container
+    // immediately after it sleeps, creating an infinite stop/start cycle.
+    if (session.status === 'stopped') {
+      return new Response(JSON.stringify({ error: 'Session is stopped', code: 'SESSION_STOPPED' }), {
+        status: 503,
+        headers: jsonHeaders,
+      });
+    }
+
     // Update last accessed timestamp (don't await)
     // Re-read session inside waitUntil to avoid stale read-modify-write race (FIX-23)
     ctx.waitUntil((async () => {
