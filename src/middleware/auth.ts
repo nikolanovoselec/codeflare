@@ -10,7 +10,7 @@ import { Context, Next } from 'hono';
 import { authenticateRequest } from '../lib/access';
 import { ForbiddenError } from '../lib/error-types';
 import { isSaasModeActive } from '../lib/onboarding';
-import { isActiveTier, getTierConfig } from '../lib/subscription';
+import { isActiveTier } from '../lib/subscription';
 import type { Env, AccessUser } from '../types';
 
 /**
