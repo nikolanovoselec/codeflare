@@ -1,0 +1,119 @@
+.usage-title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.usage-loading,
+.usage-error {
+  text-align: center;
+  padding: 2rem;
+  color: var(--color-text-secondary);
+}
+
+.usage-error {
+  color: var(--color-error);
+}
+
+.usage-ring-container {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.usage-ring {
+  transform: rotate(0deg);
+}
+
+.usage-ring-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.usage-ring-percent {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.usage-ring-sublabel {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.usage-stats {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.usage-stat-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 1rem 1.5rem;
+  text-align: center;
+  min-width: 120px;
+}
+
+.usage-stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.usage-stat-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.usage-stat-tier {
+  text-transform: capitalize;
+}
+
+.usage-stat-quota {
+  font-size: 0.7rem;
+  color: var(--color-text-secondary);
+  margin-top: 0.25rem;
+}
+
+.usage-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.usage-btn {
+  display: inline-block;
+  padding: 0.6rem 1.2rem;
+  border-radius: 0.4rem;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.usage-btn:hover {
+  opacity: 0.9;
+}
+
+.usage-btn--secondary {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}

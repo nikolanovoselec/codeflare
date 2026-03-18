@@ -5,6 +5,8 @@ import {
   mdiAccountCircle,
   mdiAccountOutline,
   mdiRocketLaunchOutline,
+  mdiChartBar,
+  mdiCrownOutline,
   mdiLogout,
   mdiViewDashboardOutline,
   mdiBookOutline,
@@ -262,6 +264,22 @@ const Header: Component<HeaderProps> = (props) => {
               >
                 <Icon path={mdiAccountOutline} size={16} />
                 <span>Profile</span>
+              </a>
+              <a
+                href="/app/usage"
+                class="header-user-dropdown-item"
+                data-testid="header-user-dropdown-usage"
+              >
+                <Icon path={mdiChartBar} size={16} />
+                <span>Usage</span>
+              </a>
+              <a
+                href="/app/plan"
+                class="header-user-dropdown-item"
+                data-testid="header-user-dropdown-plan"
+              >
+                <Icon path={mdiCrownOutline} size={16} />
+                <span>Plan</span>
               </a>
               <a
                 href="/app/onboarding"
