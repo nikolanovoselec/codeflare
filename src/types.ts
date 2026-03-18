@@ -146,7 +146,7 @@ export type SubscriptionTier = z.infer<typeof SubscriptionTierSchema>;
  * Stored as part of the tiers:config KV value.
  */
 export interface SubscriptionTierConfig {
-  id: string;
+  id: SubscriptionTier | string;
   displayName: string;
   monthlySeconds: number | null; // null = unlimited
   maxSessions: number;

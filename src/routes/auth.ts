@@ -23,8 +23,10 @@ app.get('/providers', async (c) => {
 // Requires identity (pending, active, and blocked users can access)
 app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
-  // Default to 'advanced' if tier is unset (pre-setup or service auth)
+  // Default to 'advanced' for legacy accessTier (pre-setup or service auth backward compat)
   const accessTier = user.accessTier || 'advanced';
+  // subscriptionTier: use actual value, fall back to accessTier for backward compat.
+  // Non-SaaS users without a tier get 'advanced' (full access, same as pre-subscription behavior).
   const subscriptionTier = user.subscriptionTier ?? accessTier;
 
   // Read user data from KV for additional fields

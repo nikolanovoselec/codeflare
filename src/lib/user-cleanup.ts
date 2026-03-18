@@ -34,7 +34,9 @@ interface CleanupResult {
  * callers are responsible for those concerns.
  */
 export async function cleanupUserData(email: string, env: Env): Promise<CleanupResult> {
-  const bucketName = getBucketName(email, env.CLOUDFLARE_WORKER_NAME);
+  // Normalize defensively — callers should already normalize, but KV keys must match
+  const normalizedEmail = email.trim().toLowerCase();
+  const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
   const result: CleanupResult = {
     deletedSessions: 0,
     bucketDeleted: false,
@@ -61,7 +63,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   }
 
   // --- Block B: User KV deletion ---
-  await env.KV.delete(`user:${email}`);
+  await env.KV.delete(`user:${normalizedEmail}`);
 
   // --- Block B2: Bucket-keyed KV cleanup ---
   await Promise.all([
@@ -78,7 +80,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   // Raw KV.get('json') throws SyntaxError on the "v1:..." ciphertext prefix.
   const accountId = await env.KV.get('setup:account_id');
   const cryptoKey = await getOrImportKey(env);
-  const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${email}`, cryptoKey);
+  const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${normalizedEmail}`, cryptoKey);
 
   // --- Block C: R2 scoped token cleanup ---
   try {
@@ -90,7 +92,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
     logger.warn('Failed to delete scoped R2 token during user deletion', { email, error: String(err) });
   }
   try {
-    await env.KV.delete(`r2token:${email}`);
+    await env.KV.delete(`r2token:${normalizedEmail}`);
   } catch (err) {
     logger.warn('Failed to delete r2token KV entry', { email, error: String(err) });
   }

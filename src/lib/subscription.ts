@@ -109,12 +109,22 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
   ];
 }
 
+// Module-level cache for tier config (avoids KV reads on every request/ping)
+const TIER_CONFIG_CACHE_TTL_MS = 60_000; // 1 minute
+let cachedTierConfig: SubscriptionTierConfig[] | null = null;
+let tierConfigCachedAt = 0;
+
 /**
- * Read tier configuration from KV, falling back to defaults.
+ * Read tier configuration from KV with 1-minute cache, falling back to defaults.
  */
 export async function getTierConfig(kv: KVNamespace): Promise<SubscriptionTierConfig[]> {
+  if (cachedTierConfig && Date.now() - tierConfigCachedAt < TIER_CONFIG_CACHE_TTL_MS) {
+    return cachedTierConfig;
+  }
   const stored = await kv.get<SubscriptionTierConfig[]>(getTiersConfigKey(), 'json');
-  return stored ?? getDefaultTiers();
+  cachedTierConfig = stored ?? getDefaultTiers();
+  tierConfigCachedAt = Date.now();
+  return cachedTierConfig;
 }
 
 /**
@@ -139,10 +149,27 @@ export function getUserTier(
 /**
  * Check if a tier value represents an active (non-blocked, non-pending) user.
  * undefined is treated as active for backward compatibility with pre-subscription users.
+ * This is a fast-path check using hardcoded defaults — use canUserLogin() with tier config
+ * for authoritative enforcement that respects admin-configured canLogin overrides.
  */
 export function isActiveTier(tier: SubscriptionTier | string | undefined): boolean {
   if (tier === undefined) return true;
   return ACTIVE_TIERS.has(tier);
+}
+
+/**
+ * Config-aware login check that respects the canLogin field from tier config.
+ * Falls back to isActiveTier() if no matching tier found in config.
+ */
+export function canUserLogin(
+  tierValue: SubscriptionTier | string | undefined,
+  tiers: SubscriptionTierConfig[]
+): boolean {
+  if (tierValue === undefined) return true;
+  const safeTiers = tiers.length > 0 ? tiers : getDefaultTiers();
+  const tier = safeTiers.find((t) => t.id === tierValue);
+  if (!tier) return isActiveTier(tierValue);
+  return tier.canLogin;
 }
 
 /**

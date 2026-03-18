@@ -9,8 +9,9 @@ import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { canUseSessionMode } from '../lib/access-tier';
+import { canUseSessionModeWithConfig } from '../lib/access-tier';
 import { isSaasModeActive } from '../lib/onboarding';
+import { getTierConfig } from '../lib/subscription';
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
@@ -63,7 +64,8 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   if (parsed.data.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
     const user = c.get('user');
     const effectiveTier = user.subscriptionTier ?? user.accessTier;
-    if (!canUseSessionMode(effectiveTier, parsed.data.sessionMode)) {
+    const tiers = await getTierConfig(c.env.KV);
+    if (!canUseSessionModeWithConfig(effectiveTier, parsed.data.sessionMode, tiers)) {
       throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your subscription tier`);
     }
   }

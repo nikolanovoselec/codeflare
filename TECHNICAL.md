@@ -845,6 +845,36 @@ The `/api/usage` endpoint queries the Timekeeper DO directly (`GET /usage` on th
 
 The Timekeeper DO uses standard Durable Object key-value storage (`ctx.storage.get`/`put`/`setAlarm`), not the SQLite storage API. The wrangler.toml migration uses `new_classes` (not `new_sqlite_classes`). This is a plain DO — alarm-based flush, KV projection, crash recovery via DO storage.
 
+### Timekeeper Security
+
+The Timekeeper DO validates identity on every ping: `bucketName` and `email` are stored on the first ping and rejected if mismatched on subsequent pings (403). This prevents cross-user usage poisoning. Per-ping delta is clamped to 300 seconds max to prevent corrupt `sessionTotals` from causing massive usage spikes. The Timekeeper DO is only reachable via internal Worker-to-DO RPC (not the public internet).
+
+### Tier Config Caching
+
+`getTierConfig()` uses a module-level cache with 60-second TTL to avoid KV reads on every request and every Timekeeper ping. The cache is shared across requests within a single isolate. Admin changes to tier config take effect within 60 seconds.
+
+### Config-Aware Authorization
+
+Two authorization modes exist for session modes:
+1. **Fast path** (`access-tier.ts:allowedSessionModes`) — hardcoded defaults matching `getDefaultTiers()`. Used when tier config is not available.
+2. **Config-aware** (`access-tier.ts:canUseSessionModeWithConfig`) — reads from tier config, respecting admin overrides via `tiers:config` KV. Used in preferences route for session mode changes.
+
+Similarly, `canUserLogin()` in `subscription.ts` reads the `canLogin` field from tier config, while `isActiveTier()` uses a hardcoded fast-path set. Both are available for different authorization contexts.
+
+### Default Tier Behavior
+
+Users without a stored `subscriptionTier` fall back to `accessTier`. If neither exists:
+- **Auth status** (`/api/auth/status`): returns `'advanced'` (pre-subscription backward compat)
+- **Tier resolution** (`getUserTier(undefined)`): returns the `isDefault` tier from config (standard)
+- **isActiveTier(undefined)**: returns `true` (backward compat — non-SaaS users have full access)
+- **Service tokens**: get `role: 'admin'` which bypasses all tier checks
+
+In practice, `resolveOrProvisionUser()` always writes both `subscriptionTier` and `accessTier` for new users, so the undefined path only occurs for pre-migration users or service tokens.
+
+### User Data Cleanup
+
+`cleanupUserData()` normalizes the email defensively (`trim().toLowerCase()`) before constructing KV keys. This ensures `user:{email}`, `r2token:{email}`, and `timekeeper:{bucketName}` keys are deleted correctly even if callers pass non-normalized input.
+
 ### CF Access Configuration Strategy
 
 The setup wizard (Step 5 in `src/routes/setup/index.ts`) calls `handleCreateAccessApp()` in `src/routes/setup/access.ts` to configure Cloudflare Access. The key architectural decision is **login_method vs. groups**.
