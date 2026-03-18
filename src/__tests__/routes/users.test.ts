@@ -476,7 +476,7 @@ describe('Users Routes', () => {
       const res = await saasApp.request('/users/target-admin%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'standard' }),
+        body: JSON.stringify({ subscriptionTier: 'standard' }),
       });
 
       expect(res.status).toBe(400);
@@ -512,13 +512,13 @@ describe('Users Routes', () => {
       const res = await saasApp.request('/users/regular%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'standard' }),
+        body: JSON.stringify({ subscriptionTier: 'standard' }),
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean; accessTier: string };
+      const body = await res.json() as { success: boolean; subscriptionTier: string };
       expect(body.success).toBe(true);
-      expect(body.accessTier).toBe('standard');
+      expect(body.subscriptionTier).toBe('standard');
     });
 
     it('PATCH user to advanced tier auto-sets sessionMode preference', async () => {
@@ -550,7 +550,7 @@ describe('Users Routes', () => {
       const res = await saasApp.request('/users/newuser%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'advanced' }),
+        body: JSON.stringify({ subscriptionTier: 'advanced' }),
       });
 
       expect(res.status).toBe(200);
@@ -596,7 +596,7 @@ describe('Users Routes', () => {
       const res = await saasApp.request('/users/existing%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'advanced' }),
+        body: JSON.stringify({ subscriptionTier: 'advanced' }),
       });
 
       expect(res.status).toBe(200);
@@ -637,7 +637,7 @@ describe('Users Routes', () => {
       await saasApp.request('/users/stduser%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'standard' }),
+        body: JSON.stringify({ subscriptionTier: 'standard' }),
       });
 
       // No preferences should be written

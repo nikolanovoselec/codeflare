@@ -274,7 +274,7 @@ export default {
       if (saasActive) {
         try {
           const { user } = await authenticateRequest(request, env);
-          if (isActiveUser(user.accessTier)) {
+          if (isActiveUser(user.subscriptionTier ?? user.accessTier)) {
             return redirectWithHeaders('/app/');
           }
           // Authenticated but pending/blocked — redirect to subscribe page

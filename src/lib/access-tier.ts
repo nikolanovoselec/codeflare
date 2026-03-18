@@ -1,15 +1,24 @@
-import type { AccessTier, SessionMode } from '../types';
+/**
+ * Access tier utilities — backward compatible bridge.
+ *
+ * isActiveUser now recognizes all 8 subscription tiers (plus the old 4 AccessTier values).
+ * canUseSessionMode delegates to the subscription module for new tiers.
+ */
+import type { AccessTier, SessionMode, SubscriptionTier } from '../types';
+import { isActiveTier } from './subscription';
 
-export function isActiveUser(tier: AccessTier | undefined): boolean {
-  return tier === 'standard' || tier === 'advanced' || tier === undefined;
+export function isActiveUser(tier: AccessTier | SubscriptionTier | string | undefined): boolean {
+  return isActiveTier(tier);
 }
 
-export function allowedSessionModes(tier: AccessTier | undefined): SessionMode[] {
-  if (tier === 'advanced' || tier === undefined) return ['default', 'advanced'];
-  if (tier === 'standard') return ['default'];
+export function allowedSessionModes(tier: AccessTier | SubscriptionTier | string | undefined): SessionMode[] {
+  if (tier === 'advanced' || tier === 'max' || tier === 'unlimited' || tier === undefined) {
+    return ['default', 'advanced'];
+  }
+  if (tier === 'standard' || tier === 'free' || tier === 'trial') return ['default'];
   return [];
 }
 
-export function canUseSessionMode(tier: AccessTier | undefined, mode: SessionMode): boolean {
+export function canUseSessionMode(tier: AccessTier | SubscriptionTier | string | undefined, mode: SessionMode): boolean {
   return allowedSessionModes(tier).includes(mode);
 }

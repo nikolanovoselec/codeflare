@@ -42,6 +42,7 @@ app.get('/', async (c) => {
     authenticated: user.authenticated,
     role: user.role,
     accessTier: user.accessTier,
+    subscriptionTier: user.subscriptionTier ?? user.accessTier,
     bucketName,
     workerName: c.env.CLOUDFLARE_WORKER_NAME || 'codeflare',
     onboardingActive: isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE),

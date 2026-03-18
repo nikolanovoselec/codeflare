@@ -97,6 +97,7 @@ export interface AccessUser {
   authenticated: boolean;
   role?: UserRole;
   accessTier?: AccessTier;
+  subscriptionTier?: SubscriptionTier;
 }
 
 /**

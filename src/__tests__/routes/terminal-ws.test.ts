@@ -204,10 +204,10 @@ describe('handleWebSocketUpgrade', () => {
   });
 
   describe('SaaS mode access tier gating', () => {
-    it('returns 403 with code PENDING when SAAS_MODE=active and accessTier=pending', async () => {
+    it('returns 403 with code PENDING when SAAS_MODE=active and subscriptionTier=pending', async () => {
       (mockEnv as any).SAAS_MODE = 'active';
       mockAuthResult.result = {
-        user: { email: 'test@example.com', authenticated: true, accessTier: 'pending' } as any,
+        user: { email: 'test@example.com', authenticated: true, accessTier: 'pending', subscriptionTier: 'pending' } as any,
         bucketName: 'test-bucket',
       };
 
@@ -222,10 +222,10 @@ describe('handleWebSocketUpgrade', () => {
       expect(body.code).toBe('PENDING');
     });
 
-    it('returns 403 with code BLOCKED when SAAS_MODE=active and accessTier=blocked', async () => {
+    it('returns 403 with code BLOCKED when SAAS_MODE=active and subscriptionTier=blocked', async () => {
       (mockEnv as any).SAAS_MODE = 'active';
       mockAuthResult.result = {
-        user: { email: 'test@example.com', authenticated: true, accessTier: 'blocked' } as any,
+        user: { email: 'test@example.com', authenticated: true, accessTier: 'blocked', subscriptionTier: 'blocked' } as any,
         bucketName: 'test-bucket',
       };
 
@@ -240,10 +240,10 @@ describe('handleWebSocketUpgrade', () => {
       expect(body.code).toBe('BLOCKED');
     });
 
-    it('proceeds when SAAS_MODE=active and accessTier=standard', async () => {
+    it('proceeds when SAAS_MODE=active and subscriptionTier=standard', async () => {
       (mockEnv as any).SAAS_MODE = 'active';
       mockAuthResult.result = {
-        user: { email: 'test@example.com', authenticated: true, accessTier: 'standard' } as any,
+        user: { email: 'test@example.com', authenticated: true, accessTier: 'standard', subscriptionTier: 'standard' } as any,
         bucketName: 'test-bucket',
       };
 
@@ -255,10 +255,10 @@ describe('handleWebSocketUpgrade', () => {
       expect(response.status).toBe(200);
     });
 
-    it('proceeds regardless of accessTier when SAAS_MODE is inactive', async () => {
+    it('proceeds regardless of tier when SAAS_MODE is inactive', async () => {
       // SAAS_MODE not set (default in beforeEach)
       mockAuthResult.result = {
-        user: { email: 'test@example.com', authenticated: true, accessTier: 'pending' } as any,
+        user: { email: 'test@example.com', authenticated: true, accessTier: 'pending', subscriptionTier: 'pending' } as any,
         bucketName: 'test-bucket',
       };
 

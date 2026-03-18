@@ -170,8 +170,9 @@ export async function handleWebSocketUpgrade(
     }
 
     // SaaS mode: enforce access tier on WebSocket connections (mirrors requireActiveUser)
-    if (isSaasModeActive(env.SAAS_MODE) && !isActiveUser(user.accessTier)) {
-      const code = user.accessTier === 'blocked' ? 'BLOCKED' : 'PENDING';
+    const effectiveTier = user.subscriptionTier ?? user.accessTier;
+    if (isSaasModeActive(env.SAAS_MODE) && !isActiveUser(effectiveTier)) {
+      const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
       return new Response(JSON.stringify({ error: 'Access denied', code }), { status: 403, headers: jsonHeaders });
     }
 

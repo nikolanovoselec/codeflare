@@ -8,7 +8,7 @@ import { createMockKV } from '../helpers/mock-kv';
 
 // Configurable mock auth result
 const mockAuthResult = {
-  user: { email: 'pending@example.com', authenticated: true, role: 'user', accessTier: 'pending' } as AccessUser,
+  user: { email: 'pending@example.com', authenticated: true, role: 'user', accessTier: 'pending', subscriptionTier: 'pending' } as AccessUser,
   bucketName: 'codeflare-pending',
 };
 let mockAuthShouldReject = false;
@@ -39,6 +39,7 @@ describe('POST /auth/request-access', () => {
       authenticated: true,
       role: 'user',
       accessTier: 'pending',
+      subscriptionTier: 'pending',
     };
     mockAuthResult.bucketName = 'codeflare-pending';
   });
@@ -175,6 +176,7 @@ describe('POST /auth/request-access', () => {
       authenticated: true,
       role: 'user',
       accessTier: 'standard',
+      subscriptionTier: 'standard',
     };
 
     const app = createApp();
@@ -195,6 +197,7 @@ describe('POST /auth/request-access', () => {
       authenticated: true,
       role: 'user',
       accessTier: 'blocked',
+      subscriptionTier: 'blocked',
     };
 
     const app = createApp();
@@ -234,6 +237,7 @@ describe('POST /auth/request-access', () => {
       authenticated: true,
       role: 'user',
       accessTier: 'standard',
+      subscriptionTier: 'standard',
     };
 
     const app = createApp();

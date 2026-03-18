@@ -41,11 +41,12 @@ describe('resolveOrProvisionUser()', () => {
 
     expect(result.role).toBe('user');
     expect(result.accessTier).toBe('pending');
+    expect(result.subscriptionTier).toBe('pending');
 
-    // Verify the user was written to KV
+    // Verify the user was written to KV with both tier fields
     expect(mockKV.put).toHaveBeenCalledWith(
       'user:newuser@example.com',
-      expect.stringContaining('"accessTier":"pending"')
+      expect.stringContaining('"subscriptionTier":"pending"')
     );
   });
 

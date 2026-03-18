@@ -62,8 +62,9 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
   if (parsed.data.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
     const user = c.get('user');
-    if (!canUseSessionMode(user.accessTier, parsed.data.sessionMode)) {
-      throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your access tier`);
+    const effectiveTier = user.subscriptionTier ?? user.accessTier;
+    if (!canUseSessionMode(effectiveTier, parsed.data.sessionMode)) {
+      throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your subscription tier`);
     }
   }
 

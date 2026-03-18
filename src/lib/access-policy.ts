@@ -1,5 +1,5 @@
-import type { AccessTier, UserRole } from '../types';
-import { AccessTierSchema } from '../types';
+import type { AccessTier, SubscriptionTier, UserRole } from '../types';
+import { AccessTierSchema, SubscriptionTierSchema } from '../types';
 import { createLogger } from './logger';
 import { listAllKvKeys, emailFromKvKey } from './kv-keys';
 import { CF_API_BASE } from './constants';
@@ -30,6 +30,7 @@ interface UserEntry {
   addedAt: string;
   role: UserRole;
   accessTier?: AccessTier;
+  subscriptionTier?: SubscriptionTier;
 }
 
 /**
@@ -42,11 +43,13 @@ export async function getAllUsers(kv: KVNamespace): Promise<UserEntry[]> {
       const data = await kv.get(key.name, 'json') as Record<string, unknown> | null;
       if (!data) return null;
       const tierParsed = AccessTierSchema.safeParse(data.accessTier);
+      const subTierParsed = SubscriptionTierSchema.safeParse(data.subscriptionTier);
       return {
         ...data,
         email: emailFromKvKey(key.name),
         role: (data.role as UserRole) ?? 'user',
         accessTier: tierParsed.success ? tierParsed.data : undefined,
+        subscriptionTier: subTierParsed.success ? subTierParsed.data : undefined,
       } as UserEntry;
     })
   );

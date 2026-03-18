@@ -25,6 +25,7 @@ app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
   // Default to 'advanced' if tier is unset (pre-setup or service auth)
   const accessTier = user.accessTier || 'advanced';
+  const subscriptionTier = user.subscriptionTier ?? accessTier;
 
   // Read user data from KV for additional fields
   const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
@@ -32,7 +33,7 @@ app.get('/status', requireIdentity, async (c) => {
   // Include turnstile site key and requestedAt for pending users
   let turnstileSiteKey: string | null = null;
   let requestedAt: string | null = null;
-  if (accessTier === 'pending') {
+  if (subscriptionTier === 'pending') {
     turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
     if (userData && typeof userData.requestedAt === 'string') {
       requestedAt = userData.requestedAt;
@@ -45,6 +46,7 @@ app.get('/status', requireIdentity, async (c) => {
   return c.json({
     email: user.email,
     accessTier,
+    subscriptionTier,
     role: user.role || 'user',
     turnstileSiteKey,
     requestedAt,
@@ -68,15 +70,15 @@ const RequestAccessSchema = z.object({
 app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c) => {
   const user = c.get('user');
   // Default to 'advanced' if tier is unset (pre-setup or service auth)
-  const accessTier = user.accessTier || 'advanced';
+  const effectiveTier = user.subscriptionTier ?? user.accessTier ?? 'advanced';
 
   // Already active users don't need to request
-  if (isActiveUser(accessTier)) {
+  if (isActiveUser(effectiveTier)) {
     throw new ValidationError('Account is already active');
   }
 
   // Blocked users cannot request
-  if (accessTier === 'blocked') {
+  if (effectiveTier === 'blocked') {
     throw new ForbiddenError('Account is blocked');
   }
 

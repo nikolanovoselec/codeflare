@@ -2,7 +2,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { AccessTierSchema } from '../types';
+import { AccessTierSchema, SubscriptionTierSchema } from '../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getAllUsers, syncAccessPolicy } from '../lib/access-policy';
@@ -84,10 +84,10 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   return c.json({ success: true, email });
 });
 
-// PATCH /api/users/:email - Update a user's access tier (admin only, SaaS mode only)
+// PATCH /api/users/:email - Update a user's subscription tier (admin only, SaaS mode only)
 app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   if (!isSaasModeActive(c.env.SAAS_MODE)) {
-    throw new ValidationError('Access tiers are only available in SaaS mode');
+    throw new ValidationError('Subscription tiers are only available in SaaS mode');
   }
 
   const rawEmail = c.req.param('email');
@@ -97,9 +97,18 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   let raw: unknown;
   try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
 
-  const patchSchema = z.object({ accessTier: AccessTierSchema });
+  // Accept both subscriptionTier (new) and accessTier (backward compat)
+  const patchSchema = z.object({
+    subscriptionTier: SubscriptionTierSchema.optional(),
+    accessTier: AccessTierSchema.optional(),
+  }).refine(
+    (d) => d.subscriptionTier !== undefined || d.accessTier !== undefined,
+    { message: 'Either subscriptionTier or accessTier is required' }
+  );
   const parsed = patchSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+
+  const newTier = parsed.data.subscriptionTier ?? parsed.data.accessTier!;
 
   // Validate existing record with schema before merging
   const existingRaw = await c.env.KV.get(`user:${email}`, 'json');
@@ -109,21 +118,20 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     addedAt: z.string().default(''),
     role: z.enum(['admin', 'user']).default('user'),
     accessTier: AccessTierSchema.optional(),
+    subscriptionTier: SubscriptionTierSchema.optional(),
   }).passthrough();
   const existing = kvUserSchema.parse(existingRaw);
 
-  // Admin users always have advanced tier — prevent accidental lockout
+  // Admin users always have unlimited tier — prevent accidental lockout
   if (existing.role === 'admin') {
-    throw new ValidationError('Cannot change admin access tier');
+    throw new ValidationError('Cannot change admin subscription tier');
   }
 
-  const updated = { ...existing, accessTier: parsed.data.accessTier };
+  const updated = { ...existing, subscriptionTier: newTier, accessTier: newTier };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
 
-  // Auto-set sessionMode to 'advanced' for newly promoted advanced users.
-  // This ensures their first session seeds advanced agent skills and rules.
-  // Existing sessionMode preferences are NOT overridden.
-  if (parsed.data.accessTier === 'advanced') {
+  // Auto-set sessionMode to 'advanced' for tiers that support it.
+  if (newTier === 'advanced' || newTier === 'max' || newTier === 'unlimited') {
     const bucketName = getBucketName(email, c.env.CLOUDFLARE_WORKER_NAME);
     const prefsKey = getPreferencesKey(bucketName);
     const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
@@ -132,14 +140,14 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     }
   }
 
-  logger.info('User access tier updated', {
+  logger.info('User subscription tier updated', {
     email,
-    previousTier: existing.accessTier ?? 'unset',
-    accessTier: parsed.data.accessTier,
+    previousTier: existing.subscriptionTier ?? existing.accessTier ?? 'unset',
+    subscriptionTier: newTier,
     updatedBy: c.get('user').email,
   });
 
-  return c.json({ success: true, email, accessTier: parsed.data.accessTier });
+  return c.json({ success: true, email, subscriptionTier: newTier, accessTier: newTier });
 });
 
 export default app;

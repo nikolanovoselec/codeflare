@@ -52,8 +52,9 @@ export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: A
   c.set('user', user);
   c.set('bucketName', bucketName);
 
-  if (isSaasModeActive(c.env.SAAS_MODE) && !isActiveUser(user.accessTier)) {
-    const code = user.accessTier === 'blocked' ? 'BLOCKED' : 'PENDING';
+  const effectiveTier = user.subscriptionTier ?? user.accessTier;
+  if (isSaasModeActive(c.env.SAAS_MODE) && !isActiveUser(effectiveTier)) {
+    const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
     return c.json({ error: 'Access denied', code }, 403);
   }
 
