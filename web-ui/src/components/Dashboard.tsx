@@ -16,7 +16,7 @@ import SessionLimitPopup from './SessionLimitPopup';
 import ScrambleText from './ScrambleText';
 import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
-import { sessionStore } from '../stores/session';
+import { sessionStore, isAtUsageQuota } from '../stores/session';
 import '../styles/dashboard.css';
 
 function getGravatarUrl(email: string, size = 32): string {
@@ -223,8 +223,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   ref={setNewSessionBtnRef}
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
-                  disabled={!sessionStore.r2Ready}
-                  aria-label={!sessionStore.r2Ready ? 'Waiting for storage setup' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
+                  disabled={!sessionStore.r2Ready || isAtUsageQuota()}
+                  aria-label={!sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
                   onClick={() => {
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());
