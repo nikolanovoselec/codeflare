@@ -5,6 +5,7 @@ import {
   ValidationError,
   ContainerError,
   AuthError,
+  QuotaExceededError,
 } from '../../lib/error-types';
 
 describe('AppError', () => {
@@ -152,5 +153,40 @@ describe('AuthError', () => {
       error: 'Authentication required',
       code: 'AUTH_ERROR',
     });
+  });
+});
+
+describe('QuotaExceededError', () => {
+  it('has code QUOTA_EXCEEDED', () => {
+    const err = new QuotaExceededError('Monthly limit reached');
+    expect(err.code).toBe('QUOTA_EXCEEDED');
+  });
+
+  it('has status 402', () => {
+    const err = new QuotaExceededError('Monthly limit reached');
+    expect(err.statusCode).toBe(402);
+  });
+
+  it('has custom userMessage', () => {
+    const msg = 'Monthly compute quota reached (2h / 2h). Upgrade your plan.';
+    const err = new QuotaExceededError(msg);
+    expect(err.userMessage).toBe(msg);
+  });
+
+  it('toJSON includes code field', () => {
+    const err = new QuotaExceededError('Over quota');
+    const json = err.toJSON();
+    expect(json.code).toBe('QUOTA_EXCEEDED');
+    expect(json.error).toBe('Over quota');
+  });
+
+  it('extends AppError', () => {
+    const err = new QuotaExceededError('test');
+    expect(err).toBeInstanceOf(AppError);
+  });
+
+  it('is an Error', () => {
+    const err = new QuotaExceededError('test');
+    expect(err).toBeInstanceOf(Error);
   });
 });

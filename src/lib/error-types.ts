@@ -93,6 +93,12 @@ export class RateLimitError extends AppError {
   }
 }
 
+export class QuotaExceededError extends AppError {
+  constructor(message: string) {
+    super('QUOTA_EXCEEDED', 402, message, message);
+  }
+}
+
 export class CircuitBreakerOpenError extends AppError {
   constructor(service: string) {
     super('CIRCUIT_BREAKER_OPEN', 503, `Service ${service} is temporarily unavailable`, 'Service temporarily unavailable. Please try again shortly.');
