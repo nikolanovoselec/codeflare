@@ -356,7 +356,7 @@ describe('r2-admin', () => {
       };
     });
 
-    it('should return cached token from KV r2token:{email} if exists', async () => {
+    it('should return cached token from KV r2token:{email} if exists and token is valid', async () => {
       const cached = {
         accessKeyId: 'cached-ak',
         secretAccessKey: 'cached-sk',
@@ -366,16 +366,22 @@ describe('r2-admin', () => {
       };
       mockKV._value = JSON.stringify(cached);
 
+      // verifyTokenExists calls GET /accounts/{id}/tokens/{tokenId} — return 200 (valid)
+      mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
       const result = await getOrCreateScopedR2Token(
         'user@example.com', 'account-123', 'api-token', 'my-bucket',
         mockKV as unknown as KVNamespace,
       );
 
-      expect(mockKV.get).toHaveBeenCalledWith('r2token:user@example.com', 'json');
       expect(result.accessKeyId).toBe('cached-ak');
       expect(result.secretAccessKey).toBe('cached-sk');
-      // Should NOT have called fetch (no token creation)
-      expect(mockFetch).not.toHaveBeenCalled();
+      // Should have called fetch ONCE for token verification, NOT for token creation
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.cloudflare.com/client/v4/accounts/account-123/tokens/cached-tok',
+        expect.objectContaining({ method: 'GET' }),
+      );
     });
 
     it('should create new token if KV returns null, write to KV, return creds', async () => {
