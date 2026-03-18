@@ -13,7 +13,6 @@ const testState = vi.hoisted(() => ({
     hasActiveConnections: true,
     connectedClients: 1,
     lastInputAt: Date.now(),
-    lastHeartbeatAt: Date.now(),
   } as Record<string, unknown>,
   healthResult: {
     cpu: '45%',
@@ -115,8 +114,7 @@ describe('Container Metrics', () => {
       hasActiveConnections: true,
       connectedClients: 1,
       lastInputAt: Date.now(),
-      lastHeartbeatAt: Date.now(),
-    };
+      };
     testState.healthResult = {
       cpu: '45%',
       mem: '1024MB',
