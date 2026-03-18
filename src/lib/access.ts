@@ -1,5 +1,4 @@
 import type { AccessTier, AccessUser, Env, SubscriptionTier, UserRole } from '../types';
-import { SubscriptionTierSchema } from '../types';
 import { verifyAccessJWT } from './jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';

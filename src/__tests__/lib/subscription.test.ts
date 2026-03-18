@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { z } from 'zod';
 import {
   SubscriptionTierSchema,
   UsageRecordSchema,
@@ -55,7 +54,7 @@ describe('UsageRecordSchema', () => {
   });
 
   it('rejects record with missing fields', () => {
-    const { today, ...partial } = validRecord;
+    const { today: _today, ...partial } = validRecord;
     expect(() => UsageRecordSchema.parse(partial)).toThrow();
   });
 

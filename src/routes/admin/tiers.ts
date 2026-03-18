@@ -5,7 +5,7 @@
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { Env, SubscriptionTierConfig } from '../../types';
+import type { Env } from '../../types';
 import { SessionModeSchema } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { getTiersConfigKey } from '../../lib/kv-keys';
