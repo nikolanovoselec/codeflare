@@ -55,17 +55,19 @@ const SubscribePage: Component = () => {
         setSubmitted(true);
       }
 
-      if (result.accessTier === 'pending' && !result.requestedAt && result.turnstileSiteKey) {
+      const tier = result.subscriptionTier ?? result.accessTier;
+      if (tier === 'pending' && !result.requestedAt && result.turnstileSiteKey) {
         loadTurnstileScript();
         startTurnstileWatch();
       }
 
-      if (result.accessTier === 'standard' || result.accessTier === 'advanced') {
+      // Active tiers: free, trial, standard, advanced, max, unlimited
+      if (tier !== 'pending' && tier !== 'blocked') {
         // Stop polling — user is approved, show the active state UI
         if (pollInterval) clearInterval(pollInterval);
       }
 
-      if (result.accessTier === 'blocked') {
+      if (tier === 'blocked') {
         if (pollInterval) clearInterval(pollInterval);
       }
     } catch (err) {
@@ -162,11 +164,12 @@ const SubscribePage: Component = () => {
     }
   }
 
-  const isPending = () => status()?.accessTier === 'pending';
-  const isBlocked = () => status()?.accessTier === 'blocked';
+  const effectiveTier = () => status()?.subscriptionTier ?? status()?.accessTier;
+  const isPending = () => effectiveTier() === 'pending';
+  const isBlocked = () => effectiveTier() === 'blocked';
   const isActive = () => {
-    const tier = status()?.accessTier;
-    return tier === 'standard' || tier === 'advanced';
+    const tier = effectiveTier();
+    return tier !== undefined && tier !== 'pending' && tier !== 'blocked';
   };
   const hasTurnstile = () => Boolean(status()?.turnstileSiteKey);
 

@@ -65,15 +65,17 @@ const LoginPage: Component = () => {
   onMount(async () => {
     try {
       const status = await getAuthStatus();
-      if (status.accessTier === 'standard' || status.accessTier === 'advanced') {
+      const tier = status.subscriptionTier ?? status.accessTier;
+      // Active tiers: free, trial, standard, advanced, max, unlimited
+      if (tier !== 'pending' && tier !== 'blocked') {
         window.location.href = '/app/';
         return;
       }
-      if (status.accessTier === 'pending') {
+      if (tier === 'pending') {
         window.location.href = '/app/subscribe';
         return;
       }
-      if (status.accessTier === 'blocked') {
+      if (tier === 'blocked') {
         setBlocked(true);
         setLoading(false);
         return;

@@ -12,7 +12,7 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import { getUser } from '../api/client';
-import type { AccessTier } from '../types';
+import type { AccessTier, SubscriptionTier } from '../types';
 import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
@@ -115,9 +115,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
   const [openGroup, setOpenGroup] = createSignal<AccordionGroup>('appearance');
 
-  // Live access tier — refreshed from API each time panel opens so tier
+  // Live tier — refreshed from API each time panel opens so tier
   // upgrades take effect without a full page reload.
-  const [liveAccessTier, setLiveAccessTier] = createSignal<AccessTier | undefined>(props.currentUserAccessTier);
+  const [liveAccessTier, setLiveAccessTier] = createSignal<AccessTier | SubscriptionTier | undefined>(props.currentUserAccessTier);
 
   // Reset accordion to Appearance when panel is closed then reopened (false → true)
   createEffect(on(
@@ -125,9 +125,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     (isOpen, prevIsOpen) => {
       if (isOpen && prevIsOpen === false) {
         setOpenGroup('appearance');
-        // Re-fetch access tier on panel open
+        // Re-fetch tier on panel open
         getUser().then((user) => {
-          if (user.accessTier) setLiveAccessTier(user.accessTier);
+          const tier = user.subscriptionTier ?? user.accessTier;
+          if (tier) setLiveAccessTier(tier);
         }).catch(() => {});
       }
     }

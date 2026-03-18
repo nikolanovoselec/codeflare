@@ -19,6 +19,7 @@ interface LayoutProps {
   userName?: string;
   userRole?: 'admin' | 'user';
   userAccessTier?: import('../types').AccessTier;
+  userSubscriptionTier?: import('../types').SubscriptionTier;
   onboardingActive?: boolean;
 }
 

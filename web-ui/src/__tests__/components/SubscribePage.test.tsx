@@ -25,6 +25,7 @@ describe('SubscribePage', () => {
     mockedGetAuthStatus.mockResolvedValue({
       email: 'user@example.com',
       accessTier: 'pending',
+      subscriptionTier: 'pending',
       role: 'user',
       turnstileSiteKey: '0xTESTKEY',
       requestedAt: null,
@@ -165,6 +166,7 @@ describe('SubscribePage', () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'user@example.com',
         accessTier: 'pending',
+        subscriptionTier: 'pending',
         role: 'user',
         turnstileSiteKey: '0xTESTKEY',
         requestedAt: '2025-01-01T00:00:00Z',
@@ -182,6 +184,7 @@ describe('SubscribePage', () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'user@example.com',
         accessTier: 'pending',
+        subscriptionTier: 'pending',
         role: 'user',
         turnstileSiteKey: '0xTESTKEY',
         requestedAt: '2025-01-01T00:00:00Z',
@@ -201,6 +204,7 @@ describe('SubscribePage', () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
+        subscriptionTier: 'standard',
         role: 'user',
       });
 
@@ -218,6 +222,7 @@ describe('SubscribePage', () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'admin@example.com',
         accessTier: 'advanced',
+        subscriptionTier: 'advanced',
         role: 'admin',
       });
 
@@ -237,6 +242,7 @@ describe('SubscribePage', () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'blocked@example.com',
         accessTier: 'blocked',
+        subscriptionTier: 'blocked',
         role: 'user',
       });
 
@@ -255,6 +261,7 @@ describe('SubscribePage', () => {
         .mockResolvedValueOnce({
           email: 'user@example.com',
           accessTier: 'pending',
+          subscriptionTier: 'pending',
           role: 'user',
           turnstileSiteKey: '0xTESTKEY',
           requestedAt: '2025-01-01T00:00:00Z',
@@ -262,6 +269,7 @@ describe('SubscribePage', () => {
         .mockResolvedValueOnce({
           email: 'user@example.com',
           accessTier: 'standard',
+          subscriptionTier: 'standard',
           role: 'user',
         });
 

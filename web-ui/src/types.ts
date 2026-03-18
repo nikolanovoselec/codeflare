@@ -106,10 +106,12 @@ export interface StartupStatusResponse {
 }
 
 export type AccessTier = 'pending' | 'standard' | 'advanced' | 'blocked';
+export type SubscriptionTier = 'blocked' | 'pending' | 'free' | 'trial' | 'standard' | 'advanced' | 'max' | 'unlimited';
 
 export interface AuthStatus {
   email: string;
   accessTier: AccessTier;
+  subscriptionTier?: SubscriptionTier;
   role: 'admin' | 'user';
   turnstileSiteKey?: string | null;
   requestedAt?: string | null;
@@ -130,6 +132,7 @@ export interface UserInfo {
   workerName?: string;
   role?: 'admin' | 'user';
   accessTier?: AccessTier;
+  subscriptionTier?: SubscriptionTier;
   onboardingActive?: boolean;
   saasMode?: boolean;
   onboardingComplete?: boolean;

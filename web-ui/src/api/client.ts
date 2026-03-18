@@ -23,6 +23,7 @@ import {
   AuthStatusResponseSchema,
   AuthProvidersResponseSchema,
   AccessTierSchema,
+  SubscriptionTierSchema,
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
 import { ApiError, baseFetch } from './fetch-helper';
@@ -376,18 +377,22 @@ export async function requestAccess(turnstileToken: string): Promise<{ success: 
 const UpdateUserTierResponseSchema = z.object({
   success: z.boolean(),
   email: z.string(),
-  accessTier: AccessTierSchema,
+  subscriptionTier: SubscriptionTierSchema,
+  accessTier: AccessTierSchema.or(SubscriptionTierSchema),
 });
 
-export async function updateUserAccessTier(
+export async function updateUserTier(
   email: string,
-  accessTier: string
+  subscriptionTier: string
 ): Promise<z.infer<typeof UpdateUserTierResponseSchema>> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ accessTier }),
+    body: JSON.stringify({ subscriptionTier }),
   }, UpdateUserTierResponseSchema);
 }
+
+/** @deprecated Use updateUserTier instead */
+export const updateUserAccessTier = updateUserTier;
 
 export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
