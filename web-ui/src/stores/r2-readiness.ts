@@ -43,6 +43,7 @@ async function checkR2Status(): Promise<void> {
 
 export async function startR2Polling(): Promise<void> {
   if (!api) return;
+  if (r2Ready()) return;  // Already confirmed ready — no need to re-check
   if (r2PollInterval !== null) return;
 
   // Eagerly ensure token exists (backend creates if missing)
