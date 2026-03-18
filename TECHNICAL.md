@@ -813,6 +813,26 @@ Deploy new code first (backward compat), then run migration script:
 3. Admins → `unlimited`, missing → `standard` (SaaS) / `unlimited` (non-SaaS)
 4. Old `accessTier` kept for rollback safety
 
+### Session Limit Enforcement
+
+In SaaS mode, `validateSessionAndCheckLimits()` resolves the effective max sessions from the user's tier config (`tier.maxSessions`) rather than using the role-based `MAX_SESSIONS_USER`/`MAX_SESSIONS_ADMIN` env vars. Falls back to role-based limits on KV error. This ensures free-tier users (maxSessions=1) cannot start multiple sessions even if the env var allows it.
+
+### Session Mode Authorization
+
+The `canUseAdvanced()` helper in SettingsPanel and the `canUseSessionMode()` backend function both check if the user's tier allows advanced mode. Tiers with advanced mode: `advanced`, `max`, `unlimited`. Tiers without: `blocked`, `pending`, `free`, `trial`, `standard`. The backend also enforces this via `getAllowedSessionModes()` from `src/lib/subscription.ts`. Admin users always have advanced access regardless of stored tier.
+
+### Batch-Status Usage Piggyback
+
+The `GET /api/sessions/batch-status` response includes an optional `usage` field (SaaS mode only) with `{ dailySeconds, monthlySeconds, monthlyQuotaSeconds, tier }`. This is consumed by `refreshSessionStatuses()` in the frontend session store, which calls `setUsageState()` to update the usage warning level. The warning banners in `Layout.tsx` read from `getUsageWarningLevel()` which returns `'none'`, `'80'`, `'95'`, or `'100'` based on the percentage of monthly quota used. The `isAtUsageQuota()` function disables the "New Session" button in the Dashboard when quota is exceeded.
+
+### Email Notifications
+
+Tier change notifications are sent via Resend API (`src/lib/email.ts`). The `sendEmail()` helper checks `resp.ok` before returning success — non-2xx API responses return `false`. The `sendTierChangeNotification()` function notifies both the affected user and all admin users. Email sending is fire-and-forget (non-blocking, non-fatal).
+
+### Timekeeper Crash Resilience
+
+The Timekeeper DO persists all critical state to DO storage: `pendingSeconds`, `sessionTotals`, `bucketName`, `email`, and `lastFlushedMonthlyTotal`. On cold start, the constructor restores all fields via `blockConcurrencyWhile()`. The `lastFlushedMonthlyTotal` is updated both after alarm flush (successful KV write) and after KV re-read during ping quota checks, ensuring accurate quota enforcement after DO eviction.
+
 ### Access Tiers (Legacy)
 
 The original 4-tier system (`pending`/`standard`/`advanced`/`blocked`) is preserved for backward compatibility. New code uses `subscriptionTier` with fallback to `accessTier`. See Subscription Tiers above for the replacement.
