@@ -313,3 +313,4 @@ export default {
 // Export Durable Objects
 // Export container class for Durable Objects
 export { container } from './container';
+export { Timekeeper as timekeeper } from './timekeeper/index';

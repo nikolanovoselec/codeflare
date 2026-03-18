@@ -53,10 +53,19 @@ disk_mb = 6000
 name = "CONTAINER"
 class_name = "container"
 
+# Durable Objects binding for per-user usage tracking
+[[durable_objects.bindings]]
+name = "TIMEKEEPER"
+class_name = "timekeeper"
+
 # Migrations
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["container"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["timekeeper"]
 
 # Static assets (frontend) with SPA routing
 [assets]

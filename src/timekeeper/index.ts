@@ -1,0 +1,246 @@
+/**
+ * Timekeeper Durable Object — per-user usage accumulation + quota enforcement.
+ *
+ * One Timekeeper DO per user. Container DOs ping it with monotonic totalSeconds
+ * per session. Timekeeper computes deltas, accumulates pendingSeconds, and
+ * periodically flushes to KV via alarm. Also serves real-time usage queries
+ * and performs quota checks on each ping.
+ *
+ * KV key: timekeeper:{bucketName}
+ * See UsageRecord in src/types.ts for the KV value shape.
+ */
+import type { Env, UsageRecord } from '../types';
+import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
+import { getDefaultTiers, getUserTier, getTierConfig } from '../lib/subscription';
+import { createLogger } from '../lib/logger';
+
+const logger = createLogger('timekeeper');
+
+const FLUSH_INTERVAL_MS = 300_000; // 5 minutes
+const RETRY_INTERVAL_MS = 30_000;  // 30 seconds on failure
+
+interface PingBody {
+  bucketName: string;
+  sessionId: string;
+  totalSeconds: number;
+  email: string;
+}
+
+export class Timekeeper {
+  private ctx: DurableObjectState;
+  private env: Env;
+  private pendingSeconds = 0;
+  private sessionTotals: Record<string, number> = {};
+  private bucketName: string | null = null;
+  private email: string | null = null;
+  private lastFlushedMonthlyTotal = 0;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+
+    // Restore state from DO storage (crash resilience)
+    ctx.blockConcurrencyWhile(async () => {
+      const [pending, totals, bucket, email] = await Promise.all([
+        ctx.storage.get<number>('pendingSeconds'),
+        ctx.storage.get<string>('sessionTotals'),
+        ctx.storage.get<string>('bucketName'),
+        ctx.storage.get<string>('email'),
+      ]);
+      this.pendingSeconds = pending ?? 0;
+      this.bucketName = bucket ?? null;
+      this.email = email ?? null;
+      if (totals) {
+        try { this.sessionTotals = JSON.parse(totals); } catch { /* ignore corrupt data */ }
+      }
+    });
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    if (request.method === 'POST' && path === '/ping') {
+      return this.handlePing(request);
+    }
+    if (request.method === 'GET' && path === '/usage') {
+      return this.handleGetUsage();
+    }
+    return new Response('Not found', { status: 404 });
+  }
+
+  async alarm(): Promise<void> {
+    if (this.pendingSeconds === 0 || !this.bucketName) return;
+
+    const kvKey = getTimekeeperKey(this.bucketName);
+    const secondsToFlush = this.pendingSeconds;
+
+    try {
+      const existing = await this.env.KV.get<UsageRecord>(kvKey, 'json');
+      const now = new Date();
+      const record = this.buildUpdatedRecord(existing, secondsToFlush, now);
+
+      await this.env.KV.put(kvKey, JSON.stringify(record));
+
+      // Only reset after successful write
+      this.pendingSeconds -= secondsToFlush;
+      if (this.pendingSeconds < 0) this.pendingSeconds = 0;
+      this.lastFlushedMonthlyTotal = record.thisMonth.seconds;
+      await this.ctx.storage.put('pendingSeconds', this.pendingSeconds);
+    } catch (err) {
+      logger.error('Flush failed, will retry', err instanceof Error ? err : new Error(String(err)));
+      // Re-arm for retry
+      await this.ctx.storage.setAlarm(Date.now() + RETRY_INTERVAL_MS);
+      return;
+    }
+
+    // Re-arm if more pending accumulated during flush
+    if (this.pendingSeconds > 0) {
+      await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
+    }
+  }
+
+  private async handlePing(request: Request): Promise<Response> {
+    let body: PingBody;
+    try {
+      body = await request.json() as PingBody;
+      if (!body.bucketName || !body.sessionId || typeof body.totalSeconds !== 'number' || !body.email) {
+        return new Response('Invalid ping body', { status: 400 });
+      }
+    } catch {
+      return new Response('Invalid JSON', { status: 400 });
+    }
+
+    // Store identity on first ping
+    if (!this.bucketName) {
+      this.bucketName = body.bucketName;
+      await this.ctx.storage.put('bucketName', body.bucketName);
+    }
+    if (!this.email) {
+      this.email = body.email;
+      await this.ctx.storage.put('email', body.email);
+    }
+
+    // Compute delta from per-session monotonic total
+    const previousTotal = this.sessionTotals[body.sessionId] ?? 0;
+    let delta: number;
+    if (body.totalSeconds < previousTotal) {
+      // Session restarted — treat totalSeconds as fresh
+      delta = body.totalSeconds;
+    } else {
+      delta = body.totalSeconds - previousTotal;
+    }
+    this.sessionTotals[body.sessionId] = body.totalSeconds;
+
+    this.pendingSeconds += delta;
+
+    // Persist to DO storage
+    await Promise.all([
+      this.ctx.storage.put('pendingSeconds', this.pendingSeconds),
+      this.ctx.storage.put('sessionTotals', JSON.stringify(this.sessionTotals)),
+    ]);
+
+    // Arm alarm if none pending
+    const existingAlarm = await this.ctx.storage.getAlarm();
+    if (!existingAlarm) {
+      await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
+    }
+
+    // Quota check (fail-open)
+    let quotaExceeded = false;
+    let totalMonthlySeconds = this.lastFlushedMonthlyTotal + this.pendingSeconds;
+    try {
+      const [kvRecord, tiers, userRaw] = await Promise.all([
+        this.env.KV.get<UsageRecord>(getTimekeeperKey(this.bucketName), 'json'),
+        getTierConfig(this.env.KV),
+        this.env.KV.get(`user:${this.email}`),
+      ]);
+
+      const userData = userRaw ? JSON.parse(userRaw) : {};
+      const tierValue = userData.subscriptionTier ?? userData.accessTier;
+      const tier = getUserTier(tierValue, tiers);
+
+      // Calculate real monthly total
+      const now = new Date();
+      const currentMonth = getUtcMonthString(now);
+      const kvMonthly = (kvRecord && kvRecord.thisMonth.month === currentMonth)
+        ? kvRecord.thisMonth.seconds
+        : 0;
+      totalMonthlySeconds = kvMonthly + this.pendingSeconds;
+      this.lastFlushedMonthlyTotal = kvMonthly;
+
+      if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds) {
+        quotaExceeded = true;
+      }
+    } catch {
+      // Fail open — don't block on KV errors
+    }
+
+    return Response.json({ quotaExceeded, totalMonthlySeconds });
+  }
+
+  private async handleGetUsage(): Promise<Response> {
+    const kvKey = this.bucketName ? getTimekeeperKey(this.bucketName) : null;
+    let kvRecord: UsageRecord | null = null;
+    if (kvKey) {
+      try {
+        kvRecord = await this.env.KV.get<UsageRecord>(kvKey, 'json');
+      } catch { /* ignore */ }
+    }
+
+    const now = new Date();
+    const currentMonth = getUtcMonthString(now);
+    const currentDate = getUtcDateString(now);
+
+    const kvMonthly = (kvRecord && kvRecord.thisMonth.month === currentMonth)
+      ? kvRecord.thisMonth.seconds : 0;
+    const kvDaily = (kvRecord && kvRecord.today.date === currentDate)
+      ? kvRecord.today.seconds : 0;
+
+    return Response.json({
+      dailySeconds: kvDaily + this.pendingSeconds,
+      monthlySeconds: kvMonthly + this.pendingSeconds,
+    });
+  }
+
+  private buildUpdatedRecord(
+    existing: UsageRecord | null,
+    seconds: number,
+    now: Date
+  ): UsageRecord {
+    const currentDate = getUtcDateString(now);
+    const currentMonth = getUtcMonthString(now);
+    const currentYear = String(now.getUTCFullYear());
+    const currentWeekStart = getIsoWeekStart(now);
+
+    if (!existing) {
+      return {
+        today: { date: currentDate, seconds },
+        thisWeek: { weekStart: currentWeekStart, seconds },
+        thisMonth: { month: currentMonth, seconds },
+        thisYear: { year: currentYear, seconds },
+        allTime: { seconds },
+        lastUpdatedAt: now.toISOString(),
+      };
+    }
+
+    // Handle rollovers — reset counters when period changes
+    const todaySeconds = existing.today.date === currentDate
+      ? existing.today.seconds + seconds : seconds;
+    const weekSeconds = existing.thisWeek.weekStart === currentWeekStart
+      ? existing.thisWeek.seconds + seconds : seconds;
+    const monthSeconds = existing.thisMonth.month === currentMonth
+      ? existing.thisMonth.seconds + seconds : seconds;
+    const yearSeconds = existing.thisYear.year === currentYear
+      ? existing.thisYear.seconds + seconds : seconds;
+
+    return {
+      today: { date: currentDate, seconds: todaySeconds },
+      thisWeek: { weekStart: currentWeekStart, seconds: weekSeconds },
+      thisMonth: { month: currentMonth, seconds: monthSeconds },
+      thisYear: { year: currentYear, seconds: yearSeconds },
+      allTime: { seconds: existing.allTime.seconds + seconds },
+      lastUpdatedAt: now.toISOString(),
+    };
+  }
+}
