@@ -28,6 +28,7 @@ import { toErrorMessage } from '../lib/error-types';
 import { getSessionKey } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
+import { isSaasModeActive } from '../lib/onboarding';
 
 const SESSION_ID_KEY = '_sessionId';
 
@@ -119,6 +120,9 @@ export class container extends Container<Env> {
   private _sessionMode: string = 'default';
   private _containerAuthToken: string | null = null;
   private _sessionId: string | null = null;
+  private _userEmail: string | null = null;
+  /** Monotonic usage counter (seconds) — sent to Timekeeper for delta computation */
+  private _usageSeconds = 0;
   private containerStartedAt = 0;
   /** Last seen lastInputAt from /activity — used to detect NEW input for renewal. */
   private lastSeenInputAt: number | null = null;
@@ -148,6 +152,8 @@ export class container extends Container<Env> {
       }
       this._tabConfig = await this.ctx.storage.get<TabConfig[]>('tabConfig') || null;
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
+      this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
+      this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;
 
       // Resolve R2 config via shared helper (env vars first, KV fallback)
       try {
@@ -343,10 +349,11 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode } =
+      const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
+          userEmail?: string;
           r2AccessKeyId?: string;
           r2SecretAccessKey?: string;
           r2AccountId?: string;
@@ -453,6 +460,12 @@ export class container extends Container<Env> {
       if (sessionId) {
         await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
         this._sessionId = sessionId;
+      }
+
+      // Store user email for Timekeeper pings
+      if (userEmail) {
+        await this.ctx.storage.put('userEmail', userEmail);
+        this._userEmail = userEmail;
       }
 
       await this.setBucketName(bucketName, {
@@ -615,6 +628,42 @@ export class container extends Container<Env> {
       }
     } catch (err) {
       this.logger.warn('collectMetrics: fetch/write failed', { error: err instanceof Error ? err.message : String(err) });
+    }
+
+    // Timekeeper usage ping (SaaS mode only)
+    if (isSaasModeActive(this.env.SAAS_MODE)
+        && this.env.STRESS_TEST_MODE !== 'active'
+        && this._bucketName
+        && this.env.TIMEKEEPER) {
+      try {
+        this._usageSeconds += 60;
+        await this.ctx.storage.put('usageSeconds', this._usageSeconds);
+
+        const tkId = this.env.TIMEKEEPER.idFromName(this._bucketName);
+        const tk = this.env.TIMEKEEPER.get(tkId);
+        const pingRes = await tk.fetch(new Request('http://timekeeper/ping', {
+          method: 'POST',
+          body: JSON.stringify({
+            bucketName: this._bucketName,
+            sessionId: this._sessionId,
+            totalSeconds: this._usageSeconds,
+            email: this._userEmail || '',
+          }),
+          headers: { 'Content-Type': 'application/json' },
+        }));
+
+        if (pingRes.ok) {
+          const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
+          if (quotaExceeded) {
+            this.logger.warn('Quota exceeded — stopping container', { bucketName: this._bucketName });
+            await this.stop('SIGTERM');
+            return; // Don't re-arm after stop
+          }
+        }
+      } catch (err) {
+        // Non-fatal: log and continue — Timekeeper will catch up on next ping
+        this.logger.warn('Timekeeper ping failed', { error: err instanceof Error ? err.message : String(err) });
+      }
     }
 
     // Re-arm only if still running. schedule() is one-shot — if we don't

@@ -253,6 +253,7 @@ describe('Container lifecycle extracted helpers', () => {
       container: mockContainer,
       bucketName: 'test-bucket',
       sessionId: 'session1234',
+      userEmail: 'test@example.com',
       containerId: 'test-bucket-session1234',
       scopedCreds: { accessKeyId: 'ak', secretAccessKey: 'sk' },
       r2Config: { accountId: 'acct', endpoint: 'https://r2.example.com' },

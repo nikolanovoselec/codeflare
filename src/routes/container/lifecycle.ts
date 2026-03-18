@@ -34,6 +34,7 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 function buildSetBucketNameBody(params: {
   bucketName: string;
   sessionId: string;
+  userEmail: string;
   scopedCreds: { accessKeyId: string; secretAccessKey: string };
   r2Config: { accountId: string; endpoint: string };
   tabConfig: TabConfig[];
@@ -50,6 +51,7 @@ function buildSetBucketNameBody(params: {
   return JSON.stringify({
     bucketName: params.bucketName,
     sessionId: params.sessionId,
+    userEmail: params.userEmail,
     r2AccessKeyId: params.scopedCreds.accessKeyId,
     r2SecretAccessKey: params.scopedCreds.secretAccessKey,
     r2AccountId: params.r2Config.accountId,
@@ -246,6 +248,7 @@ export async function configureContainerDO(params: {
   container: { fetch: (req: Request) => Promise<Response> };
   bucketName: string;
   sessionId: string;
+  userEmail: string;
   containerId: string;
   scopedCreds: { accessKeyId: string; secretAccessKey: string };
   r2Config: { accountId: string; endpoint: string };
@@ -268,6 +271,7 @@ export async function configureContainerDO(params: {
   const setBucketBody = buildSetBucketNameBody({
     bucketName: params.bucketName,
     sessionId: params.sessionId,
+    userEmail: params.userEmail,
     scopedCreds: params.scopedCreds,
     r2Config: params.r2Config,
     tabConfig: params.tabConfig,
@@ -478,6 +482,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       container,
       bucketName,
       sessionId,
+      userEmail: user.email,
       containerId,
       scopedCreds,
       r2Config,
