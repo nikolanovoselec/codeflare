@@ -326,18 +326,9 @@ export class Session {
       const filtered = stripTerminalResponses(data);
       if (filtered) {
         this.ptyProcess.write(filtered);
-        const isUserInput = containsUserInput(data);
-        if (this._activityTracker && isUserInput) {
+        if (this._activityTracker && containsUserInput(data)) {
           this._activityTracker.recordInput();
         }
-        // Debug: log input classification for idle detection testing
-        const hex = Array.from(data).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
-        this._log('debug', isUserInput ? 'INPUT: user' : 'INPUT: protocol', {
-          session: this.id.substring(0, 8),
-          hex: hex.substring(0, 120),
-          len: data.length,
-          isUserInput,
-        });
       }
     }
   }

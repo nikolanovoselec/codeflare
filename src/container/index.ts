@@ -98,8 +98,8 @@ export class container extends Container<Env> {
   defaultPort = 8080;
 
   // Container goes to sleep after this duration of inactivity (no HTTP fetch() calls).
-  // collectMetrics() heartbeat and onActivityExpired() keep it alive while WS clients are connected.
-  override sleepAfter = '3m'; // Short for testing — production should be '30m'
+  // collectMetrics() renews via renewActivityTimeout() when new user input is detected.
+  override sleepAfter = '30m';
 
   // Environment variables - set via property assignment in updateEnvVars()
   private _bucketName: string | null = null;
@@ -538,10 +538,7 @@ export class container extends Container<Env> {
       return;
     }
 
-    // Keep-alive: renew sleepAfter timer based on frontend visibility heartbeat
-    // AND recent user input. Both signals must be present to renew:
-    // - Heartbeat (tab visible) ensures the user is looking at the terminal
-    // - Input (typed within 30 min) ensures the user is actively engaged
+    // Keep-alive: renew sleepAfter only when new user input is detected.
     // The SDK only resets sleepAfterMs via containerFetch() — WebSocket frames
     // flow through raw TCP and never call renewActivityTimeout(). Without this,
     // the container dies after sleepAfter even during active terminal use.
@@ -697,9 +694,8 @@ export class container extends Container<Env> {
   }
 
   /**
-   * Called when sleepAfter expires. Check frontend visibility heartbeat AND
-   * recent user input (or WS connections on legacy hosts) — if both recent,
-   * renew. Otherwise stop.
+   * Called when sleepAfter expires. Check for new user input one last time —
+   * if detected since the last poll, renew. Otherwise stop.
    */
   override async onActivityExpired(): Promise<void> {
     if (!this.ctx.container?.running) {
