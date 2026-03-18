@@ -7,6 +7,11 @@ import {
   generateSessionId,
   getSessionOrThrow,
   listAllKvKeys,
+  getTiersConfigKey,
+  getTimekeeperKey,
+  getUtcDateString,
+  getUtcMonthString,
+  getIsoWeekStart,
 } from '../../lib/kv-keys';
 import { NotFoundError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -182,5 +187,94 @@ describe('listAllKvKeys', () => {
     // Should stop at 100 iterations (MAX_KV_LIST_ITERATIONS)
     expect(callCount).toBe(100);
     expect(keys).toHaveLength(100);
+  });
+});
+
+describe('getTiersConfigKey', () => {
+  it('returns tiers:config', () => {
+    expect(getTiersConfigKey()).toBe('tiers:config');
+  });
+});
+
+describe('getTimekeeperKey', () => {
+  it('returns timekeeper:{bucketName}', () => {
+    expect(getTimekeeperKey('codeflare-alice')).toBe('timekeeper:codeflare-alice');
+  });
+
+  it('handles bucket names with special chars', () => {
+    expect(getTimekeeperKey('cf-user-test-123')).toBe('timekeeper:cf-user-test-123');
+  });
+});
+
+describe('getUtcDateString', () => {
+  it('returns YYYY-MM-DD in UTC', () => {
+    const date = new Date('2026-03-18T15:30:00Z');
+    expect(getUtcDateString(date)).toBe('2026-03-18');
+  });
+
+  it('uses UTC regardless of time', () => {
+    // 23:30 UTC on March 18 is still March 18 in UTC
+    const date = new Date('2026-03-18T23:30:00Z');
+    expect(getUtcDateString(date)).toBe('2026-03-18');
+  });
+
+  it('pads single-digit months and days', () => {
+    const date = new Date('2026-01-05T00:00:00Z');
+    expect(getUtcDateString(date)).toBe('2026-01-05');
+  });
+});
+
+describe('getUtcMonthString', () => {
+  it('returns YYYY-MM in UTC', () => {
+    const date = new Date('2026-03-18T15:30:00Z');
+    expect(getUtcMonthString(date)).toBe('2026-03');
+  });
+
+  it('pads single-digit months', () => {
+    const date = new Date('2026-01-05T00:00:00Z');
+    expect(getUtcMonthString(date)).toBe('2026-01');
+  });
+
+  it('handles December correctly', () => {
+    const date = new Date('2026-12-31T23:59:59Z');
+    expect(getUtcMonthString(date)).toBe('2026-12');
+  });
+});
+
+describe('getIsoWeekStart', () => {
+  it('returns Monday date string for a Wednesday', () => {
+    // 2026-03-18 is a Wednesday, Monday is 2026-03-16
+    const date = new Date('2026-03-18T12:00:00Z');
+    expect(getIsoWeekStart(date)).toBe('2026-03-16');
+  });
+
+  it('returns same date for a Monday', () => {
+    // 2026-03-16 is a Monday
+    const date = new Date('2026-03-16T12:00:00Z');
+    expect(getIsoWeekStart(date)).toBe('2026-03-16');
+  });
+
+  it('returns Monday for a Sunday', () => {
+    // 2026-03-22 is a Sunday, Monday is 2026-03-16
+    const date = new Date('2026-03-22T12:00:00Z');
+    expect(getIsoWeekStart(date)).toBe('2026-03-16');
+  });
+
+  it('handles year boundary (Dec 31 → previous Monday)', () => {
+    // 2025-12-31 is a Wednesday, Monday is 2025-12-29
+    const date = new Date('2025-12-31T12:00:00Z');
+    expect(getIsoWeekStart(date)).toBe('2025-12-29');
+  });
+
+  it('handles week spanning year boundary (Jan 1 → previous year Monday)', () => {
+    // 2026-01-01 is a Thursday, Monday is 2025-12-29
+    const date = new Date('2026-01-01T12:00:00Z');
+    expect(getIsoWeekStart(date)).toBe('2025-12-29');
+  });
+
+  it('handles first Monday of year', () => {
+    // 2026-01-05 is a Monday
+    const date = new Date('2026-01-05T12:00:00Z');
+    expect(getIsoWeekStart(date)).toBe('2026-01-05');
   });
 });

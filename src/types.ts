@@ -72,6 +72,16 @@ export interface Env {
   // Optional AES-256 key (base64) for encrypting KV values at rest.
   // Set via wrangler secret. When absent, credentials stored as plaintext.
   ENCRYPTION_KEY?: string;
+
+  // Timekeeper Durable Object for per-user usage tracking
+  TIMEKEEPER?: DurableObjectNamespace;
+
+  // Quota configuration env vars (fallback when tiers:config not in KV)
+  QUOTA_FREE_HOURS?: string;
+  QUOTA_TRIAL_HOURS?: string;
+  QUOTA_STANDARD_HOURS?: string;
+  QUOTA_ADVANCED_HOURS?: string;
+  QUOTA_MAX_HOURS?: string;
 }
 
 /**
@@ -124,6 +134,51 @@ export type SessionMode = z.infer<typeof SessionModeSchema>;
 
 export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
 export type AccessTier = z.infer<typeof AccessTierSchema>;
+
+export const SubscriptionTierSchema = z.enum([
+  'blocked', 'pending', 'free', 'trial', 'standard', 'advanced', 'max', 'unlimited',
+]);
+export type SubscriptionTier = z.infer<typeof SubscriptionTierSchema>;
+
+/**
+ * Configuration for a single subscription tier.
+ * Stored as part of the tiers:config KV value.
+ */
+export interface SubscriptionTierConfig {
+  id: string;
+  displayName: string;
+  monthlySeconds: number | null; // null = unlimited
+  maxSessions: number;
+  sessionModes: SessionMode[];
+  canLogin: boolean;
+  order: number;
+  isDefault: boolean;
+  priceMonthly: number | null; // cents, null = not purchasable
+}
+
+/**
+ * Usage record stored at timekeeper:{bucketName} in KV.
+ * Written by Timekeeper DO alarm handler.
+ */
+export const UsageRecordSchema = z.object({
+  today: z.object({ date: z.string(), seconds: z.number().min(0) }),
+  thisWeek: z.object({ weekStart: z.string(), seconds: z.number().min(0) }),
+  thisMonth: z.object({ month: z.string(), seconds: z.number().min(0) }),
+  thisYear: z.object({ year: z.string(), seconds: z.number().min(0) }),
+  allTime: z.object({ seconds: z.number().min(0) }),
+  lastUpdatedAt: z.string(),
+});
+export type UsageRecord = z.infer<typeof UsageRecordSchema>;
+
+/**
+ * Usage summary returned to frontend via batch-status and /api/usage.
+ */
+export interface UsageSummary {
+  dailySeconds: number;
+  monthlySeconds: number;
+  monthlyQuotaSeconds: number | null; // null = unlimited
+  tier: string;
+}
 
 /**
  * Configuration for a single terminal tab
