@@ -3,6 +3,7 @@
  * Extracted from the inline Resend code in routes/auth.ts.
  * Non-fatal: returns boolean success, never throws.
  */
+import { escapeXml } from './xml-utils';
 
 interface SendEmailOptions {
   to: string[];
@@ -62,14 +63,20 @@ export async function sendTierChangeNotification(opts: {
 }): Promise<void> {
   const { userEmail, previousTier, newTier, changedBy, adminEmails, env } = opts;
 
+  // Escape all interpolated values to prevent HTML injection
+  const safeUser = escapeXml(userEmail);
+  const safePrev = escapeXml(previousTier);
+  const safeNew = escapeXml(newTier);
+  const safeBy = escapeXml(changedBy);
+
   // Notify user
   await sendEmail({
     to: [userEmail],
     subject: `Your Codeflare plan has been updated to ${newTier}`,
     html: [
       '<h2>Plan Update</h2>',
-      `<p>Your Codeflare subscription has been changed from <strong>${previousTier}</strong> to <strong>${newTier}</strong>.</p>`,
-      `<p>Changed by: ${changedBy}</p>`,
+      `<p>Your Codeflare subscription has been changed from <strong>${safePrev}</strong> to <strong>${safeNew}</strong>.</p>`,
+      `<p>Changed by: ${safeBy}</p>`,
     ].join('\n'),
     env,
   });
@@ -81,12 +88,12 @@ export async function sendTierChangeNotification(opts: {
       subject: `Tier change: ${userEmail} → ${newTier}`,
       html: [
         '<h2>Tier Change Notification</h2>',
-        `<p><strong>User:</strong> ${userEmail}</p>`,
-        `<p><strong>Previous tier:</strong> ${previousTier}</p>`,
-        `<p><strong>New tier:</strong> ${newTier}</p>`,
-        `<p><strong>Changed by:</strong> ${changedBy}</p>`,
+        `<p><strong>User:</strong> ${safeUser}</p>`,
+        `<p><strong>Previous tier:</strong> ${safePrev}</p>`,
+        `<p><strong>New tier:</strong> ${safeNew}</p>`,
+        `<p><strong>Changed by:</strong> ${safeBy}</p>`,
       ].join('\n'),
-      replyTo: changedBy,
+      replyTo: changedBy.includes('@') ? changedBy : undefined,
       env,
     });
   }

@@ -125,13 +125,15 @@ export function getUserTier(
   tierValue: SubscriptionTier | string | undefined,
   tiers: SubscriptionTierConfig[]
 ): SubscriptionTierConfig {
+  // Guard against empty or corrupted tier config — fall back to hardcoded defaults
+  const safeTiers = tiers.length > 0 ? tiers : getDefaultTiers();
   if (tierValue !== undefined) {
-    const found = tiers.find((t) => t.id === tierValue);
+    const found = safeTiers.find((t) => t.id === tierValue);
     if (found) return found;
   }
   // Fall back to the default tier (isDefault=true)
-  const defaultTier = tiers.find((t) => t.isDefault);
-  return defaultTier ?? tiers[tiers.length - 1];
+  const defaultTier = safeTiers.find((t) => t.isDefault);
+  return defaultTier ?? safeTiers[safeTiers.length - 1];
 }
 
 /**

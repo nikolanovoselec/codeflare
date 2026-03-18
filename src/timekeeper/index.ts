@@ -116,24 +116,30 @@ export class Timekeeper {
       return new Response('Invalid JSON', { status: 400 });
     }
 
-    // Store identity on first ping
+    // Store identity on first ping; reject mismatches on subsequent pings
     if (!this.bucketName) {
       this.bucketName = body.bucketName;
       await this.ctx.storage.put('bucketName', body.bucketName);
+    } else if (body.bucketName !== this.bucketName) {
+      return new Response('Bucket name mismatch', { status: 403 });
     }
     if (!this.email) {
       this.email = body.email;
       await this.ctx.storage.put('email', body.email);
+    } else if (body.email !== this.email) {
+      return new Response('Email mismatch', { status: 403 });
     }
 
-    // Compute delta from per-session monotonic total
+    // Compute delta from per-session monotonic total.
+    // Clamp to MAX_DELTA_PER_PING to prevent huge spikes from corrupt sessionTotals.
+    const MAX_DELTA_PER_PING = 300; // 5 minutes max per ping cycle
     const previousTotal = this.sessionTotals[body.sessionId] ?? 0;
     let delta: number;
     if (body.totalSeconds < previousTotal) {
       // Session restarted — treat totalSeconds as fresh
-      delta = body.totalSeconds;
+      delta = Math.min(body.totalSeconds, MAX_DELTA_PER_PING);
     } else {
-      delta = body.totalSeconds - previousTotal;
+      delta = Math.min(body.totalSeconds - previousTotal, MAX_DELTA_PER_PING);
     }
     this.sessionTotals[body.sessionId] = body.totalSeconds;
 
