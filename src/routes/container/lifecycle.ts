@@ -16,7 +16,7 @@ import { AppError, ContainerError, NotFoundError, RateLimitError, QuotaExceededE
 import { getTierConfig, getUserTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey } from '../../lib/kv-keys';
+import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
@@ -152,7 +152,7 @@ export async function validateSessionAndCheckLimits(params: {
         // Read usage from Timekeeper KV (approximate — real-time check happens on Timekeeper DO)
         const usageRecord = await env.KV.get(getTimekeeperKey(bucketName), 'json') as { thisMonth?: { month: string; seconds: number } } | null;
         const now = new Date();
-        const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+        const currentMonth = getUtcMonthString(now);
         const monthlySeconds = (usageRecord?.thisMonth?.month === currentMonth)
           ? usageRecord.thisMonth.seconds : 0;
 

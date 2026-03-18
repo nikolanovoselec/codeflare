@@ -149,6 +149,12 @@ export const BatchSessionStatusResponseSchema = z.object({
     totalFolders: z.number(),
     totalSizeBytes: z.number(),
   }).optional(),
+  usage: z.object({
+    dailySeconds: z.number(),
+    monthlySeconds: z.number(),
+    monthlyQuotaSeconds: z.number().nullable(),
+    tier: z.string(),
+  }).optional(),
 });
 
 // Setup API schemas — moved from client.ts (strict versions)

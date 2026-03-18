@@ -494,6 +494,9 @@ async function refreshSessionStatuses(): Promise<void> {
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
     if (batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
+    if (batchResponse.usage) {
+      setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
+    }
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions — they may not appear in batch status yet.

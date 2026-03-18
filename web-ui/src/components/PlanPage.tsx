@@ -1,5 +1,4 @@
-import { Component, createSignal, onMount, For, Show } from 'solid-js';
-import { formatDuration } from '../lib/format';
+import { Component, For } from 'solid-js';
 import '../styles/plan-page.css';
 
 interface TierDisplay {

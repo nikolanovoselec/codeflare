@@ -204,7 +204,7 @@ export function resetSetupCache() {
 // Convention: Routes should throw AppError subclasses for error handling.
 // Exception: Routes with domain-specific error response shapes (e.g., startup-status)
 // may catch and return directly when the shape differs from AppError.toJSON().
-type AppStatusCode = 400 | 401 | 403 | 404 | 409 | 429 | 500 | 503;
+type AppStatusCode = 400 | 401 | 402 | 403 | 404 | 409 | 429 | 500 | 503;
 
 app.onError((err, c) => {
   const requestId = c.get('requestId') || 'unknown';

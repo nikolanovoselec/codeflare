@@ -634,6 +634,7 @@ export class container extends Container<Env> {
     if (isSaasModeActive(this.env.SAAS_MODE)
         && this.env.STRESS_TEST_MODE !== 'active'
         && this._bucketName
+        && this._userEmail
         && this.env.TIMEKEEPER) {
       try {
         this._usageSeconds += 60;
@@ -647,7 +648,7 @@ export class container extends Container<Env> {
             bucketName: this._bucketName,
             sessionId: this._sessionId,
             totalSeconds: this._usageSeconds,
-            email: this._userEmail || '',
+            email: this._userEmail!,
           }),
           headers: { 'Content-Type': 'application/json' },
         }));

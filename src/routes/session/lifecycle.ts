@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
-import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString } from '../../lib/kv-keys';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -122,8 +122,8 @@ app.get('/batch-status', async (c) => {
       const tierValue = user.subscriptionTier ?? user.accessTier;
       const tier = getUserTier(tierValue, tiers);
       const now = new Date();
-      const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-      const currentDate = `${currentMonth}-${String(now.getUTCDate()).padStart(2, '0')}`;
+      const currentMonth = getUtcMonthString(now);
+      const currentDate = getUtcDateString(now);
       usage = {
         dailySeconds: (record && record.today.date === currentDate) ? record.today.seconds : 0,
         monthlySeconds: (record && record.thisMonth.month === currentMonth) ? record.thisMonth.seconds : 0,

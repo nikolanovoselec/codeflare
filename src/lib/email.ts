@@ -28,7 +28,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
   }
 
   try {
-    await fetch('https://api.resend.com/emails', {
+    const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -43,7 +43,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
         ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });
-    return true;
+    return resp.ok;
   } catch {
     return false;
   }

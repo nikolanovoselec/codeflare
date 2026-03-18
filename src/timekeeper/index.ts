@@ -11,7 +11,7 @@
  */
 import type { Env, UsageRecord } from '../types';
 import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
-import { getDefaultTiers, getUserTier, getTierConfig } from '../lib/subscription';
+import { getUserTier, getTierConfig } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
 
 const logger = createLogger('timekeeper');
@@ -41,15 +41,17 @@ export class Timekeeper {
 
     // Restore state from DO storage (crash resilience)
     ctx.blockConcurrencyWhile(async () => {
-      const [pending, totals, bucket, email] = await Promise.all([
+      const [pending, totals, bucket, email, flushedMonthly] = await Promise.all([
         ctx.storage.get<number>('pendingSeconds'),
         ctx.storage.get<string>('sessionTotals'),
         ctx.storage.get<string>('bucketName'),
         ctx.storage.get<string>('email'),
+        ctx.storage.get<number>('lastFlushedMonthlyTotal'),
       ]);
       this.pendingSeconds = pending ?? 0;
       this.bucketName = bucket ?? null;
       this.email = email ?? null;
+      this.lastFlushedMonthlyTotal = flushedMonthly ?? 0;
       if (totals) {
         try { this.sessionTotals = JSON.parse(totals); } catch { /* ignore corrupt data */ }
       }
@@ -86,7 +88,10 @@ export class Timekeeper {
       this.pendingSeconds -= secondsToFlush;
       if (this.pendingSeconds < 0) this.pendingSeconds = 0;
       this.lastFlushedMonthlyTotal = record.thisMonth.seconds;
-      await this.ctx.storage.put('pendingSeconds', this.pendingSeconds);
+      await Promise.all([
+        this.ctx.storage.put('pendingSeconds', this.pendingSeconds),
+        this.ctx.storage.put('lastFlushedMonthlyTotal', this.lastFlushedMonthlyTotal),
+      ]);
     } catch (err) {
       logger.error('Flush failed, will retry', err instanceof Error ? err : new Error(String(err)));
       // Re-arm for retry
@@ -168,6 +173,8 @@ export class Timekeeper {
         : 0;
       totalMonthlySeconds = kvMonthly + this.pendingSeconds;
       this.lastFlushedMonthlyTotal = kvMonthly;
+      // Persist so crash recovery has accurate flushed total
+      void this.ctx.storage.put('lastFlushedMonthlyTotal', kvMonthly);
 
       if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds) {
         quotaExceeded = true;

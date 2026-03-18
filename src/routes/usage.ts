@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import type { Env, UsageRecord } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
-import { getTimekeeperKey } from '../lib/kv-keys';
+import { getTimekeeperKey, getUtcMonthString, getUtcDateString } from '../lib/kv-keys';
 import { getTierConfig, getUserTier } from '../lib/subscription';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -25,8 +25,8 @@ app.get('/', async (c) => {
   const tier = getUserTier(tierValue, tiers);
 
   const now = new Date();
-  const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-  const currentDate = `${currentMonth}-${String(now.getUTCDate()).padStart(2, '0')}`;
+  const currentMonth = getUtcMonthString(now);
+  const currentDate = getUtcDateString(now);
 
   const monthlySeconds = (record && record.thisMonth.month === currentMonth)
     ? record.thisMonth.seconds : 0;
