@@ -249,7 +249,14 @@ async function loadSessions(): Promise<void> {
           initializeTerminalsForSession(session.id);
         }
       } else {
+        const wasRunning = existingStatuses.get(session.id) === 'running';
         updateSessionStatus(session.id, batchStatus.status);
+        // Container stopped externally (hibernation/crash) — kill WS retry loops
+        // so reconnect attempts don't keep waking the DO. Fresh connect() calls
+        // are made when the user starts the session again.
+        if (wasRunning && batchStatus.status === 'stopped') {
+          terminalStore.disposeSession(session.id);
+        }
       }
     }
   } catch (err) {
