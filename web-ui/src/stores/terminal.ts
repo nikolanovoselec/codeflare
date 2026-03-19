@@ -272,9 +272,7 @@ function connect(
   const signal = controller.signal;
   abortControllers.set(key, controller);
 
-  // Track consecutive failed WS attempts to detect dead containers.
-  // A single failure (503 from Container DO) means the container is dead.
-  let consecutiveFailures = 0;
+  // Whether this terminal has ever successfully connected (for dead container detection).
 
   // Attempt connection with retries
   function attemptConnection(attemptNumber: number): void {
@@ -306,7 +304,6 @@ function connect(
         return;
       }
       logger.debug(`[Terminal ${key}] WebSocket opened`);
-      consecutiveFailures = 0;
       setConnectionState(sessionId, terminalId, 'connected');
       setRetryMessage(sessionId, terminalId, null);
 
@@ -397,8 +394,6 @@ function connect(
 
       // Retry on retryable close codes (forever, flat delay)
       if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
-        consecutiveFailures++;
-
         // Detect dead container: reconnect failure means the container stopped
         // (503 from Container DO). Only trigger on reconnects (attemptNumber > 1),
         // not on initial connection during startup.
