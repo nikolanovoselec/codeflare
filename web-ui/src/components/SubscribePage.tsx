@@ -256,6 +256,11 @@ const SubscribePage: Component = () => {
         <Show when={!loading()} fallback={
           <div class="subscribe-loading">Loading...</div>
         }>
+          {/* Error display (always visible regardless of state) */}
+          <Show when={error()}>
+            <div class="subscribe-error">{error()}</div>
+          </Show>
+
           {/* Blocked state */}
           <Show when={isBlocked()}>
             <div class="subscribe-status">
