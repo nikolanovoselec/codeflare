@@ -14,15 +14,17 @@ const mockedGetTiers = vi.mocked(getTiers);
 const mockedUpdateTiers = vi.mocked(updateTiers);
 
 const MOCK_TIERS = [
-  { id: 'blocked', displayName: 'Blocked', monthlySeconds: 0, maxSessions: 0, sessionModes: [], canLogin: false, order: 0, isDefault: false, priceMonthly: null },
-  { id: 'pending', displayName: 'Pending', monthlySeconds: 0, maxSessions: 0, sessionModes: [], canLogin: false, order: 1, isDefault: false, priceMonthly: null },
-  { id: 'free', displayName: 'Free', monthlySeconds: 3600, maxSessions: 1, sessionModes: ['default'], canLogin: true, order: 2, isDefault: true, priceMonthly: 0 },
-  { id: 'trial', displayName: 'Trial', monthlySeconds: 7200, maxSessions: 2, sessionModes: ['default'], canLogin: true, order: 3, isDefault: false, priceMonthly: null },
-  { id: 'standard', displayName: 'Standard', monthlySeconds: 36000, maxSessions: 3, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: false, priceMonthly: 10 },
-  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 72000, maxSessions: 5, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false, priceMonthly: 25 },
-  { id: 'max', displayName: 'Max', monthlySeconds: 180000, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false, priceMonthly: 50 },
-  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 100, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false, priceMonthly: null },
+  { id: 'blocked', displayName: 'Blocked', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 0, isDefault: false, priceMonthly: null, trialDays: 0, description: '' },
+  { id: 'pending', displayName: 'Pending', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 1, isDefault: false, priceMonthly: null, trialDays: 0, description: '' },
+  { id: 'free', displayName: 'Free', monthlySeconds: 3600, maxSessions: 1, sessionModes: ['default'], canLogin: true, order: 2, isDefault: true, priceMonthly: 0, trialDays: 0, description: 'Get started for free' },
+  { id: 'trial', displayName: 'Trial', monthlySeconds: 7200, maxSessions: 2, sessionModes: ['default'], canLogin: true, order: 3, isDefault: false, priceMonthly: null, trialDays: 0, description: '' },
+  { id: 'standard', displayName: 'Standard', monthlySeconds: 36000, maxSessions: 3, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: false, priceMonthly: 2900, trialDays: 7, description: 'For individual developers' },
+  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 72000, maxSessions: 5, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false, priceMonthly: 7900, trialDays: 0, description: '' },
+  { id: 'max', displayName: 'Max', monthlySeconds: 180000, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false, priceMonthly: 19900, trialDays: 7, description: 'For professional teams' },
+  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 100, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false, priceMonthly: null, trialDays: 14, description: 'Enterprise-grade access' },
 ];
+
+const noop = () => {};
 
 describe('SubscriptionManagement (Admin)', () => {
   beforeEach(() => {
@@ -37,12 +39,12 @@ describe('SubscriptionManagement (Admin)', () => {
 
   it('should show loading state initially', () => {
     mockedGetTiers.mockReturnValue(new Promise(() => {}));
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
   it('should load tiers from API on mount', async () => {
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(mockedGetTiers).toHaveBeenCalledTimes(1);
@@ -50,7 +52,7 @@ describe('SubscriptionManagement (Admin)', () => {
   });
 
   it('should show 6 editable tiers (not blocked/pending)', async () => {
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
@@ -67,7 +69,7 @@ describe('SubscriptionManagement (Admin)', () => {
   });
 
   it('should display hours field with correct values from seconds', async () => {
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
@@ -80,7 +82,7 @@ describe('SubscriptionManagement (Admin)', () => {
   });
 
   it('should show unlimited text for unlimited tier hours', async () => {
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Unlimited')).toBeInTheDocument();
@@ -93,7 +95,7 @@ describe('SubscriptionManagement (Admin)', () => {
   });
 
   it('can edit sessions field for a tier', async () => {
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
@@ -109,7 +111,7 @@ describe('SubscriptionManagement (Admin)', () => {
   });
 
   it('can toggle advanced mode checkbox', async () => {
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
@@ -126,7 +128,7 @@ describe('SubscriptionManagement (Admin)', () => {
   });
 
   it('should call updateTiers API when Save button is clicked', async () => {
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
@@ -141,7 +143,7 @@ describe('SubscriptionManagement (Admin)', () => {
   });
 
   it('should show success message after save', async () => {
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
@@ -158,7 +160,7 @@ describe('SubscriptionManagement (Admin)', () => {
   it('should show error message when save fails', async () => {
     mockedUpdateTiers.mockRejectedValue(new Error('Network error'));
 
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
@@ -175,7 +177,7 @@ describe('SubscriptionManagement (Admin)', () => {
   it('should show error message when loading tiers fails', async () => {
     mockedGetTiers.mockRejectedValue(new Error('Failed to load tier config'));
 
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument();
@@ -185,7 +187,7 @@ describe('SubscriptionManagement (Admin)', () => {
   it('should disable save button while saving', async () => {
     mockedUpdateTiers.mockReturnValue(new Promise(() => {}));
 
-    render(() => <SubscriptionManagement />);
+    render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
