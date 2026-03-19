@@ -151,6 +151,7 @@ export interface SubscriptionTierConfig {
   priceMonthly: number | null; // cents, null = not purchasable
   trialDays: number; // 0 = no trial
   description: string;
+  advancedPriceMonthly?: number | null; // cents, higher price for advanced mode
 }
 
 /**

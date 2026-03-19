@@ -410,6 +410,7 @@ const TierObjectSchema = z.object({
   priceMonthly: z.number().nullable(),
   trialDays: z.number(),
   description: z.string(),
+  advancedPriceMonthly: z.number().nullable().optional(),
 });
 
 const TiersResponseSchema = z.object({
