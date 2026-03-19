@@ -500,9 +500,9 @@ describe('Header Component', () => {
 
       const usageItem = screen.getByTestId('header-user-dropdown-usage');
       expect(usageItem).toBeInTheDocument();
-      // Should show formatted time like "2h 15m / 10h"
-      expect(usageItem.textContent).toMatch(/2h\s*15m/);
-      expect(usageItem.textContent).toMatch(/10h/);
+      // Should show "2.3 hours / 10 hours"
+      expect(usageItem.textContent).toMatch(/2\.3 hours/);
+      expect(usageItem.textContent).toMatch(/10 hours/);
     });
 
     it('should show "Usage" without time when no usage data is available', () => {
@@ -530,8 +530,8 @@ describe('Header Component', () => {
 
       const usageItem = screen.getByTestId('header-user-dropdown-usage');
       expect(usageItem).toBeInTheDocument();
-      // Should show spent time
-      expect(usageItem.textContent).toMatch(/5h/);
+      // Should show "5 hours"
+      expect(usageItem.textContent).toMatch(/5 hours/);
     });
 
     it('should show zero usage correctly', () => {
@@ -543,8 +543,8 @@ describe('Header Component', () => {
 
       const usageItem = screen.getByTestId('header-user-dropdown-usage');
       expect(usageItem).toBeInTheDocument();
-      // Should show "0s" or "0m" for zero usage
-      expect(usageItem.textContent).toMatch(/0[sm]/);
+      // Should show "0 minutes / 1 hours"
+      expect(usageItem.textContent).toMatch(/0 minutes/);
     });
   });
 
