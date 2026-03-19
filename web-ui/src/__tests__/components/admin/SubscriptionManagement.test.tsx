@@ -219,13 +219,17 @@ describe('SubscriptionManagement (Admin)', () => {
 
     // Select "Starter" tier from dropdown
     const select = document.querySelector('.sub-mgmt-select') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'standard' } });
+    select.value = 'standard';
+    fireEvent.change(select);
 
     await waitFor(() => {
-      expect(select.value).toBe('standard');
+      // Verify the editor now shows Starter's data (40h = 144000s)
+      const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
+      const hoursInput = textInputs[0] as HTMLInputElement;
+      expect(hoursInput.value).toBe('40');
     });
 
-    // Edit the hours field (triggers allTiers signal update)
+    // Edit the hours field (triggers allTiers signal update via updateField)
     const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
     const hoursInput = textInputs[0] as HTMLInputElement;
     fireEvent.change(hoursInput, { target: { value: '50' } });
