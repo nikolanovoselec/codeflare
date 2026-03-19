@@ -1,8 +1,9 @@
 /**
  * Standalone admin page for managing subscription tier configuration.
- * Follows the same layout pattern as UserManagement.tsx.
+ * Tier dropdown to select one tier, then edit that tier's config.
+ * Paid tiers have normal + advanced pricing flavors.
  */
-import { Component, createSignal, onMount, For, Show } from 'solid-js';
+import { Component, createSignal, onMount, Show } from 'solid-js';
 import { mdiArrowExpandLeft } from '@mdi/js';
 import { getTiers, updateTiers } from '../../api/client';
 import Icon from '../Icon';
@@ -24,12 +25,14 @@ interface TierConfig {
   priceMonthly: number | null;
   trialDays: number;
   description: string;
+  advancedPriceMonthly?: number | null;
 }
 
 const EDITABLE_TIERS = new Set(['free', 'trial', 'standard', 'advanced', 'max', 'unlimited']);
 
 const SubscriptionManagement: Component<SubManagementProps> = (props) => {
   const [allTiers, setAllTiers] = createSignal<TierConfig[]>([]);
+  const [selectedTierId, setSelectedTierId] = createSignal<string>('free');
   const [loading, setLoading] = createSignal(true);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -39,6 +42,8 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
     try {
       const data = await getTiers();
       setAllTiers(data.tiers as TierConfig[]);
+      const firstEditable = data.tiers.find((t) => EDITABLE_TIERS.has(t.id));
+      if (firstEditable) setSelectedTierId(firstEditable.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load tier config');
     }
@@ -46,10 +51,11 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
   });
 
   const editableTiers = () => allTiers().filter((t) => EDITABLE_TIERS.has(t.id));
+  const selectedTier = () => allTiers().find((t) => t.id === selectedTierId()) ?? null;
 
-  const updateTier = (id: string, field: string, value: unknown) => {
+  const updateField = (field: string, value: unknown) => {
     setAllTiers((prev) =>
-      prev.map((t) => t.id === id ? { ...t, [field]: value } : t)
+      prev.map((t) => t.id === selectedTierId() ? { ...t, [field]: value } : t)
     );
     setSuccess(false);
   };
@@ -77,15 +83,20 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
     return isNaN(n) ? 0 : Math.round(n * 3600);
   };
 
-  const dollarsFromCents = (cents: number | null): string => {
-    if (cents === null) return '';
-    return String(cents / 100);
+  const dollarsFromCents = (cents: number | null | undefined): string => {
+    if (cents === null || cents === undefined || cents === 0) return '0';
+    return (cents / 100).toFixed(2);
   };
 
   const centsToDollars = (dollars: string): number | null => {
-    if (dollars === '') return null;
+    if (dollars === '' || dollars === '0') return 0;
     const n = parseFloat(dollars);
     return isNaN(n) ? null : Math.round(n * 100);
+  };
+
+  const hasAdvancedMode = () => {
+    const t = selectedTier();
+    return t && t.sessionModes.includes('advanced');
   };
 
   return (
@@ -97,89 +108,122 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
         <h1 class="sub-mgmt-title">Subscription Management</h1>
       </div>
 
-      <Show when={!loading()} fallback={<p class="sub-mgmt-loading">Loading tier configuration...</p>}>
+      <Show when={!loading()} fallback={<p class="sub-mgmt-loading">Loading...</p>}>
         <Show when={error()}>
           <div class="sub-mgmt-error">{error()}</div>
         </Show>
 
-        <div class="sub-mgmt-tiers">
-          <For each={editableTiers()}>
-            {(tier) => (
-              <div class="sub-mgmt-tier-card">
-                <div class="sub-mgmt-tier-name">{tier.displayName}</div>
+        {/* Tier selector dropdown */}
+        <div class="sub-mgmt-selector">
+          <label class="sub-mgmt-selector-label">Select tier</label>
+          <select
+            class="sub-mgmt-select"
+            value={selectedTierId()}
+            onChange={(e) => setSelectedTierId(e.currentTarget.value)}
+          >
+            {editableTiers().map((t) => (
+              <option value={t.id}>{t.displayName}</option>
+            ))}
+          </select>
+        </div>
 
-                <div class="sub-mgmt-fields">
-                  <label class="sub-mgmt-field">
-                    <span>Hours/mo</span>
-                    <input
-                      type="text"
-                      value={hoursFromSeconds(tier.monthlySeconds)}
-                      disabled={tier.id === 'unlimited'}
-                      onInput={(e) => updateTier(tier.id, 'monthlySeconds', secondsFromHours(e.currentTarget.value))}
-                    />
-                  </label>
+        {/* Selected tier editor */}
+        <Show when={selectedTier()}>
+          {(tier) => (
+            <div class="sub-mgmt-editor">
+              <div class="sub-mgmt-form">
+                <label class="sub-mgmt-field">
+                  <span class="sub-mgmt-label">Monthly Hours</span>
+                  <input
+                    type="text"
+                    class="sub-mgmt-input"
+                    value={hoursFromSeconds(tier().monthlySeconds)}
+                    disabled={tier().id === 'unlimited'}
+                    onInput={(e) => updateField('monthlySeconds', secondsFromHours(e.currentTarget.value))}
+                  />
+                </label>
 
-                  <label class="sub-mgmt-field">
-                    <span>Sessions</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={tier.maxSessions}
-                      onInput={(e) => updateTier(tier.id, 'maxSessions', parseInt(e.currentTarget.value) || 0)}
-                    />
-                  </label>
+                <label class="sub-mgmt-field">
+                  <span class="sub-mgmt-label">Max Sessions</span>
+                  <input
+                    type="number"
+                    class="sub-mgmt-input"
+                    min="0"
+                    max="100"
+                    value={tier().maxSessions}
+                    onInput={(e) => updateField('maxSessions', parseInt(e.currentTarget.value) || 0)}
+                  />
+                </label>
 
-                  <label class="sub-mgmt-field">
-                    <span>Price ($/mo)</span>
-                    <input
-                      type="text"
-                      value={dollarsFromCents(tier.priceMonthly)}
-                      placeholder="0"
-                      onInput={(e) => updateTier(tier.id, 'priceMonthly', centsToDollars(e.currentTarget.value))}
-                    />
-                  </label>
+                <label class="sub-mgmt-field">
+                  <span class="sub-mgmt-label">Normal Price ($/mo)</span>
+                  <input
+                    type="text"
+                    class="sub-mgmt-input"
+                    value={dollarsFromCents(tier().priceMonthly)}
+                    placeholder="0 = free"
+                    onInput={(e) => updateField('priceMonthly', centsToDollars(e.currentTarget.value))}
+                  />
+                </label>
 
-                  <label class="sub-mgmt-field">
-                    <span>Trial (days)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="365"
-                      value={tier.trialDays}
-                      onInput={(e) => updateTier(tier.id, 'trialDays', parseInt(e.currentTarget.value) || 0)}
-                    />
-                  </label>
-
-                  <label class="sub-mgmt-field">
-                    <span>Advanced mode</span>
+                <label class="sub-mgmt-field">
+                  <span class="sub-mgmt-label">Advanced Mode</span>
+                  <div class="sub-mgmt-checkbox-row">
                     <input
                       type="checkbox"
-                      checked={tier.sessionModes.includes('advanced')}
+                      checked={tier().sessionModes.includes('advanced')}
                       onChange={(e) => {
                         const modes = e.currentTarget.checked
                           ? ['default', 'advanced']
                           : ['default'];
-                        updateTier(tier.id, 'sessionModes', modes);
+                        updateField('sessionModes', modes);
                       }}
                     />
-                  </label>
+                    <span class="sub-mgmt-hint">Enable advanced session mode</span>
+                  </div>
+                </label>
 
-                  <label class="sub-mgmt-field sub-mgmt-field--wide">
-                    <span>Description</span>
+                <Show when={hasAdvancedMode()}>
+                  <label class="sub-mgmt-field">
+                    <span class="sub-mgmt-label">Advanced Price ($/mo)</span>
                     <input
                       type="text"
-                      value={tier.description}
-                      placeholder="Short description"
-                      maxLength={200}
-                      onInput={(e) => updateTier(tier.id, 'description', e.currentTarget.value)}
+                      class="sub-mgmt-input"
+                      value={dollarsFromCents(tier().advancedPriceMonthly ?? tier().priceMonthly)}
+                      placeholder="Same as normal"
+                      onInput={(e) => updateField('advancedPriceMonthly', centsToDollars(e.currentTarget.value))}
                     />
+                    <span class="sub-mgmt-hint">Higher price for advanced mode</span>
                   </label>
-                </div>
+                </Show>
+
+                <label class="sub-mgmt-field">
+                  <span class="sub-mgmt-label">Trial (days)</span>
+                  <input
+                    type="number"
+                    class="sub-mgmt-input"
+                    min="0"
+                    max="365"
+                    value={tier().trialDays}
+                    onInput={(e) => updateField('trialDays', parseInt(e.currentTarget.value) || 0)}
+                  />
+                </label>
+
+                <label class="sub-mgmt-field">
+                  <span class="sub-mgmt-label">Description</span>
+                  <input
+                    type="text"
+                    class="sub-mgmt-input sub-mgmt-input--wide"
+                    value={tier().description}
+                    placeholder="Shown on subscribe page"
+                    maxLength={200}
+                    onInput={(e) => updateField('description', e.currentTarget.value)}
+                  />
+                </label>
               </div>
-            )}
-          </For>
-        </div>
+            </div>
+          )}
+        </Show>
 
         <div class="sub-mgmt-actions">
           <button
@@ -188,7 +232,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
             disabled={saving()}
             onClick={handleSave}
           >
-            {saving() ? 'Saving...' : 'Save Configuration'}
+            {saving() ? 'Saving...' : 'Save'}
           </button>
           <Show when={success()}>
             <span class="sub-mgmt-success">Saved</span>

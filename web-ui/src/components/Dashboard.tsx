@@ -1,6 +1,6 @@
 import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiLogout } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiCrownOutline, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
@@ -16,7 +16,8 @@ import SessionLimitPopup from './SessionLimitPopup';
 import ScrambleText from './ScrambleText';
 import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
-import { sessionStore, isAtUsageQuota } from '../stores/session';
+import { sessionStore, isAtUsageQuota, getUsageState } from '../stores/session';
+import { formatDuration } from '../lib/format';
 import '../styles/dashboard.css';
 
 function getGravatarUrl(email: string, size = 32): string {
@@ -163,6 +164,32 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     >
                       <Icon path={mdiAccountOutline} size={16} />
                       <span>Profile</span>
+                    </a>
+                    <a
+                      href="/app/usage"
+                      class="header-user-dropdown-item"
+                      data-testid="header-user-dropdown-usage"
+                    >
+                      <Icon path={mdiChartBar} size={16} />
+                      <span>Usage</span>
+                      {(() => {
+                        const usage = getUsageState();
+                        if (usage.monthlyQuotaSeconds !== null) {
+                          return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)} / {formatDuration(usage.monthlyQuotaSeconds)}</span>;
+                        }
+                        if (usage.monthlySeconds > 0) {
+                          return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)}</span>;
+                        }
+                        return null;
+                      })()}
+                    </a>
+                    <a
+                      href="/app/plan"
+                      class="header-user-dropdown-item"
+                      data-testid="header-user-dropdown-plan"
+                    >
+                      <Icon path={mdiCrownOutline} size={16} />
+                      <span>Plan</span>
                     </a>
                     <a
                       href="/app/onboarding"

@@ -1,5 +1,5 @@
 .sub-mgmt {
-  max-width: 800px;
+  max-width: 500px;
   margin: 2rem auto;
   padding: 0 1rem;
 }
@@ -22,7 +22,6 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: all 150ms ease;
 }
 
 .sub-mgmt-back:hover {
@@ -32,97 +31,119 @@
 
 .sub-mgmt-title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 600;
-  color: var(--color-text);
 }
 
-.sub-mgmt-loading {
-  text-align: center;
-  color: var(--color-text-secondary);
-  padding: 2rem;
-}
+.sub-mgmt-loading { text-align: center; color: var(--color-text-secondary); padding: 2rem; }
 
 .sub-mgmt-error {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 8px;
-  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
   margin-bottom: 1rem;
   font-size: 0.8rem;
 }
 
-.sub-mgmt-tiers {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+/* Tier selector */
+.sub-mgmt-selector {
+  margin-bottom: 1.25rem;
 }
 
-.sub-mgmt-tier-card {
+.sub-mgmt-selector-label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.35rem;
+}
+
+.sub-mgmt-select {
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* Tier editor */
+.sub-mgmt-editor {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 1rem;
 }
 
-.sub-mgmt-tier-name {
-  font-weight: 600;
-  font-size: 0.9rem;
-  margin-bottom: 0.75rem;
-  color: var(--color-text);
-}
-
-.sub-mgmt-fields {
+.sub-mgmt-form {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.9rem;
 }
 
 .sub-mgmt-field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  min-width: 100px;
+  gap: 0.2rem;
 }
 
-.sub-mgmt-field span {
+.sub-mgmt-label {
   font-size: 0.7rem;
   color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-.sub-mgmt-field input[type="text"],
-.sub-mgmt-field input[type="number"] {
-  padding: 0.35rem 0.5rem;
+.sub-mgmt-input {
+  padding: 0.4rem 0.5rem;
   border-radius: 4px;
   border: 1px solid var(--color-border);
   background: var(--color-bg);
   color: var(--color-text);
-  font-size: 0.8rem;
-  width: 80px;
+  font-size: 0.85rem;
+  max-width: 200px;
 }
 
-.sub-mgmt-field input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  margin-top: 0.25rem;
+.sub-mgmt-input--wide {
+  max-width: 100%;
 }
 
-.sub-mgmt-field--wide input[type="text"] {
-  width: 200px;
+.sub-mgmt-input:disabled {
+  opacity: 0.5;
 }
 
-.sub-mgmt-actions {
-  margin-top: 1.5rem;
+.sub-mgmt-checkbox-row {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
+}
+
+.sub-mgmt-checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.sub-mgmt-hint {
+  font-size: 0.7rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+/* Actions */
+.sub-mgmt-actions {
+  margin-top: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .sub-mgmt-save {
-  padding: 0.5rem 1.5rem;
+  padding: 0.45rem 1.25rem;
   border-radius: 6px;
   border: none;
   background: var(--color-accent);
@@ -130,33 +151,12 @@
   font-weight: 500;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: opacity 150ms ease;
 }
 
-.sub-mgmt-save:hover {
-  opacity: 0.9;
-}
-
-.sub-mgmt-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.sub-mgmt-save:hover { opacity: 0.9; }
+.sub-mgmt-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .sub-mgmt-success {
   color: #22c55e;
   font-size: 0.8rem;
-  font-weight: 500;
-}
-
-@media (max-width: 640px) {
-  .sub-mgmt-fields {
-    flex-direction: column;
-  }
-  .sub-mgmt-field input[type="text"],
-  .sub-mgmt-field input[type="number"] {
-    width: 100%;
-  }
-  .sub-mgmt-field--wide input[type="text"] {
-    width: 100%;
-  }
 }

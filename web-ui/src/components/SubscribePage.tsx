@@ -53,14 +53,17 @@ const SubscribePage: Component = () => {
         return;
       }
 
-      // Already subscribed (non-pending active tier) — blocked already handled above
-      if (tier !== 'pending') {
+      // Show tier selection for:
+      // 1. Pending users (new, haven't chosen a tier yet)
+      // 2. Users who were admin-promoted but never self-subscribed (hasSubscribed=false)
+      // Show "Active" only for users who explicitly subscribed (hasSubscribed=true)
+      if (status.hasSubscribed === true) {
         setIsActive(true);
         setLoading(false);
         return;
       }
 
-      // Pending — show tier selection
+      // Show tier selection
       setTiers(tiersData.tiers as TierInfo[]);
 
       // Load Turnstile
