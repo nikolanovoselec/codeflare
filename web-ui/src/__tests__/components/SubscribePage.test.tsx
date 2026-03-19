@@ -330,7 +330,7 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should reveal tier cards when "See subscription tiers" is clicked', async () => {
+    it('should reveal full tier cards with mode toggles when "See subscription tiers" is clicked', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -353,10 +353,17 @@ describe('SubscribePage', () => {
       fireEvent.click(screen.getByText('See subscription tiers'));
 
       await waitFor(() => {
-        // Tier cards should now be visible
+        // Tier cards should now be visible with full details
         expect(screen.getByTestId('tier-grid')).toBeInTheDocument();
         expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('Starter').length).toBeGreaterThanOrEqual(1);
+        // Mode toggles (Standard/Pro) should be present
+        expect(screen.getAllByText('Standard').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Pro').length).toBeGreaterThanOrEqual(1);
+        // Current plan button should be disabled
+        expect(screen.getByText('Current Plan')).toBeInTheDocument();
+        // Other tiers should show "Switch Plan"
+        expect(screen.getAllByText('Switch Plan').length).toBeGreaterThanOrEqual(1);
       });
     });
 
@@ -413,13 +420,12 @@ describe('SubscribePage', () => {
   });
 
   describe('Navigation', () => {
-    it('should have logout link', async () => {
+    it('should not have logout link (logout is in username dropdown)', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        const logoutLink = screen.getByText(/log\s*out/i);
-        expect(logoutLink).toBeInTheDocument();
+        expect(screen.queryByText(/log\s*out/i)).not.toBeInTheDocument();
       });
     });
   });

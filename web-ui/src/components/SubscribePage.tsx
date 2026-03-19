@@ -77,6 +77,7 @@ const SubscribePage: Component = () => {
   const [currency, setCurrency] = createSignal('USD');
   const [showTiers, setShowTiers] = createSignal(false);
   const [userEmail, setUserEmail] = createSignal('');
+  const [currentTierId, setCurrentTierId] = createSignal<string | null>(null);
 
   let observer: MutationObserver | null = null;
 
@@ -112,6 +113,7 @@ const SubscribePage: Component = () => {
       // Show "Active" only for users who explicitly subscribed (hasSubscribed=true)
       if (status.hasSubscribed === true) {
         setIsActive(true);
+        setCurrentTierId(status.subscriptionTier ?? status.accessTier ?? null);
         setLoading(false);
         return;
       }
@@ -313,16 +315,71 @@ const SubscribePage: Component = () => {
               </button>
             </Show>
 
-            {/* Tier cards revealed on click */}
+            {/* Tier cards revealed on click — full cards with mode toggle + upgrade/downgrade */}
             <Show when={showTiers()}>
+              {/* Features comparison */}
+              <div class="subscribe-features">
+                <div class="subscribe-features-col">
+                  <h3 class="subscribe-features-heading">Standard Mode</h3>
+                  <For each={DEFAULT_FEATURES}>
+                    {(feature) => (
+                      <div class="subscribe-feature-item">
+                        <span class="subscribe-feature-check">&#10003;</span>
+                        <span>{feature}</span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+                <div class="subscribe-features-col">
+                  <h3 class="subscribe-features-heading">Pro Mode</h3>
+                  <For each={ADVANCED_FEATURES}>
+                    {(feature) => (
+                      <div class="subscribe-feature-item">
+                        <span class="subscribe-feature-check">&#10003;</span>
+                        <span>{feature}</span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </div>
+
+              <Show when={error()}>
+                <div class="subscribe-error">{error()}</div>
+              </Show>
+
               <div class="subscribe-tier-grid" data-testid="tier-grid">
                 <For each={tiers()}>
                   {(tier) => (
-                    <div class="subscribe-tier-card" classList={{ 'subscribe-tier-card--highlight': tier.id === 'standard' }}>
+                    <div class="subscribe-tier-card" classList={{
+                      'subscribe-tier-card--highlight': tier.id === currentTierId(),
+                    }}>
                       <div class="subscribe-tier-header">
                         <h3 class="subscribe-tier-name">{tier.displayName}</h3>
                         <div class="subscribe-tier-price">{getDisplayPrice(tier)}</div>
                       </div>
+
+                      {/* Mode toggle for tiers with advanced */}
+                      <Show when={supportsAdvanced(tier) && tier.priceMonthly !== null && tier.priceMonthly > 0}>
+                        <div class="subscribe-mode-toggle">
+                          <button
+                            type="button"
+                            class="subscribe-mode-btn"
+                            classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'default' }}
+                            onClick={() => setMode(tier.id, 'default')}
+                          >
+                            Standard
+                          </button>
+                          <button
+                            type="button"
+                            class="subscribe-mode-btn"
+                            classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'advanced' }}
+                            onClick={() => setMode(tier.id, 'advanced')}
+                          >
+                            Pro
+                          </button>
+                        </div>
+                      </Show>
+
                       <div class="subscribe-tier-features">
                         <div class="subscribe-tier-feature">
                           <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'}</span>
@@ -333,6 +390,23 @@ const SubscribePage: Component = () => {
                           <span class="subscribe-tier-feature-label">sessions</span>
                         </div>
                       </div>
+                      <Show when={getTrialBadge(tier)}>
+                        {(badge) => (
+                          <div class="subscribe-tier-badge">{badge()}</div>
+                        )}
+                      </Show>
+                      <button
+                        type="button"
+                        class="subscribe-tier-btn"
+                        disabled={tier.id === currentTierId() || subscribing() !== null}
+                        onClick={() => void handleSubscribe(tier.id)}
+                      >
+                        {tier.id === currentTierId()
+                          ? 'Current Plan'
+                          : subscribing() === tier.id
+                            ? 'Switching...'
+                            : 'Switch Plan'}
+                      </button>
                     </div>
                   )}
                 </For>
@@ -444,9 +518,6 @@ const SubscribePage: Component = () => {
             </div>
           </Show>
         </Show>
-
-        {/* Logout — always visible */}
-        <a href="/cdn-cgi/access/logout" class="subscribe-logout-button">Log out</a>
 
         <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
       </div>
