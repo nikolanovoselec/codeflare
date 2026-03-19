@@ -63,7 +63,7 @@ const SubscribePage: Component = () => {
     try {
       const [status, tiersData] = await Promise.all([
         getAuthStatus(),
-        getPublicTiers().catch(() => ({ tiers: [] })),
+        getPublicTiers().catch((err) => { logger.error('getPublicTiers failed:', err); return { tiers: [] }; }),
       ]);
 
       const tier = status.subscriptionTier ?? status.accessTier;

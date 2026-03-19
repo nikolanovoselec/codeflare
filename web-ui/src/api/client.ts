@@ -398,21 +398,23 @@ export async function getUsage(): Promise<z.infer<typeof UsageResponseSchema>> {
   return fetchApi('/usage', {}, UsageResponseSchema);
 }
 
+// Robust schema for tier objects — tolerates null, missing, and string values
+// from KV data that may have been written by older code versions.
 const TierObjectSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   monthlySeconds: z.number().nullable(),
   maxSessions: z.number(),
-  sessionModes: z.array(z.string()),
+  sessionModes: z.array(z.string()).default(['default']),
   canLogin: z.boolean(),
   order: z.number(),
   isDefault: z.boolean(),
   priceMonthly: z.number().nullable(),
-  trialQuotaHours: z.number().optional(),
-  trialDays: z.number().optional(), // backward compat with old KV data
-  description: z.string(),
+  trialQuotaHours: z.number().nullable().optional(),
+  trialDays: z.number().nullable().optional(),
+  description: z.string().default(''),
   advancedPriceMonthly: z.number().nullable().optional(),
-});
+}).passthrough(); // allow extra fields from KV without failing
 
 const TiersResponseSchema = z.object({
   tiers: z.array(TierObjectSchema),
