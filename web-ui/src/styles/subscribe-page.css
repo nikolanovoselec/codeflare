@@ -98,6 +98,11 @@
   filter: drop-shadow(0 2px 8px rgba(34, 197, 94, 0.25));
 }
 
+.subscribe-status-icon--pending {
+  color: #f97316;
+  filter: drop-shadow(0 2px 8px rgba(249, 115, 22, 0.25));
+}
+
 .subscribe-title {
   margin: 0 0 0.75rem;
   font-size: 1.25rem;

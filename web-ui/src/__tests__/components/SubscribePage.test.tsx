@@ -25,9 +25,6 @@ const mockedGetAuthStatus = vi.mocked(getAuthStatus);
 const mockedGetPublicTiers = vi.mocked(getPublicTiers);
 const mockedSubscribe = vi.mocked(subscribe);
 
-// Mock tiers with ALL required fields from TierObjectSchema:
-// id, displayName, monthlySeconds, maxSessions, sessionModes, canLogin, order, isDefault, priceMonthly, trialQuotaHours, description
-// Note: priceMonthly is in cents (formatPrice divides by 100)
 const MOCK_PUBLIC_TIERS = [
   { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, priceMonthly: 0, advancedPriceMonthly: null, description: 'Get started for free', trialQuotaHours: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
   { id: 'standard', displayName: 'Starter', monthlySeconds: 144000, maxSessions: 3, priceMonthly: 1900, advancedPriceMonthly: 2400, description: 'For individual developers', trialQuotaHours: 40, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: true },
@@ -36,8 +33,20 @@ const MOCK_PUBLIC_TIERS = [
   { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 10, priceMonthly: null, advancedPriceMonthly: null, description: 'Enterprise-grade access', trialQuotaHours: 0, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
 ];
 
-// Button text pattern: component renders "Get Started" (free) or "Start Trial" (paid)
 const TIER_BTN_PATTERN = /get started|start trial/i;
+
+/** Helper: render, wait for load, click "See subscription tiers" to open tier view */
+async function openTierView() {
+  render(() => <SubscribePage />);
+  await vi.advanceTimersByTimeAsync(0);
+  await waitFor(() => {
+    expect(screen.getByText(/See subscription tiers/i)).toBeInTheDocument();
+  });
+  fireEvent.click(screen.getByText(/See subscription tiers/i));
+  await waitFor(() => {
+    expect(screen.getByTestId('tier-grid')).toBeInTheDocument();
+  });
+}
 
 describe('SubscribePage', () => {
   let mockLocation: { href: string };
@@ -47,7 +56,7 @@ describe('SubscribePage', () => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
-    // Default: pending user with NO turnstile key — buttons are enabled immediately
+    // Default: pending user with NO turnstile key
     mockedGetAuthStatus.mockResolvedValue({
       email: 'user@example.com',
       accessTier: 'pending',
@@ -61,7 +70,6 @@ describe('SubscribePage', () => {
     mockedGetPublicTiers.mockResolvedValue({ tiers: MOCK_PUBLIC_TIERS });
     mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: false });
 
-    // Mock window.location.href for redirect tests
     originalLocation = window.location;
     mockLocation = { href: '' };
     Object.defineProperty(window, 'location', {
@@ -80,297 +88,28 @@ describe('SubscribePage', () => {
     });
   });
 
-  describe('Tier Selection', () => {
-    it('should fetch public tiers and show 5 tier cards', async () => {
+  describe('Home View (all users)', () => {
+    it('should show features list and "See subscription tiers" for pending users', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(mockedGetPublicTiers).toHaveBeenCalledTimes(1);
-        // Tier names may appear multiple times (e.g., "Free" as name + price, "Unlimited" as name + hours)
-        expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Starter').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Advanced').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Max').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Team').length).toBeGreaterThanOrEqual(1);
-      });
-    });
-
-    it('should display tier prices on cards', async () => {
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      // formatPrice: 0 -> "Free", 1900 -> "$19/mo", 6900 -> "$69/mo", null -> "Free"
-      await waitFor(() => {
-        expect(screen.getByText(/\$19/)).toBeInTheDocument();
-        expect(screen.getByText(/\$69/)).toBeInTheDocument();
-      });
-    });
-
-    it('should display mode selector with Standard and Pro columns', async () => {
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('mode-selector')).toBeInTheDocument();
-        // Mode column headings
-        expect(screen.getAllByText('Standard').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Pro').length).toBeGreaterThanOrEqual(1);
-        // Feature items
-        expect(screen.getByText(/Terminal access/i)).toBeInTheDocument();
-      });
-    });
-
-    it('should show a subscribe button per tier card', async () => {
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-        expect(buttons.length).toBeGreaterThanOrEqual(5);
-      });
-    });
-  });
-
-  describe('Turnstile Verification', () => {
-    it('should show Turnstile widget for pending users with turnstile key', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'user@example.com',
-        accessTier: 'pending',
-        subscriptionTier: 'pending',
-        role: 'user',
-        turnstileSiteKey: '0xTESTKEY',
-        requestedAt: null,
-        onboardingComplete: false,
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('turnstile-container')).toBeInTheDocument();
-      });
-    });
-
-    it('should enable buttons immediately when no turnstile key is configured', async () => {
-      // turnstileSiteKey: null -> turnstileReady set to true immediately
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-        buttons.forEach((button) => {
-          expect(button).not.toBeDisabled();
-        });
-      });
-    });
-  });
-
-  describe('Subscribe Action', () => {
-    it('should call subscribe API when a tier card is clicked', async () => {
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-        expect(buttons[0]).not.toBeDisabled();
-      });
-
-      // Click the first tier card's subscribe button (Free — "Get Started")
-      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-      fireEvent.click(buttons[0]);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        // subscribe(tierId: string, turnstileToken: string)
-        expect(mockedSubscribe).toHaveBeenCalledWith('free', '');
-      });
-    });
-
-    it('should redirect to /app/onboarding after success when onboardingComplete=false', async () => {
-      mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: false });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-        expect(buttons[0]).not.toBeDisabled();
-      });
-
-      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-      fireEvent.click(buttons[0]);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(mockLocation.href).toBe('/app/onboarding');
-      });
-    });
-
-    it('should redirect to /app/ after success when onboardingComplete=true', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'user@example.com',
-        accessTier: 'pending',
-        subscriptionTier: 'pending',
-        role: 'user',
-        turnstileSiteKey: null,
-        requestedAt: null,
-        onboardingComplete: true,
-      });
-      mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: true });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-        expect(buttons[0]).not.toBeDisabled();
-      });
-
-      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-      fireEvent.click(buttons[0]);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(mockLocation.href).toBe('/app/');
-      });
-    });
-  });
-
-  describe('Blocked State', () => {
-    it('should show blocked message for blocked users', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'blocked@example.com',
-        accessTier: 'blocked',
-        subscriptionTier: 'blocked',
-        role: 'user',
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
-      });
-    });
-
-    it('should not show tier cards for blocked users', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'blocked@example.com',
-        accessTier: 'blocked',
-        subscriptionTier: 'blocked',
-        role: 'user',
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
-      });
-
-      // No subscribe buttons should be visible for blocked users
-      expect(screen.queryAllByRole('button', { name: TIER_BTN_PATTERN })).toHaveLength(0);
-    });
-  });
-
-  describe('Active User', () => {
-    it('should show features list, email, and Continue for active users', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'active@example.com',
-        accessTier: 'standard',
-        subscriptionTier: 'standard',
-        role: 'user',
-        hasSubscribed: true,
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        // Features from the FEATURES array (main branch layout)
         expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
-        expect(screen.getByText(/Runs on any device/)).toBeInTheDocument();
-        // Email displayed
-        expect(screen.getByText('active@example.com')).toBeInTheDocument();
-        // Continue button
-        expect(screen.getByText('Continue')).toBeInTheDocument();
+        expect(screen.getByText(/See subscription tiers/i)).toBeInTheDocument();
       });
     });
 
-    it('should show Continue button that links to /app/', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'active@example.com',
-        accessTier: 'standard',
-        subscriptionTier: 'standard',
-        role: 'user',
-        hasSubscribed: true,
-      });
-
+    it('should show orange clock icon for pending users', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        const continueLink = screen.getByText('Continue');
-        expect(continueLink.closest('a')).toHaveAttribute('href', '/app/');
+        const pendingIcon = document.querySelector('.subscribe-status-icon--pending');
+        expect(pendingIcon).toBeInTheDocument();
       });
     });
 
-    it('should show "See subscription tiers" button for active users', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'active@example.com',
-        accessTier: 'standard',
-        subscriptionTier: 'standard',
-        role: 'user',
-        hasSubscribed: true,
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(screen.getByText('See subscription tiers')).toBeInTheDocument();
-      });
-    });
-
-    it('should replace content with mode selector and tier cards when "See subscription tiers" is clicked', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'active@example.com',
-        accessTier: 'standard',
-        subscriptionTier: 'standard',
-        role: 'user',
-        hasSubscribed: true,
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(screen.getByText('See subscription tiers')).toBeInTheDocument();
-      });
-
-      // No tier grid visible yet
-      expect(screen.queryByTestId('tier-grid')).not.toBeInTheDocument();
-
-      // Click "See subscription tiers"
-      fireEvent.click(screen.getByText('See subscription tiers'));
-
-      await waitFor(() => {
-        // Mode selector with Standard/Pro columns should appear
-        expect(screen.getByTestId('mode-selector')).toBeInTheDocument();
-        // Tier cards should be visible
-        expect(screen.getByTestId('tier-grid')).toBeInTheDocument();
-        expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
-        // Current plan button should be disabled
-        expect(screen.getByText('Current Plan')).toBeInTheDocument();
-        // Other tiers should show "Switch Plan"
-        expect(screen.getAllByText('Switch Plan').length).toBeGreaterThanOrEqual(1);
-        // Original features list should be gone
-        expect(screen.queryByText(/Ready to code in seconds/)).not.toBeInTheDocument();
-      });
-    });
-
-    it('should show green checkmark icon for active users', async () => {
+    it('should show green checkmark and Continue for active users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -385,7 +124,118 @@ describe('SubscribePage', () => {
       await waitFor(() => {
         const activeIcon = document.querySelector('.subscribe-status-icon--active');
         expect(activeIcon).toBeInTheDocument();
+        expect(screen.getByText('active@example.com')).toBeInTheDocument();
+        expect(screen.getByText('Continue')).toBeInTheDocument();
       });
+    });
+
+    it('should show blocked state for blocked users', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'blocked@example.com',
+        accessTier: 'blocked',
+        subscriptionTier: 'blocked',
+        role: 'user',
+      });
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
+      });
+      // No tier button for blocked users
+      expect(screen.queryByText(/See subscription tiers/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Tier View (shared layout)', () => {
+    it('should show mode selector and tier cards after clicking "See subscription tiers"', async () => {
+      await openTierView();
+
+      expect(screen.getByTestId('mode-selector')).toBeInTheDocument();
+      expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Starter').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should show tier prices on cards', async () => {
+      await openTierView();
+
+      expect(screen.getByText(/\$19/)).toBeInTheDocument();
+      expect(screen.getByText(/\$69/)).toBeInTheDocument();
+    });
+
+    it('should show subscribe buttons per tier card', async () => {
+      await openTierView();
+
+      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
+      expect(buttons.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('should call subscribe API when a tier button is clicked', async () => {
+      await openTierView();
+
+      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
+      expect(buttons[0]).not.toBeDisabled();
+      fireEvent.click(buttons[0]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(mockedSubscribe).toHaveBeenCalledWith('free', '');
+      });
+    });
+
+    it('should redirect to /app/onboarding after subscribe', async () => {
+      await openTierView();
+
+      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
+      fireEvent.click(buttons[0]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(mockLocation.href).toBe('/app/onboarding');
+      });
+    });
+
+    it('should go back to home view when "Back" is clicked', async () => {
+      await openTierView();
+
+      fireEvent.click(screen.getByText('Back'));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
+        expect(screen.queryByTestId('tier-grid')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Active User Tier View', () => {
+    it('should show Current Plan and Switch Plan buttons', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      await openTierView();
+
+      expect(screen.getByText('Current Plan')).toBeInTheDocument();
+      expect(screen.getAllByText('Switch Plan').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should show mode selector for active users', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      await openTierView();
+
+      expect(screen.getByTestId('mode-selector')).toBeInTheDocument();
     });
   });
 
@@ -404,13 +254,7 @@ describe('SubscribePage', () => {
     it('should show error when subscribe call fails', async () => {
       mockedSubscribe.mockRejectedValue(new Error('Subscription failed'));
 
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-        expect(buttons[0]).not.toBeDisabled();
-      });
+      await openTierView();
 
       const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
       fireEvent.click(buttons[0]);

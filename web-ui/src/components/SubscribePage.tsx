@@ -131,24 +131,20 @@ const SubscribePage: Component = () => {
         return;
       }
 
-      // Show tier selection for:
-      // 1. Pending users (new, haven't chosen a tier yet)
-      // 2. Users who were admin-promoted but never self-subscribed (hasSubscribed=false)
-      // Show "Active" only for users who explicitly subscribed (hasSubscribed=true)
+      // Active user = has explicitly subscribed
       if (status.hasSubscribed === true) {
         setIsActive(true);
         setCurrentTierId(status.subscriptionTier ?? status.accessTier ?? null);
-        setLoading(false);
-        return;
       }
 
-      // Load Turnstile
-      if (status.turnstileSiteKey) {
-        loadTurnstileScript();
-        startTurnstileWatch();
-      } else {
-        // No Turnstile configured — enable buttons immediately
-        setTurnstileReady(true);
+      // Load Turnstile for pending users (needed when they open tier view)
+      if (!status.hasSubscribed) {
+        if (status.turnstileSiteKey) {
+          loadTurnstileScript();
+          startTurnstileWatch();
+        } else {
+          setTurnstileReady(true);
+        }
       }
     } catch (err) {
       logger.error('Failed to load subscribe page:', err);
@@ -251,13 +247,8 @@ const SubscribePage: Component = () => {
     return `Try free — billed after ${trialHours}h used`;
   }
 
-  /** Use narrow layout for active users (unless they've expanded tiers), wide for pending */
-  const contentClass = () => {
-    if (isActive() && !showTiers()) return 'login-content';
-    if (!isBlocked() && !isActive()) return 'login-content subscribe-content';
-    if (showTiers()) return 'login-content subscribe-content';
-    return 'login-content';
-  };
+  /** Narrow for home view, wide for tier view */
+  const contentClass = () => showTiers() ? 'login-content subscribe-content' : 'login-content';
 
   return (
     <div class="login-page">
@@ -292,9 +283,10 @@ const SubscribePage: Component = () => {
             </div>
           </Show>
 
-          {/* Active state */}
-          <Show when={isActive()}>
-            {/* Default view: features, checkmark, email, Continue */}
+          {/* ── Unified flow for active + pending users ── */}
+          <Show when={!isBlocked()}>
+
+            {/* Home view: features list + status */}
             <Show when={!showTiers()}>
               <div class="login-features">
                 <For each={FEATURES}>
@@ -310,13 +302,24 @@ const SubscribePage: Component = () => {
               </div>
 
               <div class="subscribe-status">
-                <div class="subscribe-status-icon subscribe-status-icon--active">
-                  <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                </div>
-                <Show when={userEmail()}>
-                  <div class="subscribe-email">{userEmail()}</div>
+                <Show when={isActive()} fallback={
+                  <>
+                    <div class="subscribe-status-icon subscribe-status-icon--pending">
+                      <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+                    </div>
+                    <Show when={userEmail()}>
+                      <div class="subscribe-email">{userEmail()}</div>
+                    </Show>
+                  </>
+                }>
+                  <div class="subscribe-status-icon subscribe-status-icon--active">
+                    <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                  </div>
+                  <Show when={userEmail()}>
+                    <div class="subscribe-email">{userEmail()}</div>
+                  </Show>
+                  <a href="/app/" class="subscribe-action-button">Continue</a>
                 </Show>
-                <a href="/app/" class="subscribe-action-button">Continue</a>
               </div>
 
               <button
@@ -328,9 +331,9 @@ const SubscribePage: Component = () => {
               </button>
             </Show>
 
-            {/* Tier selection view — replaces everything above when active */}
+            {/* Tier view: mode selector + tier grid (identical for everyone) */}
             <Show when={showTiers()}>
-              {/* Global mode selector: two columns with vertical divider */}
+              {/* Mode selector: Standard / Pro columns with vertical divider */}
               <div class="subscribe-mode-selector" data-testid="mode-selector">
                 <button
                   type="button"
@@ -384,7 +387,7 @@ const SubscribePage: Component = () => {
                 <For each={tiers()}>
                   {(tier) => (
                     <div class="subscribe-tier-card" classList={{
-                      'subscribe-tier-card--highlight': tier.id === currentTierId(),
+                      'subscribe-tier-card--highlight': isActive() ? tier.id === currentTierId() : tier.id === 'standard',
                     }}>
                       <div class="subscribe-tier-header">
                         <h3 class="subscribe-tier-name">{tier.displayName}</h3>
@@ -408,130 +411,37 @@ const SubscribePage: Component = () => {
                       <button
                         type="button"
                         class="subscribe-tier-btn"
-                        disabled={tier.id === currentTierId() || subscribing() !== null}
+                        disabled={isActive()
+                          ? (tier.id === currentTierId() || subscribing() !== null)
+                          : (!turnstileReady() || subscribing() !== null)}
                         onClick={() => void handleSubscribe(tier.id)}
                       >
-                        {tier.id === currentTierId()
-                          ? 'Current Plan'
-                          : subscribing() === tier.id
-                            ? 'Switching...'
-                            : 'Switch Plan'}
+                        {isActive()
+                          ? (tier.id === currentTierId()
+                            ? 'Current Plan'
+                            : subscribing() === tier.id ? 'Switching...' : 'Switch Plan')
+                          : (subscribing() === tier.id ? 'Subscribing...' : tier.priceMonthly ? 'Start Trial' : 'Get Started')}
                       </button>
                     </div>
                   )}
                 </For>
               </div>
 
-              {/* Back to account view */}
+              {/* Turnstile (pending users only) */}
+              <Show when={!isActive()}>
+                <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
+                  <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
+                </div>
+              </Show>
+
               <button
                 type="button"
                 class="subscribe-logout-button"
                 onClick={() => setShowTiers(false)}
               >
-                Back to account
+                Back
               </button>
             </Show>
-          </Show>
-
-          {/* Tier selection (pending users) — same mode selector + tier layout */}
-          <Show when={!isBlocked() && !isActive()}>
-            {/* Global mode selector: Standard / Pro columns */}
-            <div class="subscribe-mode-selector" data-testid="mode-selector">
-              <button
-                type="button"
-                class="subscribe-mode-col"
-                classList={{ 'subscribe-mode-col--active': globalMode() === 'default' }}
-                onClick={() => setGlobalMode('default')}
-              >
-                <h3 class="subscribe-mode-heading">Standard</h3>
-                <p class="subscribe-mode-desc">Everything you need to code, build and deploy.</p>
-                <div class="subscribe-mode-features">
-                  <For each={STANDARD_MODE_FEATURES}>
-                    {(f) => (
-                      <div class="subscribe-mode-feature">
-                        <Icon path={f.icon} size={14} />
-                        <span>{f.text}</span>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </button>
-
-              <div class="subscribe-mode-divider" />
-
-              <button
-                type="button"
-                class="subscribe-mode-col"
-                classList={{ 'subscribe-mode-col--active': globalMode() === 'advanced' }}
-                onClick={() => setGlobalMode('advanced')}
-              >
-                <h3 class="subscribe-mode-heading">Pro</h3>
-                <p class="subscribe-mode-desc">Standard plus AI orchestration and memory.</p>
-                <div class="subscribe-mode-features">
-                  <For each={PRO_MODE_FEATURES}>
-                    {(f) => (
-                      <div class="subscribe-mode-feature">
-                        <Icon path={f.icon} size={14} />
-                        <span>{f.text}</span>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </button>
-            </div>
-
-            <p class="login-subtitle">Choose your plan to get started.</p>
-
-            <Show when={error()}>
-              <div class="subscribe-error">{error()}</div>
-            </Show>
-
-            {/* Tier grid — prices react to globalMode */}
-            <div class="subscribe-tier-grid">
-              <For each={tiers()}>
-                {(tier) => (
-                  <div class="subscribe-tier-card" classList={{ 'subscribe-tier-card--highlight': tier.id === 'standard' }}>
-                    <div class="subscribe-tier-header">
-                      <h3 class="subscribe-tier-name">{tier.displayName}</h3>
-                      <div class="subscribe-tier-price">{getGlobalModePrice(tier)}</div>
-                    </div>
-                    <div class="subscribe-tier-features">
-                      <div class="subscribe-tier-feature">
-                        <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'}</span>
-                        <span class="subscribe-tier-feature-label">monthly</span>
-                      </div>
-                      <div class="subscribe-tier-feature">
-                        <span>{tier.maxSessions}</span>
-                        <span class="subscribe-tier-feature-label">sessions</span>
-                      </div>
-                    </div>
-                    <Show when={getTrialBadge(tier)}>
-                      {(badge) => (
-                        <div class="subscribe-tier-badge">{badge()}</div>
-                      )}
-                    </Show>
-                    <button
-                      type="button"
-                      class="subscribe-tier-btn"
-                      disabled={!turnstileReady() || subscribing() !== null}
-                      onClick={() => void handleSubscribe(tier.id)}
-                    >
-                      {subscribing() === tier.id ? 'Subscribing...' : tier.priceMonthly ? 'Start Trial' : 'Get Started'}
-                    </button>
-                  </div>
-                )}
-              </For>
-            </div>
-
-            {/* Disabled continue button for pending users */}
-            <button type="button" class="subscribe-action-button" disabled>
-              Continue to Codeflare
-            </button>
-
-            {/* Turnstile widget */}
-            <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
-              <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
-            </div>
           </Show>
         </Show>
 
