@@ -81,24 +81,25 @@ describe('SubscriptionTierConfig interface', () => {
     const config: SubscriptionTierConfig = {
       id: 'standard',
       displayName: 'Starter',
-      monthlySeconds: 36000,
+      monthlySeconds: 144000,
       maxSessions: 3,
-      sessionModes: ['default'],
+      sessionModes: ['default', 'advanced'],
       canLogin: true,
       order: 4,
       isDefault: false,
-      priceMonthly: 2900,
-      trialQuotaHours: 10,
+      priceMonthly: 1900,
+      advancedPriceMonthly: 2400,
+      trialQuotaHours: 40,
       description: 'For individual developers',
     };
     expect(config.id).toBe('standard');
-    expect(config.monthlySeconds).toBe(36000);
+    expect(config.monthlySeconds).toBe(144000);
   });
 
   it('allows null monthlySeconds for unlimited', () => {
     const config: SubscriptionTierConfig = {
       id: 'unlimited',
-      displayName: 'Unlimited',
+      displayName: 'Team',
       monthlySeconds: null,
       maxSessions: 10,
       sessionModes: ['default', 'advanced'],
@@ -106,6 +107,7 @@ describe('SubscriptionTierConfig interface', () => {
       order: 7,
       isDefault: false,
       priceMonthly: null,
+      advancedPriceMonthly: null,
       trialQuotaHours: 0,
       description: 'Enterprise-grade access',
     };
@@ -201,16 +203,16 @@ describe('getDefaultTiers', () => {
     expect(free.trialQuotaHours).toBe(0);
   });
 
-  it('standard tier has trialQuotaHours=10', () => {
+  it('standard tier has trialQuotaHours=40', () => {
     const tiers = getDefaultTiers();
     const standard = tiers.find((t) => t.id === 'standard')!;
-    expect(standard.trialQuotaHours).toBe(10);
+    expect(standard.trialQuotaHours).toBe(40);
   });
 
-  it('max tier has trialQuotaHours=200', () => {
+  it('max tier has trialQuotaHours=160', () => {
     const tiers = getDefaultTiers();
     const max = tiers.find((t) => t.id === 'max')!;
-    expect(max.trialQuotaHours).toBe(200);
+    expect(max.trialQuotaHours).toBe(160);
   });
 
   it('unlimited tier has trialQuotaHours=0', () => {
@@ -354,8 +356,8 @@ describe('getAllowedSessionModes', () => {
     expect(getAllowedSessionModes('trial', tiers)).toEqual(['default']);
   });
 
-  it('returns [default] for standard', () => {
-    expect(getAllowedSessionModes('standard', tiers)).toEqual(['default']);
+  it('returns [default, advanced] for standard', () => {
+    expect(getAllowedSessionModes('standard', tiers)).toEqual(['default', 'advanced']);
   });
 
   it('returns [default, advanced] for advanced', () => {

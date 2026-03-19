@@ -1,8 +1,10 @@
 .usage-title {
+  font-family: 'JetBrains Mono', monospace;
   font-size: 1.8rem;
   font-weight: 700;
   margin-bottom: 1.5rem;
   text-align: center;
+  color: #fafafa;
 }
 
 .usage-loading,
@@ -13,7 +15,7 @@
 }
 
 .usage-error {
-  color: var(--color-error);
+  color: #ef4444;
 }
 
 .usage-ring-container {
@@ -98,11 +100,12 @@
   display: inline-block;
   padding: 0.6rem 1.2rem;
   border-radius: 0.4rem;
-  background: var(--color-accent);
+  background: var(--color-accent, #3b82f6);
   color: #09090b;
   text-decoration: none;
   font-weight: 500;
   font-size: 0.9rem;
+  font-family: 'JetBrains Mono', monospace;
   border: none;
   cursor: pointer;
   transition: opacity 0.2s;

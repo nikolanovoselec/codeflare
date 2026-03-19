@@ -13,6 +13,7 @@ import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
 import '../styles/subscribe-page.css';
+import '../styles/login-page.css';
 
 interface TierInfo {
   id: string;
@@ -39,7 +40,7 @@ const DEFAULT_FEATURES = [
 ];
 
 const ADVANCED_FEATURES = [
-  'Everything in Default, plus:',
+  'Everything in Standard, plus:',
   'Curated skills, rules & agents',
   'MCP servers for knowledge graph memory',
   'Multi-LLM workflows',
@@ -243,7 +244,7 @@ const SubscribePage: Component = () => {
             {/* Features comparison */}
             <div class="subscribe-features">
               <div class="subscribe-features-col">
-                <h3 class="subscribe-features-heading">Default Mode</h3>
+                <h3 class="subscribe-features-heading">Standard Mode</h3>
                 <For each={DEFAULT_FEATURES}>
                   {(feature) => (
                     <div class="subscribe-feature-item">
@@ -254,7 +255,7 @@ const SubscribePage: Component = () => {
                 </For>
               </div>
               <div class="subscribe-features-col">
-                <h3 class="subscribe-features-heading">Advanced Mode</h3>
+                <h3 class="subscribe-features-heading">Pro Mode</h3>
                 <For each={ADVANCED_FEATURES}>
                   {(feature) => (
                     <div class="subscribe-feature-item">
@@ -290,7 +291,7 @@ const SubscribePage: Component = () => {
                           classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'default' }}
                           onClick={() => setMode(tier.id, 'default')}
                         >
-                          Default
+                          Standard
                         </button>
                         <button
                           type="button"
@@ -298,7 +299,7 @@ const SubscribePage: Component = () => {
                           classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'advanced' }}
                           onClick={() => setMode(tier.id, 'advanced')}
                         >
-                          Advanced
+                          Pro
                         </button>
                       </div>
                     </Show>

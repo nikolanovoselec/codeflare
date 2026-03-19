@@ -729,31 +729,19 @@ SaaS mode uses a layered middleware stack on every request to protected routes. 
 
 ### Subscription Tiers
 
-Codeflare uses an 8-tier subscription system that controls monthly compute hours, max concurrent sessions, session modes, trial periods, and pricing. Each tier includes comprehensive metadata for self-service selection and admin configuration.
+Codeflare uses a multi-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes. Tier IDs: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`. Pricing and quota details are maintained separately (not in this repo).
 
-**Tier Configuration (from `src/lib/subscription.ts:getDefaultTiers()`):**
-
-| Tier | Can Login | Monthly Hours | Max Sessions | Session Modes | Price | Trial Days | Description |
-|------|-----------|---------------|--------------|---------------|-------|------------|-------------|
-| `blocked` | No | 0 | 0 | — | — | 0 | Account blocked |
-| `pending` | Yes | 0 | 0 | — | — | 0 | Awaiting approval |
-| `free` | Yes | 2h | 1 | `default` | — | 0 | Get started for free |
-| `trial` | Yes | 5h | 2 | `default` | — | 0 | (Internal tier) |
-| `standard` | Yes | 10h | 3 | `default` | $29/mo | 7 days | For individual developers |
-| `advanced` | Yes | 50h | 5 | `default`, `advanced` | $79/mo | 0 | — |
-| `max` | Yes | 200h | 10 | `default`, `advanced` | $199/mo | 7 days | For professional teams |
-| `unlimited` | Yes | Unlimited | 10 | `default`, `advanced` | — | 14 days | Enterprise-grade access |
-
-**Full tier properties (in `SubscriptionTierConfig`):**
+**Tier properties (in `SubscriptionTierConfig`):**
 - `id: SubscriptionTier | string` — unique tier identifier
 - `displayName: string` — user-friendly name
 - `monthlySeconds: number | null` — monthly compute quota in seconds (null = unlimited)
 - `maxSessions: number` — max concurrent running sessions
 - `sessionModes: SessionMode[]` — allowed modes (`default`, `advanced`, or both)
-- `canLogin: boolean` — whether users can authenticate at CF Access (currently unused; `isActiveTier()` controls access)
-- `priceMonthly: number | null` — price in cents; null = not purchasable
-- `trialDays: number` — free trial duration in days; 0 = no trial
-- `description: string` — short user-friendly description (max 200 chars)
+- `canLogin: boolean` — whether users can authenticate (pending=true, blocked=false)
+- `priceMonthly: number | null` — Standard mode price in cents; null = not purchasable
+- `advancedPriceMonthly: number | null` — Pro mode price in cents
+- `trialQuotaHours: number` — hours of free usage before billing; 0 = no trial
+- `description: string` — short description (max 200 chars)
 - `order: number` — display order in admin UI
 - `isDefault: boolean` — fallback tier for undefined/missing users (currently `standard`)
 
@@ -765,8 +753,8 @@ Codeflare uses an 8-tier subscription system that controls monthly compute hours
    - Validates Turnstile token
    - Resolves tier config via `getTierConfig(kv)`
    - Sets `subscriptionTier`, `subscribedAt` timestamp
-   - If `trialDays > 0`: calculates trial expiry → `subscriptionExpiresAt`
-   - Returns `{ success, tier, trialDays, onboardingComplete }`
+   - If `trialQuotaHours > 0`: calculates trial status → `trialBillingTriggered: false`
+   - Returns `{ success, tier, trialQuotaHours, onboardingComplete }`
 5. Frontend redirects: first-time → `/app/onboarding`, returning → `/app/`
 
 **Tier storage and caching:**
@@ -836,13 +824,7 @@ Frontend detects `code === 'QUOTA_EXCEEDED'` via `ApiError.code` field and shows
 
 ### Subscribe Page (Tier Selection)
 
-New users (pending tier) land on `/app/subscribe` where they select a subscription tier. The page displays 4 tier cards in a grid:
-- **Free** — 2 hours/month, 1 session, no cost
-- **Standard** — 10 hours/month, 3 sessions, $29/mo with 7-day trial
-- **Max** — 200 hours/month, 10 sessions, $199/mo with 7-day trial
-- **Unlimited** — unlimited hours, 10 sessions, 14-day trial (Enterprise)
-
-Each card displays: pricing, monthly hours, max sessions, allowed session modes, trial badge (for paid tiers with `trialDays > 0`), and description.
+New users (pending tier) land on `/app/subscribe` where they select a subscription tier. The page shows a features comparison (Standard vs Pro modes) followed by tier cards (Free, Starter, Advanced, Max, Team) displaying monthly hours, max sessions, mode toggle, and trial info. Pricing details are configured via the admin subscription management page.
 
 **Subscribe Page states:**
 - **Loading** — fetches `/api/auth/status`
@@ -865,19 +847,19 @@ Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscr
 - Request body: `{ tier: string, turnstileToken: string }`
 - Validates Turnstile token (if `TURNSTILE_SECRET_KEY` is configured)
 - Validates tier is in subscribable set: `free`, `standard`, `max`, `unlimited`
-- Resolves tier config via `getTierConfig()` to extract `trialDays`
+- Resolves tier config via `getTierConfig()` to extract `trialQuotaHours`
 - Writes to KV record at `user:{email}`:
   - `subscriptionTier`: the selected tier
   - `subscribedAt`: ISO timestamp of subscription
-  - `subscriptionExpiresAt`: ISO timestamp (only if `trialDays > 0`)
-- Response: `{ success: boolean, tier: string, trialDays: number, onboardingComplete: boolean }`
+  - `trialBillingTriggered`: ISO timestamp (only if `trialQuotaHours > 0`)
+- Response: `{ success: boolean, tier: string, trialQuotaHours: number, onboardingComplete: boolean }`
 - Idempotent: if already subscribed (`subscribedAt` exists), returns success with current tier
 
 **`GET /public/tiers`** (unauthenticated, not rate-limited):
 - Returns only subscribable tier configs: `free`, `standard`, `max`, `unlimited` (filtered from full 8-tier config)
 - Response: `{ tiers: SubscriptionTierConfig[] }` — each tier object includes all properties:
   - `id`, `displayName`, `monthlySeconds`, `maxSessions`, `sessionModes`
-  - `priceMonthly` (cents), `trialDays`, `description`
+  - `priceMonthly` (cents), `trialQuotaHours`, `description`
   - `order`, `canLogin`, `isDefault`
 - Used by subscribe page to render tier selection cards
 - Data is cached at 60-second TTL via `getTierConfig()`
@@ -1134,9 +1116,9 @@ When a pending user lands on `/app/subscribe`:
 4. **Backend validation & storage:**
    - Verifies Turnstile token (if `TURNSTILE_SECRET_KEY` is set)
    - Validates tier is subscribable: free/standard/max/unlimited
-   - Resolves tier config via `getTierConfig()` to extract `trialDays`
-   - Writes to KV at `user:{email}`: `subscriptionTier`, `subscribedAt`, `subscriptionExpiresAt` (if `trialDays > 0`)
-   - Returns `{ success, tier, trialDays, onboardingComplete }`
+   - Resolves tier config via `getTierConfig()` to extract `trialQuotaHours`
+   - Writes to KV at `user:{email}`: `subscriptionTier`, `subscribedAt`, `trialBillingTriggered` (if `trialQuotaHours > 0`)
+   - Returns `{ success, tier, trialQuotaHours, onboardingComplete }`
 
 5. **Redirect:** Frontend redirects to `/app/onboarding` (first-time) or `/app/` (returning user).
 

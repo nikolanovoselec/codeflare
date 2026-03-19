@@ -2,6 +2,7 @@ import { Component, createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { getUsage } from '../api/client';
 import { formatDuration } from '../lib/format';
 import '../styles/usage-page.css';
+import '../styles/login-page.css';
 
 const UsagePage: Component = () => {
   const [loading, setLoading] = createSignal(true);
@@ -76,7 +77,7 @@ const UsagePage: Component = () => {
                     cy={RING_SIZE / 2}
                     r={RING_RADIUS}
                     fill="none"
-                    stroke={usagePercent() >= 100 ? 'var(--color-error)' : usagePercent() >= 80 ? '#f59e0b' : 'var(--color-accent)'}
+                    stroke={usagePercent() >= 100 ? '#ef4444' : usagePercent() >= 80 ? '#f59e0b' : '#3b82f6'}
                     stroke-width={RING_STROKE}
                     stroke-dasharray={String(RING_CIRCUMFERENCE)}
                     stroke-dashoffset={String(RING_CIRCUMFERENCE * (1 - usagePercent() / 100))}

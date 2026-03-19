@@ -14,14 +14,14 @@ const mockedGetTiers = vi.mocked(getTiers);
 const mockedUpdateTiers = vi.mocked(updateTiers);
 
 const MOCK_TIERS = [
-  { id: 'blocked', displayName: 'Blocked', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 0, isDefault: false, priceMonthly: null, trialQuotaHours: 0, description: '' },
-  { id: 'pending', displayName: 'Pending', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 1, isDefault: false, priceMonthly: null, trialQuotaHours: 0, description: '' },
-  { id: 'free', displayName: 'Free', monthlySeconds: 3600, maxSessions: 1, sessionModes: ['default'], canLogin: true, order: 2, isDefault: true, priceMonthly: 0, trialQuotaHours: 0, description: 'Get started for free' },
-  { id: 'trial', displayName: 'Trial', monthlySeconds: 7200, maxSessions: 2, sessionModes: ['default'], canLogin: true, order: 3, isDefault: false, priceMonthly: null, trialQuotaHours: 0, description: '' },
-  { id: 'standard', displayName: 'Starter', monthlySeconds: 36000, maxSessions: 3, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: false, priceMonthly: 2900, trialQuotaHours: 10, description: 'For individual developers' },
-  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 72000, maxSessions: 5, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false, priceMonthly: 7900, trialQuotaHours: 0, description: '' },
-  { id: 'max', displayName: 'Max', monthlySeconds: 180000, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false, priceMonthly: 19900, trialQuotaHours: 7, description: 'For professional teams' },
-  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 100, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false, priceMonthly: null, trialQuotaHours: 14, description: 'Enterprise-grade access' },
+  { id: 'blocked', displayName: 'Blocked', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 0, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: '' },
+  { id: 'pending', displayName: 'Pending', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 1, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: '' },
+  { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false, priceMonthly: 0, advancedPriceMonthly: null, trialQuotaHours: 0, description: 'Get started for free' },
+  { id: 'trial', displayName: 'Trial', monthlySeconds: 18000, maxSessions: 2, sessionModes: ['default'], canLogin: true, order: 3, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: '' },
+  { id: 'standard', displayName: 'Starter', monthlySeconds: 144000, maxSessions: 3, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: true, priceMonthly: 1900, advancedPriceMonthly: 2400, trialQuotaHours: 40, description: 'For individual developers' },
+  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 288000, maxSessions: 5, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false, priceMonthly: 3900, advancedPriceMonthly: 4400, trialQuotaHours: 80, description: '' },
+  { id: 'max', displayName: 'Max', monthlySeconds: 576000, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false, priceMonthly: 6900, advancedPriceMonthly: 7400, trialQuotaHours: 160, description: 'For professional teams' },
+  { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: 'Enterprise-grade access' },
 ];
 
 const noop = () => {};
@@ -60,7 +60,7 @@ describe('SubscriptionManagement (Admin)', () => {
       expect(screen.getByText('Starter')).toBeInTheDocument();
       expect(screen.getByText('Advanced')).toBeInTheDocument();
       expect(screen.getByText('Max')).toBeInTheDocument();
-      expect(screen.getByText('Unlimited')).toBeInTheDocument();
+      expect(screen.getByText('Team')).toBeInTheDocument();
     });
 
     // Blocked and pending should not appear as editable rows
@@ -75,10 +75,10 @@ describe('SubscriptionManagement (Admin)', () => {
       expect(screen.getByText('Free')).toBeInTheDocument();
     });
 
-    // At least one input should contain "1" (Free = 3600s = 1h)
+    // At least one input should contain "2" (Free = 7200s = 2h)
     const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
-    const hasOneHour = textInputs.some((input) => (input as HTMLInputElement).value === '1');
-    expect(hasOneHour).toBe(true);
+    const hasTwoHours = textInputs.some((input) => (input as HTMLInputElement).value === '2');
+    expect(hasTwoHours).toBe(true);
   });
 
   it('should show unlimited text for unlimited tier hours when selected', async () => {

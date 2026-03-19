@@ -24,11 +24,11 @@ const mockedSubscribe = vi.mocked(subscribe);
 // id, displayName, monthlySeconds, maxSessions, sessionModes, canLogin, order, isDefault, priceMonthly, trialQuotaHours, description
 // Note: priceMonthly is in cents (formatPrice divides by 100)
 const MOCK_PUBLIC_TIERS = [
-  { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, priceMonthly: 0, description: 'Get started for free', trialQuotaHours: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
-  { id: 'standard', displayName: 'Starter', monthlySeconds: 36000, maxSessions: 3, priceMonthly: 2900, description: 'For individual developers', trialQuotaHours: 10, sessionModes: ['default'], canLogin: true, order: 4, isDefault: true },
-  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 180000, maxSessions: 5, priceMonthly: 7900, description: '', trialQuotaHours: 50, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false },
-  { id: 'max', displayName: 'Max', monthlySeconds: 720000, maxSessions: 10, priceMonthly: 19900, description: 'For professional teams', trialQuotaHours: 200, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false },
-  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 10, priceMonthly: null, description: 'Enterprise-grade access', trialQuotaHours: 0, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
+  { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, priceMonthly: 0, advancedPriceMonthly: null, description: 'Get started for free', trialQuotaHours: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
+  { id: 'standard', displayName: 'Starter', monthlySeconds: 144000, maxSessions: 3, priceMonthly: 1900, advancedPriceMonthly: 2400, description: 'For individual developers', trialQuotaHours: 40, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: true },
+  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 288000, maxSessions: 5, priceMonthly: 3900, advancedPriceMonthly: 4400, description: '', trialQuotaHours: 80, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false },
+  { id: 'max', displayName: 'Max', monthlySeconds: 576000, maxSessions: 10, priceMonthly: 6900, advancedPriceMonthly: 7400, description: 'For professional teams', trialQuotaHours: 160, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false },
+  { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 10, priceMonthly: null, advancedPriceMonthly: null, description: 'Enterprise-grade access', trialQuotaHours: 0, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
 ];
 
 // Button text pattern: component renders "Get Started" (free) or "Start Trial" (paid)
@@ -87,7 +87,7 @@ describe('SubscribePage', () => {
         expect(screen.getAllByText('Starter').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('Advanced').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('Max').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Unlimited').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Team').length).toBeGreaterThanOrEqual(1);
       });
     });
 
@@ -95,10 +95,10 @@ describe('SubscribePage', () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
-      // formatPrice: 0 -> "Free", 2900 -> "$29/mo", 19900 -> "$199/mo", null -> "Free"
+      // formatPrice: 0 -> "Free", 1900 -> "$19/mo", 6900 -> "$69/mo", null -> "Free"
       await waitFor(() => {
-        expect(screen.getByText(/\$29/)).toBeInTheDocument();
-        expect(screen.getByText(/\$199/)).toBeInTheDocument();
+        expect(screen.getByText(/\$19/)).toBeInTheDocument();
+        expect(screen.getByText(/\$69/)).toBeInTheDocument();
       });
     });
 
@@ -107,8 +107,8 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Default Mode/i)).toBeInTheDocument();
-        expect(screen.getByText(/Advanced Mode/i)).toBeInTheDocument();
+        expect(screen.getByText(/Standard Mode/i)).toBeInTheDocument();
+        expect(screen.getByText(/Pro Mode/i)).toBeInTheDocument();
         expect(screen.getByText(/Terminal access/i)).toBeInTheDocument();
       });
     });
