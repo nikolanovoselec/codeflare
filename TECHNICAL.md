@@ -402,6 +402,8 @@ stateDiagram-v2
 
 **Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> `lastInputAt` unchanged since last poll (no new input) or unreachable endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule -> KV status = `'stopped'`
 
+**Fast container-stopped detection (frontend):** When a terminal WebSocket reconnect attempt fails (code 1006 — the browser's representation of a 503 from the Container DO's "not running" guard), the terminal store detects this as a dead container and notifies the session store via `handleContainerStopped(sessionId)`. This immediately sets the session status to `'stopped'`, disposes all terminal WS retry loops, and transitions the UI back to the dashboard. The `activeSessionId` is kept set for 2 minutes so that `shouldSkipStatusTransition` blocks stale KV "running" from overwriting the locally-set "stopped" status. After 2 minutes (by which time KV has propagated), `activeSessionId` is cleared. This provides instant detection (~1 second) compared to waiting for KV eventual consistency (up to 2-3 minutes).
+
 **Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so no KV write)
 
 **Delete:** Worker `KV.delete()` -> `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` -> `super.destroy()` -> `onStop()` bails (no identifiers, so deleted session cannot be resurrected in KV)

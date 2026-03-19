@@ -3,7 +3,7 @@ import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
-import { terminalStore } from './terminal';
+import { terminalStore, setOnContainerStoppedCallback } from './terminal';
 import { logger } from '../lib/logger';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
@@ -620,6 +620,34 @@ function hasRecentContext(session: SessionWithStatus): boolean {
 export function shouldSkipStatusTransition(sessionId: string, activeSessionId: string | null): boolean {
   return sessionId === activeSessionId && activeSessionId !== null;
 }
+
+/**
+ * Called by terminal store when WS reconnect fails — container is dead.
+ * Sets session to stopped, keeps activeSessionId for 2 minutes to block
+ * stale KV "running" overwrites, then clears it.
+ */
+let containerStoppedTimer: ReturnType<typeof setTimeout> | null = null;
+
+function handleContainerStopped(sessionId: string): void {
+  // Set the session to stopped — Layout.tsx will transition to dashboard
+  updateSessionStatus(sessionId, 'stopped');
+  // Dispose terminal WS retry loops
+  terminalStore.disposeSession(sessionId);
+
+  // Keep activeSessionId set for 2 minutes so shouldSkipStatusTransition
+  // blocks stale KV "running" from overwriting our "stopped" status.
+  // After 2 minutes KV will have propagated the real "stopped" status.
+  if (containerStoppedTimer) clearTimeout(containerStoppedTimer);
+  containerStoppedTimer = setTimeout(() => {
+    if (state.activeSessionId === sessionId) {
+      setState('activeSessionId', null);
+    }
+    containerStoppedTimer = null;
+  }, 120_000);
+}
+
+// Register callback so terminal store can notify us when container stops
+setOnContainerStoppedCallback(handleContainerStopped);
 
 export const sessionStore = {
   // State (readonly)

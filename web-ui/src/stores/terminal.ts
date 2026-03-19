@@ -272,6 +272,10 @@ function connect(
   const signal = controller.signal;
   abortControllers.set(key, controller);
 
+  // Track consecutive failed WS attempts to detect dead containers.
+  // A single failure (503 from Container DO) means the container is dead.
+  let consecutiveFailures = 0;
+
   // Attempt connection with retries
   function attemptConnection(attemptNumber: number): void {
     if (signal.aborted) return;
@@ -302,6 +306,7 @@ function connect(
         return;
       }
       logger.debug(`[Terminal ${key}] WebSocket opened`);
+      consecutiveFailures = 0;
       setConnectionState(sessionId, terminalId, 'connected');
       setRetryMessage(sessionId, terminalId, null);
 
@@ -392,6 +397,22 @@ function connect(
 
       // Retry on retryable close codes (forever, flat delay)
       if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
+        consecutiveFailures++;
+
+        // Detect dead container: reconnect failure means the container stopped
+        // (503 from Container DO). Only trigger on reconnects (attemptNumber > 1),
+        // not on initial connection during startup.
+        if (attemptNumber > 1) {
+          logger.warn(`[Terminal ${key}] WS reconnect failed — container stopped`);
+          setConnectionState(sessionId, terminalId, 'disconnected');
+          setRetryMessage(sessionId, terminalId, 'Session stopped');
+          // Notify session store — imported via onContainerStoppedCallback
+          if (_onContainerStoppedCallback) {
+            _onContainerStoppedCallback(sessionId);
+          }
+          return; // Stop retrying
+        }
+
         logger.warn(`[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}, code=${event.code}`);
         const timeout = setTimeout(() => {
           attemptConnection(attemptNumber + 1);
@@ -751,6 +772,14 @@ export function cancelScheduledDisconnect(): void {
     disconnectTimerId = null;
     logger.debug('[Terminal] Scheduled disconnect cancelled');
   }
+}
+
+// Callback for notifying session store when container is detected as stopped
+// via consecutive WS failures. Set by session store to avoid circular imports.
+let _onContainerStoppedCallback: ((sessionId: string) => void) | null = null;
+
+export function setOnContainerStoppedCallback(cb: (sessionId: string) => void): void {
+  _onContainerStoppedCallback = cb;
 }
 
 // Export store and actions
