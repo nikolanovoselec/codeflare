@@ -209,4 +209,30 @@ describe('SubscriptionManagement (Admin)', () => {
       expect(saveButton).toHaveTextContent(/saving/i);
     });
   });
+
+  it('should retain dropdown selection after editing a field', async () => {
+    render(() => <SubscriptionManagement onBack={noop} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Free')).toBeInTheDocument();
+    });
+
+    // Select "Starter" tier from dropdown
+    const select = document.querySelector('.sub-mgmt-select') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'standard' } });
+
+    await waitFor(() => {
+      expect(select.value).toBe('standard');
+    });
+
+    // Edit the hours field (triggers allTiers signal update)
+    const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
+    const hoursInput = textInputs[0] as HTMLInputElement;
+    fireEvent.change(hoursInput, { target: { value: '50' } });
+
+    // Dropdown should still show "standard" (Starter) after the edit
+    await waitFor(() => {
+      expect(select.value).toBe('standard');
+    });
+  });
 });

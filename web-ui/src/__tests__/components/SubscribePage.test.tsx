@@ -7,6 +7,11 @@ vi.mock('../../components/ScrambleText', () => ({
   default: (props: any) => <span>{props.text}</span>,
 }));
 
+// Mock Icon to render a simple span
+vi.mock('../../components/Icon', () => ({
+  default: (props: any) => <span data-icon={props.path} />,
+}));
+
 // Mock the API client
 vi.mock('../../api/client', () => ({
   getAuthStatus: vi.fn(),
@@ -267,7 +272,7 @@ describe('SubscribePage', () => {
   });
 
   describe('Active User', () => {
-    it('should show active state with Continue button for already-subscribed users', async () => {
+    it('should show features list and email for active users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -280,7 +285,12 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Your Account is Active/)).toBeInTheDocument();
+        // Features from the FEATURES array (main branch layout)
+        expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
+        expect(screen.getByText(/Runs on any device/)).toBeInTheDocument();
+        // Email displayed
+        expect(screen.getByText('active@example.com')).toBeInTheDocument();
+        // Continue button
         expect(screen.getByText('Continue')).toBeInTheDocument();
       });
     });
@@ -300,6 +310,71 @@ describe('SubscribePage', () => {
       await waitFor(() => {
         const continueLink = screen.getByText('Continue');
         expect(continueLink.closest('a')).toHaveAttribute('href', '/app/');
+      });
+    });
+
+    it('should show "See subscription tiers" button for active users', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText('See subscription tiers')).toBeInTheDocument();
+      });
+    });
+
+    it('should reveal tier cards when "See subscription tiers" is clicked', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText('See subscription tiers')).toBeInTheDocument();
+      });
+
+      // No tier grid visible yet
+      expect(screen.queryByTestId('tier-grid')).not.toBeInTheDocument();
+
+      // Click "See subscription tiers"
+      fireEvent.click(screen.getByText('See subscription tiers'));
+
+      await waitFor(() => {
+        // Tier cards should now be visible
+        expect(screen.getByTestId('tier-grid')).toBeInTheDocument();
+        expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Starter').length).toBeGreaterThanOrEqual(1);
+      });
+    });
+
+    it('should show green checkmark icon for active users', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        const activeIcon = document.querySelector('.subscribe-status-icon--active');
+        expect(activeIcon).toBeInTheDocument();
       });
     });
   });

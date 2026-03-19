@@ -100,7 +100,7 @@ export class container extends Container<Env> {
 
   // Container goes to sleep after this duration of inactivity (no HTTP fetch() calls).
   // collectMetrics() renews via renewActivityTimeout() when new user input is detected.
-  override sleepAfter = '30m';
+  override sleepAfter = '3m';
 
   // Environment variables - set via property assignment in updateEnvVars()
   private _bucketName: string | null = null;
@@ -639,7 +639,6 @@ export class container extends Container<Env> {
 
     // Timekeeper usage ping (SaaS mode only)
     if (isSaasModeActive(this.env.SAAS_MODE)
-        && this.env.STRESS_TEST_MODE !== 'active'
         && this._bucketName
         && this._userEmail
         && this.env.TIMEKEEPER) {
@@ -675,7 +674,6 @@ export class container extends Container<Env> {
     } else {
       this.logger.info('Timekeeper ping skipped', {
         saasMode: isSaasModeActive(this.env.SAAS_MODE),
-        stressTest: this.env.STRESS_TEST_MODE === 'active',
         bucketName: !!this._bucketName,
         userEmail: !!this._userEmail,
         timekeeper: !!this.env.TIMEKEEPER,

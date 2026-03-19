@@ -7,11 +7,20 @@ declare global {
   }
 }
 
-import { Component, onMount, onCleanup, createSignal, Show, For } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
+import {
+  mdiRocketLaunchOutline,
+  mdiCellphoneLink,
+  mdiCloudLockOutline,
+  mdiCellphoneScreenshot,
+  mdiSourceBranch,
+  mdiLightningBolt,
+} from '@mdi/js';
 import { getAuthStatus, getPublicTiers, subscribe } from '../api/client';
 import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
+import Icon from './Icon';
 import '../styles/subscribe-page.css';
 import '../styles/login-page.css';
 
@@ -47,6 +56,15 @@ const ADVANCED_FEATURES = [
   'Multi-LLM workflows',
 ];
 
+const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
+  { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
+  { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
+  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration</> },
+  { icon: mdiCloudLockOutline, content: () => <>Data persisted & encrypted at rest</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Optimized for mobiles & foldables</> },
+  { icon: mdiLightningBolt, content: () => <>From idea to deployment in minutes</> },
+];
+
 const SubscribePage: Component = () => {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal('');
@@ -57,6 +75,8 @@ const SubscribePage: Component = () => {
   const [subscribing, setSubscribing] = createSignal<string | null>(null);
   const [modeSelections, setModeSelections] = createSignal<ModeSelection>({});
   const [currency, setCurrency] = createSignal('USD');
+  const [showTiers, setShowTiers] = createSignal(false);
+  const [userEmail, setUserEmail] = createSignal('');
 
   let observer: MutationObserver | null = null;
 
@@ -70,6 +90,13 @@ const SubscribePage: Component = () => {
       if (status.currency) {
         setCurrency(status.currency);
       }
+
+      if (status.email) {
+        setUserEmail(status.email);
+      }
+
+      // Store tiers for ALL users (active users need them for "See subscription tiers")
+      setTiers(tiersData.tiers as TierInfo[]);
 
       const tier = status.subscriptionTier ?? status.accessTier;
 
@@ -88,9 +115,6 @@ const SubscribePage: Component = () => {
         setLoading(false);
         return;
       }
-
-      // Show tier selection
-      setTiers(tiersData.tiers as TierInfo[]);
 
       // Load Turnstile
       if (status.turnstileSiteKey) {
@@ -212,12 +236,20 @@ const SubscribePage: Component = () => {
     return `Try free — billed after ${trialHours}h used`;
   }
 
+  /** Use narrow layout for active users (unless they've expanded tiers), wide for pending */
+  const contentClass = () => {
+    if (isActive() && !showTiers()) return 'login-content';
+    if (!isBlocked() && !isActive()) return 'login-content subscribe-content';
+    if (showTiers()) return 'login-content subscribe-content';
+    return 'login-content';
+  };
+
   return (
     <div class="login-page">
       <div class="login-particles login-particles--1" />
       <div class="login-particles login-particles--2" />
 
-      <div class="login-content subscribe-content">
+      <div class={contentClass()}>
         <div class="login-logo">
           <img src="/logo-original-transparent.png" alt="Codeflare" class="login-logo-img" />
         </div>
@@ -245,15 +277,67 @@ const SubscribePage: Component = () => {
             </div>
           </Show>
 
-          {/* Active state */}
+          {/* Active state — main branch layout: features, checkmark, email, Continue */}
           <Show when={isActive()}>
+            <div class="login-features">
+              <For each={FEATURES}>
+                {(feature, i) => (
+                  <div class="login-feature" style={{ 'animation-delay': `${0.3 + i() * 0.1}s` }}>
+                    <span class="login-feature-icon">
+                      <Icon path={feature.icon} size={16} />
+                    </span>
+                    <span class="login-feature-text">{feature.content()}</span>
+                  </div>
+                )}
+              </For>
+            </div>
+
             <div class="subscribe-status">
               <div class="subscribe-status-icon subscribe-status-icon--active">
                 <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
               </div>
-              <h2 class="subscribe-title">Your Account is Active</h2>
+              <Show when={userEmail()}>
+                <div class="subscribe-email">{userEmail()}</div>
+              </Show>
               <a href="/app/" class="subscribe-action-button">Continue</a>
             </div>
+
+            {/* "See subscription tiers" button — reveals tier cards below */}
+            <Show when={!showTiers()}>
+              <button
+                type="button"
+                class="subscribe-logout-button"
+                onClick={() => setShowTiers(true)}
+              >
+                See subscription tiers
+              </button>
+            </Show>
+
+            {/* Tier cards revealed on click */}
+            <Show when={showTiers()}>
+              <div class="subscribe-tier-grid" data-testid="tier-grid">
+                <For each={tiers()}>
+                  {(tier) => (
+                    <div class="subscribe-tier-card" classList={{ 'subscribe-tier-card--highlight': tier.id === 'standard' }}>
+                      <div class="subscribe-tier-header">
+                        <h3 class="subscribe-tier-name">{tier.displayName}</h3>
+                        <div class="subscribe-tier-price">{getDisplayPrice(tier)}</div>
+                      </div>
+                      <div class="subscribe-tier-features">
+                        <div class="subscribe-tier-feature">
+                          <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'}</span>
+                          <span class="subscribe-tier-feature-label">monthly</span>
+                        </div>
+                        <div class="subscribe-tier-feature">
+                          <span>{tier.maxSessions}</span>
+                          <span class="subscribe-tier-feature-label">sessions</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
           </Show>
 
           {/* Tier selection (pending users) */}
@@ -361,8 +445,10 @@ const SubscribePage: Component = () => {
           </Show>
         </Show>
 
-        {/* Logout */}
+        {/* Logout — always visible */}
         <a href="/cdn-cgi/access/logout" class="subscribe-logout-button">Log out</a>
+
+        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
       </div>
     </div>
   );
