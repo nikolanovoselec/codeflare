@@ -650,7 +650,7 @@ describe('Terminal Store', () => {
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('retries with flat 1s delay on abnormal close (never gives up)', async () => {
+    it('detects dead container on first reconnect failure and stops retrying', async () => {
       const terminal = createMockTerminal();
 
       const OriginalWebSocket = globalThis.WebSocket;
@@ -691,27 +691,23 @@ describe('Terminal Store', () => {
 
       expect(connectTimestamps.length).toBe(1);
 
-      // Let first attempt fail
+      // Let first attempt fail (initial connect)
       await vi.advanceTimersByTimeAsync(0);
 
-      // Each retry cycle: WS_RETRY_DELAY_MS (100ms mocked) + 1ms close timer
-      // Advance through 3 retry cycles
-      await vi.advanceTimersByTimeAsync(303);
+      // Advance through first retry cycle: WS_RETRY_DELAY_MS (100ms mocked)
+      await vi.advanceTimersByTimeAsync(101);
 
-      // Should have 4 total attempts (1 initial + 3 retries)
-      expect(connectTimestamps.length).toBe(4);
-
-      // Verify intervals are constant (flat delay)
-      for (let i = 2; i < connectTimestamps.length; i++) {
-        const interval = connectTimestamps[i] - connectTimestamps[i - 1];
-        expect(interval).toBeLessThanOrEqual(150);
-      }
+      // Should have 2 total attempts (1 initial + 1 retry that detects dead container)
+      expect(connectTimestamps.length).toBe(2);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('never gives up retrying on retryable close codes', async () => {
+    it('stops retrying and notifies callback on reconnect failure', async () => {
       const terminal = createMockTerminal();
+      const stoppedCallback = vi.fn();
+      const { setOnContainerStoppedCallback } = await import('../../stores/terminal');
+      setOnContainerStoppedCallback(stoppedCallback);
 
       const OriginalWebSocket = globalThis.WebSocket;
       let connectCount = 0;
@@ -749,18 +745,20 @@ describe('Terminal Store', () => {
 
       terminalStore.connect(sessionId, terminalId, terminal);
 
-      // Run 15 retry cycles — should NOT give up
-      for (let i = 0; i < 15; i++) {
-        await vi.advanceTimersByTimeAsync(0);   // WS closes
-        await vi.advanceTimersByTimeAsync(100);  // WS_RETRY_DELAY_MS (mocked)
-      }
+      // Initial connect fails
+      await vi.advanceTimersByTimeAsync(0);
+      // First retry (attemptNumber=2) — detects dead container
+      await vi.advanceTimersByTimeAsync(101);
 
-      // Should still be retrying — NOT in error state
+      // Should have stopped after 2 attempts (initial + 1 retry)
+      expect(connectCount).toBe(2);
+
+      // Should be disconnected, not still connecting
       const state = terminalStore.getConnectionState(sessionId, terminalId);
-      expect(state).toBe('connecting');
+      expect(state).toBe('disconnected');
 
-      // Should have made more than 10 attempts (proves no limit)
-      expect(connectCount).toBeGreaterThan(10);
+      // Container stopped callback should have fired
+      expect(stoppedCallback).toHaveBeenCalledWith(sessionId);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // reconnection logic. dispose() in the real store tears down WebSockets and xterm;
 // here it's a no-op. sendInputToTerminal writes to the WebSocket in production.
 vi.mock('../../stores/terminal', () => ({
+  setOnContainerStoppedCallback: vi.fn(),
   terminalStore: {
     dispose: vi.fn(),
     disposeSession: vi.fn(),
