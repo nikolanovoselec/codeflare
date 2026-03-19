@@ -141,6 +141,7 @@ export interface UserInfo {
   onboardingActive?: boolean;
   saasMode?: boolean;
   onboardingComplete?: boolean;
+  hasSubscribed?: boolean;
 }
 
 // Terminal connection state (no 'error' — infinite retries mean we never give up)
