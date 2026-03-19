@@ -8,6 +8,80 @@
   50% { opacity: 0.4; transform: scale(0.7); }
 }
 
+/* Wider content area for subscribe page */
+.subscribe-content {
+  max-width: 960px;
+}
+
+/* Features comparison section */
+.subscribe-features {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  width: 100%;
+}
+
+.subscribe-features-col {
+  background: rgba(24, 24, 27, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+}
+
+.subscribe-features-heading {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fafafa;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.subscribe-feature-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  padding: 0.2rem 0;
+}
+
+.subscribe-feature-check {
+  color: #22c55e;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+/* Mode toggle inside tier card */
+.subscribe-mode-toggle {
+  display: flex;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.subscribe-mode-btn {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.65rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.subscribe-mode-btn--active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #fafafa;
+}
+
+.subscribe-mode-btn:hover:not(.subscribe-mode-btn--active) {
+  color: #a1a1aa;
+}
+
 .subscribe-status-icon {
   color: var(--color-accent, #3b82f6);
   margin-bottom: 0.75rem;
@@ -148,7 +222,7 @@
 
 .subscribe-loading {
   text-align: center;
-  color: var(--color-text-secondary, #a1a1aa);
+  color: #a1a1aa;
   padding: 2rem;
 }
 
@@ -163,14 +237,14 @@
   text-align: center;
 }
 
-/* Tier selection grid */
+/* Tier selection grid — 5 cards */
 .subscribe-tier-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 0.75rem;
   margin-bottom: 1.5rem;
   width: 100%;
-  max-width: 900px;
+  max-width: 960px;
 }
 
 .subscribe-tier-card {
@@ -278,6 +352,10 @@
 
 @media (max-width: 640px) {
   .subscribe-tier-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .subscribe-features {
     grid-template-columns: 1fr;
   }
 }

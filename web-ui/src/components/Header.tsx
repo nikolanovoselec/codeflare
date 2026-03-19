@@ -6,7 +6,6 @@ import {
   mdiAccountOutline,
   mdiRocketLaunchOutline,
   mdiChartBar,
-  mdiCrownOutline,
   mdiLogout,
   mdiViewDashboardOutline,
   mdiBookOutline,
@@ -264,7 +263,7 @@ const Header: Component<HeaderProps> = (props) => {
                 data-testid="header-user-dropdown-profile"
               >
                 <Icon path={mdiAccountOutline} size={16} />
-                <span>Profile</span>
+                <span>Subscription</span>
               </a>
               <a
                 href="/app/usage"
@@ -283,14 +282,6 @@ const Header: Component<HeaderProps> = (props) => {
                   }
                   return null;
                 })()}
-              </a>
-              <a
-                href="/app/plan"
-                class="header-user-dropdown-item"
-                data-testid="header-user-dropdown-plan"
-              >
-                <Icon path={mdiCrownOutline} size={16} />
-                <span>Plan</span>
               </a>
               <a
                 href="/app/onboarding"

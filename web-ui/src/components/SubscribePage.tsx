@@ -20,10 +20,30 @@ interface TierInfo {
   monthlySeconds: number | null;
   maxSessions: number;
   priceMonthly: number | null;
+  advancedPriceMonthly?: number | null;
   description: string;
-  trialDays: number;
+  trialQuotaHours: number;
   sessionModes: string[];
 }
+
+/** Per-card mode state: which price flavor is selected */
+type ModeSelection = Record<string, 'default' | 'advanced'>;
+
+const DEFAULT_FEATURES = [
+  'Browser-based IDE',
+  'Terminal access',
+  'File browser',
+  'Agent selection',
+  'Workspace storage',
+  'R2 sync',
+];
+
+const ADVANCED_FEATURES = [
+  'Everything in Default, plus:',
+  'Curated skills, rules & agents',
+  'MCP servers for knowledge graph memory',
+  'Multi-LLM workflows',
+];
 
 const SubscribePage: Component = () => {
   const [loading, setLoading] = createSignal(true);
@@ -34,6 +54,7 @@ const SubscribePage: Component = () => {
   const [_onboardingComplete, setOnboardingComplete] = createSignal(false);
   const [turnstileReady, setTurnstileReady] = createSignal(false);
   const [subscribing, setSubscribing] = createSignal<string | null>(null);
+  const [modeSelections, setModeSelections] = createSignal<ModeSelection>({});
 
   let observer: MutationObserver | null = null;
 
@@ -83,13 +104,6 @@ const SubscribePage: Component = () => {
 
   onCleanup(() => {
     if (observer) observer.disconnect();
-    // Restore scroll
-    document.documentElement.style.overflow = '';
-  });
-
-  // Prevent scroll on this page
-  onMount(() => {
-    document.documentElement.style.overflow = 'hidden';
   });
 
   function loadTurnstileScript() {
@@ -161,12 +175,36 @@ const SubscribePage: Component = () => {
     return `$${(cents / 100).toFixed(0)}/mo`;
   }
 
+  function getSelectedMode(tierId: string): 'default' | 'advanced' {
+    return modeSelections()[tierId] ?? 'default';
+  }
+
+  function setMode(tierId: string, mode: 'default' | 'advanced') {
+    setModeSelections((prev) => ({ ...prev, [tierId]: mode }));
+  }
+
+  function supportsAdvanced(tier: TierInfo): boolean {
+    return tier.sessionModes.includes('advanced');
+  }
+
+  function getDisplayPrice(tier: TierInfo): string {
+    if (getSelectedMode(tier.id) === 'advanced' && tier.advancedPriceMonthly != null) {
+      return formatPrice(tier.advancedPriceMonthly);
+    }
+    return formatPrice(tier.priceMonthly);
+  }
+
+  function getTrialBadge(tier: TierInfo): string | null {
+    if (tier.trialQuotaHours <= 0) return null;
+    return `Try free — billed after ${tier.trialQuotaHours}h used`;
+  }
+
   return (
     <div class="login-page">
       <div class="login-particles login-particles--1" />
       <div class="login-particles login-particles--2" />
 
-      <div class="login-content">
+      <div class="login-content subscribe-content">
         <div class="login-logo">
           <img src="/logo-original-transparent.png" alt="Codeflare" class="login-logo-img" />
         </div>
@@ -202,6 +240,32 @@ const SubscribePage: Component = () => {
 
           {/* Tier selection (pending users) */}
           <Show when={!isBlocked() && !isActive()}>
+            {/* Features comparison */}
+            <div class="subscribe-features">
+              <div class="subscribe-features-col">
+                <h3 class="subscribe-features-heading">Default Mode</h3>
+                <For each={DEFAULT_FEATURES}>
+                  {(feature) => (
+                    <div class="subscribe-feature-item">
+                      <span class="subscribe-feature-check">&#10003;</span>
+                      <span>{feature}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+              <div class="subscribe-features-col">
+                <h3 class="subscribe-features-heading">Advanced Mode</h3>
+                <For each={ADVANCED_FEATURES}>
+                  {(feature) => (
+                    <div class="subscribe-feature-item">
+                      <span class="subscribe-feature-check">&#10003;</span>
+                      <span>{feature}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+
             <p class="login-subtitle">Choose your plan to get started.</p>
 
             <Show when={error()}>
@@ -214,9 +278,31 @@ const SubscribePage: Component = () => {
                   <div class="subscribe-tier-card" classList={{ 'subscribe-tier-card--highlight': tier.id === 'standard' }}>
                     <div class="subscribe-tier-header">
                       <h3 class="subscribe-tier-name">{tier.displayName}</h3>
-                      <div class="subscribe-tier-price">{formatPrice(tier.priceMonthly)}</div>
+                      <div class="subscribe-tier-price">{getDisplayPrice(tier)}</div>
                     </div>
-                    <p class="subscribe-tier-description">{tier.description}</p>
+
+                    {/* Mode toggle for paid tiers with advanced */}
+                    <Show when={supportsAdvanced(tier) && tier.priceMonthly !== null && tier.priceMonthly > 0}>
+                      <div class="subscribe-mode-toggle">
+                        <button
+                          type="button"
+                          class="subscribe-mode-btn"
+                          classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'default' }}
+                          onClick={() => setMode(tier.id, 'default')}
+                        >
+                          Default
+                        </button>
+                        <button
+                          type="button"
+                          class="subscribe-mode-btn"
+                          classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'advanced' }}
+                          onClick={() => setMode(tier.id, 'advanced')}
+                        >
+                          Advanced
+                        </button>
+                      </div>
+                    </Show>
+
                     <div class="subscribe-tier-features">
                       <div class="subscribe-tier-feature">
                         <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'}</span>
@@ -226,13 +312,11 @@ const SubscribePage: Component = () => {
                         <span>{tier.maxSessions}</span>
                         <span class="subscribe-tier-feature-label">sessions</span>
                       </div>
-                      <div class="subscribe-tier-feature">
-                        <span>{tier.sessionModes.includes('advanced') ? 'Normal + Advanced' : 'Normal'}</span>
-                        <span class="subscribe-tier-feature-label">modes</span>
-                      </div>
                     </div>
-                    <Show when={tier.trialDays > 0}>
-                      <div class="subscribe-tier-badge">{tier.trialDays}-day free trial</div>
+                    <Show when={getTrialBadge(tier)}>
+                      {(badge) => (
+                        <div class="subscribe-tier-badge">{badge()}</div>
+                      )}
                     </Show>
                     <button
                       type="button"

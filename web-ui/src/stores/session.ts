@@ -757,9 +757,24 @@ let _usageState: UsageState = { monthlySeconds: 0, monthlyQuotaSeconds: null };
 
 export function setUsageState(monthly: number, quota: number | null): void {
   _usageState = { monthlySeconds: monthly, monthlyQuotaSeconds: quota };
+  try {
+    localStorage.setItem('cf_usage', JSON.stringify(_usageState));
+  } catch { /* localStorage unavailable */ }
 }
 
 export function getUsageState(): { monthlySeconds: number; monthlyQuotaSeconds: number | null } {
+  // If still at initial zeros, try reading from localStorage as fallback
+  if (_usageState.monthlySeconds === 0 && _usageState.monthlyQuotaSeconds === null) {
+    try {
+      const cached = localStorage.getItem('cf_usage');
+      if (cached) {
+        const parsed = JSON.parse(cached) as UsageState;
+        if (typeof parsed.monthlySeconds === 'number') {
+          return { ...parsed };
+        }
+      }
+    } catch { /* localStorage unavailable or corrupt */ }
+  }
   return { ..._usageState };
 }
 

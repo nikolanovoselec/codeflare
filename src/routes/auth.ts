@@ -5,7 +5,6 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
-import { getTierConfig, getUserTier } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
@@ -176,7 +175,7 @@ const subscribeRateLimiter = createRateLimiter({
   keyPrefix: 'subscribe',
 });
 
-const SUBSCRIBABLE_TIERS = new Set(['free', 'standard', 'max', 'unlimited']);
+const SUBSCRIBABLE_TIERS = new Set(['free', 'standard', 'advanced', 'max', 'unlimited']);
 
 const SubscribeSchema = z.object({
   tier: z.string().min(1, 'Tier is required'),
@@ -201,7 +200,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
 
   if (!SUBSCRIBABLE_TIERS.has(parsed.data.tier)) {
-    throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, max, unlimited`);
+    throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, advanced, max, unlimited`);
   }
 
   // Verify Turnstile token
@@ -215,31 +214,21 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     }
   }
 
-  // Resolve trial period from tier config
-  const tiers = await getTierConfig(c.env.KV);
-  const tierConfig = getUserTier(parsed.data.tier, tiers);
-  const trialDays = tierConfig.trialDays ?? 0;
-
   const now = new Date();
   const updated: Record<string, unknown> = {
     ...existingRaw,
     subscriptionTier: parsed.data.tier,
     accessTier: parsed.data.tier, // backward compat
     subscribedAt: now.toISOString(),
+    trialBillingTriggered: false,
   };
-
-  // Set trial expiry for tiers with trial period
-  if (trialDays > 0) {
-    const expiresAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
-    updated.subscriptionExpiresAt = expiresAt.toISOString();
-  }
 
   await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
 
   const onboardingComplete = updated.onboardingComplete === true;
-  logger.info('User subscribed', { email: user.email, tier: parsed.data.tier, trialDays });
+  logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
 
-  return c.json({ success: true, tier: parsed.data.tier, trialDays, onboardingComplete });
+  return c.json({ success: true, tier: parsed.data.tier, trialDays: 0, onboardingComplete });
 });
 
 // POST /api/auth/onboarding-complete — mark guided setup as completed for this user

@@ -138,7 +138,7 @@ app.post('/waitlist', waitlistRateLimiter, async (c) => {
 });
 
 // GET /public/tiers — subscribable tier config (no auth required)
-const SUBSCRIBABLE_IDS = new Set(['free', 'standard', 'max', 'unlimited']);
+const SUBSCRIBABLE_IDS = new Set(['free', 'standard', 'advanced', 'max', 'unlimited']);
 
 app.get('/tiers', async (c) => {
   const allTiers = await getTierConfig(c.env.KV);

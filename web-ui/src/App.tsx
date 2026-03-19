@@ -18,7 +18,6 @@ const SubscribePage = lazy(() => import('./components/SubscribePage'));
 const UserManagement = lazy(() => import('./components/admin/UserManagement'));
 const OnboardingPage = lazy(() => import('./components/OnboardingPage'));
 const UsagePage = lazy(() => import('./components/UsagePage'));
-const PlanPage = lazy(() => import('./components/PlanPage'));
 const AdminSubscriptionManagement = lazy(() => import('./components/admin/SubscriptionManagement'));
 
 // Check setup status from API.
@@ -227,7 +226,6 @@ const App: Component = () => {
       <Route path="/app/subscribe" component={SubscribePage} />
       <Route path="/app/onboarding" component={OnboardingPage} />
       <Route path="/app/usage" component={UsagePage} />
-      <Route path="/app/plan" component={PlanPage} />
       <Route path="/admin/users" component={() => (
         <SetupGuard>
           <UserManagement onBack={() => { window.location.href = '/app/'; }} />

@@ -433,6 +433,13 @@ export class container extends Container<Env> {
           prefsChanged = true;
         }
 
+        // Update userEmail on restart (critical for Timekeeper pings)
+        if (userEmail && userEmail !== this._userEmail) {
+          this._userEmail = userEmail;
+          await this.ctx.storage.put('userEmail', userEmail);
+          this.logger.info('Updated userEmail on restart', { userEmail });
+        }
+
         if (prefsChanged || sessionId) {
           this.updateEnvVars();
         }
@@ -665,6 +672,14 @@ export class container extends Container<Env> {
         // Non-fatal: log and continue — Timekeeper will catch up on next ping
         this.logger.warn('Timekeeper ping failed', { error: err instanceof Error ? err.message : String(err) });
       }
+    } else {
+      this.logger.debug('Timekeeper ping skipped', {
+        saasMode: isSaasModeActive(this.env.SAAS_MODE),
+        stressTest: this.env.STRESS_TEST_MODE === 'active',
+        bucketName: !!this._bucketName,
+        userEmail: !!this._userEmail,
+        timekeeper: !!this.env.TIMEKEEPER,
+      });
     }
 
     // Re-arm only if still running. schedule() is one-shot — if we don't

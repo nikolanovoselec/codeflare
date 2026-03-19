@@ -408,7 +408,7 @@ const TierObjectSchema = z.object({
   order: z.number(),
   isDefault: z.boolean(),
   priceMonthly: z.number().nullable(),
-  trialDays: z.number(),
+  trialQuotaHours: z.number(),
   description: z.string(),
   advancedPriceMonthly: z.number().nullable().optional(),
 });

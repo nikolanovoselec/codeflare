@@ -68,7 +68,7 @@ const UsagePage: Component = () => {
                     cy={RING_SIZE / 2}
                     r={RING_RADIUS}
                     fill="none"
-                    stroke="var(--color-border)"
+                    stroke="rgba(255, 255, 255, 0.08)"
                     stroke-width={RING_STROKE}
                   />
                   <circle
@@ -76,7 +76,7 @@ const UsagePage: Component = () => {
                     cy={RING_SIZE / 2}
                     r={RING_RADIUS}
                     fill="none"
-                    stroke={usagePercent() >= 100 ? 'var(--color-error)' : usagePercent() >= 80 ? 'var(--color-warning)' : 'var(--color-accent)'}
+                    stroke={usagePercent() >= 100 ? 'var(--color-error)' : usagePercent() >= 80 ? '#f59e0b' : 'var(--color-accent)'}
                     stroke-width={RING_STROKE}
                     stroke-dasharray={String(RING_CIRCUMFERENCE)}
                     stroke-dashoffset={String(RING_CIRCUMFERENCE * (1 - usagePercent() / 100))}
@@ -111,7 +111,7 @@ const UsagePage: Component = () => {
 
             <div class="usage-actions">
               <a href="/app/" class="usage-btn">Back to Dashboard</a>
-              <a href="/app/plan" class="usage-btn usage-btn--secondary">View Plans</a>
+              <a href="/app/subscribe" class="usage-btn usage-btn--secondary">View Plans</a>
             </div>
           </Show>
         </Show>

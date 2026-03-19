@@ -149,7 +149,7 @@ export interface SubscriptionTierConfig {
   order: number;
   isDefault: boolean;
   priceMonthly: number | null; // cents, null = not purchasable
-  trialDays: number; // 0 = no trial
+  trialQuotaHours: number; // hours of free usage before billing, 0 = no trial
   description: string;
   advancedPriceMonthly?: number | null; // cents, higher price for advanced mode
 }

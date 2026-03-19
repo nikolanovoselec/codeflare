@@ -3,7 +3,7 @@
  * Tier dropdown to select one tier, then edit that tier's config.
  * Paid tiers have normal + advanced pricing flavors.
  */
-import { Component, createSignal, onMount, Show } from 'solid-js';
+import { Component, createSignal, createMemo, onMount, Show } from 'solid-js';
 import { mdiArrowExpandLeft } from '@mdi/js';
 import { getTiers, updateTiers } from '../../api/client';
 import Icon from '../Icon';
@@ -23,7 +23,7 @@ interface TierConfig {
   order: number;
   isDefault: boolean;
   priceMonthly: number | null;
-  trialDays: number;
+  trialQuotaHours: number;
   description: string;
   advancedPriceMonthly?: number | null;
 }
@@ -51,7 +51,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
   });
 
   const editableTiers = () => allTiers().filter((t) => EDITABLE_TIERS.has(t.id));
-  const selectedTier = () => allTiers().find((t) => t.id === selectedTierId()) ?? null;
+  const selectedTier = createMemo(() => allTiers().find((t) => t.id === selectedTierId()) ?? null);
 
   const updateField = (field: string, value: unknown) => {
     setAllTiers((prev) =>
@@ -198,18 +198,18 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                 </Show>
 
                 <label class="sub-mgmt-field">
-                  <span class="sub-mgmt-label">Trial (days)</span>
+                  <span class="sub-mgmt-label">Trial Quota (hours)</span>
                   <input
                     type="number"
                     class="sub-mgmt-input"
                     min="0"
-                    max="365"
-                    value={tier().trialDays}
-                    onInput={(e) => updateField('trialDays', parseInt(e.currentTarget.value) || 0)}
+                    max="10000"
+                    value={tier().trialQuotaHours}
+                    onInput={(e) => updateField('trialQuotaHours', parseInt(e.currentTarget.value) || 0)}
                   />
                 </label>
 
-                <label class="sub-mgmt-field">
+                <label class="sub-mgmt-field sub-mgmt-field--full">
                   <span class="sub-mgmt-label">Description</span>
                   <input
                     type="text"

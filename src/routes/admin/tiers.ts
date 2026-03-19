@@ -22,7 +22,7 @@ const TierConfigSchema = z.object({
   order: z.number().min(0),
   isDefault: z.boolean(),
   priceMonthly: z.number().min(0).nullable(),
-  trialDays: z.number().min(0),
+  trialQuotaHours: z.number().min(0),
   description: z.string().max(200),
   advancedPriceMonthly: z.number().min(0).nullable().optional(),
 });

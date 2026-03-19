@@ -81,9 +81,13 @@
 }
 
 .sub-mgmt-form {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.9rem;
+}
+
+.sub-mgmt-field--full {
+  grid-column: 1 / -1;
 }
 
 .sub-mgmt-field {
@@ -159,4 +163,10 @@
 .sub-mgmt-success {
   color: #22c55e;
   font-size: 0.8rem;
+}
+
+@media (max-width: 640px) {
+  .sub-mgmt-form {
+    grid-template-columns: 1fr;
+  }
 }

@@ -28,7 +28,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 0,
       isDefault: false,
       priceMonthly: null,
-      trialDays: 0,
+      trialQuotaHours: 0,
       description: '',
     },
     {
@@ -41,7 +41,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 1,
       isDefault: false,
       priceMonthly: null,
-      trialDays: 0,
+      trialQuotaHours: 0,
       description: '',
     },
     {
@@ -54,7 +54,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 2,
       isDefault: false,
       priceMonthly: null,
-      trialDays: 0,
+      trialQuotaHours: 0,
       description: 'Get started for free',
     },
     {
@@ -67,12 +67,12 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 3,
       isDefault: false,
       priceMonthly: null,
-      trialDays: 0,
+      trialQuotaHours: 0,
       description: '',
     },
     {
       id: 'standard',
-      displayName: 'Standard',
+      displayName: 'Starter',
       monthlySeconds: 36000,    // 10 hours
       maxSessions: 3,
       sessionModes: ['default'],
@@ -80,7 +80,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 4,
       isDefault: true,
       priceMonthly: 2900,
-      trialDays: 7,
+      trialQuotaHours: 10,
       description: 'For individual developers',
     },
     {
@@ -93,7 +93,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 5,
       isDefault: false,
       priceMonthly: 7900,
-      trialDays: 0,
+      trialQuotaHours: 50,
       description: '',
     },
     {
@@ -106,7 +106,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 6,
       isDefault: false,
       priceMonthly: 19900,
-      trialDays: 7,
+      trialQuotaHours: 200,
       description: 'For professional teams',
     },
     {
@@ -119,7 +119,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 7,
       isDefault: false,
       priceMonthly: null,
-      trialDays: 14,
+      trialQuotaHours: 0,
       description: 'Enterprise-grade access',
     },
   ];

@@ -21,13 +21,14 @@ const mockedGetPublicTiers = vi.mocked(getPublicTiers);
 const mockedSubscribe = vi.mocked(subscribe);
 
 // Mock tiers with ALL required fields from TierObjectSchema:
-// id, displayName, monthlySeconds, maxSessions, sessionModes, canLogin, order, isDefault, priceMonthly, trialDays, description
+// id, displayName, monthlySeconds, maxSessions, sessionModes, canLogin, order, isDefault, priceMonthly, trialQuotaHours, description
 // Note: priceMonthly is in cents (formatPrice divides by 100)
 const MOCK_PUBLIC_TIERS = [
-  { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, priceMonthly: 0, description: 'Get started for free', trialDays: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
-  { id: 'standard', displayName: 'Standard', monthlySeconds: 36000, maxSessions: 3, priceMonthly: 2900, description: 'For individual developers', trialDays: 7, sessionModes: ['default'], canLogin: true, order: 4, isDefault: true },
-  { id: 'max', displayName: 'Max', monthlySeconds: 720000, maxSessions: 10, priceMonthly: 19900, description: 'For professional teams', trialDays: 7, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false },
-  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 10, priceMonthly: null, description: 'Enterprise-grade access', trialDays: 14, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
+  { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, priceMonthly: 0, description: 'Get started for free', trialQuotaHours: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
+  { id: 'standard', displayName: 'Starter', monthlySeconds: 36000, maxSessions: 3, priceMonthly: 2900, description: 'For individual developers', trialQuotaHours: 10, sessionModes: ['default'], canLogin: true, order: 4, isDefault: true },
+  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 180000, maxSessions: 5, priceMonthly: 7900, description: '', trialQuotaHours: 50, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false },
+  { id: 'max', displayName: 'Max', monthlySeconds: 720000, maxSessions: 10, priceMonthly: 19900, description: 'For professional teams', trialQuotaHours: 200, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false },
+  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 10, priceMonthly: null, description: 'Enterprise-grade access', trialQuotaHours: 0, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
 ];
 
 // Button text pattern: component renders "Get Started" (free) or "Start Trial" (paid)
@@ -75,7 +76,7 @@ describe('SubscribePage', () => {
   });
 
   describe('Tier Selection', () => {
-    it('should fetch public tiers and show 4 tier cards', async () => {
+    it('should fetch public tiers and show 5 tier cards', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
@@ -83,7 +84,8 @@ describe('SubscribePage', () => {
         expect(mockedGetPublicTiers).toHaveBeenCalledTimes(1);
         // Tier names may appear multiple times (e.g., "Free" as name + price, "Unlimited" as name + hours)
         expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Standard').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Starter').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Advanced').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('Max').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('Unlimited').length).toBeGreaterThanOrEqual(1);
       });
@@ -116,7 +118,7 @@ describe('SubscribePage', () => {
 
       await waitFor(() => {
         const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-        expect(buttons.length).toBeGreaterThanOrEqual(4);
+        expect(buttons.length).toBeGreaterThanOrEqual(5);
       });
     });
   });

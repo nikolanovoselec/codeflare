@@ -9,7 +9,7 @@
 .usage-error {
   text-align: center;
   padding: 2rem;
-  color: var(--color-text-secondary);
+  color: #a1a1aa;
 }
 
 .usage-error {
@@ -39,12 +39,12 @@
 .usage-ring-percent {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--color-text);
+  color: #fafafa;
 }
 
 .usage-ring-sublabel {
   font-size: 0.75rem;
-  color: var(--color-text-secondary);
+  color: #a1a1aa;
 }
 
 .usage-stats {
@@ -56,8 +56,8 @@
 }
 
 .usage-stat-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: rgba(24, 24, 27, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 0.5rem;
   padding: 1rem 1.5rem;
   text-align: center;
@@ -66,7 +66,7 @@
 
 .usage-stat-label {
   font-size: 0.75rem;
-  color: var(--color-text-secondary);
+  color: #a1a1aa;
   margin-bottom: 0.25rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -75,7 +75,7 @@
 .usage-stat-value {
   font-size: 1.4rem;
   font-weight: 600;
-  color: var(--color-text);
+  color: #fafafa;
 }
 
 .usage-stat-tier {
@@ -84,7 +84,7 @@
 
 .usage-stat-quota {
   font-size: 0.7rem;
-  color: var(--color-text-secondary);
+  color: #a1a1aa;
   margin-top: 0.25rem;
 }
 
@@ -99,7 +99,7 @@
   padding: 0.6rem 1.2rem;
   border-radius: 0.4rem;
   background: var(--color-accent);
-  color: var(--color-bg);
+  color: #09090b;
   text-decoration: none;
   font-weight: 500;
   font-size: 0.9rem;
@@ -114,6 +114,6 @@
 
 .usage-btn--secondary {
   background: transparent;
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
+  color: #a1a1aa;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }

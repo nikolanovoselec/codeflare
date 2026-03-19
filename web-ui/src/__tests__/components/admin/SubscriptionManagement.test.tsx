@@ -14,14 +14,14 @@ const mockedGetTiers = vi.mocked(getTiers);
 const mockedUpdateTiers = vi.mocked(updateTiers);
 
 const MOCK_TIERS = [
-  { id: 'blocked', displayName: 'Blocked', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 0, isDefault: false, priceMonthly: null, trialDays: 0, description: '' },
-  { id: 'pending', displayName: 'Pending', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 1, isDefault: false, priceMonthly: null, trialDays: 0, description: '' },
-  { id: 'free', displayName: 'Free', monthlySeconds: 3600, maxSessions: 1, sessionModes: ['default'], canLogin: true, order: 2, isDefault: true, priceMonthly: 0, trialDays: 0, description: 'Get started for free' },
-  { id: 'trial', displayName: 'Trial', monthlySeconds: 7200, maxSessions: 2, sessionModes: ['default'], canLogin: true, order: 3, isDefault: false, priceMonthly: null, trialDays: 0, description: '' },
-  { id: 'standard', displayName: 'Standard', monthlySeconds: 36000, maxSessions: 3, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: false, priceMonthly: 2900, trialDays: 7, description: 'For individual developers' },
-  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 72000, maxSessions: 5, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false, priceMonthly: 7900, trialDays: 0, description: '' },
-  { id: 'max', displayName: 'Max', monthlySeconds: 180000, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false, priceMonthly: 19900, trialDays: 7, description: 'For professional teams' },
-  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 100, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false, priceMonthly: null, trialDays: 14, description: 'Enterprise-grade access' },
+  { id: 'blocked', displayName: 'Blocked', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 0, isDefault: false, priceMonthly: null, trialQuotaHours: 0, description: '' },
+  { id: 'pending', displayName: 'Pending', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 1, isDefault: false, priceMonthly: null, trialQuotaHours: 0, description: '' },
+  { id: 'free', displayName: 'Free', monthlySeconds: 3600, maxSessions: 1, sessionModes: ['default'], canLogin: true, order: 2, isDefault: true, priceMonthly: 0, trialQuotaHours: 0, description: 'Get started for free' },
+  { id: 'trial', displayName: 'Trial', monthlySeconds: 7200, maxSessions: 2, sessionModes: ['default'], canLogin: true, order: 3, isDefault: false, priceMonthly: null, trialQuotaHours: 0, description: '' },
+  { id: 'standard', displayName: 'Starter', monthlySeconds: 36000, maxSessions: 3, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: false, priceMonthly: 2900, trialQuotaHours: 10, description: 'For individual developers' },
+  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 72000, maxSessions: 5, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false, priceMonthly: 7900, trialQuotaHours: 0, description: '' },
+  { id: 'max', displayName: 'Max', monthlySeconds: 180000, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false, priceMonthly: 19900, trialQuotaHours: 7, description: 'For professional teams' },
+  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 100, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false, priceMonthly: null, trialQuotaHours: 14, description: 'Enterprise-grade access' },
 ];
 
 const noop = () => {};
@@ -57,7 +57,7 @@ describe('SubscriptionManagement (Admin)', () => {
     await waitFor(() => {
       expect(screen.getByText('Free')).toBeInTheDocument();
       expect(screen.getByText('Trial')).toBeInTheDocument();
-      expect(screen.getByText('Standard')).toBeInTheDocument();
+      expect(screen.getByText('Starter')).toBeInTheDocument();
       expect(screen.getByText('Advanced')).toBeInTheDocument();
       expect(screen.getByText('Max')).toBeInTheDocument();
       expect(screen.getByText('Unlimited')).toBeInTheDocument();

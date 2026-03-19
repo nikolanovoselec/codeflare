@@ -1,6 +1,6 @@
 import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiCrownOutline, mdiLogout } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
@@ -163,7 +163,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       data-testid="header-user-dropdown-profile"
                     >
                       <Icon path={mdiAccountOutline} size={16} />
-                      <span>Profile</span>
+                      <span>Subscription</span>
                     </a>
                     <a
                       href="/app/usage"
@@ -182,14 +182,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         }
                         return null;
                       })()}
-                    </a>
-                    <a
-                      href="/app/plan"
-                      class="header-user-dropdown-item"
-                      data-testid="header-user-dropdown-plan"
-                    >
-                      <Icon path={mdiCrownOutline} size={16} />
-                      <span>Plan</span>
                     </a>
                     <a
                       href="/app/onboarding"

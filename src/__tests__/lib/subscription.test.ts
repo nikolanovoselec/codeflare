@@ -80,7 +80,7 @@ describe('SubscriptionTierConfig interface', () => {
   it('type-checks a valid tier config object', () => {
     const config: SubscriptionTierConfig = {
       id: 'standard',
-      displayName: 'Standard',
+      displayName: 'Starter',
       monthlySeconds: 36000,
       maxSessions: 3,
       sessionModes: ['default'],
@@ -88,7 +88,7 @@ describe('SubscriptionTierConfig interface', () => {
       order: 4,
       isDefault: false,
       priceMonthly: 2900,
-      trialDays: 7,
+      trialQuotaHours: 10,
       description: 'For individual developers',
     };
     expect(config.id).toBe('standard');
@@ -106,7 +106,7 @@ describe('SubscriptionTierConfig interface', () => {
       order: 7,
       isDefault: false,
       priceMonthly: null,
-      trialDays: 14,
+      trialQuotaHours: 0,
       description: 'Enterprise-grade access',
     };
     expect(config.monthlySeconds).toBeNull();
@@ -123,7 +123,7 @@ describe('SubscriptionTierConfig interface', () => {
       order: 0,
       isDefault: false,
       priceMonthly: null,
-      trialDays: 0,
+      trialQuotaHours: 0,
       description: '',
     };
     expect(config.priceMonthly).toBeNull();
@@ -185,38 +185,38 @@ describe('getDefaultTiers', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // trialDays field
+  // trialQuotaHours field
   // ---------------------------------------------------------------------------
 
-  it('each tier has a trialDays field (number)', () => {
+  it('each tier has a trialQuotaHours field (number)', () => {
     const tiers = getDefaultTiers();
     for (const tier of tiers) {
-      expect(typeof tier.trialDays).toBe('number');
+      expect(typeof tier.trialQuotaHours).toBe('number');
     }
   });
 
-  it('free tier has trialDays=0', () => {
+  it('free tier has trialQuotaHours=0', () => {
     const tiers = getDefaultTiers();
     const free = tiers.find((t) => t.id === 'free')!;
-    expect(free.trialDays).toBe(0);
+    expect(free.trialQuotaHours).toBe(0);
   });
 
-  it('standard tier has trialDays=7', () => {
+  it('standard tier has trialQuotaHours=10', () => {
     const tiers = getDefaultTiers();
     const standard = tiers.find((t) => t.id === 'standard')!;
-    expect(standard.trialDays).toBe(7);
+    expect(standard.trialQuotaHours).toBe(10);
   });
 
-  it('max tier has trialDays=7', () => {
+  it('max tier has trialQuotaHours=200', () => {
     const tiers = getDefaultTiers();
     const max = tiers.find((t) => t.id === 'max')!;
-    expect(max.trialDays).toBe(7);
+    expect(max.trialQuotaHours).toBe(200);
   });
 
-  it('unlimited tier has trialDays=14', () => {
+  it('unlimited tier has trialQuotaHours=0', () => {
     const tiers = getDefaultTiers();
     const unlimited = tiers.find((t) => t.id === 'unlimited')!;
-    expect(unlimited.trialDays).toBe(14);
+    expect(unlimited.trialQuotaHours).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
