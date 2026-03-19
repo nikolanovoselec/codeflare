@@ -436,7 +436,7 @@ export async function updateTiers(tiers: unknown[]): Promise<{ success: boolean 
 }
 
 export async function getPublicTiers(): Promise<z.infer<typeof PublicTiersResponseSchema>> {
-  return baseFetch('/tiers', {}, { basePath: '/public', schema: PublicTiersResponseSchema });
+  return fetchApi('/auth/tiers', {}, PublicTiersResponseSchema);
 }
 
 const SubscribeResponseSchema = z.object({

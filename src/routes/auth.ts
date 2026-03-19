@@ -20,6 +20,15 @@ app.get('/providers', async (c) => {
   return c.json({ providers: idpList || [] });
 });
 
+// GET /api/auth/tiers — subscribable tier config for the subscribe page.
+// Uses requireIdentity so pending users can fetch tiers after CF Access login.
+app.get('/tiers', requireIdentity, async (c) => {
+  const SUBSCRIBABLE_IDS = new Set(['free', 'standard', 'advanced', 'max', 'unlimited']);
+  const allTiers = await getTierConfig(c.env.KV);
+  const subscribable = allTiers.filter((t) => SUBSCRIBABLE_IDS.has(t.id as string));
+  return c.json({ tiers: subscribable });
+});
+
 // Requires identity (pending, active, and blocked users can access)
 app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
