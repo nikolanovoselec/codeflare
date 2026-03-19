@@ -188,7 +188,31 @@ See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth
 
 ## Subscription Tiers
 
-When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system controlling monthly compute hours, concurrent sessions, and session modes. Tiers: `blocked`, `pending`, `free` (2h), `trial` (5h), `standard` (10h), `advanced` (50h), `max` (200h), `unlimited`. Admins configure tier limits in Settings > Administration > Subscription Tiers. Usage is tracked per-user via a Timekeeper Durable Object and displayed on the `/app/usage` page. Session starts are gated by quota enforcement (HTTP 402 when exceeded). Mid-session eviction stops containers that exceed their quota. Non-SaaS deployments default to unlimited.
+When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system controlling monthly compute hours, concurrent sessions, trial periods, and pricing:
+
+| Tier | Monthly Hours | Max Sessions | Price | Trial | Notes |
+|------|---------------|--------------|-------|-------|-------|
+| `blocked` | 0 | 0 | — | — | Account blocked by admin |
+| `pending` | 0 | 0 | — | — | Awaiting approval (pending users choose a tier) |
+| `free` | 2h | 1 | — | — | Self-service signup |
+| `trial` | 5h | 2 | — | — | Internal tier (not user-facing) |
+| `standard` | 10h | 3 | $29/mo | 7 days | Default paid tier for individuals |
+| `advanced` | 50h | 5 | $79/mo | — | Advanced session mode enabled |
+| `max` | 200h | 10 | $199/mo | 7 days | For professional teams |
+| `unlimited` | Unlimited | 10 | — | 14 days | Enterprise access |
+
+**Self-service subscription flow:**
+- New users land on `/app/subscribe` and choose a tier (free, standard, max, or unlimited)
+- Turnstile CAPTCHA protects the subscription form
+- Trial periods are enforced server-side; admins manage tier limits in Settings > Administration > Subscription Tiers
+- Usage is tracked per-user via a Timekeeper Durable Object and displayed on `/app/usage`
+- Monthly compute hours are enforced at session start and mid-session
+- When quota is exceeded, new sessions return HTTP 402, and active containers are gracefully shut down
+
+**Quota enforcement:**
+- Server-side only — cannot be bypassed by frontend manipulation
+- Non-SaaS deployments default to unlimited access
+- See [TECHNICAL.md](TECHNICAL.md) Section 9 for full subscription system details
 
 ## Security
 

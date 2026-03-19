@@ -729,30 +729,65 @@ SaaS mode uses a layered middleware stack on every request to protected routes. 
 
 ### Subscription Tiers
 
-Codeflare uses an 8-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes:
+Codeflare uses an 8-tier subscription system that controls monthly compute hours, max concurrent sessions, session modes, trial periods, and pricing. Each tier includes comprehensive metadata for self-service selection and admin configuration.
 
-| Tier | Can log in | Monthly Hours | Max Sessions | Session Modes | How assigned |
-|------|-----------|-------------|-------------|---------------|-------------|
-| `blocked` | No | 0 | 0 | None | Admin blocks user |
-| `pending` | Yes (subscribe page) | 0 | 0 | None | Auto-assigned on first login (JIT provisioning) |
-| `free` | Yes | 2h | 1 | `default` | Admin assigns |
-| `trial` | Yes | 5h | 2 | `default` | Admin assigns (time-limited) |
-| `standard` | Yes | 10h | 3 | `default` | Default tier, admin promotes from `pending` |
-| `advanced` | Yes | 50h | 5 | `default` + `advanced` | Admin grants |
-| `max` | Yes | 200h | 10 | `default` + `advanced` | Admin grants |
-| `unlimited` | Yes | Unlimited | 10 | `default` + `advanced` | Admin/setup-created users |
+**Tier Configuration (from `src/lib/subscription.ts:getDefaultTiers()`):**
 
-Tiers are stored in the KV record at `user:{email}` in the `subscriptionTier` field. The legacy `accessTier` field is also maintained for backward compatibility — code reads `subscriptionTier` first, falls back to `accessTier`.
+| Tier | Can Login | Monthly Hours | Max Sessions | Session Modes | Price | Trial Days | Description |
+|------|-----------|---------------|--------------|---------------|-------|------------|-------------|
+| `blocked` | No | 0 | 0 | — | — | 0 | Account blocked |
+| `pending` | Yes | 0 | 0 | — | — | 0 | Awaiting approval |
+| `free` | Yes | 2h | 1 | `default` | — | 0 | Get started for free |
+| `trial` | Yes | 5h | 2 | `default` | — | 0 | (Internal tier) |
+| `standard` | Yes | 10h | 3 | `default` | $29/mo | 7 days | For individual developers |
+| `advanced` | Yes | 50h | 5 | `default`, `advanced` | $79/mo | 0 | — |
+| `max` | Yes | 200h | 10 | `default`, `advanced` | $199/mo | 7 days | For professional teams |
+| `unlimited` | Yes | Unlimited | 10 | `default`, `advanced` | — | 14 days | Enterprise-grade access |
 
-Tier defaults are hardcoded in `src/lib/subscription.ts:getDefaultTiers()` and can be customized by admins via the `tiers:config` KV key (Settings > Administration > Subscription Tiers). The `getTierConfig()` function reads from KV with fallback to defaults.
+**Full tier properties (in `SubscriptionTierConfig`):**
+- `id: SubscriptionTier | string` — unique tier identifier
+- `displayName: string` — user-friendly name
+- `monthlySeconds: number | null` — monthly compute quota in seconds (null = unlimited)
+- `maxSessions: number` — max concurrent running sessions
+- `sessionModes: SessionMode[]` — allowed modes (`default`, `advanced`, or both)
+- `canLogin: boolean` — whether users can authenticate at CF Access (currently unused; `isActiveTier()` controls access)
+- `priceMonthly: number | null` — price in cents; null = not purchasable
+- `trialDays: number` — free trial duration in days; 0 = no trial
+- `description: string` — short user-friendly description (max 200 chars)
+- `order: number` — display order in admin UI
+- `isDefault: boolean` — fallback tier for undefined/missing users (currently `standard`)
 
-The tier logic is defined in `src/lib/subscription.ts`:
-- `isActiveTier(tier)` — returns true for free/trial/standard/advanced/max/unlimited (and undefined for backward compat)
-- `getUserTier(tierValue, tiers)` — resolves tier config from tier value string
-- `getMaxSessionsForTier(tierValue, tiers)` — returns max concurrent sessions
-- `getAllowedSessionModes(tierValue, tiers)` — returns allowed session modes
+**Self-service subscription flow:**
+1. New users (pending tier) land on `/app/subscribe` which displays 4 subscribable tiers: `free`, `standard`, `max`, `unlimited`
+2. Each tier card shows pricing, description, monthly hours, max sessions, session modes, and trial badge
+3. User selects a tier → client validates via Turnstile CAPTCHA
+4. `POST /api/auth/subscribe` (rate-limited 3/hour):
+   - Validates Turnstile token
+   - Resolves tier config via `getTierConfig(kv)`
+   - Sets `subscriptionTier`, `subscribedAt` timestamp
+   - If `trialDays > 0`: calculates trial expiry → `subscriptionExpiresAt`
+   - Returns `{ success, tier, trialDays, onboardingComplete }`
+5. Frontend redirects: first-time → `/app/onboarding`, returning → `/app/`
 
-Legacy bridge in `src/lib/access-tier.ts` delegates to `subscription.ts` so existing code continues to work.
+**Tier storage and caching:**
+- Tiers are stored in the KV record at `user:{email}` in the `subscriptionTier` field
+- Default tier config is hardcoded in `src/lib/subscription.ts:getDefaultTiers()`
+- Admins can customize tiers via `/admin/subscriptions` page → `PUT /api/admin/tiers` → `tiers:config` KV key
+- `getTierConfig()` reads from KV with **60-second module-level TTL**, falling back to defaults if unavailable
+- Admin changes take effect within 60 seconds (per isolate cache refresh)
+- Cache can be reset via `resetTierConfigCache()` (used in tests)
+
+**Tier resolution logic (in `src/lib/subscription.ts`):**
+- `isActiveTier(tier)` — returns true for free/trial/standard/advanced/max/unlimited (undefined → true for backward compat)
+- `getUserTier(tierValue, tiers)` — resolves tier config; falls back to the tier with `isDefault: true`
+- `getMaxSessionsForTier(tierValue, tiers)` — max concurrent sessions allowed
+- `getAllowedSessionModes(tierValue, tiers)` — list of session modes allowed
+
+**Backward compatibility:**
+- Legacy `accessTier` field (4-tier system: pending/standard/advanced/blocked) is maintained in KV
+- Code reads `subscriptionTier` first, falls back to `accessTier` for pre-migration users
+- Non-SaaS users without a tier default to `unlimited` access
+- Legacy bridge in `src/lib/access-tier.ts` delegates to `subscription.ts`
 
 ### Timekeeper DO (Usage Tracking)
 
@@ -801,33 +836,92 @@ Frontend detects `code === 'QUOTA_EXCEEDED'` via `ApiError.code` field and shows
 
 ### Subscribe Page (Tier Selection)
 
-New users (pending tier) land on `/app/subscribe` which shows a tier selection grid with 4 subscribable tiers: Free, Standard, Max, Unlimited. Each card shows price, description, monthly hours, concurrent sessions, session modes, and trial badge for paid tiers. Turnstile CAPTCHA verification is required before subscribing. After selecting a tier, `POST /api/auth/subscribe` sets the user's `subscriptionTier`, `subscribedAt`, and `subscriptionExpiresAt` (for paid tier trials). The page then redirects to `/app/onboarding` (first time) or `/app/` (returning). Blocked users see a blocked state. Already-subscribed users see an "Active" continue button.
+New users (pending tier) land on `/app/subscribe` where they select a subscription tier. The page displays 4 tier cards in a grid:
+- **Free** — 2 hours/month, 1 session, no cost
+- **Standard** — 10 hours/month, 3 sessions, $29/mo with 7-day trial
+- **Max** — 200 hours/month, 10 sessions, $199/mo with 7-day trial
+- **Unlimited** — unlimited hours, 10 sessions, 14-day trial (Enterprise)
+
+Each card displays: pricing, monthly hours, max sessions, allowed session modes, trial badge (for paid tiers with `trialDays > 0`), and description.
+
+**Subscribe Page states:**
+- **Loading** — fetches `/api/auth/status`
+- **Pending (not subscribed)** — shows tier cards, Turnstile CAPTCHA, and "Subscribe" button
+- **Active (already subscribed)** — shows green checkmark and "Continue to Dashboard" button
+- **Blocked** — shows red blocked message with logout link
 
 ### Login Redirect Flow
 
 1. New user logs in → always lands on `/app/subscribe` (tier selection)
-2. User picks a tier → backend sets subscription → redirect to `/app/onboarding` (first time)
-3. After onboarding → dashboard (`/app/`)
-4. Returning user (already subscribed) → straight to dashboard
+2. User picks a tier + verifies Turnstile → `POST /api/auth/subscribe` → sets subscription
+3. First-time user → redirect to `/app/onboarding`
+4. Returning user (already subscribed) → redirect to `/app/` (dashboard)
 
-Priority in `AppContent.onMount`: pending tier → subscribe page, !onboardingComplete → onboarding, otherwise → dashboard.
+Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscribe page, !onboardingComplete → onboarding, otherwise → dashboard.
 
 ### Self-Service Subscribe API
 
-`POST /api/auth/subscribe` — requires identity (pending users can call it), rate limited 3/hour. Validates Turnstile token, accepts tiers `free/standard/max/unlimited`, sets `subscriptionTier`, `subscribedAt`, and `subscriptionExpiresAt` (for paid tiers with trialDays > 0). Returns `{ success, tier, trialDays, onboardingComplete }`.
+**`POST /api/auth/subscribe`** (requires identity, rate-limited 3/hour):
+- Request body: `{ tier: string, turnstileToken: string }`
+- Validates Turnstile token (if `TURNSTILE_SECRET_KEY` is configured)
+- Validates tier is in subscribable set: `free`, `standard`, `max`, `unlimited`
+- Resolves tier config via `getTierConfig()` to extract `trialDays`
+- Writes to KV record at `user:{email}`:
+  - `subscriptionTier`: the selected tier
+  - `subscribedAt`: ISO timestamp of subscription
+  - `subscriptionExpiresAt`: ISO timestamp (only if `trialDays > 0`)
+- Response: `{ success: boolean, tier: string, trialDays: number, onboardingComplete: boolean }`
+- Idempotent: if already subscribed (`subscribedAt` exists), returns success with current tier
 
-`GET /public/tiers` — unauthenticated endpoint returning subscribable tier configs (filtered to free/standard/max/unlimited). Includes trialDays, description, pricing, and all tier properties. Used by the subscribe page.
+**`GET /public/tiers`** (unauthenticated, not rate-limited):
+- Returns only subscribable tier configs: `free`, `standard`, `max`, `unlimited` (filtered from full 8-tier config)
+- Response: `{ tiers: SubscriptionTierConfig[] }` — each tier object includes all properties:
+  - `id`, `displayName`, `monthlySeconds`, `maxSessions`, `sessionModes`
+  - `priceMonthly` (cents), `trialDays`, `description`
+  - `order`, `canLogin`, `isDefault`
+- Used by subscribe page to render tier selection cards
+- Data is cached at 60-second TTL via `getTierConfig()`
 
 ### Admin Subscription Management
 
-Standalone admin page at `/admin/subscriptions` (follows UserManagement page pattern). Linked from Settings > Administration > "Manage Subscriptions" button. Allows editing all tier config fields: monthly hours, max sessions, session modes, price, trial days, description. Saves to `tiers:config` KV via `PUT /api/admin/tiers`.
+Standalone admin page at `/admin/subscriptions` (routes to `web-ui/src/components/admin/SubscriptionManagement.tsx`). Accessed via Settings > Administration > "Manage Subscriptions" button.
+
+**Features:**
+- Displays all 8 tiers in a table (read-only: blocked, pending; editable: free, trial, standard, advanced, max, unlimited)
+- Edit form allows customizing tier properties:
+  - Monthly compute hours (seconds or null for unlimited)
+  - Max concurrent sessions
+  - Allowed session modes (checkboxes for default/advanced)
+  - Monthly price (cents or null if not purchasable)
+  - Trial period (days; 0 = no trial)
+  - User-visible description (max 200 chars)
+- Submit → `PUT /api/admin/tiers` → validates array of 8 tier objects → writes `tiers:config` to KV
+- Admin changes take effect within 60 seconds (module-level cache refresh)
+- Tier IDs and order cannot be changed (schema enforces exact match to defaults)
 
 ### Usage Pages + Header Inline Display
 
-- `/app/usage` — SVG progress ring for monthly quota, stat cards (today/month/tier), polls every 30s
-- `/app/plan` — tier comparison grid with pricing
-- Header user dropdown shows inline spent time next to "Usage" link (e.g., "2h 15m / 10h")
-- Layout warning banners at 80%/95%/100% usage thresholds
+**`/app/usage`** (Usage page):
+- SVG progress ring showing monthly quota usage (monthlySeconds used vs monthlyQuotaSeconds)
+- Stat cards: daily usage, monthly usage, current tier
+- Polls `/api/usage` endpoint every 30 seconds for real-time data
+- Routes to `web-ui/src/components/UsagePage.tsx`
+
+**`/app/plan`** (Plan comparison page):
+- Tier comparison grid showing all 8 tiers (read-only)
+- Displays pricing, monthly hours, session limits, session modes, trial info
+- Routes to `web-ui/src/components/PlanPage.tsx`
+
+**Header inline display** (Layout dropdown):
+- User dropdown in header shows inline spent time next to "Usage" link
+- Format: "2h 15m / 10h" (daily usage / daily quota)
+- Computed from `getUsageState()` in session store (updated via batch-status piggyback)
+
+**Warning banners** (Layout.tsx):
+- Displayed at usage thresholds: 80%, 95%, 100% of monthly quota
+- Color-coded: yellow (80%), orange (95%), red (100%)
+- Uses `getUsageWarningLevel()` from session store
+- "New Session" button disabled when quota is exceeded (`isAtUsageQuota()`)
 
 ### Migration Strategy
 
@@ -867,15 +961,63 @@ The `/api/usage` endpoint queries the Timekeeper DO directly (`GET /usage` on th
 
 ### Timekeeper DO Storage Configuration
 
-The Timekeeper DO uses standard Durable Object key-value storage (`ctx.storage.get`/`put`/`setAlarm`), not the SQLite storage API. The wrangler.toml migration uses `new_classes` (not `new_sqlite_classes`). This is a plain DO — alarm-based flush, KV projection, crash recovery via DO storage.
+**DO storage (crash resilience):**
+- Timekeeper uses standard Durable Object key-value storage: `ctx.storage.get()`, `ctx.storage.put()`, `ctx.storage.setAlarm()`
+- **NOT** SQLite (`new_sqlite_classes`) — this is a plain DO with alarm-based flushing
+- Persisted state fields (restored on cold start):
+  - `pendingSeconds` — unflushed usage waiting for alarm
+  - `sessionTotals` — per-session monotonic totals (JSON string)
+  - `bucketName` — user's R2 bucket (for identity validation)
+  - `email` — user's email (for identity validation)
+  - `lastFlushedMonthlyTotal` — monthly total from last successful KV flush (for quota accuracy after DO eviction)
+
+**Alarm-based flushing:**
+- Alarm fires every 5 minutes (`FLUSH_INTERVAL_MS = 300_000`) when `pendingSeconds > 0`
+- On failure, retries after 30 seconds (`RETRY_INTERVAL_MS = 30_000`)
+- Successful flush: reads current KV record, adds pendingSeconds, resets counter, updates `lastFlushedMonthlyTotal`
+- Only decrements `pendingSeconds` after successful KV write to prevent loss of usage data
+
+**Crash recovery:**
+- Constructor runs `ctx.blockConcurrencyWhile(async () => {...})` to restore all state on cold start
+- Ensures accurate quota enforcement even after DO eviction and restart
 
 ### Timekeeper Security
 
-The Timekeeper DO validates identity on every ping: `bucketName` and `email` are stored on the first ping and rejected if mismatched on subsequent pings (403). This prevents cross-user usage poisoning. Per-ping delta is clamped to 300 seconds max to prevent corrupt `sessionTotals` from causing massive usage spikes. The Timekeeper DO is only reachable via internal Worker-to-DO RPC (not the public internet).
+**Identity validation:**
+- Timekeeper DO stores `bucketName` and `email` on first ping (initial state)
+- Subsequent pings with mismatched `bucketName` or `email` are rejected with 403 Forbidden
+- Prevents cross-user usage poisoning (one user's container sending pings to another user's Timekeeper)
+
+**Delta clamping:**
+- Per-ping delta is clamped to **300 seconds max** (`MAX_DELTA_PER_PING`)
+- Prevents corrupt `sessionTotals` from causing massive usage spikes due to DO storage corruption or session ID collision
+- If `totalSeconds < previousTotal` (session restarted/reused), treats new value as fresh start
+
+**Storage management:**
+- `sessionTotals` map keys are automatically evicted when exceeding 30 entries (`MAX_SESSION_ENTRIES`)
+- Oldest session entries are removed first to prevent unbounded growth (multiple container crashes/restarts)
+
+**Access control:**
+- Timekeeper DO is only reachable via internal Worker-to-DO RPC (not exposed to public internet)
+- Worker calls it via `c.env.TIMEKEEPER.get(idFromName).fetch()` — never directly accessible from client
 
 ### Tier Config Caching
 
-`getTierConfig()` uses a module-level cache with 60-second TTL to avoid KV reads on every request and every Timekeeper ping. The cache is shared across requests within a single isolate. Admin changes to tier config take effect within 60 seconds.
+**Module-level cache:**
+- `getTierConfig()` in `src/lib/subscription.ts` maintains a module-level cache with **60-second TTL** (`TIER_CONFIG_CACHE_TTL_MS = 60_000`)
+- Cache variables: `cachedTierConfig` and `tierConfigCachedAt`
+- Shared across all requests within a single Worker isolate
+- Avoids KV reads on every request and every Timekeeper ping
+
+**Cache refresh behavior:**
+- First call: reads `tiers:config` from KV (or uses defaults if key doesn't exist)
+- Subsequent calls within 60s: returns cached value
+- After 60s: reads fresh config from KV
+- Admin tier changes take effect within 60 seconds (per isolate)
+
+**Cache reset:**
+- `resetTierConfigCache()` clears the cache (used in tests and after setup changes)
+- Called when tier config is known to have changed (e.g., after `PUT /api/admin/tiers`)
 
 ### Config-Aware Authorization
 
@@ -979,21 +1121,30 @@ if (user.saasMode && !user.onboardingComplete) {
 
 The `onboardingComplete` flag is set in KV when the user calls `POST /api/auth/onboarding-complete` (line 192-205 of `src/routes/auth.ts`). This allows the setup wizard or onboarding page to mark guided setup as finished, and the user won't be redirected again.
 
-### Access Request Flow (Pending → Approval)
+### Self-Service Subscription Flow (Current)
 
-When a pending user submits an access request via `/app/subscribe`:
+When a pending user lands on `/app/subscribe`:
 
-1. **Turnstile verification:** The frontend renders a Cloudflare Turnstile CAPTCHA (data-sitekey from `/api/auth/status`). User completes the challenge, obtaining a token.
+1. **Tier selection:** Frontend fetches `/public/tiers` (unauthenticated) to display 4 subscribable tiers: free, standard, max, unlimited. Each tier card shows pricing, monthly hours, max sessions, session modes, trial badge, and description.
 
-2. **Rate limiting:** `POST /api/auth/request-access` is rate-limited to 3 requests per hour per user (see `src/routes/auth.ts` line 55-59). This prevents spam.
+2. **Turnstile CAPTCHA:** User selects a tier → Turnstile CAPTCHA widget is rendered (site key from `/api/auth/status`). User completes the challenge to obtain a token.
 
-3. **Idempotency:** If `requestedAt` is already set in the user's KV record, the endpoint returns success without re-notifying admins (line 113-116).
+3. **Subscription request:** User clicks "Subscribe" (or "Get Started"/"Start Trial" depending on tier). Frontend calls `POST /api/auth/subscribe` with `{ tier: string, turnstileToken: string }`.
 
-4. **Admin notification:** If `RESEND_API_KEY` env var is set, the Worker sends an email to all admins with the user's email and request timestamp (line 154-186). Email is sent via Resend API.
+4. **Backend validation & storage:**
+   - Verifies Turnstile token (if `TURNSTILE_SECRET_KEY` is set)
+   - Validates tier is subscribable: free/standard/max/unlimited
+   - Resolves tier config via `getTierConfig()` to extract `trialDays`
+   - Writes to KV at `user:{email}`: `subscriptionTier`, `subscribedAt`, `subscriptionExpiresAt` (if `trialDays > 0`)
+   - Returns `{ success, tier, trialDays, onboardingComplete }`
 
-5. **Polling:** The frontend polls `/api/auth/status` every 10 seconds (line 36 of `src/components/SubscribePage.tsx`). When the admin approves the user (changing `subscriptionTier` to any active tier like `standard` or `advanced`), the poll detects the change and updates the UI to "Access Granted".
+5. **Redirect:** Frontend redirects to `/app/onboarding` (first-time) or `/app/` (returning user).
 
-6. **No auto-redirect:** Active users are NOT automatically redirected from `/app/subscribe`. They choose when to click "Continue". This allows them to always see their account status. (This was a key lesson learned: automatic redirects create confusion when the user wants to verify their account status.)
+**Key difference from old request-access flow:**
+- Old flow: pending users clicked "Request Access" → admin manually approved → user's tier changed
+- New flow: pending users select their own tier immediately → user is active without admin approval for free/paid tiers
+
+The legacy `POST /api/auth/request-access` endpoint still exists for backward compatibility but is no longer used by the UI.
 
 ### Session Mode Upgrade (Auto-Advanced)
 
@@ -1026,12 +1177,27 @@ Shown at `/` when `SAAS_MODE=active` and providers are configured. Features:
 
 #### SubscribePage (`web-ui/src/components/SubscribePage.tsx`)
 
-Shown at `/app/subscribe` for pending and approved users. States:
-- **Loading:** Shows spinner while fetching `/api/auth/status`
-- **Pending (no request):** Renders Turnstile CAPTCHA + "Request Access" button. Turnstile script is dynamically loaded from `https://challenges.cloudflare.com/turnstile/v0/api.js`. Uses `MutationObserver` to detect when Turnstile token appears in the DOM (rather than polling a timer).
-- **Pending (requested):** Shows "Pending Approval" with pulsing indicator. Polls `/api/auth/status` every 10 seconds.
-- **Active (standard/advanced):** Shows green checkmark, "Your Access is Active", and "Continue" button.
-- **Blocked:** Shows red message + logout link.
+Shown at `/app/subscribe` for pending users and already-subscribed users. Renders three states:
+
+**Pending (not subscribed):**
+- Fetches tier options from `GET /public/tiers` (unauthenticated)
+- Displays 4 tier cards in a grid (free, standard, max, unlimited)
+- Each card shows: displayName, price, monthly hours, max sessions, session modes, description, trial badge
+- Renders Turnstile CAPTCHA widget (site key from `/api/auth/status`)
+- Turnstile script dynamically loaded from `https://challenges.cloudflare.com/turnstile/v0/api.js`
+- Uses `MutationObserver` to detect when Turnstile token appears in DOM (avoids timer-based polling)
+- "Subscribe" / "Get Started" / "Start Trial" button (disabled until Turnstile ready)
+- On click: calls `POST /api/auth/subscribe` → redirects to `/app/onboarding` or `/app/`
+
+**Active (already subscribed):**
+- Shows green checkmark icon
+- "Your Account is Active" message
+- "Continue to Dashboard" button (links to `/app/`)
+
+**Blocked:**
+- Shows red blocked icon
+- "Account Blocked" message with contact admin instruction
+- Logout link
 
 #### RootPage (`web-ui/src/App.tsx` lines 159-205)
 
