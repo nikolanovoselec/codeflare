@@ -46,22 +46,6 @@ interface TierInfo {
   sessionModes: string[];
 }
 
-const DEFAULT_FEATURES = [
-  'Browser-based IDE',
-  'Terminal access',
-  'File browser',
-  'Agent selection',
-  'Workspace storage',
-  'R2 sync',
-];
-
-const ADVANCED_FEATURES = [
-  'Everything in Standard, plus:',
-  'Curated skills, rules & agents',
-  'MCP servers for knowledge graph memory',
-  'Multi-LLM workflows',
-];
-
 /** Standard mode features with MDI icons */
 const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
   { icon: mdiRocketLaunchOutline, text: 'Browser-based IDE' },
