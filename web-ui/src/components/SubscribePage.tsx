@@ -367,10 +367,6 @@ const SubscribePage: Component = () => {
                 </button>
               </div>
 
-              <Show when={error()}>
-                <div class="subscribe-error">{error()}</div>
-              </Show>
-
               {/* Tier grid — prices react to globalMode */}
               <div class="subscribe-tier-grid" data-testid="tier-grid">
                 <For each={tiers()}>
