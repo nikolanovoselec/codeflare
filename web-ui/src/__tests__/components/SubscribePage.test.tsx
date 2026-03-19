@@ -81,11 +81,11 @@ describe('SubscribePage', () => {
 
       await waitFor(() => {
         expect(mockedGetPublicTiers).toHaveBeenCalledTimes(1);
-        // "Free" appears twice (tier name + price), use getAllByText
+        // Tier names may appear multiple times (e.g., "Free" as name + price, "Unlimited" as name + hours)
         expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getByText('Standard')).toBeInTheDocument();
-        expect(screen.getByText('Max')).toBeInTheDocument();
-        expect(screen.getByText('Unlimited')).toBeInTheDocument();
+        expect(screen.getAllByText('Standard').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Max').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Unlimited').length).toBeGreaterThanOrEqual(1);
       });
     });
 
