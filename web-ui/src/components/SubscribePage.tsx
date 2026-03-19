@@ -53,8 +53,8 @@ const SubscribePage: Component = () => {
         return;
       }
 
-      // Already subscribed (non-pending active tier)
-      if (tier !== 'pending' && tier !== 'blocked') {
+      // Already subscribed (non-pending active tier) — blocked already handled above
+      if (tier !== 'pending') {
         setIsActive(true);
         setLoading(false);
         return;
