@@ -2,7 +2,7 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-**Last Updated:** 2026-03-18
+**Last Updated:** 2026-03-19
 
 ---
 
@@ -106,7 +106,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, renewed only on new user input via input-change detection).
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '3m'` class default (overridden per user from preferences on session start — see [Auto-sleep](#auto-sleep-configurable-sleepafter)). SDK-managed lifecycle, renewed only on new user input via input-change detection.
 
 **SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 60-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
 
@@ -115,7 +115,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 2. Fetches `/activity` via `getTcpPort()` - uses input-change detection to decide whether to renew `sleepAfter`:
    - Reads `lastInputAt` from the activity response (Unix timestamp of last real user input)
    - Compares to `this.lastSeenInputAt` (the value from the previous poll)
-   - **New input detected** (`lastInputAt !== null && lastInputAt !== lastSeenInputAt`): calls `renewActivityTimeout()` to reset the 30-minute `sleepAfter` timer
+   - **New input detected** (`lastInputAt !== null && lastInputAt !== lastSeenInputAt`): calls `renewActivityTimeout()` to reset the `sleepAfter` timer
    - **No new input**: does not renew — the `sleepAfter` timer continues counting down from the last renewal
    - Non-OK `/activity` response: does not renew (broken activity endpoint should not keep containers alive)
    - Activity logs are at info level for all renewal decisions
@@ -134,7 +134,7 @@ flowchart TD
     FetchAct --> ActOK{"Response OK?"}
     ActOK -->|No| NoRenewErr["Don't renew<br/>(broken endpoint)"]
     ActOK -->|Yes| InputChanged{"lastInputAt changed<br/>since last poll?"}
-    InputChanged -->|Yes| Renew["renewActivityTimeout()<br/>(reset 30m sleepAfter)"]
+    InputChanged -->|Yes| Renew["renewActivityTimeout()<br/>(reset sleepAfter timer)"]
     InputChanged -->|No| NoRenew["Don't renew<br/>(no new input)"]
     Renew --> FetchHealth["Fetch /health<br/>from container"]
     NoRenew --> FetchHealth
@@ -145,7 +145,7 @@ flowchart TD
     WriteKV --> ReArm["schedule(60, 'collectMetrics')<br/>(if container.running)"]
 ```
 
-**`onActivityExpired()` Override:** Performs a final input-change check before stopping. Fetches `/activity` and compares `lastInputAt` to `lastSeenInputAt`. If new input was received since the last `collectMetrics` poll (i.e., user typed between the last poll and expiry), renews `sleepAfter` and returns. Otherwise calls `this.stop('SIGTERM')`. Container not running, non-OK `/activity` response, or fetch error all result in `this.stop('SIGTERM')`. By the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed.
+**`onActivityExpired()` Override:** Performs a final input-change check before stopping. Fetches `/activity` and compares `lastInputAt` to `lastSeenInputAt`. If new input was received since the last `collectMetrics` poll (i.e., user typed between the last poll and expiry), renews `sleepAfter` and returns. Otherwise calls `this.stop('SIGTERM')`. Container not running, non-OK `/activity` response, or fetch error all result in `this.stop('SIGTERM')`. By the time `onActivityExpired` fires, the user-configured `sleepAfter` duration of zero `renewActivityTimeout()` calls has elapsed.
 
 **`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
@@ -238,7 +238,7 @@ sequenceDiagram
 
 #### Polling and Consistency
 
-**Polling Interval:** `SESSION_LIST_POLL_INTERVAL_MS = 5000` -- frontend polls at 5s for responsive UI. The DO's `collectMetrics` pushes metrics to KV every 60s, so metrics may be up to ~60s stale on the dashboard. `CONTEXT_EXPIRY_MS = 30 * 60 * 1000` (30m) matches backend `sleepAfter` for accurate context-expired detection.
+**Polling Interval:** `SESSION_LIST_POLL_INTERVAL_MS = 5000` -- frontend polls at 5s for responsive UI. The DO's `collectMetrics` pushes metrics to KV every 60s, so metrics may be up to ~60s stale on the dashboard. `CONTEXT_EXPIRY_MS = 30 * 60 * 1000` (30m) is the frontend context expiry threshold for detecting stale sessions. Note: backend `sleepAfter` is now user-configurable (5m–2h, default 30m), so context expiry may not exactly match all users' sleep timers.
 
 **KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully -- `SessionStatCard` shows last-known metrics for recently-stopped sessions.
 
@@ -273,7 +273,7 @@ function connect() {
 
 **Admin Protection:** Admin users always have `unlimited` subscription tier and can switch between default/advanced session modes freely. `canUseAdvanced()` in SettingsPanel returns `true` for admins regardless of stored tier — prevents admin lockout when JIT-provisioned with `pending` tier before being promoted. Backend rejects both tier changes (`PATCH /api/users/:email`) and deletions (`DELETE /api/users/:email`) for admin-role users. Frontend hides tier dropdown and delete button for admins in UserManagement.
 
-**Live Tier Refresh:** `SettingsPanel` re-fetches `/api/user` each time it opens, updating a `liveAccessTier` signal with `subscriptionTier ?? accessTier`. This ensures tier upgrades (admin promotes user to a higher tier) take effect without a full page reload — the user just needs to close and reopen Settings.
+**Live Tier Refresh:** `SettingsPanel` re-fetches `/api/user` each time it opens, updating a `liveAccessTier` signal with `subscriptionTier ?? accessTier` and `userHasSubscribed` signal from `hasSubscribed`. This ensures tier upgrades (admin promotes user to a higher tier) and subscription status changes take effect without a full page reload — the user just needs to close and reopen Settings. The `hasSubscribed` flag controls whether the auto-sleep dropdown is enabled.
 
 **Auto-advanced session mode:** When a user is promoted to `advanced` tier via `PATCH /api/users/:email`, the backend also writes `sessionMode: 'advanced'` to their preferences (`user-prefs:{bucketName}`) if no `sessionMode` is set yet. This ensures their first bucket creation seeds advanced skills and agent rules. Existing user preferences (where `sessionMode` is already set) are not overridden. Admin users created by setup also get `sessionMode: 'advanced'` in their preferences automatically.
 
@@ -779,7 +779,7 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 
 ### Timekeeper DO (Usage Tracking)
 
-One Timekeeper Durable Object per user tracks compute usage. Container DOs ping Timekeeper with monotonic `totalSeconds` per session every 60 seconds. Timekeeper computes deltas, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes.
+One Timekeeper Durable Object per user tracks compute usage. Container DOs ping Timekeeper with monotonic `totalSeconds` per session every 60 seconds (when `SAAS_MODE=active`, bucket name and user email are set, and TIMEKEEPER binding exists). Timekeeper computes deltas, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes. Note: `STRESS_TEST_MODE` only bypasses rate limits and session limits — it does NOT block Timekeeper pings (usage tracking always runs).
 
 ```
 Container DO (session 1) ── ping ──→ Timekeeper DO (user X)
@@ -822,22 +822,40 @@ Session start (`POST /api/container/start`) checks tier-based usage quota in `va
 
 Frontend detects `code === 'QUOTA_EXCEEDED'` via `ApiError.code` field and shows upgrade CTA.
 
-### Subscribe Page (Tier Selection)
+### Subscribe Page (Unified Layout)
 
-New users (pending tier) land on `/app/subscribe` where they select a subscription tier. The page shows a features comparison (Standard vs Pro modes) followed by tier cards (Free, Starter, Advanced, Max, Team) displaying monthly hours, max sessions, mode toggle, and trial info. Pricing details are configured via the admin subscription management page.
+All users land on `/app/subscribe` with an identical two-phase layout. The only differences are data-driven (status icon, button labels, current tier highlight).
 
-**Subscribe Page states:**
-- **Loading** — fetches `/api/auth/status`
-- **Pending (not subscribed)** — shows tier cards, Turnstile CAPTCHA, and "Subscribe" button
-- **Active (already subscribed)** — shows green checkmark and "Continue to Dashboard" button
-- **Blocked** — shows red blocked message with logout link
+**Phase 1 — Home view** (initial landing):
+- Logo, ScrambleText title, subtitle
+- Feature highlights list (6 items with MDI icons: IDE, terminal, GitHub/Cloudflare, encryption, mobile, deployment)
+- Status area (varies by user state — see below)
+- "See subscription tiers" button → transitions to Phase 2
+
+**Phase 2 — Tier view** (after clicking "See subscription tiers"):
+- Replaces Phase 1 content entirely (same logo/title/subtitle remain)
+- **Mode selector**: two clickable columns (Standard / Pro) with vertical divider, MDI icon bullet lists for each mode's features. Clicking a column selects that mode globally
+- **Tier grid**: 5 tier cards (Free, Starter, Advanced, Max, Team) with prices that react to selected mode (Standard shows `priceMonthly`, Pro shows `advancedPriceMonthly`). Each card shows monthly hours, max sessions, trial badge
+- **Action buttons**: "Get Started" / "Start Trial" (pending) or "Current Plan" (disabled) / "Switch Plan" (active)
+- Turnstile CAPTCHA (pending users only)
+- "Back" button returns to Phase 1
+
+**Status icons by user state:**
+| State | Icon | Color | Additional |
+|-------|------|-------|-----------|
+| Pending | Clock | Orange (`#f97316`) | Email badge |
+| Active | Checkmark | Green (`#22c55e`) | Email badge + "Continue" link to `/app/` |
+| Blocked | Cross | Red (`#ef4444`) | Blocked message, no tier button |
+
+**Content width:** Phase 1 uses narrow layout (`login-content`), Phase 2 uses wide layout (`subscribe-content`, max-width 960px). Mobile: mode columns stack vertically, tier grid goes single-column.
 
 ### Login Redirect Flow
 
-1. New user logs in → always lands on `/app/subscribe` (tier selection)
-2. User picks a tier + verifies Turnstile → `POST /api/auth/subscribe` → sets subscription
-3. First-time user → redirect to `/app/onboarding`
-4. Returning user (already subscribed) → redirect to `/app/` (dashboard)
+1. New user logs in → always lands on `/app/subscribe` (Phase 1 with orange clock)
+2. User clicks "See subscription tiers" → Phase 2
+3. User picks a tier + verifies Turnstile → `POST /api/auth/subscribe` → sets subscription
+4. First-time user → redirect to `/app/onboarding`
+5. Returning user (already subscribed) → sees Phase 1 with green checkmark + Continue
 
 Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscribe page, !onboardingComplete → onboarding, otherwise → dashboard.
 
@@ -869,7 +887,8 @@ Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscr
 Standalone admin page at `/admin/subscriptions` (routes to `web-ui/src/components/admin/SubscriptionManagement.tsx`). Accessed via Settings > Administration > "Manage Subscriptions" button.
 
 **Features:**
-- Displays all 8 tiers in a table (read-only: blocked, pending; editable: free, trial, standard, advanced, max, unlimited)
+- Displays 6 editable tiers in a dropdown (free, trial, standard, advanced, max, unlimited; blocked/pending are read-only and hidden)
+- Dropdown uses SolidJS `<For>` component (keyed rendering) + `createEffect` ref to preserve selection when tier data changes (prevents reset-to-first-item bug)
 - Edit form allows customizing tier properties:
   - Monthly compute hours (seconds or null for unlimited)
   - Max concurrent sessions
@@ -896,8 +915,9 @@ Standalone admin page at `/admin/subscriptions` (routes to `web-ui/src/component
 
 **Header inline display** (Layout dropdown):
 - User dropdown in header shows inline spent time next to "Usage" link
-- Format: "2h 15m / 10h" (daily usage / daily quota)
-- Computed from `getUsageState()` in session store (updated via batch-status piggyback)
+- Format: "X minutes / Y hours" (under 60m) or "X.X hours / Y hours" (60m+)
+- Examples: "7 minutes / 160 hours", "1.7 hours / 160 hours"
+- Computed from `getUsageState()` — a reactive SolidJS signal (`createSignal`) in session store, updated live via batch-status piggyback. Dropdown re-renders automatically when usage data changes (no page refresh needed)
 
 **Warning banners** (Layout.tsx):
 - Displayed at usage thresholds: 80%, 95%, 100% of monthly quota
@@ -1863,7 +1883,7 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
-`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
+`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle), `sessionMode` (SessionMode, optional — default/advanced), `sleepAfter` (SleepAfterOption, optional — auto-sleep duration, see [Auto-sleep](#auto-sleep-configurable-sleepafter)). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
 
 ### LLM API Keys
 
@@ -2067,6 +2087,31 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 5 AI tools, el
 **Codex dismissed_version hack:** Writes `{"dismissed_version":"999.0.0"}` to trick the Codex version checker into thinking a future version was already dismissed. The `~/.codex/` directory is excluded from rclone sync, so this file is safe to recreate on every container start.
 
 When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`CLAUDE_UNLEASHED_NO_UPDATE`, `CLAUDE_UNLEASHED_CHANNEL`, `DISABLE_INSTALLATION_CHECKS`) and the entrypoint-level `OPENCODE_DISABLE_AUTOUPDATE`, and skips writing config files and setting `COPILOT_AUTO_UPDATE`, allowing all tools to check for updates normally.
+
+### Auto-sleep (Configurable sleepAfter)
+
+**User preference:** `sleepAfter` (type: `SleepAfterOption`, optional) in `UserPreferences`. Allowed values: `5m`, `15m`, `30m`, `1h`, `2h`. Default when not set: `30m` (applied by container lifecycle route).
+
+**Class default:** `override sleepAfter = '3m'` in `container/index.ts` — this is the fallback if no preference is sent via `setBucketName`. In practice, the lifecycle route always passes the user's preference (defaulting to `'30m'`).
+
+**Data flow:**
+1. User selects auto-sleep duration in Settings > Session Defaults > Auto-sleep dropdown
+2. `PATCH /api/preferences` saves `{ sleepAfter: '30m' }` to KV (`user-prefs:{bucketName}`)
+3. On next session start, `POST /api/container/start` reads preferences from KV
+4. `configureContainerDO()` → `buildSetBucketNameBody()` includes `sleepAfter` in the JSON body
+5. Container DO receives it in `handleSetBucketName()`, validates against `/^(5m|15m|30m|1h|2h)$/`, and sets `this.sleepAfter = sleepAfterPref`
+6. SDK uses the new `sleepAfter` value for its idle detection alarm
+7. On restart (idempotent 409 path), `sleepAfter` is also updated from the latest preference
+
+**Access control:**
+- **Admins** — always allowed to change their own `sleepAfter`
+- **Paying users** (`hasSubscribed = true`) — allowed to change
+- **Admin-promoted / free users** — dropdown is disabled; shows "Auto-sleep is managed by your administrator"
+- Admin can set `sleepAfter` for any user via `PATCH /api/preferences` with the user's bucket context
+
+**Settings UI:** Rendered in `SessionSection.tsx` as a `<select>` dropdown with 5 options. `SettingsPanel.tsx` fetches `hasSubscribed` from `/api/user` when the panel opens to determine if the dropdown should be enabled. The `canChangeSleepAfter` accessor returns `isAdmin() || userHasSubscribed()`.
+
+**`SleepAfterOption` type:** Defined in `src/types.ts` and `web-ui/src/types.ts`. The `SleepAfterOptions` array (`['5m', '15m', '30m', '1h', '2h']`) is also exported from `src/types.ts` for use in the zod validation schema.
 
 ---
 
