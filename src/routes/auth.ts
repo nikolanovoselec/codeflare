@@ -190,7 +190,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
   if (existingRaw?.subscribedAt) {
     const tier = (existingRaw.subscriptionTier as string) || 'free';
-    return c.json({ success: true, tier, trialDays: 0, onboardingComplete: existingRaw.onboardingComplete === true });
+    return c.json({ success: true, tier, trialQuotaHours: 0, onboardingComplete: existingRaw.onboardingComplete === true });
   }
 
   let raw: unknown;
@@ -228,7 +228,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const onboardingComplete = updated.onboardingComplete === true;
   logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
 
-  return c.json({ success: true, tier: parsed.data.tier, trialDays: 0, onboardingComplete });
+  return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete });
 });
 
 // POST /api/auth/onboarding-complete — mark guided setup as completed for this user

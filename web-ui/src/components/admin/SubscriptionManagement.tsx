@@ -23,7 +23,8 @@ interface TierConfig {
   order: number;
   isDefault: boolean;
   priceMonthly: number | null;
-  trialQuotaHours: number;
+  trialQuotaHours?: number;
+  trialDays?: number; // backward compat
   description: string;
   advancedPriceMonthly?: number | null;
 }
@@ -127,51 +128,50 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
           </select>
         </div>
 
-        {/* Selected tier editor */}
+        {/* Selected tier editor — use direct accessors to avoid Show re-mount on edit */}
         <Show when={selectedTier()}>
-          {(tier) => (
-            <div class="sub-mgmt-editor">
-              <div class="sub-mgmt-form">
-                <label class="sub-mgmt-field">
-                  <span class="sub-mgmt-label">Monthly Hours</span>
-                  <input
-                    type="text"
-                    class="sub-mgmt-input"
-                    value={hoursFromSeconds(tier().monthlySeconds)}
-                    disabled={tier().id === 'unlimited'}
-                    onInput={(e) => updateField('monthlySeconds', secondsFromHours(e.currentTarget.value))}
-                  />
-                </label>
+          <div class="sub-mgmt-editor">
+            <div class="sub-mgmt-form">
+              <label class="sub-mgmt-field">
+                <span class="sub-mgmt-label">Monthly Hours</span>
+                <input
+                  type="text"
+                  class="sub-mgmt-input"
+                  value={hoursFromSeconds(selectedTier()!.monthlySeconds)}
+                  disabled={selectedTierId() === 'unlimited'}
+                  onInput={(e) => updateField('monthlySeconds', secondsFromHours(e.currentTarget.value))}
+                />
+              </label>
 
-                <label class="sub-mgmt-field">
-                  <span class="sub-mgmt-label">Max Sessions</span>
-                  <input
-                    type="number"
-                    class="sub-mgmt-input"
-                    min="0"
-                    max="100"
-                    value={tier().maxSessions}
-                    onInput={(e) => updateField('maxSessions', parseInt(e.currentTarget.value) || 0)}
-                  />
-                </label>
+              <label class="sub-mgmt-field">
+                <span class="sub-mgmt-label">Max Sessions</span>
+                <input
+                  type="number"
+                  class="sub-mgmt-input"
+                  min="0"
+                  max="100"
+                  value={selectedTier()!.maxSessions}
+                  onInput={(e) => updateField('maxSessions', parseInt(e.currentTarget.value) || 0)}
+                />
+              </label>
 
-                <label class="sub-mgmt-field">
-                  <span class="sub-mgmt-label">Normal Price ($/mo)</span>
-                  <input
-                    type="text"
-                    class="sub-mgmt-input"
-                    value={dollarsFromCents(tier().priceMonthly)}
-                    placeholder="0 = free"
-                    onInput={(e) => updateField('priceMonthly', centsToDollars(e.currentTarget.value))}
-                  />
-                </label>
+              <label class="sub-mgmt-field">
+                <span class="sub-mgmt-label">Normal Price ($/mo)</span>
+                <input
+                  type="text"
+                  class="sub-mgmt-input"
+                  value={dollarsFromCents(selectedTier()!.priceMonthly)}
+                  placeholder="0 = free"
+                  onInput={(e) => updateField('priceMonthly', centsToDollars(e.currentTarget.value))}
+                />
+              </label>
 
-                <label class="sub-mgmt-field">
-                  <span class="sub-mgmt-label">Advanced Mode</span>
-                  <div class="sub-mgmt-checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={tier().sessionModes.includes('advanced')}
+              <label class="sub-mgmt-field">
+                <span class="sub-mgmt-label">Advanced Mode</span>
+                <div class="sub-mgmt-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedTier()!.sessionModes.includes('advanced')}
                       onChange={(e) => {
                         const modes = e.currentTarget.checked
                           ? ['default', 'advanced']
@@ -189,7 +189,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                     <input
                       type="text"
                       class="sub-mgmt-input"
-                      value={dollarsFromCents(tier().advancedPriceMonthly ?? tier().priceMonthly)}
+                      value={dollarsFromCents(selectedTier()!.advancedPriceMonthly ?? selectedTier()!.priceMonthly)}
                       placeholder="Same as normal"
                       onInput={(e) => updateField('advancedPriceMonthly', centsToDollars(e.currentTarget.value))}
                     />
@@ -204,7 +204,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                     class="sub-mgmt-input"
                     min="0"
                     max="10000"
-                    value={tier().trialQuotaHours}
+                    value={selectedTier()!.trialQuotaHours ?? selectedTier()!.trialDays ?? 0}
                     onInput={(e) => updateField('trialQuotaHours', parseInt(e.currentTarget.value) || 0)}
                   />
                 </label>
@@ -214,15 +214,14 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                   <input
                     type="text"
                     class="sub-mgmt-input sub-mgmt-input--wide"
-                    value={tier().description}
+                    value={selectedTier()!.description}
                     placeholder="Shown on subscribe page"
                     maxLength={200}
                     onInput={(e) => updateField('description', e.currentTarget.value)}
                   />
                 </label>
-              </div>
             </div>
-          )}
+          </div>
         </Show>
 
         <div class="sub-mgmt-actions">

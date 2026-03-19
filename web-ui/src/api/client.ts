@@ -408,7 +408,8 @@ const TierObjectSchema = z.object({
   order: z.number(),
   isDefault: z.boolean(),
   priceMonthly: z.number().nullable(),
-  trialQuotaHours: z.number(),
+  trialQuotaHours: z.number().optional(),
+  trialDays: z.number().optional(), // backward compat with old KV data
   description: z.string(),
   advancedPriceMonthly: z.number().nullable().optional(),
 });
@@ -439,7 +440,7 @@ export async function getPublicTiers(): Promise<z.infer<typeof PublicTiersRespon
 const SubscribeResponseSchema = z.object({
   success: z.boolean(),
   tier: z.string(),
-  trialDays: z.number(),
+  trialQuotaHours: z.number(),
   onboardingComplete: z.boolean(),
 });
 

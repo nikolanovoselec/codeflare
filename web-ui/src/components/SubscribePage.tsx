@@ -23,7 +23,8 @@ interface TierInfo {
   priceMonthly: number | null;
   advancedPriceMonthly?: number | null;
   description: string;
-  trialQuotaHours: number;
+  trialQuotaHours?: number;
+  trialDays?: number; // backward compat
   sessionModes: string[];
 }
 
@@ -194,8 +195,9 @@ const SubscribePage: Component = () => {
   }
 
   function getTrialBadge(tier: TierInfo): string | null {
-    if (tier.trialQuotaHours <= 0) return null;
-    return `Try free — billed after ${tier.trialQuotaHours}h used`;
+    const trialHours = tier.trialQuotaHours ?? tier.trialDays ?? 0;
+    if (trialHours <= 0) return null;
+    return `Try free — billed after ${trialHours}h used`;
   }
 
   return (

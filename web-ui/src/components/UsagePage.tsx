@@ -112,7 +112,7 @@ const UsagePage: Component = () => {
 
             <div class="usage-actions">
               <a href="/app/" class="usage-btn">Back to Dashboard</a>
-              <a href="/app/subscribe" class="usage-btn usage-btn--secondary">View Plans</a>
+              <a href="/app/subscribe" class="usage-btn usage-btn--secondary">Subscription</a>
             </div>
           </Show>
         </Show>
