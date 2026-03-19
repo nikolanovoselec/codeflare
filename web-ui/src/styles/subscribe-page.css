@@ -344,6 +344,93 @@
   cursor: not-allowed;
 }
 
+/* ── Global mode selector (Standard / Pro columns with divider) ── */
+
+.subscribe-mode-selector {
+  display: flex;
+  gap: 0;
+  width: 100%;
+  margin-bottom: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(24, 24, 27, 0.6);
+}
+
+.subscribe-mode-col {
+  flex: 1;
+  padding: 1.25rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 200ms ease, border-color 200ms ease;
+  color: #71717a;
+}
+
+.subscribe-mode-col--active {
+  background: rgba(59, 130, 246, 0.08);
+  color: #fafafa;
+}
+
+.subscribe-mode-col:hover:not(.subscribe-mode-col--active) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.subscribe-mode-divider {
+  width: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.subscribe-mode-heading {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: inherit;
+}
+
+.subscribe-mode-col--active .subscribe-mode-heading {
+  color: #3b82f6;
+}
+
+.subscribe-mode-desc {
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.subscribe-mode-features {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.subscribe-mode-feature {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: inherit;
+}
+
+.subscribe-mode-col--active .subscribe-mode-feature {
+  color: #a1a1aa;
+}
+
+.subscribe-mode-feature svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.subscribe-mode-col--active .subscribe-mode-feature svg {
+  opacity: 1;
+  color: #3b82f6;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .subscribe-pulse {
     animation: none !important;
@@ -357,5 +444,14 @@
 
   .subscribe-features {
     grid-template-columns: 1fr;
+  }
+
+  .subscribe-mode-selector {
+    flex-direction: column;
+  }
+
+  .subscribe-mode-divider {
+    width: 100%;
+    height: 1px;
   }
 }

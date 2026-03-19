@@ -15,6 +15,15 @@ import {
   mdiCellphoneScreenshot,
   mdiSourceBranch,
   mdiLightningBolt,
+  mdiConsole,
+  mdiFileDocumentOutline,
+  mdiRobotOutline,
+  mdiCloudOutline,
+  mdiSync,
+  mdiWrenchOutline,
+  mdiBookOpenPageVariantOutline,
+  mdiLayersTripleOutline,
+  mdiHeadCogOutline,
 } from '@mdi/js';
 import { getAuthStatus, getPublicTiers, subscribe } from '../api/client';
 import { formatDuration } from '../lib/format';
@@ -56,6 +65,24 @@ const ADVANCED_FEATURES = [
   'Multi-LLM workflows',
 ];
 
+/** Standard mode features with MDI icons */
+const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
+  { icon: mdiRocketLaunchOutline, text: 'Browser-based IDE' },
+  { icon: mdiConsole, text: 'Terminal access' },
+  { icon: mdiFileDocumentOutline, text: 'File browser & editor' },
+  { icon: mdiRobotOutline, text: 'Agent selection' },
+  { icon: mdiCloudOutline, text: 'Workspace storage' },
+  { icon: mdiSync, text: 'R2 cloud sync' },
+];
+
+/** Pro mode features with MDI icons */
+const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
+  { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
+  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph memory (MCP)' },
+  { icon: mdiLayersTripleOutline, text: 'Multi-LLM workflows' },
+  { icon: mdiHeadCogOutline, text: 'Advanced AI orchestration' },
+];
+
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
   { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
@@ -78,6 +105,7 @@ const SubscribePage: Component = () => {
   const [showTiers, setShowTiers] = createSignal(false);
   const [userEmail, setUserEmail] = createSignal('');
   const [currentTierId, setCurrentTierId] = createSignal<string | null>(null);
+  const [globalMode, setGlobalMode] = createSignal<'default' | 'advanced'>('default');
 
   let observer: MutationObserver | null = null;
 
@@ -232,6 +260,14 @@ const SubscribePage: Component = () => {
     return formatPrice(tier.priceMonthly);
   }
 
+  /** Price based on the global mode selector (for active user tier view) */
+  function getGlobalModePrice(tier: TierInfo): string {
+    if (globalMode() === 'advanced' && tier.advancedPriceMonthly != null) {
+      return formatPrice(tier.advancedPriceMonthly);
+    }
+    return formatPrice(tier.priceMonthly);
+  }
+
   function getTrialBadge(tier: TierInfo): string | null {
     const trialHours = tier.trialQuotaHours ?? tier.trialDays ?? 0;
     if (trialHours <= 0) return null;
@@ -279,33 +315,33 @@ const SubscribePage: Component = () => {
             </div>
           </Show>
 
-          {/* Active state — main branch layout: features, checkmark, email, Continue */}
+          {/* Active state */}
           <Show when={isActive()}>
-            <div class="login-features">
-              <For each={FEATURES}>
-                {(feature, i) => (
-                  <div class="login-feature" style={{ 'animation-delay': `${0.3 + i() * 0.1}s` }}>
-                    <span class="login-feature-icon">
-                      <Icon path={feature.icon} size={16} />
-                    </span>
-                    <span class="login-feature-text">{feature.content()}</span>
-                  </div>
-                )}
-              </For>
-            </div>
-
-            <div class="subscribe-status">
-              <div class="subscribe-status-icon subscribe-status-icon--active">
-                <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-              </div>
-              <Show when={userEmail()}>
-                <div class="subscribe-email">{userEmail()}</div>
-              </Show>
-              <a href="/app/" class="subscribe-action-button">Continue</a>
-            </div>
-
-            {/* "See subscription tiers" button — reveals tier cards below */}
+            {/* Default view: features, checkmark, email, Continue */}
             <Show when={!showTiers()}>
+              <div class="login-features">
+                <For each={FEATURES}>
+                  {(feature, i) => (
+                    <div class="login-feature" style={{ 'animation-delay': `${0.3 + i() * 0.1}s` }}>
+                      <span class="login-feature-icon">
+                        <Icon path={feature.icon} size={16} />
+                      </span>
+                      <span class="login-feature-text">{feature.content()}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+
+              <div class="subscribe-status">
+                <div class="subscribe-status-icon subscribe-status-icon--active">
+                  <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                </div>
+                <Show when={userEmail()}>
+                  <div class="subscribe-email">{userEmail()}</div>
+                </Show>
+                <a href="/app/" class="subscribe-action-button">Continue</a>
+              </div>
+
               <button
                 type="button"
                 class="subscribe-logout-button"
@@ -315,38 +351,58 @@ const SubscribePage: Component = () => {
               </button>
             </Show>
 
-            {/* Tier cards revealed on click — full cards with mode toggle + upgrade/downgrade */}
+            {/* Tier selection view — replaces everything above when active */}
             <Show when={showTiers()}>
-              {/* Features comparison */}
-              <div class="subscribe-features">
-                <div class="subscribe-features-col">
-                  <h3 class="subscribe-features-heading">Standard Mode</h3>
-                  <For each={DEFAULT_FEATURES}>
-                    {(feature) => (
-                      <div class="subscribe-feature-item">
-                        <span class="subscribe-feature-check">&#10003;</span>
-                        <span>{feature}</span>
-                      </div>
-                    )}
-                  </For>
-                </div>
-                <div class="subscribe-features-col">
-                  <h3 class="subscribe-features-heading">Pro Mode</h3>
-                  <For each={ADVANCED_FEATURES}>
-                    {(feature) => (
-                      <div class="subscribe-feature-item">
-                        <span class="subscribe-feature-check">&#10003;</span>
-                        <span>{feature}</span>
-                      </div>
-                    )}
-                  </For>
-                </div>
+              {/* Global mode selector: two columns with vertical divider */}
+              <div class="subscribe-mode-selector" data-testid="mode-selector">
+                <button
+                  type="button"
+                  class="subscribe-mode-col"
+                  classList={{ 'subscribe-mode-col--active': globalMode() === 'default' }}
+                  onClick={() => setGlobalMode('default')}
+                >
+                  <h3 class="subscribe-mode-heading">Standard</h3>
+                  <p class="subscribe-mode-desc">Everything you need to code, build and deploy.</p>
+                  <div class="subscribe-mode-features">
+                    <For each={STANDARD_MODE_FEATURES}>
+                      {(f) => (
+                        <div class="subscribe-mode-feature">
+                          <Icon path={f.icon} size={14} />
+                          <span>{f.text}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </button>
+
+                <div class="subscribe-mode-divider" />
+
+                <button
+                  type="button"
+                  class="subscribe-mode-col"
+                  classList={{ 'subscribe-mode-col--active': globalMode() === 'advanced' }}
+                  onClick={() => setGlobalMode('advanced')}
+                >
+                  <h3 class="subscribe-mode-heading">Pro</h3>
+                  <p class="subscribe-mode-desc">Standard plus AI orchestration and memory.</p>
+                  <div class="subscribe-mode-features">
+                    <For each={PRO_MODE_FEATURES}>
+                      {(f) => (
+                        <div class="subscribe-mode-feature">
+                          <Icon path={f.icon} size={14} />
+                          <span>{f.text}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </button>
               </div>
 
               <Show when={error()}>
                 <div class="subscribe-error">{error()}</div>
               </Show>
 
+              {/* Tier grid — prices react to globalMode */}
               <div class="subscribe-tier-grid" data-testid="tier-grid">
                 <For each={tiers()}>
                   {(tier) => (
@@ -355,31 +411,8 @@ const SubscribePage: Component = () => {
                     }}>
                       <div class="subscribe-tier-header">
                         <h3 class="subscribe-tier-name">{tier.displayName}</h3>
-                        <div class="subscribe-tier-price">{getDisplayPrice(tier)}</div>
+                        <div class="subscribe-tier-price">{getGlobalModePrice(tier)}</div>
                       </div>
-
-                      {/* Mode toggle for tiers with advanced */}
-                      <Show when={supportsAdvanced(tier) && tier.priceMonthly !== null && tier.priceMonthly > 0}>
-                        <div class="subscribe-mode-toggle">
-                          <button
-                            type="button"
-                            class="subscribe-mode-btn"
-                            classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'default' }}
-                            onClick={() => setMode(tier.id, 'default')}
-                          >
-                            Standard
-                          </button>
-                          <button
-                            type="button"
-                            class="subscribe-mode-btn"
-                            classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'advanced' }}
-                            onClick={() => setMode(tier.id, 'advanced')}
-                          >
-                            Pro
-                          </button>
-                        </div>
-                      </Show>
-
                       <div class="subscribe-tier-features">
                         <div class="subscribe-tier-feature">
                           <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'}</span>
@@ -411,6 +444,15 @@ const SubscribePage: Component = () => {
                   )}
                 </For>
               </div>
+
+              {/* Back to account view */}
+              <button
+                type="button"
+                class="subscribe-logout-button"
+                onClick={() => setShowTiers(false)}
+              >
+                Back to account
+              </button>
             </Show>
           </Show>
 

@@ -272,7 +272,7 @@ describe('SubscribePage', () => {
   });
 
   describe('Active User', () => {
-    it('should show features list and email for active users', async () => {
+    it('should show features list, email, and Continue for active users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -330,7 +330,7 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should reveal full tier cards with mode toggles when "See subscription tiers" is clicked', async () => {
+    it('should replace content with mode selector and tier cards when "See subscription tiers" is clicked', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -353,17 +353,17 @@ describe('SubscribePage', () => {
       fireEvent.click(screen.getByText('See subscription tiers'));
 
       await waitFor(() => {
-        // Tier cards should now be visible with full details
+        // Mode selector with Standard/Pro columns should appear
+        expect(screen.getByTestId('mode-selector')).toBeInTheDocument();
+        // Tier cards should be visible
         expect(screen.getByTestId('tier-grid')).toBeInTheDocument();
         expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Starter').length).toBeGreaterThanOrEqual(1);
-        // Mode toggles (Standard/Pro) should be present
-        expect(screen.getAllByText('Standard').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getAllByText('Pro').length).toBeGreaterThanOrEqual(1);
         // Current plan button should be disabled
         expect(screen.getByText('Current Plan')).toBeInTheDocument();
         // Other tiers should show "Switch Plan"
         expect(screen.getAllByText('Switch Plan').length).toBeGreaterThanOrEqual(1);
+        // Original features list should be gone
+        expect(screen.queryByText(/Ready to code in seconds/)).not.toBeInTheDocument();
       });
     });
 
