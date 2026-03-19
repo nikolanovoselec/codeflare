@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@solidjs/testing-library';
-import SubscriptionManagement from '../../../components/settings/SubscriptionManagement';
+import SubscriptionManagement from '../../../components/admin/SubscriptionManagement';
 
 // Mock the API client
 vi.mock('../../../api/client', () => ({
