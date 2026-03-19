@@ -54,7 +54,7 @@ describe('SubscribePage', () => {
     });
 
     mockedGetPublicTiers.mockResolvedValue({ tiers: MOCK_PUBLIC_TIERS });
-    mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialDays: 0, onboardingComplete: false });
+    mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: false });
 
     // Mock window.location.href for redirect tests
     originalLocation = window.location;
@@ -180,7 +180,7 @@ describe('SubscribePage', () => {
     });
 
     it('should redirect to /app/onboarding after success when onboardingComplete=false', async () => {
-      mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialDays: 0, onboardingComplete: false });
+      mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: false });
 
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
@@ -209,7 +209,7 @@ describe('SubscribePage', () => {
         requestedAt: null,
         onboardingComplete: true,
       });
-      mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialDays: 0, onboardingComplete: true });
+      mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: true });
 
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
