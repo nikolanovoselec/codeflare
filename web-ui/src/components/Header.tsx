@@ -20,7 +20,8 @@ import {
 } from '@mdi/js';
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
-import { sessionStore } from '../stores/session';
+import { sessionStore, getUsageState } from '../stores/session';
+import { formatDuration } from '../lib/format';
 import { terminalStore } from '../stores/terminal';
 import { md5 } from '../lib/md5';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
@@ -272,6 +273,16 @@ const Header: Component<HeaderProps> = (props) => {
               >
                 <Icon path={mdiChartBar} size={16} />
                 <span>Usage</span>
+                {(() => {
+                  const usage = getUsageState();
+                  if (usage.monthlyQuotaSeconds !== null) {
+                    return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)} / {formatDuration(usage.monthlyQuotaSeconds)}</span>;
+                  }
+                  if (usage.monthlySeconds > 0) {
+                    return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)}</span>;
+                  }
+                  return null;
+                })()}
               </a>
               <a
                 href="/app/plan"

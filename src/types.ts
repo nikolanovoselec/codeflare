@@ -149,6 +149,8 @@ export interface SubscriptionTierConfig {
   order: number;
   isDefault: boolean;
   priceMonthly: number | null; // cents, null = not purchasable
+  trialDays: number; // 0 = no trial
+  description: string;
 }
 
 /**

@@ -5,6 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
+import { getTierConfig, getUserTier } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
@@ -45,6 +46,8 @@ app.get('/status', requireIdentity, async (c) => {
   // Include onboardingComplete flag for active users
   const onboardingComplete = userData && userData.onboardingComplete === true;
 
+  const hasSubscribed = subscriptionTier !== 'pending' && subscriptionTier !== 'blocked';
+
   return c.json({
     email: user.email,
     accessTier,
@@ -53,6 +56,7 @@ app.get('/status', requireIdentity, async (c) => {
     turnstileSiteKey,
     requestedAt,
     onboardingComplete,
+    hasSubscribed,
   });
 });
 
@@ -162,6 +166,79 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
 
   logger.info('Access request submitted', { email: user.email });
   return c.json({ success: true });
+});
+
+// Rate limit for subscribe: 3 per hour per user
+const subscribeRateLimiter = createRateLimiter({
+  windowMs: 3_600_000,
+  maxRequests: 3,
+  keyPrefix: 'subscribe',
+});
+
+const SUBSCRIBABLE_TIERS = new Set(['free', 'standard', 'max', 'unlimited']);
+
+const SubscribeSchema = z.object({
+  tier: z.string().min(1, 'Tier is required'),
+  turnstileToken: z.string().min(1, 'Turnstile token is required'),
+});
+
+// POST /api/auth/subscribe — self-service tier selection for pending users
+app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
+  const user = c.get('user');
+
+  // Idempotency: if user already has a non-pending tier, return success
+  const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  if (existingRaw?.subscribedAt) {
+    const tier = (existingRaw.subscriptionTier as string) || 'free';
+    return c.json({ success: true, tier, trialDays: 0, onboardingComplete: existingRaw.onboardingComplete === true });
+  }
+
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+
+  const parsed = SubscribeSchema.safeParse(raw);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+
+  if (!SUBSCRIBABLE_TIERS.has(parsed.data.tier)) {
+    throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, max, unlimited`);
+  }
+
+  // Verify Turnstile token
+  const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
+    || await c.env.KV.get('setup:turnstile_secret_key');
+  if (turnstileSecret) {
+    const remoteIp = c.req.header('CF-Connecting-IP') || null;
+    const verification = await verifyTurnstileToken(parsed.data.turnstileToken, turnstileSecret, remoteIp);
+    if (!verification.success) {
+      throw new ForbiddenError('CAPTCHA verification failed');
+    }
+  }
+
+  // Resolve trial period from tier config
+  const tiers = await getTierConfig(c.env.KV);
+  const tierConfig = getUserTier(parsed.data.tier, tiers);
+  const trialDays = tierConfig.trialDays ?? 0;
+
+  const now = new Date();
+  const updated: Record<string, unknown> = {
+    ...existingRaw,
+    subscriptionTier: parsed.data.tier,
+    accessTier: parsed.data.tier, // backward compat
+    subscribedAt: now.toISOString(),
+  };
+
+  // Set trial expiry for paid tiers
+  if (trialDays > 0 && tierConfig.priceMonthly !== null) {
+    const expiresAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
+    updated.subscriptionExpiresAt = expiresAt.toISOString();
+  }
+
+  await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
+
+  const onboardingComplete = updated.onboardingComplete === true;
+  logger.info('User subscribed', { email: user.email, tier: parsed.data.tier, trialDays });
+
+  return c.json({ success: true, tier: parsed.data.tier, trialDays, onboardingComplete });
 });
 
 // POST /api/auth/onboarding-complete — mark guided setup as completed for this user

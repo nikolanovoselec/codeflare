@@ -19,6 +19,7 @@ const UserManagement = lazy(() => import('./components/admin/UserManagement'));
 const OnboardingPage = lazy(() => import('./components/OnboardingPage'));
 const UsagePage = lazy(() => import('./components/UsagePage'));
 const PlanPage = lazy(() => import('./components/PlanPage'));
+const AdminSubscriptionManagement = lazy(() => import('./components/admin/SubscriptionManagement'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -52,7 +53,16 @@ const AppContent: Component = () => {
       setUserSubscriptionTier(user.subscriptionTier);
       setOnboardingActive(user.onboardingActive);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
-      // First-time user: redirect to guided setup
+
+      // SaaS mode redirect priority:
+      // 1. Pending tier → subscribe page (choose a plan)
+      // 2. Not onboarded → onboarding page (first-time guided setup)
+      // 3. Otherwise → dashboard
+      const effectiveTier = user.subscriptionTier ?? user.accessTier;
+      if (user.saasMode && effectiveTier === 'pending') {
+        window.location.href = '/app/subscribe';
+        return;
+      }
       if (user.saasMode && !user.onboardingComplete) {
         window.location.href = '/app/onboarding';
         return;
@@ -221,6 +231,11 @@ const App: Component = () => {
       <Route path="/admin/users" component={() => (
         <SetupGuard>
           <UserManagement onBack={() => { window.location.href = '/app/'; }} />
+        </SetupGuard>
+      )} />
+      <Route path="/admin/subscriptions" component={() => (
+        <SetupGuard>
+          <AdminSubscriptionManagement onBack={() => { window.location.href = '/app/'; }} />
         </SetupGuard>
       )} />
       <Route

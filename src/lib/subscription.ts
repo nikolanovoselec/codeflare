@@ -28,6 +28,8 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 0,
       isDefault: false,
       priceMonthly: null,
+      trialDays: 0,
+      description: '',
     },
     {
       id: 'pending',
@@ -39,6 +41,8 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 1,
       isDefault: false,
       priceMonthly: null,
+      trialDays: 0,
+      description: '',
     },
     {
       id: 'free',
@@ -50,6 +54,8 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 2,
       isDefault: false,
       priceMonthly: null,
+      trialDays: 0,
+      description: 'Get started for free',
     },
     {
       id: 'trial',
@@ -61,6 +67,8 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 3,
       isDefault: false,
       priceMonthly: null,
+      trialDays: 0,
+      description: '',
     },
     {
       id: 'standard',
@@ -72,6 +80,8 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 4,
       isDefault: true,
       priceMonthly: 2900,
+      trialDays: 7,
+      description: 'For individual developers',
     },
     {
       id: 'advanced',
@@ -83,6 +93,8 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 5,
       isDefault: false,
       priceMonthly: 7900,
+      trialDays: 0,
+      description: '',
     },
     {
       id: 'max',
@@ -94,6 +106,8 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 6,
       isDefault: false,
       priceMonthly: 19900,
+      trialDays: 7,
+      description: 'For professional teams',
     },
     {
       id: 'unlimited',
@@ -105,6 +119,8 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       order: 7,
       isDefault: false,
       priceMonthly: null,
+      trialDays: 14,
+      description: 'Enterprise-grade access',
     },
   ];
 }

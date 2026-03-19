@@ -799,10 +799,34 @@ Session start (`POST /api/container/start`) checks tier-based usage quota in `va
 
 Frontend detects `code === 'QUOTA_EXCEEDED'` via `ApiError.code` field and shows upgrade CTA.
 
-### Usage Pages
+### Subscribe Page (Tier Selection)
+
+New users (pending tier) land on `/app/subscribe` which shows a tier selection grid with 4 subscribable tiers: Free, Standard, Max, Unlimited. Each card shows price, description, monthly hours, concurrent sessions, session modes, and trial badge for paid tiers. Turnstile CAPTCHA verification is required before subscribing. After selecting a tier, `POST /api/auth/subscribe` sets the user's `subscriptionTier`, `subscribedAt`, and `subscriptionExpiresAt` (for paid tier trials). The page then redirects to `/app/onboarding` (first time) or `/app/` (returning). Blocked users see a blocked state. Already-subscribed users see an "Active" continue button.
+
+### Login Redirect Flow
+
+1. New user logs in → always lands on `/app/subscribe` (tier selection)
+2. User picks a tier → backend sets subscription → redirect to `/app/onboarding` (first time)
+3. After onboarding → dashboard (`/app/`)
+4. Returning user (already subscribed) → straight to dashboard
+
+Priority in `AppContent.onMount`: pending tier → subscribe page, !onboardingComplete → onboarding, otherwise → dashboard.
+
+### Self-Service Subscribe API
+
+`POST /api/auth/subscribe` — requires identity (pending users can call it), rate limited 3/hour. Validates Turnstile token, accepts tiers `free/standard/max/unlimited`, sets `subscriptionTier`, `subscribedAt`, and `subscriptionExpiresAt` (for paid tiers with trialDays > 0). Returns `{ success, tier, trialDays, onboardingComplete }`.
+
+`GET /public/tiers` — unauthenticated endpoint returning subscribable tier configs (filtered to free/standard/max/unlimited). Includes trialDays, description, pricing, and all tier properties. Used by the subscribe page.
+
+### Admin Subscription Management
+
+Standalone admin page at `/admin/subscriptions` (follows UserManagement page pattern). Linked from Settings > Administration > "Manage Subscriptions" button. Allows editing all tier config fields: monthly hours, max sessions, session modes, price, trial days, description. Saves to `tiers:config` KV via `PUT /api/admin/tiers`.
+
+### Usage Pages + Header Inline Display
 
 - `/app/usage` — SVG progress ring for monthly quota, stat cards (today/month/tier), polls every 30s
-- `/app/plan` — tier comparison grid with pricing, "Coming soon" buttons
+- `/app/plan` — tier comparison grid with pricing
+- Header user dropdown shows inline spent time next to "Usage" link (e.g., "2h 15m / 10h")
 - Layout warning banners at 80%/95%/100% usage thresholds
 
 ### Migration Strategy

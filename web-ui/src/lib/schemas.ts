@@ -34,6 +34,7 @@ export const AuthStatusResponseSchema = z.object({
   turnstileSiteKey: z.string().nullable().optional(),
   requestedAt: z.string().nullable().optional(),
   onboardingComplete: z.boolean().optional(),
+  hasSubscribed: z.boolean().optional(),
 });
 
 export const AuthProvidersResponseSchema = z.object({

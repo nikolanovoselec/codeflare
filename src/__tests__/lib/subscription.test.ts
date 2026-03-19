@@ -177,6 +177,64 @@ describe('getDefaultTiers', () => {
     const defaults = tiers.filter((t) => t.isDefault);
     expect(defaults).toHaveLength(1);
   });
+
+  // ---------------------------------------------------------------------------
+  // trialDays field
+  // ---------------------------------------------------------------------------
+
+  it('each tier has a trialDays field (number)', () => {
+    const tiers = getDefaultTiers();
+    for (const tier of tiers) {
+      expect(tier).toHaveProperty('trialDays');
+      expect(typeof (tier as Record<string, unknown>).trialDays).toBe('number');
+    }
+  });
+
+  it('free tier has trialDays=0', () => {
+    const tiers = getDefaultTiers();
+    const free = tiers.find((t) => t.id === 'free')!;
+    expect((free as Record<string, unknown>).trialDays).toBe(0);
+  });
+
+  it('standard tier has trialDays=7', () => {
+    const tiers = getDefaultTiers();
+    const standard = tiers.find((t) => t.id === 'standard')!;
+    expect((standard as Record<string, unknown>).trialDays).toBe(7);
+  });
+
+  it('max tier has trialDays=7', () => {
+    const tiers = getDefaultTiers();
+    const max = tiers.find((t) => t.id === 'max')!;
+    expect((max as Record<string, unknown>).trialDays).toBe(7);
+  });
+
+  it('unlimited tier has trialDays=14', () => {
+    const tiers = getDefaultTiers();
+    const unlimited = tiers.find((t) => t.id === 'unlimited')!;
+    expect((unlimited as Record<string, unknown>).trialDays).toBe(14);
+  });
+
+  // ---------------------------------------------------------------------------
+  // description field
+  // ---------------------------------------------------------------------------
+
+  it('each tier has a description field (string)', () => {
+    const tiers = getDefaultTiers();
+    for (const tier of tiers) {
+      expect(tier).toHaveProperty('description');
+      expect(typeof (tier as Record<string, unknown>).description).toBe('string');
+    }
+  });
+
+  it('subscribable tiers (free, standard, max, unlimited) have non-empty descriptions', () => {
+    const tiers = getDefaultTiers();
+    const subscribable = ['free', 'standard', 'max', 'unlimited'];
+    for (const id of subscribable) {
+      const tier = tiers.find((t) => t.id === id)!;
+      const desc = (tier as Record<string, unknown>).description as string;
+      expect(desc.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('getUserTier', () => {

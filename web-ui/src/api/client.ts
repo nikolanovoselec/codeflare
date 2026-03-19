@@ -403,18 +403,26 @@ export async function getUsage(): Promise<z.infer<typeof UsageResponseSchema>> {
   return fetchApi('/usage', {}, UsageResponseSchema);
 }
 
+const TierObjectSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  monthlySeconds: z.number().nullable(),
+  maxSessions: z.number(),
+  sessionModes: z.array(z.string()),
+  canLogin: z.boolean(),
+  order: z.number(),
+  isDefault: z.boolean(),
+  priceMonthly: z.number().nullable(),
+  trialDays: z.number(),
+  description: z.string(),
+});
+
 const TiersResponseSchema = z.object({
-  tiers: z.array(z.object({
-    id: z.string(),
-    displayName: z.string(),
-    monthlySeconds: z.number().nullable(),
-    maxSessions: z.number(),
-    sessionModes: z.array(z.string()),
-    canLogin: z.boolean(),
-    order: z.number(),
-    isDefault: z.boolean(),
-    priceMonthly: z.number().nullable(),
-  })),
+  tiers: z.array(TierObjectSchema),
+});
+
+const PublicTiersResponseSchema = z.object({
+  tiers: z.array(TierObjectSchema),
 });
 
 export async function getTiers(): Promise<z.infer<typeof TiersResponseSchema>> {
@@ -426,6 +434,24 @@ export async function updateTiers(tiers: unknown[]): Promise<{ success: boolean 
     method: 'PUT',
     body: JSON.stringify(tiers),
   }, z.object({ success: z.boolean() }));
+}
+
+export async function getPublicTiers(): Promise<z.infer<typeof PublicTiersResponseSchema>> {
+  return baseFetch('/public/tiers', {}, { schema: PublicTiersResponseSchema });
+}
+
+const SubscribeResponseSchema = z.object({
+  success: z.boolean(),
+  tier: z.string(),
+  trialDays: z.number(),
+  onboardingComplete: z.boolean(),
+});
+
+export async function subscribe(tier: string, turnstileToken: string): Promise<z.infer<typeof SubscribeResponseSchema>> {
+  return fetchApi('/auth/subscribe', {
+    method: 'POST',
+    body: JSON.stringify({ tier, turnstileToken }),
+  }, SubscribeResponseSchema);
 }
 
 export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {

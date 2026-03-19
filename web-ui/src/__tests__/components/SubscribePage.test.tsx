@@ -5,13 +5,22 @@ import SubscribePage from '../../components/SubscribePage';
 // Mock the API client
 vi.mock('../../api/client', () => ({
   getAuthStatus: vi.fn(),
-  requestAccess: vi.fn(),
+  getPublicTiers: vi.fn(),
+  subscribe: vi.fn(),
 }));
 
-import { getAuthStatus, requestAccess } from '../../api/client';
+import { getAuthStatus, getPublicTiers, subscribe } from '../../api/client';
 
 const mockedGetAuthStatus = vi.mocked(getAuthStatus);
-const mockedRequestAccess = vi.mocked(requestAccess);
+const mockedGetPublicTiers = vi.mocked(getPublicTiers);
+const mockedSubscribe = vi.mocked(subscribe);
+
+const MOCK_PUBLIC_TIERS = [
+  { id: 'free', displayName: 'Free', monthlySeconds: 3600, maxSessions: 1, priceMonthly: 0, description: 'Get started for free', trialDays: null },
+  { id: 'standard', displayName: 'Standard', monthlySeconds: 36000, maxSessions: 3, priceMonthly: 10, description: '10 hours per month', trialDays: 7 },
+  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 72000, maxSessions: 5, priceMonthly: 25, description: '20 hours per month', trialDays: 7 },
+  { id: 'max', displayName: 'Max', monthlySeconds: 180000, maxSessions: 10, priceMonthly: 50, description: '50 hours per month', trialDays: 7 },
+];
 
 describe('SubscribePage', () => {
   let mockLocation: { href: string };
@@ -21,7 +30,7 @@ describe('SubscribePage', () => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
-    // Default: pending user with turnstile key, no request yet
+    // Default: pending user with turnstile key
     mockedGetAuthStatus.mockResolvedValue({
       email: 'user@example.com',
       accessTier: 'pending',
@@ -29,9 +38,11 @@ describe('SubscribePage', () => {
       role: 'user',
       turnstileSiteKey: '0xTESTKEY',
       requestedAt: null,
+      onboardingComplete: false,
     });
 
-    mockedRequestAccess.mockResolvedValue({ success: true });
+    mockedGetPublicTiers.mockResolvedValue({ tiers: MOCK_PUBLIC_TIERS });
+    mockedSubscribe.mockResolvedValue({ success: true });
 
     // Mock window.location.href for redirect tests
     originalLocation = window.location;
@@ -52,26 +63,55 @@ describe('SubscribePage', () => {
     });
   });
 
-  describe('Pending State (no request yet)', () => {
-    it('should show "Request Access" title for pending user', async () => {
+  describe('Tier Selection', () => {
+    it('should fetch public tiers and show 4 tier cards', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: /Request Access/ })).toBeInTheDocument();
+        expect(mockedGetPublicTiers).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Free')).toBeInTheDocument();
+        expect(screen.getByText('Standard')).toBeInTheDocument();
+        expect(screen.getByText('Advanced')).toBeInTheDocument();
+        expect(screen.getByText('Max')).toBeInTheDocument();
       });
     });
 
-    it('should show email from auth status', async () => {
+    it('should display tier prices on cards', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText('user@example.com')).toBeInTheDocument();
+        expect(screen.getByText(/\$0/)).toBeInTheDocument();
+        expect(screen.getByText(/\$10/)).toBeInTheDocument();
+        expect(screen.getByText(/\$25/)).toBeInTheDocument();
+        expect(screen.getByText(/\$50/)).toBeInTheDocument();
       });
     });
 
-    it('should show Turnstile container when site key is present', async () => {
+    it('should display tier descriptions', async () => {
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText(/get started for free/i)).toBeInTheDocument();
+        expect(screen.getByText(/10 hours per month/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show a subscribe button per tier card', async () => {
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+        expect(buttons.length).toBeGreaterThanOrEqual(4);
+      });
+    });
+  });
+
+  describe('Turnstile Verification', () => {
+    it('should show Turnstile widget for pending users', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
@@ -80,27 +120,27 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should show disabled Request Access button until Turnstile validates', async () => {
+    it('should disable subscribe buttons until Turnstile is ready', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        const button = screen.getByRole('button', { name: /Request Access/ });
-        expect(button).toBeInTheDocument();
-        expect(button).toBeDisabled();
+        const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+        buttons.forEach((button) => {
+          expect(button).toBeDisabled();
+        });
       });
     });
 
-    it('should enable button after Turnstile token appears in DOM', async () => {
+    it('should enable subscribe buttons after Turnstile token appears', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Request Access/ })).toBeDisabled();
+        expect(screen.getByTestId('turnstile-container')).toBeInTheDocument();
       });
 
       // Simulate Turnstile widget creating a hidden input with token
-      // MutationObserver fires synchronously in jsdom when DOM changes
       const container = screen.getByTestId('turnstile-container');
       const input = document.createElement('input');
       input.name = 'cf-turnstile-response';
@@ -108,19 +148,24 @@ describe('SubscribePage', () => {
       container.appendChild(input);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Request Access/ })).not.toBeDisabled();
+        const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+        buttons.forEach((button) => {
+          expect(button).not.toBeDisabled();
+        });
       });
     });
+  });
 
-    it('should submit request with Turnstile token on button click', async () => {
+  describe('Subscribe Action', () => {
+    it('should call subscribe API when a tier card is clicked', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Request Access/ })).toBeInTheDocument();
+        expect(screen.getByTestId('turnstile-container')).toBeInTheDocument();
       });
 
-      // Simulate Turnstile token — MutationObserver detects the DOM change
+      // Simulate Turnstile token
       const container = screen.getByTestId('turnstile-container');
       const input = document.createElement('input');
       input.name = 'cf-turnstile-response';
@@ -128,111 +173,98 @@ describe('SubscribePage', () => {
       container.appendChild(input);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Request Access/ })).not.toBeDisabled();
+        const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+        expect(buttons[0]).not.toBeDisabled();
       });
 
-      fireEvent.click(screen.getByRole('button', { name: /Request Access/ }));
+      // Click the first tier card's subscribe button (Free)
+      const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+      fireEvent.click(buttons[0]);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(mockedRequestAccess).toHaveBeenCalledWith('valid-token');
+        expect(mockedSubscribe).toHaveBeenCalledWith(
+          expect.objectContaining({ tierId: 'free' }),
+          expect.any(String), // turnstile token
+        );
       });
     });
-  });
 
-  describe('Pending State (request submitted)', () => {
-    it('should show "Pending Approval" after successful request submission', async () => {
+    it('should redirect to /app/onboarding after success when onboardingComplete=false', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'user@example.com',
+        accessTier: 'pending',
+        subscriptionTier: 'pending',
+        role: 'user',
+        turnstileSiteKey: '0xTESTKEY',
+        requestedAt: null,
+        onboardingComplete: false,
+      });
+
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
-      // Simulate token + submit
+      await waitFor(() => {
+        expect(screen.getByTestId('turnstile-container')).toBeInTheDocument();
+      });
+
+      // Simulate Turnstile token
       const container = screen.getByTestId('turnstile-container');
       const input = document.createElement('input');
       input.name = 'cf-turnstile-response';
       input.value = 'valid-token';
       container.appendChild(input);
+
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Request Access/ })).not.toBeDisabled();
+        const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+        expect(buttons[0]).not.toBeDisabled();
       });
-      fireEvent.click(screen.getByRole('button', { name: /Request Access/ }));
+
+      const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+      fireEvent.click(buttons[0]);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Pending Approval/)).toBeInTheDocument();
+        expect(mockLocation.href).toBe('/app/onboarding');
       });
     });
 
-    it('should show "Pending Approval" when requestedAt is already set', async () => {
+    it('should redirect to /app/ after success when onboardingComplete=true', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'user@example.com',
         accessTier: 'pending',
         subscriptionTier: 'pending',
         role: 'user',
         turnstileSiteKey: '0xTESTKEY',
-        requestedAt: '2025-01-01T00:00:00Z',
+        requestedAt: null,
+        onboardingComplete: true,
       });
 
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Pending Approval/)).toBeInTheDocument();
-      });
-    });
-
-    it('should show polling indicator when waiting for approval', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'user@example.com',
-        accessTier: 'pending',
-        subscriptionTier: 'pending',
-        role: 'user',
-        turnstileSiteKey: '0xTESTKEY',
-        requestedAt: '2025-01-01T00:00:00Z',
+        expect(screen.getByTestId('turnstile-container')).toBeInTheDocument();
       });
 
-      render(() => <SubscribePage />);
+      // Simulate Turnstile token
+      const container = screen.getByTestId('turnstile-container');
+      const input = document.createElement('input');
+      input.name = 'cf-turnstile-response';
+      input.value = 'valid-token';
+      container.appendChild(input);
+
+      await waitFor(() => {
+        const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+        expect(buttons[0]).not.toBeDisabled();
+      });
+
+      const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+      fireEvent.click(buttons[0]);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Checking status/)).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('Active User', () => {
-    it('should show active status for standard users', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'active@example.com',
-        accessTier: 'standard',
-        subscriptionTier: 'standard',
-        role: 'user',
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Your Account is Active/)).toBeInTheDocument();
-        expect(screen.getByText('Continue')).toBeInTheDocument();
-        expect(mockLocation.href).toBe('');
-      });
-    });
-
-    it('should show active status for advanced users', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'admin@example.com',
-        accessTier: 'advanced',
-        subscriptionTier: 'advanced',
-        role: 'admin',
-      });
-
-      render(() => <SubscribePage />);
-      await vi.advanceTimersByTimeAsync(0);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Your Account is Active/)).toBeInTheDocument();
-        expect(screen.getByText('Continue')).toBeInTheDocument();
-        expect(mockLocation.href).toBe('');
+        expect(mockLocation.href).toBe('/app/');
       });
     });
   });
@@ -253,73 +285,115 @@ describe('SubscribePage', () => {
         expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
       });
     });
-  });
 
-  describe('Active user view', () => {
-    it('should show active status with Continue button when approved during polling', async () => {
-      mockedGetAuthStatus
-        .mockResolvedValueOnce({
-          email: 'user@example.com',
-          accessTier: 'pending',
-          subscriptionTier: 'pending',
-          role: 'user',
-          turnstileSiteKey: '0xTESTKEY',
-          requestedAt: '2025-01-01T00:00:00Z',
-        })
-        .mockResolvedValueOnce({
-          email: 'user@example.com',
-          accessTier: 'standard',
-          subscriptionTier: 'standard',
-          role: 'user',
-        });
-
-      render(() => <SubscribePage />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Pending Approval/)).toBeInTheDocument();
+    it('should not show tier cards for blocked users', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'blocked@example.com',
+        accessTier: 'blocked',
+        subscriptionTier: 'blocked',
+        role: 'user',
       });
 
-      // Advance timer to trigger next poll (10 seconds)
-      await vi.advanceTimersByTimeAsync(10_000);
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
+      });
+
+      // No subscribe buttons should be visible for blocked users
+      expect(screen.queryAllByRole('button', { name: /subscribe|select|choose|get started/i })).toHaveLength(0);
+    });
+  });
+
+  describe('Active User', () => {
+    it('should show active state with Continue button for already-subscribed users', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+      });
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText(/Your Account is Active/)).toBeInTheDocument();
         expect(screen.getByText('Continue')).toBeInTheDocument();
       });
     });
+
+    it('should show Continue button that links to /app/', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+      });
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        const continueLink = screen.getByText('Continue');
+        expect(continueLink.closest('a')).toHaveAttribute('href', '/app/');
+      });
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should show error when fetching tiers fails', async () => {
+      mockedGetPublicTiers.mockRejectedValue(new Error('Network error'));
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText(/error|failed|unable/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should show error when subscribe call fails', async () => {
+      mockedSubscribe.mockRejectedValue(new Error('Subscription failed'));
+
+      render(() => <SubscribePage />);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('turnstile-container')).toBeInTheDocument();
+      });
+
+      // Simulate Turnstile token
+      const container = screen.getByTestId('turnstile-container');
+      const input = document.createElement('input');
+      input.name = 'cf-turnstile-response';
+      input.value = 'valid-token';
+      container.appendChild(input);
+
+      await waitFor(() => {
+        const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+        expect(buttons[0]).not.toBeDisabled();
+      });
+
+      const buttons = screen.getAllByRole('button', { name: /subscribe|select|choose|get started/i });
+      fireEvent.click(buttons[0]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(screen.getByText(/failed|error/i)).toBeInTheDocument();
+      });
+    });
   });
 
   describe('Navigation', () => {
-    it('should have logout link to /cdn-cgi/access/logout', async () => {
+    it('should have logout link', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         const logoutLink = screen.getByText(/log\s*out/i);
         expect(logoutLink).toBeInTheDocument();
-        expect(logoutLink.closest('a')).toHaveAttribute('href', '/cdn-cgi/access/logout');
-      });
-    });
-  });
-
-  describe('Polling', () => {
-    it('should poll every 10 seconds', async () => {
-      render(() => <SubscribePage />);
-
-      await waitFor(() => {
-        expect(mockedGetAuthStatus).toHaveBeenCalledTimes(1);
-      });
-
-      await vi.advanceTimersByTimeAsync(10_000);
-
-      await waitFor(() => {
-        expect(mockedGetAuthStatus).toHaveBeenCalledTimes(2);
-      });
-
-      await vi.advanceTimersByTimeAsync(10_000);
-
-      await waitFor(() => {
-        expect(mockedGetAuthStatus).toHaveBeenCalledTimes(3);
       });
     });
   });

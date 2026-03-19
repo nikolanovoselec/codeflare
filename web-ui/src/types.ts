@@ -116,6 +116,7 @@ export interface AuthStatus {
   turnstileSiteKey?: string | null;
   requestedAt?: string | null;
   onboardingComplete?: boolean;
+  hasSubscribed?: boolean;
 }
 
 export interface AuthProvider {

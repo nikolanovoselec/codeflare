@@ -759,6 +759,10 @@ export function setUsageState(monthly: number, quota: number | null): void {
   _usageState = { monthlySeconds: monthly, monthlyQuotaSeconds: quota };
 }
 
+export function getUsageState(): { monthlySeconds: number; monthlyQuotaSeconds: number | null } {
+  return { ..._usageState };
+}
+
 export function isAtUsageQuota(): boolean {
   const { monthlySeconds, monthlyQuotaSeconds } = _usageState;
   if (monthlyQuotaSeconds === null) return false;

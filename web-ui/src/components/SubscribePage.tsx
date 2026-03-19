@@ -7,75 +7,87 @@ declare global {
   }
 }
 
-import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
-import {
-  mdiRocketLaunchOutline,
-  mdiCellphoneLink,
-  mdiSourceBranch,
-  mdiCloudLockOutline,
-  mdiCellphoneScreenshot,
-  mdiLightningBolt,
-} from '@mdi/js';
-import { getAuthStatus, requestAccess } from '../api/client';
-import type { AuthStatus } from '../types';
-import ScrambleText from './ScrambleText';
-import Icon from './Icon';
+import { Component, onMount, onCleanup, createSignal, Show, For } from 'solid-js';
+import { getAuthStatus, getPublicTiers, subscribe } from '../api/client';
+import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
-import '../styles/login-page.css';
+import ScrambleText from './ScrambleText';
 import '../styles/subscribe-page.css';
 
-const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
-  { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
-  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration</> },
-  { icon: mdiCloudLockOutline, content: () => <>Data persisted & encrypted at rest</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Optimized for mobiles & foldables</> },
-  { icon: mdiLightningBolt, content: () => <>From idea to deployment in minutes</> },
-];
-
-const POLL_INTERVAL_MS = 10_000;
+interface TierInfo {
+  id: string;
+  displayName: string;
+  monthlySeconds: number | null;
+  maxSessions: number;
+  priceMonthly: number | null;
+  description: string;
+  trialDays: number;
+  sessionModes: string[];
+}
 
 const SubscribePage: Component = () => {
   const [loading, setLoading] = createSignal(true);
-  const [status, setStatus] = createSignal<AuthStatus | null>(null);
   const [error, setError] = createSignal('');
-  const [submitting, setSubmitting] = createSignal(false);
-  const [submitted, setSubmitted] = createSignal(false);
+  const [tiers, setTiers] = createSignal<TierInfo[]>([]);
+  const [isBlocked, setIsBlocked] = createSignal(false);
+  const [isActive, setIsActive] = createSignal(false);
+  const [onboardingComplete, setOnboardingComplete] = createSignal(false);
   const [turnstileReady, setTurnstileReady] = createSignal(false);
+  const [subscribing, setSubscribing] = createSignal<string | null>(null);
 
-  let pollInterval: ReturnType<typeof setInterval> | undefined;
+  let observer: MutationObserver | null = null;
 
-  async function fetchStatus() {
+  onMount(async () => {
     try {
-      const result = await getAuthStatus();
-      setStatus(result);
-      setError('');
+      const [status, tiersData] = await Promise.all([
+        getAuthStatus(),
+        getPublicTiers().catch(() => ({ tiers: [] })),
+      ]);
 
-      if (result.requestedAt) {
-        setSubmitted(true);
-      }
-
-      const tier = result.subscriptionTier ?? result.accessTier;
-      if (tier === 'pending' && !result.requestedAt && result.turnstileSiteKey) {
-        loadTurnstileScript();
-        startTurnstileWatch();
-      }
-
-      // Active tiers: free, trial, standard, advanced, max, unlimited
-      if (tier !== 'pending' && tier !== 'blocked') {
-        // Stop polling — user is approved, show the active state UI
-        if (pollInterval) clearInterval(pollInterval);
-      }
+      const tier = status.subscriptionTier ?? status.accessTier;
+      setOnboardingComplete(status.onboardingComplete === true);
 
       if (tier === 'blocked') {
-        if (pollInterval) clearInterval(pollInterval);
+        setIsBlocked(true);
+        setLoading(false);
+        return;
+      }
+
+      // Already subscribed (non-pending active tier)
+      if (tier !== 'pending' && tier !== 'blocked') {
+        setIsActive(true);
+        setLoading(false);
+        return;
+      }
+
+      // Pending — show tier selection
+      setTiers(tiersData.tiers as TierInfo[]);
+
+      // Load Turnstile
+      if (status.turnstileSiteKey) {
+        loadTurnstileScript();
+        startTurnstileWatch();
+      } else {
+        // No Turnstile configured — enable buttons immediately
+        setTurnstileReady(true);
       }
     } catch (err) {
-      logger.error('Failed to fetch auth status:', err);
-      setError('Unable to check account status. Retrying...');
+      logger.error('Failed to load subscribe page:', err);
+      setError('Unable to load subscription options. Please try again.');
     }
     setLoading(false);
-  }
+  });
+
+  onCleanup(() => {
+    if (observer) observer.disconnect();
+    // Restore scroll
+    document.documentElement.style.overflow = '';
+  });
+
+  // Prevent scroll on this page
+  onMount(() => {
+    document.documentElement.style.overflow = 'hidden';
+  });
 
   function loadTurnstileScript() {
     if (document.querySelector('script[src*="challenges.cloudflare.com"]')) return;
@@ -86,96 +98,68 @@ const SubscribePage: Component = () => {
     document.head.appendChild(script);
   }
 
-  onMount(() => {
-    // Override global overflow:hidden on html/body so this standalone page can scroll.
-    // Capture previous values so cleanup restores exact prior state (not blank).
-    const prevHtmlOverflow = document.documentElement.style.overflow;
-    const prevBodyOverflow = document.body.style.overflow;
-    document.documentElement.style.overflow = 'auto';
-    document.body.style.overflow = 'auto';
-
-    onCleanup(() => {
-      document.documentElement.style.overflow = prevHtmlOverflow;
-      document.body.style.overflow = prevBodyOverflow;
-      if (pollInterval) clearInterval(pollInterval);
-    });
-
-    fetchStatus();
-    pollInterval = setInterval(fetchStatus, POLL_INTERVAL_MS);
-  });
-
-  function checkTurnstileToken(): boolean {
-    const tokenInput = document.querySelector(
-      'textarea[name="cf-turnstile-response"], input[name="cf-turnstile-response"]'
-    ) as HTMLInputElement | HTMLTextAreaElement | null;
-    return Boolean(tokenInput?.value);
-  }
-
-  let turnstileObserver: MutationObserver | undefined;
-
   function startTurnstileWatch() {
-    if (turnstileObserver) return;
-    if (checkTurnstileToken()) {
-      setTurnstileReady(true);
-      return;
-    }
-    turnstileObserver = new MutationObserver(() => {
-      if (checkTurnstileToken()) {
+    const container = document.getElementById('turnstile-container');
+    if (!container) return;
+
+    const checkToken = () => {
+      const input = container.querySelector('textarea[name="cf-turnstile-response"], input[name="cf-turnstile-response"]') as HTMLTextAreaElement | HTMLInputElement | null;
+      if (input?.value) {
         setTurnstileReady(true);
-        turnstileObserver?.disconnect();
-        turnstileObserver = undefined;
+        return true;
+      }
+      return false;
+    };
+
+    if (checkToken()) return;
+
+    observer = new MutationObserver(() => {
+      if (checkToken() && observer) {
+        observer.disconnect();
+        observer = null;
       }
     });
-    turnstileObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
+    observer.observe(container, { childList: true, subtree: true, characterData: true, attributes: true });
   }
 
-  onCleanup(() => {
-    turnstileObserver?.disconnect();
-  });
+  function getTurnstileToken(): string | null {
+    const container = document.getElementById('turnstile-container');
+    if (!container) return null;
+    const input = container.querySelector('textarea[name="cf-turnstile-response"], input[name="cf-turnstile-response"]') as HTMLTextAreaElement | HTMLInputElement | null;
+    return input?.value || null;
+  }
 
-  async function handleRequestAccess() {
-    const tokenInput = document.querySelector(
-      'textarea[name="cf-turnstile-response"], input[name="cf-turnstile-response"]'
-    ) as HTMLInputElement | HTMLTextAreaElement | null;
-    const turnstileToken = tokenInput?.value || '';
-
-    if (!turnstileToken) {
-      setError('Please complete the CAPTCHA verification.');
-      return;
-    }
-
-    setSubmitting(true);
+  async function handleSubscribe(tierId: string) {
+    const token = getTurnstileToken() || '';
+    setSubscribing(tierId);
     setError('');
 
     try {
-      await requestAccess(turnstileToken);
-      setSubmitted(true);
-      if (window.turnstile?.reset) {
-        window.turnstile.reset();
+      const result = await subscribe(tierId, token);
+      // Redirect based on onboarding status
+      if (!result.onboardingComplete) {
+        window.location.href = '/app/onboarding';
+      } else {
+        window.location.href = '/app/';
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Request failed. Please try again.');
-      if (window.turnstile?.reset) {
-        window.turnstile.reset();
+      setError(err instanceof Error ? err.message : 'Subscription failed. Please try again.');
+      setSubscribing(null);
+      if (window.turnstile) {
+        try { window.turnstile.reset(); } catch { /* ignore */ }
       }
       setTurnstileReady(false);
-    } finally {
-      setSubmitting(false);
+      startTurnstileWatch();
     }
   }
 
-  const effectiveTier = () => status()?.subscriptionTier ?? status()?.accessTier;
-  const isPending = () => effectiveTier() === 'pending';
-  const isBlocked = () => effectiveTier() === 'blocked';
-  const isActive = () => {
-    const tier = effectiveTier();
-    return tier !== undefined && tier !== 'pending' && tier !== 'blocked';
-  };
-  const hasTurnstile = () => Boolean(status()?.turnstileSiteKey);
+  function formatPrice(cents: number | null): string {
+    if (cents === null || cents === 0) return 'Free';
+    return `$${(cents / 100).toFixed(0)}/mo`;
+  }
 
   return (
     <div class="login-page">
-      {/* Reuse login page layout: particles, logo, title, features */}
       <div class="login-particles login-particles--1" />
       <div class="login-particles login-particles--2" />
 
@@ -188,131 +172,87 @@ const SubscribePage: Component = () => {
           <ScrambleText text="Codeflare" class="login-title-scramble" />
         </h1>
 
-        <p class="login-subtitle">
-          Five coding agents in the palm of your hand.
-          Ready when you are, wherever you are.
-        </p>
-
-        <div class="login-features">
-          <For each={FEATURES}>
-            {(feature, i) => (
-              <div class="login-feature" style={{ 'animation-delay': `${0.3 + i() * 0.1}s` }}>
-                <span class="login-feature-icon">
-                  <Icon path={feature.icon} size={16} />
-                </span>
-                <span class="login-feature-text">{feature.content()}</span>
-              </div>
-            )}
-          </For>
-        </div>
-
-        <Show when={loading()}>
-          <div class="login-loading">
-            <div class="login-spinner" />
-          </div>
-        </Show>
-
-        <Show when={!loading()}>
-          {/* Active user */}
-          <Show when={isActive()}>
-            <div class="subscribe-status-icon subscribe-status-icon--active">
-              <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-              </svg>
-            </div>
-            <h2 class="subscribe-title">Your Account is Active</h2>
-            <div class="subscribe-email">{status()!.email}</div>
-            <a href="/app/" class="subscribe-action-button">Continue</a>
-          </Show>
-
-          {/* Pending — not yet requested */}
-          <Show when={isPending() && !submitted()}>
-            <div class="subscribe-status-icon">
-              <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor">
-                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z" />
-              </svg>
-            </div>
-            <h2 class="subscribe-title">Request Access</h2>
-            <p class="subscribe-message">
-              Complete the verification below to request access.
-              An administrator will review your request.
-            </p>
-            <div class="subscribe-email">{status()!.email}</div>
-
-            <Show
-              when={hasTurnstile()}
-              fallback={
-                <div class="login-error">
-                  Access requests are not configured. Please contact an administrator.
-                </div>
-              }
-            >
-              <div class="subscribe-turnstile" data-testid="turnstile-container">
-                <div
-                  class="cf-turnstile"
-                  data-sitekey={status()!.turnstileSiteKey!}
-                  data-theme="dark"
-                  data-size="flexible"
-                />
-              </div>
-
-              <button
-                type="button"
-                class="subscribe-action-button"
-                disabled={!turnstileReady() || submitting()}
-                onClick={handleRequestAccess}
-              >
-                {submitting() ? 'Submitting...' : 'Request Access'}
-              </button>
-            </Show>
-          </Show>
-
-          {/* Pending — submitted */}
-          <Show when={isPending() && submitted()}>
-            <div class="subscribe-status-icon">
-              <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor">
-                <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z" />
-              </svg>
-            </div>
-            <h2 class="subscribe-title">Pending Approval</h2>
-            <p class="subscribe-message">
-              Your access request has been submitted and is waiting for administrator approval.
-              This page will automatically redirect when your access is granted.
-            </p>
-            <div class="subscribe-email">{status()!.email}</div>
-            <div class="subscribe-polling">
-              <span class="subscribe-pulse" />
-              <span class="subscribe-polling-text">Checking status...</span>
-            </div>
-          </Show>
-
-          {/* Blocked */}
+        <Show when={!loading()} fallback={
+          <div class="subscribe-loading">Loading...</div>
+        }>
+          {/* Blocked state */}
           <Show when={isBlocked()}>
-            <div class="subscribe-status-icon subscribe-status-icon--blocked">
-              <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.902 7.902 0 0 1 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.902 7.902 0 0 1 20 12c0 4.42-3.58 8-8 8z" />
-              </svg>
+            <div class="subscribe-status">
+              <div class="subscribe-status-icon subscribe-status-icon--blocked">
+                <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.902 7.902 0 0 1 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.902 7.902 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>
+              </div>
+              <h2 class="subscribe-title">Account Blocked</h2>
+              <p class="subscribe-message">Your account has been blocked. Contact an administrator for help.</p>
             </div>
-            <h2 class="subscribe-title">Account Blocked</h2>
-            <p class="subscribe-message">
-              Your account has been blocked by an administrator.
-              Please contact support if you believe this is an error.
-            </p>
-            <div class="subscribe-email">{status()!.email}</div>
           </Show>
 
-          <Show when={error()}>
-            <div class="login-error">{error()}</div>
+          {/* Active state */}
+          <Show when={isActive()}>
+            <div class="subscribe-status">
+              <div class="subscribe-status-icon subscribe-status-icon--active">
+                <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+              </div>
+              <h2 class="subscribe-title">Your Account is Active</h2>
+              <a href="/app/" class="subscribe-action-button">Continue</a>
+            </div>
           </Show>
 
-          <a
-            href="/cdn-cgi/access/logout"
-            class="subscribe-logout-button"
-            onClick={(e) => { e.preventDefault(); window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
-          >Log out</a>
+          {/* Tier selection (pending users) */}
+          <Show when={!isBlocked() && !isActive()}>
+            <p class="login-subtitle">Choose your plan to get started.</p>
+
+            <Show when={error()}>
+              <div class="subscribe-error">{error()}</div>
+            </Show>
+
+            <div class="subscribe-tier-grid">
+              <For each={tiers()}>
+                {(tier) => (
+                  <div class="subscribe-tier-card" classList={{ 'subscribe-tier-card--highlight': tier.id === 'standard' }}>
+                    <div class="subscribe-tier-header">
+                      <h3 class="subscribe-tier-name">{tier.displayName}</h3>
+                      <div class="subscribe-tier-price">{formatPrice(tier.priceMonthly)}</div>
+                    </div>
+                    <p class="subscribe-tier-description">{tier.description}</p>
+                    <div class="subscribe-tier-features">
+                      <div class="subscribe-tier-feature">
+                        <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'}</span>
+                        <span class="subscribe-tier-feature-label">monthly</span>
+                      </div>
+                      <div class="subscribe-tier-feature">
+                        <span>{tier.maxSessions}</span>
+                        <span class="subscribe-tier-feature-label">sessions</span>
+                      </div>
+                      <div class="subscribe-tier-feature">
+                        <span>{tier.sessionModes.includes('advanced') ? 'Normal + Advanced' : 'Normal'}</span>
+                        <span class="subscribe-tier-feature-label">modes</span>
+                      </div>
+                    </div>
+                    <Show when={tier.trialDays > 0}>
+                      <div class="subscribe-tier-badge">{tier.trialDays}-day free trial</div>
+                    </Show>
+                    <button
+                      type="button"
+                      class="subscribe-tier-btn"
+                      disabled={!turnstileReady() || subscribing() !== null}
+                      onClick={() => void handleSubscribe(tier.id)}
+                    >
+                      {subscribing() === tier.id ? 'Subscribing...' : tier.priceMonthly ? 'Start Trial' : 'Get Started'}
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+
+            {/* Turnstile widget */}
+            <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
+              <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
+            </div>
+          </Show>
         </Show>
 
-        <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
+        {/* Logout */}
+        <a href="/cdn-cgi/access/logout" class="subscribe-logout-button">Log out</a>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ValidationError } from '../../lib/error-types';
 import { getAllUsers } from '../../lib/access-policy';
 import { isOnboardingLandingPageActive } from '../../lib/onboarding';
+import { getTierConfig } from '../../lib/subscription';
 import { escapeXml } from '../../lib/xml-utils';
 import { createLogger } from '../../lib/logger';
 import { verifyTurnstileToken } from '../../lib/turnstile';
@@ -134,6 +135,15 @@ app.post('/waitlist', waitlistRateLimiter, async (c) => {
 
   logger.info('Waitlist submission accepted', { email: parsed.data.email });
   return c.json({ success: true });
+});
+
+// GET /public/tiers — subscribable tier config (no auth required)
+const SUBSCRIBABLE_IDS = new Set(['free', 'standard', 'max', 'unlimited']);
+
+app.get('/tiers', async (c) => {
+  const allTiers = await getTierConfig(c.env.KV);
+  const subscribable = allTiers.filter((t) => SUBSCRIBABLE_IDS.has(t.id as string));
+  return c.json({ tiers: subscribable });
 });
 
 export default app;

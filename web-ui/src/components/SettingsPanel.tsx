@@ -17,7 +17,7 @@ import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
 import LlmKeysSection from './settings/LlmKeysSection';
-import SubscriptionManagement from './settings/SubscriptionManagement';
+// SubscriptionManagement moved to standalone admin page at /admin/subscriptions
 import '../styles/settings-panel.css';
 
 interface SettingsPanelProps {
@@ -397,9 +397,19 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <h3 class="settings-section-title">Subscription Tiers</h3>
                 </div>
                 <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
-                  Configure monthly hours, concurrent sessions, and session modes for each tier.
+                  Configure monthly hours, pricing, trial periods, and session modes for each tier.
                 </p>
-                <SubscriptionManagement />
+                <div class="settings-admin-actions">
+                  <button
+                    type="button"
+                    class="provider-row-connect-btn"
+                    style={{ background: '#059669' }}
+                    onClick={() => { window.location.href = '/admin/subscriptions'; }}
+                  >
+                    <Icon path={mdiCogOutline} size={24} style={{ color: 'white' }} />
+                    <span>Manage Subscriptions</span>
+                  </button>
+                </div>
               </section>
             </AccordionSection>
           </Show>
