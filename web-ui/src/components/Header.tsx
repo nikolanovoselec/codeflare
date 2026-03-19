@@ -20,12 +20,20 @@ import {
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
 import { sessionStore, getUsageState } from '../stores/session';
-import { formatDuration } from '../lib/format';
+
 import { terminalStore } from '../stores/terminal';
 import { md5 } from '../lib/md5';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
+
+/** Format seconds as "X minutes" (<60m) or "X.X hours" (>=60m) for dropdown */
+function formatUsageCompact(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = seconds / 3600;
+  return `${hours % 1 === 0 ? hours : hours.toFixed(1)} hours`;
+}
 
 function getGravatarUrl(email: string, size = 32): string {
   const hash = md5(email.trim().toLowerCase());
@@ -275,10 +283,10 @@ const Header: Component<HeaderProps> = (props) => {
                 {(() => {
                   const usage = getUsageState();
                   if (usage.monthlyQuotaSeconds !== null) {
-                    return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)} / {formatDuration(usage.monthlyQuotaSeconds)}</span>;
+                    return <span class="header-usage-inline">{formatUsageCompact(usage.monthlySeconds)} / {formatUsageCompact(usage.monthlyQuotaSeconds)}</span>;
                   }
                   if (usage.monthlySeconds > 0) {
-                    return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)}</span>;
+                    return <span class="header-usage-inline">{formatUsageCompact(usage.monthlySeconds)}</span>;
                   }
                   return null;
                 })()}

@@ -746,40 +746,40 @@ export const sessionStore = {
   _resetAuthExpired: () => setAuthExpired(false),
 };
 
-// ── Usage quota state (separate from session store for isolation) ──
+// ── Usage quota state (reactive signal for live dropdown updates) ──
 
 interface UsageState {
   monthlySeconds: number;
   monthlyQuotaSeconds: number | null;
 }
 
-let _usageState: UsageState = { monthlySeconds: 0, monthlyQuotaSeconds: null };
+function loadCachedUsage(): UsageState {
+  try {
+    const cached = localStorage.getItem('cf_usage');
+    if (cached) {
+      const parsed = JSON.parse(cached) as UsageState;
+      if (typeof parsed.monthlySeconds === 'number') return parsed;
+    }
+  } catch { /* localStorage unavailable or corrupt */ }
+  return { monthlySeconds: 0, monthlyQuotaSeconds: null };
+}
+
+const [usageSignal, setUsageSignal] = createSignal<UsageState>(loadCachedUsage());
 
 export function setUsageState(monthly: number, quota: number | null): void {
-  _usageState = { monthlySeconds: monthly, monthlyQuotaSeconds: quota };
+  const next: UsageState = { monthlySeconds: monthly, monthlyQuotaSeconds: quota };
+  setUsageSignal(next);
   try {
-    localStorage.setItem('cf_usage', JSON.stringify(_usageState));
+    localStorage.setItem('cf_usage', JSON.stringify(next));
   } catch { /* localStorage unavailable */ }
 }
 
 export function getUsageState(): { monthlySeconds: number; monthlyQuotaSeconds: number | null } {
-  // If still at initial zeros, try reading from localStorage as fallback
-  if (_usageState.monthlySeconds === 0 && _usageState.monthlyQuotaSeconds === null) {
-    try {
-      const cached = localStorage.getItem('cf_usage');
-      if (cached) {
-        const parsed = JSON.parse(cached) as UsageState;
-        if (typeof parsed.monthlySeconds === 'number') {
-          return { ...parsed };
-        }
-      }
-    } catch { /* localStorage unavailable or corrupt */ }
-  }
-  return { ..._usageState };
+  return usageSignal();
 }
 
 export function isAtUsageQuota(): boolean {
-  const { monthlySeconds, monthlyQuotaSeconds } = _usageState;
+  const { monthlySeconds, monthlyQuotaSeconds } = usageSignal();
   if (monthlyQuotaSeconds === null) return false;
   return monthlySeconds >= monthlyQuotaSeconds;
 }
@@ -787,7 +787,7 @@ export function isAtUsageQuota(): boolean {
 export type UsageWarningLevel = 'none' | '80' | '95' | '100';
 
 export function getUsageWarningLevel(): UsageWarningLevel {
-  const { monthlySeconds, monthlyQuotaSeconds } = _usageState;
+  const { monthlySeconds, monthlyQuotaSeconds } = usageSignal();
   if (monthlyQuotaSeconds === null || monthlyQuotaSeconds === 0) return 'none';
   const pct = (monthlySeconds / monthlyQuotaSeconds) * 100;
   if (pct >= 100) return '100';
