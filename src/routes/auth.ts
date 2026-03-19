@@ -227,8 +227,8 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     subscribedAt: now.toISOString(),
   };
 
-  // Set trial expiry for paid tiers
-  if (trialDays > 0 && tierConfig.priceMonthly !== null) {
+  // Set trial expiry for tiers with trial period
+  if (trialDays > 0) {
     const expiresAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
     updated.subscriptionExpiresAt = expiresAt.toISOString();
   }

@@ -164,7 +164,7 @@ describe('Timekeeper DO', () => {
     it('returns quotaExceeded=true when at quota', async () => {
       // Free tier: 7200s. Mock must handle both get(key) and get(key, 'json') calls.
       const usageRecord = {
-        today: { date: '2026-03-18', seconds: 0 },
+        today: { date: '2026-03-19', seconds: 0 },
         thisWeek: { weekStart: '2026-03-16', seconds: 0 },
         thisMonth: { month: '2026-03', seconds: 7100 },
         thisYear: { year: '2026', seconds: 7100 },
@@ -228,7 +228,7 @@ describe('Timekeeper DO', () => {
       mockKV.get.mockImplementation(async (key: string, type?: string) => {
         if (key.startsWith('timekeeper:') && type === 'json') {
           return {
-            today: { date: '2026-03-18', seconds: 100 },
+            today: { date: '2026-03-19', seconds: 100 },
             thisWeek: { weekStart: '2026-03-16', seconds: 500 },
             thisMonth: { month: '2026-03', seconds: 1000 },
             thisYear: { year: '2026', seconds: 5000 },
@@ -286,7 +286,7 @@ describe('Timekeeper DO', () => {
       mockKV.get.mockImplementation(async (key: string, type?: string) => {
         if (key === 'timekeeper:cf-alice' && type === 'json') {
           return {
-            today: { date: '2026-03-18', seconds: 100 },
+            today: { date: '2026-03-19', seconds: 100 },
             thisWeek: { weekStart: '2026-03-16', seconds: 500 },
             thisMonth: { month: '2026-03', seconds: 1000 },
             thisYear: { year: '2026', seconds: 5000 },
