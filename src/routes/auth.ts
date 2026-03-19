@@ -61,8 +61,8 @@ app.get('/status', requireIdentity, async (c) => {
   // Include onboardingComplete flag for active users
   const onboardingComplete = userData && userData.onboardingComplete === true;
 
-  // hasSubscribed = user explicitly chose a tier via POST /subscribe (has subscribedAt)
-  const hasSubscribed = userData && typeof userData.subscribedAt === 'string';
+  // hasSubscribed = user has an active subscription (self-subscribed OR admin-promoted)
+  const hasSubscribed = subscriptionTier !== 'pending' && subscriptionTier !== 'blocked';
 
   return c.json({
     email: user.email,

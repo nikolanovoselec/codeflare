@@ -332,6 +332,11 @@ const SubscribePage: Component = () => {
               </For>
             </div>
 
+            {/* Disabled continue button for pending users */}
+            <button type="button" class="subscribe-action-button" disabled>
+              Continue to Codeflare
+            </button>
+
             {/* Turnstile widget */}
             <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
               <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
