@@ -73,11 +73,6 @@ describe('SubscriptionManagement (Admin)', () => {
       expect(screen.getByText('Free')).toBeInTheDocument();
     });
 
-    // Free tier: 3600 seconds = 1 hour
-    const hourInputs = screen.getAllByLabelText(/hours/i).length > 0
-      ? screen.getAllByLabelText(/hours/i)
-      : document.querySelectorAll('input[type="text"]');
-
     // At least one input should contain "1" (Free = 3600s = 1h)
     const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
     const hasOneHour = textInputs.some((input) => (input as HTMLInputElement).value === '1');

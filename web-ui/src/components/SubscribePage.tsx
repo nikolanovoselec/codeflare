@@ -31,7 +31,7 @@ const SubscribePage: Component = () => {
   const [tiers, setTiers] = createSignal<TierInfo[]>([]);
   const [isBlocked, setIsBlocked] = createSignal(false);
   const [isActive, setIsActive] = createSignal(false);
-  const [onboardingComplete, setOnboardingComplete] = createSignal(false);
+  const [_onboardingComplete, setOnboardingComplete] = createSignal(false);
   const [turnstileReady, setTurnstileReady] = createSignal(false);
   const [subscribing, setSubscribing] = createSignal<string | null>(null);
 
