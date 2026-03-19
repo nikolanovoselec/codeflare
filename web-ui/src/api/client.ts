@@ -330,11 +330,7 @@ export async function deleteDeployKeys(): Promise<void> {
 export type OnboardingConfigResponse = z.infer<typeof OnboardingConfigResponseSchema>;
 
 export async function getOnboardingConfig(): Promise<OnboardingConfigResponse> {
-  // Public endpoints live at /public/* (outside /api/*) to avoid CF Access interception
-  return baseFetch<OnboardingConfigResponse>('/onboarding-config', {}, {
-    basePath: '/public',
-    schema: OnboardingConfigResponseSchema,
-  });
+  return fetchApi('/auth/onboarding-config', {}, OnboardingConfigResponseSchema);
 }
 
 // Mark onboarding as complete for the current user
@@ -354,7 +350,7 @@ export async function ensureR2Token(): Promise<{ ready: boolean }> {
   return data ?? { ready: false };
 }
 
-// Auth API — providers endpoint uses /public/ prefix to bypass CF Access
+// Auth providers — stays public because login page needs it before user is authenticated
 export async function getAuthProviders(): Promise<{ providers: AuthProvider[] }> {
   return baseFetch<{ providers: AuthProvider[] }>('/auth/providers', {}, {
     basePath: '/public',

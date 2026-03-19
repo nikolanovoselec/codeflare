@@ -21,8 +21,14 @@ app.get('/providers', async (c) => {
   return c.json({ providers: idpList || [] });
 });
 
+// GET /api/auth/onboarding-config — onboarding page config (turnstile key).
+// Moved from /public/onboarding-config — user is authenticated at this point.
+app.get('/onboarding-config', requireIdentity, async (c) => {
+  const siteKey = await c.env.KV.get('setup:turnstile_site_key');
+  return c.json({ active: true, turnstileSiteKey: siteKey });
+});
+
 // GET /api/auth/tiers — subscribable tier config for the subscribe page.
-// Uses requireIdentity so pending users can fetch tiers after CF Access login.
 app.get('/tiers', requireIdentity, async (c) => {
   const SUBSCRIBABLE_IDS = new Set(['free', 'standard', 'advanced', 'max', 'unlimited']);
   const allTiers = await getTierConfig(c.env.KV);
