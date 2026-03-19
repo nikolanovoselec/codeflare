@@ -24,10 +24,10 @@ const mockedSubscribe = vi.mocked(subscribe);
 // id, displayName, monthlySeconds, maxSessions, sessionModes, canLogin, order, isDefault, priceMonthly, trialDays, description
 // Note: priceMonthly is in cents (formatPrice divides by 100)
 const MOCK_PUBLIC_TIERS = [
-  { id: 'free', displayName: 'Free', monthlySeconds: 3600, maxSessions: 1, priceMonthly: 0, description: 'Get started for free', trialDays: 0, sessionModes: ['default'], canLogin: true, order: 0, isDefault: true },
-  { id: 'standard', displayName: 'Standard', monthlySeconds: 36000, maxSessions: 3, priceMonthly: 1000, description: '10 hours per month', trialDays: 7, sessionModes: ['default'], canLogin: true, order: 1, isDefault: false },
-  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 72000, maxSessions: 5, priceMonthly: 2500, description: '20 hours per month', trialDays: 7, sessionModes: ['default', 'advanced'], canLogin: true, order: 2, isDefault: false },
-  { id: 'max', displayName: 'Max', monthlySeconds: 180000, maxSessions: 10, priceMonthly: 5000, description: '50 hours per month', trialDays: 7, sessionModes: ['default', 'advanced'], canLogin: true, order: 3, isDefault: false },
+  { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, priceMonthly: 0, description: 'Get started for free', trialDays: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
+  { id: 'standard', displayName: 'Standard', monthlySeconds: 36000, maxSessions: 3, priceMonthly: 2900, description: 'For individual developers', trialDays: 7, sessionModes: ['default'], canLogin: true, order: 4, isDefault: true },
+  { id: 'max', displayName: 'Max', monthlySeconds: 720000, maxSessions: 10, priceMonthly: 19900, description: 'For professional teams', trialDays: 7, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false },
+  { id: 'unlimited', displayName: 'Unlimited', monthlySeconds: null, maxSessions: 10, priceMonthly: null, description: 'Enterprise-grade access', trialDays: 14, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
 ];
 
 // Button text pattern: component renders "Get Started" (free) or "Start Trial" (paid)
@@ -81,10 +81,11 @@ describe('SubscribePage', () => {
 
       await waitFor(() => {
         expect(mockedGetPublicTiers).toHaveBeenCalledTimes(1);
-        expect(screen.getByText('Free')).toBeInTheDocument();
+        // "Free" appears twice (tier name + price), use getAllByText
+        expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText('Standard')).toBeInTheDocument();
-        expect(screen.getByText('Advanced')).toBeInTheDocument();
         expect(screen.getByText('Max')).toBeInTheDocument();
+        expect(screen.getByText('Unlimited')).toBeInTheDocument();
       });
     });
 
@@ -92,11 +93,10 @@ describe('SubscribePage', () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
-      // formatPrice: 0 -> "Free", 1000 -> "$10/mo", 2500 -> "$25/mo", 5000 -> "$50/mo"
+      // formatPrice: 0 -> "Free", 2900 -> "$29/mo", 19900 -> "$199/mo", null -> "Free"
       await waitFor(() => {
-        expect(screen.getByText(/\$10/)).toBeInTheDocument();
-        expect(screen.getByText(/\$25/)).toBeInTheDocument();
-        expect(screen.getByText(/\$50/)).toBeInTheDocument();
+        expect(screen.getByText(/\$29/)).toBeInTheDocument();
+        expect(screen.getByText(/\$199/)).toBeInTheDocument();
       });
     });
 
@@ -106,7 +106,7 @@ describe('SubscribePage', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/get started for free/i)).toBeInTheDocument();
-        expect(screen.getByText(/10 hours per month/i)).toBeInTheDocument();
+        expect(screen.getByText(/for individual developers/i)).toBeInTheDocument();
       });
     });
 
