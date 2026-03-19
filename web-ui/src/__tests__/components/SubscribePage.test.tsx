@@ -107,13 +107,16 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should display features comparison section', async () => {
+    it('should display mode selector with Standard and Pro columns', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Standard Mode/i)).toBeInTheDocument();
-        expect(screen.getByText(/Pro Mode/i)).toBeInTheDocument();
+        expect(screen.getByTestId('mode-selector')).toBeInTheDocument();
+        // Mode column headings
+        expect(screen.getAllByText('Standard').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Pro').length).toBeGreaterThanOrEqual(1);
+        // Feature items
         expect(screen.getByText(/Terminal access/i)).toBeInTheDocument();
       });
     });

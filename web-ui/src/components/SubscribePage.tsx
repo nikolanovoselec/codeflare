@@ -46,9 +46,6 @@ interface TierInfo {
   sessionModes: string[];
 }
 
-/** Per-card mode state: which price flavor is selected */
-type ModeSelection = Record<string, 'default' | 'advanced'>;
-
 const DEFAULT_FEATURES = [
   'Browser-based IDE',
   'Terminal access',
@@ -100,7 +97,6 @@ const SubscribePage: Component = () => {
   const [isActive, setIsActive] = createSignal(false);
   const [turnstileReady, setTurnstileReady] = createSignal(false);
   const [subscribing, setSubscribing] = createSignal<string | null>(null);
-  const [modeSelections, setModeSelections] = createSignal<ModeSelection>({});
   const [currency, setCurrency] = createSignal('USD');
   const [showTiers, setShowTiers] = createSignal(false);
   const [userEmail, setUserEmail] = createSignal('');
@@ -241,26 +237,7 @@ const SubscribePage: Component = () => {
     }
   }
 
-  function getSelectedMode(tierId: string): 'default' | 'advanced' {
-    return modeSelections()[tierId] ?? 'default';
-  }
-
-  function setMode(tierId: string, mode: 'default' | 'advanced') {
-    setModeSelections((prev) => ({ ...prev, [tierId]: mode }));
-  }
-
-  function supportsAdvanced(tier: TierInfo): boolean {
-    return tier.sessionModes.includes('advanced');
-  }
-
-  function getDisplayPrice(tier: TierInfo): string {
-    if (getSelectedMode(tier.id) === 'advanced' && tier.advancedPriceMonthly != null) {
-      return formatPrice(tier.advancedPriceMonthly);
-    }
-    return formatPrice(tier.priceMonthly);
-  }
-
-  /** Price based on the global mode selector (for active user tier view) */
+  /** Price based on the global mode selector */
   function getGlobalModePrice(tier: TierInfo): string {
     if (globalMode() === 'advanced' && tier.advancedPriceMonthly != null) {
       return formatPrice(tier.advancedPriceMonthly);
@@ -456,32 +433,51 @@ const SubscribePage: Component = () => {
             </Show>
           </Show>
 
-          {/* Tier selection (pending users) */}
+          {/* Tier selection (pending users) — same mode selector + tier layout */}
           <Show when={!isBlocked() && !isActive()}>
-            {/* Features comparison */}
-            <div class="subscribe-features">
-              <div class="subscribe-features-col">
-                <h3 class="subscribe-features-heading">Standard Mode</h3>
-                <For each={DEFAULT_FEATURES}>
-                  {(feature) => (
-                    <div class="subscribe-feature-item">
-                      <span class="subscribe-feature-check">&#10003;</span>
-                      <span>{feature}</span>
-                    </div>
-                  )}
-                </For>
-              </div>
-              <div class="subscribe-features-col">
-                <h3 class="subscribe-features-heading">Pro Mode</h3>
-                <For each={ADVANCED_FEATURES}>
-                  {(feature) => (
-                    <div class="subscribe-feature-item">
-                      <span class="subscribe-feature-check">&#10003;</span>
-                      <span>{feature}</span>
-                    </div>
-                  )}
-                </For>
-              </div>
+            {/* Global mode selector: Standard / Pro columns */}
+            <div class="subscribe-mode-selector" data-testid="mode-selector">
+              <button
+                type="button"
+                class="subscribe-mode-col"
+                classList={{ 'subscribe-mode-col--active': globalMode() === 'default' }}
+                onClick={() => setGlobalMode('default')}
+              >
+                <h3 class="subscribe-mode-heading">Standard</h3>
+                <p class="subscribe-mode-desc">Everything you need to code, build and deploy.</p>
+                <div class="subscribe-mode-features">
+                  <For each={STANDARD_MODE_FEATURES}>
+                    {(f) => (
+                      <div class="subscribe-mode-feature">
+                        <Icon path={f.icon} size={14} />
+                        <span>{f.text}</span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </button>
+
+              <div class="subscribe-mode-divider" />
+
+              <button
+                type="button"
+                class="subscribe-mode-col"
+                classList={{ 'subscribe-mode-col--active': globalMode() === 'advanced' }}
+                onClick={() => setGlobalMode('advanced')}
+              >
+                <h3 class="subscribe-mode-heading">Pro</h3>
+                <p class="subscribe-mode-desc">Standard plus AI orchestration and memory.</p>
+                <div class="subscribe-mode-features">
+                  <For each={PRO_MODE_FEATURES}>
+                    {(f) => (
+                      <div class="subscribe-mode-feature">
+                        <Icon path={f.icon} size={14} />
+                        <span>{f.text}</span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </button>
             </div>
 
             <p class="login-subtitle">Choose your plan to get started.</p>
@@ -490,37 +486,15 @@ const SubscribePage: Component = () => {
               <div class="subscribe-error">{error()}</div>
             </Show>
 
+            {/* Tier grid — prices react to globalMode */}
             <div class="subscribe-tier-grid">
               <For each={tiers()}>
                 {(tier) => (
                   <div class="subscribe-tier-card" classList={{ 'subscribe-tier-card--highlight': tier.id === 'standard' }}>
                     <div class="subscribe-tier-header">
                       <h3 class="subscribe-tier-name">{tier.displayName}</h3>
-                      <div class="subscribe-tier-price">{getDisplayPrice(tier)}</div>
+                      <div class="subscribe-tier-price">{getGlobalModePrice(tier)}</div>
                     </div>
-
-                    {/* Mode toggle for paid tiers with advanced */}
-                    <Show when={supportsAdvanced(tier) && tier.priceMonthly !== null && tier.priceMonthly > 0}>
-                      <div class="subscribe-mode-toggle">
-                        <button
-                          type="button"
-                          class="subscribe-mode-btn"
-                          classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'default' }}
-                          onClick={() => setMode(tier.id, 'default')}
-                        >
-                          Standard
-                        </button>
-                        <button
-                          type="button"
-                          class="subscribe-mode-btn"
-                          classList={{ 'subscribe-mode-btn--active': getSelectedMode(tier.id) === 'advanced' }}
-                          onClick={() => setMode(tier.id, 'advanced')}
-                        >
-                          Pro
-                        </button>
-                      </div>
-                    </Show>
-
                     <div class="subscribe-tier-features">
                       <div class="subscribe-tier-feature">
                         <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'}</span>
