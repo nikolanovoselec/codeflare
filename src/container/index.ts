@@ -100,7 +100,7 @@ export class container extends Container<Env> {
 
   // Container goes to sleep after this duration of inactivity (no HTTP fetch() calls).
   // collectMetrics() renews via renewActivityTimeout() when new user input is detected.
-  override sleepAfter = '3m'; // Reduced for testing — set to '30m' for production
+  override sleepAfter = '30m';
 
   // Environment variables - set via property assignment in updateEnvVars()
   private _bucketName: string | null = null;
