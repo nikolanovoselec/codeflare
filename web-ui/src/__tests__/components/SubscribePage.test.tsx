@@ -102,13 +102,14 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should display tier descriptions', async () => {
+    it('should display features comparison section', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/get started for free/i)).toBeInTheDocument();
-        expect(screen.getByText(/for individual developers/i)).toBeInTheDocument();
+        expect(screen.getByText(/Default Mode/i)).toBeInTheDocument();
+        expect(screen.getByText(/Advanced Mode/i)).toBeInTheDocument();
+        expect(screen.getByText(/Terminal access/i)).toBeInTheDocument();
       });
     });
 
