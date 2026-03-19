@@ -81,17 +81,25 @@ describe('SubscriptionManagement (Admin)', () => {
     expect(hasOneHour).toBe(true);
   });
 
-  it('should show unlimited text for unlimited tier hours', async () => {
+  it('should show unlimited text for unlimited tier hours when selected', async () => {
     render(() => <SubscriptionManagement onBack={noop} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Unlimited')).toBeInTheDocument();
+      expect(mockedGetTiers).toHaveBeenCalledTimes(1);
     });
 
-    // Unlimited tier has monthlySeconds=null, should show "unlimited" in input
-    const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
-    const hasUnlimited = textInputs.some((input) => (input as HTMLInputElement).value === 'unlimited');
-    expect(hasUnlimited).toBe(true);
+    // Select the unlimited tier from dropdown
+    const select = document.querySelector('.sub-mgmt-select') as HTMLSelectElement;
+    if (select) {
+      fireEvent.change(select, { target: { value: 'unlimited' } });
+    }
+
+    await waitFor(() => {
+      // Unlimited tier has monthlySeconds=null, should show "unlimited" in input
+      const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
+      const hasUnlimited = textInputs.some((input) => (input as HTMLInputElement).value === 'unlimited');
+      expect(hasUnlimited).toBe(true);
+    });
   });
 
   it('can edit sessions field for a tier', async () => {

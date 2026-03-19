@@ -270,6 +270,7 @@ describe('SubscribePage', () => {
         accessTier: 'standard',
         subscriptionTier: 'standard',
         role: 'user',
+        hasSubscribed: true,
       });
 
       render(() => <SubscribePage />);
@@ -287,6 +288,7 @@ describe('SubscribePage', () => {
         accessTier: 'standard',
         subscriptionTier: 'standard',
         role: 'user',
+        hasSubscribed: true,
       });
 
       render(() => <SubscribePage />);
