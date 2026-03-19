@@ -42,8 +42,9 @@ const sessionStoreState = vi.hoisted(() => ({
 }));
 
 // Mock getUsageState - returns usage data for the header dropdown display
+// Real getUsageState() always returns an object (never null) — see session.ts line 734
 const usageStateMock = vi.hoisted(() => ({
-  value: null as { monthlySeconds: number; monthlyQuotaSeconds: number | null } | null,
+  value: { monthlySeconds: 0, monthlyQuotaSeconds: null } as { monthlySeconds: number; monthlyQuotaSeconds: number | null },
 }));
 
 vi.mock('../../stores/session', () => ({
@@ -88,7 +89,7 @@ describe('Header Component', () => {
     sessionStoreState.error = null;
     isMobileMock.value = false;
     terminalStoreMock.authUrl = null;
-    usageStateMock.value = null;
+    usageStateMock.value = { monthlySeconds: 0, monthlyQuotaSeconds: null };
   });
 
   afterEach(() => {
@@ -505,7 +506,8 @@ describe('Header Component', () => {
     });
 
     it('should show "Usage" without time when no usage data is available', () => {
-      usageStateMock.value = null;
+      // Default state: 0 seconds used, no quota — matches real getUsageState() initial state
+      usageStateMock.value = { monthlySeconds: 0, monthlyQuotaSeconds: null };
       render(() => <Header {...defaultSessionProps} />);
 
       // Open user menu
@@ -514,7 +516,7 @@ describe('Header Component', () => {
       const usageItem = screen.getByTestId('header-user-dropdown-usage');
       expect(usageItem).toBeInTheDocument();
       expect(usageItem.textContent).toContain('Usage');
-      // Should NOT contain time formatting
+      // Should NOT contain time formatting (monthlySeconds is 0 and quota is null)
       expect(usageItem.textContent).not.toMatch(/\d+h\s*\d+m/);
     });
 
