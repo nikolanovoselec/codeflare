@@ -217,26 +217,25 @@ describe('SubscriptionManagement (Admin)', () => {
       expect(screen.getByText('Free')).toBeInTheDocument();
     });
 
-    // Select "Starter" tier from dropdown
+    // Select "Starter" tier from dropdown (use target to set value via testing-library)
     const select = document.querySelector('.sub-mgmt-select') as HTMLSelectElement;
-    select.value = 'standard';
-    fireEvent.change(select);
+    fireEvent.change(select, { target: { value: 'standard' } });
 
+    // Verify the editor now shows Starter's data (40h = 144000s)
     await waitFor(() => {
-      // Verify the editor now shows Starter's data (40h = 144000s)
       const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
-      const hoursInput = textInputs[0] as HTMLInputElement;
-      expect(hoursInput.value).toBe('40');
+      expect((textInputs[0] as HTMLInputElement).value).toBe('40');
     });
 
     // Edit the hours field (triggers allTiers signal update via updateField)
     const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
-    const hoursInput = textInputs[0] as HTMLInputElement;
-    fireEvent.change(hoursInput, { target: { value: '50' } });
+    fireEvent.change(textInputs[0], { target: { value: '50' } });
 
-    // Dropdown should still show "standard" (Starter) after the edit
+    // After editing, the editor should still show Starter's fields (not reset to Free)
+    // Check that Max Sessions still reflects Starter's value (3), not Free's value (1)
     await waitFor(() => {
-      expect(select.value).toBe('standard');
+      const numberInputs = Array.from(document.querySelectorAll('input[type="number"]'));
+      expect((numberInputs[0] as HTMLInputElement).value).toBe('3');
     });
   });
 });
