@@ -35,6 +35,7 @@ export const AuthStatusResponseSchema = z.object({
   requestedAt: z.string().nullable().optional(),
   onboardingComplete: z.boolean().optional(),
   hasSubscribed: z.boolean().optional(),
+  currency: z.string().optional(),
 });
 
 export const AuthProvidersResponseSchema = z.object({

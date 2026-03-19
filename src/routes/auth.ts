@@ -13,6 +13,14 @@ import { verifyTurnstileToken } from '../lib/turnstile';
 
 const logger = createLogger('auth-routes');
 
+function getCurrencyForCountry(country: string): string {
+  const EUR_COUNTRIES = new Set(['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY']);
+  if (country === 'CH' || country === 'LI') return 'CHF';
+  if (country === 'GB') return 'GBP';
+  if (EUR_COUNTRIES.has(country)) return 'EUR';
+  return 'USD';
+}
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // Public — no authentication required
@@ -63,6 +71,10 @@ app.get('/status', requireIdentity, async (c) => {
   // hasSubscribed = user has an active subscription (self-subscribed OR admin-promoted)
   const hasSubscribed = subscriptionTier !== 'pending' && subscriptionTier !== 'blocked';
 
+  // Currency based on visitor's country (CF-IPCountry header)
+  const country = c.req.header('CF-IPCountry') || 'US';
+  const currency = getCurrencyForCountry(country);
+
   return c.json({
     email: user.email,
     accessTier,
@@ -72,6 +84,7 @@ app.get('/status', requireIdentity, async (c) => {
     requestedAt,
     onboardingComplete,
     hasSubscribed,
+    currency,
   });
 });
 

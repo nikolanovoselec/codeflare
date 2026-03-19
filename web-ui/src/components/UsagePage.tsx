@@ -1,6 +1,7 @@
 import { Component, createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { getUsage } from '../api/client';
 import { formatDuration } from '../lib/format';
+import ScrambleText from './ScrambleText';
 import '../styles/usage-page.css';
 import '../styles/login-page.css';
 
@@ -57,7 +58,20 @@ const UsagePage: Component = () => {
       <div class="login-particles login-particles--2" />
 
       <div class="login-content">
-        <h1 class="usage-title">Usage</h1>
+        {/* Logo with float animation */}
+        <div class="login-logo">
+          <img src="/logo-original-transparent.png" alt="Codeflare" class="login-logo-img" />
+        </div>
+
+        {/* Title with scramble animation */}
+        <h1 class="login-title">
+          <ScrambleText text="Codeflare" class="login-title-scramble" />
+        </h1>
+
+        <p class="login-subtitle">
+          Five coding agents in the palm of your hand.
+          Ready when you are, wherever you are.
+        </p>
 
         <Show when={!loading()} fallback={<div class="usage-loading">Loading usage data...</div>}>
           <Show when={!error()} fallback={<div class="usage-error">{error()}</div>}>

@@ -56,6 +56,7 @@ const SubscribePage: Component = () => {
   const [turnstileReady, setTurnstileReady] = createSignal(false);
   const [subscribing, setSubscribing] = createSignal<string | null>(null);
   const [modeSelections, setModeSelections] = createSignal<ModeSelection>({});
+  const [currency, setCurrency] = createSignal('USD');
 
   let observer: MutationObserver | null = null;
 
@@ -65,6 +66,10 @@ const SubscribePage: Component = () => {
         getAuthStatus(),
         getPublicTiers().catch((err) => { logger.error('getPublicTiers failed:', err); return { tiers: [] }; }),
       ]);
+
+      if (status.currency) {
+        setCurrency(status.currency);
+      }
 
       const tier = status.subscriptionTier ?? status.accessTier;
 
@@ -170,9 +175,16 @@ const SubscribePage: Component = () => {
     }
   }
 
-  function formatPrice(cents: number | null): string {
+  function formatPrice(cents: number | null, cur?: string): string {
     if (cents === null || cents === 0) return 'Free';
-    return `$${(cents / 100).toFixed(0)}/mo`;
+    const code = cur ?? currency();
+    const amount = (cents / 100).toFixed(0);
+    switch (code) {
+      case 'EUR': return `\u20AC${amount}/mo`;
+      case 'GBP': return `\u00A3${amount}/mo`;
+      case 'CHF': return `CHF ${amount}/mo`;
+      default: return `$${amount}/mo`;
+    }
   }
 
   function getSelectedMode(tierId: string): 'default' | 'advanced' {
@@ -213,6 +225,11 @@ const SubscribePage: Component = () => {
         <h1 class="login-title">
           <ScrambleText text="Codeflare" class="login-title-scramble" />
         </h1>
+
+        <p class="login-subtitle">
+          Five coding agents in the palm of your hand.
+          Ready when you are, wherever you are.
+        </p>
 
         <Show when={!loading()} fallback={
           <div class="subscribe-loading">Loading...</div>

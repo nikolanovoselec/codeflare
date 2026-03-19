@@ -117,6 +117,7 @@ export interface AuthStatus {
   requestedAt?: string | null;
   onboardingComplete?: boolean;
   hasSubscribed?: boolean;
+  currency?: string;
 }
 
 export interface AuthProvider {

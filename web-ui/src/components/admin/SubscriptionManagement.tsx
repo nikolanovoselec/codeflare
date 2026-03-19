@@ -139,7 +139,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                   class="sub-mgmt-input"
                   value={hoursFromSeconds(selectedTier()!.monthlySeconds)}
                   disabled={selectedTierId() === 'unlimited'}
-                  onInput={(e) => updateField('monthlySeconds', secondsFromHours(e.currentTarget.value))}
+                  onChange={(e) => updateField('monthlySeconds', secondsFromHours(e.currentTarget.value))}
                 />
               </label>
 
@@ -151,7 +151,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                   min="0"
                   max="100"
                   value={selectedTier()!.maxSessions}
-                  onInput={(e) => updateField('maxSessions', parseInt(e.currentTarget.value) || 0)}
+                  onChange={(e) => updateField('maxSessions', parseInt(e.currentTarget.value) || 0)}
                 />
               </label>
 
@@ -162,7 +162,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                   class="sub-mgmt-input"
                   value={dollarsFromCents(selectedTier()!.priceMonthly)}
                   placeholder="0 = free"
-                  onInput={(e) => updateField('priceMonthly', centsToDollars(e.currentTarget.value))}
+                  onChange={(e) => updateField('priceMonthly', centsToDollars(e.currentTarget.value))}
                 />
               </label>
 
@@ -191,7 +191,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                       class="sub-mgmt-input"
                       value={dollarsFromCents(selectedTier()!.advancedPriceMonthly ?? selectedTier()!.priceMonthly)}
                       placeholder="Same as normal"
-                      onInput={(e) => updateField('advancedPriceMonthly', centsToDollars(e.currentTarget.value))}
+                      onChange={(e) => updateField('advancedPriceMonthly', centsToDollars(e.currentTarget.value))}
                     />
                     <span class="sub-mgmt-hint">Higher price for advanced mode</span>
                   </label>
@@ -205,7 +205,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                     min="0"
                     max="10000"
                     value={selectedTier()!.trialQuotaHours ?? selectedTier()!.trialDays ?? 0}
-                    onInput={(e) => updateField('trialQuotaHours', parseInt(e.currentTarget.value) || 0)}
+                    onChange={(e) => updateField('trialQuotaHours', parseInt(e.currentTarget.value) || 0)}
                   />
                 </label>
 
@@ -217,7 +217,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                     value={selectedTier()!.description}
                     placeholder="Shown on subscribe page"
                     maxLength={200}
-                    onInput={(e) => updateField('description', e.currentTarget.value)}
+                    onChange={(e) => updateField('description', e.currentTarget.value)}
                   />
                 </label>
             </div>
