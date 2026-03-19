@@ -615,21 +615,21 @@ export class container extends Container<Env> {
         if (!sessionId || !bucketName) {
           this.logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
           return; // Don't re-arm schedule — zombie DO, let it die
-        } else {
+        } else if (this.ctx.container?.running) {
+          // Only write metrics while container is running — prevents overwriting
+          // a "stopped" status that onStop() may have written concurrently.
+          // Read-modify-write only touches .metrics, never .status.
           const key = getSessionKey(bucketName, sessionId);
           const session = await this.env.KV.get<Session>(key, 'json');
-          if (!session) {
-            this.logger.info('collectMetrics: session not found in KV', { key });
-          } else {
-            session.metrics = {
+          if (session) {
+            const updated = { ...session, metrics: {
               cpu: health.cpu,
               mem: health.mem,
               hdd: health.hdd,
               syncStatus: health.syncStatus,
               updatedAt: new Date().toISOString(),
-            };
-            await this.env.KV.put(key, JSON.stringify(session));
-            this.logger.debug('collectMetrics: wrote metrics to KV', { key, cpu: health.cpu, mem: health.mem });
+            }};
+            await this.env.KV.put(key, JSON.stringify(updated));
           }
         }
       }
