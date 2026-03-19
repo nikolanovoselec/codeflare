@@ -73,7 +73,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
   const key = getPreferencesKey(bucketName);
   const existing = await c.env.KV.get<UserPreferences>(key, 'json') || {};
-  const updated: UserPreferences = { ...existing, ...parsed.data };
+  const updated: UserPreferences = { ...existing, ...parsed.data } as UserPreferences;
 
   await c.env.KV.put(key, JSON.stringify(updated));
 
