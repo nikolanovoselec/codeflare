@@ -673,7 +673,7 @@ export class container extends Container<Env> {
         this.logger.warn('Timekeeper ping failed', { error: err instanceof Error ? err.message : String(err) });
       }
     } else {
-      this.logger.debug('Timekeeper ping skipped', {
+      this.logger.info('Timekeeper ping skipped', {
         saasMode: isSaasModeActive(this.env.SAAS_MODE),
         stressTest: this.env.STRESS_TEST_MODE === 'active',
         bucketName: !!this._bucketName,
