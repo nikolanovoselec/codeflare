@@ -366,12 +366,7 @@ export async function getAuthStatus(): Promise<AuthStatus> {
   return fetchApi('/auth/status', {}, AuthStatusResponseSchema);
 }
 
-export async function requestAccess(turnstileToken: string): Promise<{ success: boolean }> {
-  return fetchApi('/auth/request-access', {
-    method: 'POST',
-    body: JSON.stringify({ turnstileToken }),
-  }, z.object({ success: z.boolean() }));
-}
+// requestAccess removed — replaced by subscribe() for self-service tier selection
 
 
 const UpdateUserTierResponseSchema = z.object({
