@@ -5,6 +5,7 @@ import {
   mdiContentPaste,
   mdiFileDocumentRefreshOutline,
   mdiRobotOutline,
+  mdiTimerSandComplete,
 } from '@mdi/js';
 import Icon from '../Icon';
 import type { Settings } from '../../lib/settings';
@@ -16,6 +17,8 @@ interface SessionSectionProps {
   fastStartEnabled: Accessor<boolean>;
   workspaceSyncEnabled: Accessor<boolean>;
   clipboardAccess: Accessor<boolean>;
+  sleepAfter: Accessor<string>;
+  canChangeSleepAfter: Accessor<boolean>;
   recreateDocsLoading: Accessor<boolean>;
   recreateDocsMessage: Accessor<string | null>;
   recreateDocsError: Accessor<string | null>;
@@ -25,6 +28,7 @@ interface SessionSectionProps {
   onSessionModeChange: (mode: 'default' | 'advanced') => void;
   onFastStartToggle: () => void;
   onWorkspaceSyncToggle: () => void;
+  onSleepAfterChange: (value: string) => void;
   onRecreateDocs: () => void;
   onRecreateAgentConfigs: () => void;
   updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
@@ -183,6 +187,38 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
               <span class="settings-error" data-testid="settings-recreate-agent-error">{error()}</span>
             )}
           </Show>
+        </div>
+      </section>
+
+      {/* Auto-sleep */}
+      <section class="settings-section">
+        <div class="settings-section-header">
+          <Icon path={mdiTimerSandComplete} size={16} />
+          <h3 class="settings-section-title">Auto-sleep</h3>
+        </div>
+        <div class="setting-row">
+          <label for="settings-sleep-after">Sleep after inactivity</label>
+          <select
+            id="settings-sleep-after"
+            class="settings-select"
+            value={props.sleepAfter()}
+            disabled={!props.canChangeSleepAfter()}
+            onChange={(e) => props.onSleepAfterChange(e.currentTarget.value)}
+            data-testid="settings-sleep-after-select"
+          >
+            <option value="5m">5 minutes</option>
+            <option value="15m">15 minutes</option>
+            <option value="30m">30 minutes</option>
+            <option value="1h">1 hour</option>
+            <option value="2h">2 hours</option>
+          </select>
+        </div>
+        <div class="setting-row setting-row--column-gap">
+          <span class="settings-hint" data-testid="settings-sleep-after-hint">
+            {props.canChangeSleepAfter()
+              ? 'Container stops after this idle duration. Takes effect on next session start.'
+              : 'Auto-sleep is managed by your administrator.'}
+          </span>
         </div>
       </section>
 

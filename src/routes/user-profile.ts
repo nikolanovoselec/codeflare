@@ -37,17 +37,21 @@ app.get('/', async (c) => {
   const kvRaw = await c.env.KV.get(`user:${user.email}`, 'json') as { onboardingComplete?: boolean } | null;
   const onboardingComplete = kvRaw?.onboardingComplete === true;
 
+  const subscriptionTier = user.subscriptionTier ?? user.accessTier;
+  const hasSubscribed = subscriptionTier !== 'pending' && subscriptionTier !== 'blocked';
+
   return c.json({
     email: user.email,
     authenticated: user.authenticated,
     role: user.role,
     accessTier: user.accessTier,
-    subscriptionTier: user.subscriptionTier ?? user.accessTier,
+    subscriptionTier,
     bucketName,
     workerName: c.env.CLOUDFLARE_WORKER_NAME || 'codeflare',
     onboardingActive: isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE),
     saasMode: isSaasModeActive(c.env.SAAS_MODE),
     onboardingComplete,
+    hasSubscribed,
   });
 });
 

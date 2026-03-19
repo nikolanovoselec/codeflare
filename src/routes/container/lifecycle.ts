@@ -47,6 +47,7 @@ function buildSetBucketNameBody(params: {
   cloudflareAccountId?: string;
   encryptionKey?: string;
   sessionMode: string;
+  sleepAfter?: string;
 }): string {
   return JSON.stringify({
     bucketName: params.bucketName,
@@ -66,6 +67,7 @@ function buildSetBucketNameBody(params: {
     cloudflareAccountId: params.cloudflareAccountId ?? null,
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
+    sleepAfter: params.sleepAfter ?? '30m',
   });
 }
 
@@ -264,6 +266,7 @@ export async function configureContainerDO(params: {
   cloudflareAccountId?: string;
   encryptionKey?: string;
   sessionMode: string;
+  sleepAfter?: string;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
   const { container, bucketName, containerId, logger } = params;
@@ -286,6 +289,7 @@ export async function configureContainerDO(params: {
     cloudflareAccountId: params.cloudflareAccountId,
     encryptionKey: params.encryptionKey,
     sessionMode: params.sessionMode,
+    sleepAfter: params.sleepAfter,
   });
 
   const needsBucketUpdate = storedBucketName !== bucketName;
@@ -453,6 +457,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     const sessionMode = resolveSessionMode(preferences);
+    const sleepAfter = preferences.sleepAfter || '30m';
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
     const cryptoKey = await getOrImportKey(c.env);
@@ -498,6 +503,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       cloudflareAccountId: deployKeys?.cloudflareAccountId,
       encryptionKey: c.env.ENCRYPTION_KEY,
       sessionMode,
+      sleepAfter,
       logger: reqLogger,
     });
 

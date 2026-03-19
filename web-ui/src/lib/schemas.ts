@@ -53,6 +53,7 @@ export const UserPreferencesSchema = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
+  sleepAfter: z.enum(['5m', '15m', '30m', '1h', '2h']).optional(),
 });
 
 // Preset API response schemas
@@ -95,6 +96,7 @@ export const UserResponseSchema = z.object({
   onboardingActive: z.boolean().optional(),
   saasMode: z.boolean().optional(),
   onboardingComplete: z.boolean().optional(),
+  hasSubscribed: z.boolean().optional(),
 });
 
 export const SessionsResponseSchema = z.object({

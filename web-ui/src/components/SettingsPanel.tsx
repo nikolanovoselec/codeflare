@@ -130,6 +130,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
         getUser().then((user) => {
           const tier = user.subscriptionTier ?? user.accessTier;
           if (tier) setLiveAccessTier(tier);
+          setUserHasSubscribed(user.hasSubscribed === true);
         }).catch(() => {});
       }
     }
@@ -151,6 +152,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
+  const sleepAfter = () => sessionStore.preferences.sleepAfter ?? '30m';
+  const [userHasSubscribed, setUserHasSubscribed] = createSignal(false);
+  const canChangeSleepAfter = () => isAdmin() || userHasSubscribed();
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
@@ -194,6 +198,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const handleSessionModeChange = (mode: 'default' | 'advanced') => {
     if (mode === currentSessionMode()) return;
     void sessionStore.updatePreferences({ sessionMode: mode });
+  };
+
+  const handleSleepAfterChange = (value: string) => {
+    if (value === sleepAfter()) return;
+    void sessionStore.updatePreferences({ sleepAfter: value as import('../types').SleepAfterOption });
   };
 
   const handleRecreateDocs = async () => {
@@ -310,6 +319,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               fastStartEnabled={fastStartEnabled}
               workspaceSyncEnabled={workspaceSyncEnabled}
               clipboardAccess={clipboardAccess}
+              sleepAfter={sleepAfter}
+              canChangeSleepAfter={canChangeSleepAfter}
               recreateDocsLoading={recreateDocsLoading}
               recreateDocsMessage={recreateDocsMessage}
               recreateDocsError={recreateDocsError}
@@ -319,6 +330,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               onSessionModeChange={handleSessionModeChange}
               onFastStartToggle={handleFastStartToggle}
               onWorkspaceSyncToggle={handleWorkspaceSyncToggle}
+              onSleepAfterChange={handleSleepAfterChange}
               onRecreateDocs={() => { void handleRecreateDocs(); }}
               onRecreateAgentConfigs={() => { void handleRecreateAgentConfigs(); }}
               updateSetting={updateSetting}

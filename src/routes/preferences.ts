@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { AgentTypeSchema, SessionModeSchema, type Env, type UserPreferences } from '../types';
+import { AgentTypeSchema, SessionModeSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
@@ -19,6 +19,7 @@ const UpdatePreferencesBody = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
+  sleepAfter: z.enum(SleepAfterOptions as unknown as [string, ...string[]]).optional(),
 }).strict();
 
 const preferencesPatchRateLimiter = createRateLimiter({

@@ -349,7 +349,7 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode } =
+      const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, sleepAfter: sleepAfterPref } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
@@ -368,6 +368,7 @@ export class container extends Container<Env> {
           cloudflareAccountId?: string;
           encryptionKey?: string;
           sessionMode?: string;
+          sleepAfter?: string;
         };
 
       // FIX-28: Idempotency — once bucket name is set, reject subsequent calls.
@@ -433,6 +434,11 @@ export class container extends Container<Env> {
           prefsChanged = true;
         }
 
+        // Update sleepAfter on restart
+        if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
+          this.sleepAfter = sleepAfterPref;
+        }
+
         // Update userEmail on restart (critical for Timekeeper pings)
         if (userEmail && userEmail !== this._userEmail) {
           this._userEmail = userEmail;
@@ -491,6 +497,12 @@ export class container extends Container<Env> {
         encryptionKey,
         sessionMode,
       });
+
+      // Apply user-configurable sleepAfter (validated values: 5m, 15m, 30m, 1h, 2h)
+      if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
+        this.sleepAfter = sleepAfterPref;
+        this.logger.info('sleepAfter set from user preference', { sleepAfter: sleepAfterPref });
+      }
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
         headers: { 'Content-Type': 'application/json' },

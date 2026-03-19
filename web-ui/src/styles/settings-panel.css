@@ -277,6 +277,22 @@
   padding: var(--space-1) 0;
 }
 
+.settings-select {
+  padding: 0.35rem 0.6rem;
+  background: rgba(24, 24, 27, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #fafafa;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  cursor: pointer;
+}
+
+.settings-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Clickable toggle row — entire row triggers toggle */
 .setting-row--clickable {
   cursor: pointer;
