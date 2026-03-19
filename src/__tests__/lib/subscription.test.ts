@@ -88,6 +88,8 @@ describe('SubscriptionTierConfig interface', () => {
       order: 4,
       isDefault: false,
       priceMonthly: 2900,
+      trialDays: 7,
+      description: 'For individual developers',
     };
     expect(config.id).toBe('standard');
     expect(config.monthlySeconds).toBe(36000);
@@ -104,6 +106,8 @@ describe('SubscriptionTierConfig interface', () => {
       order: 7,
       isDefault: false,
       priceMonthly: null,
+      trialDays: 14,
+      description: 'Enterprise-grade access',
     };
     expect(config.monthlySeconds).toBeNull();
   });
@@ -119,6 +123,8 @@ describe('SubscriptionTierConfig interface', () => {
       order: 0,
       isDefault: false,
       priceMonthly: null,
+      trialDays: 0,
+      description: '',
     };
     expect(config.priceMonthly).toBeNull();
   });
@@ -185,33 +191,32 @@ describe('getDefaultTiers', () => {
   it('each tier has a trialDays field (number)', () => {
     const tiers = getDefaultTiers();
     for (const tier of tiers) {
-      expect(tier).toHaveProperty('trialDays');
-      expect(typeof (tier as Record<string, unknown>).trialDays).toBe('number');
+      expect(typeof tier.trialDays).toBe('number');
     }
   });
 
   it('free tier has trialDays=0', () => {
     const tiers = getDefaultTiers();
     const free = tiers.find((t) => t.id === 'free')!;
-    expect((free as Record<string, unknown>).trialDays).toBe(0);
+    expect(free.trialDays).toBe(0);
   });
 
   it('standard tier has trialDays=7', () => {
     const tiers = getDefaultTiers();
     const standard = tiers.find((t) => t.id === 'standard')!;
-    expect((standard as Record<string, unknown>).trialDays).toBe(7);
+    expect(standard.trialDays).toBe(7);
   });
 
   it('max tier has trialDays=7', () => {
     const tiers = getDefaultTiers();
     const max = tiers.find((t) => t.id === 'max')!;
-    expect((max as Record<string, unknown>).trialDays).toBe(7);
+    expect(max.trialDays).toBe(7);
   });
 
   it('unlimited tier has trialDays=14', () => {
     const tiers = getDefaultTiers();
     const unlimited = tiers.find((t) => t.id === 'unlimited')!;
-    expect((unlimited as Record<string, unknown>).trialDays).toBe(14);
+    expect(unlimited.trialDays).toBe(14);
   });
 
   // ---------------------------------------------------------------------------
@@ -221,8 +226,7 @@ describe('getDefaultTiers', () => {
   it('each tier has a description field (string)', () => {
     const tiers = getDefaultTiers();
     for (const tier of tiers) {
-      expect(tier).toHaveProperty('description');
-      expect(typeof (tier as Record<string, unknown>).description).toBe('string');
+      expect(typeof tier.description).toBe('string');
     }
   });
 
@@ -231,8 +235,7 @@ describe('getDefaultTiers', () => {
     const subscribable = ['free', 'standard', 'max', 'unlimited'];
     for (const id of subscribable) {
       const tier = tiers.find((t) => t.id === id)!;
-      const desc = (tier as Record<string, unknown>).description as string;
-      expect(desc.length).toBeGreaterThan(0);
+      expect(tier.description.length).toBeGreaterThan(0);
     }
   });
 });
