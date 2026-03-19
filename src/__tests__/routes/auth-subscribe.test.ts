@@ -345,8 +345,8 @@ describe('POST /auth/subscribe', () => {
     const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'standard' });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { trialDays: number };
-    expect(body.trialDays).toBe(0);
+    const body = await res.json() as { trialQuotaHours: number };
+    expect(body.trialQuotaHours).toBe(0);
 
     const userData = await mockKV.get('user:pending@example.com', 'json') as Record<string, unknown>;
     expect(userData.trialBillingTriggered).toBe(false);
@@ -383,8 +383,8 @@ describe('POST /auth/subscribe', () => {
     const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'free' });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { trialDays: number };
-    expect(body.trialDays).toBe(0);
+    const body = await res.json() as { trialQuotaHours: number };
+    expect(body.trialQuotaHours).toBe(0);
 
     const userData = await mockKV.get('user:pending@example.com', 'json') as Record<string, unknown>;
     expect(userData.subscriptionExpiresAt).toBeUndefined();
@@ -394,7 +394,7 @@ describe('POST /auth/subscribe', () => {
   // Response shape
   // ---------------------------------------------------------------------------
 
-  it('returns { success, tier, trialDays, onboardingComplete } on success', async () => {
+  it('returns { success, tier, trialQuotaHours, onboardingComplete } on success', async () => {
     mockTurnstileSuccess();
     mockKV._set('user:pending@example.com', {
       addedBy: 'jit',
@@ -410,8 +410,8 @@ describe('POST /auth/subscribe', () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body).toHaveProperty('success', true);
     expect(body).toHaveProperty('tier', 'standard');
-    expect(body).toHaveProperty('trialDays');
-    expect(typeof body.trialDays).toBe('number');
+    expect(body).toHaveProperty('trialQuotaHours');
+    expect(typeof body.trialQuotaHours).toBe('number');
     expect(body).toHaveProperty('onboardingComplete');
   });
 
