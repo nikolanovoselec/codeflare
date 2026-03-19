@@ -5,6 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
+import { getTierConfig } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
