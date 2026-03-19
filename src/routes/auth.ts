@@ -48,11 +48,10 @@ app.get('/status', requireIdentity, async (c) => {
   // Read user data from KV for additional fields
   const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
 
-  // Include turnstile site key and requestedAt for pending users
-  let turnstileSiteKey: string | null = null;
+  // Always include turnstile site key in SaaS mode (needed by subscribe page)
+  const turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
   let requestedAt: string | null = null;
   if (subscriptionTier === 'pending') {
-    turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
     if (userData && typeof userData.requestedAt === 'string') {
       requestedAt = userData.requestedAt;
     }
