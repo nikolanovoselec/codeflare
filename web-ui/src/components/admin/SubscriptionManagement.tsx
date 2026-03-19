@@ -3,7 +3,7 @@
  * Tier dropdown to select one tier, then edit that tier's config.
  * Paid tiers have normal + advanced pricing flavors.
  */
-import { Component, createSignal, createMemo, onMount, Show, For } from 'solid-js';
+import { Component, createSignal, createMemo, createEffect, onMount, Show, For } from 'solid-js';
 import { mdiArrowExpandLeft } from '@mdi/js';
 import { getTiers, updateTiers } from '../../api/client';
 import Icon from '../Icon';
@@ -53,6 +53,13 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
 
   const editableTiers = () => allTiers().filter((t) => EDITABLE_TIERS.has(t.id));
   const selectedTier = createMemo(() => allTiers().find((t) => t.id === selectedTierId()) ?? null);
+
+  // Sync select DOM value after For re-renders options (prop:value alternative for TS compat)
+  let selectRef: HTMLSelectElement | undefined;
+  createEffect(() => {
+    const id = selectedTierId();
+    if (selectRef) selectRef.value = id;
+  });
 
   const updateField = (field: string, value: unknown) => {
     setAllTiers((prev) =>
@@ -119,7 +126,8 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
           <label class="sub-mgmt-selector-label">Select tier</label>
           <select
             class="sub-mgmt-select"
-            prop:value={selectedTierId()}
+            ref={selectRef}
+            value={selectedTierId()}
             onChange={(e) => setSelectedTierId(e.currentTarget.value)}
           >
             <For each={editableTiers()}>
