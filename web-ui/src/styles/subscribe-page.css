@@ -125,6 +125,28 @@
 }
 .subscribe-mode-card-features--pro .subscribe-mode-card-feature svg { color: #8b5cf6; }
 
+/* Pro features expand/collapse (grid-template-rows transition) */
+.subscribe-pro-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 250ms ease-out;
+}
+
+.subscribe-pro-expand--open {
+  grid-template-rows: 1fr;
+}
+
+.subscribe-pro-expand-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subscribe-pro-expand {
+    transition: none;
+  }
+}
+
 /* ── Detail panel ── */
 
 .subscribe-detail-panel {

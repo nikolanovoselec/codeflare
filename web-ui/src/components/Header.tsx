@@ -16,10 +16,12 @@ import {
   mdiClose,
   mdiFileCabinet,
   mdiOpenInNew,
+  mdiClockTimeEightOutline,
 } from '@mdi/js';
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
 import { sessionStore, getUsageState } from '../stores/session';
+import { getSleepTimerInfo } from '../lib/sleep-timer';
 
 import { terminalStore } from '../stores/terminal';
 import { md5 } from '../lib/md5';
@@ -66,12 +68,23 @@ const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
   const [showBookmarksMenu, setShowBookmarksMenu] = createSignal(false);
   const [showCreateBookmark, setShowCreateBookmark] = createSignal(false);
+  const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
   const [bookmarkName, setBookmarkName] = createSignal('');
   const [bookmarkError, setBookmarkError] = createSignal<string | null>(null);
   const [editingPresetId, setEditingPresetId] = createSignal<string | null>(null);
   const [editingPresetName, setEditingPresetName] = createSignal('');
   let userMenuRef: HTMLDivElement | undefined;
   let bookmarksMenuRef: HTMLDivElement | undefined;
+  let timerMenuRef: HTMLDivElement | undefined;
+
+  const activeSession = createMemo(() =>
+    props.sessions.find(s => s.id === props.activeSessionId)
+  );
+  const timerInfo = createMemo(() => {
+    const session = activeSession();
+    if (!session || session.status !== 'running') return null;
+    return getSleepTimerInfo(session.lastActiveAt, sessionStore.preferences.sleepAfter);
+  });
   let bookmarkInputRef: HTMLInputElement | undefined;
   let renameInputRef: HTMLInputElement | undefined;
 
@@ -95,6 +108,9 @@ const Header: Component<HeaderProps> = (props) => {
   const handleClickOutside = (e: MouseEvent) => {
     if (showUserMenu() && userMenuRef && !userMenuRef.contains(e.target as Node)) {
       setShowUserMenu(false);
+    }
+    if (showTimerDropdown() && timerMenuRef && !timerMenuRef.contains(e.target as Node)) {
+      setShowTimerDropdown(false);
     }
     if (!showBookmarksMenu()) return;
     if (bookmarksMenuRef && !bookmarksMenuRef.contains(e.target as Node)) {
@@ -311,6 +327,31 @@ const Header: Component<HeaderProps> = (props) => {
             </div>
           </Show>
         </div>
+
+        {/* Sleep timer dropdown */}
+        <Show when={timerInfo()}>
+          {(info) => (
+            <div class="header-timer-wrapper" ref={timerMenuRef}>
+              <button
+                type="button"
+                class={`header-timer-button header-timer-button--${info().severity}`}
+                data-testid="header-timer-button"
+                title={info().bucket}
+                onClick={() => setShowTimerDropdown(!showTimerDropdown())}
+              >
+                <Icon path={mdiClockTimeEightOutline} size={20} />
+              </button>
+              <Show when={showTimerDropdown()}>
+                <div class="header-timer-dropdown" data-testid="header-timer-dropdown">
+                  <div class="header-timer-bucket">{info().bucket}</div>
+                  <p class="header-timer-explanation">
+                    When this timer expires, your session will stop. Tracks time since last terminal input and the session idle timeout. Configurable in settings.
+                  </p>
+                </div>
+              </Show>
+            </div>
+          )}
+        </Show>
 
         {/* Bookmarks button */}
         <div class="header-bookmarks-wrapper" ref={bookmarksMenuRef}>

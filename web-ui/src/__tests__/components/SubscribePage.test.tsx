@@ -171,6 +171,28 @@ describe('SubscribePage', () => {
       });
     });
 
+    it('pro expand wrapper is always in DOM', async () => {
+      await openTierView();
+      const expand = screen.getByTestId('mode-chooser').querySelector('.subscribe-pro-expand');
+      expect(expand).toBeInTheDocument();
+    });
+
+    it('pro expand has open class when Pro selected', async () => {
+      await openTierView();
+      fireEvent.click(screen.getByTestId('mode-card-pro'));
+
+      await waitFor(() => {
+        const expand = screen.getByTestId('mode-chooser').querySelector('.subscribe-pro-expand');
+        expect(expand).toHaveClass('subscribe-pro-expand--open');
+      });
+    });
+
+    it('pro expand does NOT have open class when Standard selected', async () => {
+      await openTierView();
+      const expand = screen.getByTestId('mode-chooser').querySelector('.subscribe-pro-expand');
+      expect(expand).not.toHaveClass('subscribe-pro-expand--open');
+    });
+
     it('clicking mode card keeps everything visible', async () => {
       await openTierView();
       fireEvent.click(screen.getByTestId('mode-card-pro'));

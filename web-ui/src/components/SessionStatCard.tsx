@@ -1,10 +1,11 @@
-import { Component, Show, createMemo } from 'solid-js';
-import { mdiConsole, mdiChip, mdiMemory, mdiHarddisk, mdiDotsVertical } from '@mdi/js';
+import { Component, Show, createMemo, createSignal } from 'solid-js';
+import { mdiConsole, mdiChip, mdiMemory, mdiHarddisk, mdiDotsVertical, mdiClockTimeEightOutline } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, SessionStatus } from '../types';
 import { sessionStore } from '../stores/session';
 import { terminalStore } from '../stores/terminal';
 import { AGENT_ICON_MAP } from '../lib/terminal-config';
+import { getSleepTimerInfo } from '../lib/sleep-timer';
 import '../styles/stat-cards.css';
 import '../styles/session-stat-card.css';
 
@@ -44,6 +45,12 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   };
   const isPulsing = () => statusPulses[props.session.status];
 
+  const timerInfo = createMemo(() => {
+    if (props.session.status !== 'running') return null;
+    return getSleepTimerInfo(props.session.lastActiveAt, sessionStore.preferences.sleepAfter);
+  });
+  const [showTimerTooltip, setShowTimerTooltip] = createSignal(false);
+
   const getProgress = (): number => {
     const progress = sessionStore.getInitProgressForSession(props.session.id);
     return progress?.progress || 0;
@@ -64,6 +71,29 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         <span
           class={`session-stat-card__dot session-stat-card__dot--${dotVariant()} ${isPulsing() ? 'session-stat-card__dot--pulse' : ''}`}
         />
+        <Show when={timerInfo()}>
+          {(info) => (
+            <>
+              <button
+                type="button"
+                class={`session-stat-card__timer session-stat-card__timer--${info().severity}`}
+                data-testid={`session-stat-card-${props.session.id}-timer`}
+                title={info().bucket}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTimerTooltip(!showTimerTooltip());
+                }}
+              >
+                <Icon path={mdiClockTimeEightOutline} size={14} />
+              </button>
+              <Show when={showTimerTooltip()}>
+                <span class="session-stat-card__timer-tooltip">
+                  When this timer expires, your session will stop. Tracks time since last terminal input and the session idle timeout. Configurable in settings.
+                </span>
+              </Show>
+            </>
+          )}
+        </Show>
         <button
           type="button"
           class="session-stat-card__menu-trigger"

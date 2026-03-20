@@ -303,6 +303,14 @@ const SubscribePage: Component = () => {
     return `${hours} / month  ·  ${sessions}`;
   });
 
+  /** Scramble animations for Pro mode expand */
+  const scrambledProLabel = useScrambleText(
+    () => globalMode() === 'advanced' ? '+ Pro features' : '',
+  );
+  const scrambledProFeatures = PRO_MODE_FEATURES.map((f) =>
+    useScrambleText(() => globalMode() === 'advanced' ? f.text : ''),
+  );
+
   /** Lifeline fill percentage (0% = first stop, 100% = last stop) */
   const lifelineProgress = createMemo(() => {
     const idx = TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]);
@@ -459,21 +467,23 @@ const SubscribePage: Component = () => {
                     </For>
                   </ul>
 
-                  {/* Pro features (visible when Pro selected) */}
-                  <Show when={globalMode() === 'advanced'}>
-                    <div class="subscribe-mode-separator" />
-                    <p class="subscribe-mode-pro-label">+ Pro features</p>
-                    <ul class="subscribe-mode-card-features subscribe-mode-card-features--pro">
-                      <For each={PRO_MODE_FEATURES}>
-                        {(f) => (
-                          <li class="subscribe-mode-card-feature">
-                            <Icon path={f.icon} size={16} />
-                            <span>{f.text}</span>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
-                  </Show>
+                  {/* Pro features (animated expand/collapse) */}
+                  <div class={`subscribe-pro-expand ${globalMode() === 'advanced' ? 'subscribe-pro-expand--open' : ''}`}>
+                    <div class="subscribe-pro-expand-inner">
+                      <div class="subscribe-mode-separator" />
+                      <p class="subscribe-mode-pro-label">{scrambledProLabel()}</p>
+                      <ul class="subscribe-mode-card-features subscribe-mode-card-features--pro">
+                        <For each={PRO_MODE_FEATURES}>
+                          {(f, i) => (
+                            <li class="subscribe-mode-card-feature">
+                              <Icon path={f.icon} size={16} />
+                              <span>{scrambledProFeatures()[i()]}</span>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Lifeline — 90° stair-step dashed path */}
