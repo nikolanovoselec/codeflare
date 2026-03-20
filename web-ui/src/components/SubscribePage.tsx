@@ -174,7 +174,7 @@ const SubscribePage: Component = () => {
 
   // Auto-scroll to tier phase on mobile when entering Phase 2
   createEffect(() => {
-    if (subscribePhase() === 'tier' && tierPhaseRef) {
+    if (subscribePhase() === 'tier' && tierPhaseRef?.scrollIntoView) {
       tierPhaseRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   });
