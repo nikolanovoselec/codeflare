@@ -62,7 +62,7 @@ describe('getSleepTimerInfo', () => {
   });
 
   it('works with longer sleepAfter values', () => {
-    const lastActiveAt = new Date(now - 55 * 60_000).toISOString(); // 55 min ago, 5 min remaining
+    const lastActiveAt = new Date(now - 53 * 60_000).toISOString(); // 53 min ago, 7 min remaining
     const result = getSleepTimerInfo(lastActiveAt, '1h');
     expect(result).not.toBeNull();
     expect(result!.severity).toBe('warning');
