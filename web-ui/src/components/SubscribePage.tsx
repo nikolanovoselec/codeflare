@@ -342,12 +342,6 @@ const SubscribePage: Component = () => {
     useScrambleText(() => globalMode() === 'advanced' ? f.text : ''),
   );
 
-  /** Lifeline fill percentage (0% = first stop, 100% = last stop) */
-  const lifelineProgress = createMemo(() => {
-    const idx = TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]);
-    if (idx < 0) return 0;
-    return (idx / (TIER_ORDER.length - 1)) * 100;
-  });
 
   /** Content width: wide for mode and tier phases */
   const contentClass = () => {
