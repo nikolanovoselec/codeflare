@@ -152,20 +152,23 @@ describe('SubscribePage', () => {
       expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
     });
 
-    it('Standard card shows feature bullets', async () => {
+    it('shows Standard feature bullets', async () => {
       await openTierView();
 
-      const stdCard = screen.getByTestId('mode-card-standard');
-      expect(stdCard.textContent).toMatch(/terminal/i);
-      expect(stdCard.textContent).toMatch(/file browser/i);
+      const card = screen.getByTestId('mode-chooser');
+      expect(card.textContent).toMatch(/terminal/i);
+      expect(card.textContent).toMatch(/file browser/i);
     });
 
-    it('Pro card shows feature bullets', async () => {
+    it('shows Pro feature bullets when Pro selected', async () => {
       await openTierView();
+      fireEvent.click(screen.getByTestId('mode-card-pro'));
 
-      const proCard = screen.getByTestId('mode-card-pro');
-      expect(proCard.textContent).toMatch(/knowledge graph/i);
-      expect(proCard.textContent).toMatch(/multi-llm/i);
+      await waitFor(() => {
+        const card = screen.getByTestId('mode-chooser');
+        expect(card.textContent).toMatch(/knowledge graph/i);
+        expect(card.textContent).toMatch(/multi-llm/i);
+      });
     });
 
     it('clicking mode card keeps everything visible', async () => {
