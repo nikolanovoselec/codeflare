@@ -155,15 +155,17 @@ describe('SubscribePage', () => {
     it('Standard card shows feature bullets', async () => {
       await openTierView();
 
-      expect(screen.getByText(/terminal/i)).toBeInTheDocument();
-      expect(screen.getByText(/file browser/i)).toBeInTheDocument();
+      const stdCard = screen.getByTestId('mode-card-standard');
+      expect(stdCard.textContent).toMatch(/terminal/i);
+      expect(stdCard.textContent).toMatch(/file browser/i);
     });
 
     it('Pro card shows feature bullets', async () => {
       await openTierView();
 
-      expect(screen.getByText(/knowledge graph/i)).toBeInTheDocument();
-      expect(screen.getByText(/multi-llm/i)).toBeInTheDocument();
+      const proCard = screen.getByTestId('mode-card-pro');
+      expect(proCard.textContent).toMatch(/knowledge graph/i);
+      expect(proCard.textContent).toMatch(/multi-llm/i);
     });
 
     it('clicking mode card keeps everything visible', async () => {
