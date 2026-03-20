@@ -110,6 +110,8 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 **SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 60-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
 
+**Fetch proxy bypass:** The `fetch()` override proxies requests via `getTcpPort().fetch()` instead of `super.fetch()` (which calls the SDK's `containerFetch()`). This is critical because `containerFetch()` calls `renewActivityTimeout()` internally, resetting the idle timer on every WebSocket reconnection — defeating the input-change-based renewal in `collectMetrics()`. By using `getTcpPort().fetch()`, only explicit `renewActivityTimeout()` calls (triggered by new user input) reset the timer.
+
 **`collectMetrics()` Input-Change Detection (every 60s):**
 1. Checks `this.ctx.container?.running` - returns early (no re-arm) if container is dead
 2. Fetches `/activity` via `getTcpPort()` - uses input-change detection to decide whether to renew `sleepAfter`:

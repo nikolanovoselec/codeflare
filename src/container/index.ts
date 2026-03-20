@@ -333,15 +333,21 @@ export class container extends Container<Env> {
       });
     }
 
-    // Inject container auth token for requests proxied to the container
-    if (this._containerAuthToken) {
-      const authedRequest = new Request(request, {
-        headers: new Headers(request.headers),
-      });
-      authedRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
-      return super.fetch(authedRequest);
+    // Proxy via getTcpPort().fetch() instead of super.fetch() to avoid
+    // resetting the sleepAfter timer on every request. The SDK's
+    // containerFetch() calls renewActivityTimeout() internally, which
+    // resets the idle timer on every WS reconnect — defeating the
+    // input-change-based renewal in collectMetrics(). By proxying
+    // directly to the container port, only explicit renewActivityTimeout()
+    // calls in collectMetrics() (on new user input) reset the timer.
+    const tcpPort = this.ctx.container.getTcpPort(this.defaultPort);
+    const proxyRequest = this._containerAuthToken
+      ? new Request(request, { headers: new Headers(request.headers) })
+      : request;
+    if (this._containerAuthToken && proxyRequest !== request) {
+      (proxyRequest as Request).headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
     }
-    return super.fetch(request);
+    return tcpPort.fetch(proxyRequest);
   }
 
   /**

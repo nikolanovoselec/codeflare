@@ -216,7 +216,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
         <div class="setting-row setting-row--column-gap">
           <span class="settings-hint" data-testid="settings-sleep-after-hint">
             {props.canChangeSleepAfter()
-              ? 'Container stops after this idle duration. Takes effect on next session start.'
+              ? 'Container stops after this idle duration. Takes effect in 2\u20133 minutes.'
               : 'Auto-sleep is managed by your administrator.'}
           </span>
         </div>

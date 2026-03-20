@@ -410,11 +410,19 @@
           position: relative;
         }
 
+        .header-usage-inline {
+          margin-left: auto;
+          font-size: 0.65rem;
+          color: var(--color-text-dimmed);
+          font-family: 'JetBrains Mono', 'Fira Code', monospace;
+          white-space: nowrap;
+        }
+
         .header-user-dropdown {
           position: absolute;
           top: calc(100% + 8px);
           right: 0;
-          min-width: 180px;
+          white-space: nowrap;
           background: var(--color-bg-elevated);
           border: 1px solid var(--color-border-default);
           border-radius: var(--radius-lg);
@@ -461,7 +469,7 @@
 
         .header-user-dropdown--portal {
           position: fixed;
-          min-width: 180px;
+          white-space: nowrap;
           border-radius: var(--radius-lg);
           padding: var(--space-1);
           animation: header-bookmark-slide-in 150ms ease-out;

@@ -21,6 +21,7 @@ import {
   mdiFlash,
   mdiAccountGroupOutline,
   mdiAccountCircle,
+  mdiMenuUp,
   mdiConsole,
   mdiFileDocumentOutline,
   mdiRobotOutline,
@@ -524,20 +525,20 @@ const SubscribePage: Component = () => {
                   </div>
                 </div>
 
-                {/* Lifeline — straight dashed line from Free to Team */}
+                {/* Lifeline — straight dotted line through icon centers */}
                 <div class="subscribe-lifeline" data-testid="lifeline-rail">
-                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 20" preserveAspectRatio="none">
-                    {/* Background: straight horizontal dashed line */}
+                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 4" preserveAspectRatio="none">
+                    {/* Background: dotted line */}
                     <line
-                      x1="50" y1="10" x2="450" y2="10"
-                      stroke="rgba(255,255,255,0.06)" stroke-width="1.5"
-                      stroke-dasharray="6 4" stroke-linecap="square"
+                      x1="50" y1="2" x2="450" y2="2"
+                      stroke="rgba(255,255,255,0.15)" stroke-width="2"
+                      stroke-dasharray="2 6" stroke-linecap="round"
                     />
                     {/* Active fill */}
                     <line
-                      x1="50" y1="10" x2="450" y2="10"
-                      stroke="#3b82f6" stroke-width="1.5"
-                      stroke-dasharray="6 4" stroke-linecap="square"
+                      x1="50" y1="2" x2="450" y2="2"
+                      stroke="#3b82f6" stroke-width="2"
+                      stroke-dasharray="2 6" stroke-linecap="round"
                       clip-path={`inset(0 ${100 - lifelineProgress()}% 0 0)`}
                       style={{ transition: 'clip-path 400ms ease' }}
                     />
@@ -565,7 +566,7 @@ const SubscribePage: Component = () => {
                                 <span class="subscribe-lifeline-label">{td().displayName}</span>
                                 <Show when={isActive() && currentTierId() === tierId}>
                                   <div class="subscribe-lifeline-you">
-                                    <Icon path={mdiAccountCircle} size={18} />
+                                    <Icon path={mdiMenuUp} size={20} />
                                     <span>This is you</span>
                                   </div>
                                 </Show>
