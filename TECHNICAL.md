@@ -106,7 +106,7 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '3m'` class default (overridden per user from preferences on session start — see [Auto-sleep](#auto-sleep-configurable-sleepafter)). SDK-managed lifecycle, renewed only on new user input via input-change detection.
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '5m'` class default (overridden per user from preferences on session start — see [Auto-sleep](#auto-sleep-configurable-sleepafter)). SDK-managed lifecycle, renewed only on new user input via input-change detection.
 
 **SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 60-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
 
@@ -834,10 +834,11 @@ All users land on `/app/subscribe` with an identical two-phase layout. The only 
 
 **Phase 2 — Tier view** (after clicking "See subscription tiers"):
 - Replaces Phase 1 content entirely (same logo/title/subtitle remain)
-- **Mode selector**: two clickable columns (Standard / Pro) with vertical divider, MDI icon bullet lists for each mode's features. Clicking a column selects that mode globally
-- **Tier grid**: 5 tier cards (Free, Starter, Advanced, Max, Team) with prices that react to selected mode (Standard shows `priceMonthly`, Pro shows `advancedPriceMonthly`). Each card shows monthly hours, max sessions, trial badge
-- **Action buttons**: "Get Started" / "Start Trial" (pending) or "Current Plan" (disabled) / "Switch Plan" (active)
-- Turnstile CAPTCHA (pending users only)
+- **Mode card**: merged card with Standard/Pro toggle at top. Standard features always visible; Pro features animate in via CSS `grid-template-rows: 0fr → 1fr` transition with `useScrambleText` decrypt animation on all Pro text (separator, label, bullet items)
+- **Lifeline rail**: horizontal rail with 5 tier stops (Free → Starter → Advanced → Max → Team), each with MDI icon. 90° stair-step SVG dashed path with blue fill tracking selection. Default: `advanced` for pending users, `currentTierId` for active users. "You" marker at active user's current tier
+- **Detail panel**: single panel showing selected tier's name, price (large), tagline, hours/month, sessions, feature checklist, trial badge, CTA button. Tier name, price, and specs use `useScrambleText` for decrypt animation on selection change
+- **Action buttons**: "Get Started" (free) / "Start Trial" (paid) / "Switch Plan" (active, different tier) / "Current Plan" (active, same tier, disabled)
+- Turnstile CAPTCHA (pending users only — rendered via explicit `turnstile.render()` since widget mounts after script auto-scan)
 - "Back" button returns to Phase 1
 
 **Status icons by user state:**
@@ -847,7 +848,7 @@ All users land on `/app/subscribe` with an identical two-phase layout. The only 
 | Active | Checkmark | Green (`#22c55e`) | Email badge + "Continue" link to `/app/` |
 | Blocked | Cross | Red (`#ef4444`) | Blocked message, no tier button |
 
-**Content width:** Phase 1 uses narrow layout (`login-content`), Phase 2 uses wide layout (`subscribe-content`, max-width 960px). Mobile: mode columns stack vertically, tier grid goes single-column.
+**Content width:** Phase 1 uses narrow layout (`login-content`), Phase 2 uses wide layout (`subscribe-content`, max-width 680px). Mobile: mode card compacts, lifeline labels shrink, 44px minimum tap targets.
 
 ### Login Redirect Flow
 
@@ -2092,7 +2093,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 **User preference:** `sleepAfter` (type: `SleepAfterOption`, optional) in `UserPreferences`. Allowed values: `5m`, `15m`, `30m`, `1h`, `2h`. Default when not set: `30m` (applied by container lifecycle route).
 
-**Class default:** `override sleepAfter = '3m'` in `container/index.ts` — this is the fallback if no preference is sent via `setBucketName`. In practice, the lifecycle route always passes the user's preference (defaulting to `'30m'`).
+**Class default:** `override sleepAfter = '5m'` in `container/index.ts` — this is the SDK fallback if no preference is sent via `setBucketName`. Set to match the minimum user-configurable value. In practice, the lifecycle route always passes the user's preference (defaulting to `'30m'`).
 
 **Data flow:**
 1. User selects auto-sleep duration in Settings > Session Defaults > Auto-sleep dropdown
@@ -2112,6 +2113,12 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 **Settings UI:** Rendered in `SessionSection.tsx` as a `<select>` dropdown with 5 options. `SettingsPanel.tsx` fetches `hasSubscribed` from `/api/user` when the panel opens to determine if the dropdown should be enabled. The `canChangeSleepAfter` accessor returns `isAdmin() || userHasSubscribed()`.
 
 **`SleepAfterOption` type:** Defined in `src/types.ts` and `web-ui/src/types.ts`. The `SleepAfterOptions` array (`['5m', '15m', '30m', '1h', '2h']`) is also exported from `src/types.ts` for use in the zod validation schema.
+
+**Sleep timer UI (`web-ui/src/lib/sleep-timer.ts`):** Frontend displays a countdown clock icon when a session's idle timeout is approaching. Computes `remainingMs = sleepAfterMs - (now - lastActiveAt)` from batch-status data. Only visible when < 10 min remaining. Orange pulse at < 10 min, red faster pulse at < 5 min. Hidden for stopped sessions or when `lastActiveAt` is null.
+
+- **Session cards** (`SessionStatCard.tsx`): Clock icon (`mdiClockTimeEightOutline`) between status dot and menu trigger. Click shows inline tooltip with explanation text (same pattern as Workspace tooltip in `FileList.tsx`).
+- **Header toolbar** (`Header.tsx`): Clock icon between avatar and bookmarks button. Click shows dropdown with countdown bucket + explanation text.
+- **Data source:** `lastActiveAt` written to KV session record by `collectMetrics` every 60s (from `lastSeenInputAt` timestamp). Read by `batch-status` endpoint and passed to frontend via 5s session list poll.
 
 ---
 
@@ -2579,7 +2586,7 @@ Notes:
 - R2: First 10 GB free, $0.015/GB/month after
 - Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
 
-Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
+Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (default 30m, configurable 5m–2h) of no user input. Hibernated containers = zero cost.
 
 ---
 
