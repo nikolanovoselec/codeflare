@@ -1,6 +1,5 @@
 /* ==========================================================================
    Subscribe Page — extends login-page.css with subscribe-specific styles
-   (status icons, action button, turnstile, polling, email badge, logout)
    ========================================================================== */
 
 @keyframes pulseDot {
@@ -8,79 +7,12 @@
   50% { opacity: 0.4; transform: scale(0.7); }
 }
 
-/* Wider content area for subscribe page */
+/* Wider content area for tier view */
 .subscribe-content {
   max-width: 960px;
 }
 
-/* Features comparison section */
-.subscribe-features {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  width: 100%;
-}
-
-.subscribe-features-col {
-  background: rgba(24, 24, 27, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 1rem 1.25rem;
-}
-
-.subscribe-features-heading {
-  margin: 0 0 0.75rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #fafafa;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-}
-
-.subscribe-feature-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.75rem;
-  color: #a1a1aa;
-  padding: 0.2rem 0;
-}
-
-.subscribe-feature-check {
-  color: #22c55e;
-  font-size: 0.8rem;
-  flex-shrink: 0;
-}
-
-/* Mode toggle inside tier card */
-.subscribe-mode-toggle {
-  display: flex;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.subscribe-mode-btn {
-  flex: 1;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.65rem;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-weight: 500;
-  border: none;
-  background: transparent;
-  color: #71717a;
-  cursor: pointer;
-  transition: all 150ms ease;
-}
-
-.subscribe-mode-btn--active {
-  background: rgba(59, 130, 246, 0.2);
-  color: #fafafa;
-}
-
-.subscribe-mode-btn:hover:not(.subscribe-mode-btn--active) {
-  color: #a1a1aa;
-}
+/* ── Status icons ── */
 
 .subscribe-status-icon {
   color: var(--color-accent, #3b82f6);
@@ -131,11 +63,28 @@
   display: inline-block;
 }
 
-.subscribe-turnstile {
-  margin-bottom: 1rem;
-  display: flex;
-  justify-content: center;
+.subscribe-status {
+  text-align: center;
 }
+
+.subscribe-loading {
+  text-align: center;
+  color: #a1a1aa;
+  padding: 2rem;
+}
+
+.subscribe-error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+/* ── Action & logout buttons ── */
 
 .subscribe-action-button {
   display: inline-block;
@@ -160,37 +109,9 @@
   transform: translateY(-1px);
 }
 
-.subscribe-action-button:active:not(:disabled) {
-  transform: scale(0.98) translateY(0);
-}
-
 .subscribe-action-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.subscribe-polling {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-}
-
-.subscribe-pulse {
-  width: 8px;
-  height: 8px;
-  background: var(--color-accent, #3b82f6);
-  border-radius: 50%;
-  animation: pulseDot 2s ease-in-out infinite;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
-}
-
-.subscribe-polling-text {
-  font-size: 0.75rem;
-  color: #52525b;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  letter-spacing: 0.03em;
 }
 
 .subscribe-logout-button {
@@ -198,7 +119,6 @@
   padding: 0.625rem 1.5rem;
   background: rgba(24, 24, 27, 0.85);
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   color: #a1a1aa;
@@ -217,131 +137,198 @@
   transform: translateY(-1px);
 }
 
-.subscribe-logout-button:active {
-  transform: scale(0.98) translateY(0);
-}
+/* ── Mode pill toggle (Standard / Pro) ── */
 
-.subscribe-status {
-  text-align: center;
-}
-
-.subscribe-loading {
-  text-align: center;
-  color: #a1a1aa;
-  padding: 2rem;
-}
-
-.subscribe-error {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+.subscribe-mode-pill {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  padding: 0.5rem 1rem;
-  margin-bottom: 1rem;
-  font-size: 0.8rem;
-  text-align: center;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+  background: rgba(24, 24, 27, 0.6);
 }
 
-/* Tier selection grid — 5 cards */
+.subscribe-mode-pill-btn {
+  padding: 0.5rem 1.25rem;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.subscribe-mode-pill-btn--active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #fafafa;
+}
+
+.subscribe-mode-pill-btn:hover:not(.subscribe-mode-pill-btn--active) {
+  color: #a1a1aa;
+}
+
+.subscribe-mode-hint {
+  font-size: 0.75rem;
+  color: #52525b;
+  margin: 0 0 1.5rem;
+  max-width: 480px;
+  line-height: 1.5;
+}
+
+/* ── Tier card grid ── */
+
 .subscribe-tier-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
   margin-bottom: 1.5rem;
   width: 100%;
   max-width: 960px;
 }
 
+/* ── Tier card (Vercel/Linear inspired, Codeflare dark theme) ── */
+
 .subscribe-tier-card {
-  background: rgba(24, 24, 27, 0.8);
+  background: rgba(24, 24, 27, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
-  padding: 1.25rem;
+  padding: 1.5rem 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  transition: border-color 150ms ease;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
 }
 
 .subscribe-tier-card:hover {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
-.subscribe-tier-card--highlight {
-  border-color: var(--color-accent, #3b82f6);
-  box-shadow: 0 0 0 1px var(--color-accent, #3b82f6);
+.subscribe-tier-card--recommended {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 4px 24px rgba(59, 130, 246, 0.08);
 }
 
-.subscribe-tier-header {
-  text-align: center;
+/* Card header: name + price + tagline */
+
+.subscribe-tier-card-header {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .subscribe-tier-name {
-  margin: 0 0 0.25rem;
-  font-size: 1rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: #fafafa;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 .subscribe-tier-price {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--color-accent, #3b82f6);
+  margin-bottom: 0.5rem;
 }
 
-.subscribe-tier-description {
+.subscribe-tier-price-amount {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fafafa;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.subscribe-tier-price-period {
+  font-size: 0.8rem;
+  color: #52525b;
+  font-weight: 400;
+}
+
+.subscribe-tier-tagline {
   margin: 0;
   font-size: 0.75rem;
   color: #71717a;
-  text-align: center;
+  line-height: 1.4;
+}
+
+/* Card body: specs + features + badge */
+
+.subscribe-tier-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.subscribe-tier-specs {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 .subscribe-tier-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  flex: 1;
 }
 
-.subscribe-tier-feature {
+.subscribe-tier-feature-item {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.75rem;
   color: #a1a1aa;
 }
 
-.subscribe-tier-feature-label {
-  color: #52525b;
+.subscribe-tier-feature-item svg {
+  color: #22c55e;
+  flex-shrink: 0;
 }
 
 .subscribe-tier-badge {
-  text-align: center;
   font-size: 0.7rem;
   color: #22c55e;
   background: rgba(34, 197, 94, 0.1);
   border: 1px solid rgba(34, 197, 94, 0.2);
   border-radius: 6px;
   padding: 0.25rem 0.5rem;
+  align-self: flex-start;
 }
+
+/* CTA button */
 
 .subscribe-tier-btn {
   width: 100%;
-  padding: 0.6rem;
+  padding: 0.65rem;
   border-radius: 8px;
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
   color: #fafafa;
   font-size: 0.8rem;
   font-weight: 500;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   cursor: pointer;
   transition: all 150ms ease;
+  margin-top: auto;
 }
 
 .subscribe-tier-btn:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.3);
-  border-color: rgba(59, 130, 246, 0.6);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.subscribe-tier-btn--primary {
+  background: #3b82f6;
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+}
+
+.subscribe-tier-btn--primary:hover:not(:disabled) {
+  background: #2563eb;
+  border-color: rgba(59, 130, 246, 0.7);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35);
 }
 
 .subscribe-tier-btn:disabled {
@@ -349,92 +336,34 @@
   cursor: not-allowed;
 }
 
-/* ── Global mode selector (Standard / Pro columns with divider) ── */
+/* ── Turnstile ── */
 
-.subscribe-mode-selector {
+.subscribe-turnstile {
+  margin-bottom: 1rem;
   display: flex;
-  gap: 0;
-  width: 100%;
-  margin-bottom: 1.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  overflow: hidden;
-  background: rgba(24, 24, 27, 0.6);
+  justify-content: center;
 }
 
-.subscribe-mode-col {
-  flex: 1;
-  padding: 1.25rem;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  transition: background 200ms ease, border-color 200ms ease;
-  color: #71717a;
-}
+/* ── Polling (legacy) ── */
 
-.subscribe-mode-col--active {
-  background: rgba(59, 130, 246, 0.08);
-  color: #fafafa;
-}
-
-.subscribe-mode-col:hover:not(.subscribe-mode-col--active) {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.subscribe-mode-divider {
-  width: 1px;
-  background: rgba(255, 255, 255, 0.1);
-  flex-shrink: 0;
-}
-
-.subscribe-mode-heading {
-  margin: 0 0 0.4rem;
-  font-size: 1rem;
-  font-weight: 600;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  color: inherit;
-}
-
-.subscribe-mode-col--active .subscribe-mode-heading {
-  color: #3b82f6;
-}
-
-.subscribe-mode-desc {
-  margin: 0 0 0.75rem;
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: inherit;
-  opacity: 0.7;
-}
-
-.subscribe-mode-features {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.subscribe-mode-feature {
+.subscribe-polling {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
-  font-size: 0.75rem;
-  color: inherit;
+  margin-bottom: 1.5rem;
 }
 
-.subscribe-mode-col--active .subscribe-mode-feature {
-  color: #a1a1aa;
+.subscribe-pulse {
+  width: 8px;
+  height: 8px;
+  background: var(--color-accent, #3b82f6);
+  border-radius: 50%;
+  animation: pulseDot 2s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
-.subscribe-mode-feature svg {
-  flex-shrink: 0;
-  opacity: 0.6;
-}
-
-.subscribe-mode-col--active .subscribe-mode-feature svg {
-  opacity: 1;
-  color: #3b82f6;
-}
+/* ── Responsive ── */
 
 @media (prefers-reduced-motion: reduce) {
   .subscribe-pulse {
@@ -445,18 +374,14 @@
 @media (max-width: 640px) {
   .subscribe-tier-grid {
     grid-template-columns: 1fr;
+    max-width: 320px;
+    margin-left: auto;
+    margin-right: auto;
   }
+}
 
-  .subscribe-features {
-    grid-template-columns: 1fr;
-  }
-
-  .subscribe-mode-selector {
-    flex-direction: column;
-  }
-
-  .subscribe-mode-divider {
-    width: 100%;
-    height: 1px;
+@media (min-width: 641px) and (max-width: 960px) {
+  .subscribe-tier-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }

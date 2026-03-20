@@ -15,15 +15,7 @@ import {
   mdiCellphoneScreenshot,
   mdiSourceBranch,
   mdiLightningBolt,
-  mdiConsole,
-  mdiFileDocumentOutline,
-  mdiRobotOutline,
-  mdiCloudOutline,
-  mdiSync,
-  mdiWrenchOutline,
-  mdiBookOpenPageVariantOutline,
-  mdiLayersTripleOutline,
-  mdiHeadCogOutline,
+  mdiCheck,
 } from '@mdi/js';
 import { getAuthStatus, getPublicTiers, subscribe } from '../api/client';
 import { formatDuration } from '../lib/format';
@@ -46,24 +38,6 @@ interface TierInfo {
   sessionModes: string[];
 }
 
-/** Standard mode features with MDI icons */
-const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiRocketLaunchOutline, text: 'Browser-based IDE' },
-  { icon: mdiConsole, text: 'Terminal access' },
-  { icon: mdiFileDocumentOutline, text: 'File browser & editor' },
-  { icon: mdiRobotOutline, text: 'Agent selection' },
-  { icon: mdiCloudOutline, text: 'Workspace storage' },
-  { icon: mdiSync, text: 'R2 cloud sync' },
-];
-
-/** Pro mode features with MDI icons */
-const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
-  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph memory (MCP)' },
-  { icon: mdiLayersTripleOutline, text: 'Multi-LLM workflows' },
-  { icon: mdiHeadCogOutline, text: 'Advanced AI orchestration' },
-];
-
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
   { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
@@ -72,6 +46,15 @@ const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiCellphoneScreenshot, content: () => <>Optimized for mobiles & foldables</> },
   { icon: mdiLightningBolt, content: () => <>From idea to deployment in minutes</> },
 ];
+
+/** Per-tier feature bullets shown on cards */
+const TIER_FEATURES: Record<string, string[]> = {
+  free: ['1 concurrent session', 'Standard mode only', 'Community support'],
+  standard: ['3 concurrent sessions', 'Standard + Pro modes', 'Trial included', 'R2 cloud sync'],
+  advanced: ['5 concurrent sessions', 'Standard + Pro modes', 'Extended trial', 'Priority support'],
+  max: ['10 concurrent sessions', 'Standard + Pro modes', 'Extended trial', 'Priority support'],
+  unlimited: ['10 concurrent sessions', 'Standard + Pro modes', 'Unlimited compute', 'Dedicated support'],
+};
 
 const SubscribePage: Component = () => {
   const [loading, setLoading] = createSignal(true);
@@ -188,7 +171,6 @@ const SubscribePage: Component = () => {
 
     try {
       const result = await subscribe(tierId, token);
-      // Redirect based on onboarding status
       if (!result.onboardingComplete) {
         window.location.href = '/app/onboarding';
       } else {
@@ -210,14 +192,13 @@ const SubscribePage: Component = () => {
     const code = cur ?? currency();
     const amount = (cents / 100).toFixed(0);
     switch (code) {
-      case 'EUR': return `\u20AC${amount}/mo`;
-      case 'GBP': return `\u00A3${amount}/mo`;
-      case 'CHF': return `CHF ${amount}/mo`;
-      default: return `$${amount}/mo`;
+      case 'EUR': return `\u20AC${amount}`;
+      case 'GBP': return `\u00A3${amount}`;
+      case 'CHF': return `CHF ${amount}`;
+      default: return `$${amount}`;
     }
   }
 
-  /** Price based on the global mode selector */
   function getGlobalModePrice(tier: TierInfo): string {
     if (globalMode() === 'advanced' && tier.advancedPriceMonthly != null) {
       return formatPrice(tier.advancedPriceMonthly);
@@ -225,10 +206,17 @@ const SubscribePage: Component = () => {
     return formatPrice(tier.priceMonthly);
   }
 
+  function isFree(tier: TierInfo): boolean {
+    if (globalMode() === 'advanced' && tier.advancedPriceMonthly != null) {
+      return tier.advancedPriceMonthly === 0;
+    }
+    return tier.priceMonthly === null || tier.priceMonthly === 0;
+  }
+
   function getTrialBadge(tier: TierInfo): string | null {
     const trialHours = tier.trialQuotaHours ?? tier.trialDays ?? 0;
     if (trialHours <= 0) return null;
-    return `Try free — billed after ${trialHours}h used`;
+    return `${trialHours}h free trial`;
   }
 
   /** Narrow for home view, wide for tier view */
@@ -256,7 +244,7 @@ const SubscribePage: Component = () => {
         <Show when={!loading()} fallback={
           <div class="subscribe-loading">Loading...</div>
         }>
-          {/* Error display (always visible regardless of state) */}
+          {/* Error display */}
           <Show when={error()}>
             <div class="subscribe-error">{error()}</div>
           </Show>
@@ -272,7 +260,7 @@ const SubscribePage: Component = () => {
             </div>
           </Show>
 
-          {/* ── Unified flow for active + pending users ── */}
+          {/* Unified flow for active + pending users */}
           <Show when={!isBlocked()}>
 
             {/* Home view: features list + status */}
@@ -320,95 +308,98 @@ const SubscribePage: Component = () => {
               </button>
             </Show>
 
-            {/* Tier view: mode selector + tier grid (identical for everyone) */}
+            {/* Tier view */}
             <Show when={showTiers()}>
-              {/* Mode selector: Standard / Pro columns with vertical divider */}
-              <div class="subscribe-mode-selector" data-testid="mode-selector">
+              {/* Mode pill toggle */}
+              <div class="subscribe-mode-pill" data-testid="mode-selector">
                 <button
                   type="button"
-                  class="subscribe-mode-col"
-                  classList={{ 'subscribe-mode-col--active': globalMode() === 'default' }}
+                  class="subscribe-mode-pill-btn"
+                  classList={{ 'subscribe-mode-pill-btn--active': globalMode() === 'default' }}
                   onClick={() => setGlobalMode('default')}
                 >
-                  <h3 class="subscribe-mode-heading">Standard</h3>
-                  <p class="subscribe-mode-desc">Everything you need to code, build and deploy.</p>
-                  <div class="subscribe-mode-features">
-                    <For each={STANDARD_MODE_FEATURES}>
-                      {(f) => (
-                        <div class="subscribe-mode-feature">
-                          <Icon path={f.icon} size={14} />
-                          <span>{f.text}</span>
-                        </div>
-                      )}
-                    </For>
-                  </div>
+                  Standard
                 </button>
-
-                <div class="subscribe-mode-divider" />
-
                 <button
                   type="button"
-                  class="subscribe-mode-col"
-                  classList={{ 'subscribe-mode-col--active': globalMode() === 'advanced' }}
+                  class="subscribe-mode-pill-btn"
+                  classList={{ 'subscribe-mode-pill-btn--active': globalMode() === 'advanced' }}
                   onClick={() => setGlobalMode('advanced')}
                 >
-                  <h3 class="subscribe-mode-heading">Pro</h3>
-                  <p class="subscribe-mode-desc">Standard plus AI orchestration and memory.</p>
-                  <div class="subscribe-mode-features">
-                    <For each={PRO_MODE_FEATURES}>
-                      {(f) => (
-                        <div class="subscribe-mode-feature">
-                          <Icon path={f.icon} size={14} />
-                          <span>{f.text}</span>
-                        </div>
-                      )}
-                    </For>
-                  </div>
+                  Pro
                 </button>
               </div>
+              <p class="subscribe-mode-hint">
+                {globalMode() === 'default'
+                  ? 'IDE, terminal, file browser, agent selection, and R2 sync.'
+                  : 'Everything in Standard plus AI orchestration, knowledge graph memory, and multi-LLM workflows.'}
+              </p>
 
-              {/* Tier grid — prices react to globalMode */}
+              {/* Tier cards */}
               <div class="subscribe-tier-grid" data-testid="tier-grid">
                 <For each={tiers()}>
-                  {(tier) => (
-                    <div class="subscribe-tier-card" classList={{
-                      'subscribe-tier-card--highlight': isActive() ? tier.id === currentTierId() : tier.id === 'standard',
-                    }}>
-                      <div class="subscribe-tier-header">
-                        <h3 class="subscribe-tier-name">{tier.displayName}</h3>
-                        <div class="subscribe-tier-price">{getGlobalModePrice(tier)}</div>
-                      </div>
-                      <div class="subscribe-tier-features">
-                        <div class="subscribe-tier-feature">
-                          <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'}</span>
-                          <span class="subscribe-tier-feature-label">monthly</span>
+                  {(tier) => {
+                    const isRecommended = () => isActive() ? tier.id === currentTierId() : tier.id === 'standard';
+                    const features = () => TIER_FEATURES[tier.id] ?? [];
+
+                    return (
+                      <div class="subscribe-tier-card" classList={{
+                        'subscribe-tier-card--recommended': isRecommended(),
+                      }}>
+                        <div class="subscribe-tier-card-header">
+                          <h3 class="subscribe-tier-name">{tier.displayName}</h3>
+                          <div class="subscribe-tier-price">
+                            <span class="subscribe-tier-price-amount">{getGlobalModePrice(tier)}</span>
+                            <Show when={!isFree(tier)}>
+                              <span class="subscribe-tier-price-period">/mo</span>
+                            </Show>
+                          </div>
+                          <Show when={tier.description}>
+                            <p class="subscribe-tier-tagline">{tier.description}</p>
+                          </Show>
                         </div>
-                        <div class="subscribe-tier-feature">
-                          <span>{tier.maxSessions}</span>
-                          <span class="subscribe-tier-feature-label">sessions</span>
+
+                        <div class="subscribe-tier-card-body">
+                          <div class="subscribe-tier-specs">
+                            <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'} / month</span>
+                          </div>
+
+                          <ul class="subscribe-tier-features">
+                            <For each={features()}>
+                              {(feature) => (
+                                <li class="subscribe-tier-feature-item">
+                                  <Icon path={mdiCheck} size={14} />
+                                  <span>{feature}</span>
+                                </li>
+                              )}
+                            </For>
+                          </ul>
+
+                          <Show when={getTrialBadge(tier)}>
+                            {(badge) => (
+                              <div class="subscribe-tier-badge">{badge()}</div>
+                            )}
+                          </Show>
                         </div>
+
+                        <button
+                          type="button"
+                          class="subscribe-tier-btn"
+                          classList={{ 'subscribe-tier-btn--primary': isRecommended() }}
+                          disabled={isActive()
+                            ? (tier.id === currentTierId() || subscribing() !== null)
+                            : (!turnstileReady() || subscribing() !== null)}
+                          onClick={() => void handleSubscribe(tier.id)}
+                        >
+                          {isActive()
+                            ? (tier.id === currentTierId()
+                              ? 'Current Plan'
+                              : subscribing() === tier.id ? 'Switching...' : 'Switch Plan')
+                            : (subscribing() === tier.id ? 'Subscribing...' : tier.priceMonthly ? 'Start Trial' : 'Get Started')}
+                        </button>
                       </div>
-                      <Show when={getTrialBadge(tier)}>
-                        {(badge) => (
-                          <div class="subscribe-tier-badge">{badge()}</div>
-                        )}
-                      </Show>
-                      <button
-                        type="button"
-                        class="subscribe-tier-btn"
-                        disabled={isActive()
-                          ? (tier.id === currentTierId() || subscribing() !== null)
-                          : (!turnstileReady() || subscribing() !== null)}
-                        onClick={() => void handleSubscribe(tier.id)}
-                      >
-                        {isActive()
-                          ? (tier.id === currentTierId()
-                            ? 'Current Plan'
-                            : subscribing() === tier.id ? 'Switching...' : 'Switch Plan')
-                          : (subscribing() === tier.id ? 'Subscribing...' : tier.priceMonthly ? 'Start Trial' : 'Get Started')}
-                      </button>
-                    </div>
-                  )}
+                    );
+                  }}
                 </For>
               </div>
 
