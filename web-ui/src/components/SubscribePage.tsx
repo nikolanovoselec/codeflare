@@ -477,7 +477,7 @@ const SubscribePage: Component = () => {
                           {(f, i) => (
                             <li class="subscribe-mode-card-feature">
                               <Icon path={f.icon} size={16} />
-                              <span>{scrambledProFeatures()[i()]}</span>
+                              <span>{scrambledProFeatures[i()]()}</span>
                             </li>
                           )}
                         </For>
