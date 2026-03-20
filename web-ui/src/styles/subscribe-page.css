@@ -110,11 +110,13 @@
 
 .subscribe-mode-card-features {
   list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 0.4rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
 }
 .subscribe-mode-card-feature {
   display: flex; align-items: center; gap: 0.5rem;
-  font-size: 0.75rem; color: #a1a1aa;
+  font-size: 0.8125rem; color: #71717a;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
 }
 .subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; }
 
@@ -169,12 +171,13 @@
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 .subscribe-detail-price { margin-bottom: 0.5rem; }
-.subscribe-detail-tagline { margin: 0 0 1rem; font-size: 0.75rem; color: #71717a; }
+.subscribe-detail-tagline { margin: 0 0 1rem; font-size: 0.8125rem; color: #71717a; letter-spacing: 0.02em; }
 
 .subscribe-detail-specs {
   display: flex; align-items: center; justify-content: center; gap: 0.5rem;
-  font-size: 0.8rem; color: #a1a1aa; margin-bottom: 1rem;
+  font-size: 0.8125rem; color: #71717a; margin-bottom: 1rem;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
 }
 .subscribe-detail-specs-sep { color: #52525b; }
 
@@ -187,12 +190,14 @@
 
 .subscribe-tier-features {
   list-style: none; margin: 0 0 1rem; padding: 0;
-  display: flex; flex-direction: column; gap: 0.4rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
   text-align: left;
 }
 .subscribe-tier-feature-item {
   display: flex; align-items: center; gap: 0.5rem;
-  font-size: 0.75rem; color: #a1a1aa;
+  font-size: 0.8125rem; color: #71717a;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
 }
 .subscribe-tier-feature-item svg { color: #22c55e; flex-shrink: 0; }
 
@@ -261,8 +266,9 @@
 }
 
 .subscribe-lifeline-label {
-  font-size: 0.65rem; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.7rem; font-family: 'JetBrains Mono', 'Fira Code', monospace;
   white-space: nowrap; font-weight: 500; letter-spacing: 0.02em;
+  color: #71717a;
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: #fafafa; }
 
@@ -287,7 +293,7 @@
 @media (max-width: 640px) {
   .subscribe-mode-card-merged { padding: 1.25rem; }
   .subscribe-detail-panel { padding: 1.25rem; }
-  .subscribe-lifeline-label { font-size: 0.5rem; }
+  .subscribe-lifeline-label { font-size: 0.6rem; }
   .subscribe-lifeline-icon { width: 32px; height: 32px; }
 }
 
