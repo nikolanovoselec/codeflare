@@ -20,7 +20,6 @@ import {
   mdiStarOutline,
   mdiFlash,
   mdiAccountGroupOutline,
-  mdiAccountCircle,
   mdiMenuUp,
   mdiConsole,
   mdiFileDocumentOutline,
