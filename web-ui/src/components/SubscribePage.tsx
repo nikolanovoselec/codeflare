@@ -111,6 +111,7 @@ const SubscribePage: Component = () => {
   const [isBlocked, setIsBlocked] = createSignal(false);
   const [isActive, setIsActive] = createSignal(false);
   const [turnstileReady, setTurnstileReady] = createSignal(false);
+  const [turnstileSiteKey, setTurnstileSiteKey] = createSignal('');
   const [subscribing, setSubscribing] = createSignal<string | null>(null);
   const [currency, setCurrency] = createSignal('USD');
   const [userEmail, setUserEmail] = createSignal('');
@@ -154,6 +155,7 @@ const SubscribePage: Component = () => {
 
       // Preload Turnstile script for pending users
       if (!status.hasSubscribed && status.turnstileSiteKey) {
+        setTurnstileSiteKey(status.turnstileSiteKey);
         loadTurnstileScript();
       }
       if (!status.hasSubscribed && !status.turnstileSiteKey) {
@@ -166,9 +168,10 @@ const SubscribePage: Component = () => {
     setLoading(false);
   });
 
-  // Initialize Turnstile watch when Phase 2 renders for pending users
+  // Initialize Turnstile when tier phase renders for pending users
   createEffect(() => {
     if (subscribePhase() === 'tiers' && !isActive() && !turnstileReady()) {
+      renderTurnstileWidget();
       startTurnstileWatch();
     }
   });
@@ -191,6 +194,20 @@ const SubscribePage: Component = () => {
     script.async = true;
     script.defer = true;
     document.head.appendChild(script);
+  }
+
+  function renderTurnstileWidget() {
+    const key = turnstileSiteKey();
+    if (!key || !window.turnstile) return;
+    const container = document.getElementById('turnstile-container');
+    if (!container) return;
+    // Clear any previous widget content before re-rendering
+    const existing = container.querySelector('.cf-turnstile');
+    if (existing) existing.innerHTML = '';
+    window.turnstile.render('#turnstile-container .cf-turnstile', {
+      sitekey: key,
+      callback: () => setTurnstileReady(true),
+    });
   }
 
   function startTurnstileWatch() {
@@ -243,6 +260,7 @@ const SubscribePage: Component = () => {
         try { window.turnstile.reset(); } catch { /* ignore */ }
       }
       setTurnstileReady(false);
+      renderTurnstileWidget();
       startTurnstileWatch();
     }
   }
@@ -591,7 +609,7 @@ const SubscribePage: Component = () => {
                 {/* Turnstile (pending users only — outside detail panel so always in DOM) */}
                 <Show when={!isActive()}>
                   <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
-                    <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
+                    <div class="cf-turnstile" data-sitekey={turnstileSiteKey()} data-callback="onTurnstileSuccess" />
                   </div>
                 </Show>
 
