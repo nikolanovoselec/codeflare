@@ -7,8 +7,8 @@
   50% { opacity: 0.4; transform: scale(0.7); }
 }
 
-/* Wider content area for tier view */
-.subscribe-content {
+/* Wider content area for tier view — compound selector overrides login-content */
+.login-content.subscribe-content {
   max-width: 960px;
 }
 
