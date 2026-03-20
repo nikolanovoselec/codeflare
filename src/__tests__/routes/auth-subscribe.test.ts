@@ -110,11 +110,12 @@ describe('POST /auth/subscribe', () => {
   // Turnstile validation
   // ---------------------------------------------------------------------------
 
-  it('returns 400 when turnstileToken is missing', async () => {
+  it('accepts subscribe without turnstileToken (token is optional)', async () => {
     const app = createApp();
     const res = await postSubscribe(app, { tier: 'free' });
 
-    expect(res.status).toBe(400);
+    // turnstileToken is now optional — pending users without Turnstile secret configured succeed
+    expect(res.status).toBe(200);
   });
 
   it('returns 403 when Turnstile token is invalid', async () => {
