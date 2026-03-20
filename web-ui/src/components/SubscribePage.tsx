@@ -36,6 +36,7 @@ import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
+import { useScrambleText } from '../lib/use-scramble-text';
 import '../styles/subscribe-page.css';
 import '../styles/login-page.css';
 
@@ -288,6 +289,20 @@ const SubscribePage: Component = () => {
     tiers().find(t => t.id === selectedTierId()) ?? tiers()[0] ?? null
   );
 
+  /** Scramble animations for text that changes on tier/mode switch */
+  const scrambledName = useScrambleText(() => selectedTier()?.displayName ?? '');
+  const scrambledPrice = useScrambleText(() => {
+    const t = selectedTier();
+    return t ? getGlobalModePrice(t) : '';
+  });
+  const scrambledSpecs = useScrambleText(() => {
+    const t = selectedTier();
+    if (!t) return '';
+    const hours = t.monthlySeconds !== null ? formatDuration(t.monthlySeconds!) : 'Unlimited';
+    const sessions = `${t.maxSessions} ${t.maxSessions === 1 ? 'session' : 'sessions'}`;
+    return `${hours} / month  ·  ${sessions}`;
+  });
+
   /** Lifeline fill percentage (0% = first stop, 100% = last stop) */
   const lifelineProgress = createMemo(() => {
     const idx = TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]);
@@ -521,9 +536,9 @@ const SubscribePage: Component = () => {
                 }>
                   {(tier) => (
                     <div class="subscribe-detail-panel" data-testid="tier-detail-panel">
-                      <h3 class="subscribe-detail-name">{tier().displayName}</h3>
+                      <h3 class="subscribe-detail-name">{scrambledName()}</h3>
                       <div class="subscribe-detail-price">
-                        <span class="subscribe-tier-price-amount">{getGlobalModePrice(tier())}</span>
+                        <span class="subscribe-tier-price-amount">{scrambledPrice()}</span>
                         <Show when={!isFree(tier()) && !isContact(tier())}>
                           <span class="subscribe-tier-price-period">/mo</span>
                         </Show>
@@ -532,9 +547,7 @@ const SubscribePage: Component = () => {
                         <p class="subscribe-detail-tagline">{tier().description}</p>
                       </Show>
                       <div class="subscribe-detail-specs">
-                        <span>{tier().monthlySeconds !== null ? formatDuration(tier().monthlySeconds!) : 'Unlimited'} / month</span>
-                        <span class="subscribe-detail-specs-sep">&middot;</span>
-                        <span>{tier().maxSessions} {tier().maxSessions === 1 ? 'session' : 'sessions'}</span>
+                        <span>{scrambledSpecs()}</span>
                       </div>
 
                       <ul class="subscribe-tier-features">
