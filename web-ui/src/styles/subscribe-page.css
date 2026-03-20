@@ -222,16 +222,22 @@
 
 .subscribe-turnstile { margin-top: 1rem; display: flex; justify-content: center; }
 
-/* ── Lifeline rail (angular dashed path, aligned stops) ── */
+/* ── Lifeline rail ── */
 
 .subscribe-lifeline {
   position: relative; width: 100%; max-width: 540px;
-  margin: 1.5rem auto 2rem; padding-bottom: 2rem;
+  margin: 1.5rem auto 2rem; padding-bottom: 1.5rem;
   animation: fadeSlideIn 0.5s ease-out 0.2s both;
 }
 
-.subscribe-lifeline-svg {
-  position: absolute; top: calc(0.25rem + 18px); left: 0; width: 100%; height: 6px;
+/* Dashed line through icon centers — pure CSS, no SVG alignment issues */
+.subscribe-lifeline-track {
+  position: absolute;
+  /* Center vertically through 36px icons: 0.25rem padding + 18px = icon center */
+  top: calc(0.25rem + 18px);
+  left: 2.5rem; right: 2.5rem;
+  height: 0;
+  border-top: 2px dashed rgba(255, 255, 255, 0.1);
   pointer-events: none;
 }
 
@@ -245,6 +251,7 @@
   background: none; border: none; cursor: pointer; padding: 0.25rem;
   color: #52525b; transition: color 250ms ease, transform 200ms ease;
   min-width: 44px; min-height: 44px;
+  position: relative;
 }
 .subscribe-lifeline-stop:hover { transform: scale(1.08); }
 .subscribe-lifeline-stop--passed { color: #71717a; }
@@ -252,15 +259,17 @@
 
 .subscribe-lifeline-icon {
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
-  background: rgba(24, 24, 27, 0.95);
+  /* Fully opaque so dashed line never shows through */
+  background: hsl(217, 20%, 7%);
   border: 1px dashed rgba(255, 255, 255, 0.12);
   border-radius: 6px; transition: all 250ms ease;
+  position: relative; z-index: 1;
 }
 .subscribe-lifeline-stop--passed .subscribe-lifeline-icon {
   border-color: rgba(59, 130, 246, 0.4); border-style: solid;
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-icon {
-  background: rgba(59, 130, 246, 0.1);
+  background: hsl(217, 40%, 12%);
   border-color: #3b82f6; border-style: solid;
   box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
 }
@@ -272,15 +281,11 @@
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: #fafafa; }
 
-/* "This is you" marker — absolutely positioned to avoid affecting icon spacing */
-.subscribe-lifeline-stop {
-  position: relative;
-}
+/* "This is you" marker — below label, centered */
 .subscribe-lifeline-you {
-  position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
+  display: flex; align-items: center; gap: 0.2rem;
   color: #22c55e; animation: lifelinePulse 2s ease-in-out infinite;
-  white-space: nowrap; margin-top: 0.25rem;
+  white-space: nowrap;
 }
 .subscribe-lifeline-you span {
   font-size: 0.65rem; font-weight: 500;

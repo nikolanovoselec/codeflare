@@ -524,24 +524,9 @@ const SubscribePage: Component = () => {
                   </div>
                 </div>
 
-                {/* Lifeline — straight dotted line through icon centers */}
+                {/* Lifeline — CSS dashed line through icon centers */}
                 <div class="subscribe-lifeline" data-testid="lifeline-rail">
-                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 6" preserveAspectRatio="none">
-                    {/* Background: dotted line */}
-                    <line
-                      x1="50" y1="3" x2="450" y2="3"
-                      stroke="rgba(255,255,255,0.15)" stroke-width="3"
-                      stroke-dasharray="2 8" stroke-linecap="round"
-                    />
-                    {/* Active fill */}
-                    <line
-                      x1="50" y1="3" x2="450" y2="3"
-                      stroke="#3b82f6" stroke-width="3"
-                      stroke-dasharray="2 8" stroke-linecap="round"
-                      clip-path={`inset(0 ${100 - lifelineProgress()}% 0 0)`}
-                      style={{ transition: 'clip-path 400ms ease' }}
-                    />
-                  </svg>
+                  <div class="subscribe-lifeline-track" />
                   <div class="subscribe-lifeline-stops">
                     <For each={[...TIER_ORDER]}>
                       {(tierId) => {
