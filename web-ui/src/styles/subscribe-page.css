@@ -186,59 +186,60 @@
 
 .subscribe-turnstile { margin-top: 1rem; display: flex; justify-content: center; }
 
-/* ── Lifeline rail (SVG curved path) ── */
+/* ── Lifeline rail (angular dashed path, aligned stops) ── */
 
 .subscribe-lifeline {
-  position: relative; width: 100%; max-width: 600px;
-  height: 120px; margin: 1rem auto 2rem;
+  position: relative; width: 100%; max-width: 540px;
+  margin: 1.5rem auto 2rem; padding: 2rem 0 0;
   animation: fadeSlideIn 0.5s ease-out 0.2s both;
 }
 
 .subscribe-lifeline-svg {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  pointer-events: none;
+  position: absolute; top: 0; left: 0; width: 100%; height: 60px;
+  pointer-events: none; opacity: 0.8;
 }
 
 .subscribe-lifeline-stops {
-  position: absolute; inset: 0;
+  display: flex; justify-content: space-between;
+  position: relative; padding: 0 0.5rem;
 }
 
 .subscribe-lifeline-stop {
-  position: absolute; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+  display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
   background: none; border: none; cursor: pointer; padding: 0.25rem;
   color: #52525b; transition: color 250ms ease, transform 200ms ease;
-  z-index: 1;
+  min-width: 44px; min-height: 44px;
 }
-.subscribe-lifeline-stop:hover { transform: translate(-50%, -50%) scale(1.1); }
+.subscribe-lifeline-stop:hover { transform: scale(1.08); }
 .subscribe-lifeline-stop--passed { color: #71717a; }
 .subscribe-lifeline-stop--selected { color: #3b82f6; }
 
 .subscribe-lifeline-icon {
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
-  background: rgba(24, 24, 27, 0.95); border: 2px solid rgba(255, 255, 255, 0.08);
-  border-radius: 50%; transition: all 250ms ease;
+  background: rgba(24, 24, 27, 0.95);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 6px; transition: all 250ms ease;
 }
 .subscribe-lifeline-stop--passed .subscribe-lifeline-icon {
-  border-color: rgba(59, 130, 246, 0.3);
+  border-color: rgba(59, 130, 246, 0.4); border-style: solid;
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-icon {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: #3b82f6;
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.1);
+  border-color: #3b82f6; border-style: solid;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
 }
 
 .subscribe-lifeline-label {
   font-size: 0.65rem; font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  white-space: nowrap; font-weight: 500;
+  white-space: nowrap; font-weight: 500; letter-spacing: 0.02em;
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: #fafafa; }
 
-/* "This is you" marker */
+/* "You" marker */
 .subscribe-lifeline-you {
-  display: flex; align-items: center; gap: 0.25rem;
+  display: flex; align-items: center; gap: 0.2rem;
   color: #22c55e; animation: lifelinePulse 2s ease-in-out infinite;
-  white-space: nowrap; margin-top: 0.125rem;
+  white-space: nowrap;
 }
 .subscribe-lifeline-you span { font-size: 0.55rem; font-weight: 500; }
 
@@ -250,9 +251,8 @@
     max-width: 320px; margin-left: auto; margin-right: auto;
   }
   .subscribe-detail-panel { padding: 1.25rem; }
-  .subscribe-lifeline { padding: 0 1rem; }
-  .subscribe-lifeline-track { left: 1rem; right: 1rem; }
   .subscribe-lifeline-label { font-size: 0.5rem; }
+  .subscribe-lifeline-icon { width: 32px; height: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

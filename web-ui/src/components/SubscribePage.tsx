@@ -66,11 +66,11 @@ const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
 
 /** Per-tier feature bullets for detail panel */
 const TIER_FEATURES: Record<string, string[]> = {
-  free: ['1 concurrent session', 'Standard mode only', 'Community support'],
-  standard: ['3 concurrent sessions', 'Standard + Pro modes', 'Trial included', 'R2 cloud sync'],
-  advanced: ['5 concurrent sessions', 'Standard + Pro modes', 'Extended trial', 'Priority support'],
-  max: ['10 concurrent sessions', 'Standard + Pro modes', 'Extended trial', 'Priority support'],
-  unlimited: ['10 concurrent sessions', 'Standard + Pro modes', 'Unlimited compute', 'Dedicated support'],
+  free: ['1 concurrent session', 'Standard mode only', '2 hours compute / month', 'Community support'],
+  standard: ['3 concurrent sessions', 'Standard + Pro modes', '40 hours compute / month', '40h free trial', 'R2 cloud sync'],
+  advanced: ['5 concurrent sessions', 'Standard + Pro modes', '80 hours compute / month', '80h free trial', 'Priority support'],
+  max: ['10 concurrent sessions', 'Standard + Pro modes', '160 hours compute / month', '160h free trial', 'Priority support'],
+  unlimited: ['10 concurrent sessions', 'Standard + Pro modes', 'Unlimited compute', 'Dedicated support', 'Custom SLA'],
 };
 
 /** Lifeline stop icons */
@@ -85,22 +85,22 @@ const TIER_ICONS: Record<string, string> = {
 /** Ordered tier ids for lifeline rendering */
 const TIER_ORDER = ['free', 'standard', 'advanced', 'max', 'unlimited'] as const;
 
-/** Standard mode features for Phase 1 card */
+/** Standard mode features for mode card */
 const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiRocketLaunchOutline, text: 'IDE' },
-  { icon: mdiConsole, text: 'Terminal' },
-  { icon: mdiFileDocumentOutline, text: 'File browser' },
-  { icon: mdiRobotOutline, text: 'Agent selection' },
-  { icon: mdiCloudOutline, text: 'Storage' },
-  { icon: mdiSync, text: 'R2 sync' },
+  { icon: mdiRocketLaunchOutline, text: 'Browser-based VS Code IDE' },
+  { icon: mdiConsole, text: 'Full Linux terminal' },
+  { icon: mdiFileDocumentOutline, text: 'File browser & editor' },
+  { icon: mdiRobotOutline, text: '5 AI coding agents' },
+  { icon: mdiCloudOutline, text: 'Persistent workspace' },
+  { icon: mdiSync, text: 'R2 cloud sync' },
 ];
 
-/** Pro mode features for Phase 1 card */
+/** Pro mode features for mode card */
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiWrenchOutline, text: 'Skills & rules' },
-  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph' },
-  { icon: mdiLayersTripleOutline, text: 'Multi-LLM' },
-  { icon: mdiHeadCogOutline, text: 'AI orchestration' },
+  { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
+  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph memory (MCP)' },
+  { icon: mdiLayersTripleOutline, text: 'Multi-LLM orchestration' },
+  { icon: mdiHeadCogOutline, text: 'Advanced AI workflows' },
 ];
 
 const SubscribePage: Component = () => {
@@ -418,7 +418,7 @@ const SubscribePage: Component = () => {
                     onClick={() => setGlobalMode('default')}
                   >
                     <h3 class="subscribe-mode-card-title">Standard</h3>
-                    <p class="subscribe-mode-card-desc">Everything you need to code, build and deploy.</p>
+                    <p class="subscribe-mode-card-desc">Full cloud IDE with 5 AI agents, terminal, file browser, and cloud sync.</p>
                     <ul class="subscribe-mode-card-features">
                       <For each={STANDARD_MODE_FEATURES}>
                         {(f) => (
@@ -439,7 +439,7 @@ const SubscribePage: Component = () => {
                     onClick={() => setGlobalMode('advanced')}
                   >
                     <h3 class="subscribe-mode-card-title">Pro</h3>
-                    <p class="subscribe-mode-card-desc">Standard plus AI orchestration and memory.</p>
+                    <p class="subscribe-mode-card-desc">Everything in Standard, plus curated AI skills, persistent memory, and multi-LLM workflows.</p>
                     <ul class="subscribe-mode-card-features">
                       <For each={PRO_MODE_FEATURES}>
                         {(f) => (
@@ -453,26 +453,28 @@ const SubscribePage: Component = () => {
                   </button>
                 </div>
 
-                {/* Lifeline — SVG curved path with tier stops */}
+                {/* Lifeline — angular dashed path with aligned tier stops */}
                 <div class="subscribe-lifeline" data-testid="lifeline-rail">
-                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 80" preserveAspectRatio="none">
-                    {/* Background path */}
+                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 60" preserveAspectRatio="none">
+                    {/* Background: angular zigzag dashed path */}
                     <path
-                      d="M 30 55 C 90 20, 150 70, 250 35 S 400 65, 470 40"
-                      fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3" stroke-linecap="round"
+                      d="M 25 30 L 80 15 L 145 45 L 250 20 L 355 50 L 420 25 L 475 35"
+                      fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2"
+                      stroke-dasharray="8 4" stroke-linecap="square"
                     />
-                    {/* Filled path (clipped to progress) */}
+                    {/* Active fill path */}
                     <path
-                      d="M 30 55 C 90 20, 150 70, 250 35 S 400 65, 470 40"
-                      fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"
-                      stroke-dasharray="600"
-                      stroke-dashoffset={600 - (lifelineProgress() / 100) * 600}
-                      style={{ transition: 'stroke-dashoffset 400ms ease' }}
+                      d="M 25 30 L 80 15 L 145 45 L 250 20 L 355 50 L 420 25 L 475 35"
+                      fill="none" stroke="#3b82f6" stroke-width="2"
+                      stroke-dasharray="8 4" stroke-linecap="square"
+                      stroke-dashoffset={0}
+                      clip-path={`inset(0 ${100 - lifelineProgress()}% 0 0)`}
+                      style={{ transition: 'clip-path 400ms ease' }}
                     />
                   </svg>
                   <div class="subscribe-lifeline-stops">
                     <For each={[...TIER_ORDER]}>
-                      {(tierId, i) => {
+                      {(tierId) => {
                         const tierData = () => tiers().find(t => t.id === tierId);
                         return (
                           <Show when={tierData()}>
@@ -484,12 +486,11 @@ const SubscribePage: Component = () => {
                                   'subscribe-lifeline-stop--selected': selectedTierId() === tierId,
                                   'subscribe-lifeline-stop--passed': TIER_ORDER.indexOf(tierId as typeof TIER_ORDER[number]) <= TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]),
                                 }}
-                                style={{ top: `${[55, 20, 35, 65, 40][i()] ?? 40}%`, left: `${[6, 24, 50, 76, 94][i()] ?? 50}%` }}
                                 onClick={() => setSelectedTierId(tierId)}
                                 data-testid={`lifeline-stop-${tierId}`}
                               >
                                 <span class="subscribe-lifeline-icon">
-                                  <Icon path={TIER_ICONS[tierId] ?? mdiStarOutline} size={22} />
+                                  <Icon path={TIER_ICONS[tierId] ?? mdiStarOutline} size={20} />
                                 </span>
                                 <span class="subscribe-lifeline-label">{td().displayName}</span>
                                 <Show when={isActive() && currentTierId() === tierId}>
@@ -553,14 +554,15 @@ const SubscribePage: Component = () => {
                         {ctaLabel()}
                       </button>
 
-                      {/* Turnstile (pending users only) */}
-                      <Show when={!isActive()}>
-                        <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
-                          <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
-                        </div>
-                      </Show>
                     </div>
                   )}
+                </Show>
+
+                {/* Turnstile (pending users only — outside detail panel so always in DOM) */}
+                <Show when={!isActive()}>
+                  <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
+                    <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
+                  </div>
                 </Show>
 
                 <button
