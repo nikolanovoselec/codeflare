@@ -292,7 +292,9 @@ describe('container DO class', () => {
       expect(response.status).toBe(400);
     });
 
-    it('falls through to super.fetch for unknown routes', async () => {
+    it('proxies unknown routes via getTcpPort (not super.fetch)', async () => {
+      mockContainerRuntime.running = true;
+      mockTcpPortFetch.mockResolvedValue(new Response('proxied'));
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         return null;
@@ -305,9 +307,10 @@ describe('container DO class', () => {
       });
 
       const response = await instance.fetch(request);
-      // Should fall through to mocked super.fetch which returns 'base fetch'
+      // Should proxy via getTcpPort().fetch() (not super.fetch) to avoid resetting sleepAfter timer
       const text = await response.text();
-      expect(text).toBe('base fetch');
+      expect(text).toBe('proxied');
+      expect(mockContainerRuntime.getTcpPort).toHaveBeenCalled();
     });
   });
 
@@ -345,8 +348,9 @@ describe('container DO class', () => {
       expect(body).toHaveProperty('bucketName');
     });
 
-    it('should proxy non-internal routes when container is running', async () => {
+    it('should proxy non-internal routes via getTcpPort when container is running', async () => {
       mockContainerRuntime.running = true;
+      mockTcpPortFetch.mockResolvedValue(new Response('proxied via tcp'));
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         return null;
@@ -359,9 +363,9 @@ describe('container DO class', () => {
       });
 
       const response = await instance.fetch(request);
-      // Should fall through to mocked super.fetch which returns 'base fetch'
       const text = await response.text();
-      expect(text).toBe('base fetch');
+      expect(text).toBe('proxied via tcp');
+      expect(mockContainerRuntime.getTcpPort).toHaveBeenCalled();
     });
 
     it('should return JSON error body with correct Content-Type', async () => {
