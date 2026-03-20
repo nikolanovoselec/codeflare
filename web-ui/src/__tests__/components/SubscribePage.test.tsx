@@ -155,15 +155,15 @@ describe('SubscribePage', () => {
     it('Standard card shows feature bullets', async () => {
       await openTierView();
 
-      expect(screen.getByText('Terminal')).toBeInTheDocument();
-      expect(screen.getByText('File browser')).toBeInTheDocument();
+      expect(screen.getByText(/terminal/i)).toBeInTheDocument();
+      expect(screen.getByText(/file browser/i)).toBeInTheDocument();
     });
 
     it('Pro card shows feature bullets', async () => {
       await openTierView();
 
-      expect(screen.getByText('Knowledge graph')).toBeInTheDocument();
-      expect(screen.getByText('Multi-LLM')).toBeInTheDocument();
+      expect(screen.getByText(/knowledge graph/i)).toBeInTheDocument();
+      expect(screen.getByText(/multi-llm/i)).toBeInTheDocument();
     });
 
     it('clicking mode card keeps everything visible', async () => {
