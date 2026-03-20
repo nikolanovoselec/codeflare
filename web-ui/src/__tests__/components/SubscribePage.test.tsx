@@ -33,10 +33,8 @@ const MOCK_PUBLIC_TIERS = [
   { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 10, priceMonthly: null, advancedPriceMonthly: null, description: 'Enterprise-grade access', trialQuotaHours: 0, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
 ];
 
-const TIER_BTN_PATTERN = /get started|start trial/i;
-
-/** Helper: render, wait for load, click "See subscription tiers" to open tier view */
-async function openTierView() {
+/** Navigate from home to Phase 1 (mode selection) */
+async function openModePhase() {
   render(() => <SubscribePage />);
   await vi.advanceTimersByTimeAsync(0);
   await waitFor(() => {
@@ -44,7 +42,17 @@ async function openTierView() {
   });
   fireEvent.click(screen.getByText(/See subscription tiers/i));
   await waitFor(() => {
-    expect(screen.getByTestId('tier-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('mode-chooser')).toBeInTheDocument();
+  });
+}
+
+/** Navigate from home through Phase 1 to Phase 2 (tier selection) */
+async function openTierPhase(mode: 'standard' | 'pro' = 'standard') {
+  await openModePhase();
+  const testId = mode === 'pro' ? 'mode-card-pro' : 'mode-card-standard';
+  fireEvent.click(screen.getByTestId(testId));
+  await waitFor(() => {
+    expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
   });
 }
 
@@ -56,7 +64,6 @@ describe('SubscribePage', () => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
-    // Default: pending user with NO turnstile key
     mockedGetAuthStatus.mockResolvedValue({
       email: 'user@example.com',
       accessTier: 'pending',
@@ -88,7 +95,7 @@ describe('SubscribePage', () => {
     });
   });
 
-  describe('Home View (all users)', () => {
+  describe('Home View', () => {
     it('should show features list and "See subscription tiers" for pending users', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
@@ -104,8 +111,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        const pendingIcon = document.querySelector('.subscribe-status-icon--pending');
-        expect(pendingIcon).toBeInTheDocument();
+        expect(document.querySelector('.subscribe-status-icon--pending')).toBeInTheDocument();
       });
     });
 
@@ -122,8 +128,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        const activeIcon = document.querySelector('.subscribe-status-icon--active');
-        expect(activeIcon).toBeInTheDocument();
+        expect(document.querySelector('.subscribe-status-icon--active')).toBeInTheDocument();
         expect(screen.getByText('active@example.com')).toBeInTheDocument();
         expect(screen.getByText('Continue')).toBeInTheDocument();
       });
@@ -143,40 +148,209 @@ describe('SubscribePage', () => {
       await waitFor(() => {
         expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
       });
-      // No tier button for blocked users
       expect(screen.queryByText(/See subscription tiers/i)).not.toBeInTheDocument();
     });
   });
 
-  describe('Tier View (shared layout)', () => {
-    it('should show mode selector and tier cards after clicking "See subscription tiers"', async () => {
-      await openTierView();
+  describe('Phase 1 — Mode Selection', () => {
+    it('should render two mode cards', async () => {
+      await openModePhase();
 
-      expect(screen.getByTestId('mode-selector')).toBeInTheDocument();
-      expect(screen.getAllByText('Free').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('Starter').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByTestId('mode-card-standard')).toBeInTheDocument();
+      expect(screen.getByTestId('mode-card-pro')).toBeInTheDocument();
     });
 
-    it('should show tier prices on cards', async () => {
-      await openTierView();
+    it('Standard card shows feature bullets', async () => {
+      await openModePhase();
 
-      expect(screen.getByText(/\$19/)).toBeInTheDocument();
-      expect(screen.getByText(/\$69/)).toBeInTheDocument();
+      expect(screen.getByText('Terminal')).toBeInTheDocument();
+      expect(screen.getByText('File browser')).toBeInTheDocument();
     });
 
-    it('should show subscribe buttons per tier card', async () => {
-      await openTierView();
+    it('Pro card shows feature bullets', async () => {
+      await openModePhase();
 
-      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-      expect(buttons.length).toBeGreaterThanOrEqual(5);
+      expect(screen.getByText('Knowledge graph')).toBeInTheDocument();
+      expect(screen.getByText('Multi-LLM')).toBeInTheDocument();
     });
 
-    it('should call subscribe API when a tier button is clicked', async () => {
-      await openTierView();
+    it('clicking Standard card advances to Phase 2', async () => {
+      await openModePhase();
+      fireEvent.click(screen.getByTestId('mode-card-standard'));
 
-      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-      expect(buttons[0]).not.toBeDisabled();
-      fireEvent.click(buttons[0]);
+      await waitFor(() => {
+        expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
+        expect(screen.queryByTestId('mode-chooser')).not.toBeInTheDocument();
+      });
+    });
+
+    it('clicking Pro card advances to Phase 2', async () => {
+      await openModePhase();
+      fireEvent.click(screen.getByTestId('mode-card-pro'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
+      });
+    });
+
+    it('Back button returns to home view', async () => {
+      await openModePhase();
+      fireEvent.click(screen.getByText('Back'));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
+        expect(screen.queryByTestId('mode-chooser')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Phase 2 — Lifeline Tier Selector', () => {
+    it('should render lifeline with 5 stops', async () => {
+      await openTierPhase();
+
+      expect(screen.getByTestId('lifeline-stop-free')).toBeInTheDocument();
+      expect(screen.getByTestId('lifeline-stop-standard')).toBeInTheDocument();
+      expect(screen.getByTestId('lifeline-stop-advanced')).toBeInTheDocument();
+      expect(screen.getByTestId('lifeline-stop-max')).toBeInTheDocument();
+      expect(screen.getByTestId('lifeline-stop-unlimited')).toBeInTheDocument();
+    });
+
+    it('should default to advanced tier for pending users', async () => {
+      await openTierPhase();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tier-detail-panel')).toBeInTheDocument();
+        expect(screen.getByText('Advanced')).toBeInTheDocument();
+      });
+    });
+
+    it('should default to current tier for active users', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      await openTierPhase();
+
+      await waitFor(() => {
+        expect(screen.getByText('Starter')).toBeInTheDocument();
+      });
+    });
+
+    it('clicking a lifeline stop changes selected tier', async () => {
+      await openTierPhase();
+
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+
+      await waitFor(() => {
+        const panel = screen.getByTestId('tier-detail-panel');
+        expect(panel.textContent).toMatch(/Free/);
+      });
+    });
+
+    it('detail panel shows tier price', async () => {
+      await openTierPhase();
+
+      await waitFor(() => {
+        expect(screen.getByText(/\$39/)).toBeInTheDocument();
+      });
+    });
+
+    it('mode pill changes prices without leaving Phase 2', async () => {
+      await openTierPhase('standard');
+
+      // Find Pro pill button and click it
+      const proBtns = screen.getAllByText('Pro');
+      const pillBtn = proBtns.find(el => el.classList.contains('subscribe-mode-pill-btn'));
+      if (pillBtn) fireEvent.click(pillBtn);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
+        expect(screen.getByText(/\$44/)).toBeInTheDocument();
+      });
+    });
+
+    it('shows "This is you" for active users', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      await openTierPhase();
+
+      await waitFor(() => {
+        expect(screen.getByText('This is you')).toBeInTheDocument();
+      });
+    });
+
+    it('does NOT show "This is you" for pending users', async () => {
+      await openTierPhase();
+      expect(screen.queryByText('This is you')).not.toBeInTheDocument();
+    });
+
+    it('CTA shows "Get Started" for free tier', async () => {
+      await openTierPhase();
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Get Started')).toBeInTheDocument();
+      });
+    });
+
+    it('CTA shows "Start Trial" for paid tier', async () => {
+      await openTierPhase();
+
+      await waitFor(() => {
+        expect(screen.getByText('Start Trial')).toBeInTheDocument();
+      });
+    });
+
+    it('CTA shows "Current Plan" for active user on their tier', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      await openTierPhase();
+
+      await waitFor(() => {
+        expect(screen.getByText('Current Plan')).toBeInTheDocument();
+      });
+    });
+
+    it('CTA shows "Switch Plan" for active user on different tier', async () => {
+      mockedGetAuthStatus.mockResolvedValue({
+        email: 'active@example.com',
+        accessTier: 'standard',
+        subscriptionTier: 'standard',
+        role: 'user',
+        hasSubscribed: true,
+      });
+
+      await openTierPhase();
+      fireEvent.click(screen.getByTestId('lifeline-stop-max'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Switch Plan')).toBeInTheDocument();
+      });
+    });
+
+    it('calls subscribe API with selected tier', async () => {
+      await openTierPhase();
+
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+      await waitFor(() => expect(screen.getByText('Get Started')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByText('Get Started'));
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
@@ -184,11 +358,13 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should redirect to /app/onboarding after subscribe', async () => {
-      await openTierView();
+    it('redirects to onboarding after subscribe', async () => {
+      await openTierPhase();
 
-      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-      fireEvent.click(buttons[0]);
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+      await waitFor(() => expect(screen.getByText('Get Started')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByText('Get Started'));
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
@@ -196,46 +372,14 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should go back to home view when "Back" is clicked', async () => {
-      await openTierView();
-
+    it('Back button returns to Phase 1', async () => {
+      await openTierPhase();
       fireEvent.click(screen.getByText('Back'));
 
       await waitFor(() => {
-        expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
-        expect(screen.queryByTestId('tier-grid')).not.toBeInTheDocument();
+        expect(screen.getByTestId('mode-chooser')).toBeInTheDocument();
+        expect(screen.queryByTestId('lifeline-rail')).not.toBeInTheDocument();
       });
-    });
-  });
-
-  describe('Active User Tier View', () => {
-    it('should show Current Plan and Switch Plan buttons', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'active@example.com',
-        accessTier: 'standard',
-        subscriptionTier: 'standard',
-        role: 'user',
-        hasSubscribed: true,
-      });
-
-      await openTierView();
-
-      expect(screen.getByText('Current Plan')).toBeInTheDocument();
-      expect(screen.getAllByText('Switch Plan').length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('should show mode selector for active users', async () => {
-      mockedGetAuthStatus.mockResolvedValue({
-        email: 'active@example.com',
-        accessTier: 'standard',
-        subscriptionTier: 'standard',
-        role: 'user',
-        hasSubscribed: true,
-      });
-
-      await openTierView();
-
-      expect(screen.getByTestId('mode-selector')).toBeInTheDocument();
     });
   });
 
@@ -254,10 +398,12 @@ describe('SubscribePage', () => {
     it('should show error when subscribe call fails', async () => {
       mockedSubscribe.mockRejectedValue(new Error('Subscription failed'));
 
-      await openTierView();
+      await openTierPhase();
 
-      const buttons = screen.getAllByRole('button', { name: TIER_BTN_PATTERN });
-      fireEvent.click(buttons[0]);
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+      await waitFor(() => expect(screen.getByText('Get Started')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByText('Get Started'));
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
@@ -267,7 +413,7 @@ describe('SubscribePage', () => {
   });
 
   describe('Navigation', () => {
-    it('should not have logout link (logout is in username dropdown)', async () => {
+    it('should not have logout link', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 

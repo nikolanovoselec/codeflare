@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, createEffect, createMemo, Show, For, type JSX } from 'solid-js';
 import {
   mdiRocketLaunchOutline,
   mdiCellphoneLink,
@@ -16,6 +16,20 @@ import {
   mdiSourceBranch,
   mdiLightningBolt,
   mdiCheck,
+  mdiGiftOutline,
+  mdiStarOutline,
+  mdiFlash,
+  mdiAccountGroupOutline,
+  mdiAccountCircle,
+  mdiConsole,
+  mdiFileDocumentOutline,
+  mdiRobotOutline,
+  mdiCloudOutline,
+  mdiSync,
+  mdiWrenchOutline,
+  mdiBookOpenPageVariantOutline,
+  mdiLayersTripleOutline,
+  mdiHeadCogOutline,
 } from '@mdi/js';
 import { getAuthStatus, getPublicTiers, subscribe } from '../api/client';
 import { formatDuration } from '../lib/format';
@@ -34,10 +48,13 @@ interface TierInfo {
   advancedPriceMonthly?: number | null;
   description: string;
   trialQuotaHours?: number;
-  trialDays?: number; // backward compat
+  trialDays?: number;
   sessionModes: string[];
 }
 
+type SubscribePhase = 'home' | 'mode' | 'tier';
+
+/** Home view feature highlights */
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
   { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
@@ -47,7 +64,7 @@ const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiLightningBolt, content: () => <>From idea to deployment in minutes</> },
 ];
 
-/** Per-tier feature bullets shown on cards */
+/** Per-tier feature bullets for detail panel */
 const TIER_FEATURES: Record<string, string[]> = {
   free: ['1 concurrent session', 'Standard mode only', 'Community support'],
   standard: ['3 concurrent sessions', 'Standard + Pro modes', 'Trial included', 'R2 cloud sync'],
@@ -55,6 +72,36 @@ const TIER_FEATURES: Record<string, string[]> = {
   max: ['10 concurrent sessions', 'Standard + Pro modes', 'Extended trial', 'Priority support'],
   unlimited: ['10 concurrent sessions', 'Standard + Pro modes', 'Unlimited compute', 'Dedicated support'],
 };
+
+/** Lifeline stop icons */
+const TIER_ICONS: Record<string, string> = {
+  free: mdiGiftOutline,
+  standard: mdiRocketLaunchOutline,
+  advanced: mdiStarOutline,
+  max: mdiFlash,
+  unlimited: mdiAccountGroupOutline,
+};
+
+/** Ordered tier ids for lifeline rendering */
+const TIER_ORDER = ['free', 'standard', 'advanced', 'max', 'unlimited'] as const;
+
+/** Standard mode features for Phase 1 card */
+const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
+  { icon: mdiRocketLaunchOutline, text: 'IDE' },
+  { icon: mdiConsole, text: 'Terminal' },
+  { icon: mdiFileDocumentOutline, text: 'File browser' },
+  { icon: mdiRobotOutline, text: 'Agent selection' },
+  { icon: mdiCloudOutline, text: 'Storage' },
+  { icon: mdiSync, text: 'R2 sync' },
+];
+
+/** Pro mode features for Phase 1 card */
+const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
+  { icon: mdiWrenchOutline, text: 'Skills & rules' },
+  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph' },
+  { icon: mdiLayersTripleOutline, text: 'Multi-LLM' },
+  { icon: mdiHeadCogOutline, text: 'AI orchestration' },
+];
 
 const SubscribePage: Component = () => {
   const [loading, setLoading] = createSignal(true);
@@ -65,12 +112,14 @@ const SubscribePage: Component = () => {
   const [turnstileReady, setTurnstileReady] = createSignal(false);
   const [subscribing, setSubscribing] = createSignal<string | null>(null);
   const [currency, setCurrency] = createSignal('USD');
-  const [showTiers, setShowTiers] = createSignal(false);
   const [userEmail, setUserEmail] = createSignal('');
   const [currentTierId, setCurrentTierId] = createSignal<string | null>(null);
   const [globalMode, setGlobalMode] = createSignal<'default' | 'advanced'>('default');
+  const [subscribePhase, setSubscribePhase] = createSignal<SubscribePhase>('home');
+  const [selectedTierId, setSelectedTierId] = createSignal('advanced');
 
   let observer: MutationObserver | null = null;
+  let tierPhaseRef: HTMLDivElement | undefined;
 
   onMount(async () => {
     try {
@@ -79,15 +128,9 @@ const SubscribePage: Component = () => {
         getPublicTiers().catch((err) => { logger.error('getPublicTiers failed:', err); return { tiers: [] }; }),
       ]);
 
-      if (status.currency) {
-        setCurrency(status.currency);
-      }
+      if (status.currency) setCurrency(status.currency);
+      if (status.email) setUserEmail(status.email);
 
-      if (status.email) {
-        setUserEmail(status.email);
-      }
-
-      // Store tiers for ALL users (active users need them for "See subscription tiers")
       setTiers(tiersData.tiers as TierInfo[]);
 
       const tier = status.subscriptionTier ?? status.accessTier;
@@ -98,26 +141,42 @@ const SubscribePage: Component = () => {
         return;
       }
 
-      // Active user = has explicitly subscribed
       if (status.hasSubscribed === true) {
         setIsActive(true);
-        setCurrentTierId(status.subscriptionTier ?? status.accessTier ?? null);
+        const ct = status.subscriptionTier ?? status.accessTier ?? 'advanced';
+        setCurrentTierId(ct);
+        // Default lifeline selection to current tier if it's in the public list
+        if (TIER_ORDER.includes(ct as typeof TIER_ORDER[number])) {
+          setSelectedTierId(ct);
+        }
       }
 
-      // Load Turnstile for pending users (needed when they open tier view)
-      if (!status.hasSubscribed) {
-        if (status.turnstileSiteKey) {
-          loadTurnstileScript();
-          startTurnstileWatch();
-        } else {
-          setTurnstileReady(true);
-        }
+      // Preload Turnstile script for pending users
+      if (!status.hasSubscribed && status.turnstileSiteKey) {
+        loadTurnstileScript();
+      }
+      if (!status.hasSubscribed && !status.turnstileSiteKey) {
+        setTurnstileReady(true);
       }
     } catch (err) {
       logger.error('Failed to load subscribe page:', err);
       setError('Unable to load subscription options. Please try again.');
     }
     setLoading(false);
+  });
+
+  // Initialize Turnstile watch when Phase 2 renders for pending users
+  createEffect(() => {
+    if (subscribePhase() === 'tier' && !isActive() && !turnstileReady()) {
+      startTurnstileWatch();
+    }
+  });
+
+  // Auto-scroll to tier phase on mobile when entering Phase 2
+  createEffect(() => {
+    if (subscribePhase() === 'tier' && tierPhaseRef) {
+      tierPhaseRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   });
 
   onCleanup(() => {
@@ -188,7 +247,8 @@ const SubscribePage: Component = () => {
   }
 
   function formatPrice(cents: number | null, cur?: string): string {
-    if (cents === null || cents === 0) return 'Free';
+    if (cents === null) return 'Contact';
+    if (cents === 0) return 'Free';
     const code = cur ?? currency();
     const amount = (cents / 100).toFixed(0);
     switch (code) {
@@ -210,7 +270,11 @@ const SubscribePage: Component = () => {
     if (globalMode() === 'advanced' && tier.advancedPriceMonthly != null) {
       return tier.advancedPriceMonthly === 0;
     }
-    return tier.priceMonthly === null || tier.priceMonthly === 0;
+    return tier.priceMonthly === 0;
+  }
+
+  function isContact(tier: TierInfo): boolean {
+    return tier.priceMonthly === null;
   }
 
   function getTrialBadge(tier: TierInfo): string | null {
@@ -219,8 +283,44 @@ const SubscribePage: Component = () => {
     return `${trialHours}h free trial`;
   }
 
-  /** Narrow for home view, wide for tier view */
-  const contentClass = () => showTiers() ? 'login-content subscribe-content' : 'login-content';
+  /** Currently selected tier data */
+  const selectedTier = createMemo(() =>
+    tiers().find(t => t.id === selectedTierId()) ?? tiers()[0] ?? null
+  );
+
+  /** Lifeline fill percentage (0% = first stop, 100% = last stop) */
+  const lifelineProgress = createMemo(() => {
+    const idx = TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]);
+    if (idx < 0) return 0;
+    return (idx / (TIER_ORDER.length - 1)) * 100;
+  });
+
+  /** Content width: wide for mode and tier phases */
+  const contentClass = () => {
+    const phase = subscribePhase();
+    return phase === 'mode' || phase === 'tier' ? 'login-content subscribe-content' : 'login-content';
+  };
+
+  /** CTA button label */
+  function ctaLabel(): string {
+    const tier = selectedTier();
+    if (!tier) return 'Select';
+    if (subscribing() === tier.id) return isActive() ? 'Switching...' : 'Subscribing...';
+    if (isActive() && tier.id === currentTierId()) return 'Current Plan';
+    if (isActive()) return 'Switch Plan';
+    if (isFree(tier)) return 'Get Started';
+    return 'Start Trial';
+  }
+
+  /** CTA disabled state */
+  function ctaDisabled(): boolean {
+    const tier = selectedTier();
+    if (!tier) return true;
+    if (subscribing() !== null) return true;
+    if (isActive() && tier.id === currentTierId()) return true;
+    if (!isActive() && !turnstileReady()) return true;
+    return false;
+  }
 
   return (
     <div class="login-page">
@@ -241,15 +341,13 @@ const SubscribePage: Component = () => {
           Ready when you are, wherever you are.
         </p>
 
-        <Show when={!loading()} fallback={
-          <div class="subscribe-loading">Loading...</div>
-        }>
+        <Show when={!loading()} fallback={<div class="subscribe-loading">Loading...</div>}>
           {/* Error display */}
           <Show when={error()}>
             <div class="subscribe-error">{error()}</div>
           </Show>
 
-          {/* Blocked state */}
+          {/* Blocked */}
           <Show when={isBlocked()}>
             <div class="subscribe-status">
               <div class="subscribe-status-icon subscribe-status-icon--blocked">
@@ -260,11 +358,11 @@ const SubscribePage: Component = () => {
             </div>
           </Show>
 
-          {/* Unified flow for active + pending users */}
+          {/* Main flow (active + pending) */}
           <Show when={!isBlocked()}>
 
-            {/* Home view: features list + status */}
-            <Show when={!showTiers()}>
+            {/* ── Home view ── */}
+            <Show when={subscribePhase() === 'home'}>
               <div class="login-features">
                 <For each={FEATURES}>
                   {(feature, i) => (
@@ -302,121 +400,193 @@ const SubscribePage: Component = () => {
               <button
                 type="button"
                 class="subscribe-logout-button"
-                onClick={() => setShowTiers(true)}
+                onClick={() => setSubscribePhase('mode')}
               >
                 See subscription tiers
               </button>
             </Show>
 
-            {/* Tier view */}
-            <Show when={showTiers()}>
-              {/* Mode pill toggle */}
-              <div class="subscribe-mode-pill" data-testid="mode-selector">
+            {/* ── Phase 1: Mode selection ── */}
+            <Show when={subscribePhase() === 'mode'}>
+              <div class="subscribe-mode-chooser" data-testid="mode-chooser">
                 <button
                   type="button"
-                  class="subscribe-mode-pill-btn"
-                  classList={{ 'subscribe-mode-pill-btn--active': globalMode() === 'default' }}
-                  onClick={() => setGlobalMode('default')}
+                  class="subscribe-mode-card"
+                  data-testid="mode-card-standard"
+                  onClick={() => { setGlobalMode('default'); setSubscribePhase('tier'); }}
                 >
-                  Standard
+                  <h3 class="subscribe-mode-card-title">Standard</h3>
+                  <p class="subscribe-mode-card-desc">Everything you need to code, build and deploy.</p>
+                  <ul class="subscribe-mode-card-features">
+                    <For each={STANDARD_MODE_FEATURES}>
+                      {(f) => (
+                        <li class="subscribe-mode-card-feature">
+                          <Icon path={f.icon} size={16} />
+                          <span>{f.text}</span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
                 </button>
+
                 <button
                   type="button"
-                  class="subscribe-mode-pill-btn"
-                  classList={{ 'subscribe-mode-pill-btn--active': globalMode() === 'advanced' }}
-                  onClick={() => setGlobalMode('advanced')}
+                  class="subscribe-mode-card"
+                  data-testid="mode-card-pro"
+                  onClick={() => { setGlobalMode('advanced'); setSubscribePhase('tier'); }}
                 >
-                  Pro
+                  <h3 class="subscribe-mode-card-title">Pro</h3>
+                  <p class="subscribe-mode-card-desc">Standard plus AI orchestration and memory.</p>
+                  <ul class="subscribe-mode-card-features">
+                    <For each={PRO_MODE_FEATURES}>
+                      {(f) => (
+                        <li class="subscribe-mode-card-feature">
+                          <Icon path={f.icon} size={16} />
+                          <span>{f.text}</span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
                 </button>
               </div>
-              <p class="subscribe-mode-hint">
-                {globalMode() === 'default'
-                  ? 'IDE, terminal, file browser, agent selection, and R2 sync.'
-                  : 'Everything in Standard plus AI orchestration, knowledge graph memory, and multi-LLM workflows.'}
-              </p>
-
-              {/* Tier cards */}
-              <div class="subscribe-tier-grid" data-testid="tier-grid">
-                <For each={tiers()}>
-                  {(tier) => {
-                    const isRecommended = () => isActive() ? tier.id === currentTierId() : tier.id === 'standard';
-                    const features = () => TIER_FEATURES[tier.id] ?? [];
-
-                    return (
-                      <div class="subscribe-tier-card" classList={{
-                        'subscribe-tier-card--recommended': isRecommended(),
-                      }}>
-                        <div class="subscribe-tier-card-header">
-                          <h3 class="subscribe-tier-name">{tier.displayName}</h3>
-                          <div class="subscribe-tier-price">
-                            <span class="subscribe-tier-price-amount">{getGlobalModePrice(tier)}</span>
-                            <Show when={!isFree(tier)}>
-                              <span class="subscribe-tier-price-period">/mo</span>
-                            </Show>
-                          </div>
-                          <Show when={tier.description}>
-                            <p class="subscribe-tier-tagline">{tier.description}</p>
-                          </Show>
-                        </div>
-
-                        <div class="subscribe-tier-card-body">
-                          <div class="subscribe-tier-specs">
-                            <span>{tier.monthlySeconds !== null ? formatDuration(tier.monthlySeconds) : 'Unlimited'} / month</span>
-                          </div>
-
-                          <ul class="subscribe-tier-features">
-                            <For each={features()}>
-                              {(feature) => (
-                                <li class="subscribe-tier-feature-item">
-                                  <Icon path={mdiCheck} size={14} />
-                                  <span>{feature}</span>
-                                </li>
-                              )}
-                            </For>
-                          </ul>
-
-                          <Show when={getTrialBadge(tier)}>
-                            {(badge) => (
-                              <div class="subscribe-tier-badge">{badge()}</div>
-                            )}
-                          </Show>
-                        </div>
-
-                        <button
-                          type="button"
-                          class="subscribe-tier-btn"
-                          classList={{ 'subscribe-tier-btn--primary': isRecommended() }}
-                          disabled={isActive()
-                            ? (tier.id === currentTierId() || subscribing() !== null)
-                            : (!turnstileReady() || subscribing() !== null)}
-                          onClick={() => void handleSubscribe(tier.id)}
-                        >
-                          {isActive()
-                            ? (tier.id === currentTierId()
-                              ? 'Current Plan'
-                              : subscribing() === tier.id ? 'Switching...' : 'Switch Plan')
-                            : (subscribing() === tier.id ? 'Subscribing...' : tier.priceMonthly ? 'Start Trial' : 'Get Started')}
-                        </button>
-                      </div>
-                    );
-                  }}
-                </For>
-              </div>
-
-              {/* Turnstile (pending users only) */}
-              <Show when={!isActive()}>
-                <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
-                  <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
-                </div>
-              </Show>
 
               <button
                 type="button"
                 class="subscribe-logout-button"
-                onClick={() => setShowTiers(false)}
+                onClick={() => setSubscribePhase('home')}
               >
                 Back
               </button>
+            </Show>
+
+            {/* ── Phase 2: Tier selection with lifeline ── */}
+            <Show when={subscribePhase() === 'tier'}>
+              <div ref={tierPhaseRef}>
+                {/* Mode pill (compact, can change without leaving Phase 2) */}
+                <div class="subscribe-mode-pill" data-testid="mode-selector">
+                  <button
+                    type="button"
+                    class="subscribe-mode-pill-btn"
+                    classList={{ 'subscribe-mode-pill-btn--active': globalMode() === 'default' }}
+                    onClick={() => setGlobalMode('default')}
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    class="subscribe-mode-pill-btn"
+                    classList={{ 'subscribe-mode-pill-btn--active': globalMode() === 'advanced' }}
+                    onClick={() => setGlobalMode('advanced')}
+                  >
+                    Pro
+                  </button>
+                </div>
+
+                {/* Detail panel for selected tier */}
+                <Show when={selectedTier()} fallback={
+                  <div class="subscribe-error">No subscription tiers available.</div>
+                }>
+                  {(tier) => (
+                    <div class="subscribe-detail-panel" data-testid="tier-detail-panel">
+                      <h3 class="subscribe-detail-name">{tier().displayName}</h3>
+                      <div class="subscribe-detail-price">
+                        <span class="subscribe-tier-price-amount">{getGlobalModePrice(tier())}</span>
+                        <Show when={!isFree(tier()) && !isContact(tier())}>
+                          <span class="subscribe-tier-price-period">/mo</span>
+                        </Show>
+                      </div>
+                      <Show when={tier().description}>
+                        <p class="subscribe-detail-tagline">{tier().description}</p>
+                      </Show>
+                      <div class="subscribe-detail-specs">
+                        <span>{tier().monthlySeconds !== null ? formatDuration(tier().monthlySeconds) : 'Unlimited'} / month</span>
+                        <span class="subscribe-detail-specs-sep">&middot;</span>
+                        <span>{tier().maxSessions} {tier().maxSessions === 1 ? 'session' : 'sessions'}</span>
+                      </div>
+
+                      <ul class="subscribe-tier-features">
+                        <For each={TIER_FEATURES[tier().id] ?? []}>
+                          {(feature) => (
+                            <li class="subscribe-tier-feature-item">
+                              <Icon path={mdiCheck} size={14} />
+                              <span>{feature}</span>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+
+                      <Show when={getTrialBadge(tier())}>
+                        {(badge) => <div class="subscribe-tier-badge">{badge()}</div>}
+                      </Show>
+
+                      <button
+                        type="button"
+                        class="subscribe-tier-btn subscribe-tier-btn--primary"
+                        disabled={ctaDisabled()}
+                        onClick={() => void handleSubscribe(selectedTierId())}
+                      >
+                        {ctaLabel()}
+                      </button>
+
+                      {/* Turnstile (pending users only) */}
+                      <Show when={!isActive()}>
+                        <div class="subscribe-turnstile" id="turnstile-container" data-testid="turnstile-container">
+                          <div class="cf-turnstile" data-sitekey="" data-callback="onTurnstileSuccess" />
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </Show>
+
+                {/* Lifeline rail */}
+                <div class="subscribe-lifeline" data-testid="lifeline-rail">
+                  <div class="subscribe-lifeline-track">
+                    <div class="subscribe-lifeline-fill" style={{ width: `${lifelineProgress()}%` }} />
+                  </div>
+                  <div class="subscribe-lifeline-stops">
+                    <For each={[...TIER_ORDER]}>
+                      {(tierId) => {
+                        const tierData = () => tiers().find(t => t.id === tierId);
+                        return (
+                          <Show when={tierData()}>
+                            {(td) => (
+                              <button
+                                type="button"
+                                class="subscribe-lifeline-stop"
+                                classList={{
+                                  'subscribe-lifeline-stop--selected': selectedTierId() === tierId,
+                                  'subscribe-lifeline-stop--passed': TIER_ORDER.indexOf(tierId as typeof TIER_ORDER[number]) <= TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]),
+                                }}
+                                onClick={() => setSelectedTierId(tierId)}
+                                data-testid={`lifeline-stop-${tierId}`}
+                              >
+                                <span class="subscribe-lifeline-icon">
+                                  <Icon path={TIER_ICONS[tierId] ?? mdiStarOutline} size={20} />
+                                </span>
+                                <span class="subscribe-lifeline-label">{td().displayName}</span>
+                                <Show when={isActive() && currentTierId() === tierId}>
+                                  <div class="subscribe-lifeline-you">
+                                    <Icon path={mdiAccountCircle} size={16} />
+                                    <span>This is you</span>
+                                  </div>
+                                </Show>
+                              </button>
+                            )}
+                          </Show>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="subscribe-logout-button"
+                  onClick={() => setSubscribePhase('mode')}
+                >
+                  Back
+                </button>
+              </div>
             </Show>
           </Show>
         </Show>
