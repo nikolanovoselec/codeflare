@@ -78,38 +78,32 @@
 }
 .subscribe-logout-button:hover { background: rgba(24, 24, 27, 0.95); border-color: rgba(255, 255, 255, 0.15); color: #fafafa; transform: translateY(-1px); }
 
-/* ── Phase 1: Mode chooser cards ── */
+/* ── Merged mode card with Standard/Pro toggle ── */
 
-.subscribe-mode-chooser {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
-  margin-bottom: 1.5rem; width: 100%;
+.subscribe-mode-card-merged {
+  background: rgba(24, 24, 27, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;
+  padding: 1.5rem; text-align: left; width: 100%; max-width: 420px;
+  margin: 0 auto 1.5rem;
   animation: fadeSlideIn 0.4s ease-out;
 }
 
-.subscribe-mode-card {
-  background: rgba(24, 24, 27, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;
-  padding: 1.5rem; cursor: pointer; text-align: left;
-  transition: border-color 200ms ease, box-shadow 200ms ease, transform 150ms ease;
+.subscribe-mode-toggle {
+  display: flex; gap: 0; margin-bottom: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px;
+  overflow: hidden; background: rgba(24, 24, 27, 0.5);
 }
-.subscribe-mode-card:hover {
-  border-color: rgba(59, 130, 246, 0.4);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 4px 24px rgba(59, 130, 246, 0.08);
-  transform: translateY(-2px);
+.subscribe-mode-toggle-btn {
+  flex: 1; padding: 0.5rem 1rem; font-size: 0.8rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace; font-weight: 500;
+  border: none; background: transparent; color: #52525b;
+  cursor: pointer; transition: all 150ms ease;
 }
-.subscribe-mode-card--active {
-  border-color: rgba(59, 130, 246, 0.5);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2), 0 4px 24px rgba(59, 130, 246, 0.1);
+.subscribe-mode-toggle-btn--active {
+  background: rgba(59, 130, 246, 0.15); color: #fafafa;
 }
-.subscribe-mode-card--active .subscribe-mode-card-title { color: #3b82f6; }
+.subscribe-mode-toggle-btn:hover:not(.subscribe-mode-toggle-btn--active) { color: #a1a1aa; }
 
-.subscribe-mode-card-title {
-  margin: 0 0 0.5rem; font-size: 1.1rem; font-weight: 600; color: #fafafa;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-}
-.subscribe-mode-card-desc {
-  margin: 0 0 1rem; font-size: 0.75rem; color: #71717a; line-height: 1.5;
-}
 .subscribe-mode-card-features {
   list-style: none; margin: 0; padding: 0;
   display: flex; flex-direction: column; gap: 0.4rem;
@@ -119,6 +113,17 @@
   font-size: 0.75rem; color: #a1a1aa;
 }
 .subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; }
+
+.subscribe-mode-separator {
+  height: 1px; background: rgba(255, 255, 255, 0.06);
+  margin: 0.75rem 0;
+}
+.subscribe-mode-pro-label {
+  margin: 0 0 0.5rem; font-size: 0.7rem; color: #3b82f6;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-weight: 500; letter-spacing: 0.03em;
+}
+.subscribe-mode-card-features--pro .subscribe-mode-card-feature svg { color: #8b5cf6; }
 
 /* ── Detail panel ── */
 
@@ -246,10 +251,7 @@
 /* ── Responsive ── */
 
 @media (max-width: 640px) {
-  .subscribe-mode-chooser {
-    grid-template-columns: 1fr;
-    max-width: 320px; margin-left: auto; margin-right: auto;
-  }
+  .subscribe-mode-card-merged { padding: 1.25rem; }
   .subscribe-detail-panel { padding: 1.25rem; }
   .subscribe-lifeline-label { font-size: 0.5rem; }
   .subscribe-lifeline-icon { width: 32px; height: 32px; }

@@ -408,39 +408,47 @@ const SubscribePage: Component = () => {
             {/* ── Tier selection: mode cards + lifeline + detail — all visible ── */}
             <Show when={subscribePhase() === 'tiers'}>
               <div ref={tierPhaseRef}>
-                {/* Mode cards (stay visible, highlighted when selected) */}
-                <div class="subscribe-mode-chooser" data-testid="mode-chooser">
-                  <button
-                    type="button"
-                    class="subscribe-mode-card"
-                    classList={{ 'subscribe-mode-card--active': globalMode() === 'default' }}
-                    data-testid="mode-card-standard"
-                    onClick={() => setGlobalMode('default')}
-                  >
-                    <h3 class="subscribe-mode-card-title">Standard</h3>
-                    <p class="subscribe-mode-card-desc">Full cloud IDE with 5 AI agents, terminal, file browser, and cloud sync.</p>
-                    <ul class="subscribe-mode-card-features">
-                      <For each={STANDARD_MODE_FEATURES}>
-                        {(f) => (
-                          <li class="subscribe-mode-card-feature">
-                            <Icon path={f.icon} size={16} />
-                            <span>{f.text}</span>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
-                  </button>
+                {/* Merged mode card with Standard/Pro toggle */}
+                <div class="subscribe-mode-card-merged" data-testid="mode-chooser">
+                  {/* Mode toggle at top */}
+                  <div class="subscribe-mode-toggle">
+                    <button
+                      type="button"
+                      class="subscribe-mode-toggle-btn"
+                      classList={{ 'subscribe-mode-toggle-btn--active': globalMode() === 'default' }}
+                      data-testid="mode-card-standard"
+                      onClick={() => setGlobalMode('default')}
+                    >
+                      Standard
+                    </button>
+                    <button
+                      type="button"
+                      class="subscribe-mode-toggle-btn"
+                      classList={{ 'subscribe-mode-toggle-btn--active': globalMode() === 'advanced' }}
+                      data-testid="mode-card-pro"
+                      onClick={() => setGlobalMode('advanced')}
+                    >
+                      Pro
+                    </button>
+                  </div>
 
-                  <button
-                    type="button"
-                    class="subscribe-mode-card"
-                    classList={{ 'subscribe-mode-card--active': globalMode() === 'advanced' }}
-                    data-testid="mode-card-pro"
-                    onClick={() => setGlobalMode('advanced')}
-                  >
-                    <h3 class="subscribe-mode-card-title">Pro</h3>
-                    <p class="subscribe-mode-card-desc">Everything in Standard, plus curated AI skills, persistent memory, and multi-LLM workflows.</p>
-                    <ul class="subscribe-mode-card-features">
+                  {/* Standard features (always visible) */}
+                  <ul class="subscribe-mode-card-features">
+                    <For each={STANDARD_MODE_FEATURES}>
+                      {(f) => (
+                        <li class="subscribe-mode-card-feature">
+                          <Icon path={f.icon} size={16} />
+                          <span>{f.text}</span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+
+                  {/* Pro features (visible when Pro selected) */}
+                  <Show when={globalMode() === 'advanced'}>
+                    <div class="subscribe-mode-separator" />
+                    <p class="subscribe-mode-pro-label">+ Pro features</p>
+                    <ul class="subscribe-mode-card-features subscribe-mode-card-features--pro">
                       <For each={PRO_MODE_FEATURES}>
                         {(f) => (
                           <li class="subscribe-mode-card-feature">
@@ -450,24 +458,23 @@ const SubscribePage: Component = () => {
                         )}
                       </For>
                     </ul>
-                  </button>
+                  </Show>
                 </div>
 
-                {/* Lifeline — angular dashed path with aligned tier stops */}
+                {/* Lifeline — 90° stair-step dashed path */}
                 <div class="subscribe-lifeline" data-testid="lifeline-rail">
-                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 60" preserveAspectRatio="none">
-                    {/* Background: angular zigzag dashed path */}
+                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 50" preserveAspectRatio="none">
+                    {/* Background: 90° stair-step path (right-down-right-up repeating) */}
                     <path
-                      d="M 25 30 L 80 15 L 145 45 L 250 20 L 355 50 L 420 25 L 475 35"
-                      fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2"
-                      stroke-dasharray="8 4" stroke-linecap="square"
+                      d="M 50 10 L 90 10 L 90 40 L 170 40 L 170 10 L 250 10 L 250 40 L 330 40 L 330 10 L 370 10 L 370 40 L 450 40"
+                      fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"
+                      stroke-dasharray="6 4" stroke-linecap="square" stroke-linejoin="miter"
                     />
-                    {/* Active fill path */}
+                    {/* Active fill */}
                     <path
-                      d="M 25 30 L 80 15 L 145 45 L 250 20 L 355 50 L 420 25 L 475 35"
-                      fill="none" stroke="#3b82f6" stroke-width="2"
-                      stroke-dasharray="8 4" stroke-linecap="square"
-                      stroke-dashoffset={0}
+                      d="M 50 10 L 90 10 L 90 40 L 170 40 L 170 10 L 250 10 L 250 40 L 330 40 L 330 10 L 370 10 L 370 40 L 450 40"
+                      fill="none" stroke="#3b82f6" stroke-width="1.5"
+                      stroke-dasharray="6 4" stroke-linecap="square" stroke-linejoin="miter"
                       clip-path={`inset(0 ${100 - lifelineProgress()}% 0 0)`}
                       style={{ transition: 'clip-path 400ms ease' }}
                     />
