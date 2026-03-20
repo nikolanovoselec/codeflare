@@ -102,7 +102,11 @@
 .subscribe-mode-toggle-btn--active {
   background: rgba(59, 130, 246, 0.15); color: #fafafa;
 }
-.subscribe-mode-toggle-btn:hover:not(.subscribe-mode-toggle-btn--active) { color: #a1a1aa; }
+.subscribe-mode-toggle-btn:hover:not(.subscribe-mode-toggle-btn--active):not(:disabled) { color: #a1a1aa; }
+.subscribe-mode-toggle-btn--disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
 
 .subscribe-mode-card-features {
   list-style: none; margin: 0; padding: 0;

@@ -309,6 +309,19 @@ const SubscribePage: Component = () => {
     tiers().find(t => t.id === selectedTierId()) ?? tiers()[0] ?? null
   );
 
+  /** Whether selected tier supports Pro mode */
+  const selectedTierSupportsPro = createMemo(() => {
+    const t = selectedTier();
+    return t ? t.sessionModes.includes('advanced') : true;
+  });
+
+  // Force Standard mode when selected tier doesn't support Pro
+  createEffect(() => {
+    if (!selectedTierSupportsPro() && globalMode() === 'advanced') {
+      setGlobalMode('default');
+    }
+  });
+
   /** Scramble animations for text that changes on tier/mode switch */
   const scrambledName = useScrambleText(() => selectedTier()?.displayName ?? '');
   const scrambledPrice = useScrambleText(() => {
@@ -467,9 +480,14 @@ const SubscribePage: Component = () => {
                     <button
                       type="button"
                       class="subscribe-mode-toggle-btn"
-                      classList={{ 'subscribe-mode-toggle-btn--active': globalMode() === 'advanced' }}
+                      classList={{
+                        'subscribe-mode-toggle-btn--active': globalMode() === 'advanced',
+                        'subscribe-mode-toggle-btn--disabled': !selectedTierSupportsPro(),
+                      }}
                       data-testid="mode-card-pro"
+                      disabled={!selectedTierSupportsPro()}
                       onClick={() => {
+                        if (!selectedTierSupportsPro()) return;
                         setGlobalMode('advanced');
                         if (!hasScrolledForPro && tierPhaseRef?.scrollIntoView) {
                           hasScrolledForPro = true;
