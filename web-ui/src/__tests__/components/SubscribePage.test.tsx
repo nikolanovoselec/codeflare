@@ -219,8 +219,10 @@ describe('SubscribePage', () => {
       await openTierPhase();
 
       await waitFor(() => {
-        expect(screen.getByTestId('tier-detail-panel')).toBeInTheDocument();
-        expect(screen.getByText('Advanced')).toBeInTheDocument();
+        const panel = screen.getByTestId('tier-detail-panel');
+        expect(panel).toBeInTheDocument();
+        // Detail panel heading shows tier name
+        expect(panel.querySelector('.subscribe-detail-name')?.textContent).toBe('Advanced');
       });
     });
 
@@ -236,7 +238,8 @@ describe('SubscribePage', () => {
       await openTierPhase();
 
       await waitFor(() => {
-        expect(screen.getByText('Starter')).toBeInTheDocument();
+        const panel = screen.getByTestId('tier-detail-panel');
+        expect(panel.querySelector('.subscribe-detail-name')?.textContent).toBe('Starter');
       });
     });
 
