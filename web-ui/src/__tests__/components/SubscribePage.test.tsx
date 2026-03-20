@@ -255,7 +255,7 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('shows "This is you" for active users', async () => {
+    it('shows "You" for active users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -267,13 +267,13 @@ describe('SubscribePage', () => {
       await openTierView();
 
       await waitFor(() => {
-        expect(screen.getByText('This is you')).toBeInTheDocument();
+        expect(screen.getByText('You')).toBeInTheDocument();
       });
     });
 
-    it('does NOT show "This is you" for pending users', async () => {
+    it('does NOT show "You" for pending users', async () => {
       await openTierView();
-      expect(screen.queryByText('This is you')).not.toBeInTheDocument();
+      expect(screen.queryByText('You')).not.toBeInTheDocument();
     });
 
     it('CTA shows "Get Started" for free tier', async () => {
