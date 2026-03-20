@@ -499,7 +499,7 @@ const SubscribePage: Component = () => {
                         <p class="subscribe-detail-tagline">{tier().description}</p>
                       </Show>
                       <div class="subscribe-detail-specs">
-                        <span>{tier().monthlySeconds !== null ? formatDuration(tier().monthlySeconds) : 'Unlimited'} / month</span>
+                        <span>{tier().monthlySeconds !== null ? formatDuration(tier().monthlySeconds!) : 'Unlimited'} / month</span>
                         <span class="subscribe-detail-specs-sep">&middot;</span>
                         <span>{tier().maxSessions} {tier().maxSessions === 1 ? 'session' : 'sessions'}</span>
                       </div>
