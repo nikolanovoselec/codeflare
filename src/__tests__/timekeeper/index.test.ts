@@ -24,6 +24,15 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 import { Timekeeper } from '../../timekeeper/index';
+import { getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../../lib/kv-keys';
+
+// Dynamic dates so tests never go stale
+const NOW = new Date();
+const TODAY = getUtcDateString(NOW);
+const THIS_MONTH = getUtcMonthString(NOW);
+const THIS_YEAR = String(NOW.getUTCFullYear());
+const THIS_WEEK_START = getIsoWeekStart(NOW);
+const YESTERDAY = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate() - 1)).toISOString();
 
 function createTimekeeper(): Timekeeper {
   const ctx = { storage: mockStorage, waitUntil: vi.fn() } as any;
@@ -164,12 +173,12 @@ describe('Timekeeper DO', () => {
     it('returns quotaExceeded=true when at quota', async () => {
       // Free tier: 7200s. Mock must handle both get(key) and get(key, 'json') calls.
       const usageRecord = {
-        today: { date: '2026-03-19', seconds: 0 },
-        thisWeek: { weekStart: '2026-03-16', seconds: 0 },
-        thisMonth: { month: '2026-03', seconds: 7100 },
-        thisYear: { year: '2026', seconds: 7100 },
+        today: { date: TODAY, seconds: 0 },
+        thisWeek: { weekStart: THIS_WEEK_START, seconds: 0 },
+        thisMonth: { month: THIS_MONTH, seconds: 7100 },
+        thisYear: { year: THIS_YEAR, seconds: 7100 },
         allTime: { seconds: 7100 },
-        lastUpdatedAt: '2026-03-18T00:00:00Z',
+        lastUpdatedAt: YESTERDAY,
       };
       mockKV.get.mockImplementation(async (key: string, type?: string) => {
         if (key === 'tiers:config') return null;
@@ -228,12 +237,12 @@ describe('Timekeeper DO', () => {
       mockKV.get.mockImplementation(async (key: string, type?: string) => {
         if (key.startsWith('timekeeper:') && type === 'json') {
           return {
-            today: { date: '2026-03-19', seconds: 100 },
-            thisWeek: { weekStart: '2026-03-16', seconds: 500 },
-            thisMonth: { month: '2026-03', seconds: 1000 },
-            thisYear: { year: '2026', seconds: 5000 },
+            today: { date: TODAY, seconds: 100 },
+            thisWeek: { weekStart: THIS_WEEK_START, seconds: 500 },
+            thisMonth: { month: THIS_MONTH, seconds: 1000 },
+            thisYear: { year: THIS_YEAR, seconds: 5000 },
             allTime: { seconds: 10000 },
-            lastUpdatedAt: '2026-03-18T00:00:00Z',
+            lastUpdatedAt: YESTERDAY,
           };
         }
         return null;
@@ -286,12 +295,12 @@ describe('Timekeeper DO', () => {
       mockKV.get.mockImplementation(async (key: string, type?: string) => {
         if (key === 'timekeeper:cf-alice' && type === 'json') {
           return {
-            today: { date: '2026-03-19', seconds: 100 },
-            thisWeek: { weekStart: '2026-03-16', seconds: 500 },
-            thisMonth: { month: '2026-03', seconds: 1000 },
-            thisYear: { year: '2026', seconds: 5000 },
+            today: { date: TODAY, seconds: 100 },
+            thisWeek: { weekStart: THIS_WEEK_START, seconds: 500 },
+            thisMonth: { month: THIS_MONTH, seconds: 1000 },
+            thisYear: { year: THIS_YEAR, seconds: 5000 },
             allTime: { seconds: 10000 },
-            lastUpdatedAt: '2026-03-18T00:00:00Z',
+            lastUpdatedAt: YESTERDAY,
           };
         }
         return null;
