@@ -634,13 +634,19 @@ export class container extends Container<Env> {
           const key = getSessionKey(bucketName, sessionId);
           const session = await this.env.KV.get<Session>(key, 'json');
           if (session) {
-            const updated = { ...session, metrics: {
-              cpu: health.cpu,
-              mem: health.mem,
-              hdd: health.hdd,
-              syncStatus: health.syncStatus,
-              updatedAt: new Date().toISOString(),
-            }};
+            const updated = {
+              ...session,
+              metrics: {
+                cpu: health.cpu,
+                mem: health.mem,
+                hdd: health.hdd,
+                syncStatus: health.syncStatus,
+                updatedAt: new Date().toISOString(),
+              },
+              lastActiveAt: this.lastSeenInputAt
+                ? new Date(this.lastSeenInputAt).toISOString()
+                : session.lastActiveAt,
+            };
             await this.env.KV.put(key, JSON.stringify(updated));
           }
         }
