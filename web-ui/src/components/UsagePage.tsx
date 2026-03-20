@@ -46,11 +46,8 @@ const UsagePage: Component = () => {
 
   const hasQuota = () => quotaSeconds() !== null;
 
-  // SVG progress ring dimensions
-  const RING_SIZE = 160;
-  const RING_STROKE = 12;
-  const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
-  const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+  const barColor = () =>
+    usagePercent() >= 100 ? '#ef4444' : usagePercent() >= 80 ? '#f59e0b' : '#3b82f6';
 
   return (
     <div class="login-page">
@@ -58,12 +55,10 @@ const UsagePage: Component = () => {
       <div class="login-particles login-particles--2" />
 
       <div class="login-content">
-        {/* Logo with float animation */}
         <div class="login-logo">
           <img src="/logo-original-transparent.png" alt="Codeflare" class="login-logo-img" />
         </div>
 
-        {/* Title with scramble animation */}
         <h1 class="login-title">
           <ScrambleText text="Codeflare" class="login-title-scramble" />
         </h1>
@@ -75,52 +70,42 @@ const UsagePage: Component = () => {
 
         <Show when={!loading()} fallback={<div class="usage-loading">Loading usage data...</div>}>
           <Show when={!error()} fallback={<div class="usage-error">{error()}</div>}>
-            <Show when={hasQuota()}>
-              <div class="usage-ring-container">
-                <svg width={RING_SIZE} height={RING_SIZE} class="usage-ring">
-                  <circle
-                    cx={RING_SIZE / 2}
-                    cy={RING_SIZE / 2}
-                    r={RING_RADIUS}
-                    fill="none"
-                    stroke="rgba(255, 255, 255, 0.08)"
-                    stroke-width={RING_STROKE}
-                  />
-                  <circle
-                    cx={RING_SIZE / 2}
-                    cy={RING_SIZE / 2}
-                    r={RING_RADIUS}
-                    fill="none"
-                    stroke={usagePercent() >= 100 ? '#ef4444' : usagePercent() >= 80 ? '#f59e0b' : '#3b82f6'}
-                    stroke-width={RING_STROKE}
-                    stroke-dasharray={String(RING_CIRCUMFERENCE)}
-                    stroke-dashoffset={String(RING_CIRCUMFERENCE * (1 - usagePercent() / 100))}
-                    stroke-linecap="round"
-                    transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
-                  />
-                </svg>
-                <div class="usage-ring-label">
-                  <span class="usage-ring-percent">{usagePercent()}%</span>
-                  <span class="usage-ring-sublabel">of monthly quota</span>
-                </div>
-              </div>
-            </Show>
-
-            <div class="usage-stats">
-              <div class="usage-stat-card">
-                <div class="usage-stat-label">Today</div>
-                <div class="usage-stat-value">{formatDuration(dailySeconds())}</div>
-              </div>
-              <div class="usage-stat-card">
-                <div class="usage-stat-label">This Month</div>
-                <div class="usage-stat-value">{formatDuration(monthlySeconds())}</div>
+            <div class="usage-panel">
+              <div class="usage-panel-header">
+                <span class="usage-panel-plan">{tierName()}</span>
                 <Show when={hasQuota()}>
-                  <div class="usage-stat-quota">of {formatDuration(quotaSeconds()!)}</div>
+                  <span class="usage-panel-percent">{usagePercent()}%</span>
                 </Show>
               </div>
-              <div class="usage-stat-card">
-                <div class="usage-stat-label">Plan</div>
-                <div class="usage-stat-value usage-stat-tier">{tierName()}</div>
+
+              <Show when={hasQuota()}>
+                <div class="usage-bar-track">
+                  <div
+                    class="usage-bar-fill"
+                    style={{ width: `${usagePercent()}%`, background: barColor() }}
+                  />
+                </div>
+                <div class="usage-bar-labels">
+                  <span>{formatDuration(monthlySeconds())}</span>
+                  <span>{formatDuration(quotaSeconds()!)}</span>
+                </div>
+              </Show>
+
+              <div class="usage-panel-stats">
+                <div class="usage-panel-stat">
+                  <span class="usage-panel-stat-label">Today</span>
+                  <span class="usage-panel-stat-value">{formatDuration(dailySeconds())}</span>
+                </div>
+                <div class="usage-panel-stat">
+                  <span class="usage-panel-stat-label">This month</span>
+                  <span class="usage-panel-stat-value">{formatDuration(monthlySeconds())}</span>
+                </div>
+                <Show when={hasQuota()}>
+                  <div class="usage-panel-stat">
+                    <span class="usage-panel-stat-label">Quota</span>
+                    <span class="usage-panel-stat-value">{formatDuration(quotaSeconds()!)}</span>
+                  </div>
+                </Show>
               </div>
             </div>
 

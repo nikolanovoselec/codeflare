@@ -221,18 +221,18 @@
 
 .subscribe-lifeline {
   position: relative; width: 100%; max-width: 540px;
-  margin: 1.5rem auto 2rem; padding: 2rem 0 0;
+  margin: 1.5rem auto 2rem;
   animation: fadeSlideIn 0.5s ease-out 0.2s both;
 }
 
 .subscribe-lifeline-svg {
-  position: absolute; top: 0; left: 0; width: 100%; height: 20px;
+  position: absolute; top: 18px; left: 0; width: 100%; height: 2px;
   pointer-events: none; opacity: 0.8;
 }
 
 .subscribe-lifeline-stops {
   display: flex; justify-content: space-between;
-  position: relative; padding: 0 0.5rem;
+  position: relative;
 }
 
 .subscribe-lifeline-stop {
@@ -266,13 +266,17 @@
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: #fafafa; }
 
-/* "You" marker */
+/* "This is you" marker */
 .subscribe-lifeline-you {
-  display: flex; align-items: center; gap: 0.2rem;
+  display: flex; align-items: center; gap: 0.3rem;
   color: #22c55e; animation: lifelinePulse 2s ease-in-out infinite;
-  white-space: nowrap;
+  white-space: nowrap; margin-top: 0.4rem;
 }
-.subscribe-lifeline-you span { font-size: 0.55rem; font-weight: 500; }
+.subscribe-lifeline-you span {
+  font-size: 0.65rem; font-weight: 500;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+}
 
 /* ── Responsive ── */
 

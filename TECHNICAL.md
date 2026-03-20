@@ -749,7 +749,7 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 1. New users (pending tier) land on `/app/subscribe` which displays 4 subscribable tiers: `free`, `standard`, `max`, `unlimited`
 2. Each tier card shows pricing, description, monthly hours, max sessions, session modes, and trial badge
 3. User selects a tier → client validates via Turnstile CAPTCHA
-4. `POST /api/auth/subscribe` (rate-limited 3/hour):
+4. `POST /api/auth/subscribe` (rate-limited 3/min):
    - Validates Turnstile token
    - Resolves tier config via `getTierConfig(kv)`
    - Sets `subscriptionTier`, `subscribedAt` timestamp
@@ -830,12 +830,12 @@ All users land on `/app/subscribe` with an identical two-phase layout. The only 
 - Logo, ScrambleText title, subtitle
 - Feature highlights list (6 items with MDI icons: IDE, terminal, GitHub/Cloudflare, encryption, mobile, deployment)
 - Status area (varies by user state — see below)
-- "See subscription tiers" button → transitions to Phase 2
+- "See subscription plans" button → transitions to Phase 2, scrolls to top
 
-**Phase 2 — Tier view** (after clicking "See subscription tiers"):
+**Phase 2 — Plan view** (after clicking "See subscription plans"):
 - Replaces Phase 1 content entirely (same logo/title/subtitle remain)
-- **Mode card**: merged card with Standard/Pro toggle at top. Standard features always visible; Pro features animate in via CSS `grid-template-rows: 0fr → 1fr` transition with `useScrambleText` decrypt animation on all Pro text (separator, label, bullet items)
-- **Lifeline rail**: horizontal rail with 5 tier stops (Free → Starter → Advanced → Max → Team), each with MDI icon. 90° stair-step SVG dashed path with blue fill tracking selection. Default: `advanced` for pending users, `currentTierId` for active users. "You" marker at active user's current tier
+- **Mode card**: merged card with Standard/Pro toggle at top. Standard features always visible; Pro features animate in via CSS `grid-template-rows: 0fr → 1fr` transition with `useScrambleText` decrypt animation on all Pro text. Pro toggle disabled for tiers that only support Standard (e.g. Free). Toggling Standard/Pro does not change scroll position
+- **Lifeline rail**: horizontal rail with 5 plan stops (Free → Starter → Advanced → Max → Team), each with MDI icon. Straight horizontal dashed line with blue fill tracking selection. Default: `advanced` for pending users, `currentTierId` for active users. "This is you" marker (green, pulsing) at active user's current plan
 - **Detail panel**: single panel showing selected tier's name, price (large), tagline, hours/month, sessions, feature checklist, trial badge, CTA button. Tier name, price, and specs use `useScrambleText` for decrypt animation on selection change
 - **Action buttons**: "Get Started" (free) / "Start Trial" (paid) / "Switch Plan" (active, different tier) / "Current Plan" (active, same tier, disabled)
 - Turnstile CAPTCHA (pending users only — rendered via explicit `turnstile.render()` since widget mounts after script auto-scan)
@@ -862,7 +862,7 @@ Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscr
 
 ### Self-Service Subscribe API
 
-**`POST /api/auth/subscribe`** (requires identity, rate-limited 3/hour):
+**`POST /api/auth/subscribe`** (requires identity, rate-limited 3/min):
 - Request body: `{ tier: string, turnstileToken: string }`
 - Validates Turnstile token (if `TURNSTILE_SECRET_KEY` is configured)
 - Validates tier is in subscribable set: `free`, `standard`, `max`, `unlimited`
@@ -904,15 +904,9 @@ Standalone admin page at `/admin/subscriptions` (routes to `web-ui/src/component
 ### Usage Pages + Header Inline Display
 
 **`/app/usage`** (Usage page):
-- SVG progress ring showing monthly quota usage (monthlySeconds used vs monthlyQuotaSeconds)
-- Stat cards: daily usage, monthly usage, current tier
+- Dark glass panel (matches subscribe detail panel styling) with plan name, percentage, horizontal progress bar (blue/yellow/red by threshold), used/total labels, and Today/Month/Quota stat row
 - Polls `/api/usage` endpoint every 30 seconds for real-time data
 - Routes to `web-ui/src/components/UsagePage.tsx`
-
-**`/app/plan`** (Plan comparison page):
-- Tier comparison grid showing all 8 tiers (read-only)
-- Displays pricing, monthly hours, session limits, session modes, trial info
-- Routes to `web-ui/src/components/PlanPage.tsx`
 
 **Header inline display** (Layout dropdown):
 - User dropdown in header shows inline spent time next to "Usage" link

@@ -122,7 +122,6 @@ const SubscribePage: Component = () => {
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
-  let hasScrolledForPro = false;
 
   onMount(async () => {
     try {
@@ -180,7 +179,6 @@ const SubscribePage: Component = () => {
   // Scroll to top when entering tier phase
   createEffect(() => {
     if (subscribePhase() === 'tiers') {
-      hasScrolledForPro = false;
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   });
@@ -489,10 +487,6 @@ const SubscribePage: Component = () => {
                       onClick={() => {
                         if (!selectedTierSupportsPro()) return;
                         setGlobalMode('advanced');
-                        if (!hasScrolledForPro && tierPhaseRef?.scrollIntoView) {
-                          hasScrolledForPro = true;
-                          tierPhaseRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
                       }}
                     >
                       Pro
@@ -571,8 +565,8 @@ const SubscribePage: Component = () => {
                                 <span class="subscribe-lifeline-label">{td().displayName}</span>
                                 <Show when={isActive() && currentTierId() === tierId}>
                                   <div class="subscribe-lifeline-you">
-                                    <Icon path={mdiAccountCircle} size={14} />
-                                    <span>You</span>
+                                    <Icon path={mdiAccountCircle} size={18} />
+                                    <span>This is you</span>
                                   </div>
                                 </Show>
                               </button>

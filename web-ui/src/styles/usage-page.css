@@ -1,12 +1,3 @@
-.usage-title {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 1.8rem;
-  font-weight: 700;
-  margin-bottom: 1.5rem;
-  text-align: center;
-  color: #fafafa;
-}
-
 .usage-loading,
 .usage-error {
   text-align: center;
@@ -18,77 +9,102 @@
   color: #ef4444;
 }
 
-.usage-ring-container {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+/* ── Usage panel (matches subscribe detail panel styling) ── */
+
+.usage-panel {
+  background: rgba(24, 24, 27, 0.65);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 16px;
+  padding: 1.5rem;
   margin-bottom: 2rem;
+  width: 100%;
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.05) inset;
 }
 
-.usage-ring {
-  transform: rotate(0deg);
+.usage-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1rem;
 }
 
-.usage-ring-label {
-  position: absolute;
+.usage-panel-plan {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fafafa;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  text-transform: capitalize;
+}
+
+.usage-panel-percent {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fafafa;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ── Progress bar ── */
+
+.usage-bar-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.usage-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 400ms ease, background 400ms ease;
+}
+
+.usage-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: #52525b;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  margin-bottom: 1.25rem;
+}
+
+/* ── Stats row ── */
+
+.usage-panel-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.usage-panel-stat {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
+  flex: 1;
 }
 
-.usage-ring-percent {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #fafafa;
-}
-
-.usage-ring-sublabel {
-  font-size: 0.75rem;
-  color: #a1a1aa;
-}
-
-.usage-stats {
-  display: flex;
-  gap: 1rem;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-bottom: 2rem;
-}
-
-.usage-stat-card {
-  background: rgba(24, 24, 27, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0.5rem;
-  padding: 1rem 1.5rem;
-  text-align: center;
-  min-width: 120px;
-}
-
-.usage-stat-label {
-  font-size: 0.75rem;
-  color: #a1a1aa;
-  margin-bottom: 0.25rem;
+.usage-panel-stat-label {
+  font-size: 0.65rem;
+  color: #71717a;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
-.usage-stat-value {
-  font-size: 1.4rem;
+.usage-panel-stat-value {
+  font-size: 1rem;
   font-weight: 600;
   color: #fafafa;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
-.usage-stat-tier {
-  text-transform: capitalize;
-}
-
-.usage-stat-quota {
-  font-size: 0.7rem;
-  color: #a1a1aa;
-  margin-top: 0.25rem;
-}
+/* ── Actions ── */
 
 .usage-actions {
   display: flex;
@@ -98,25 +114,39 @@
 
 .usage-btn {
   display: inline-block;
-  padding: 0.6rem 1.2rem;
-  border-radius: 0.4rem;
-  background: var(--color-accent, #3b82f6);
-  color: #09090b;
+  padding: 0.625rem 1.5rem;
+  border-radius: 12px;
+  background: rgba(24, 24, 27, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
   text-decoration: none;
   font-weight: 500;
-  font-size: 0.9rem;
-  font-family: 'JetBrains Mono', monospace;
-  border: none;
+  font-size: 0.8125rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: all 150ms ease-out;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .usage-btn:hover {
-  opacity: 0.9;
+  background: rgba(24, 24, 27, 0.95);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #fafafa;
+  transform: translateY(-1px);
 }
 
 .usage-btn--secondary {
   background: transparent;
-  color: #a1a1aa;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+@media (max-width: 640px) {
+  .usage-panel {
+    padding: 1.25rem;
+  }
+  .usage-panel-stats {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
 }

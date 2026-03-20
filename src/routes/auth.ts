@@ -198,7 +198,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
 
 // Rate limit for subscribe: 3 per hour per user
 const subscribeRateLimiter = createRateLimiter({
-  windowMs: 3_600_000,
+  windowMs: 60_000,
   maxRequests: 3,
   keyPrefix: 'subscribe',
 });
