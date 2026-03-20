@@ -121,7 +121,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // Sync viewState with session store
   createEffect(() => {
     const session = sessionStore.getActiveSession();
-    const hasActiveTerminal = session && (session.status === 'running' || session.status === 'initializing');
+    const hasActiveTerminal = session && (session.status === 'running' || session.status === 'initializing' || sessionStore.isSessionInitializing(session.id));
 
     if (hasActiveTerminal && viewState() === 'dashboard') {
       setViewState('terminal');
