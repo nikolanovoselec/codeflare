@@ -437,6 +437,7 @@ export class container extends Container<Env> {
         // Update sleepAfter on restart
         if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
           this.sleepAfter = sleepAfterPref;
+          this.renewActivityTimeout();
         }
 
         // Update userEmail on restart (critical for Timekeeper pings)
@@ -501,6 +502,7 @@ export class container extends Container<Env> {
       // Apply user-configurable sleepAfter (validated values: 5m, 15m, 30m, 1h, 2h)
       if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
         this.sleepAfter = sleepAfterPref;
+        this.renewActivityTimeout();
         this.logger.info('sleepAfter set from user preference', { sleepAfter: sleepAfterPref });
       }
 

@@ -38,9 +38,9 @@ async function openTierView() {
   render(() => <SubscribePage />);
   await vi.advanceTimersByTimeAsync(0);
   await waitFor(() => {
-    expect(screen.getByText(/See subscription tiers/i)).toBeInTheDocument();
+    expect(screen.getByText(/See subscription plans/i)).toBeInTheDocument();
   });
-  fireEvent.click(screen.getByText(/See subscription tiers/i));
+  fireEvent.click(screen.getByText(/See subscription plans/i));
   await waitFor(() => {
     expect(screen.getByTestId('mode-chooser')).toBeInTheDocument();
     expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
@@ -87,13 +87,13 @@ describe('SubscribePage', () => {
   });
 
   describe('Home View', () => {
-    it('should show features list and "See subscription tiers" for pending users', async () => {
+    it('should show features list and "See subscription plans" for pending users', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
         expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
-        expect(screen.getByText(/See subscription tiers/i)).toBeInTheDocument();
+        expect(screen.getByText(/See subscription plans/i)).toBeInTheDocument();
       });
     });
 
@@ -139,7 +139,7 @@ describe('SubscribePage', () => {
       await waitFor(() => {
         expect(screen.getByText(/Account Blocked/)).toBeInTheDocument();
       });
-      expect(screen.queryByText(/See subscription tiers/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/See subscription plans/i)).not.toBeInTheDocument();
     });
   });
 

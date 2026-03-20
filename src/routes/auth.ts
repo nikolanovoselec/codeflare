@@ -207,19 +207,12 @@ const SUBSCRIBABLE_TIERS = new Set(['free', 'standard', 'advanced', 'max', 'unli
 
 const SubscribeSchema = z.object({
   tier: z.string().min(1, 'Tier is required'),
-  turnstileToken: z.string().min(1, 'Turnstile token is required'),
+  turnstileToken: z.string().optional().default(''),
 });
 
 // POST /api/auth/subscribe — self-service tier selection for pending users
 app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const user = c.get('user');
-
-  // Idempotency: if user already has a non-pending tier, return success
-  const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
-  if (existingRaw?.subscribedAt) {
-    const tier = (existingRaw.subscriptionTier as string) || 'free';
-    return c.json({ success: true, tier, trialQuotaHours: 0, onboardingComplete: existingRaw.onboardingComplete === true });
-  }
 
   let raw: unknown;
   try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
@@ -231,14 +224,24 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, advanced, max, unlimited`);
   }
 
-  // Verify Turnstile token
-  const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
-    || await c.env.KV.get('setup:turnstile_secret_key');
-  if (turnstileSecret) {
-    const remoteIp = c.req.header('CF-Connecting-IP') || null;
-    const verification = await verifyTurnstileToken(parsed.data.turnstileToken, turnstileSecret, remoteIp);
-    if (!verification.success) {
-      throw new ForbiddenError('CAPTCHA verification failed');
+  const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  const isAlreadySubscribed = !!existingRaw?.subscribedAt;
+
+  // Idempotency: if switching to same tier, return success
+  if (isAlreadySubscribed && existingRaw?.subscriptionTier === parsed.data.tier) {
+    return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete: existingRaw.onboardingComplete === true });
+  }
+
+  // Verify Turnstile token for new subscriptions (active users switching plans skip Turnstile)
+  if (!isAlreadySubscribed) {
+    const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
+      || await c.env.KV.get('setup:turnstile_secret_key');
+    if (turnstileSecret && parsed.data.turnstileToken) {
+      const remoteIp = c.req.header('CF-Connecting-IP') || null;
+      const verification = await verifyTurnstileToken(parsed.data.turnstileToken, turnstileSecret, remoteIp);
+      if (!verification.success) {
+        throw new ForbiddenError('CAPTCHA verification failed');
+      }
     }
   }
 

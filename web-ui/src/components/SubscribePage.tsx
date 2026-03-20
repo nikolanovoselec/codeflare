@@ -122,6 +122,7 @@ const SubscribePage: Component = () => {
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
+  let hasScrolledForPro = false;
 
   onMount(async () => {
     try {
@@ -176,10 +177,11 @@ const SubscribePage: Component = () => {
     }
   });
 
-  // Auto-scroll to tier phase on mobile when entering Phase 2
+  // Scroll to top when entering tier phase
   createEffect(() => {
-    if (subscribePhase() === 'tiers' && tierPhaseRef?.scrollIntoView) {
-      tierPhaseRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (subscribePhase() === 'tiers') {
+      hasScrolledForPro = false;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   });
 
@@ -442,7 +444,7 @@ const SubscribePage: Component = () => {
                 class="subscribe-logout-button"
                 onClick={() => setSubscribePhase('tiers')}
               >
-                See subscription tiers
+                See subscription plans
               </button>
             </Show>
 
@@ -467,7 +469,13 @@ const SubscribePage: Component = () => {
                       class="subscribe-mode-toggle-btn"
                       classList={{ 'subscribe-mode-toggle-btn--active': globalMode() === 'advanced' }}
                       data-testid="mode-card-pro"
-                      onClick={() => setGlobalMode('advanced')}
+                      onClick={() => {
+                        setGlobalMode('advanced');
+                        if (!hasScrolledForPro && tierPhaseRef?.scrollIntoView) {
+                          hasScrolledForPro = true;
+                          tierPhaseRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                      }}
                     >
                       Pro
                     </button>
@@ -504,20 +512,20 @@ const SubscribePage: Component = () => {
                   </div>
                 </div>
 
-                {/* Lifeline — 90° stair-step dashed path */}
+                {/* Lifeline — straight dashed line from Free to Team */}
                 <div class="subscribe-lifeline" data-testid="lifeline-rail">
-                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 50" preserveAspectRatio="none">
-                    {/* Background: 90° stair-step path (right-down-right-up repeating) */}
-                    <path
-                      d="M 50 10 L 90 10 L 90 40 L 170 40 L 170 10 L 250 10 L 250 40 L 330 40 L 330 10 L 370 10 L 370 40 L 450 40"
-                      fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"
-                      stroke-dasharray="6 4" stroke-linecap="square" stroke-linejoin="miter"
+                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 20" preserveAspectRatio="none">
+                    {/* Background: straight horizontal dashed line */}
+                    <line
+                      x1="50" y1="10" x2="450" y2="10"
+                      stroke="rgba(255,255,255,0.06)" stroke-width="1.5"
+                      stroke-dasharray="6 4" stroke-linecap="square"
                     />
                     {/* Active fill */}
-                    <path
-                      d="M 50 10 L 90 10 L 90 40 L 170 40 L 170 10 L 250 10 L 250 40 L 330 40 L 330 10 L 370 10 L 370 40 L 450 40"
-                      fill="none" stroke="#3b82f6" stroke-width="1.5"
-                      stroke-dasharray="6 4" stroke-linecap="square" stroke-linejoin="miter"
+                    <line
+                      x1="50" y1="10" x2="450" y2="10"
+                      stroke="#3b82f6" stroke-width="1.5"
+                      stroke-dasharray="6 4" stroke-linecap="square"
                       clip-path={`inset(0 ${100 - lifelineProgress()}% 0 0)`}
                       style={{ transition: 'clip-path 400ms ease' }}
                     />
