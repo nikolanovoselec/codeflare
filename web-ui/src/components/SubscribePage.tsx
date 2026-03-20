@@ -52,7 +52,7 @@ interface TierInfo {
   sessionModes: string[];
 }
 
-type SubscribePhase = 'home' | 'mode' | 'tier';
+type SubscribePhase = 'home' | 'tiers';
 
 /** Home view feature highlights */
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
@@ -167,14 +167,14 @@ const SubscribePage: Component = () => {
 
   // Initialize Turnstile watch when Phase 2 renders for pending users
   createEffect(() => {
-    if (subscribePhase() === 'tier' && !isActive() && !turnstileReady()) {
+    if (subscribePhase() === 'tiers' && !isActive() && !turnstileReady()) {
       startTurnstileWatch();
     }
   });
 
   // Auto-scroll to tier phase on mobile when entering Phase 2
   createEffect(() => {
-    if (subscribePhase() === 'tier' && tierPhaseRef?.scrollIntoView) {
+    if (subscribePhase() === 'tiers' && tierPhaseRef?.scrollIntoView) {
       tierPhaseRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   });
@@ -297,8 +297,7 @@ const SubscribePage: Component = () => {
 
   /** Content width: wide for mode and tier phases */
   const contentClass = () => {
-    const phase = subscribePhase();
-    return phase === 'mode' || phase === 'tier' ? 'login-content subscribe-content' : 'login-content';
+    return subscribePhase() === 'tiers' ? 'login-content subscribe-content' : 'login-content';
   };
 
   /** CTA button label */
@@ -400,86 +399,112 @@ const SubscribePage: Component = () => {
               <button
                 type="button"
                 class="subscribe-logout-button"
-                onClick={() => setSubscribePhase('mode')}
+                onClick={() => setSubscribePhase('tiers')}
               >
                 See subscription tiers
               </button>
             </Show>
 
-            {/* ── Phase 1: Mode selection ── */}
-            <Show when={subscribePhase() === 'mode'}>
-              <div class="subscribe-mode-chooser" data-testid="mode-chooser">
-                <button
-                  type="button"
-                  class="subscribe-mode-card"
-                  data-testid="mode-card-standard"
-                  onClick={() => { setGlobalMode('default'); setSubscribePhase('tier'); }}
-                >
-                  <h3 class="subscribe-mode-card-title">Standard</h3>
-                  <p class="subscribe-mode-card-desc">Everything you need to code, build and deploy.</p>
-                  <ul class="subscribe-mode-card-features">
-                    <For each={STANDARD_MODE_FEATURES}>
-                      {(f) => (
-                        <li class="subscribe-mode-card-feature">
-                          <Icon path={f.icon} size={16} />
-                          <span>{f.text}</span>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </button>
-
-                <button
-                  type="button"
-                  class="subscribe-mode-card"
-                  data-testid="mode-card-pro"
-                  onClick={() => { setGlobalMode('advanced'); setSubscribePhase('tier'); }}
-                >
-                  <h3 class="subscribe-mode-card-title">Pro</h3>
-                  <p class="subscribe-mode-card-desc">Standard plus AI orchestration and memory.</p>
-                  <ul class="subscribe-mode-card-features">
-                    <For each={PRO_MODE_FEATURES}>
-                      {(f) => (
-                        <li class="subscribe-mode-card-feature">
-                          <Icon path={f.icon} size={16} />
-                          <span>{f.text}</span>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </button>
-              </div>
-
-              <button
-                type="button"
-                class="subscribe-logout-button"
-                onClick={() => setSubscribePhase('home')}
-              >
-                Back
-              </button>
-            </Show>
-
-            {/* ── Phase 2: Tier selection with lifeline ── */}
-            <Show when={subscribePhase() === 'tier'}>
+            {/* ── Tier selection: mode cards + lifeline + detail — all visible ── */}
+            <Show when={subscribePhase() === 'tiers'}>
               <div ref={tierPhaseRef}>
-                {/* Mode pill (compact, can change without leaving Phase 2) */}
-                <div class="subscribe-mode-pill" data-testid="mode-selector">
+                {/* Mode cards (stay visible, highlighted when selected) */}
+                <div class="subscribe-mode-chooser" data-testid="mode-chooser">
                   <button
                     type="button"
-                    class="subscribe-mode-pill-btn"
-                    classList={{ 'subscribe-mode-pill-btn--active': globalMode() === 'default' }}
+                    class="subscribe-mode-card"
+                    classList={{ 'subscribe-mode-card--active': globalMode() === 'default' }}
+                    data-testid="mode-card-standard"
                     onClick={() => setGlobalMode('default')}
                   >
-                    Standard
+                    <h3 class="subscribe-mode-card-title">Standard</h3>
+                    <p class="subscribe-mode-card-desc">Everything you need to code, build and deploy.</p>
+                    <ul class="subscribe-mode-card-features">
+                      <For each={STANDARD_MODE_FEATURES}>
+                        {(f) => (
+                          <li class="subscribe-mode-card-feature">
+                            <Icon path={f.icon} size={16} />
+                            <span>{f.text}</span>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
                   </button>
+
                   <button
                     type="button"
-                    class="subscribe-mode-pill-btn"
-                    classList={{ 'subscribe-mode-pill-btn--active': globalMode() === 'advanced' }}
+                    class="subscribe-mode-card"
+                    classList={{ 'subscribe-mode-card--active': globalMode() === 'advanced' }}
+                    data-testid="mode-card-pro"
                     onClick={() => setGlobalMode('advanced')}
                   >
-                    Pro
+                    <h3 class="subscribe-mode-card-title">Pro</h3>
+                    <p class="subscribe-mode-card-desc">Standard plus AI orchestration and memory.</p>
+                    <ul class="subscribe-mode-card-features">
+                      <For each={PRO_MODE_FEATURES}>
+                        {(f) => (
+                          <li class="subscribe-mode-card-feature">
+                            <Icon path={f.icon} size={16} />
+                            <span>{f.text}</span>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
                   </button>
+                </div>
+
+                {/* Lifeline — SVG curved path with tier stops */}
+                <div class="subscribe-lifeline" data-testid="lifeline-rail">
+                  <svg class="subscribe-lifeline-svg" viewBox="0 0 500 80" preserveAspectRatio="none">
+                    {/* Background path */}
+                    <path
+                      d="M 30 55 C 90 20, 150 70, 250 35 S 400 65, 470 40"
+                      fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3" stroke-linecap="round"
+                    />
+                    {/* Filled path (clipped to progress) */}
+                    <path
+                      d="M 30 55 C 90 20, 150 70, 250 35 S 400 65, 470 40"
+                      fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"
+                      stroke-dasharray="600"
+                      stroke-dashoffset={600 - (lifelineProgress() / 100) * 600}
+                      style={{ transition: 'stroke-dashoffset 400ms ease' }}
+                    />
+                  </svg>
+                  <div class="subscribe-lifeline-stops">
+                    <For each={[...TIER_ORDER]}>
+                      {(tierId, i) => {
+                        const tierData = () => tiers().find(t => t.id === tierId);
+                        return (
+                          <Show when={tierData()}>
+                            {(td) => (
+                              <button
+                                type="button"
+                                class="subscribe-lifeline-stop"
+                                classList={{
+                                  'subscribe-lifeline-stop--selected': selectedTierId() === tierId,
+                                  'subscribe-lifeline-stop--passed': TIER_ORDER.indexOf(tierId as typeof TIER_ORDER[number]) <= TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]),
+                                }}
+                                style={{ top: `${[55, 20, 35, 65, 40][i()] ?? 40}%`, left: `${[6, 24, 50, 76, 94][i()] ?? 50}%` }}
+                                onClick={() => setSelectedTierId(tierId)}
+                                data-testid={`lifeline-stop-${tierId}`}
+                              >
+                                <span class="subscribe-lifeline-icon">
+                                  <Icon path={TIER_ICONS[tierId] ?? mdiStarOutline} size={22} />
+                                </span>
+                                <span class="subscribe-lifeline-label">{td().displayName}</span>
+                                <Show when={isActive() && currentTierId() === tierId}>
+                                  <div class="subscribe-lifeline-you">
+                                    <Icon path={mdiAccountCircle} size={14} />
+                                    <span>You</span>
+                                  </div>
+                                </Show>
+                              </button>
+                            )}
+                          </Show>
+                        );
+                      }}
+                    </For>
+                  </div>
                 </div>
 
                 {/* Detail panel for selected tier */}
@@ -538,51 +563,10 @@ const SubscribePage: Component = () => {
                   )}
                 </Show>
 
-                {/* Lifeline rail */}
-                <div class="subscribe-lifeline" data-testid="lifeline-rail">
-                  <div class="subscribe-lifeline-track">
-                    <div class="subscribe-lifeline-fill" style={{ width: `${lifelineProgress()}%` }} />
-                  </div>
-                  <div class="subscribe-lifeline-stops">
-                    <For each={[...TIER_ORDER]}>
-                      {(tierId) => {
-                        const tierData = () => tiers().find(t => t.id === tierId);
-                        return (
-                          <Show when={tierData()}>
-                            {(td) => (
-                              <button
-                                type="button"
-                                class="subscribe-lifeline-stop"
-                                classList={{
-                                  'subscribe-lifeline-stop--selected': selectedTierId() === tierId,
-                                  'subscribe-lifeline-stop--passed': TIER_ORDER.indexOf(tierId as typeof TIER_ORDER[number]) <= TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]),
-                                }}
-                                onClick={() => setSelectedTierId(tierId)}
-                                data-testid={`lifeline-stop-${tierId}`}
-                              >
-                                <span class="subscribe-lifeline-icon">
-                                  <Icon path={TIER_ICONS[tierId] ?? mdiStarOutline} size={20} />
-                                </span>
-                                <span class="subscribe-lifeline-label">{td().displayName}</span>
-                                <Show when={isActive() && currentTierId() === tierId}>
-                                  <div class="subscribe-lifeline-you">
-                                    <Icon path={mdiAccountCircle} size={16} />
-                                    <span>This is you</span>
-                                  </div>
-                                </Show>
-                              </button>
-                            )}
-                          </Show>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </div>
-
                 <button
                   type="button"
                   class="subscribe-logout-button"
-                  onClick={() => setSubscribePhase('mode')}
+                  onClick={() => setSubscribePhase('home')}
                 >
                   Back
                 </button>

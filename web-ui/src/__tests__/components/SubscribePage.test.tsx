@@ -33,8 +33,8 @@ const MOCK_PUBLIC_TIERS = [
   { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 10, priceMonthly: null, advancedPriceMonthly: null, description: 'Enterprise-grade access', trialQuotaHours: 0, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
 ];
 
-/** Navigate from home to Phase 1 (mode selection) */
-async function openModePhase() {
+/** Navigate from home to tier view (mode cards + lifeline + detail — all visible) */
+async function openTierView() {
   render(() => <SubscribePage />);
   await vi.advanceTimersByTimeAsync(0);
   await waitFor(() => {
@@ -43,15 +43,6 @@ async function openModePhase() {
   fireEvent.click(screen.getByText(/See subscription tiers/i));
   await waitFor(() => {
     expect(screen.getByTestId('mode-chooser')).toBeInTheDocument();
-  });
-}
-
-/** Navigate from home through Phase 1 to Phase 2 (tier selection) */
-async function openTierPhase(mode: 'standard' | 'pro' = 'standard') {
-  await openModePhase();
-  const testId = mode === 'pro' ? 'mode-card-pro' : 'mode-card-standard';
-  fireEvent.click(screen.getByTestId(testId));
-  await waitFor(() => {
     expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
   });
 }
@@ -152,49 +143,40 @@ describe('SubscribePage', () => {
     });
   });
 
-  describe('Phase 1 — Mode Selection', () => {
-    it('should render two mode cards', async () => {
-      await openModePhase();
+  describe('Mode Cards + Lifeline (single page)', () => {
+    it('should render mode cards and lifeline together', async () => {
+      await openTierView();
 
       expect(screen.getByTestId('mode-card-standard')).toBeInTheDocument();
       expect(screen.getByTestId('mode-card-pro')).toBeInTheDocument();
+      expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
     });
 
     it('Standard card shows feature bullets', async () => {
-      await openModePhase();
+      await openTierView();
 
       expect(screen.getByText('Terminal')).toBeInTheDocument();
       expect(screen.getByText('File browser')).toBeInTheDocument();
     });
 
     it('Pro card shows feature bullets', async () => {
-      await openModePhase();
+      await openTierView();
 
       expect(screen.getByText('Knowledge graph')).toBeInTheDocument();
       expect(screen.getByText('Multi-LLM')).toBeInTheDocument();
     });
 
-    it('clicking Standard card advances to Phase 2', async () => {
-      await openModePhase();
-      fireEvent.click(screen.getByTestId('mode-card-standard'));
-
-      await waitFor(() => {
-        expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
-        expect(screen.queryByTestId('mode-chooser')).not.toBeInTheDocument();
-      });
-    });
-
-    it('clicking Pro card advances to Phase 2', async () => {
-      await openModePhase();
+    it('clicking mode card keeps everything visible', async () => {
+      await openTierView();
       fireEvent.click(screen.getByTestId('mode-card-pro'));
 
-      await waitFor(() => {
-        expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
-      });
+      // Both mode cards and lifeline still visible
+      expect(screen.getByTestId('mode-chooser')).toBeInTheDocument();
+      expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
     });
 
     it('Back button returns to home view', async () => {
-      await openModePhase();
+      await openTierView();
       fireEvent.click(screen.getByText('Back'));
 
       await waitFor(() => {
@@ -206,7 +188,7 @@ describe('SubscribePage', () => {
 
   describe('Phase 2 — Lifeline Tier Selector', () => {
     it('should render lifeline with 5 stops', async () => {
-      await openTierPhase();
+      await openTierView();
 
       expect(screen.getByTestId('lifeline-stop-free')).toBeInTheDocument();
       expect(screen.getByTestId('lifeline-stop-standard')).toBeInTheDocument();
@@ -216,7 +198,7 @@ describe('SubscribePage', () => {
     });
 
     it('should default to advanced tier for pending users', async () => {
-      await openTierPhase();
+      await openTierView();
 
       await waitFor(() => {
         const panel = screen.getByTestId('tier-detail-panel');
@@ -235,7 +217,7 @@ describe('SubscribePage', () => {
         hasSubscribed: true,
       });
 
-      await openTierPhase();
+      await openTierView();
 
       await waitFor(() => {
         const panel = screen.getByTestId('tier-detail-panel');
@@ -244,7 +226,7 @@ describe('SubscribePage', () => {
     });
 
     it('clicking a lifeline stop changes selected tier', async () => {
-      await openTierPhase();
+      await openTierView();
 
       fireEvent.click(screen.getByTestId('lifeline-stop-free'));
 
@@ -255,23 +237,20 @@ describe('SubscribePage', () => {
     });
 
     it('detail panel shows tier price', async () => {
-      await openTierPhase();
+      await openTierView();
 
       await waitFor(() => {
         expect(screen.getByText(/\$39/)).toBeInTheDocument();
       });
     });
 
-    it('mode pill changes prices without leaving Phase 2', async () => {
-      await openTierPhase('standard');
+    it('clicking Pro mode card changes prices', async () => {
+      await openTierView();
 
-      // Find Pro pill button and click it
-      const proBtns = screen.getAllByText('Pro');
-      const pillBtn = proBtns.find(el => el.classList.contains('subscribe-mode-pill-btn'));
-      if (pillBtn) fireEvent.click(pillBtn);
+      fireEvent.click(screen.getByTestId('mode-card-pro'));
 
       await waitFor(() => {
-        expect(screen.getByTestId('lifeline-rail')).toBeInTheDocument();
+        // Price should update to advanced pricing ($44 for Advanced tier)
         expect(screen.getByText(/\$44/)).toBeInTheDocument();
       });
     });
@@ -285,7 +264,7 @@ describe('SubscribePage', () => {
         hasSubscribed: true,
       });
 
-      await openTierPhase();
+      await openTierView();
 
       await waitFor(() => {
         expect(screen.getByText('This is you')).toBeInTheDocument();
@@ -293,12 +272,12 @@ describe('SubscribePage', () => {
     });
 
     it('does NOT show "This is you" for pending users', async () => {
-      await openTierPhase();
+      await openTierView();
       expect(screen.queryByText('This is you')).not.toBeInTheDocument();
     });
 
     it('CTA shows "Get Started" for free tier', async () => {
-      await openTierPhase();
+      await openTierView();
       fireEvent.click(screen.getByTestId('lifeline-stop-free'));
 
       await waitFor(() => {
@@ -307,7 +286,7 @@ describe('SubscribePage', () => {
     });
 
     it('CTA shows "Start Trial" for paid tier', async () => {
-      await openTierPhase();
+      await openTierView();
 
       await waitFor(() => {
         expect(screen.getByText('Start Trial')).toBeInTheDocument();
@@ -323,7 +302,7 @@ describe('SubscribePage', () => {
         hasSubscribed: true,
       });
 
-      await openTierPhase();
+      await openTierView();
 
       await waitFor(() => {
         expect(screen.getByText('Current Plan')).toBeInTheDocument();
@@ -339,7 +318,7 @@ describe('SubscribePage', () => {
         hasSubscribed: true,
       });
 
-      await openTierPhase();
+      await openTierView();
       fireEvent.click(screen.getByTestId('lifeline-stop-max'));
 
       await waitFor(() => {
@@ -348,7 +327,7 @@ describe('SubscribePage', () => {
     });
 
     it('calls subscribe API with selected tier', async () => {
-      await openTierPhase();
+      await openTierView();
 
       fireEvent.click(screen.getByTestId('lifeline-stop-free'));
       await waitFor(() => expect(screen.getByText('Get Started')).toBeInTheDocument());
@@ -362,7 +341,7 @@ describe('SubscribePage', () => {
     });
 
     it('redirects to onboarding after subscribe', async () => {
-      await openTierPhase();
+      await openTierView();
 
       fireEvent.click(screen.getByTestId('lifeline-stop-free'));
       await waitFor(() => expect(screen.getByText('Get Started')).toBeInTheDocument());
@@ -375,12 +354,12 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('Back button returns to Phase 1', async () => {
-      await openTierPhase();
+    it('Back button returns to home view', async () => {
+      await openTierView();
       fireEvent.click(screen.getByText('Back'));
 
       await waitFor(() => {
-        expect(screen.getByTestId('mode-chooser')).toBeInTheDocument();
+        expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
         expect(screen.queryByTestId('lifeline-rail')).not.toBeInTheDocument();
       });
     });
@@ -401,7 +380,7 @@ describe('SubscribePage', () => {
     it('should show error when subscribe call fails', async () => {
       mockedSubscribe.mockRejectedValue(new Error('Subscription failed'));
 
-      await openTierPhase();
+      await openTierView();
 
       fireEvent.click(screen.getByTestId('lifeline-stop-free'));
       await waitFor(() => expect(screen.getByText('Get Started')).toBeInTheDocument());

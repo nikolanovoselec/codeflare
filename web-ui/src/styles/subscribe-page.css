@@ -8,8 +8,13 @@
 }
 
 @keyframes lifelinePulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Wider content for mode + tier phases */
@@ -78,6 +83,7 @@
 .subscribe-mode-chooser {
   display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
   margin-bottom: 1.5rem; width: 100%;
+  animation: fadeSlideIn 0.4s ease-out;
 }
 
 .subscribe-mode-card {
@@ -91,6 +97,11 @@
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15), 0 4px 24px rgba(59, 130, 246, 0.08);
   transform: translateY(-2px);
 }
+.subscribe-mode-card--active {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2), 0 4px 24px rgba(59, 130, 246, 0.1);
+}
+.subscribe-mode-card--active .subscribe-mode-card-title { color: #3b82f6; }
 
 .subscribe-mode-card-title {
   margin: 0 0 0.5rem; font-size: 1.1rem; font-weight: 600; color: #fafafa;
@@ -109,30 +120,17 @@
 }
 .subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; }
 
-/* ── Mode pill toggle (Phase 2 compact) ── */
-
-.subscribe-mode-pill {
-  display: inline-flex; border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px; overflow: hidden; margin-bottom: 1rem;
-  background: rgba(24, 24, 27, 0.6);
-}
-.subscribe-mode-pill-btn {
-  padding: 0.5rem 1.25rem; font-size: 0.8rem;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace; font-weight: 500;
-  border: none; background: transparent; color: #71717a;
-  cursor: pointer; transition: all 150ms ease;
-}
-.subscribe-mode-pill-btn--active { background: rgba(59, 130, 246, 0.15); color: #fafafa; }
-.subscribe-mode-pill-btn:hover:not(.subscribe-mode-pill-btn--active) { color: #a1a1aa; }
-
-/* ── Phase 2: Detail panel ── */
+/* ── Detail panel ── */
 
 .subscribe-detail-panel {
-  background: rgba(24, 24, 27, 0.7);
-  border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px;
+  background: rgba(24, 24, 27, 0.65);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 16px;
   padding: 2rem; margin-bottom: 2rem; width: 100%;
   max-width: 480px; margin-left: auto; margin-right: auto;
   text-align: center;
+  animation: fadeSlideIn 0.5s ease-out 0.1s both;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.05) inset;
 }
 
 .subscribe-detail-name {
@@ -188,59 +186,61 @@
 
 .subscribe-turnstile { margin-top: 1rem; display: flex; justify-content: center; }
 
-/* ── Lifeline rail ── */
+/* ── Lifeline rail (SVG curved path) ── */
 
 .subscribe-lifeline {
-  position: relative; width: 100%; max-width: 540px;
-  margin: 0 auto 1.5rem; padding: 0 2rem;
+  position: relative; width: 100%; max-width: 600px;
+  height: 120px; margin: 1rem auto 2rem;
+  animation: fadeSlideIn 0.5s ease-out 0.2s both;
 }
 
-.subscribe-lifeline-track {
-  position: absolute; top: 10px;
-  left: 2rem; right: 2rem; height: 3px;
-  background: rgba(255, 255, 255, 0.08); border-radius: 2px;
-}
-.subscribe-lifeline-fill {
-  height: 100%; background: #3b82f6; border-radius: 2px;
-  transition: width 300ms ease;
+.subscribe-lifeline-svg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none;
 }
 
 .subscribe-lifeline-stops {
-  display: flex; justify-content: space-between;
-  position: relative;
+  position: absolute; inset: 0;
 }
 
 .subscribe-lifeline-stop {
+  position: absolute; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
-  background: none; border: none; cursor: pointer; padding: 0;
-  color: #52525b; transition: color 200ms ease;
-  min-width: 44px; position: relative;
+  background: none; border: none; cursor: pointer; padding: 0.25rem;
+  color: #52525b; transition: color 250ms ease, transform 200ms ease;
+  z-index: 1;
 }
+.subscribe-lifeline-stop:hover { transform: translate(-50%, -50%) scale(1.1); }
 .subscribe-lifeline-stop--passed { color: #71717a; }
 .subscribe-lifeline-stop--selected { color: #3b82f6; }
 
 .subscribe-lifeline-icon {
-  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
-  background: rgba(24, 24, 27, 0.9); border-radius: 50%; position: relative; z-index: 1;
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  background: rgba(24, 24, 27, 0.95); border: 2px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%; transition: all 250ms ease;
+}
+.subscribe-lifeline-stop--passed .subscribe-lifeline-icon {
+  border-color: rgba(59, 130, 246, 0.3);
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-icon {
   background: rgba(59, 130, 246, 0.15);
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+  border-color: #3b82f6;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
 }
 
 .subscribe-lifeline-label {
-  font-size: 0.6rem; font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  white-space: nowrap;
+  font-size: 0.65rem; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  white-space: nowrap; font-weight: 500;
 }
+.subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: #fafafa; }
 
 /* "This is you" marker */
 .subscribe-lifeline-you {
-  display: flex; flex-direction: column; align-items: center; gap: 0.125rem;
-  position: absolute; bottom: -24px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 0.25rem;
   color: #22c55e; animation: lifelinePulse 2s ease-in-out infinite;
-  white-space: nowrap;
+  white-space: nowrap; margin-top: 0.125rem;
 }
-.subscribe-lifeline-you span { font-size: 0.55rem; }
+.subscribe-lifeline-you span { font-size: 0.55rem; font-weight: 500; }
 
 /* ── Responsive ── */
 
