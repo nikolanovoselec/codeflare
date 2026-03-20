@@ -65,13 +65,13 @@ const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiLightningBolt, content: () => <>From idea to deployment in minutes</> },
 ];
 
-/** Per-tier feature bullets for detail panel */
+/** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
 const TIER_FEATURES: Record<string, string[]> = {
-  free: ['1 concurrent session', 'Standard mode only', '2 hours compute / month', 'Community support'],
-  standard: ['3 concurrent sessions', 'Standard + Pro modes', '40 hours compute / month', '40h free trial', 'R2 cloud sync'],
-  advanced: ['5 concurrent sessions', 'Standard + Pro modes', '80 hours compute / month', '80h free trial', 'Priority support'],
-  max: ['10 concurrent sessions', 'Standard + Pro modes', '160 hours compute / month', '160h free trial', 'Priority support'],
-  unlimited: ['10 concurrent sessions', 'Standard + Pro modes', 'Unlimited compute', 'Dedicated support', 'Custom SLA'],
+  free: ['Standard mode only', 'Community support'],
+  standard: ['Standard + Pro modes', 'R2 cloud sync', 'Priority support'],
+  advanced: ['Standard + Pro modes', 'R2 cloud sync', 'Priority support'],
+  max: ['Standard + Pro modes', 'R2 cloud sync', 'Priority support'],
+  unlimited: ['Standard + Pro modes', 'Dedicated support', 'Custom SLA'],
 };
 
 /** Lifeline stop icons */
