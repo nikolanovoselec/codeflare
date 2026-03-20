@@ -564,6 +564,9 @@ export class container extends Container<Env> {
     this.containerStartedAt = Date.now();
     this.updateEnvVars();
     await this.updateKvStatus('running', 'lastStartedAt');
+    // Also set lastActiveAt to start time so the frontend timer icon
+    // has a reference timestamp even before any user input occurs.
+    await this.updateKvStatus(null, 'lastActiveAt');
     this.logger.info('Container started');
     // Clear any stale schedule rows from previous runs before arming fresh
     try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
