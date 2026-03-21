@@ -363,7 +363,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(mockedSubscribe).toHaveBeenCalledWith('free', '');
+        expect(mockedSubscribe).toHaveBeenCalledWith('free', '', 'default');
       });
     });
 
