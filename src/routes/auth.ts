@@ -260,22 +260,26 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const onboardingComplete = updated.onboardingComplete === true;
   logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
 
-  // Fire-and-forget subscription/plan change confirmation email
-  const tiers = await getTierConfig(c.env.KV);
-  const tierConfig = tiers.find(t => t.id === parsed.data.tier);
-  const emailPromise = sendSubscriptionEmail({
-    userEmail: user.email,
-    tierName: tierConfig?.displayName ?? parsed.data.tier,
-    previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
-    monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
-    maxSessions: tierConfig?.maxSessions ?? 1,
-    trialHours: tierConfig?.trialQuotaHours ?? 0,
-    env: c.env,
-  });
-  if (c.executionCtx?.waitUntil) {
-    c.executionCtx.waitUntil(emailPromise);
-  } else {
-    void emailPromise;
+  // Non-fatal: send subscription confirmation email via waitUntil
+  try {
+    const tiers = await getTierConfig(c.env.KV);
+    const tierConfig = tiers.find(t => t.id === parsed.data.tier);
+    const emailPromise = sendSubscriptionEmail({
+      userEmail: user.email,
+      tierName: tierConfig?.displayName ?? parsed.data.tier,
+      previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
+      monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
+      maxSessions: tierConfig?.maxSessions ?? 1,
+      trialHours: tierConfig?.trialQuotaHours ?? 0,
+      env: c.env,
+    });
+    if (c.executionCtx?.waitUntil) {
+      c.executionCtx.waitUntil(emailPromise);
+    } else {
+      void emailPromise;
+    }
+  } catch (err) {
+    logger.error('Failed to send subscription email', err instanceof Error ? err : new Error(String(err)));
   }
 
   return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete });
