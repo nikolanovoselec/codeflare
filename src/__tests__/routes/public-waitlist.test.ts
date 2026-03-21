@@ -166,7 +166,7 @@ describe('Public waitlist route', () => {
       ONBOARDING_LANDING_PAGE: 'active',
       TURNSTILE_SECRET_KEY: 'turnstile-secret',
       RESEND_API_KEY: 're_123',
-      WAITLIST_FROM_EMAIL: 'Codeflare Waitlist <noreply@example.com>',
+      RESEND_EMAIL: 'Codeflare Waitlist <noreply@example.com>',
     });
     mockKV._set('user:admin@example.com', {
       addedBy: 'setup',

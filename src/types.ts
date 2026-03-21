@@ -50,7 +50,7 @@ export interface Env {
   RESEND_API_KEY?: string;
 
   // Optional sender identity for waitlist emails.
-  WAITLIST_FROM_EMAIL?: string;
+  RESEND_EMAIL?: string;
 
   // Optional worker name override for forks (set via wrangler.toml [vars] or GitHub Actions)
   CLOUDFLARE_WORKER_NAME?: string;

@@ -12,7 +12,7 @@ interface SendEmailOptions {
   replyTo?: string;
   env: {
     RESEND_API_KEY?: string;
-    WAITLIST_FROM_EMAIL?: string;
+    RESEND_EMAIL?: string;
   };
 }
 
@@ -37,7 +37,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
       },
       signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
-        from: env.WAITLIST_FROM_EMAIL || 'Codeflare <onboarding@resend.dev>',
+        from: env.RESEND_EMAIL || 'Codeflare <onboarding@resend.dev>',
         to,
         subject,
         html,
@@ -59,7 +59,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
  */
 export async function sendWelcomeEmail(opts: {
   userEmail: string;
-  env: { RESEND_API_KEY?: string; WAITLIST_FROM_EMAIL?: string };
+  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
   const safeEmail = escapeXml(opts.userEmail);
   return sendEmail({
@@ -86,7 +86,7 @@ export async function sendSubscriptionEmail(opts: {
   monthlyHours: string;
   maxSessions: number;
   trialHours: number;
-  env: { RESEND_API_KEY?: string; WAITLIST_FROM_EMAIL?: string };
+  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
   const { userEmail, tierName, previousTierName, monthlyHours, maxSessions, trialHours, env } = opts;
   const safeTier = escapeXml(tierName);
@@ -126,7 +126,7 @@ export async function sendRenewalEmail(opts: {
   tierName: string;
   monthlyHours: string;
   maxSessions: number;
-  env: { RESEND_API_KEY?: string; WAITLIST_FROM_EMAIL?: string };
+  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
   const { userEmail, tierName, monthlyHours, maxSessions, env } = opts;
   const safeTier = escapeXml(tierName);
@@ -156,7 +156,7 @@ export async function sendTierChangeNotification(opts: {
   newTier: string;
   changedBy: string;
   adminEmails: string[];
-  env: { RESEND_API_KEY?: string; WAITLIST_FROM_EMAIL?: string };
+  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<void> {
   const { userEmail, previousTier, newTier, changedBy, adminEmails, env } = opts;
 

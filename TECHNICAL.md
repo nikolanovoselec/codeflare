@@ -1231,7 +1231,7 @@ Set as GitHub Actions repository variables (not secrets, since they're non-sensi
 | `SAAS_MODE` | unset | Set to `active` to enable custom login, JIT provisioning, and admin approval |
 | `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for future multi-IdP support (currently unused) |
 | `RESEND_API_KEY` | unset | Resend email API token for admin notifications on access requests |
-| `WAITLIST_FROM_EMAIL` | `Codeflare <onboarding@resend.dev>` | From address for admin notification emails |
+| `RESEND_EMAIL` | `Codeflare <onboarding@resend.dev>` | From address for admin notification emails |
 | `ONBOARDING_LANDING_PAGE` | unset | Set to `active` to show waitlist/onboarding page at `/` instead of login |
 
 Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--var` in `deploy.yml`.
@@ -1932,7 +1932,7 @@ GET `/health`, GET `/api/health`
 | `ONBOARDING_LANDING_PAGE` | `"active"` enables public waitlist landing | wrangler.toml |
 | `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | Optional |
 | `RESEND_API_KEY` | Notification emails (waitlist + access requests) | Optional |
-| `WAITLIST_FROM_EMAIL` | Sender identity for notification emails | Optional |
+| `RESEND_EMAIL` | Sender identity for notification emails | Optional |
 | `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | GitHub Actions variable / Worker runtime env |
 | `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |

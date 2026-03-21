@@ -174,7 +174,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
           },
           signal: AbortSignal.timeout(10_000),
           body: JSON.stringify({
-            from: c.env.WAITLIST_FROM_EMAIL || 'Codeflare <onboarding@resend.dev>',
+            from: c.env.RESEND_EMAIL || 'Codeflare <onboarding@resend.dev>',
             to: adminRecipients,
             subject: `Codeflare access request: ${user.email.replace(/[\r\n]/g, '')}`,
             html: [

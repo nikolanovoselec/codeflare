@@ -126,7 +126,7 @@ app.post('/waitlist', waitlistRateLimiter, async (c) => {
   const submittedAtIso = new Date().toISOString();
   await sendWaitlistEmail({
     resendApiKey,
-    from: c.env.WAITLIST_FROM_EMAIL || 'Codeflare Waitlist <onboarding@resend.dev>',
+    from: c.env.RESEND_EMAIL || 'Codeflare Waitlist <onboarding@resend.dev>',
     to: adminRecipients,
     submittedEmail: parsed.data.email,
     submittedAtIso,

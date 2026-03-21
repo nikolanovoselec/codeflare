@@ -284,16 +284,20 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Set Resend API key as worker secret (onboarding or SaaS mode)
+      - name: Set Resend secrets (onboarding or SaaS mode)
         if: ${{ vars.ONBOARDING_LANDING_PAGE == 'active' || vars.SAAS_MODE == 'active' }}
         run: |
           if [ -z "${RESEND_API_KEY}" ]; then
-            echo "::warning::RESEND_API_KEY not set — access request notification emails will be skipped"
+            echo "::warning::RESEND_API_KEY not set — email notifications will be skipped"
             exit 0
           fi
           printf '%s' "${RESEND_API_KEY}" | npx wrangler secret put RESEND_API_KEY --name "${WORKER_NAME}" 2>/dev/null
+          if [ -n "${RESEND_EMAIL}" ]; then
+            printf '%s' "${RESEND_EMAIL}" | npx wrangler secret put RESEND_EMAIL --name "${WORKER_NAME}" 2>/dev/null
+          fi
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_EMAIL: ${{ secrets.RESEND_EMAIL }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 

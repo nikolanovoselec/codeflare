@@ -20,7 +20,7 @@ describe('sendEmail', () => {
       replyTo: 'user@example.com',
       env: {
         RESEND_API_KEY: 'test-api-key',
-        WAITLIST_FROM_EMAIL: 'Codeflare <noreply@example.com>',
+        RESEND_EMAIL: 'Codeflare <noreply@example.com>',
       },
     });
 
@@ -128,7 +128,7 @@ describe('sendEmail', () => {
     consoleSpy.mockRestore();
   });
 
-  it('uses default from address when WAITLIST_FROM_EMAIL is not set', async () => {
+  it('uses default from address when RESEND_EMAIL is not set', async () => {
     await sendEmail({
       to: ['admin@example.com'],
       subject: 'Test',
@@ -141,7 +141,7 @@ describe('sendEmail', () => {
   });
 });
 
-const testEnv = { RESEND_API_KEY: 'test-key', WAITLIST_FROM_EMAIL: 'Codeflare <noreply@test.com>' };
+const testEnv = { RESEND_API_KEY: 'test-key', RESEND_EMAIL: 'Codeflare <noreply@test.com>' };
 const noKeyEnv = {};
 
 describe('sendWelcomeEmail', () => {
