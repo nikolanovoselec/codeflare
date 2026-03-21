@@ -130,6 +130,7 @@
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  animation: lifelinePulse 2s ease-in-out infinite;
 }
 
 .subscribe-mode-separator {
