@@ -633,6 +633,7 @@ export class container extends Container<Env> {
           lastSeenInputAt: this.lastSeenInputAt,
           connectedClients: activity.connectedClients,
           hasActiveConnections: activity.hasActiveConnections,
+          idleMs, sleepMs, sleepAfter: this.sleepAfter,
         });
       }
     } catch (err) {
