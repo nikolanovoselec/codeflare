@@ -63,8 +63,8 @@ const Layout: Component<LayoutProps> = (props) => {
   // Auto-refresh sessions + storage when tab returns from background
   const handleVisibilityChange = () => {
     if (!document.hidden) {
-      sessionStore.refreshSessionStatuses();
-      storageStore.refresh({ silent: true });
+      sessionStore.refreshSessionStatuses?.();
+      storageStore.refresh?.({ silent: true });
     }
   };
   onMount(() => document.addEventListener('visibilitychange', handleVisibilityChange));
