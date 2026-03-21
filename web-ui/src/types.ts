@@ -120,6 +120,7 @@ export interface AuthStatus {
   requestedAt?: string | null;
   onboardingComplete?: boolean;
   hasSubscribed?: boolean;
+  trialUsed?: boolean;
   currency?: string;
 }
 
