@@ -67,12 +67,15 @@ const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
 
 /** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
 const TIER_FEATURES: Record<string, string[]> = {
-  free: ['Standard mode only', 'Community support'],
-  standard: ['Standard + Pro modes', 'R2 cloud sync', 'Priority support'],
-  advanced: ['Standard + Pro modes', 'R2 cloud sync', 'Priority support'],
-  max: ['Standard + Pro modes', 'R2 cloud sync', 'Priority support'],
-  unlimited: ['Standard + Pro modes', 'Dedicated support', 'Custom SLA'],
+  free: ['Standard mode only', 'R2 cloud sync', 'Community support'],
+  standard: ['Standard + Pro modes', 'R2 cloud sync', 'Configurable idle timeout', 'Priority support'],
+  advanced: ['Standard + Pro modes', 'R2 cloud sync', 'Configurable idle timeout', 'Priority support'],
+  max: ['Standard + Pro modes', 'R2 cloud sync', 'Configurable idle timeout', 'OpenClaw Integration', 'Priority support'],
+  unlimited: ['Standard + Pro modes', 'Configurable idle timeout', 'OpenClaw Integration', 'Dedicated support', 'Custom SLA'],
 };
+
+/** Features that show a "COMING SOON" badge */
+const COMING_SOON_FEATURES = new Set(['OpenClaw Integration']);
 
 /** Lifeline stop icons */
 const TIER_ICONS: Record<string, string> = {
@@ -397,9 +400,7 @@ const SubscribePage: Component = () => {
           {/* Blocked */}
           <Show when={isBlocked()}>
             <div class="subscribe-status">
-              <div class="subscribe-status-icon subscribe-status-icon--blocked">
-                <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.902 7.902 0 0 1 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.902 7.902 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>
-              </div>
+              <span class="subscribe-status-text subscribe-status-text--blocked">Blocked</span>
               <h2 class="subscribe-title">Account Blocked</h2>
               <p class="subscribe-message">Your account has been blocked. Contact an administrator for help.</p>
             </div>
@@ -426,17 +427,13 @@ const SubscribePage: Component = () => {
               <div class="subscribe-status">
                 <Show when={isActive()} fallback={
                   <>
-                    <div class="subscribe-status-icon subscribe-status-icon--pending">
-                      <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
-                    </div>
+                    <span class="subscribe-status-text subscribe-status-text--pending">Not Subscribed</span>
                     <Show when={userEmail()}>
                       <div class="subscribe-email">{userEmail()}</div>
                     </Show>
                   </>
                 }>
-                  <div class="subscribe-status-icon subscribe-status-icon--active">
-                    <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                  </div>
+                  <span class="subscribe-status-text subscribe-status-text--active">Subscribed</span>
                   <Show when={userEmail()}>
                     <div class="subscribe-email">{userEmail()}</div>
                   </Show>
@@ -582,7 +579,12 @@ const SubscribePage: Component = () => {
                           {(feature) => (
                             <li class="subscribe-tier-feature-item">
                               <Icon path={mdiCheck} size={14} />
-                              <span>{feature}</span>
+                              <span>
+                                {feature}
+                                {COMING_SOON_FEATURES.has(feature) && (
+                                  <span class="subscribe-coming-soon-badge">COMING SOON</span>
+                                )}
+                              </span>
                             </li>
                           )}
                         </For>

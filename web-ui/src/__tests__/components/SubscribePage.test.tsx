@@ -97,16 +97,16 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('should show orange clock icon for pending users', async () => {
+    it('should show "Not Subscribed" text for pending users', async () => {
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(document.querySelector('.subscribe-status-icon--pending')).toBeInTheDocument();
+        expect(screen.getByText('Not Subscribed')).toBeInTheDocument();
       });
     });
 
-    it('should show green checkmark and Continue for active users', async () => {
+    it('should show "Subscribed" text and Continue for active users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -119,7 +119,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(document.querySelector('.subscribe-status-icon--active')).toBeInTheDocument();
+        expect(screen.getByText('Subscribed')).toBeInTheDocument();
         expect(screen.getByText('active@example.com')).toBeInTheDocument();
         expect(screen.getByText('Continue')).toBeInTheDocument();
       });
@@ -417,6 +417,48 @@ describe('SubscribePage', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/failed|error/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('TIER_FEATURES content', () => {
+    it('free tier includes R2 cloud sync', async () => {
+      await openTierView();
+      fireEvent.click(screen.getByTestId('lifeline-stop-free'));
+
+      await waitFor(() => {
+        const panel = screen.getByTestId('tier-detail-panel');
+        expect(panel.textContent).toMatch(/R2 cloud sync/);
+      });
+    });
+
+    it('max tier includes OpenClaw Integration', async () => {
+      await openTierView();
+      fireEvent.click(screen.getByTestId('lifeline-stop-max'));
+
+      await waitFor(() => {
+        const panel = screen.getByTestId('tier-detail-panel');
+        expect(panel.textContent).toMatch(/OpenClaw Integration/);
+      });
+    });
+
+    it('max tier shows COMING SOON badge for OpenClaw Integration', async () => {
+      await openTierView();
+      fireEvent.click(screen.getByTestId('lifeline-stop-max'));
+
+      await waitFor(() => {
+        const panel = screen.getByTestId('tier-detail-panel');
+        expect(panel.textContent).toMatch(/COMING SOON/);
+      });
+    });
+
+    it('paid tiers include Configurable idle timeout', async () => {
+      await openTierView();
+      fireEvent.click(screen.getByTestId('lifeline-stop-standard'));
+
+      await waitFor(() => {
+        const panel = screen.getByTestId('tier-detail-panel');
+        expect(panel.textContent).toMatch(/Configurable idle timeout/);
       });
     });
   });

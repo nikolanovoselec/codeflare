@@ -608,6 +608,47 @@ describe('Users Routes', () => {
       expect(parsed.lastAgentType).toBe('codex');
     });
 
+    it('PATCH succeeds when user has accessTier: free (written by subscribe endpoint)', async () => {
+      const saasApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      saasApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          SAAS_MODE: 'active',
+          CLOUDFLARE_WORKER_NAME: 'codeflare',
+        } as unknown as Env;
+        return next();
+      });
+      saasApp.route('/users', usersRoutes);
+      saasApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      // Subscribe endpoint writes accessTier: 'free' which is not in AccessTierSchema
+      mockKV._set('user:subscriber@example.com', {
+        addedBy: 'jit',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+        accessTier: 'free',
+        subscriptionTier: 'free',
+        subscribedAt: '2024-01-02T00:00:00.000Z',
+      });
+
+      const res = await saasApp.request('/users/subscriber%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionTier: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { success: boolean; subscriptionTier: string };
+      expect(body.success).toBe(true);
+      expect(body.subscriptionTier).toBe('advanced');
+    });
+
     it('PATCH user to standard tier does not write preferences', async () => {
       const saasApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
       saasApp.use('*', async (c, next) => {

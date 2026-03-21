@@ -22,18 +22,21 @@
   max-width: 680px;
 }
 
-/* ── Status icons ── */
+/* ── Status text ── */
 
 .subscribe-status { text-align: center; }
 
-.subscribe-status-icon {
-  color: var(--color-accent, #3b82f6);
+.subscribe-status-text {
+  display: block;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   margin-bottom: 0.75rem;
-  filter: drop-shadow(0 2px 8px rgba(59, 130, 246, 0.25));
 }
-.subscribe-status-icon--blocked { color: #ef4444; filter: drop-shadow(0 2px 8px rgba(239, 68, 68, 0.25)); }
-.subscribe-status-icon--active { color: #22c55e; filter: drop-shadow(0 2px 8px rgba(34, 197, 94, 0.25)); }
-.subscribe-status-icon--pending { color: #f97316; filter: drop-shadow(0 2px 8px rgba(249, 115, 22, 0.25)); }
+.subscribe-status-text--active { color: #22c55e; }
+.subscribe-status-text--pending { color: #f97316; }
+.subscribe-status-text--blocked { color: #ef4444; }
 
 .subscribe-title { margin: 0 0 0.75rem; font-size: 1.25rem; font-weight: 600; color: #fafafa; font-family: 'JetBrains Mono', 'Fira Code', monospace; }
 .subscribe-message { margin: 0 0 1rem; font-size: 0.875rem; color: #a1a1aa; line-height: 1.6; }
@@ -233,8 +236,8 @@
 /* Dashed line through icon centers — pure CSS, no SVG alignment issues */
 .subscribe-lifeline-track {
   position: absolute;
-  /* Center vertically through 36px icons: 0.25rem padding + 18px = icon center */
-  top: calc(0.25rem + 18px);
+  /* Center vertically through 36px icons (18px = half icon height) */
+  top: 18px;
   left: 2.5rem; right: 2.5rem;
   height: 0;
   border-top: 2px dashed rgba(255, 255, 255, 0.1);
@@ -248,14 +251,14 @@
 
 .subscribe-lifeline-stop {
   display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
-  background: none; border: none; cursor: pointer; padding: 0.25rem;
+  background: none; border: none; cursor: pointer; padding: 0 0.25rem;
   color: #52525b; transition: color 250ms ease, transform 200ms ease;
   min-width: 44px; min-height: 44px;
   position: relative;
 }
 .subscribe-lifeline-stop:hover { transform: scale(1.08); }
 .subscribe-lifeline-stop--passed { color: #71717a; }
-.subscribe-lifeline-stop--selected { color: #3b82f6; }
+.subscribe-lifeline-stop--selected { color: var(--color-accent); padding: 0 0.75rem; }
 
 .subscribe-lifeline-icon {
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
@@ -266,12 +269,12 @@
   position: relative; z-index: 1;
 }
 .subscribe-lifeline-stop--passed .subscribe-lifeline-icon {
-  border-color: rgba(59, 130, 246, 0.4); border-style: solid;
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent); border-style: solid;
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-icon {
-  background: hsl(217, 40%, 12%);
-  border-color: #3b82f6; border-style: solid;
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+  background: color-mix(in srgb, var(--color-accent) 12%, hsl(217, 20%, 7%));
+  border-color: var(--color-accent); border-style: solid;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
 .subscribe-lifeline-label {
@@ -281,9 +284,9 @@
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: #fafafa; }
 
-/* "This is you" marker — below label, centered */
+/* "This is you" marker — below label, arrow above text */
 .subscribe-lifeline-you {
-  display: flex; align-items: center; gap: 0.2rem;
+  display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
   color: #22c55e; animation: lifelinePulse 2s ease-in-out infinite;
   white-space: nowrap;
 }
@@ -293,6 +296,19 @@
   letter-spacing: 0.02em;
 }
 
+/* ── COMING SOON badge ── */
+
+.subscribe-coming-soon-badge {
+  display: inline-block;
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: var(--color-accent, #3b82f6);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 640px) {
@@ -300,6 +316,7 @@
   .subscribe-detail-panel { padding: 1.25rem; }
   .subscribe-lifeline-label { font-size: 0.6rem; }
   .subscribe-lifeline-icon { width: 32px; height: 32px; }
+  .subscribe-lifeline-track { top: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

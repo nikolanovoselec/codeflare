@@ -826,7 +826,7 @@ Frontend detects `code === 'QUOTA_EXCEEDED'` via `ApiError.code` field and shows
 
 ### Subscribe Page (Unified Layout)
 
-All users land on `/app/subscribe` with an identical two-phase layout. The only differences are data-driven (status icon, button labels, current tier highlight).
+All users land on `/app/subscribe` with an identical two-phase layout. The only differences are data-driven (status text, button labels, current tier highlight).
 
 **Phase 1 — Home view** (initial landing):
 - Logo, ScrambleText title, subtitle
@@ -837,18 +837,26 @@ All users land on `/app/subscribe` with an identical two-phase layout. The only 
 **Phase 2 — Plan view** (after clicking "See subscription plans"):
 - Replaces Phase 1 content entirely (same logo/title/subtitle remain)
 - **Mode card**: merged card with Standard/Pro toggle at top. Standard features always visible; Pro features animate in via CSS `grid-template-rows: 0fr → 1fr` transition with `useScrambleText` decrypt animation on all Pro text. Pro toggle disabled for tiers that only support Standard (e.g. Free). Toggling Standard/Pro does not change scroll position
-- **Lifeline rail**: horizontal rail with 5 plan stops (Free → Starter → Advanced → Max → Team), each with MDI icon. Straight horizontal dashed line with blue fill tracking selection. Default: `advanced` for pending users, `currentTierId` for active users. "This is you" marker (green, pulsing) at active user's current plan
+- **Lifeline rail**: horizontal rail with 5 plan stops (Free → Starter → Advanced → Max → Team), each with MDI icon. Straight horizontal dashed line using `var(--color-accent)` (theme-responsive via `color-mix()` for opacity variants). Default: `advanced` for pending users, `currentTierId` for active users. Selected stop has wider horizontal padding (0.75rem) for breathing room. "This is you" marker (green, pulsing, arrow-above-text column layout) at active user's current plan. Dashed track positioned at `top: 18px` (half of 36px icon, 16px on mobile for 32px icons)
 - **Detail panel**: single panel showing selected tier's name, price (large), tagline, hours/month, sessions, feature checklist, trial badge, CTA button. Tier name, price, and specs use `useScrambleText` for decrypt animation on selection change
 - **Action buttons**: "Get Started" (free) / "Start Trial" (paid) / "Switch Plan" (active, different tier) / "Current Plan" (active, same tier, disabled)
 - Turnstile CAPTCHA (pending users only — rendered via explicit `turnstile.render()` since widget mounts after script auto-scan)
 - "Back" button returns to Phase 1
 
-**Status icons by user state:**
-| State | Icon | Color | Additional |
+**Status text by user state** (replaces SVG icons — styled as JetBrains Mono, 1.5rem, bold):
+| State | Text | Color | Additional |
 |-------|------|-------|-----------|
-| Pending | Clock | Orange (`#f97316`) | Email badge |
-| Active | Checkmark | Green (`#22c55e`) | Email badge + "Continue" link to `/app/` |
-| Blocked | Cross | Red (`#ef4444`) | Blocked message, no tier button |
+| Pending | "Not Subscribed" | Orange (`#f97316`) | Email badge |
+| Active | "Subscribed" | Green (`#22c55e`) | Email badge + "Continue" link to `/app/` |
+| Blocked | "Blocked" | Red (`#ef4444`) | Blocked message, no tier button |
+
+**Per-tier feature bullets** (`TIER_FEATURES` in `SubscribePage.tsx`):
+- Free: Standard mode only, R2 cloud sync, Community support
+- Standard/Advanced: Standard + Pro modes, R2 cloud sync, Configurable idle timeout, Priority support
+- Max: Standard + Pro modes, R2 cloud sync, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Priority support
+- Unlimited: Standard + Pro modes, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Dedicated support, Custom SLA
+
+Features in the `COMING_SOON_FEATURES` set render with an inline accent-colored uppercase badge.
 
 **Content width:** Phase 1 uses narrow layout (`login-content`), Phase 2 uses wide layout (`subscribe-content`, max-width 680px). Mobile: mode card compacts, lifeline labels shrink, 44px minimum tap targets.
 
@@ -914,6 +922,7 @@ Standalone admin page at `/admin/subscriptions` (routes to `web-ui/src/component
 - User dropdown in header shows inline spent time next to "Usage" link
 - Format: "X minutes / Y hours" (under 60m) or "X.X hours / Y hours" (60m+)
 - Examples: "7 minutes / 160 hours", "1.7 hours / 160 hours"
+- Styled at `0.75rem` font-size with `var(--color-text-secondary)` for mobile readability (was `0.65rem` / `--color-text-dimmed`)
 - Computed from `getUsageState()` — a reactive SolidJS signal (`createSignal`) in session store, updated live via batch-status piggyback. Dropdown re-renders automatically when usage data changes (no page refresh needed)
 
 **Warning banners** (Layout.tsx):
@@ -944,7 +953,11 @@ The `GET /api/sessions/batch-status` response includes an optional `usage` field
 
 ### Email Notifications
 
-Tier change notifications are sent via Resend API (`src/lib/email.ts`). The `sendEmail()` helper checks `resp.ok` before returning success — non-2xx API responses return `false`. The `sendTierChangeNotification()` function notifies both the affected user and all admin users. Email sending is fire-and-forget (non-blocking, non-fatal).
+Tier change notifications are sent via Resend API (`src/lib/email.ts`). The `sendEmail()` helper checks `resp.ok` before returning success — non-2xx API responses log via `console.error` with status, recipients, and subject, then return `false`. Fetch failures also log the error. The `sendTierChangeNotification()` function notifies both the affected user and all admin users. Email sending is non-blocking and non-fatal.
+
+**`waitUntil` pattern:** The subscribe endpoint (`POST /api/auth/subscribe`) uses `c.executionCtx.waitUntil(sendSubscriptionEmail(...))` to ensure the email promise survives past the response. Without `waitUntil`, the Worker isolate may terminate the promise when `return c.json(...)` completes. The JIT provision welcome email in `access.ts` uses `void` (fire-and-forget) which is safe because the isolate remains alive during the request that continues to `requireActiveUser`.
+
+**RESEND_API_KEY:** Must be set as a Worker secret via `wrangler secret put RESEND_API_KEY` (not just a GitHub Actions secret). GitHub Actions secrets are only available during CI builds, not in the deployed Worker runtime.
 
 ### Timekeeper Crash Resilience
 
@@ -952,7 +965,9 @@ The Timekeeper DO persists all critical state to DO storage: `pendingSeconds`, `
 
 ### Legacy AccessTier Backward Compatibility
 
-The original 4-tier system (`pending`/`standard`/`advanced`/`blocked`) is preserved for backward compatibility. New code uses `subscriptionTier` with fallback to `accessTier`. When writing tier changes via `PATCH /api/users/:email`, both fields are written: `subscriptionTier` gets the exact new value, while `accessTier` gets the nearest valid legacy value (new tiers like `free`, `trial`, `max`, `unlimited` map to `'advanced'` in the legacy field). This prevents `AccessTierSchema.safeParse` from rejecting unknown values and silently falling back to `'advanced'` on subsequent reads that only check `accessTier`.
+The original 4-tier system (`pending`/`standard`/`advanced`/`blocked`) is preserved for backward compatibility. New code uses `subscriptionTier` with fallback to `accessTier`. When writing tier changes via `PATCH /api/users/:email`, both fields are written: `subscriptionTier` gets the exact new value, while `accessTier` gets the nearest valid legacy value (new tiers like `free`, `trial`, `max`, `unlimited` map to `'advanced'` in the legacy field).
+
+**Admin PATCH schema fix:** The `kvUserSchema` in `PATCH /api/users/:email` validates existing KV records before merging. The `accessTier` field uses `SubscriptionTierSchema` (not `AccessTierSchema`) because the subscribe endpoint writes `accessTier: 'free'` for backward compat — a value not in the 4-tier `AccessTierSchema`. Using `AccessTierSchema` would cause `z.parse()` to throw when an admin tries to promote a free-tier user.
 
 ### Real-Time Usage Data
 

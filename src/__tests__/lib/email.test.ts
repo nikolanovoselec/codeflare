@@ -86,6 +86,46 @@ describe('sendEmail', () => {
     expect(result).toBe(false);
   });
 
+  it('logs error when API returns non-ok response', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response('{"message":"Invalid API key"}', { status: 401 })
+    );
+
+    const result = await sendEmail({
+      to: ['admin@example.com'],
+      subject: 'Test',
+      html: '<p>Test</p>',
+      env: { RESEND_API_KEY: 'bad-key' },
+    });
+
+    expect(result).toBe(false);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Email send failed'),
+      expect.objectContaining({ status: 401 })
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it('logs error when fetch throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Network error'));
+
+    const result = await sendEmail({
+      to: ['admin@example.com'],
+      subject: 'Test',
+      html: '<p>Test</p>',
+      env: { RESEND_API_KEY: 'key' },
+    });
+
+    expect(result).toBe(false);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Email send error'),
+      expect.any(Error)
+    );
+    consoleSpy.mockRestore();
+  });
+
   it('uses default from address when WAITLIST_FROM_EMAIL is not set', async () => {
     await sendEmail({
       to: ['admin@example.com'],

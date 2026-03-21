@@ -44,8 +44,12 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
         ...(replyTo ? { reply_to: replyTo } : {}),
       }),
     });
+    if (!resp.ok) {
+      console.error('Email send failed', { status: resp.status, to: opts.to, subject: opts.subject });
+    }
     return resp.ok;
-  } catch {
+  } catch (err) {
+    console.error('Email send error', err);
     return false;
   }
 }

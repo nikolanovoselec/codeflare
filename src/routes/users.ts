@@ -118,7 +118,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     addedBy: z.string().default('unknown'),
     addedAt: z.string().default(''),
     role: z.enum(['admin', 'user']).default('user'),
-    accessTier: AccessTierSchema.optional(),
+    accessTier: SubscriptionTierSchema.optional(),
     subscriptionTier: SubscriptionTierSchema.optional(),
   }).passthrough();
   const existing = kvUserSchema.parse(existingRaw);
