@@ -231,7 +231,7 @@ describe('SessionStatCard', () => {
       });
       render(() => <SessionStatCard {...defaultProps} session={session} />);
       fireEvent.click(screen.getByTestId('session-stat-card-test-1-timer'));
-      expect(screen.getByText(/tap to dismiss/i)).toBeInTheDocument();
+      expect(screen.getByText(/remaining.*idle timeout/i)).toBeInTheDocument();
     });
 
     it('does not trigger onSelect when timer icon is clicked', () => {

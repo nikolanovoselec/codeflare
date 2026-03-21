@@ -97,7 +97,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
                   class="session-stat-card__timer-tooltip"
                   onClick={(e) => { e.stopPropagation(); setShowTimerTooltip(false); }}
                 >
-                  {timerInfo()?.bucket} — tap to dismiss
+                  {timerInfo()?.bucket} remaining. Session stops after idle timeout. Tracks time since last terminal input. Configurable in Settings.
                 </span>
               </Show>
             </>
