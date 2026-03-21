@@ -255,6 +255,14 @@ export class container extends Container<Env> {
     return this._bucketName;
   }
 
+  /** Parse sleepAfter string ('5m', '30m', '1h', '2h') to milliseconds. */
+  private parseSleepAfterMs(): number {
+    const s = this.sleepAfter;
+    if (s.endsWith('h')) return parseInt(s, 10) * 3_600_000;
+    if (s.endsWith('m')) return parseInt(s, 10) * 60_000;
+    return 300_000; // fallback 5 minutes
+  }
+
   /**
    * Update envVars with current bucket name
    * Called after setBucketName to ensure envVars has correct value
@@ -334,26 +342,20 @@ export class container extends Container<Env> {
       });
     }
 
-    // Proxy via getTcpPort().fetch() instead of super.fetch() to avoid
-    // resetting the sleepAfter timer on every request. The SDK's
-    // containerFetch() calls renewActivityTimeout() internally, which
-    // resets the idle timer on every WS reconnect — defeating the
-    // input-change-based renewal in collectMetrics(). By proxying
-    // directly to the container port, only explicit renewActivityTimeout()
-    // calls in collectMetrics() (on new user input) reset the timer.
-    const tcpPort = this.ctx.container.getTcpPort(this.defaultPort);
-    // Rewrite URL to http://localhost — getTcpPort().fetch() requires
-    // localhost as the hostname (it's a local connection to the container).
-    const proxyUrl = `http://localhost${url.pathname}${url.search}`;
-    const proxyRequest = new Request(proxyUrl, {
-      method: request.method,
-      headers: new Headers(request.headers),
-      body: request.body,
-    });
+    // Use super.fetch() for reliable container proxying (handles startup
+    // readiness, WebSocket upgrades, and container networking).
+    // Note: super.fetch() calls renewActivityTimeout() internally, resetting
+    // the SDK sleepAfter timer on every request. This means the SDK timer
+    // alone cannot enforce idle sleep. Instead, collectMetrics() tracks real
+    // user input and calls this.stop('SIGTERM') explicitly when idle.
     if (this._containerAuthToken) {
-      proxyRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
+      const authedRequest = new Request(request, {
+        headers: new Headers(request.headers),
+      });
+      authedRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
+      return super.fetch(authedRequest);
     }
-    return tcpPort.fetch(proxyRequest);
+    return super.fetch(request);
   }
 
   /**
@@ -588,22 +590,18 @@ export class container extends Container<Env> {
     }
 
     // Keep-alive: renew sleepAfter only when new user input is detected.
-    // The SDK only resets sleepAfterMs via containerFetch() — WebSocket frames
-    // flow through raw TCP and never call renewActivityTimeout(). Without this,
-    // the container dies after sleepAfter even during active terminal use.
+    // User-input-based idle detection. super.fetch() resets the SDK's sleepAfter
+    // timer on every proxied request (including WebSocket reconnects), so we cannot
+    // rely on onActivityExpired() alone. Instead, collectMetrics() tracks real user
+    // input and explicitly stops the container when idle exceeds sleepAfter duration.
     try {
       const activityPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
       const activityRes = await activityPort.fetch('http://localhost/activity');
       if (!activityRes.ok) {
-        // Don't renew on non-OK — broken activity endpoint shouldn't keep containers alive
         this.logger.warn('collectMetrics: /activity returned non-OK, NOT renewing', { status: activityRes.status });
       } else {
         const activity = await activityRes.json() as ActivityState;
 
-        // Renew sleepAfter only when NEW input is detected (lastInputAt changed).
-        // This ensures the sleepAfter timer runs from the last actual input, not
-        // from the last poll cycle — giving exactly sleepAfter duration of idle
-        // time before the container stops (no 2x overshoot).
         const hasNewInput = activity.lastInputAt !== null
           && activity.lastInputAt !== this.lastSeenInputAt;
 
@@ -611,6 +609,21 @@ export class container extends Container<Env> {
           this.renewActivityTimeout();
         }
         this.lastSeenInputAt = activity.lastInputAt;
+
+        // Explicit idle-stop: check if idle duration exceeds sleepAfter.
+        // This is necessary because super.fetch() keeps resetting the SDK timer
+        // on every request, preventing onActivityExpired() from firing.
+        if (activity.lastInputAt !== null) {
+          const idleMs = Date.now() - activity.lastInputAt;
+          const sleepMs = this.parseSleepAfterMs();
+          if (idleMs > sleepMs) {
+            this.logger.info('collectMetrics: idle exceeded sleepAfter, stopping', {
+              idleMs, sleepMs, lastInputAt: activity.lastInputAt,
+            });
+            await this.stop('SIGTERM');
+            return;
+          }
+        }
 
         this.logger.info('collectMetrics: activity check', {
           renewed: hasNewInput,
