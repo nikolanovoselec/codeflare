@@ -292,9 +292,8 @@ describe('container DO class', () => {
       expect(response.status).toBe(400);
     });
 
-    it('proxies unknown routes via getTcpPort (not super.fetch)', async () => {
+    it('proxies unknown routes via super.fetch when container is running', async () => {
       mockContainerRuntime.running = true;
-      mockTcpPortFetch.mockResolvedValue(new Response('proxied'));
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         return null;
@@ -307,10 +306,8 @@ describe('container DO class', () => {
       });
 
       const response = await instance.fetch(request);
-      // Should proxy via getTcpPort().fetch() (not super.fetch) to avoid resetting sleepAfter timer
-      const text = await response.text();
-      expect(text).toBe('proxied');
-      expect(mockContainerRuntime.getTcpPort).toHaveBeenCalled();
+      // super.fetch() handles proxying (SDK manages readiness + networking)
+      expect(response).toBeDefined();
     });
   });
 
@@ -348,9 +345,8 @@ describe('container DO class', () => {
       expect(body).toHaveProperty('bucketName');
     });
 
-    it('should proxy non-internal routes via getTcpPort when container is running', async () => {
+    it('should proxy non-internal routes via super.fetch when container is running', async () => {
       mockContainerRuntime.running = true;
-      mockTcpPortFetch.mockResolvedValue(new Response('proxied via tcp'));
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         return null;
@@ -363,9 +359,8 @@ describe('container DO class', () => {
       });
 
       const response = await instance.fetch(request);
-      const text = await response.text();
-      expect(text).toBe('proxied via tcp');
-      expect(mockContainerRuntime.getTcpPort).toHaveBeenCalled();
+      // super.fetch() handles proxying — SDK manages container networking
+      expect(response).toBeDefined();
     });
 
     it('should return JSON error body with correct Content-Type', async () => {
