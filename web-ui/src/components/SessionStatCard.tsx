@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createSignal } from 'solid-js';
+import { Component, Show, createMemo, createSignal, onCleanup } from 'solid-js';
 import { mdiConsole, mdiChip, mdiMemory, mdiHarddisk, mdiDotsVertical, mdiClockTimeEightOutline } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, SessionStatus } from '../types';
@@ -45,7 +45,13 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
   };
   const isPulsing = () => statusPulses[props.session.status];
 
+  // Tick signal forces timer recomputation every 15s (Date.now() isn't reactive)
+  const [timerTick, setTimerTick] = createSignal(0);
+  const timerInterval = setInterval(() => setTimerTick(t => t + 1), 15_000);
+  onCleanup(() => clearInterval(timerInterval));
+
   const timerInfo = createMemo(() => {
+    timerTick(); // subscribe to tick
     if (props.session.status !== 'running') return null;
     return getSleepTimerInfo(props.session.lastActiveAt, sessionStore.preferences.sleepAfter);
   });

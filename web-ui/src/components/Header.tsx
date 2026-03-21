@@ -80,7 +80,13 @@ const Header: Component<HeaderProps> = (props) => {
   const activeSession = createMemo(() =>
     props.sessions.find(s => s.id === props.activeSessionId)
   );
+  // Tick signal forces timer recomputation every 15s (Date.now() isn't reactive)
+  const [timerTick, setTimerTick] = createSignal(0);
+  const timerInterval = setInterval(() => setTimerTick(t => t + 1), 15_000);
+  onCleanup(() => clearInterval(timerInterval));
+
   const timerInfo = createMemo(() => {
+    timerTick(); // subscribe to tick for periodic recomputation
     const session = activeSession();
     if (!session || session.status !== 'running') return null;
     return getSleepTimerInfo(session.lastActiveAt, sessionStore.preferences.sleepAfter);
