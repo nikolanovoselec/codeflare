@@ -46,10 +46,10 @@ export interface Env {
   // Turnstile secret used to verify waitlist submissions (optional).
   TURNSTILE_SECRET_KEY?: string;
 
-  // Resend API key used for waitlist notification emails (optional).
+  // Resend API key for transactional emails: welcome, subscription, tier change, access requests (optional).
   RESEND_API_KEY?: string;
 
-  // Optional sender identity for waitlist emails.
+  // Optional sender identity for outgoing emails (e.g. "Codeflare <noreply@example.com>").
   RESEND_EMAIL?: string;
 
   // Optional worker name override for forks (set via wrangler.toml [vars] or GitHub Actions)

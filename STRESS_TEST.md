@@ -321,3 +321,30 @@ At 50 VUs with realistic think times, this represents approximately **1 000-5 00
 | `src/routes/terminal.ts` | WebSocket auth + rate-limit; `STRESS_TEST_MODE` bypass at line 178 |
 | `src/lib/rate-limit-core.ts` | Core rate-limit logic (KV + in-memory fallback) |
 | `src/lib/constants.ts` | `WS_RATE_LIMIT_*` constants (lines 47-53) |
+
+## Subscription and Timekeeper Considerations
+
+The subscription system introduces new endpoints and a Durable Object that are not yet covered by the existing k6 stress test suites. Future load testing should consider:
+
+### Endpoints not yet stress-tested
+
+| Endpoint | Method | Rate Limit | Notes |
+|----------|--------|------------|-------|
+| `/api/auth/subscribe` | POST | 3/min | Self-service tier selection; Turnstile token required for new subscriptions |
+| `/api/auth/tiers` | GET | None | Returns subscribable tier config; called on every subscribe page load |
+| `/api/usage` | GET | None | Returns current user's usage stats; queries Timekeeper DO with KV fallback |
+| `/api/admin/tiers` | GET/PUT | None | Admin tier config management; low traffic by nature |
+| `/api/auth/onboarding-config` | GET | None | Turnstile site key; called on subscribe page load |
+
+### Timekeeper DO load characteristics
+
+The Timekeeper DO is a per-user Durable Object that receives pings every 60 seconds from each active container session. Under load:
+
+- **Write amplification:** Each ping triggers DO storage writes (`pendingSeconds`, `sessionTotals`) plus a KV read for quota checks. At high concurrency, this means N DOs each doing a KV read every 60 seconds.
+- **Flush interval:** KV writes happen every 5 minutes via alarm, not on every ping. This batches usage updates and reduces KV write pressure.
+- **Stale session cleanup:** The `sessionTotals` map evicts entries beyond 30 entries to prevent unbounded memory growth.
+- **Fail-open design:** KV read failures during quota checks are non-fatal. This means KV throttling under extreme load would not cause session interruptions.
+
+### Container start quota check
+
+The `validateSessionAndCheckLimits` function in `src/routes/container/lifecycle.ts` performs a KV read of the Timekeeper usage record at session start time. Under the existing session lifecycle stress test, this adds one extra KV read per container start cycle. With `STRESS_TEST_MODE=active`, usage quota enforcement is bypassed (same as rate limits), so stress tests can run without quota interference.

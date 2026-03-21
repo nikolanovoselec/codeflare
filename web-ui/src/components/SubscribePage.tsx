@@ -122,6 +122,7 @@ const SubscribePage: Component = () => {
   const [globalMode, setGlobalMode] = createSignal<'default' | 'advanced'>('default');
   const [subscribePhase, setSubscribePhase] = createSignal<SubscribePhase>('home');
   const [selectedTierId, setSelectedTierId] = createSignal('advanced');
+  const [trialUsed, setTrialUsed] = createSignal(false);
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
@@ -154,6 +155,10 @@ const SubscribePage: Component = () => {
         if (TIER_ORDER.includes(ct as typeof TIER_ORDER[number])) {
           setSelectedTierId(ct);
         }
+      }
+
+      if (status.trialUsed === true) {
+        setTrialUsed(true);
       }
 
       // Preload Turnstile script for pending users
@@ -300,6 +305,7 @@ const SubscribePage: Component = () => {
   }
 
   function getTrialBadge(tier: TierInfo): string | null {
+    if (trialUsed()) return null;
     const trialHours = tier.trialQuotaHours ?? tier.trialDays ?? 0;
     if (trialHours <= 0) return null;
     return `${trialHours}h free trial`;

@@ -5,8 +5,6 @@ paths:
 ---
 # Python Testing
 
-> This file extends [common/testing.md](../common/testing.md) with Python specific content.
-
 ## Framework
 
 Use **pytest** as the testing framework.
@@ -32,7 +30,3 @@ def test_calculate_total():
 def test_database_connection():
     ...
 ```
-
-## Reference
-
-See skill: `python-testing` for detailed pytest patterns and fixtures.

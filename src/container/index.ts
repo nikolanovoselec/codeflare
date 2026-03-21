@@ -98,8 +98,9 @@ export class container extends Container<Env> {
   // Terminal server handles all endpoints: WebSocket, health check, metrics
   defaultPort = 8080;
 
-  // Container goes to sleep after this duration of inactivity (no HTTP fetch() calls).
+  // Default idle timeout before the container goes to sleep.
   // collectMetrics() renews via renewActivityTimeout() when new user input is detected.
+  // The fetch() override proxies via getTcpPort() to avoid resetting this timer on every request.
   override sleepAfter = '5m';
 
   // Environment variables - set via property assignment in updateEnvVars()

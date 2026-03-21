@@ -15,8 +15,9 @@ export function isActiveUser(tier: AccessTier | SubscriptionTier | string | unde
 }
 
 /**
- * Hardcoded session mode defaults — matches getDefaultTiers() config.
- * Use getAllowedSessionModesWithConfig() for admin-configurable enforcement.
+ * Hardcoded session mode defaults (conservative subset of getDefaultTiers() config).
+ * Note: standard tier returns ['default'] here but ['default', 'advanced'] in config.
+ * Use getAllowedSessionModesWithConfig() for config-aware enforcement.
  */
 export function allowedSessionModes(tier: AccessTier | SubscriptionTier | string | undefined): SessionMode[] {
   if (tier === 'advanced' || tier === 'max' || tier === 'unlimited' || tier === undefined) {

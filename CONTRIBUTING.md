@@ -25,9 +25,13 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 | Directory | Purpose | Technology |
 |-----------|---------|------------|
 | `src/` | Backend (Cloudflare Worker) | TypeScript, Hono, Zod |
+| `src/timekeeper/` | Per-user usage tracking Durable Object | TypeScript |
+| `src/container/` | Container lifecycle Durable Object | TypeScript |
+| `src/routes/admin/` | Admin-only API routes (tier management) | TypeScript, Hono |
 | `web-ui/` | Frontend SPA | SolidJS, xterm.js, Vite |
 | `host/` | Container terminal server | Node.js, node-pty |
 | `e2e/` | End-to-end tests | Vitest, Puppeteer |
+| `e2e/stress/` | k6 load test suites | JavaScript, k6 |
 | `preseed/tutorials/` | Tutorial content seeded into new workspaces | Markdown, assets |
 | `scripts/` | Build and maintenance utilities | Node.js |
 | `.github/workflows/` | CI/CD pipelines | GitHub Actions |
@@ -43,7 +47,7 @@ cd web-ui && npm run dev           # Frontend dev server (Vite)
 
 ## Running Tests
 
-Codeflare has five test layers totaling ~2,500 tests. Run them with:
+Codeflare has five test layers totaling ~3,000 tests. Run them with:
 
 ```bash
 # Backend unit tests (Vitest + @cloudflare/vitest-pool-workers)
@@ -72,6 +76,19 @@ npm test -- src/__tests__/routes/rate-limits.test.ts
 ```
 
 See `src/middleware/rate-limit.ts` for the rate limiting implementation and `STRESS_TEST.md` for load testing details.
+
+### Subscription and Usage Tests
+
+The subscription system has dedicated test files:
+
+```bash
+npm test -- src/__tests__/lib/subscription.test.ts     # Tier resolution, config, session modes
+npm test -- src/__tests__/lib/email.test.ts             # Email sending (welcome, subscription, tier change)
+npm test -- src/__tests__/routes/auth-subscribe.test.ts # Subscribe endpoint, Turnstile, idempotency
+npm test -- src/__tests__/timekeeper/index.test.ts      # Timekeeper DO, usage accumulation, quota enforcement
+npm test -- src/__tests__/lib/access-tier.test.ts       # Tier-based access control
+npm test -- src/__tests__/lib/kv-keys.test.ts           # Timekeeper KV key generation, date utilities
+```
 
 ### Linting and Type Checking
 

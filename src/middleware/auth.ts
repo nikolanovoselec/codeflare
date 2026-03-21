@@ -40,10 +40,12 @@ export async function requireIdentity(c: Context<{ Bindings: Env; Variables: Aut
  * requireActiveUser — authenticate + enforce access-tier gate when SAAS_MODE is active.
  *
  * In SaaS mode:
- *   - standard / advanced / undefined tier → pass through
- *   - pending tier + HTML request → redirect to /app/subscribe
- *   - pending tier + API request  → 403 { code: 'PENDING' }
- *   - blocked tier                → 403 { code: 'BLOCKED' }
+ *   - active tier (free/trial/standard/advanced/max/unlimited/undefined) → pass through
+ *   - pending tier → 403 { code: 'PENDING' }
+ *   - blocked tier → 403 { code: 'BLOCKED' }
+ *
+ * Note: HTML redirect to /app/subscribe for pending users is handled in index.ts routing,
+ * not here. This middleware always returns JSON 403.
  *
  * When SAAS_MODE is not set, behaves identically to requireIdentity (backward compat).
  */

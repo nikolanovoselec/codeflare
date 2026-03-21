@@ -72,6 +72,9 @@ app.get('/status', requireIdentity, async (c) => {
   // hasSubscribed = user has an active subscription (self-subscribed OR admin-promoted)
   const hasSubscribed = subscriptionTier !== 'pending' && subscriptionTier !== 'blocked';
 
+  // trialUsed = user has already used their free trial (no new trials on plan switch)
+  const trialUsed = userData?.trialUsed === true;
+
   // Currency based on visitor's country (CF-IPCountry header)
   const country = c.req.header('CF-IPCountry') || 'US';
   const currency = getCurrencyForCountry(country);
@@ -85,6 +88,7 @@ app.get('/status', requireIdentity, async (c) => {
     requestedAt,
     onboardingComplete,
     hasSubscribed,
+    trialUsed,
     currency,
   });
 });
@@ -248,12 +252,15 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   }
 
   const now = new Date();
+  // Mark trial as used on first subscription so plan switches don't grant new trials
+  const trialUsed = existingRaw?.trialUsed === true || isAlreadySubscribed;
   const updated: Record<string, unknown> = {
     ...existingRaw,
     subscriptionTier: parsed.data.tier,
     accessTier: parsed.data.tier, // backward compat
     subscribedAt: now.toISOString(),
     trialBillingTriggered: false,
+    trialUsed,
   };
 
   await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
@@ -302,7 +309,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     logger.error('Failed to send subscription emails', err instanceof Error ? err : new Error(String(err)));
   }
 
-  return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete });
+  return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete, trialUsed });
 });
 
 // POST /api/auth/onboarding-complete — mark guided setup as completed for this user

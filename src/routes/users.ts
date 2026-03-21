@@ -40,7 +40,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
 
 /**
- * Rate limiter for user mutations (DELETE)
+ * Rate limiter for user mutations (DELETE and PATCH)
  * Limits to 20 mutations per minute per user
  */
 const userMutationRateLimiter = createRateLimiter({

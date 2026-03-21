@@ -256,7 +256,7 @@ export async function resolveUserFromKV(
 
 /**
  * Resolve an existing user from KV, or auto-provision a new one in SaaS mode.
- * New users are always created with 'pending' tier (requires admin approval).
+ * New users are created with 'pending' tier and can self-subscribe via /api/auth/subscribe.
  *
  * Throws ForbiddenError when the user is not in KV and SaaS mode is off.
  */

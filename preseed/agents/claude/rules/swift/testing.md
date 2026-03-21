@@ -5,8 +5,6 @@ paths:
 ---
 # Swift Testing
 
-> This file extends [common/testing.md](../common/testing.md) with Swift specific content.
-
 ## Framework
 
 Use **Swift Testing** (`import Testing`) for new tests. Use `@Test` and `#expect`:
@@ -39,7 +37,3 @@ func validatesFormat(format: String) throws {
 ```bash
 swift test --enable-code-coverage
 ```
-
-## Reference
-
-See skill: `swift-protocol-di-testing` for protocol-based dependency injection and mock patterns with Swift Testing.
