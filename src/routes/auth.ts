@@ -10,6 +10,7 @@ import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
+import { sendSubscriptionEmail } from '../lib/email';
 
 const logger = createLogger('auth-routes');
 
@@ -258,6 +259,19 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
 
   const onboardingComplete = updated.onboardingComplete === true;
   logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
+
+  // Fire-and-forget subscription/plan change confirmation email
+  const tiers = await getTierConfig(c.env.KV);
+  const tierConfig = tiers.find(t => t.id === parsed.data.tier);
+  void sendSubscriptionEmail({
+    userEmail: user.email,
+    tierName: tierConfig?.displayName ?? parsed.data.tier,
+    previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
+    monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
+    maxSessions: tierConfig?.maxSessions ?? 1,
+    trialHours: tierConfig?.trialQuotaHours ?? 0,
+    env: c.env,
+  });
 
   return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete });
 });

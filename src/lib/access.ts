@@ -3,6 +3,7 @@ import { verifyAccessJWT } from './jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
 import { isSaasModeActive } from './onboarding';
+import { sendWelcomeEmail } from './email';
 
 const logger = createLogger('access');
 
@@ -286,6 +287,9 @@ export async function resolveOrProvisionUser(
       accessTier: 'pending',
       subscriptionTier: 'pending',
     }));
+
+    // Fire-and-forget welcome email
+    void sendWelcomeEmail({ userEmail: normalizedEmail, env });
 
     return { role: 'user', accessTier: 'pending', subscriptionTier: 'pending' };
   }

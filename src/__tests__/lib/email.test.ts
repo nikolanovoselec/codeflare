@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { sendEmail } from '../../lib/email';
+import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendRenewalEmail } from '../../lib/email';
 
 describe('sendEmail', () => {
   const originalFetch = globalThis.fetch;
@@ -96,5 +96,91 @@ describe('sendEmail', () => {
 
     const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
     expect(body.from).toBe('Codeflare <onboarding@resend.dev>');
+  });
+});
+
+const testEnv = { RESEND_API_KEY: 'test-key', WAITLIST_FROM_EMAIL: 'Codeflare <noreply@test.com>' };
+const noKeyEnv = {};
+
+describe('sendWelcomeEmail', () => {
+  const originalFetch = globalThis.fetch;
+  beforeEach(() => { globalThis.fetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 })); });
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('sends welcome email with correct subject', async () => {
+    const result = await sendWelcomeEmail({ userEmail: 'alice@example.com', env: testEnv });
+    expect(result).toBe(true);
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.subject).toBe('Welcome to Codeflare');
+    expect(body.to).toEqual(['alice@example.com']);
+  });
+
+  it('returns false without API key', async () => {
+    const result = await sendWelcomeEmail({ userEmail: 'alice@example.com', env: noKeyEnv });
+    expect(result).toBe(false);
+  });
+});
+
+describe('sendSubscriptionEmail', () => {
+  const originalFetch = globalThis.fetch;
+  beforeEach(() => { globalThis.fetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 })); });
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('sends new subscription confirmation', async () => {
+    const result = await sendSubscriptionEmail({
+      userEmail: 'alice@example.com', tierName: 'Starter', monthlyHours: '40h',
+      maxSessions: 3, trialHours: 40, env: testEnv,
+    });
+    expect(result).toBe(true);
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.subject).toBe('Your Codeflare plan: Starter');
+    expect(body.html).toContain('Starter');
+    expect(body.html).toContain('40h');
+  });
+
+  it('sends plan change confirmation with previous tier', async () => {
+    await sendSubscriptionEmail({
+      userEmail: 'alice@example.com', tierName: 'Max', previousTierName: 'Starter',
+      monthlyHours: '160h', maxSessions: 10, trialHours: 160, env: testEnv,
+    });
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.subject).toBe('Plan changed to Max');
+    expect(body.html).toContain('Starter');
+    expect(body.html).toContain('Max');
+  });
+
+  it('escapes HTML in tier names', async () => {
+    await sendSubscriptionEmail({
+      userEmail: 'alice@example.com', tierName: '<script>alert(1)</script>',
+      monthlyHours: '40h', maxSessions: 3, trialHours: 0, env: testEnv,
+    });
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.html).not.toContain('<script>');
+    expect(body.html).toContain('&lt;script&gt;');
+  });
+
+  it('returns false without API key', async () => {
+    const result = await sendSubscriptionEmail({
+      userEmail: 'alice@example.com', tierName: 'Starter', monthlyHours: '40h',
+      maxSessions: 3, trialHours: 0, env: noKeyEnv,
+    });
+    expect(result).toBe(false);
+  });
+});
+
+describe('sendRenewalEmail', () => {
+  const originalFetch = globalThis.fetch;
+  beforeEach(() => { globalThis.fetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 })); });
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('sends renewal confirmation', async () => {
+    const result = await sendRenewalEmail({
+      userEmail: 'alice@example.com', tierName: 'Starter', monthlyHours: '40h',
+      maxSessions: 3, env: testEnv,
+    });
+    expect(result).toBe(true);
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.subject).toContain('renewed');
+    expect(body.html).toContain('Starter');
   });
 });
