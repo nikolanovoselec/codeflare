@@ -295,7 +295,7 @@
   pointer-events: none;
 }
 .subscribe-lifeline-you span {
-  font-size: 0.65rem; font-weight: 500;
+  font-size: 0.7rem; font-weight: 500;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.02em;
 }
