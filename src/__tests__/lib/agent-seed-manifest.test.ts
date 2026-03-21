@@ -163,7 +163,7 @@ describe('multi-agent documents', () => {
 
   it('codeflare-memory plugin files are advanced-only', () => {
     const pluginDocs = claudeDocs().filter((d) => d.key.includes('codeflare-memory'));
-    expect(pluginDocs.length).toBe(3);
+    expect(pluginDocs.length).toBe(4);
     for (const doc of pluginDocs) {
       expect(doc.modes).toEqual(['advanced']);
     }
