@@ -24,6 +24,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/memory-compact-prompt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/ci-monitoring.md": {
     "modes": [
       "default",

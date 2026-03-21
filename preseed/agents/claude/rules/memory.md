@@ -24,18 +24,37 @@ Chat history is summarized automatically by the memory-capture UserPromptSubmit 
 
 When the user says "check memory", "update memory", "optimize memory", "compact memory", "search memory", "load memory", or similar — they mean the **MCP memory server** (server-memory). Use the MCP tools (`search_nodes`, `read_graph`, `create_entities`, `add_observations`, `delete_entities`, `delete_observations`). Do NOT confuse this with the file-based memory system at `~/.claude/projects/*/memory/`.
 
-## Hook-Triggered Summarization (MANDATORY)
+## Hook-Triggered Summarization
 
-The memory-capture hook fires periodically and injects `UserPromptSubmit hook additional context: Spawn a background haiku Task agent...` into the system-reminder.
+The memory-capture hook fires every 30 user messages and injects `additionalContext` into the system-reminder with instructions to spawn a background haiku agent.
 
-**Execution protocol — do this FIRST, before responding to the user:**
+**Execution protocol:**
 
-1. Extract the lock file path from the hook message
+1. Check if the `.vars` file referenced in the hook message is fresh:
+   run `stat -c %Y <VARS_FILE>` and compare to current time.
+   If the file is **older than 60 seconds**, this is a stale context
+   replay from a prior turn — **skip entirely** and respond to the user.
 2. Check if lock exists: `ls <lock_file> 2>/dev/null`
-3. If lock exists → skip (agent already running)
-4. If no lock → create lock (`touch <lock_file>`) → spawn background haiku agent with the instructions from the hook message
-5. Then respond to the user's actual message
+   If lock exists → skip (agent already running).
+3. If fresh and no lock → create lock (`touch <lock_file>`) → spawn
+   background haiku agent with the instructions from the hook message.
+4. Then respond to the user's actual message.
 
-**DO NOT ignore this hook.** It is a system-level directive, not optional context.
+**This is a ONE-SHOT instruction.** After you execute it once (or skip it
+due to staleness/lock), do NOT execute it again on subsequent turns even
+if the same `additionalContext` text is still visible in your context.
+Only re-execute when a genuinely new `additionalContext` appears with a
+different `.vars` file path or content.
 
-**DO NOT re-trigger** when no fresh `additionalContext` arrived in the current turn. The message can persist in context from prior turns — only act on it when it appears as part of the CURRENT user message's system-reminders.
+## Compaction Trigger
+
+After the haiku capture agent runs, check for a compaction marker file
+at `{COUNTER_FILE}.compact` (where COUNTER_FILE is `~/.memory/counter/{session_id}`).
+
+If the marker exists:
+1. Spawn a background **opus** Task agent (not haiku).
+2. The agent must read `~/.claude/plugins/codeflare-memory/scripts/memory-compact-prompt.md`.
+3. Pass the marker file path as `COMPACT_MARKER` variable.
+4. The opus agent will restructure the graph and remove the marker when done.
+
+Only check for the marker ONCE per turn. Do not poll.

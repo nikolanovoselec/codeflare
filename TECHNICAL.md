@@ -2988,44 +2988,72 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 30 user messages. Zero manual intervention required.
 
-### Architecture
+### Architecture — Two-Phase Memory (Capture + Compact)
+
+The memory system uses two phases with different models optimized for their task:
+
+**Phase 1 — Capture (haiku, fast, every 30 messages):**
+Raw observation capture into daily `chat-{TODAY}` entities. Haiku's job is speed — dump 3-5 observations per window without worrying about graph structure. This is the "write-ahead log."
+
+**Phase 2 — Compact (opus, thorough, triggered at 100 observations):**
+When the capture agent detects the graph has grown past 100 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: 50-80 quality observations per active project.
 
 ```
-UserPromptSubmit hook (~150ms)           Main agent                    Background Task agent (haiku)
-    |                                        |                              |
-    +-- read stdin JSON                      |                              |
-    +-- jq: count user messages              |                              |
-    +-- check counter (delta < 15?) → exit   |                              |
-    +-- check lock → exit                    |                              |
-    +-- write .vars JSON file                |                              |
-    +-- output JSON + exit 0 ─────────> receive additionalContext           |
-                                        create lock                         |
-                                        spawn Task agent ───────────> read prompt .md + .vars JSON
-                                             |                         read transcript from line offset
-                                        (continues normally)           summarize into MCP memory
-                                                                       compaction check (>1000 → ~300)
-                                                                       write counter file
-                                                                       rm lock file
+UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: haiku capture     Phase 2: opus compact
+    |                                    |                            |                          |
+    +-- count user msgs                  |                            |                          |
+    +-- delta < 30? → exit               |                            |                          |
+    +-- check lock → exit                |                            |                          |
+    +-- write .vars JSON                 |                            |                          |
+    +-- output JSON + exit 0 ──────> check .vars freshness            |                          |
+                                    (skip if >60s stale)              |                          |
+                                    create lock                       |                          |
+                                    spawn haiku agent ──────────> read prompt + vars             |
+                                         |                       read transcript                 |
+                                    (continues normally)         save 3-5 obs to chat-{TODAY}    |
+                                         |                       if obs >100: write .compact     |
+                                         |                       write counter, rm lock          |
+                                    check .compact marker             |                          |
+                                    if exists: spawn opus ────────────────────────────────> read full graph
+                                                                                           distill chat-* → semantic entities
+                                                                                           build relations
+                                                                                           deduplicate + prune
+                                                                                           target 50-80 obs
+                                                                                           rm .compact marker
 ```
 
 ### Hook Mechanics
 
-The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0` protocol to inject a short instruction into the main agent's context on each user message.
+The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0` protocol to inject a short instruction into the main agent's context.
 
 1. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
 2. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
-3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits silently.
+3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 30, exits silently.
 4. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits. Stale locks (>2 minutes) are removed automatically.
 5. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the context string short.
 6. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. Exits with code 0 — no blocking, no loop guard needed.
 
-### Prompt File
+### Stale Context Prevention
 
-The background agent's full instructions live in `~/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md` (preseeded alongside the hook script). This keeps the hook's reason string short (~200 chars) while providing detailed instructions for:
+The `additionalContext` string persists in the conversation context across turns. To prevent re-triggering on stale messages, the `rules/memory.md` execution protocol uses a **freshness check**: `stat -c %Y <VARS_FILE>` must show a timestamp within the last 60 seconds. If the `.vars` file is older, the instruction is from a prior turn and is skipped. The instruction is explicitly marked as ONE-SHOT — execute once, then ignore even if the text remains visible.
 
-- Observation quality (merge related facts, skip trivial events, max 5-8 per window)
-- MCP memory entity naming (`chat-YYYY-MM-DD`)
-- **Automatic compaction**: When total observations exceed 1000, compact to ~300 by archiving old chat entities (>3 days) into `chat-archive-YYYY-MM`, merging redundant observations, and deleting stale data.
+### Prompt Files
+
+Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/` (preseeded alongside the hook script):
+
+**`memory-agent-prompt.md`** (haiku capture):
+- Reads transcript from line offset, extracts 3-5 observations
+- Saves to `chat-{TODAY}` entity (daily raw capture bucket)
+- Checks total observations — if >100, writes `.compact` marker file
+- Does NOT attempt compaction itself
+
+**`memory-compact-prompt.md`** (opus compaction):
+- Reads full graph, identifies entity structure by domain
+- Distills `chat-*` entities older than 3 days into semantic entities (`project-*`, `*-architecture`, `*-session-archive`, `user-preferences`, `reference-*`)
+- Keeps recent `chat-*` (last 3 days) as raw buffer
+- Deduplicates, prunes stale data, builds relations
+- Target: 50-80 observations per active project
+- Graph designed to grow over time as projects accumulate — compaction is per-project, not global
 
 ### Counter Storage
 
@@ -3103,7 +3131,7 @@ All preseed content is deployed via the manifest pipeline:
 - `agents/` (7): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, plan, review (advanced only)
 - `skills/` (13): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first
-- `plugins/` (6): known_marketplaces.json (default+advanced), codeflare-memory plugin (3 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md), codeflare-hooks plugin (2 files, advanced only: plugin.json, block-attributed-commits.sh)
+- `plugins/` (7): known_marketplaces.json (default+advanced), codeflare-memory plugin (4 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md, memory-compact-prompt.md), codeflare-hooks plugin (2 files, advanced only: plugin.json, block-attributed-commits.sh)
 
 ### Multi-Agent Preseed
 
@@ -3168,7 +3196,9 @@ The generator produces adapted config files for 6 agents from CC's preseed as si
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
-- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only).
+- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only). Check that the `.vars` file timestamp is fresh (<60 seconds) — stale context replays are intentionally skipped.
+- **Agent re-triggering every turn**: The `additionalContext` persists in conversation context across turns. The `rules/memory.md` freshness check (`stat -c %Y` on `.vars` file) prevents re-execution. If this keeps happening, verify the rule file is loaded and contains the ONE-SHOT instruction.
+- **Compaction not running**: Compaction triggers when haiku writes a `.compact` marker file (total observations >100). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
 - **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entry pointing to `block-attributed-commits.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint SESSION_MODE gating may have failed. Remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 
