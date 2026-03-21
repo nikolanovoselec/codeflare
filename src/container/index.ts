@@ -611,18 +611,20 @@ export class container extends Container<Env> {
         this.lastSeenInputAt = activity.lastInputAt;
 
         // Explicit idle-stop: check if idle duration exceeds sleepAfter.
-        // This is necessary because super.fetch() keeps resetting the SDK timer
-        // on every request, preventing onActivityExpired() from firing.
-        if (activity.lastInputAt !== null) {
-          const idleMs = Date.now() - activity.lastInputAt;
-          const sleepMs = this.parseSleepAfterMs();
-          if (idleMs > sleepMs) {
-            this.logger.info('collectMetrics: idle exceeded sleepAfter, stopping', {
-              idleMs, sleepMs, lastInputAt: activity.lastInputAt,
-            });
-            await this.stop('SIGTERM');
-            return;
-          }
+        // super.fetch() resets the SDK timer on every HTTP request (including
+        // WS reconnects), so onActivityExpired() may not fire for short timeouts.
+        // Use containerStartedAt as fallback when user never typed (lastInputAt null).
+        const referenceTime = activity.lastInputAt ?? this.containerStartedAt;
+        const idleMs = Date.now() - referenceTime;
+        const sleepMs = this.parseSleepAfterMs();
+        if (idleMs > sleepMs) {
+          this.logger.info('collectMetrics: idle exceeded sleepAfter, stopping', {
+            idleMs, sleepMs, referenceTime, lastInputAt: activity.lastInputAt,
+          });
+          // Write KV status before stop — DO state can be lost during shutdown
+          await this.updateKvStatus('stopped', 'lastActiveAt');
+          await this.stop('SIGTERM');
+          return;
         }
 
         this.logger.info('collectMetrics: activity check', {

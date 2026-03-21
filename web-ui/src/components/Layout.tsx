@@ -6,6 +6,7 @@ import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore, getUsageWarningLevel } from '../stores/session';
+import { storageStore } from '../stores/storage';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
@@ -59,8 +60,18 @@ const Layout: Component<LayoutProps> = (props) => {
     sessionStore.startSessionListPolling();
   });
 
+  // Auto-refresh sessions + storage when tab returns from background
+  const handleVisibilityChange = () => {
+    if (!document.hidden) {
+      sessionStore.refreshSessionStatuses();
+      storageStore.refresh({ silent: true });
+    }
+  };
+  onMount(() => document.addEventListener('visibilitychange', handleVisibilityChange));
+
   onCleanup(() => {
     sessionStore.stopSessionListPolling();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
     cleanupDebugOverlay();
   });
 
