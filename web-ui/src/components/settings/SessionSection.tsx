@@ -19,6 +19,7 @@ interface SessionSectionProps {
   clipboardAccess: Accessor<boolean>;
   sleepAfter: Accessor<string>;
   canChangeSleepAfter: Accessor<boolean>;
+  isFreeUser: Accessor<boolean>;
   recreateDocsLoading: Accessor<boolean>;
   recreateDocsMessage: Accessor<string | null>;
   recreateDocsError: Accessor<string | null>;
@@ -217,7 +218,9 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           <span class="settings-hint" data-testid="settings-sleep-after-hint">
             {props.canChangeSleepAfter()
               ? 'Container stops after this idle duration. Takes effect in 2\u20133 minutes.'
-              : 'Auto-sleep is managed by your administrator.'}
+              : props.isFreeUser()
+                ? 'Fixed at 5 minutes on the Free plan. Upgrade for longer idle timeouts.'
+                : 'Auto-sleep is managed by your administrator.'}
           </span>
         </div>
       </section>

@@ -152,9 +152,13 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
-  const sleepAfter = () => sessionStore.preferences.sleepAfter ?? '30m';
+  const isFreeUser = () => {
+    const tier = liveAccessTier();
+    return tier === 'free';
+  };
+  const sleepAfter = () => isFreeUser() ? '5m' : (sessionStore.preferences.sleepAfter ?? '30m');
   const [userHasSubscribed, setUserHasSubscribed] = createSignal(false);
-  const canChangeSleepAfter = () => isAdmin() || userHasSubscribed();
+  const canChangeSleepAfter = () => (isAdmin() || userHasSubscribed()) && !isFreeUser();
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
@@ -321,6 +325,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               clipboardAccess={clipboardAccess}
               sleepAfter={sleepAfter}
               canChangeSleepAfter={canChangeSleepAfter}
+              isFreeUser={isFreeUser}
               recreateDocsLoading={recreateDocsLoading}
               recreateDocsMessage={recreateDocsMessage}
               recreateDocsError={recreateDocsError}

@@ -2102,7 +2102,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 ### Auto-sleep (Configurable sleepAfter)
 
-**User preference:** `sleepAfter` (type: `SleepAfterOption`, optional) in `UserPreferences`. Allowed values: `5m`, `15m`, `30m`, `1h`, `2h`. Default when not set: `30m` (applied by container lifecycle route).
+**User preference:** `sleepAfter` (type: `SleepAfterOption`, optional) in `UserPreferences`. Allowed values: `5m`, `15m`, `30m`, `1h`, `2h`. Default when not set: `30m` (applied by container lifecycle route). **Free tier override:** backend forces `5m` regardless of stored preference; frontend locks dropdown and shows upgrade hint.
 
 **Class default:** `override sleepAfter = '5m'` in `container/index.ts` — this is the SDK fallback if no preference is sent via `setBucketName`. Set to match the minimum user-configurable value. In practice, the lifecycle route always passes the user's preference (defaulting to `'30m'`).
 
@@ -2117,11 +2117,12 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 **Access control:**
 - **Admins** — always allowed to change their own `sleepAfter`
-- **Paying users** (`hasSubscribed = true`) — allowed to change
-- **Admin-promoted / free users** — dropdown is disabled; shows "Auto-sleep is managed by your administrator"
-- Admin can set `sleepAfter` for any user via `PATCH /api/preferences` with the user's bucket context
+- **Paying users** (standard, advanced, max, unlimited) — allowed to change, default `30m`
+- **Free users** — dropdown visible but disabled, locked to `5m`; hint text: "Fixed at 5 minutes on the Free plan. Upgrade for longer idle timeouts."
+- **Non-subscribed users** — dropdown disabled; hint text: "Auto-sleep is managed by your administrator."
+- Backend enforcement in `lifecycle.ts`: `effectiveTier === 'free' ? '5m' : (preferences.sleepAfter || '30m')` — free tier cannot bypass via API
 
-**Settings UI:** Rendered in `SessionSection.tsx` as a `<select>` dropdown with 5 options. `SettingsPanel.tsx` fetches `hasSubscribed` from `/api/user` when the panel opens to determine if the dropdown should be enabled. The `canChangeSleepAfter` accessor returns `isAdmin() || userHasSubscribed()`.
+**Settings UI:** Rendered in `SessionSection.tsx` as a `<select>` dropdown with 5 options. `SettingsPanel.tsx` fetches `hasSubscribed` from `/api/user` and computes `isFreeUser()` from `liveAccessTier()`. The `canChangeSleepAfter` accessor returns `(isAdmin() || userHasSubscribed()) && !isFreeUser()`. The `isFreeUser` prop is passed to `SessionSection` to show tier-specific hint text.
 
 **`SleepAfterOption` type:** Defined in `src/types.ts` and `web-ui/src/types.ts`. The `SleepAfterOptions` array (`['5m', '15m', '30m', '1h', '2h']`) is also exported from `src/types.ts` for use in the zod validation schema.
 

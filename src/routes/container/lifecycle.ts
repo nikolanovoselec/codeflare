@@ -457,7 +457,9 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     const sessionMode = resolveSessionMode(preferences);
-    const sleepAfter = preferences.sleepAfter || '30m';
+    // Free tier: locked to 5m idle timeout. All other tiers: user preference or 30m default.
+    const effectiveTier = user.subscriptionTier ?? user.accessTier;
+    const sleepAfter = effectiveTier === 'free' ? '5m' : (preferences.sleepAfter || '30m');
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
     const cryptoKey = await getOrImportKey(c.env);

@@ -24,7 +24,7 @@
 
 /* ── Status text ── */
 
-.subscribe-status { text-align: center; }
+.subscribe-status { text-align: center; margin: 1.5rem 0; }
 
 .subscribe-status-text {
   display: block;
@@ -258,7 +258,7 @@
 }
 .subscribe-lifeline-stop:hover { transform: scale(1.08); }
 .subscribe-lifeline-stop--passed { color: #71717a; }
-.subscribe-lifeline-stop--selected { color: var(--color-accent); padding: 0 0.75rem; }
+.subscribe-lifeline-stop--selected { color: var(--color-accent); }
 
 .subscribe-lifeline-icon {
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
