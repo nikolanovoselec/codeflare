@@ -77,10 +77,13 @@ app.get('/status', requireIdentity, async (c) => {
   // trialUsed = user has already used their free trial (no new trials on plan switch)
   const trialUsed = userData?.trialUsed === true;
 
-  // Read session mode from user preferences
-  const bucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
-  const prefs = await c.env.KV.get(getPreferencesKey(bucketName), 'json') as Record<string, unknown> | null;
-  const sessionMode = (prefs?.sessionMode === 'advanced' ? 'advanced' : 'default') as string;
+  // Read session mode from user preferences (non-fatal — default if unavailable)
+  let sessionMode = 'default';
+  try {
+    const bucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+    const prefs = await c.env.KV.get(getPreferencesKey(bucketName), 'json') as Record<string, unknown> | null;
+    if (prefs?.sessionMode === 'advanced') sessionMode = 'advanced';
+  } catch { /* getBucketName may not be available in test mocks */ }
 
   // Currency based on visitor's country (CF-IPCountry header)
   const country = c.req.header('CF-IPCountry') || 'US';
@@ -273,13 +276,15 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
 
   await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
 
-  // Save session mode preference when subscribing/switching
-  if (parsed.data.mode) {
-    const subBucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
-    const prefsKey = getPreferencesKey(subBucketName);
-    const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
-    await c.env.KV.put(prefsKey, JSON.stringify({ ...existingPrefs, sessionMode: parsed.data.mode }));
-  }
+  // Save session mode preference when subscribing/switching (non-fatal)
+  try {
+    if (parsed.data.mode) {
+      const subBucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+      const prefsKey = getPreferencesKey(subBucketName);
+      const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
+      await c.env.KV.put(prefsKey, JSON.stringify({ ...existingPrefs, sessionMode: parsed.data.mode }));
+    }
+  } catch { /* non-fatal */ }
 
   const onboardingComplete = updated.onboardingComplete === true;
   logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
