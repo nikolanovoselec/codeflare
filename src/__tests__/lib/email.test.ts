@@ -74,6 +74,7 @@ describe('sendEmail', () => {
   });
 
   it('returns false and does not throw on fetch failure', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Network error'));
 
     const result = await sendEmail({
@@ -84,6 +85,7 @@ describe('sendEmail', () => {
     });
 
     expect(result).toBe(false);
+    consoleSpy.mockRestore();
   });
 
   it('logs error when API returns non-ok response', async () => {
