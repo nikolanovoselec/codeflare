@@ -282,7 +282,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
         previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
         monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
         maxSessions: tierConfig?.maxSessions ?? 1,
-        trialHours: tierConfig?.trialQuotaHours ?? 0,
+        trialHours: trialUsed ? 0 : (tierConfig?.trialQuotaHours ?? 0),
         sessionMode: parsed.data.mode,
         instanceUrl,
         env: c.env,
