@@ -294,13 +294,15 @@ describe('SubscribePage', () => {
       await openTierView();
 
       await waitFor(() => {
-        expect(screen.getByText('This is you')).toBeInTheDocument();
+        const rail = screen.getByTestId('lifeline-rail');
+        expect(rail.textContent).toMatch(/This is you/);
       });
     });
 
     it('does NOT show "This is you" for pending users', async () => {
       await openTierView();
-      expect(screen.queryByText('This is you')).not.toBeInTheDocument();
+      const rail = screen.getByTestId('lifeline-rail');
+      expect(rail.textContent).not.toMatch(/This is you/);
     });
 
     it('CTA shows "Get Started" for free tier', async () => {
