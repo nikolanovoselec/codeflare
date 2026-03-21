@@ -10,7 +10,7 @@ import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
-import { sendSubscriptionEmail } from '../lib/email';
+import { sendSubscriptionEmail, sendSubscriptionAdminNotification } from '../lib/email';
 
 const logger = createLogger('auth-routes');
 
@@ -197,7 +197,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
   return c.json({ success: true });
 });
 
-// Rate limit for subscribe: 3 per hour per user
+// Rate limit for subscribe: 3 per minute per user
 const subscribeRateLimiter = createRateLimiter({
   windowMs: 60_000,
   maxRequests: 3,
@@ -209,6 +209,7 @@ const SUBSCRIBABLE_TIERS = new Set(['free', 'standard', 'advanced', 'max', 'unli
 const SubscribeSchema = z.object({
   tier: z.string().min(1, 'Tier is required'),
   turnstileToken: z.string().optional().default(''),
+  mode: z.enum(['default', 'advanced']).optional().default('default'),
 });
 
 // POST /api/auth/subscribe — self-service tier selection for pending users
@@ -260,26 +261,45 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const onboardingComplete = updated.onboardingComplete === true;
   logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
 
-  // Non-fatal: send subscription confirmation email via waitUntil
+  // Non-fatal: send subscription confirmation + admin notification emails
   try {
     const tiers = await getTierConfig(c.env.KV);
     const tierConfig = tiers.find(t => t.id === parsed.data.tier);
-    const emailPromise = sendSubscriptionEmail({
-      userEmail: user.email,
-      tierName: tierConfig?.displayName ?? parsed.data.tier,
-      previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
-      monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
-      maxSessions: tierConfig?.maxSessions ?? 1,
-      trialHours: tierConfig?.trialQuotaHours ?? 0,
-      env: c.env,
-    });
+    const customDomain = await c.env.KV.get('setup:custom_domain');
+    const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
+
+    const emailPromise = Promise.all([
+      sendSubscriptionEmail({
+        userEmail: user.email,
+        tierName: tierConfig?.displayName ?? parsed.data.tier,
+        previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
+        monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
+        maxSessions: tierConfig?.maxSessions ?? 1,
+        trialHours: tierConfig?.trialQuotaHours ?? 0,
+        sessionMode: parsed.data.mode,
+        instanceUrl,
+        env: c.env,
+      }),
+      (async () => {
+        const users = await getAllUsers(c.env.KV);
+        const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
+        return sendSubscriptionAdminNotification({
+          userEmail: user.email,
+          tierName: tierConfig?.displayName ?? parsed.data.tier,
+          previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
+          sessionMode: parsed.data.mode,
+          adminEmails,
+          env: c.env,
+        });
+      })(),
+    ]);
     if (c.executionCtx?.waitUntil) {
       c.executionCtx.waitUntil(emailPromise);
     } else {
       void emailPromise;
     }
   } catch (err) {
-    logger.error('Failed to send subscription email', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Failed to send subscription emails', err instanceof Error ? err : new Error(String(err)));
   }
 
   return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete });

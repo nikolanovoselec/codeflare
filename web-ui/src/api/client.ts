@@ -442,10 +442,10 @@ const SubscribeResponseSchema = z.object({
   onboardingComplete: z.boolean(),
 });
 
-export async function subscribe(tier: string, turnstileToken: string): Promise<z.infer<typeof SubscribeResponseSchema>> {
+export async function subscribe(tier: string, turnstileToken: string, mode?: string): Promise<z.infer<typeof SubscribeResponseSchema>> {
   return fetchApi('/auth/subscribe', {
     method: 'POST',
-    body: JSON.stringify({ tier, turnstileToken }),
+    body: JSON.stringify({ tier, turnstileToken, mode }),
   }, SubscribeResponseSchema);
 }
 

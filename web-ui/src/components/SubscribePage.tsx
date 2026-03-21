@@ -250,7 +250,7 @@ const SubscribePage: Component = () => {
     setError('');
 
     try {
-      const result = await subscribe(tierId, token);
+      const result = await subscribe(tierId, token, globalMode() === 'advanced' ? 'advanced' : 'default');
       if (!result.onboardingComplete) {
         window.location.href = '/app/onboarding';
       } else {
@@ -333,7 +333,7 @@ const SubscribePage: Component = () => {
     const t = selectedTier();
     if (!t) return '';
     const hours = t.monthlySeconds !== null ? formatDuration(t.monthlySeconds!) : 'Unlimited';
-    const sessions = `${t.maxSessions} ${t.maxSessions === 1 ? 'session' : 'sessions'}`;
+    const sessions = `${t.maxSessions} parallel ${t.maxSessions === 1 ? 'session' : 'sessions'}`;
     return `${hours} / month  ·  ${sessions}`;
   });
 

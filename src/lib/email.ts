@@ -86,9 +86,11 @@ export async function sendSubscriptionEmail(opts: {
   monthlyHours: string;
   maxSessions: number;
   trialHours: number;
+  sessionMode?: string;
+  instanceUrl?: string;
   env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
-  const { userEmail, tierName, previousTierName, monthlyHours, maxSessions, trialHours, env } = opts;
+  const { userEmail, tierName, previousTierName, monthlyHours, maxSessions, trialHours, sessionMode, instanceUrl, env } = opts;
   const safeTier = escapeXml(tierName);
   const isChange = !!previousTierName;
   const subject = isChange ? `Plan changed to ${tierName}` : `Your Codeflare plan: ${tierName}`;
@@ -102,10 +104,12 @@ export async function sendSubscriptionEmail(opts: {
     lines.push(`<p>Previous plan: ${escapeXml(previousTierName)}</p>`);
   }
 
+  const modeLabel = sessionMode === 'advanced' ? 'Pro' : 'Standard';
   lines.push(
     '<table style="border-collapse:collapse;margin:16px 0">',
     `<tr><td style="padding:4px 16px 4px 0;color:#888">Compute</td><td><strong>${escapeXml(monthlyHours)}</strong> / month</td></tr>`,
     `<tr><td style="padding:4px 16px 4px 0;color:#888">Sessions</td><td><strong>${maxSessions}</strong> concurrent</td></tr>`,
+    `<tr><td style="padding:4px 16px 4px 0;color:#888">Mode</td><td><strong>${modeLabel}</strong></td></tr>`,
   );
 
   if (trialHours > 0) {
@@ -114,7 +118,49 @@ export async function sendSubscriptionEmail(opts: {
 
   lines.push('</table>');
 
-  return sendEmail({ to: [userEmail], subject, html: lines.join('\n'), env });
+  if (instanceUrl) {
+    lines.push(`<p><a href="${escapeXml(instanceUrl)}">Open Codeflare</a></p>`);
+  }
+
+  lines.push('<p style="color:#888;font-size:0.875em">Need help? Just reply to this email.</p>');
+
+  return sendEmail({ to: [userEmail], subject, html: lines.join('\n'), replyTo: env.RESEND_EMAIL, env });
+}
+
+/**
+ * Send admin notification when a user subscribes or changes plan.
+ */
+export async function sendSubscriptionAdminNotification(opts: {
+  userEmail: string;
+  tierName: string;
+  previousTierName?: string;
+  sessionMode?: string;
+  adminEmails: string[];
+  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
+}): Promise<boolean> {
+  const { userEmail, tierName, previousTierName, sessionMode, adminEmails, env } = opts;
+  if (adminEmails.length === 0) return false;
+
+  const safeUser = escapeXml(userEmail);
+  const safeTier = escapeXml(tierName);
+  const isChange = !!previousTierName;
+  const modeLabel = sessionMode === 'advanced' ? 'Pro' : 'Standard';
+
+  const subject = isChange
+    ? `Plan change: ${userEmail} → ${tierName}`
+    : `New subscriber: ${userEmail} → ${tierName}`;
+
+  const lines = [
+    `<h2>${isChange ? 'Plan Change' : 'New Subscriber'}</h2>`,
+    `<p><strong>User:</strong> ${safeUser}</p>`,
+    `<p><strong>Plan:</strong> ${safeTier} (${modeLabel})</p>`,
+  ];
+
+  if (isChange && previousTierName) {
+    lines.push(`<p><strong>Previous plan:</strong> ${escapeXml(previousTierName)}</p>`);
+  }
+
+  return sendEmail({ to: adminEmails, subject, html: lines.join('\n'), replyTo: userEmail, env });
 }
 
 /**
