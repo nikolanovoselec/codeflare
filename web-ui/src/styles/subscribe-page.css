@@ -284,14 +284,11 @@
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: #fafafa; }
 
-/* "This is you" marker — absolutely positioned below stop content.
-   align-items: flex-start on parent prevents stretch, so top: 100% = bottom of content */
+/* "This is you" marker — in normal flow but zero-width so it doesn't
+   affect button sizing. overflow: visible lets content render outside.
+   Parent has align-items: flex-start so taller button doesn't stretch others. */
 .subscribe-lifeline-you {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: 0.25rem;
+  width: 0; overflow: visible;
   display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
   color: #22c55e; animation: lifelinePulse 2s ease-in-out infinite;
   white-space: nowrap;
