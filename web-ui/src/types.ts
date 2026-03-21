@@ -121,6 +121,7 @@ export interface AuthStatus {
   onboardingComplete?: boolean;
   hasSubscribed?: boolean;
   trialUsed?: boolean;
+  sessionMode?: 'default' | 'advanced';
   currency?: string;
 }
 

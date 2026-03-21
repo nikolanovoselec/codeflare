@@ -36,6 +36,7 @@ export const AuthStatusResponseSchema = z.object({
   onboardingComplete: z.boolean().optional(),
   hasSubscribed: z.boolean().optional(),
   trialUsed: z.boolean().optional(),
+  sessionMode: z.enum(['default', 'advanced']).optional(),
   currency: z.string().optional(),
 });
 

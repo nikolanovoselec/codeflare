@@ -123,6 +123,7 @@ const SubscribePage: Component = () => {
   const [subscribePhase, setSubscribePhase] = createSignal<SubscribePhase>('home');
   const [selectedTierId, setSelectedTierId] = createSignal('advanced');
   const [trialUsed, setTrialUsed] = createSignal(false);
+  const [currentMode, setCurrentMode] = createSignal<'default' | 'advanced'>('default');
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
@@ -159,6 +160,11 @@ const SubscribePage: Component = () => {
 
       if (status.trialUsed === true) {
         setTrialUsed(true);
+      }
+
+      if (status.sessionMode) {
+        setCurrentMode(status.sessionMode);
+        setGlobalMode(status.sessionMode);
       }
 
       // Preload Turnstile script for pending users
@@ -357,15 +363,19 @@ const SubscribePage: Component = () => {
     return subscribePhase() === 'tiers' ? 'login-content subscribe-content' : 'login-content';
   };
 
+  /** Whether the user changed mode but not tier */
+  const isModeChange = () => isActive() && selectedTierId() === currentTierId() && globalMode() !== currentMode();
+
   /** CTA button label */
   function ctaLabel(): string {
     const tier = selectedTier();
     if (!tier) return 'Select';
     if (subscribing() === tier.id) return isActive() ? 'Switching...' : 'Subscribing...';
+    if (isModeChange()) return globalMode() === 'advanced' ? 'Upgrade to Pro' : 'Switch to Standard';
     if (isActive() && tier.id === currentTierId()) return 'Current Plan';
     if (isActive()) return 'Switch Plan';
     if (isFree(tier)) return 'Get Started';
-    return 'Start Trial';
+    return trialUsed() ? 'Subscribe' : 'Start Trial';
   }
 
   /** CTA disabled state */
@@ -373,7 +383,7 @@ const SubscribePage: Component = () => {
     const tier = selectedTier();
     if (!tier) return true;
     if (subscribing() !== null) return true;
-    if (isActive() && tier.id === currentTierId()) return true;
+    if (isActive() && tier.id === currentTierId() && !isModeChange()) return true;
     if (!isActive() && !turnstileReady()) return true;
     return false;
   }
@@ -470,7 +480,7 @@ const SubscribePage: Component = () => {
                       data-testid="mode-card-standard"
                       onClick={() => setGlobalMode('default')}
                     >
-                      Standard
+                      Standard{isActive() && currentMode() === 'default' ? ' ✓' : ''}
                     </button>
                     <button
                       type="button"
@@ -486,7 +496,7 @@ const SubscribePage: Component = () => {
                         setGlobalMode('advanced');
                       }}
                     >
-                      Pro
+                      Pro{isActive() && currentMode() === 'advanced' ? ' ✓' : ''}
                     </button>
                   </div>
 

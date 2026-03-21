@@ -11,6 +11,8 @@ import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification } from '../lib/email';
+import { getBucketName } from '../lib/access';
+import { getPreferencesKey } from '../lib/kv-keys';
 
 const logger = createLogger('auth-routes');
 
@@ -75,6 +77,11 @@ app.get('/status', requireIdentity, async (c) => {
   // trialUsed = user has already used their free trial (no new trials on plan switch)
   const trialUsed = userData?.trialUsed === true;
 
+  // Read session mode from user preferences
+  const bucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+  const prefs = await c.env.KV.get(getPreferencesKey(bucketName), 'json') as Record<string, unknown> | null;
+  const sessionMode = (prefs?.sessionMode === 'advanced' ? 'advanced' : 'default') as string;
+
   // Currency based on visitor's country (CF-IPCountry header)
   const country = c.req.header('CF-IPCountry') || 'US';
   const currency = getCurrencyForCountry(country);
@@ -89,6 +96,7 @@ app.get('/status', requireIdentity, async (c) => {
     onboardingComplete,
     hasSubscribed,
     trialUsed,
+    sessionMode,
     currency,
   });
 });
@@ -264,6 +272,14 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   };
 
   await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
+
+  // Save session mode preference when subscribing/switching
+  if (parsed.data.mode) {
+    const subBucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+    const prefsKey = getPreferencesKey(subBucketName);
+    const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
+    await c.env.KV.put(prefsKey, JSON.stringify({ ...existingPrefs, sessionMode: parsed.data.mode }));
+  }
 
   const onboardingComplete = updated.onboardingComplete === true;
   logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
