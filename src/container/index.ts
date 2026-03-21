@@ -344,7 +344,6 @@ export class container extends Container<Env> {
     const tcpPort = this.ctx.container.getTcpPort(this.defaultPort);
     // Rewrite URL to http:// — Cloudflare Containers don't support HTTPS
     // (connections are already secure within the DO → container boundary).
-    const url = new URL(request.url);
     url.protocol = 'http:';
     const proxyRequest = new Request(url.toString(), {
       method: request.method,
