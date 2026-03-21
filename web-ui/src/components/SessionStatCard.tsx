@@ -93,8 +93,11 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
                 <Icon path={mdiClockTimeEightOutline} size={14} />
               </button>
               <Show when={showTimerTooltip()}>
-                <span class="session-stat-card__timer-tooltip">
-                  When this timer expires, your session will stop. Tracks time since last terminal input and the session idle timeout. Configurable in settings.
+                <span
+                  class="session-stat-card__timer-tooltip"
+                  onClick={(e) => { e.stopPropagation(); setShowTimerTooltip(false); }}
+                >
+                  {timerInfo()?.bucket} — tap to dismiss
                 </span>
               </Show>
             </>

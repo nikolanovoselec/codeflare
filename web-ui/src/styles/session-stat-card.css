@@ -121,6 +121,7 @@
   color: var(--color-text-secondary);
   line-height: 1.4;
   z-index: 5;
+  cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
