@@ -244,9 +244,20 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
   const isAlreadySubscribed = !!existingRaw?.subscribedAt;
 
-  // Idempotency: if switching to same tier, return success
+  // Idempotency: same tier AND same mode → return success without re-processing
   if (isAlreadySubscribed && existingRaw?.subscriptionTier === parsed.data.tier) {
-    return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete: existingRaw.onboardingComplete === true });
+    // Mode-only changes still get processed (save mode preference + send emails)
+    // Read current mode from preferences to check if it actually changed
+    let currentMode = 'default';
+    try {
+      const bkt = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+      const p = await c.env.KV.get(getPreferencesKey(bkt), 'json') as Record<string, unknown> | null;
+      if (p?.sessionMode === 'advanced') currentMode = 'advanced';
+    } catch { /* non-fatal */ }
+
+    if (parsed.data.mode === currentMode) {
+      return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete: existingRaw.onboardingComplete === true });
+    }
   }
 
   // Verify Turnstile token for new subscriptions (active users switching plans skip Turnstile)

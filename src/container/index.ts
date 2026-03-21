@@ -342,11 +342,17 @@ export class container extends Container<Env> {
     // directly to the container port, only explicit renewActivityTimeout()
     // calls in collectMetrics() (on new user input) reset the timer.
     const tcpPort = this.ctx.container.getTcpPort(this.defaultPort);
-    const proxyRequest = this._containerAuthToken
-      ? new Request(request, { headers: new Headers(request.headers) })
-      : request;
-    if (this._containerAuthToken && proxyRequest !== request) {
-      (proxyRequest as Request).headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
+    // Rewrite URL to http:// — Cloudflare Containers don't support HTTPS
+    // (connections are already secure within the DO → container boundary).
+    const url = new URL(request.url);
+    url.protocol = 'http:';
+    const proxyRequest = new Request(url.toString(), {
+      method: request.method,
+      headers: new Headers(request.headers),
+      body: request.body,
+    });
+    if (this._containerAuthToken) {
+      proxyRequest.headers.set('Authorization', `Bearer ${this._containerAuthToken}`);
     }
     return tcpPort.fetch(proxyRequest);
   }

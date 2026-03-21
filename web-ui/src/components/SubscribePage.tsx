@@ -480,7 +480,7 @@ const SubscribePage: Component = () => {
                       data-testid="mode-card-standard"
                       onClick={() => setGlobalMode('default')}
                     >
-                      Standard{isActive() && currentMode() === 'default' ? ' ✓' : ''}
+                      Standard
                     </button>
                     <button
                       type="button"
@@ -496,17 +496,20 @@ const SubscribePage: Component = () => {
                         setGlobalMode('advanced');
                       }}
                     >
-                      Pro{isActive() && currentMode() === 'advanced' ? ' ✓' : ''}
+                      Pro
                     </button>
                   </div>
 
                   {/* Standard features (always visible) */}
                   <ul class="subscribe-mode-card-features">
                     <For each={STANDARD_MODE_FEATURES}>
-                      {(f) => (
+                      {(f, i) => (
                         <li class="subscribe-mode-card-feature">
                           <Icon path={f.icon} size={16} />
                           <span>{f.text}</span>
+                          <Show when={isActive() && currentMode() === 'default' && i() === STANDARD_MODE_FEATURES.length - 1}>
+                            <span class="subscribe-mode-you">This is you</span>
+                          </Show>
                         </li>
                       )}
                     </For>
@@ -523,6 +526,9 @@ const SubscribePage: Component = () => {
                             <li class="subscribe-mode-card-feature">
                               <Icon path={f.icon} size={16} />
                               <span>{scrambledProFeatures[i()]()}</span>
+                              <Show when={isActive() && currentMode() === 'advanced' && i() === PRO_MODE_FEATURES.length - 1}>
+                                <span class="subscribe-mode-you">This is you</span>
+                              </Show>
                             </li>
                           )}
                         </For>

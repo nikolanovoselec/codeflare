@@ -123,6 +123,15 @@
 }
 .subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; }
 
+.subscribe-mode-you {
+  margin-left: auto;
+  font-size: 0.7rem; font-weight: 500;
+  color: #22c55e;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 .subscribe-mode-separator {
   height: 1px; background: rgba(255, 255, 255, 0.06);
   margin: 0.75rem 0;
