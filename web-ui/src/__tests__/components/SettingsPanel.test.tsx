@@ -36,7 +36,7 @@ vi.mock('../../api/client', () => ({
   getDeployKeys: () => mockGetDeployKeys(),
   updateDeployKeys: (body: unknown) => mockUpdateDeployKeys(body),
   deleteDeployKeys: vi.fn(async () => undefined),
-  getUser: vi.fn(async () => ({ email: 'test@example.com', authenticated: true, bucketName: 'test' })),
+  getUser: vi.fn(async () => ({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true })),
 }));
 
 vi.mock('../../api/storage', () => ({
