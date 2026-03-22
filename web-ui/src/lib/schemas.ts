@@ -100,6 +100,7 @@ export const UserResponseSchema = z.object({
   saasMode: z.boolean().optional(),
   onboardingComplete: z.boolean().optional(),
   hasSubscribed: z.boolean().optional(),
+  subscribedMode: z.enum(['default', 'advanced']).optional(),
 });
 
 export const SessionsResponseSchema = z.object({
