@@ -175,7 +175,7 @@ describe('sendSubscriptionEmail', () => {
     });
     expect(result).toBe(true);
     const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.subject).toBe('Your Codeflare plan: Starter');
+    expect(body.subject).toBe('Your Codeflare plan: Starter (Standard)');
     expect(body.html).toContain('Starter');
     expect(body.html).toContain('40h');
   });
@@ -186,7 +186,7 @@ describe('sendSubscriptionEmail', () => {
       monthlyHours: '160h', maxSessions: 10, trialHours: 160, env: testEnv,
     });
     const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.subject).toBe('Plan changed to Max');
+    expect(body.subject).toBe('Plan changed to Max (Standard)');
     expect(body.html).toContain('Starter');
     expect(body.html).toContain('Max');
   });
