@@ -244,18 +244,17 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
   const isAlreadySubscribed = !!existingRaw?.subscribedAt;
 
+  // Read current mode from preferences (used for idempotency check + email previousMode)
+  let previousMode = 'default';
+  try {
+    const bkt = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+    const p = await c.env.KV.get(getPreferencesKey(bkt), 'json') as Record<string, unknown> | null;
+    if (p?.sessionMode === 'advanced') previousMode = 'advanced';
+  } catch { /* non-fatal */ }
+
   // Idempotency: same tier AND same mode → return success without re-processing
   if (isAlreadySubscribed && existingRaw?.subscriptionTier === parsed.data.tier) {
-    // Mode-only changes still get processed (save mode preference + send emails)
-    // Read current mode from preferences to check if it actually changed
-    let currentMode = 'default';
-    try {
-      const bkt = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
-      const p = await c.env.KV.get(getPreferencesKey(bkt), 'json') as Record<string, unknown> | null;
-      if (p?.sessionMode === 'advanced') currentMode = 'advanced';
-    } catch { /* non-fatal */ }
-
-    if (parsed.data.mode === currentMode) {
+    if (parsed.data.mode === previousMode) {
       return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete: existingRaw.onboardingComplete === true });
     }
   }
@@ -307,15 +306,19 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     const customDomain = await c.env.KV.get('setup:custom_domain');
     const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
 
+    const previousTierId = isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined;
+    const previousTierConfig = previousTierId ? tiers.find(t => t.id === previousTierId) : undefined;
+
     const emailPromise = Promise.all([
       sendSubscriptionEmail({
         userEmail: user.email,
         tierName: tierConfig?.displayName ?? parsed.data.tier,
-        previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
+        previousTierName: previousTierConfig?.displayName ?? previousTierId,
         monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
         maxSessions: tierConfig?.maxSessions ?? 1,
         trialHours: trialUsed ? 0 : (tierConfig?.trialQuotaHours ?? 0),
         sessionMode: parsed.data.mode,
+        previousMode: isAlreadySubscribed ? previousMode : undefined,
         instanceUrl,
         env: c.env,
       }),
@@ -325,8 +328,9 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
         return sendSubscriptionAdminNotification({
           userEmail: user.email,
           tierName: tierConfig?.displayName ?? parsed.data.tier,
-          previousTierName: isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined,
+          previousTierName: previousTierConfig?.displayName ?? previousTierId,
           sessionMode: parsed.data.mode,
+          previousMode: isAlreadySubscribed ? previousMode : undefined,
           adminEmails,
           env: c.env,
         });

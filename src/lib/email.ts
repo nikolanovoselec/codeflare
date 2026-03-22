@@ -87,29 +87,36 @@ export async function sendSubscriptionEmail(opts: {
   maxSessions: number;
   trialHours: number;
   sessionMode?: string;
+  previousMode?: string;
   instanceUrl?: string;
   env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
-  const { userEmail, tierName, previousTierName, monthlyHours, maxSessions, trialHours, sessionMode, instanceUrl, env } = opts;
+  const { userEmail, tierName, previousTierName, monthlyHours, maxSessions, trialHours, sessionMode, previousMode, instanceUrl, env } = opts;
   const safeTier = escapeXml(tierName);
-  const isChange = !!previousTierName;
-  const subject = isChange ? `Plan changed to ${tierName}` : `Your Codeflare plan: ${tierName}`;
+  const isChange = !!previousTierName || !!previousMode;
+  const modeLabel = sessionMode === 'advanced' ? 'Pro' : 'Standard';
+  const subject = isChange ? `Plan changed to ${tierName} (${modeLabel})` : `Your Codeflare plan: ${tierName}`;
 
   const lines = [
     `<h2>${isChange ? 'Plan Changed' : 'Subscription Confirmed'}</h2>`,
-    `<p>Your Codeflare plan is now <strong>${safeTier}</strong>.</p>`,
   ];
 
-  if (isChange && previousTierName) {
-    lines.push(`<p>Previous plan: ${escapeXml(previousTierName)}</p>`);
+  if (isChange) {
+    const prevModeLabel = previousMode === 'advanced' ? 'Pro' : 'Standard';
+    lines.push(
+      '<table style="border-collapse:collapse;margin:16px 0">',
+      `<tr><td style="padding:4px 16px 4px 0;color:#888">Previous</td><td>${escapeXml(previousTierName ?? tierName)} (${prevModeLabel})</td></tr>`,
+      `<tr><td style="padding:4px 16px 4px 0;color:#888">New</td><td><strong>${safeTier} (${modeLabel})</strong></td></tr>`,
+      '</table>',
+    );
+  } else {
+    lines.push(`<p>Your Codeflare plan is now <strong>${safeTier} (${modeLabel})</strong>.</p>`);
   }
 
-  const modeLabel = sessionMode === 'advanced' ? 'Pro' : 'Standard';
   lines.push(
     '<table style="border-collapse:collapse;margin:16px 0">',
     `<tr><td style="padding:4px 16px 4px 0;color:#888">Compute</td><td><strong>${escapeXml(monthlyHours)}</strong> / month</td></tr>`,
     `<tr><td style="padding:4px 16px 4px 0;color:#888">Sessions</td><td><strong>${maxSessions}</strong> concurrent</td></tr>`,
-    `<tr><td style="padding:4px 16px 4px 0;color:#888">Mode</td><td><strong>${modeLabel}</strong></td></tr>`,
   );
 
   if (trialHours > 0) {
@@ -135,26 +142,36 @@ export async function sendSubscriptionAdminNotification(opts: {
   tierName: string;
   previousTierName?: string;
   sessionMode?: string;
+  previousMode?: string;
   adminEmails: string[];
   env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
-  const { userEmail, tierName, previousTierName, sessionMode, adminEmails, env } = opts;
+  const { userEmail, tierName, previousTierName, sessionMode, previousMode, adminEmails, env } = opts;
   if (adminEmails.length === 0) return false;
 
   const safeUser = escapeXml(userEmail);
   const safeTier = escapeXml(tierName);
-  const isChange = !!previousTierName;
+  const isChange = !!previousTierName || !!previousMode;
   const modeLabel = sessionMode === 'advanced' ? 'Pro' : 'Standard';
 
   const subject = isChange
-    ? `Plan change: ${userEmail} → ${tierName}`
-    : `New subscriber: ${userEmail} → ${tierName}`;
+    ? `Plan change: ${userEmail} → ${tierName} (${modeLabel})`
+    : `New subscriber: ${userEmail} → ${tierName} (${modeLabel})`;
 
   const lines = [
     `<h2>${isChange ? 'Plan Change' : 'New Subscriber'}</h2>`,
     `<p><strong>User:</strong> ${safeUser}</p>`,
-    `<p><strong>Plan:</strong> ${safeTier} (${modeLabel})</p>`,
   ];
+
+  if (isChange) {
+    const prevModeLabel = previousMode === 'advanced' ? 'Pro' : 'Standard';
+    lines.push(
+      `<p><strong>Previous:</strong> ${escapeXml(previousTierName ?? tierName)} (${prevModeLabel})</p>`,
+      `<p><strong>New:</strong> ${safeTier} (${modeLabel})</p>`,
+    );
+  } else {
+    lines.push(`<p><strong>Plan:</strong> ${safeTier} (${modeLabel})</p>`);
+  }
 
   if (isChange && previousTierName) {
     lines.push(`<p><strong>Previous plan:</strong> ${escapeXml(previousTierName)}</p>`);
