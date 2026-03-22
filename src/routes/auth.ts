@@ -85,6 +85,9 @@ app.get('/status', requireIdentity, async (c) => {
     if (prefs?.sessionMode === 'advanced') sessionMode = 'advanced';
   } catch { /* getBucketName may not be available in test mocks */ }
 
+  // subscribedMode = what mode the user paid for (gates Settings Pro toggle)
+  const subscribedMode = (userData?.subscribedMode === 'advanced' ? 'advanced' : 'default') as string;
+
   // Currency based on visitor's country (CF-IPCountry header)
   const country = c.req.header('CF-IPCountry') || 'US';
   const currency = getCurrencyForCountry(country);
@@ -100,6 +103,7 @@ app.get('/status', requireIdentity, async (c) => {
     hasSubscribed,
     trialUsed,
     sessionMode,
+    subscribedMode,
     currency,
   });
 });
@@ -279,6 +283,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     ...existingRaw,
     subscriptionTier: parsed.data.tier,
     accessTier: parsed.data.tier, // backward compat
+    subscribedMode: parsed.data.mode, // what mode the user paid for (gates Settings Pro toggle)
     subscribedAt: now.toISOString(),
     trialBillingTriggered: false,
     trialUsed,

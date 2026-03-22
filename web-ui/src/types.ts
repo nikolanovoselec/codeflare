@@ -122,6 +122,7 @@ export interface AuthStatus {
   hasSubscribed?: boolean;
   trialUsed?: boolean;
   sessionMode?: 'default' | 'advanced';
+  subscribedMode?: 'default' | 'advanced';
   currency?: string;
 }
 

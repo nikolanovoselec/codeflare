@@ -37,6 +37,7 @@ export const AuthStatusResponseSchema = z.object({
   hasSubscribed: z.boolean().optional(),
   trialUsed: z.boolean().optional(),
   sessionMode: z.enum(['default', 'advanced']).optional(),
+  subscribedMode: z.enum(['default', 'advanced']).optional(),
   currency: z.string().optional(),
 });
 

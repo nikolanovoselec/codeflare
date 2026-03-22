@@ -131,6 +131,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           const tier = user.subscriptionTier ?? user.accessTier;
           if (tier) setLiveAccessTier(tier);
           setUserHasSubscribed(user.hasSubscribed === true);
+          setLiveSubscribedMode(user.subscribedMode ?? 'default');
         }).catch(() => {});
       }
     }
@@ -141,12 +142,13 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const isAdmin = () => props.currentUserRole === 'admin';
+  const [liveSubscribedMode, setLiveSubscribedMode] = createSignal<'default' | 'advanced'>('default');
   const canUseAdvanced = () => {
     // Tier must support advanced mode (admins always pass tier check)
     const tier = liveAccessTier();
     const tierSupportsAdvanced = isAdmin() || !tier || tier === 'advanced' || tier === 'max' || tier === 'unlimited';
-    // User must have Pro mode active (even admins — activate via subscribe page)
-    const subscribedToPro = currentSessionMode() === 'advanced';
+    // User must have subscribed to Pro via subscribe page (stored in user record, not preferences)
+    const subscribedToPro = liveSubscribedMode() === 'advanced';
     return tierSupportsAdvanced && subscribedToPro;
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
