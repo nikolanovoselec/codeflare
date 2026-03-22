@@ -142,7 +142,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const isAdmin = () => props.currentUserRole === 'admin';
-  const [liveSubscribedMode, setLiveSubscribedMode] = createSignal<'default' | 'advanced'>('default');
+  // Initialize from local preference until async getUser() returns the server-side subscribedMode
+  const [liveSubscribedMode, setLiveSubscribedMode] = createSignal<'default' | 'advanced'>(
+    (sessionStore.preferences.sessionMode as 'default' | 'advanced') ?? 'default'
+  );
   const canUseAdvanced = () => {
     // Tier must support advanced mode (admins always pass tier check)
     const tier = liveAccessTier();
