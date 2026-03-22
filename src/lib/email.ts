@@ -88,14 +88,16 @@ export async function sendSubscriptionEmail(opts: {
   trialHours: number;
   sessionMode?: string;
   previousMode?: string;
+  price?: string;
+  subscribedAt?: string;
   instanceUrl?: string;
   env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
-  const { userEmail, tierName, previousTierName, monthlyHours, maxSessions, trialHours, sessionMode, previousMode, instanceUrl, env } = opts;
+  const { userEmail, tierName, previousTierName, monthlyHours, maxSessions, trialHours, sessionMode, previousMode, price, subscribedAt, instanceUrl, env } = opts;
   const safeTier = escapeXml(tierName);
   const isChange = !!previousTierName || !!previousMode;
   const modeLabel = sessionMode === 'advanced' ? 'Pro' : 'Standard';
-  const subject = isChange ? `Plan changed to ${tierName} (${modeLabel})` : `Your Codeflare plan: ${tierName}`;
+  const subject = isChange ? `Plan changed to ${tierName} (${modeLabel})` : `Your Codeflare plan: ${tierName} (${modeLabel})`;
 
   const lines = [
     `<h2>${isChange ? 'Plan Changed' : 'Subscription Confirmed'}</h2>`,
@@ -119,8 +121,21 @@ export async function sendSubscriptionEmail(opts: {
     `<tr><td style="padding:4px 16px 4px 0;color:#888">Sessions</td><td><strong>${maxSessions}</strong> concurrent</td></tr>`,
   );
 
+  if (price) {
+    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Price</td><td><strong>${escapeXml(price)}</strong> / month</td></tr>`);
+  }
+
   if (trialHours > 0) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Trial</td><td><strong>${trialHours}h</strong> free</td></tr>`);
+    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Trial</td><td><strong>${trialHours}h</strong> free compute before billing</td></tr>`);
+  } else if (price) {
+    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Billing</td><td>Monthly billing active</td></tr>`);
+  }
+
+  if (subscribedAt) {
+    const date = new Date(subscribedAt);
+    const formatted = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      + ' at ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
+    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Activated</td><td>${escapeXml(formatted)}</td></tr>`);
   }
 
   lines.push('</table>');

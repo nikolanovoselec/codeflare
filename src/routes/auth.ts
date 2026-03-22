@@ -310,18 +310,30 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     const previousTierConfig = previousTierId ? tiers.find(t => t.id === previousTierId) : undefined;
 
     const emailPromise = Promise.all([
-      sendSubscriptionEmail({
-        userEmail: user.email,
-        tierName: tierConfig?.displayName ?? parsed.data.tier,
-        previousTierName: previousTierConfig?.displayName ?? previousTierId,
-        monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
-        maxSessions: tierConfig?.maxSessions ?? 1,
-        trialHours: trialUsed ? 0 : (tierConfig?.trialQuotaHours ?? 0),
-        sessionMode: parsed.data.mode,
-        previousMode: isAlreadySubscribed ? previousMode : undefined,
-        instanceUrl,
-        env: c.env,
-      }),
+      (() => {
+        const country = c.req.header('CF-IPCountry') || 'US';
+        const cur = getCurrencyForCountry(country);
+        const priceCents = parsed.data.mode === 'advanced'
+          ? (tierConfig?.advancedPriceMonthly ?? tierConfig?.priceMonthly)
+          : tierConfig?.priceMonthly;
+        const priceStr = priceCents != null && priceCents > 0
+          ? `${cur === 'EUR' ? '\u20AC' : cur === 'GBP' ? '\u00A3' : cur === 'CHF' ? 'CHF ' : '$'}${(priceCents / 100).toFixed(0)}`
+          : undefined;
+        return sendSubscriptionEmail({
+          userEmail: user.email,
+          tierName: tierConfig?.displayName ?? parsed.data.tier,
+          previousTierName: previousTierConfig?.displayName ?? previousTierId,
+          monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
+          maxSessions: tierConfig?.maxSessions ?? 1,
+          trialHours: trialUsed ? 0 : (tierConfig?.trialQuotaHours ?? 0),
+          sessionMode: parsed.data.mode,
+          previousMode: isAlreadySubscribed ? previousMode : undefined,
+          price: priceStr,
+          subscribedAt: now.toISOString(),
+          instanceUrl,
+          env: c.env,
+        });
+      })(),
       (async () => {
         const users = await getAllUsers(c.env.KV);
         const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
