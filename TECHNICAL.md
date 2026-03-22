@@ -963,7 +963,13 @@ In SaaS mode, `validateSessionAndCheckLimits()` resolves the effective max sessi
 
 Session mode access requires **both** tier support AND an active Pro mode subscription:
 
-**Frontend (`canUseAdvanced()` in SettingsPanel):** Admin users always allowed. Regular users need: (1) tier supports advanced (`advanced`, `max`, `unlimited`, or unset for backward compat), AND (2) user has subscribed to Pro mode (`sessionMode === 'advanced'` in preferences). A user on the Advanced tier with Standard mode subscription cannot switch to Pro in Settings — they must upgrade via the subscribe page. Settings labels: "Standard" / "Pro" (renamed from "Default" / "Advanced").
+**Frontend (`canUseAdvanced()` in SettingsPanel):** Admin bypass applies to tier check only (admins always pass tier support), NOT to mode check. Regular users AND admins need: (1) tier supports advanced (`advanced`, `max`, `unlimited`, or unset), AND (2) `subscribedMode === 'advanced'` in user KV record (set by subscribe endpoint, NOT the Settings preference toggle). Settings labels: "Standard" / "Pro" (renamed from "Default" / "Advanced").
+
+**Two distinct mode fields:**
+- `subscribedMode` (user KV record `user:{email}`) — what mode the user paid for on the subscribe page. Set by `POST /api/auth/subscribe`. Read by SettingsPanel (`canUseAdvanced` gate) and subscribe page (`currentMode` display). NOT changed by Settings toggle.
+- `sessionMode` (preferences KV `user-prefs:{bucket}`) — what mode the next session uses. Changed by Settings toggle. Does NOT affect subscribe page display or Pro gate.
+
+Users can freely toggle Standard/Pro in Settings within what they subscribed to. Switching to Standard in Settings does not lock Pro — the gate checks `subscribedMode`, not `sessionMode`. To change subscription mode, users go through the subscribe page.
 
 **Backend (`canUseSessionMode()` / `allowedSessionModes()`):** The **hardcoded fast path** in `access-tier.ts:allowedSessionModes()` allows advanced for: `advanced`, `max`, `unlimited`, `undefined`. Tiers restricted to default only: `standard`, `free`, `trial`. The **config-aware path** (`canUseSessionModeWithConfig` / `getAllowedSessionModes()` from `subscription.ts`) reads from tier config — by default, `standard` allows `['default', 'advanced']` in `getDefaultTiers()`, so the config path is more permissive. Admin users always have advanced access regardless of stored tier.
 
@@ -973,7 +979,13 @@ The `GET /api/sessions/batch-status` response includes an optional `usage` field
 
 ### Email Notifications
 
-Tier change notifications are sent via Resend API (`src/lib/email.ts`). The `sendEmail()` helper checks `resp.ok` before returning success — non-2xx API responses log via `console.error` with status, recipients, and subject, then return `false`. Fetch failures also log the error. The `sendTierChangeNotification()` function notifies both the affected user and all admin users. Email sending is non-blocking and non-fatal.
+Notifications are sent via Resend API (`src/lib/email.ts`, sender: `RESEND_EMAIL` secret). The `sendEmail()` helper logs errors for non-ok responses and fetch failures. All email sending is non-blocking and non-fatal.
+
+**Subscription emails** (`sendSubscriptionEmail`): Show old/new plan+mode (e.g. "Previous: Starter (Standard) → New: Advanced (Pro)"), compute hours, sessions, price (currency from `CF-IPCountry`), trial/billing status, activation timestamp, instance URL link, and "reply for support" footer. Price uses `advancedPriceMonthly` for Pro mode, hidden for free tier. Trial row shows "Xh free compute before billing" when active, "Monthly billing active" when trial used.
+
+**Admin notifications** (`sendSubscriptionAdminNotification`): Same format as user email — old/new plan+mode, compute, sessions, price, billing, activation date. Sent to all admin-role users. Reply-to set to subscriber's email.
+
+**Email triggers:** User confirmation + admin notification sent from subscribe endpoint via `waitUntil()`. `previousMode` read from preferences KV before overwrite. `previousTierName` resolved to display name via tier config lookup. `subscribedAt` formatted as human-readable date.
 
 **`waitUntil` pattern:** The subscribe endpoint (`POST /api/auth/subscribe`) uses `c.executionCtx.waitUntil(sendSubscriptionEmail(...))` to ensure the email promise survives past the response. Without `waitUntil`, the Worker isolate may terminate the promise when `return c.json(...)` completes. The JIT provision welcome email in `access.ts` uses `void` (fire-and-forget) which is safe because the isolate remains alive during the request that continues to `requireActiveUser`.
 
