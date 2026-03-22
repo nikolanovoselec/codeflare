@@ -961,7 +961,11 @@ In SaaS mode, `validateSessionAndCheckLimits()` resolves the effective max sessi
 
 ### Session Mode Authorization
 
-The `canUseAdvanced()` helper in SettingsPanel and the `canUseSessionMode()` backend function both check if the user's tier allows advanced mode. The **hardcoded fast path** in `access-tier.ts:allowedSessionModes()` allows advanced for: `advanced`, `max`, `unlimited`, `undefined`. Tiers restricted to default only: `standard`, `free`, `trial`. The **config-aware path** (`canUseSessionModeWithConfig` / `getAllowedSessionModes()` from `subscription.ts`) reads from tier config -- by default, `standard` allows `['default', 'advanced']` in `getDefaultTiers()`, so the config path is more permissive. Admin users always have advanced access regardless of stored tier.
+Session mode access requires **both** tier support AND an active Pro mode subscription:
+
+**Frontend (`canUseAdvanced()` in SettingsPanel):** Admin users always allowed. Regular users need: (1) tier supports advanced (`advanced`, `max`, `unlimited`, or unset for backward compat), AND (2) user has subscribed to Pro mode (`sessionMode === 'advanced'` in preferences). A user on the Advanced tier with Standard mode subscription cannot switch to Pro in Settings — they must upgrade via the subscribe page. Settings labels: "Standard" / "Pro" (renamed from "Default" / "Advanced").
+
+**Backend (`canUseSessionMode()` / `allowedSessionModes()`):** The **hardcoded fast path** in `access-tier.ts:allowedSessionModes()` allows advanced for: `advanced`, `max`, `unlimited`, `undefined`. Tiers restricted to default only: `standard`, `free`, `trial`. The **config-aware path** (`canUseSessionModeWithConfig` / `getAllowedSessionModes()` from `subscription.ts`) reads from tier config — by default, `standard` allows `['default', 'advanced']` in `getDefaultTiers()`, so the config path is more permissive. Admin users always have advanced access regardless of stored tier.
 
 ### Batch-Status Usage Piggyback
 

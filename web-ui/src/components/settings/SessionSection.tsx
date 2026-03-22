@@ -62,7 +62,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
               aria-checked={props.currentSessionMode() === 'default'}
               data-testid="session-mode-default"
             />
-            Default
+            Standard
           </label>
           <label
             class={`session-mode-option ${props.currentSessionMode() === 'advanced' ? 'session-mode-option--selected' : ''} ${!props.canUseAdvanced() ? 'session-mode-option--disabled' : ''}`}
@@ -78,7 +78,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
               aria-checked={props.currentSessionMode() === 'advanced'}
               data-testid="session-mode-advanced"
             />
-            Advanced
+            Pro
           </label>
         </div>
         <div class="setting-row setting-row--column-gap">
