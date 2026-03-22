@@ -197,7 +197,7 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **Idle Detection (Two-Layer):** The Container DO enforces idle timeout through two complementary mechanisms:
 
-1. **SDK timer (`onActivityExpired`):** The SDK's built-in `sleepAfter` timer fires when no HTTP requests pass through `super.fetch()` for the configured duration. Works well for longer timeouts (30m+) where WebSocket reconnects are infrequent. `onActivityExpired()` checks `/activity` one last time, writes KV status, and calls `this.stop('SIGTERM')`.
+1. **SDK timer (`onActivityExpired`):** The SDK's built-in `sleepAfter` timer fires when no HTTP requests pass through `super.fetch()` for the configured duration. Works well for longer timeouts (30m+) where WebSocket reconnects are infrequent. `onActivityExpired()` checks `/activity` one last time and calls `this.stop('SIGTERM')`. The KV status write happens in `onStop()`, not in `onActivityExpired()` itself.
 
 2. **Explicit idle-stop (`collectMetrics`):** `collectMetrics()` polls `/activity` every 60s and independently checks idle time: `Date.now() - (lastInputAt ?? containerStartedAt)`. If this exceeds `parseSleepAfterMs()`, it writes KV status `'stopped'` and calls `this.stop('SIGTERM')`. This is the **primary** enforcement for short timeouts (5m) because `super.fetch()` resets the SDK timer on every HTTP request (including periodic WebSocket reconnects), preventing `onActivityExpired()` from firing.
 
@@ -357,7 +357,7 @@ flowchart TD
 
 **Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` -- prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
 
-**Session Stop Flow (idle):** `onActivityExpired()` detects no new user input since last `collectMetrics` poll, or unreachable activity endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV.
+**Session Stop Flow (idle):** `onActivityExpired()` detects no new user input since last `collectMetrics` poll, or unreachable activity endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV. Note: `onActivityExpired()` itself does not write KV — the KV write happens in `onStop()`.
 
 ---
 
@@ -717,7 +717,7 @@ flowchart TD
     R3 --> S["User selects tier +<br/>completes Turnstile CAPTCHA"]
     S --> T["POST /api/auth/subscribe<br/>{ tier, turnstileToken }"]
     T --> U["Verify Turnstile token"]
-    U --> V["Write subscriptionTier +<br/>subscribedAt to KV"]
+    U --> V["Write subscriptionTier +<br/>accessTier + subscribedAt +<br/>subscribedMode + trialBillingTriggered +<br/>trialUsed to KV"]
     V --> W{"First time?"}
     W -->|yes| X["Redirect to /app/onboarding"]
     X --> P
@@ -768,9 +768,9 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 4. `POST /api/auth/subscribe` (rate-limited 3/min):
    - Validates Turnstile token
    - Resolves tier config via `getTierConfig(kv)`
-   - Sets `subscriptionTier`, `subscribedAt` timestamp
-   - Sets `trialBillingTriggered: false` (boolean) for all subscriptions
-   - Returns `{ success, tier, trialQuotaHours, onboardingComplete }`
+   - Sets `subscriptionTier`, `accessTier`, `subscribedAt` timestamp, `subscribedMode`
+   - Sets `trialBillingTriggered: false`, `trialUsed: false` (booleans) for all subscriptions
+   - Returns `{ success, tier, trialQuotaHours, trialUsed, onboardingComplete }`
 5. Frontend redirects: first-time → `/app/onboarding`, returning → `/app/`
 
 **Tier storage and caching:**
@@ -887,17 +887,20 @@ Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscr
 ### Self-Service Subscribe API
 
 **`POST /api/auth/subscribe`** (requires identity, rate-limited 3/min):
-- Request body: `{ tier: string, turnstileToken: string }`
+- Request body: `{ tier: string, turnstileToken: string, mode?: 'default' | 'advanced' }`
 - Validates Turnstile token (if `TURNSTILE_SECRET_KEY` is configured)
 - Validates tier is in subscribable set: `free`, `standard`, `advanced`, `max`, `unlimited`
 - Resolves tier config via `getTierConfig()` to extract `trialQuotaHours`
 - Writes to KV record at `user:{email}`:
   - `subscriptionTier`: the selected tier
+  - `accessTier`: backward-compat legacy tier value
   - `subscribedAt`: ISO timestamp of subscription
+  - `subscribedMode`: `'default'` or `'advanced'` (the mode the user selected on the subscribe page)
   - `trialBillingTriggered`: `false` (boolean, always set — reserved for future billing integration)
-- Response: `{ success: boolean, tier: string, trialQuotaHours: 0, onboardingComplete: boolean }` (trialQuotaHours is always 0 — reserved for future billing)
+  - `trialUsed`: `false` (boolean, tracks whether trial quota has been consumed)
+- Response: `{ success: boolean, tier: string, trialQuotaHours: 0, trialUsed: boolean, onboardingComplete: boolean }` (trialQuotaHours is always 0 — reserved for future billing)
 - Sends subscription confirmation email via `waitUntil` (non-blocking, non-fatal) using `sendSubscriptionEmail()` from `src/lib/email.ts`
-- Idempotent: if switching to same tier (`subscribedAt` exists and tier matches), returns success with current tier. Switching to a different tier re-writes the KV record
+- Idempotent: if switching to same tier and mode (`subscribedAt` exists, tier and mode both match), returns success with current tier. Switching to a different tier or mode re-writes the KV record
 
 **`GET /api/auth/tiers`** (requires identity) and **`GET /public/tiers`** (unauthenticated, only available when `ONBOARDING_LANDING_PAGE=active`):
 - Both return subscribable tier configs: `free`, `standard`, `advanced`, `max`, `unlimited` (filtered from full 8-tier config)
@@ -1175,14 +1178,14 @@ When a pending user lands on `/app/subscribe`:
 
 2. **Turnstile CAPTCHA:** User selects a tier → Turnstile CAPTCHA widget is rendered (site key from `/api/auth/status`). User completes the challenge to obtain a token.
 
-3. **Subscription request:** User clicks "Subscribe" (or "Get Started"/"Start Trial" depending on tier). Frontend calls `POST /api/auth/subscribe` with `{ tier: string, turnstileToken: string }`.
+3. **Subscription request:** User clicks "Subscribe" (or "Get Started"/"Start Trial" depending on tier). Frontend calls `POST /api/auth/subscribe` with `{ tier: string, turnstileToken: string, mode?: 'default' | 'advanced' }`.
 
 4. **Backend validation & storage:**
    - Verifies Turnstile token for new subscriptions (active users switching plans skip Turnstile)
    - Validates tier is subscribable: free/standard/advanced/max/unlimited
    - Resolves tier config via `getTierConfig()` to extract `trialQuotaHours`
-   - Writes to KV at `user:{email}`: `subscriptionTier`, `accessTier` (backward compat), `subscribedAt`, `trialBillingTriggered: false`
-   - Returns `{ success, tier, trialQuotaHours, onboardingComplete }`
+   - Writes to KV at `user:{email}`: `subscriptionTier`, `accessTier` (backward compat), `subscribedAt`, `subscribedMode`, `trialBillingTriggered: false`, `trialUsed: false`
+   - Returns `{ success, tier, trialQuotaHours, trialUsed, onboardingComplete }`
 
 5. **Redirect:** Frontend redirects to `/app/onboarding` (first-time) or `/app/` (returning user).
 
@@ -2325,9 +2328,9 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 12 test files, ~86 tests.
+**Count:** 15 test files, ~86 tests.
 **Run:** `cd host && npm test`
-**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
+**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup, container memory tracking, entrypoint ECC validation, entrypoint hooks merge, metrics collection, session manager lifecycle.
 
 ### Property-Based Fuzz Tests
 
@@ -2338,7 +2341,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 |-------|------|-------|----------------|
 | Backend | `src/__tests__/fuzz/input-validation.fuzz.test.ts` | 120 | XML injection/parsing, getBucketName, validateKey (path traversal, null bytes, encoding tricks), KV namespacing, ReDoS, circuit breaker state machine, error types, logger, content-type helpers |
 | Frontend | `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` | 13 | md5 (custom impl), isActionableUrl (ReDoS resistance), cleanupMapByPrefix (Map iteration+deletion) |
-| Host | `host/__tests__/fuzz-host.test.js` | 9 | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
+| Host | `host/__tests__/fuzz-host.test.js` | 15 | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
 
 **Test selection criteria:** Every test must exercise real production code (no replicas) on an untrusted input boundary (user input, API responses, WebSocket data, env vars). Tests that verify framework guarantees (Zod safeParse), language features (class inheritance), or trivial formatters are excluded.
 
@@ -2358,7 +2361,7 @@ Both root and `web-ui/` use Vitest v3.x. Vitest 4.x is incompatible with `@cloud
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 
-Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `error-responses`, `rate-limiting`.
+Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `container-lifecycle`, `error-responses`, `rate-limiting`.
 
 ### E2E UI Tests
 
@@ -3194,7 +3197,7 @@ All preseed content is deployed via the manifest pipeline:
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
-**Manifest structure (59 total entries)**:
+**Manifest structure (60 total entries)**:
 - `rules/` (28): core (4 default+advanced: ci-monitoring, cloudflare-environment, no-local-builds, deploy-credentials; + 1 advanced-only: memory), common (3), typescript (5), python (5), golang (5), swift (5)
 - `agents/` (7): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, plan, review (advanced only)
@@ -3230,18 +3233,18 @@ The generator produces adapted config files for 6 agents from CC's preseed as si
 
 | Agent | Instructions | Skills | Agents | Total |
 |-------|-------------|--------|--------|-------|
-| CC | 0 (individual rules) | 13 | 7 | 58 (all categories) |
+| CC | 0 (individual rules) | 13 | 7 | 59 (all categories) |
 | Codex | 2 (default+advanced) | 12 | 0 | 14 |
 | Gemini | 2 | 12 | 7 | 21 |
 | Copilot | 2 | 0 | 7 | 9 |
 | OpenCode | 2 | 12 | 7 | 21 |
-| **Total** | | | | **123** |
+| **Total** | | | | **124** |
 
 **Excluded from non-CC agents**: hooks (CC hook system), commands (CC slash commands), plugins (CC plugin system, including codeflare-memory), `rules/memory.md` (depends on MCP memory server), `consult-llm` skill (depends on CC-specific MCP tool).
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1) concatenates applicable rules into a single instructions file, (2) remaps tool names in agent definition frontmatter, (3) removes `model` field from frontmatter, (4) replaces `~/.claude/` path references with agent-specific config paths, (5) uses correct file extensions (e.g., `.agent.md` for Copilot agents).
 
-**Per-mode counts**: Default mode seeds 24 files, advanced mode seeds 119 files. Total array size is 123 (includes variant-per-mode duplicates for instructions files).
+**Per-mode counts**: Default mode seeds 24 files, advanced mode seeds 119 files. Total array size is 124 (includes variant-per-mode duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the generated array — once for default mode (3 rules) and once for advanced mode (all rules including memory, ECC), with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this correctly by excluding keys that have a variant in the target mode.
 

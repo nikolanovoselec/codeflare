@@ -136,7 +136,7 @@ describe('container DO class', () => {
       expect(instance.defaultPort).toBe(8080);
     });
 
-    it('initializes with sleepAfter 3m', () => {
+    it('initializes with sleepAfter 5m', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       expect(instance.sleepAfter).toBe('5m');
     });
@@ -619,7 +619,7 @@ describe('container DO class', () => {
   });
 
   describe('sleepAfter', () => {
-    it('sleepAfter is 3m', () => {
+    it('sleepAfter is 5m', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       expect(instance.sleepAfter).toBe('5m');
     });

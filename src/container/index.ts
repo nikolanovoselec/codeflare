@@ -100,7 +100,8 @@ export class container extends Container<Env> {
 
   // Default idle timeout before the container goes to sleep.
   // collectMetrics() renews via renewActivityTimeout() when new user input is detected.
-  // The fetch() override proxies via getTcpPort() to avoid resetting this timer on every request.
+  // The fetch() override uses super.fetch() (SDK handles readiness/networking).
+  // collectMetrics() handles real idle detection independently.
   override sleepAfter = '5m';
 
   // Environment variables - set via property assignment in updateEnvVars()

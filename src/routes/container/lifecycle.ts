@@ -24,7 +24,7 @@ import type { Logger } from '../../lib/logger';
 import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 
 // ---------------------------------------------------------------------------
-// Extracted helpers (FIX-8)
+// Extracted helpers
 // ---------------------------------------------------------------------------
 
 /**

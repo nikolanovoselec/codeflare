@@ -75,7 +75,7 @@ interface SessionMetrics {
   hdd?: string;
 }
 
-/** Batch status entry shape from the backend (L9: named type for inline type) */
+/** Batch status entry shape from the backend */
 type BatchStatusEntry = {
   status: 'running' | 'stopped';
   ptyActive: boolean;
@@ -86,7 +86,7 @@ type BatchStatusEntry = {
 };
 
 /**
- * Populate sessionMetrics from KV-pushed metrics (M5: extracted helper).
+ * Populate sessionMetrics from batch-status metrics.
  * Mutates the `sessionMetrics` record in place — designed for use inside `produce()` or direct object mutation.
  */
 export function applyMetricsUpdate(
@@ -235,7 +235,7 @@ async function loadSessions(): Promise<void> {
         }
       }
 
-      // Populate sessionMetrics from KV-pushed metrics (M5: use extracted helper)
+      // Populate sessionMetrics from batch-status metrics
       if (batchStatus.metrics) {
         setState(produce(s => {
           applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!);
@@ -421,7 +421,7 @@ async function stopSession(id: string): Promise<void> {
           }
         }, STOP_POLL_INTERVAL_MS);
 
-        // Track stop-polling interval for cleanup (FIX-17)
+        // Track stop-polling interval for cleanup
         startupCleanups.set(id, () => {
           clearInterval(interval);
         });
@@ -530,14 +530,14 @@ async function refreshSessionStatuses(): Promise<void> {
         if (remote.lastStartedAt) setState('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
       }
 
-      // Populate sessionMetrics from KV-pushed metrics (M5: use extracted helper)
+      // Populate sessionMetrics from batch-status metrics
       if (remote.metrics) {
         setState(produce(s => {
           applyMetricsUpdate(s.sessionMetrics, session.id, remote.metrics!);
         }));
       }
 
-      // Guard: skip status transitions for the active session (L5: use named function)
+      // Guard: skip status transitions for the active session
       if (shouldSkipStatusTransition(session.id, state.activeSessionId)) continue;
 
       // Guard: skip status transitions for initializing sessions to avoid

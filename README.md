@@ -195,7 +195,7 @@ See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth
 
 ## Subscription Tiers
 
-When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system (blocked, pending, free, trial, standard, advanced, max, unlimited) controlling monthly compute hours, concurrent sessions, session modes, and pricing. Tiers are configurable by admins via the Subscription Management page (`/admin/subscriptions`) and the admin tiers API (`GET/PUT /api/admin/tiers`).
+When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system (blocked, pending, free, trial, standard, advanced, max, unlimited) controlling monthly compute hours, concurrent sessions, session modes, and pricing. Tiers are configurable by admins via the Subscription Management page (`/admin/subscriptions`) and the admin tiers API (`GET/PUT /api/admin/tiers`). Each user's KV record stores a `subscribedMode` field (`'default'` or `'advanced'`) set during subscription -- this is the mode the user paid for and is distinct from the `sessionMode` preference toggle in Settings.
 
 - New users are auto-provisioned with `pending` tier and land on `/app/subscribe` to choose a plan
 - Turnstile CAPTCHA protects the subscription form for new subscriptions (plan changes skip Turnstile)
@@ -205,7 +205,7 @@ When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system (blocke
 - Quota enforcement: HTTP 402 on session start when monthly hours exceeded, mid-session eviction via SIGTERM when Timekeeper detects quota exceeded
 - Email notifications via Resend: welcome email on registration, subscription confirmation on plan selection, plan change notifications to user and admins, tier change alerts when admins modify user tiers
 - Session limits are tier-based (`maxSessions` per tier) with env var fallback (`MAX_SESSIONS_USER`, `MAX_SESSIONS_ADMIN`)
-- Session mode enforcement: `default` and `advanced` modes gated per tier (free/trial get `default` only, standard+ get both)
+- Session mode enforcement: `default` and `advanced` modes gated per tier (free/trial get `default` only, standard+ get both). Pro mode access requires a dual-gate: both tier support AND `subscribedMode === 'advanced'` in the user's KV record (set via the subscribe page, not the Settings toggle)
 
 **Quota enforcement:**
 - Server-side only — cannot be bypassed by frontend manipulation

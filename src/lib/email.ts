@@ -1,7 +1,10 @@
 /**
- * Generic email sending helper via Resend API.
- * Extracted from the inline Resend code in routes/auth.ts.
- * Non-fatal: returns boolean success, never throws.
+ * Email sending via Resend API.
+ * Exports: sendEmail (boolean), sendWelcomeEmail (boolean),
+ * sendSubscriptionEmail (boolean), sendSubscriptionAdminNotification (boolean),
+ * sendRenewalEmail (boolean), sendTierChangeNotification (void).
+ * Non-fatal: sendEmail/send*Email return boolean success, never throw.
+ * sendTierChangeNotification returns void (fires user + admin emails sequentially).
  */
 import { escapeXml } from './xml-utils';
 
