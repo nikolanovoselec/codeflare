@@ -142,11 +142,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   const isAdmin = () => props.currentUserRole === 'admin';
   const canUseAdvanced = () => {
-    // Admins always have advanced access regardless of stored tier
-    if (isAdmin()) return true;
+    // Tier must support advanced mode (admins always pass tier check)
     const tier = liveAccessTier();
-    // Tier must support advanced mode AND user must have subscribed to Pro mode
-    const tierSupportsAdvanced = !tier || tier === 'advanced' || tier === 'max' || tier === 'unlimited';
+    const tierSupportsAdvanced = isAdmin() || !tier || tier === 'advanced' || tier === 'max' || tier === 'unlimited';
+    // User must have Pro mode active (even admins — activate via subscribe page)
     const subscribedToPro = currentSessionMode() === 'advanced';
     return tierSupportsAdvanced && subscribedToPro;
   };
