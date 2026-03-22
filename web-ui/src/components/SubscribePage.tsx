@@ -261,11 +261,9 @@ const SubscribePage: Component = () => {
     setError('');
 
     try {
-      // Send globalMode only for explicit mode switches (same tier, different mode).
-      // For plan changes, send the user's current stored mode — the toggle is for
-      // pricing display, not mode selection.
-      const modeToSend = isModeChange() ? globalMode() : currentMode();
-      const result = await subscribe(tierId, token, modeToSend === 'advanced' ? 'advanced' : 'default');
+      // Always send the toggle position — it represents the user's intended mode.
+      // Whether switching plans or modes, the Standard/Pro toggle is the selection.
+      const result = await subscribe(tierId, token, globalMode() === 'advanced' ? 'advanced' : 'default');
       if (!result.onboardingComplete) {
         window.location.href = '/app/onboarding';
       } else {
