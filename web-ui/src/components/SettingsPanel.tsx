@@ -124,7 +124,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   createEffect(on(
     () => props.isOpen,
     (isOpen, prevIsOpen) => {
-      if (isOpen && prevIsOpen === false) {
+      if (isOpen && !prevIsOpen) {
         setOpenGroup('appearance');
         // Re-fetch tier on panel open
         getUser().then((user) => {
