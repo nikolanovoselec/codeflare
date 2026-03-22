@@ -162,10 +162,12 @@ const SubscribePage: Component = () => {
         setTrialUsed(true);
       }
 
-      if (status.sessionMode) {
-        setCurrentMode(status.sessionMode);
-        setGlobalMode(status.sessionMode);
-      }
+      // Use subscribedMode (from user record, set by subscribe endpoint) not
+      // sessionMode (from preferences, changed by Settings toggle). The subscribe
+      // page shows what the user PAID for, not what they last toggled in Settings.
+      const mode = status.subscribedMode ?? status.sessionMode ?? 'default';
+      setCurrentMode(mode);
+      setGlobalMode(mode);
 
       // Preload Turnstile script for pending users
       if (!status.hasSubscribed && status.turnstileSiteKey) {
