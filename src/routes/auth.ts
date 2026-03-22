@@ -309,31 +309,34 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     const previousTierId = isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined;
     const previousTierConfig = previousTierId ? tiers.find(t => t.id === previousTierId) : undefined;
 
+    const country = c.req.header('CF-IPCountry') || 'US';
+    const cur = getCurrencyForCountry(country);
+    const priceCents = parsed.data.mode === 'advanced'
+      ? (tierConfig?.advancedPriceMonthly ?? tierConfig?.priceMonthly)
+      : tierConfig?.priceMonthly;
+    const priceStr = priceCents != null && priceCents > 0
+      ? `${cur === 'EUR' ? '\u20AC' : cur === 'GBP' ? '\u00A3' : cur === 'CHF' ? 'CHF ' : '$'}${(priceCents / 100).toFixed(0)}`
+      : undefined;
+    const emailMonthlyHours = tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited';
+    const emailMaxSessions = tierConfig?.maxSessions ?? 1;
+    const emailTrialHours = trialUsed ? 0 : (tierConfig?.trialQuotaHours ?? 0);
+    const emailSubscribedAt = now.toISOString();
+
     const emailPromise = Promise.all([
-      (() => {
-        const country = c.req.header('CF-IPCountry') || 'US';
-        const cur = getCurrencyForCountry(country);
-        const priceCents = parsed.data.mode === 'advanced'
-          ? (tierConfig?.advancedPriceMonthly ?? tierConfig?.priceMonthly)
-          : tierConfig?.priceMonthly;
-        const priceStr = priceCents != null && priceCents > 0
-          ? `${cur === 'EUR' ? '\u20AC' : cur === 'GBP' ? '\u00A3' : cur === 'CHF' ? 'CHF ' : '$'}${(priceCents / 100).toFixed(0)}`
-          : undefined;
-        return sendSubscriptionEmail({
-          userEmail: user.email,
-          tierName: tierConfig?.displayName ?? parsed.data.tier,
-          previousTierName: previousTierConfig?.displayName ?? previousTierId,
-          monthlyHours: tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited',
-          maxSessions: tierConfig?.maxSessions ?? 1,
-          trialHours: trialUsed ? 0 : (tierConfig?.trialQuotaHours ?? 0),
-          sessionMode: parsed.data.mode,
-          previousMode: isAlreadySubscribed ? previousMode : undefined,
-          price: priceStr,
-          subscribedAt: now.toISOString(),
-          instanceUrl,
-          env: c.env,
-        });
-      })(),
+      sendSubscriptionEmail({
+        userEmail: user.email,
+        tierName: tierConfig?.displayName ?? parsed.data.tier,
+        previousTierName: previousTierConfig?.displayName ?? previousTierId,
+        monthlyHours: emailMonthlyHours,
+        maxSessions: emailMaxSessions,
+        trialHours: emailTrialHours,
+        sessionMode: parsed.data.mode,
+        previousMode: isAlreadySubscribed ? previousMode : undefined,
+        price: priceStr,
+        subscribedAt: emailSubscribedAt,
+        instanceUrl,
+        env: c.env,
+      }),
       (async () => {
         const users = await getAllUsers(c.env.KV);
         const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
@@ -343,6 +346,11 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
           previousTierName: previousTierConfig?.displayName ?? previousTierId,
           sessionMode: parsed.data.mode,
           previousMode: isAlreadySubscribed ? previousMode : undefined,
+          monthlyHours: emailMonthlyHours,
+          maxSessions: emailMaxSessions,
+          price: priceStr,
+          trialHours: emailTrialHours,
+          subscribedAt: emailSubscribedAt,
           adminEmails,
           env: c.env,
         });
