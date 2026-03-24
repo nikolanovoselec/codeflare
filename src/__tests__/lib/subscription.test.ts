@@ -320,20 +320,20 @@ describe('getMaxSessionsForTier', () => {
     expect(getMaxSessionsForTier('trial', tiers)).toBe(2);
   });
 
-  it('returns 3 for standard', () => {
-    expect(getMaxSessionsForTier('standard', tiers)).toBe(3);
+  it('returns 1 for standard', () => {
+    expect(getMaxSessionsForTier('standard', tiers)).toBe(1);
   });
 
-  it('returns 5 for advanced', () => {
-    expect(getMaxSessionsForTier('advanced', tiers)).toBe(5);
+  it('returns 2 for advanced', () => {
+    expect(getMaxSessionsForTier('advanced', tiers)).toBe(2);
   });
 
-  it('returns 10 for max', () => {
-    expect(getMaxSessionsForTier('max', tiers)).toBe(10);
+  it('returns 3 for max', () => {
+    expect(getMaxSessionsForTier('max', tiers)).toBe(3);
   });
 
-  it('returns 10 for unlimited', () => {
-    expect(getMaxSessionsForTier('unlimited', tiers)).toBe(10);
+  it('returns 5 for unlimited', () => {
+    expect(getMaxSessionsForTier('unlimited', tiers)).toBe(5);
   });
 });
 
