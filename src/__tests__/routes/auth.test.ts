@@ -147,7 +147,7 @@ describe('Auth routes', () => {
         email: 'pro@example.com',
         authenticated: true,
         role: 'user',
-        accessTier: 'max',
+        accessTier: 'advanced',
         subscriptionTier: 'max',
       };
 
@@ -155,7 +155,7 @@ describe('Auth routes', () => {
         addedBy: 'jit',
         addedAt: '2025-01-01T00:00:00Z',
         role: 'user',
-        accessTier: 'max',
+        accessTier: 'advanced',
         subscriptionTier: 'max',
         subscribedMode: 'advanced',
       });
