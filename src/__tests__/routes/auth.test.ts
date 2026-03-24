@@ -142,6 +142,34 @@ describe('Auth routes', () => {
       expect(body.code).toBe('AUTH_ERROR');
     });
 
+    it('returns subscribedMode from user KV record', async () => {
+      mockAuthResult.user = {
+        email: 'pro@example.com',
+        authenticated: true,
+        role: 'user',
+        accessTier: 'max',
+        subscriptionTier: 'max',
+      };
+
+      mockKV._set('user:pro@example.com', {
+        addedBy: 'jit',
+        addedAt: '2025-01-01T00:00:00Z',
+        role: 'user',
+        accessTier: 'max',
+        subscriptionTier: 'max',
+        subscribedMode: 'advanced',
+      });
+
+      const app = createApp();
+      const res = await app.request('/auth/status', {
+        headers: { 'cf-access-authenticated-user-email': 'pro@example.com' },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { subscribedMode: string };
+      expect(body.subscribedMode).toBe('advanced');
+    });
+
     it('defaults accessTier and subscriptionTier to advanced when undefined', async () => {
       mockAuthResult.user = {
         email: 'legacy@example.com',

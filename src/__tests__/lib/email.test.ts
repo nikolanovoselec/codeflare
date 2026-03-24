@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendRenewalEmail } from '../../lib/email';
+import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendRenewalEmail, sendSubscriptionAdminNotification } from '../../lib/email';
 
 describe('sendEmail', () => {
   const originalFetch = globalThis.fetch;
@@ -208,6 +208,36 @@ describe('sendSubscriptionEmail', () => {
     });
     expect(result).toBe(false);
   });
+
+  it('sends email with price in body when price is provided', async () => {
+    await sendSubscriptionEmail({
+      userEmail: 'alice@example.com', tierName: 'Max', monthlyHours: '160h',
+      maxSessions: 10, trialHours: 0, price: '$29', env: testEnv,
+    });
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.html).toContain('$29');
+    expect(body.html).toContain('Price');
+  });
+
+  it('sends email with formatted activation date when subscribedAt is provided', async () => {
+    await sendSubscriptionEmail({
+      userEmail: 'alice@example.com', tierName: 'Starter', monthlyHours: '40h',
+      maxSessions: 3, trialHours: 0, subscribedAt: '2025-06-15T14:30:00.000Z', env: testEnv,
+    });
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.html).toContain('Activated');
+    expect(body.html).toContain('2025');
+  });
+
+  it('mode-only change triggers "Plan Changed" subject', async () => {
+    await sendSubscriptionEmail({
+      userEmail: 'alice@example.com', tierName: 'Starter', monthlyHours: '40h',
+      maxSessions: 3, trialHours: 0, sessionMode: 'advanced', previousMode: 'default', env: testEnv,
+    });
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.subject).toContain('Plan changed');
+    expect(body.html).toContain('Plan Changed');
+  });
 });
 
 describe('sendRenewalEmail', () => {
@@ -224,5 +254,52 @@ describe('sendRenewalEmail', () => {
     const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
     expect(body.subject).toContain('renewed');
     expect(body.html).toContain('Starter');
+  });
+});
+
+describe('sendSubscriptionAdminNotification', () => {
+  const originalFetch = globalThis.fetch;
+  beforeEach(() => { globalThis.fetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 })); });
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('sends admin notification with correct subject and recipients', async () => {
+    const result = await sendSubscriptionAdminNotification({
+      userEmail: 'alice@example.com', tierName: 'Starter', sessionMode: 'default',
+      adminEmails: ['admin1@example.com', 'admin2@example.com'], env: testEnv,
+    });
+    expect(result).toBe(true);
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.subject).toContain('New subscriber');
+    expect(body.subject).toContain('alice@example.com');
+    expect(body.subject).toContain('Starter');
+    expect(body.to).toEqual(['admin1@example.com', 'admin2@example.com']);
+  });
+
+  it('includes user email, tier, mode in body', async () => {
+    await sendSubscriptionAdminNotification({
+      userEmail: 'alice@example.com', tierName: 'Max', sessionMode: 'advanced',
+      adminEmails: ['admin@example.com'], env: testEnv,
+    });
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+    expect(body.html).toContain('alice@example.com');
+    expect(body.html).toContain('Max');
+    expect(body.html).toContain('Pro');
+  });
+
+  it('returns false when adminEmails is empty', async () => {
+    const result = await sendSubscriptionAdminNotification({
+      userEmail: 'alice@example.com', tierName: 'Starter',
+      adminEmails: [], env: testEnv,
+    });
+    expect(result).toBe(false);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('returns false without API key', async () => {
+    const result = await sendSubscriptionAdminNotification({
+      userEmail: 'alice@example.com', tierName: 'Starter',
+      adminEmails: ['admin@example.com'], env: noKeyEnv,
+    });
+    expect(result).toBe(false);
   });
 });

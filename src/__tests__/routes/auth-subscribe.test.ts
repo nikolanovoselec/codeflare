@@ -330,6 +330,43 @@ describe('POST /auth/subscribe', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // subscribedMode / mode parameter
+  // ---------------------------------------------------------------------------
+
+  it('subscribedMode is written to user KV record after subscribe', async () => {
+    mockTurnstileSuccess();
+    mockKV._set('user:pending@example.com', {
+      addedBy: 'jit',
+      addedAt: '2025-01-01T00:00:00Z',
+      role: 'user',
+      accessTier: 'pending',
+    });
+
+    const app = createApp();
+    await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'standard', mode: 'advanced' });
+
+    const userData = await mockKV.get('user:pending@example.com', 'json') as Record<string, unknown>;
+    expect(userData.subscribedMode).toBe('advanced');
+  });
+
+  it('mode parameter is accepted in subscribe request body', async () => {
+    mockTurnstileSuccess();
+    mockKV._set('user:pending@example.com', {
+      addedBy: 'jit',
+      addedAt: '2025-01-01T00:00:00Z',
+      role: 'user',
+      accessTier: 'pending',
+    });
+
+    const app = createApp();
+    const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'max', mode: 'default' });
+
+    expect(res.status).toBe(200);
+    const userData = await mockKV.get('user:pending@example.com', 'json') as Record<string, unknown>;
+    expect(userData.subscribedMode).toBe('default');
+  });
+
+  // ---------------------------------------------------------------------------
   // Trial model: quota-based trials, no subscriptionExpiresAt
   // ---------------------------------------------------------------------------
 
