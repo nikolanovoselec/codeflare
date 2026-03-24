@@ -61,7 +61,7 @@ export function isStripeConfigured(env: Pick<Env, 'STRIPE_SECRET_KEY'>): boolean
 // ---------------------------------------------------------------------------
 
 /** Low-level Stripe API request. Uses URL-encoded form body and Bearer auth. */
-export async function stripeRequest<T>(
+async function stripeRequest<T>(
   path: string,
   params: Record<string, string>,
   secretKey: string,
@@ -94,7 +94,7 @@ export async function stripeRequest<T>(
 // Checkout session
 // ---------------------------------------------------------------------------
 
-export interface CheckoutSessionOptions {
+interface CheckoutSessionOptions {
   priceId: string;
   customerEmail: string;
   successUrl: string;
@@ -194,7 +194,7 @@ export async function verifyWebhookSignature(
 // Event parsing
 // ---------------------------------------------------------------------------
 
-export interface StripeEvent {
+interface StripeEvent {
   id: string;
   type: string;
   data: {

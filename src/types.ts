@@ -228,19 +228,6 @@ export interface DeployKeys {
   cloudflareAccountId?: string;
 }
 
-/**
- * Billing fields stored on the user KV record after Stripe checkout.
- * All fields are optional — free-tier users will not have them.
- */
-export interface BillingFields {
-  stripeCustomerId?: string;
-  stripeSubscriptionId?: string;
-  stripePriceId?: string;
-  billingPeriodEnd?: string;
-  checkoutSessionId?: string;
-  billingStatus?: 'active' | 'past_due' | 'canceled' | 'incomplete';
-}
-
 export interface StorageObject {
   key: string;
   size: number;
