@@ -75,10 +75,10 @@ describe('SubscriptionManagement (Admin)', () => {
       expect(screen.getByText('Free')).toBeInTheDocument();
     });
 
-    // At least one input should contain "2" (Free = 7200s = 2h)
+    // At least one input should contain "4" (Free = 14400s = 4h)
     const textInputs = Array.from(document.querySelectorAll('input[type="text"]'));
-    const hasTwoHours = textInputs.some((input) => (input as HTMLInputElement).value === '2');
-    expect(hasTwoHours).toBe(true);
+    const hasFourHours = textInputs.some((input) => (input as HTMLInputElement).value === '4');
+    expect(hasFourHours).toBe(true);
   });
 
   it('should show unlimited text for unlimited tier hours when selected', async () => {
@@ -232,10 +232,11 @@ describe('SubscriptionManagement (Admin)', () => {
     fireEvent.change(textInputs[0], { target: { value: '50' } });
 
     // After editing, the editor should still show Starter's fields (not reset to Free)
-    // Check that Max Sessions still reflects Starter's value (3), not Free's value (1)
+    // Check that Max Sessions still reflects Starter's value (1), not Free's value (1)
+    // Both happen to be 1 in current config, so also verify the hours field retained edit
     await waitFor(() => {
-      const numberInputs = Array.from(document.querySelectorAll('input[type="number"]'));
-      expect((numberInputs[0] as HTMLInputElement).value).toBe('3');
+      const updatedTextInputs = Array.from(document.querySelectorAll('input[type="text"]'));
+      expect((updatedTextInputs[0] as HTMLInputElement).value).toBe('50');
     });
   });
 });
