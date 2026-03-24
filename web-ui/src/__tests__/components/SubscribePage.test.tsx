@@ -26,11 +26,11 @@ const mockedGetPublicTiers = vi.mocked(getPublicTiers);
 const mockedSubscribe = vi.mocked(subscribe);
 
 const MOCK_PUBLIC_TIERS = [
-  { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, priceMonthly: 0, advancedPriceMonthly: null, description: 'Get started for free', trialQuotaHours: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
-  { id: 'standard', displayName: 'Starter', monthlySeconds: 144000, maxSessions: 3, priceMonthly: 1900, advancedPriceMonthly: 2400, description: 'For individual developers', trialQuotaHours: 40, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: true },
-  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 288000, maxSessions: 5, priceMonthly: 3900, advancedPriceMonthly: 4400, description: '', trialQuotaHours: 80, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false },
-  { id: 'max', displayName: 'Max', monthlySeconds: 576000, maxSessions: 10, priceMonthly: 6900, advancedPriceMonthly: 7400, description: 'For professional teams', trialQuotaHours: 160, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false },
-  { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 10, priceMonthly: null, advancedPriceMonthly: null, description: 'Enterprise-grade access', trialQuotaHours: 0, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
+  { id: 'free', displayName: 'Free', monthlySeconds: 14400, maxSessions: 1, priceMonthly: 0, advancedPriceMonthly: null, description: 'Get started for free', trialQuotaHours: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
+  { id: 'standard', displayName: 'Starter', monthlySeconds: 144000, maxSessions: 1, priceMonthly: 2900, advancedPriceMonthly: 3400, description: 'For individual developers', trialQuotaHours: 40, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: true },
+  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 288000, maxSessions: 2, priceMonthly: 4900, advancedPriceMonthly: 5400, description: '', trialQuotaHours: 80, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false },
+  { id: 'max', displayName: 'Max', monthlySeconds: 576000, maxSessions: 3, priceMonthly: 6900, advancedPriceMonthly: 7400, description: 'For professional teams', trialQuotaHours: 160, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false },
+  { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 5, priceMonthly: null, advancedPriceMonthly: null, description: 'Enterprise-grade access', trialQuotaHours: 0, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false },
 ];
 
 /** Navigate from home to tier view (mode cards + lifeline + detail — all visible) */
@@ -267,7 +267,7 @@ describe('SubscribePage', () => {
       await openTierView();
 
       await waitFor(() => {
-        expect(screen.getByText(/\$39/)).toBeInTheDocument();
+        expect(screen.getByText(/\$49/)).toBeInTheDocument();
       });
     });
 
@@ -277,8 +277,8 @@ describe('SubscribePage', () => {
       fireEvent.click(screen.getByTestId('mode-card-pro'));
 
       await waitFor(() => {
-        // Price should update to advanced pricing ($44 for Advanced tier)
-        expect(screen.getByText(/\$44/)).toBeInTheDocument();
+        // Price should update to advanced pricing ($54 for Advanced tier)
+        expect(screen.getByText(/\$54/)).toBeInTheDocument();
       });
     });
 

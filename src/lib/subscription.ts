@@ -49,7 +49,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
     {
       id: 'free',
       displayName: 'Free',
-      monthlySeconds: 7200,      // 2 hours
+      monthlySeconds: 14400,     // 4 hours
       maxSessions: 1,
       sessionModes: ['default'],
       canLogin: true,
@@ -78,13 +78,13 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       id: 'standard',
       displayName: 'Starter',
       monthlySeconds: 144000,    // 40 hours
-      maxSessions: 3,
+      maxSessions: 1,
       sessionModes: ['default', 'advanced'],
       canLogin: true,
       order: 4,
       isDefault: true,
-      priceMonthly: 1900,
-      advancedPriceMonthly: 2400,
+      priceMonthly: 2900,
+      advancedPriceMonthly: 3400,
       trialQuotaHours: 40,
       description: 'For individual developers',
     },
@@ -92,13 +92,13 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       id: 'advanced',
       displayName: 'Advanced',
       monthlySeconds: 288000,    // 80 hours
-      maxSessions: 5,
+      maxSessions: 2,
       sessionModes: ['default', 'advanced'],
       canLogin: true,
       order: 5,
       isDefault: false,
-      priceMonthly: 3900,
-      advancedPriceMonthly: 4400,
+      priceMonthly: 4900,
+      advancedPriceMonthly: 5400,
       trialQuotaHours: 80,
       description: '',
     },
@@ -106,7 +106,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       id: 'max',
       displayName: 'Max',
       monthlySeconds: 576000,    // 160 hours
-      maxSessions: 10,
+      maxSessions: 3,
       sessionModes: ['default', 'advanced'],
       canLogin: true,
       order: 6,
@@ -120,7 +120,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       id: 'unlimited',
       displayName: 'Team',
       monthlySeconds: null,      // no limit
-      maxSessions: 10,
+      maxSessions: 5,
       sessionModes: ['default', 'advanced'],
       canLogin: true,
       order: 7,

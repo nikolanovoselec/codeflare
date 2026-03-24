@@ -16,12 +16,12 @@ const mockedUpdateTiers = vi.mocked(updateTiers);
 const MOCK_TIERS = [
   { id: 'blocked', displayName: 'Blocked', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 0, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: '' },
   { id: 'pending', displayName: 'Pending', monthlySeconds: 0, maxSessions: 0, sessionModes: [] as string[], canLogin: false, order: 1, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: '' },
-  { id: 'free', displayName: 'Free', monthlySeconds: 7200, maxSessions: 1, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false, priceMonthly: 0, advancedPriceMonthly: null, trialQuotaHours: 0, description: 'Get started for free' },
+  { id: 'free', displayName: 'Free', monthlySeconds: 14400, maxSessions: 1, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false, priceMonthly: 0, advancedPriceMonthly: null, trialQuotaHours: 0, description: 'Get started for free' },
   { id: 'trial', displayName: 'Trial', monthlySeconds: 18000, maxSessions: 2, sessionModes: ['default'], canLogin: true, order: 3, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: '' },
-  { id: 'standard', displayName: 'Starter', monthlySeconds: 144000, maxSessions: 3, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: true, priceMonthly: 1900, advancedPriceMonthly: 2400, trialQuotaHours: 40, description: 'For individual developers' },
-  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 288000, maxSessions: 5, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false, priceMonthly: 3900, advancedPriceMonthly: 4400, trialQuotaHours: 80, description: '' },
-  { id: 'max', displayName: 'Max', monthlySeconds: 576000, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false, priceMonthly: 6900, advancedPriceMonthly: 7400, trialQuotaHours: 160, description: 'For professional teams' },
-  { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 10, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: 'Enterprise-grade access' },
+  { id: 'standard', displayName: 'Starter', monthlySeconds: 144000, maxSessions: 1, sessionModes: ['default', 'advanced'], canLogin: true, order: 4, isDefault: true, priceMonthly: 2900, advancedPriceMonthly: 3400, trialQuotaHours: 40, description: 'For individual developers' },
+  { id: 'advanced', displayName: 'Advanced', monthlySeconds: 288000, maxSessions: 2, sessionModes: ['default', 'advanced'], canLogin: true, order: 5, isDefault: false, priceMonthly: 4900, advancedPriceMonthly: 5400, trialQuotaHours: 80, description: '' },
+  { id: 'max', displayName: 'Max', monthlySeconds: 576000, maxSessions: 3, sessionModes: ['default', 'advanced'], canLogin: true, order: 6, isDefault: false, priceMonthly: 6900, advancedPriceMonthly: 7400, trialQuotaHours: 160, description: 'For professional teams' },
+  { id: 'unlimited', displayName: 'Team', monthlySeconds: null, maxSessions: 5, sessionModes: ['default', 'advanced'], canLogin: true, order: 7, isDefault: false, priceMonthly: null, advancedPriceMonthly: null, trialQuotaHours: 0, description: 'Enterprise-grade access' },
 ];
 
 const noop = () => {};
