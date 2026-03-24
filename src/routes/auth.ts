@@ -13,6 +13,7 @@ import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey } from '../lib/kv-keys';
+import { isStripeConfigured } from '../lib/stripe';
 
 const logger = createLogger('auth-routes');
 
@@ -243,6 +244,11 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
 
   if (!SUBSCRIBABLE_TIERS.has(parsed.data.tier)) {
     throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, advanced, max, unlimited`);
+  }
+
+  // Gate paid tiers when Stripe is configured — they must go through checkout
+  if (isStripeConfigured(c.env) && parsed.data.tier !== 'free') {
+    throw new ValidationError('Paid subscriptions require checkout.');
   }
 
   const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;

@@ -24,11 +24,14 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 9. [Security Model](#security-model)
 10. [Rate Limiting](#rate-limiting)
 
+### Billing & Payments
+11. [Stripe Payment Integration](#stripe-payment-integration)
+
 ### APIs & Configuration
-11. [API Reference](#api-reference)
+12. [API Reference](#api-reference)
     - [Setup Wizard](#setup)
-12. [Environment Variables](#environment-variables)
-13. [Configuration](#configuration)
+13. [Environment Variables](#environment-variables)
+14. [Configuration](#configuration)
 
 ### Deployment & Infrastructure
 14. [Container Image](#container-image)
@@ -792,6 +795,51 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 - Code reads `subscriptionTier` first, falls back to `accessTier` for pre-migration users
 - Non-SaaS users without a tier default to `unlimited` access
 - Legacy bridge in `src/lib/access-tier.ts` delegates to `subscription.ts`
+
+### Stripe Payment Integration
+
+When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanced, max) require Stripe Checkout before activation. Free tier remains direct (no payment). When the secret is absent, all tiers work via direct KV (dev/self-hosted mode).
+
+**Architecture:**
+- Library: `src/lib/stripe.ts` — price map, checkout session creation, webhook signature verification, Stripe API communication
+- Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (authenticated)
+- Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified)
+- Types: `BillingFields` interface in `src/types.ts`
+
+**Checkout flow:**
+1. User selects paid tier on subscribe page → frontend calls `POST /api/billing/checkout` with `{ tier, mode }`
+2. Backend creates Stripe Checkout Session with `customer_email` and tier/mode metadata
+3. Frontend redirects to Stripe-hosted checkout page
+4. After payment, Stripe redirects to `/app/subscribe?checkout=success`
+5. Frontend polls `GET /api/auth/status` every 2s (max 30s) waiting for webhook to activate the subscription
+6. Stripe sends `checkout.session.completed` webhook → handler writes tier + billing fields to user KV
+
+**Webhook events handled:**
+- `checkout.session.completed` — activates subscription, stores customer/subscription IDs
+- `customer.subscription.created` — updates subscription details and price ID
+- `invoice.paid` — confirms billing period, sets status to `active`
+- `invoice.payment_failed` — sets billing status to `past_due`
+- `customer.subscription.deleted` — sets billing status to `canceled`
+
+**Security:**
+- Webhook endpoint at `/public/stripe/webhook` bypasses CF Access (same pattern as `/public/auth/providers`)
+- HMAC-SHA256 signature verification using `STRIPE_WEBHOOK_SECRET` via `crypto.subtle.timingSafeEqual()`
+- 5-minute timestamp tolerance prevents replay attacks
+- Event deduplication via KV key `stripe:event:{eventId}` with 72-hour TTL
+
+**Customer mapping:** `stripe-customer:{customerId}` → email stored in KV on checkout completion. Subsequent webhook events use this mapping to resolve the user.
+
+**KV fields added to user record (BillingFields):**
+- `stripeCustomerId` — Stripe customer ID
+- `stripeSubscriptionId` — Stripe subscription ID
+- `stripePriceId` — Active Stripe price ID
+- `billingPeriodEnd` — ISO timestamp of current billing period end
+- `checkoutSessionId` — Stripe checkout session ID
+- `billingStatus` — `active`, `past_due`, `canceled`, or `incomplete`
+
+**Stripe gate:** When `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects paid tiers with "Paid subscriptions require checkout." Only `free` tier is allowed through the direct subscribe endpoint. This ensures payment is collected before tier activation.
+
+**Price map (sandbox):** 6 prices across 3 paid tiers x 2 modes (Standard/Pro). Defined in `src/lib/stripe.ts` as `PRICE_MAP`. `getStripePriceId(tier, mode)` for lookup, `resolveTierFromPriceId(priceId)` for reverse resolution.
 
 ### Timekeeper DO (Usage Tracking)
 

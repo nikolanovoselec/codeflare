@@ -173,6 +173,7 @@ const LoginPage: Component = () => {
         </Show>
 
         <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
+        <p class="login-footer login-footer-legal">&copy; 2026 Gray Matter GmbH</p>
       </div>
     </div>
   );

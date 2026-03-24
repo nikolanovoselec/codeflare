@@ -469,6 +469,42 @@ describe('POST /auth/subscribe', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Stripe gate: paid tiers rejected when STRIPE_SECRET_KEY is set
+  // ---------------------------------------------------------------------------
+
+  it('rejects paid tier when STRIPE_SECRET_KEY is set', async () => {
+    mockTurnstileSuccess();
+    mockKV._set('user:pending@example.com', {
+      addedBy: 'jit',
+      addedAt: '2025-01-01T00:00:00Z',
+      role: 'user',
+      accessTier: 'pending',
+    });
+
+    const app = createApp({ STRIPE_SECRET_KEY: 'sk_test_123' } as Partial<Env>);
+    const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'standard' });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('Paid subscriptions require checkout');
+  });
+
+  it('allows free tier even when STRIPE_SECRET_KEY is set', async () => {
+    mockTurnstileSuccess();
+    mockKV._set('user:pending@example.com', {
+      addedBy: 'jit',
+      addedAt: '2025-01-01T00:00:00Z',
+      role: 'user',
+      accessTier: 'pending',
+    });
+
+    const app = createApp({ STRIPE_SECRET_KEY: 'sk_test_123' } as Partial<Env>);
+    const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'free' });
+
+    expect(res.status).toBe(200);
+  });
+
+  // ---------------------------------------------------------------------------
   // Idempotency: already subscribed
   // ---------------------------------------------------------------------------
 

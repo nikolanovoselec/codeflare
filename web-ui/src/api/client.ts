@@ -449,6 +449,31 @@ export async function subscribe(tier: string, turnstileToken: string, mode?: str
   }, SubscribeResponseSchema);
 }
 
+// Billing API
+const CheckoutResponseSchema = z.object({
+  checkoutUrl: z.string(),
+});
+
+export async function createCheckoutSession(tier: string, mode?: string): Promise<{ checkoutUrl: string }> {
+  return fetchApi('/billing/checkout', {
+    method: 'POST',
+    body: JSON.stringify({ tier, mode }),
+  }, CheckoutResponseSchema);
+}
+
+const BillingStatusResponseSchema = z.object({
+  stripeCustomerId: z.string().nullable(),
+  stripeSubscriptionId: z.string().nullable(),
+  stripePriceId: z.string().nullable(),
+  billingPeriodEnd: z.string().nullable(),
+  checkoutSessionId: z.string().nullable(),
+  billingStatus: z.string().nullable(),
+});
+
+export async function getBillingStatus(): Promise<z.infer<typeof BillingStatusResponseSchema>> {
+  return fetchApi('/billing/status', {}, BillingStatusResponseSchema);
+}
+
 export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'DELETE',

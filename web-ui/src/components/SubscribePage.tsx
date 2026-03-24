@@ -31,7 +31,7 @@ import {
   mdiLayersTripleOutline,
   mdiHeadCogOutline,
 } from '@mdi/js';
-import { getAuthStatus, getPublicTiers, subscribe } from '../api/client';
+import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession } from '../api/client';
 import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
@@ -129,6 +129,27 @@ const SubscribePage: Component = () => {
   let tierPhaseRef: HTMLDivElement | undefined;
 
   onMount(async () => {
+    // Detect Stripe checkout redirect: ?checkout=success
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('checkout') === 'success') {
+      // Remove query param from URL without reload
+      window.history.replaceState({}, '', window.location.pathname);
+      // Poll auth status until subscription is active (webhook processed)
+      const maxAttempts = 15;
+      const pollInterval = 2000;
+      for (let i = 0; i < maxAttempts; i++) {
+        try {
+          const pollStatus = await getAuthStatus();
+          if (pollStatus.hasSubscribed) {
+            window.location.href = pollStatus.onboardingComplete ? '/app/' : '/app/onboarding';
+            return;
+          }
+        } catch { /* ignore poll errors */ }
+        await new Promise(r => setTimeout(r, pollInterval));
+      }
+      // If still not active after polling, let the page load normally
+    }
+
     try {
       const [status, tiersData] = await Promise.all([
         getAuthStatus(),
@@ -259,17 +280,30 @@ const SubscribePage: Component = () => {
 
   async function handleSubscribe(tierId: string) {
     const token = getTurnstileToken() || '';
+    const mode = globalMode() === 'advanced' ? 'advanced' : 'default';
     setSubscribing(tierId);
     setError('');
 
     try {
-      // Always send the toggle position — it represents the user's intended mode.
-      // Whether switching plans or modes, the Standard/Pro toggle is the selection.
-      const result = await subscribe(tierId, token, globalMode() === 'advanced' ? 'advanced' : 'default');
-      if (!result.onboardingComplete) {
-        window.location.href = '/app/onboarding';
+      // Free tier: existing direct subscribe flow
+      // Paid tiers: redirect to Stripe Checkout
+      const tierData = tiers().find(t => t.id === tierId);
+      const isPaid = tierData && (
+        mode === 'advanced'
+          ? (tierData.advancedPriceMonthly ?? tierData.priceMonthly ?? 0) > 0
+          : (tierData.priceMonthly ?? 0) > 0
+      );
+
+      if (isPaid) {
+        const { checkoutUrl } = await createCheckoutSession(tierId, mode);
+        window.location.href = checkoutUrl;
       } else {
-        window.location.href = '/app/';
+        const result = await subscribe(tierId, token, mode);
+        if (!result.onboardingComplete) {
+          window.location.href = '/app/onboarding';
+        } else {
+          window.location.href = '/app/';
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Subscription failed. Please try again.');
@@ -653,6 +687,7 @@ const SubscribePage: Component = () => {
         </Show>
 
         <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
+        <p class="login-footer login-footer-legal">&copy; 2026 Gray Matter GmbH</p>
       </div>
     </div>
   );
