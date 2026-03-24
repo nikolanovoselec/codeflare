@@ -461,19 +461,6 @@ export async function createCheckoutSession(tier: string, mode?: string): Promis
   }, CheckoutResponseSchema);
 }
 
-const BillingStatusResponseSchema = z.object({
-  stripeCustomerId: z.string().nullable(),
-  stripeSubscriptionId: z.string().nullable(),
-  stripePriceId: z.string().nullable(),
-  billingPeriodEnd: z.string().nullable(),
-  checkoutSessionId: z.string().nullable(),
-  billingStatus: z.string().nullable(),
-});
-
-export async function getBillingStatus(): Promise<z.infer<typeof BillingStatusResponseSchema>> {
-  return fetchApi('/billing/status', {}, BillingStatusResponseSchema);
-}
-
 export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'DELETE',
