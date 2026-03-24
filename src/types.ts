@@ -69,6 +69,14 @@ export interface Env {
   // Use for custom OIDC/SAML providers (e.g., Authentik, Okta).
   SAAS_EXTRA_IDPS?: string;
 
+  // Stripe secret key for payment processing (optional, SaaS mode only).
+  // Set via wrangler secret. When absent, all plans are free (no billing).
+  STRIPE_SECRET_KEY?: string;
+
+  // Stripe webhook signing secret for verifying webhook payloads (optional, SaaS mode only).
+  // Set via wrangler secret. Required when STRIPE_SECRET_KEY is set.
+  STRIPE_WEBHOOK_SECRET?: string;
+
   // Optional AES-256 key (base64) for encrypting KV values at rest.
   // Set via wrangler secret. When absent, credentials stored as plaintext.
   ENCRYPTION_KEY?: string;

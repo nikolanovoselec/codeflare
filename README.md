@@ -183,6 +183,8 @@ All optional. The defaults work out of the box. I respect your time.
 | `RESEND_EMAIL` | unset | Sender email address for Resend (secret — defaults to `Codeflare <onboarding@resend.dev>` when unset) |
 | `TURNSTILE_SITE_KEY` | unset | Cloudflare Turnstile site key (for CAPTCHA on public waitlist and subscribe page, required when `ONBOARDING_LANDING_PAGE=active` or `SAAS_MODE=active`) |
 | `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification on waitlist, subscribe, and access request endpoints) |
+| `STRIPE_SECRET_KEY` | unset | Stripe secret API key (secret — SaaS mode only). Enables paid subscriptions via Stripe Checkout. When absent, all plans are free (no billing). Use `sk_test_...` for sandbox, `sk_live_...` for production |
+| `STRIPE_WEBHOOK_SECRET` | unset | Stripe webhook signing secret (secret — SaaS mode only). Required when `STRIPE_SECRET_KEY` is set. Used to verify webhook payloads from Stripe (`whsec_...`) |
 | `ENCRYPTION_KEY` | unset | Optional. Encrypts API keys in KV (AES-256-GCM) and file contents in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded (AES-256 requirement). Generate with `openssl rand -base64 32`, then add as a GitHub Actions repository secret. Arbitrary strings will not work. |
 
 ### SaaS Mode (Custom Login)
