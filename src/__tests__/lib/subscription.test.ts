@@ -441,21 +441,13 @@ describe('getEffectiveTier', () => {
     expect(getEffectiveTier(undefined, 'advanced', null)).toBe('advanced');
   });
 
-  it('falls back to advanced when both tiers undefined (backward compat)', () => {
-    expect(getEffectiveTier(undefined, undefined, null)).toBe('advanced');
+  // CF-005: default to 'pending' when both tiers undefined (prevents free advanced access)
+  it('falls back to pending when both tiers undefined', () => {
+    expect(getEffectiveTier(undefined, undefined, null)).toBe('pending');
   });
 
   it('returns tier unchanged when billingStatus is undefined', () => {
     expect(getEffectiveTier('standard', undefined, undefined)).toBe('standard');
-  });
-
-  // CF-009: default to 'pending' when billing is active and both tiers undefined
-  it('defaults to pending when billingActive is true and tiers undefined', () => {
-    expect(getEffectiveTier(undefined, undefined, null, null, true)).toBe('pending');
-  });
-
-  it('defaults to advanced when billingActive is false and tiers undefined', () => {
-    expect(getEffectiveTier(undefined, undefined, null, null, false)).toBe('advanced');
   });
 
   // CF-015: billingPeriodEnd enforcement
@@ -477,5 +469,23 @@ describe('getEffectiveTier', () => {
   it('does not enforce billingPeriodEnd for free tier', () => {
     const expired = new Date(Date.now() - 86400000).toISOString();
     expect(getEffectiveTier('free', undefined, 'active', expired)).toBe('free');
+  });
+
+  it('CF-018: expired billingPeriodEnd does NOT downgrade unlimited tier', () => {
+    const expired = new Date(Date.now() - 86400000).toISOString();
+    expect(getEffectiveTier('unlimited', undefined, 'active', expired)).toBe('unlimited');
+  });
+
+  it('CF-018: canceled user returns free', () => {
+    expect(getEffectiveTier('standard', undefined, 'canceled', undefined)).toBe('free');
+  });
+
+  it('CF-018: billingPeriodEnd is ignored when billingStatus is not active', () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    expect(getEffectiveTier('advanced', undefined, 'past_due', future)).toBe('free');
+  });
+
+  it('CF-018: default tier when both tiers undefined is pending', () => {
+    expect(getEffectiveTier(undefined, undefined, undefined)).toBe('pending');
   });
 });

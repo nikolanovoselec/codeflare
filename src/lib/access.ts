@@ -4,6 +4,7 @@ import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
 import { isSaasModeActive } from './onboarding';
 import { sendWelcomeEmail } from './email';
+import { parseUserRecord } from './user-record';
 
 const logger = createLogger('access');
 
@@ -227,32 +228,25 @@ export function getBucketName(email: string, workerName?: string): string {
 export async function resolveUserFromKV(
   kv: KVNamespace,
   email: string
-): Promise<{ addedBy: string; addedAt: string; role: UserRole; accessTier?: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: string } | null> {
+): Promise<{ addedBy: string; addedAt: string; role: UserRole; accessTier?: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: string; billingPeriodEnd?: string } | null> {
   const normalizedEmail = normalizeEmail(email);
-  const raw = await kv.get(`user:${normalizedEmail}`);
-  if (!raw) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== 'object' || parsed === null) return null;
-  const obj = parsed as { addedBy?: unknown; addedAt?: unknown; role?: unknown; accessTier?: unknown; subscriptionTier?: unknown; billingStatus?: unknown };
-  const rawTier = typeof obj.accessTier === 'string' ? obj.accessTier : undefined;
-  // Read subscriptionTier first (new field), fall back to accessTier (backward compat)
-  const rawSubTier = typeof obj.subscriptionTier === 'string' ? obj.subscriptionTier : undefined;
+  const raw = await kv.get(`user:${normalizedEmail}`, 'json');
+  // CF-010/CF-017: Use parseUserRecord for validated, typed parsing
+  const record = parseUserRecord(raw);
+  if (!record) return null;
+  const rawTier = record.accessTier;
+  const rawSubTier = record.subscriptionTier;
   const subscriptionTier = rawSubTier && VALID_SUBSCRIPTION_TIERS.has(rawSubTier)
     ? (rawSubTier as SubscriptionTier)
     : undefined;
-  const billingStatus = typeof obj.billingStatus === 'string' ? obj.billingStatus : undefined;
   return {
-    addedBy: typeof obj.addedBy === 'string' ? obj.addedBy : 'unknown',
-    addedAt: typeof obj.addedAt === 'string' ? obj.addedAt : '',
-    role: obj.role === 'admin' ? 'admin' : 'user',
+    addedBy: record.addedBy,
+    addedAt: record.addedAt,
+    role: record.role === 'admin' ? 'admin' : 'user',
     accessTier: rawTier && VALID_ACCESS_TIERS.has(rawTier) ? (rawTier as AccessTier) : undefined,
     subscriptionTier,
-    billingStatus,
+    billingStatus: record.billingStatus,
+    billingPeriodEnd: record.billingPeriodEnd,
   };
 }
 
@@ -266,7 +260,7 @@ export async function resolveOrProvisionUser(
   kv: KVNamespace,
   email: string,
   env: Env
-): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: string }> {
+): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: string; billingPeriodEnd?: string }> {
   const normalizedEmail = normalizeEmail(email);
   const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
 
@@ -276,6 +270,7 @@ export async function resolveOrProvisionUser(
       accessTier: kvEntry.accessTier ?? 'advanced',
       subscriptionTier: kvEntry.subscriptionTier,
       billingStatus: kvEntry.billingStatus,
+      billingPeriodEnd: kvEntry.billingPeriodEnd,
     };
   }
 
@@ -336,9 +331,9 @@ export async function authenticateRequest(
 
   // SaaS mode: use resolveOrProvisionUser for JIT provisioning + accessTier
   if (isSaasModeActive(env.SAAS_MODE)) {
-    const { role, accessTier, subscriptionTier, billingStatus } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
+    const { role, accessTier, subscriptionTier, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
     const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
-    return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, billingStatus }, bucketName };
+    return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, billingStatus, billingPeriodEnd }, bucketName };
   }
 
   // Non-SaaS mode: existing allowlist behavior
@@ -346,7 +341,7 @@ export async function authenticateRequest(
   if (!kvEntry) {
     throw new ForbiddenError('User not in allowlist');
   }
-  const { role, accessTier, subscriptionTier, billingStatus } = kvEntry;
+  const { role, accessTier, subscriptionTier, billingStatus, billingPeriodEnd } = kvEntry;
   const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
-  return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, billingStatus }, bucketName };
+  return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, billingStatus, billingPeriodEnd }, bucketName };
 }

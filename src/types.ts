@@ -101,6 +101,7 @@ export interface AccessUser {
   accessTier?: AccessTier;
   subscriptionTier?: SubscriptionTier;
   billingStatus?: string;
+  billingPeriodEnd?: string;
 }
 
 /**

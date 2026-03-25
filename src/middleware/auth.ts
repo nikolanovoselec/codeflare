@@ -55,7 +55,7 @@ export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: A
   c.set('bucketName', bucketName);
 
   if (isSaasModeActive(c.env.SAAS_MODE)) {
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
     // isActiveTier: blocked/pending → false (403), active tiers → true (pass)
     // Note: canLogin in tier config controls authentication (pending=true → can see subscribe page).
     // requireActiveUser controls IDE access — pending users are blocked from API routes.

@@ -110,11 +110,20 @@ describe('POST /auth/subscribe', () => {
   // Turnstile validation
   // ---------------------------------------------------------------------------
 
-  it('accepts subscribe without turnstileToken (token is optional)', async () => {
+  // CF-001: When turnstile secret is configured, token is required
+  it('returns 403 when turnstileToken is missing and turnstile secret is configured', async () => {
     const app = createApp();
     const res = await postSubscribe(app, { tier: 'free' });
 
-    // turnstileToken is now optional — pending users without Turnstile secret configured succeed
+    expect(res.status).toBe(403);
+    const body = await res.json() as { code: string };
+    expect(body.code).toBe('FORBIDDEN');
+  });
+
+  it('accepts subscribe without turnstileToken when turnstile secret is NOT configured', async () => {
+    const app = createApp({ TURNSTILE_SECRET_KEY: undefined } as unknown as Partial<Env>);
+    const res = await postSubscribe(app, { tier: 'free' });
+
     expect(res.status).toBe(200);
   });
 

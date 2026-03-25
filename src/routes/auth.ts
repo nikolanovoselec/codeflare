@@ -82,8 +82,7 @@ app.get('/status', requireIdentity, async (c) => {
   // Billing-aware tier resolution: downgrade paid tiers to free when billing is canceled/past_due
   const billingStatus = (userData?.billingStatus as string) ?? null;
   const billingPeriodEnd = (userData?.billingPeriodEnd as string) ?? null;
-  const stripeActive = isStripeConfigured(c.env);
-  const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus, billingPeriodEnd, stripeActive);
+  const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus, billingPeriodEnd);
 
   // Always include turnstile site key in SaaS mode (needed by subscribe page)
   const turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
@@ -297,11 +296,15 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     }
   }
 
-  // Verify Turnstile token for new subscriptions (active users switching plans skip Turnstile)
+  // CF-001: Require Turnstile token for new subscriptions when secret is configured.
+  // Active users switching plans skip Turnstile.
   if (!isAlreadySubscribed) {
     const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
       || await c.env.KV.get('setup:turnstile_secret_key');
-    if (turnstileSecret && parsed.data.turnstileToken) {
+    if (turnstileSecret) {
+      if (!parsed.data.turnstileToken) {
+        throw new ForbiddenError('CAPTCHA token required');
+      }
       const remoteIp = c.req.header('CF-Connecting-IP') || null;
       const verification = await verifyTurnstileToken(parsed.data.turnstileToken, turnstileSecret, remoteIp);
       if (!verification.success) {

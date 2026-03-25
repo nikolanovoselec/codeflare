@@ -113,8 +113,9 @@ export async function validateSessionAndCheckLimits(params: {
   subscriptionTier?: string;
   accessTier?: string;
   billingStatus?: string;
+  billingPeriodEnd?: string;
 }): Promise<Session> {
-  const { env, bucketName, sessionId, maxSessions, subscriptionTier, accessTier, billingStatus } = params;
+  const { env, bucketName, sessionId, maxSessions, subscriptionTier, accessTier, billingStatus, billingPeriodEnd } = params;
 
   const sessionKey = getSessionKey(bucketName, sessionId);
   const sessionData = await env.KV.get<Session>(sessionKey, 'json');
@@ -130,7 +131,7 @@ export async function validateSessionAndCheckLimits(params: {
     if (isSaas) {
       try {
         const tiers = await getTierConfig(env.KV);
-        resolvedTier = getUserTier(getEffectiveTier(subscriptionTier, accessTier, billingStatus), tiers);
+        resolvedTier = getUserTier(getEffectiveTier(subscriptionTier, accessTier, billingStatus, billingPeriodEnd), tiers);
       } catch { /* fall back to role-based */ }
     }
 
@@ -450,6 +451,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       subscriptionTier: user.subscriptionTier,
       accessTier: user.accessTier,
       billingStatus: user.billingStatus,
+      billingPeriodEnd: user.billingPeriodEnd,
     });
 
     const containerId = getContainerId(bucketName, sessionId);
@@ -460,7 +462,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     const sessionMode = resolveSessionMode(preferences);
     // Free tier: locked to 5m idle timeout. All other tiers: user preference or 30m default.
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
     const sleepAfter = effectiveTier === 'free' ? '5m' : (preferences.sleepAfter || '30m');
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars

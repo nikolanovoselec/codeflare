@@ -232,8 +232,8 @@ export async function sendSubscriptionAdminNotification(opts: {
 }
 
 /**
- * Send a subscription renewal email (stub — not wired yet, for future billing integration).
- * TODO: Wire this into billing/payment processor when integrated.
+ * Send a subscription renewal email. Called by the invoice.paid webhook handler
+ * (stripe-webhook.ts) when a recurring payment succeeds.
  */
 export async function sendRenewalEmail(opts: {
   userEmail: string;

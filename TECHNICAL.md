@@ -2810,6 +2810,29 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 - **Decision:** Accept Host header parsing for `.workers.dev` domains during setup. The exposure window is: (1) only during first-time setup (minutes), (2) requires CF Access JWT authentication, (3) setup is idempotent. For custom domains, the env var set at deploy time takes precedence.
 - **Consequences:** A spoofed Host header on a `.workers.dev` domain during the setup window could theoretically direct configuration to a different worker name, but this requires authenticated access and the window is extremely narrow.
 
+#### AD: KV as Billing State Store (CF-015)
+- **Status:** Accepted
+- **Context:** All billing state (subscriptionTier, billingStatus, billingPeriodEnd) is stored in Cloudflare KV, which is eventually consistent (~60s propagation) with no transactional guarantees. Webhook handlers use `updateUserRecord()` (read-merge-write) which can lose fields if two handlers fire within the propagation window.
+- **Decision:** Accept KV as the billing state store. Mitigations: (1) `getEffectiveTier()` derives effective tier from multiple KV fields with safe defaults — partial updates degrade gracefully to 'free' rather than granting paid access. (2) Stripe webhook retry + idempotent handlers mean transient KV failures self-heal. (3) `billingPeriodEnd` expiry catches missed `subscription.deleted` webhooks.
+- **Consequences:** A partial webhook update can leave billing fields inconsistent for up to 60s. In the worst case, a user briefly sees stale quota information. Billing-critical decisions (tier enforcement, quota checks) use `getEffectiveTier()` which defaults to restrictive ('pending'/'free') on missing data. A periodic reconciliation job validating KV state against Stripe's API is a recommended future improvement.
+
+## Module-Level Caches (CF-014)
+
+All module-level caches in the codebase. Workers isolates do not share memory, so each cache is per-isolate.
+
+| Module | Cache Variable | TTL | What It Caches | Reset Function |
+|---|---|---|---|---|
+| `src/lib/access.ts` | `cachedAuthDomain`, `cachedAccessAud`, `cachedAccessAudList` | 5 min | CF Access auth domain and audience config | `resetAuthConfigCache()` |
+| `src/lib/subscription.ts` | `cachedTierConfig` | 60s | Tier configuration from `tiers:config` KV key | `resetTierConfigCache()` |
+| `src/lib/cors-cache.ts` | `cachedKvOrigins` | 5 min | CORS origins from `setup:custom_domain` + `setup:allowed_origins` | `resetCorsOriginsCache()` |
+| `src/lib/jwt.ts` | JWKS key cache | 1 hour | Cloudflare Access JWKS public keys | `resetJwksCache()` |
+| `src/lib/stripe.ts` | `priceCache` | 1 hour | Stripe price amount/currency per price ID | (none — TTL-only) |
+| `src/lib/kv-crypto.ts` | imported CryptoKey | Isolate lifetime | AES-256 key from `ENCRYPTION_KEY` env var | (none — persists for isolate lifetime) |
+| `src/lib/rate-limit-core.ts` | `failedKvOps` | Isolate lifetime | Counter for consecutive KV failures (circuit breaker) | (none) |
+| `src/lib/circuit-breakers.ts` | per-container breakers | Isolate lifetime | Circuit breaker state per container ID | (none) |
+
+After admin config changes, different isolates may enforce different values for up to the cache TTL. This is an accepted trade-off for KV read performance.
+
 ## Technical Debt
 
 Known issues deferred for future remediation. These are tracked here to avoid re-discovering them in future reviews.

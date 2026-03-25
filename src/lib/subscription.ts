@@ -205,17 +205,20 @@ const PAID_TIERS: ReadonlySet<string> = new Set(['standard', 'advanced', 'max'])
  * - billingStatus 'canceled' or 'past_due' → free (for paid tiers only)
  * - billingPeriodEnd expired and billingStatus 'active' → free (catches missed webhooks)
  *
- * CF-009: When both tiers are undefined and billingActive is true, default to 'pending'
+ * CF-009: When both tiers are undefined, default to 'pending'
  * instead of 'advanced' to prevent free compute for corrupted/missing KV records.
+ *
+ * CF-005: billingActive parameter removed — the fallback is always 'pending'
+ * regardless of billing state. Non-SaaS deployments that need 'advanced' as the
+ * default should set accessTier explicitly on user records.
  */
 export function getEffectiveTier(
   subscriptionTier: string | undefined,
   accessTier: string | undefined,
   billingStatus: string | null | undefined,
   billingPeriodEnd?: string | null,
-  billingActive?: boolean,
 ): string {
-  const raw = subscriptionTier ?? accessTier ?? (billingActive ? 'pending' : 'advanced');
+  const raw = subscriptionTier ?? accessTier ?? 'pending';
   if (!PAID_TIERS.has(raw)) return raw;
 
   // Explicit billing failure

@@ -16,6 +16,7 @@ import {
   isStripeConfigured,
 } from '../lib/stripe';
 import { SUBSCRIBABLE_TIER_IDS, getTierConfig, getUserTier } from '../lib/subscription';
+import { updateUserRecord, parseUserRecord } from '../lib/user-record';
 import { sendRenewalEmail } from '../lib/email';
 
 const logger = createLogger('stripe-webhook');
@@ -125,7 +126,8 @@ async function handleCheckoutCompleted(
   env: Env,
 ): Promise<void> {
   const session = event.data.object;
-  const email = (session.customer_email as string) || (session.metadata as Record<string, string>)?.email;
+  // CF-011: Prefer metadata.email (CF Access-verified) over customer_email (user-controlled Stripe form)
+  const email = (session.metadata as Record<string, string>)?.email || (session.customer_email as string);
   const customerId = session.customer as string;
   const subscriptionId = session.subscription as string;
 
@@ -144,11 +146,13 @@ async function handleCheckoutCompleted(
   let tier = metadata?.tier;
   const mode = metadata?.mode ?? 'default';
 
+  // Extract line-item price ID for cross-check and fallback
+  const lineItems = session.line_items as { data?: Array<{ price?: { id?: string } }> } | undefined;
+  const lineItemPriceId = lineItems?.data?.[0]?.price?.id;
+
   if (!tier || !SUBSCRIBABLE_TIER_IDS.has(tier)) {
     // Attempt price-based resolution from session line items
-    const lineItems = session.line_items as { data?: Array<{ price?: { id?: string } }> } | undefined;
-    const sessionPriceId = lineItems?.data?.[0]?.price?.id;
-    const resolved = sessionPriceId ? resolveTierFromPriceId(sessionPriceId) : null;
+    const resolved = lineItemPriceId ? resolveTierFromPriceId(lineItemPriceId) : null;
     if (resolved) {
       tier = resolved.tier;
     } else {
@@ -158,10 +162,20 @@ async function handleCheckoutCompleted(
       });
       return;
     }
+  } else if (lineItemPriceId) {
+    // CF-003: Cross-check metadata.tier against the price the customer actually paid.
+    // If they diverge, the price wins — it's the ground truth from Stripe.
+    const priceResolved = resolveTierFromPriceId(lineItemPriceId);
+    if (priceResolved && priceResolved.tier !== tier) {
+      logger.error('Tier mismatch: metadata vs price', new Error('tier mismatch'), {
+        eventId: event.id, metadataTier: tier, priceTier: priceResolved.tier,
+      });
+      tier = priceResolved.tier; // Price wins
+    }
   }
 
   // CF-023: Check for existing subscription before overwriting
-  const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
+  const existing = parseUserRecord(await env.KV.get(`user:${email}`, 'json'));
   if (existing?.stripeSubscriptionId && existing.stripeSubscriptionId !== subscriptionId) {
     logger.warn('checkout.session.completed: user already has a different subscription', {
       email,
@@ -170,9 +184,8 @@ async function handleCheckoutCompleted(
     });
   }
 
-  // Update user KV
-  const updated: Record<string, unknown> = {
-    ...existing,
+  // Update user KV via updateUserRecord helper (CF-008)
+  await updateUserRecord(env.KV, email, {
     subscriptionTier: tier,
     accessTier: tier,
     subscribedMode: mode,
@@ -182,8 +195,7 @@ async function handleCheckoutCompleted(
     checkoutSessionId: session.id as string,
     billingStatus: 'active',
     trialUsed: existing?.trialUsed === true,
-  };
-  await env.KV.put(`user:${email}`, JSON.stringify(updated));
+  });
 
   logger.info('Checkout completed', { email, tier, mode, customerId, subscriptionId });
 }
@@ -208,18 +220,15 @@ async function handleSubscriptionCreated(
   const priceId = items?.data?.[0]?.price?.id;
   const tierInfo = priceId ? resolveTierFromPriceId(priceId) : null;
 
-  const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
-  const updated: Record<string, unknown> = {
-    ...existing,
+  await updateUserRecord(env.KV, email, {
     stripeSubscriptionId: subscription.id as string,
     billingStatus: subscription.status as string,
-    billingPeriodEnd: typeof subscription.current_period_end === 'number'
-      ? new Date(subscription.current_period_end * 1000).toISOString()
-      : undefined,
+    ...(typeof subscription.current_period_end === 'number'
+      ? { billingPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString() }
+      : {}),
     ...(priceId ? { stripePriceId: priceId } : {}),
     ...(tierInfo ? { subscriptionTier: tierInfo.tier, accessTier: tierInfo.tier, subscribedMode: tierInfo.mode } : {}),
-  };
-  await env.KV.put(`user:${email}`, JSON.stringify(updated));
+  });
 
   logger.info('Subscription created', { email, subscriptionId: subscription.id, priceId });
 }
@@ -243,18 +252,16 @@ async function handleInvoicePaid(
   const periodEnd = invoice.lines as { data?: Array<{ period?: { end?: number } }> };
   const endTs = periodEnd?.data?.[0]?.period?.end;
 
-  const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
-  const updated: Record<string, unknown> = {
-    ...existing,
+  await updateUserRecord(env.KV, email, {
     billingStatus: 'active',
     ...(subscriptionId ? { stripeSubscriptionId: subscriptionId } : {}),
     ...(endTs ? { billingPeriodEnd: new Date(endTs * 1000).toISOString() } : {}),
-  };
-  await env.KV.put(`user:${email}`, JSON.stringify(updated));
+  });
 
   // CF-012: Send renewal confirmation email (fire-and-forget)
   try {
-    const tierValue = (updated.subscriptionTier as string) ?? 'standard';
+    const updatedRecord = parseUserRecord(await env.KV.get(`user:${email}`, 'json'));
+    const tierValue = updatedRecord?.subscriptionTier ?? 'standard';
     const tiers = await getTierConfig(env.KV);
     const tierConfig = getUserTier(tierValue, tiers);
     const monthlyHours = tierConfig.monthlySeconds !== null
@@ -288,9 +295,8 @@ async function handlePaymentFailed(
     return;
   }
 
-  const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
-  const updated = { ...existing, billingStatus: 'past_due' };
-  await env.KV.put(`user:${email}`, JSON.stringify(updated));
+  // CF-004: Reset tiers to 'free' so all enforcement paths deny access immediately
+  await updateUserRecord(env.KV, email, { billingStatus: 'past_due', subscriptionTier: 'free', accessTier: 'free' });
 
   logger.warn('Payment failed', { email, customerId });
 }
@@ -311,9 +317,8 @@ async function handleSubscriptionDeleted(
     return;
   }
 
-  const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
-  const updated = { ...existing, billingStatus: 'canceled' };
-  await env.KV.put(`user:${email}`, JSON.stringify(updated));
+  // CF-004: Reset tiers to 'free' so all enforcement paths (including raw field reads) deny access
+  await updateUserRecord(env.KV, email, { billingStatus: 'canceled', subscriptionTier: 'free', accessTier: 'free' });
 
   logger.info('Subscription deleted', { email, customerId });
 }
@@ -338,9 +343,7 @@ async function handleSubscriptionUpdated(
   const priceId = items?.data?.[0]?.price?.id;
   const tierInfo = priceId ? resolveTierFromPriceId(priceId) : null;
 
-  const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
-  const updated: Record<string, unknown> = {
-    ...existing,
+  await updateUserRecord(env.KV, email, {
     stripeSubscriptionId: subscription.id as string,
     billingStatus: subscription.status as string,
     ...(priceId ? { stripePriceId: priceId } : {}),
@@ -352,8 +355,7 @@ async function handleSubscriptionUpdated(
     ...(typeof subscription.current_period_end === 'number'
       ? { billingPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString() }
       : {}),
-  };
-  await env.KV.put(`user:${email}`, JSON.stringify(updated));
+  });
 
   logger.info('Subscription updated', { email, subscriptionId: subscription.id, priceId, tier: tierInfo?.tier });
 }

@@ -65,10 +65,19 @@ const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 const logger = createLogger('index');
 
+// CF-012: Log once per isolate if both SAAS_MODE and STRESS_TEST_MODE are active
+let stressTestSaasWarningLogged = false;
+
 // ============================================================================
 // Request Tracing Middleware
 // ============================================================================
 app.use('*', async (c, next) => {
+  // CF-012: Defense-in-depth — warn loudly when stress test mode is active in production SaaS
+  if (!stressTestSaasWarningLogged && c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active') {
+    logger.error('CRITICAL: STRESS_TEST_MODE active in SaaS production — rate limits disabled');
+    stressTestSaasWarningLogged = true;
+  }
+
   const clientId = c.req.header('X-Request-ID');
   const requestId = (clientId && REQUEST_ID_PATTERN.test(clientId))
     ? clientId

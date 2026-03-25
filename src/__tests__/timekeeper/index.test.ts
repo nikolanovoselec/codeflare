@@ -403,4 +403,93 @@ describe('Timekeeper DO', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('delta clamping (CF-020)', () => {
+    it('clamps delta to 300 seconds per ping', async () => {
+      const tk = createTimekeeper();
+      // First ping establishes baseline
+      await tk.fetch(pingRequest({
+        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 100, email: 'alice@example.com',
+      }));
+      // Second ping with huge jump — delta should be capped at 300
+      const res = await tk.fetch(pingRequest({
+        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 10000, email: 'alice@example.com',
+      }));
+      const body = await res.json() as { totalMonthlySeconds: number };
+      // 100 (first) + 300 (clamped) = 400
+      expect(body.totalMonthlySeconds).toBe(400);
+    });
+
+    it('clamps delta on session restart to 300', async () => {
+      const tk = createTimekeeper();
+      await tk.fetch(pingRequest({
+        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 500, email: 'alice@example.com',
+      }));
+      // Restart: totalSeconds < previous, but also huge
+      const res = await tk.fetch(pingRequest({
+        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 400, email: 'alice@example.com',
+      }));
+      const body = await res.json() as { totalMonthlySeconds: number };
+      // 300 (clamped first) + 300 (clamped restart) = 600
+      expect(body.totalMonthlySeconds).toBe(600);
+    });
+  });
+
+  describe('alarm retry on KV failure (CF-020)', () => {
+    it('re-arms alarm on KV write failure and preserves pendingSeconds', async () => {
+      const tk = createTimekeeper();
+      await tk.fetch(pingRequest({
+        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 60, email: 'alice@example.com',
+      }));
+
+      // Mock KV put to throw on alarm flush
+      mockKV.put.mockRejectedValueOnce(new Error('KV write failed'));
+      mockStorage.setAlarm.mockClear();
+
+      await tk.alarm();
+
+      // Should re-arm alarm for retry (30s)
+      expect(mockStorage.setAlarm).toHaveBeenCalledWith(expect.any(Number));
+      // pendingSeconds should NOT be reset to 0 (preserved for retry)
+      const putCalls = mockStorage.put.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'pendingSeconds' && c[1] === 0
+      );
+      // The last pendingSeconds write should NOT be 0 since flush failed
+      const lastPendingWrite = mockStorage.put.mock.calls
+        .filter((c: unknown[]) => c[0] === 'pendingSeconds')
+        .pop();
+      expect(lastPendingWrite?.[1]).toBe(60); // still 60, not 0
+    });
+  });
+
+  describe('trial quota enforcement (CF-020)', () => {
+    it('returns quotaExceeded=true when trialing user exceeds trialQuotaHours', async () => {
+      // Standard tier: trialQuotaHours=40 => 144000s
+      mockKV.get.mockImplementation(async (key: string, type?: string) => {
+        if (key === 'tiers:config') return null; // use defaults
+        if (key.startsWith('user:')) return JSON.stringify({
+          subscriptionTier: 'standard', billingStatus: 'trialing',
+          stripeSubscriptionId: 'sub_123',
+        });
+        if (key.startsWith('timekeeper:')) {
+          const record = {
+            today: { date: TODAY, seconds: 0 },
+            thisWeek: { weekStart: THIS_WEEK_START, seconds: 0 },
+            thisMonth: { month: THIS_MONTH, seconds: 143900 },
+            thisYear: { year: THIS_YEAR, seconds: 143900 },
+            allTime: { seconds: 143900 },
+            lastUpdatedAt: new Date().toISOString(),
+          };
+          return type === 'json' ? record : JSON.stringify(record);
+        }
+        return null;
+      });
+      const tk = createTimekeeper();
+      const res = await tk.fetch(pingRequest({
+        bucketName: 'cf-alice', sessionId: 'sess1', totalSeconds: 200, email: 'alice@example.com',
+      }));
+      const body = await res.json() as { quotaExceeded: boolean };
+      expect(body.quotaExceeded).toBe(true);
+    });
+  });
 });

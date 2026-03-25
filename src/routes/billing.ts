@@ -75,7 +75,9 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     throw new ValidationError('Free tier does not require payment.');
   }
 
-  const priceId = getStripePriceId(tier, mode);
+  // CF-007: Fetch tiers BEFORE priceId lookup so KV-configured price IDs are used
+  const tiers = await getTierConfig(c.env.KV);
+  const priceId = getStripePriceId(tier, mode, tiers);
   if (!priceId) {
     throw new ValidationError(`No Stripe price found for tier "${tier}" mode "${mode}".`);
   }
@@ -89,9 +91,6 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   // Check if user has already used their trial — if not, include 30-day trial window
   // (actual compute is capped by trialQuotaHours in tier config; Stripe trial is just the billing window)
   const trialUsed = userData?.trialUsed === true;
-
-  // Read trial quota from tier config for checkout custom text
-  const tiers = await getTierConfig(c.env.KV);
   const tierConfig = tiers.find(t => t.id === tier);
   const trialQuotaHours = tierConfig?.trialQuotaHours ?? 4;
 

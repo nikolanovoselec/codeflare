@@ -26,6 +26,7 @@ import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpe
 import { authenticateRequest } from '../lib/access';
 import { isSaasModeActive } from '../lib/onboarding';
 import { isActiveUser } from '../lib/access-tier';
+import { getEffectiveTier } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
 import { getContainerSessionsCB } from '../lib/circuit-breakers';
 import { isAllowedOrigin } from '../lib/cors-cache';
@@ -170,7 +171,8 @@ export async function handleWebSocketUpgrade(
     }
 
     // SaaS mode: enforce access tier on WebSocket connections (mirrors requireActiveUser)
-    const effectiveTier = user.subscriptionTier ?? user.accessTier;
+    // CF-006: Use getEffectiveTier with all args instead of raw field read
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
     if (isSaasModeActive(env.SAAS_MODE) && !isActiveUser(effectiveTier)) {
       const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
       return new Response(JSON.stringify({ error: 'Access denied', code }), { status: 403, headers: jsonHeaders });

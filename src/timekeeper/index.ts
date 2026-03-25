@@ -179,7 +179,7 @@ export class Timekeeper {
       const userData = userRaw ? JSON.parse(userRaw) : {};
       const effectiveTierValue = getEffectiveTier(
         userData.subscriptionTier, userData.accessTier, userData.billingStatus,
-        userData.billingPeriodEnd, !!this.env.STRIPE_SECRET_KEY,
+        userData.billingPeriodEnd,
       );
       const tier = getUserTier(effectiveTierValue, tiers);
 
