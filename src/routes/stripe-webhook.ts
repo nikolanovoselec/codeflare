@@ -14,7 +14,8 @@ import {
   resolveTierFromPriceId,
   isStripeConfigured,
 } from '../lib/stripe';
-import { SUBSCRIBABLE_TIER_IDS } from '../lib/subscription';
+import { SUBSCRIBABLE_TIER_IDS, getTierConfig, getUserTier } from '../lib/subscription';
+import { sendRenewalEmail } from '../lib/email';
 
 const logger = createLogger('stripe-webhook');
 
@@ -242,6 +243,23 @@ async function handleInvoicePaid(
     ...(endTs ? { billingPeriodEnd: new Date(endTs * 1000).toISOString() } : {}),
   };
   await env.KV.put(`user:${email}`, JSON.stringify(updated));
+
+  // CF-012: Send renewal confirmation email (fire-and-forget)
+  try {
+    const tierValue = (updated.subscriptionTier as string) ?? 'standard';
+    const tiers = await getTierConfig(env.KV);
+    const tierConfig = getUserTier(tierValue, tiers);
+    const monthlyHours = tierConfig.monthlySeconds !== null
+      ? `${Math.round(tierConfig.monthlySeconds / 3600)}h`
+      : 'Unlimited';
+    void sendRenewalEmail({
+      userEmail: email,
+      tierName: tierConfig.displayName,
+      monthlyHours,
+      maxSessions: tierConfig.maxSessions,
+      env,
+    });
+  } catch { /* non-fatal */ }
 
   logger.info('Invoice paid', { email, subscriptionId });
 }

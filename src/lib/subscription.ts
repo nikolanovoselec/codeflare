@@ -138,7 +138,10 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
   ];
 }
 
-// Module-level cache for tier config (avoids KV reads on every request/ping)
+// Module-level cache for tier config (avoids KV reads on every request/ping).
+// CF-007: Billing enforcement decisions may use stale quotas for up to 60 seconds
+// after an admin change. This is an accepted trade-off for KV read performance.
+// The same TTL pattern is used in access.ts, cors-cache.ts, jwt.ts, kv-crypto.ts.
 const TIER_CONFIG_CACHE_TTL_MS = 60_000; // 1 minute
 let cachedTierConfig: SubscriptionTierConfig[] | null = null;
 let tierConfigCachedAt = 0;

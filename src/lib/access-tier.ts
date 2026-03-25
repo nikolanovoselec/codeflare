@@ -15,23 +15,6 @@ export function isActiveUser(tier: AccessTier | SubscriptionTier | string | unde
 }
 
 /**
- * Hardcoded session mode defaults (conservative subset of getDefaultTiers() config).
- * Note: standard tier returns ['default'] here but ['default', 'advanced'] in config.
- * Use getAllowedSessionModesWithConfig() for config-aware enforcement.
- */
-export function allowedSessionModes(tier: AccessTier | SubscriptionTier | string | undefined): SessionMode[] {
-  if (tier === 'advanced' || tier === 'max' || tier === 'unlimited' || tier === undefined) {
-    return ['default', 'advanced'];
-  }
-  if (tier === 'standard' || tier === 'free' || tier === 'trial') return ['default'];
-  return [];
-}
-
-export function canUseSessionMode(tier: AccessTier | SubscriptionTier | string | undefined, mode: SessionMode): boolean {
-  return allowedSessionModes(tier).includes(mode);
-}
-
-/**
  * Config-aware session mode check. Pass tier config from KV for
  * authoritative enforcement that respects admin overrides.
  */

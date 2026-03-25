@@ -291,8 +291,10 @@ export async function resolveOrProvisionUser(
       subscriptionTier: 'pending',
     }));
 
-    // Fire-and-forget welcome email
-    void sendWelcomeEmail({ userEmail: normalizedEmail, env });
+    // Fire-and-forget welcome email (instanceUrl derived from custom domain if available)
+    const customDomain = await kv.get('setup:custom_domain');
+    const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
+    void sendWelcomeEmail({ userEmail: normalizedEmail, instanceUrl, env });
 
     return { role: 'user', accessTier: 'pending', subscriptionTier: 'pending' };
   }

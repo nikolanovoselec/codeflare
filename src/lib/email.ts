@@ -65,9 +65,13 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
  */
 export async function sendWelcomeEmail(opts: {
   userEmail: string;
+  instanceUrl?: string;
   env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
   const safeEmail = escapeXml(opts.userEmail);
+  const subscribeLink = opts.instanceUrl
+    ? `<p><a href="${escapeXml(opts.instanceUrl)}/app/subscribe">Choose your plan</a></p>`
+    : '';
   return sendEmail({
     to: [opts.userEmail],
     subject: 'Welcome to Codeflare',
@@ -76,8 +80,8 @@ export async function sendWelcomeEmail(opts: {
       `<p>Hi ${safeEmail},</p>`,
       '<p>Your account has been created. To get started, choose a subscription plan that fits your needs.</p>',
       '<p>Codeflare gives you a browser-based cloud IDE with 5 AI coding agents, a full Linux terminal, file browser, and R2 cloud sync — ready to code on any device.</p>',
-      '<p><a href="https://codeflare.novoselec.ch/app/subscribe">Choose your plan</a></p>',
-    ].join('\n'),
+      subscribeLink,
+    ].filter(Boolean).join('\n'),
     env: opts.env,
   });
 }
@@ -304,4 +308,32 @@ export async function sendTierChangeNotification(opts: {
       env,
     });
   }
+}
+
+/**
+ * Send admin notification for a new access request (CF-020).
+ * Replaces raw fetch call in auth.ts request-access handler.
+ */
+export async function sendAccessRequestNotification(opts: {
+  userEmail: string;
+  requestedAt: string;
+  remoteIp: string | null;
+  adminEmails: string[];
+  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
+}): Promise<boolean> {
+  if (opts.adminEmails.length === 0) return false;
+  const safeEmail = escapeXml(opts.userEmail);
+  const safeIp = escapeXml(opts.remoteIp || 'unknown');
+  return sendEmail({
+    to: opts.adminEmails,
+    subject: `Codeflare access request: ${opts.userEmail.replace(/[\r\n]/g, '')}`,
+    html: [
+      '<h2>New Codeflare access request</h2>',
+      `<p><strong>Email:</strong> ${safeEmail}</p>`,
+      `<p><strong>Requested at:</strong> ${opts.requestedAt}</p>`,
+      `<p><strong>IP:</strong> ${safeIp}</p>`,
+    ].join('\n'),
+    replyTo: opts.userEmail.replace(/[\r\n]/g, ''),
+    env: opts.env,
+  });
 }

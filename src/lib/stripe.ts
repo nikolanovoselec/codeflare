@@ -66,16 +66,22 @@ async function stripeRequest<T>(
   params: Record<string, string>,
   secretKey: string,
   method: string = 'POST',
+  idempotencyKey?: string,
 ): Promise<T> {
   const url = `https://api.stripe.com${path}`;
   const body = new URLSearchParams(params).toString();
 
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${secretKey}`,
+    'Content-Type': 'application/x-www-form-urlencoded',
+  };
+  if (idempotencyKey) {
+    headers['Idempotency-Key'] = idempotencyKey;
+  }
+
   const response = await fetch(url, {
     method,
-    headers: {
-      'Authorization': `Bearer ${secretKey}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
+    headers,
     body: method !== 'GET' ? body : undefined,
     signal: AbortSignal.timeout(15_000),
   });
@@ -125,10 +131,17 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
     }
   }
 
+  // CF-030: Derive idempotency key to prevent duplicate checkout sessions on retry
+  const idempotencyInput = `${opts.customerEmail}:${opts.priceId}:${Math.floor(Date.now() / 60000)}`;
+  const idempotencyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(idempotencyInput));
+  const idempotencyKey = Array.from(new Uint8Array(idempotencyBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+
   const session = await stripeRequest<{ id: string; url: string }>(
     '/v1/checkout/sessions',
     params,
     opts.secretKey,
+    'POST',
+    idempotencyKey,
   );
 
   return { id: session.id, url: session.url };

@@ -10,7 +10,7 @@ import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
-import { sendSubscriptionEmail, sendSubscriptionAdminNotification } from '../lib/email';
+import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { isStripeConfigured } from '../lib/stripe';
@@ -180,38 +180,19 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
   const updated = { ...existingRaw, requestedAt };
   await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
 
-  // Send admin notification email if Resend is configured
-  const resendApiKey = c.env.RESEND_API_KEY;
-  if (resendApiKey) {
-    try {
-      const users = await getAllUsers(c.env.KV);
-      const adminRecipients = users.filter((u) => u.role === 'admin').map((u) => u.email);
-      if (adminRecipients.length > 0) {
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${resendApiKey}`,
-          },
-          signal: AbortSignal.timeout(10_000),
-          body: JSON.stringify({
-            from: c.env.RESEND_EMAIL || 'Codeflare <onboarding@resend.dev>',
-            to: adminRecipients,
-            subject: `Codeflare access request: ${user.email.replace(/[\r\n]/g, '')}`,
-            html: [
-              '<h2>New Codeflare access request</h2>',
-              `<p><strong>Email:</strong> ${escapeXml(user.email)}</p>`,
-              `<p><strong>Requested at:</strong> ${requestedAt}</p>`,
-              `<p><strong>IP:</strong> ${escapeXml(remoteIp || 'unknown')}</p>`,
-            ].join('\n'),
-            reply_to: user.email.replace(/[\r\n]/g, ''),
-          }),
-        });
-      }
-    } catch (err) {
-      // Non-fatal: log but don't fail the request
-      logger.error('Failed to send access request notification email', err instanceof Error ? err : new Error(String(err)));
-    }
+  // Send admin notification email (non-fatal, using shared sendEmail helper)
+  try {
+    const users = await getAllUsers(c.env.KV);
+    const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
+    await sendAccessRequestNotification({
+      userEmail: user.email,
+      requestedAt,
+      remoteIp,
+      adminEmails,
+      env: c.env,
+    });
+  } catch (err) {
+    logger.error('Failed to send access request notification email', err instanceof Error ? err : new Error(String(err)));
   }
 
   logger.info('Access request submitted', { email: user.email });
