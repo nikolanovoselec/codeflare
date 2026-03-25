@@ -63,20 +63,22 @@ type SubscribePhase = 'home' | 'tiers';
 
 /** Home view feature highlights */
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRobotOutline, content: () => <>5 AI agents, pre-warmed and ready</> },
-  { icon: mdiCellphoneLink, content: () => <>Cloud terminal on any device</> },
-  { icon: mdiSourceBranch, content: () => <>Push to <span style={{ color: '#3b82f6' }}>GitHub</span>, deploy to <span style={{ color: '#f38020' }}>Cloudflare</span> — built in</> },
-  { icon: mdiCloudLockOutline, content: () => <>Files persist, containers disappear</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Tabs, tiling, and mobile-first</> },
-  { icon: mdiLightningBolt, content: () => <>Scales to zero when idle</> },
+  { icon: mdiRobotOutline, content: () => <>Claude Code · Codex · Copilot · Gemini · OpenCode</> },
+  { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready to code in seconds</> },
+  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration built in</> },
+  { icon: mdiCellphoneLink, content: () => <>Runs on your phone, tablet, or any browser</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when you're done</> },
+  { icon: mdiCloudLockOutline, content: () => <>Encrypted in transit and at rest</> },
+  { icon: mdiRocketLaunchOutline, content: () => <>From idea to deployment in minutes</> },
+  { icon: mdiConsole, content: () => <>Your files persist. Your bad decisions don't.</> },
 ];
 
 /** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
 const TIER_FEATURES: Record<string, string[]> = {
-  free: ['5 AI agents, ready instantly', 'Persistent cloud storage', 'GitHub & Cloudflare deploy'],
+  free: ['All agents, ready instantly', 'Persistent cloud storage', 'GitHub & Cloudflare deploy'],
   standard: ['Everything in Free', 'Unlocks Pro mode', 'Configurable idle timeout', 'Priority support'],
   advanced: ['Everything in Starter', 'Run 2 sessions at once', 'Work across parallel branches', 'Priority support'],
-  max: ['Everything in Advanced', 'Run 3 sessions at once', 'OpenClaw Integration', 'Heavy daily AI workflows'],
+  max: ['Everything in Advanced', 'Run 3 sessions at once', '4x the compute of Starter', 'OpenClaw Integration'],
   unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run 5 sessions at once', 'Dedicated support'],
 };
 
@@ -97,20 +99,20 @@ const TIER_ORDER = ['free', 'standard', 'advanced', 'max', 'unlimited'] as const
 
 /** Standard mode features for mode card */
 const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiRobotOutline, text: '5 AI agents plus plain Bash' },
+  { icon: mdiRobotOutline, text: 'Choose your agent — or just use Bash' },
   { icon: mdiConsole, text: 'Isolated container per session' },
   { icon: mdiSync, text: 'Persistent storage with auto-sync' },
-  { icon: mdiSourceBranch, text: 'GitHub push & Cloudflare deploy' },
-  { icon: mdiLightningBolt, text: 'Fast Start — instant agent boot' },
-  { icon: mdiFileDocumentOutline, text: 'Live CPU, memory & disk metrics' },
+  { icon: mdiSourceBranch, text: 'GitHub & Cloudflare integration built in' },
+  { icon: mdiLightningBolt, text: 'Specialized skills for build, push & deploy' },
+  { icon: mdiFileDocumentOutline, text: 'One click to start, zero to configure' },
 ];
 
 /** Pro mode features for mode card */
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiHeadCogOutline, text: 'Persistent memory across sessions' },
-  { icon: mdiWrenchOutline, text: 'Pre-loaded skills, rules & hooks' },
-  { icon: mdiBookOpenPageVariantOutline, text: 'Automatic context capture via MCP' },
-  { icon: mdiLayersTripleOutline, text: 'Coding standards for TS, Python, Go' },
+  { icon: mdiHeadCogOutline, text: 'Agent builds a knowledge graph — gets smarter every session' },
+  { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
+  { icon: mdiBookOpenPageVariantOutline, text: 'Advanced commands & workflows' },
+  { icon: mdiLayersTripleOutline, text: 'Auto-prunes and organizes context across sessions' },
 ];
 
 const SubscribePage: Component = () => {
