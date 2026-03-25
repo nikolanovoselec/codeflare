@@ -161,6 +161,8 @@ export interface SubscriptionTierConfig {
   trialQuotaHours: number; // hours of free usage before billing, 0 = no trial
   description: string;
   advancedPriceMonthly?: number | null; // cents, higher price for advanced mode
+  stripePriceId?: string | null; // Stripe price ID for standard mode
+  stripeAdvancedPriceId?: string | null; // Stripe price ID for advanced/pro mode
 }
 
 /**

@@ -12,10 +12,11 @@ import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey } from '../lib/kv-keys';
-import { isStripeConfigured } from '../lib/stripe';
+import { isStripeConfigured, getStripePrices } from '../lib/stripe';
 
 const logger = createLogger('auth-routes');
 
+/** Map country code to currency for subscription email formatting. */
 function getCurrencyForCountry(country: string): string {
   const EUR_COUNTRIES = new Set(['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY']);
   if (country === 'CH' || country === 'LI') return 'CHF';
@@ -43,6 +44,29 @@ app.get('/onboarding-config', requireIdentity, async (c) => {
 app.get('/tiers', requireIdentity, async (c) => {
   const allTiers = await getTierConfig(c.env.KV);
   const subscribable = allTiers.filter((t) => SUBSCRIBABLE_TIER_IDS.has(t.id as string));
+
+  // Enrich with Stripe prices when configured
+  if (isStripeConfigured(c.env) && c.env.STRIPE_SECRET_KEY) {
+    const priceIds = subscribable.flatMap((t) =>
+      [t.stripePriceId, t.stripeAdvancedPriceId].filter((id): id is string => !!id)
+    );
+    if (priceIds.length > 0) {
+      try {
+        const prices = await getStripePrices(priceIds, c.env.STRIPE_SECRET_KEY);
+        const enriched = subscribable.map((t) => {
+          const stdPrice = t.stripePriceId ? prices.get(t.stripePriceId) : undefined;
+          const advPrice = t.stripeAdvancedPriceId ? prices.get(t.stripeAdvancedPriceId) : undefined;
+          return {
+            ...t,
+            ...(stdPrice ? { stripePrice: stdPrice } : {}),
+            ...(advPrice ? { stripeAdvancedPrice: advPrice } : {}),
+          };
+        });
+        return c.json({ tiers: enriched });
+      } catch { /* non-fatal — return tiers without prices */ }
+    }
+  }
+
   return c.json({ tiers: subscribable });
 });
 
@@ -90,10 +114,6 @@ app.get('/status', requireIdentity, async (c) => {
   // subscribedMode = what mode the user paid for (gates Settings Pro toggle)
   const subscribedMode = (userData?.subscribedMode === 'advanced' ? 'advanced' : 'default') as string;
 
-  // Currency based on visitor's country (CF-IPCountry header)
-  const country = c.req.header('CF-IPCountry') || 'US';
-  const currency = getCurrencyForCountry(country);
-
   return c.json({
     email: user.email,
     accessTier,
@@ -106,7 +126,6 @@ app.get('/status', requireIdentity, async (c) => {
     trialUsed,
     sessionMode,
     subscribedMode,
-    currency,
     billingStatus,
   });
 });

@@ -6,10 +6,10 @@
  *
  * All functions are pure or async — no global state is mutated.
  */
-import type { Env } from '../types';
+import type { Env, SubscriptionTierConfig } from '../types';
 
 // ---------------------------------------------------------------------------
-// Price Map (Stripe sandbox)
+// Price Map — dev-only fallback when tier config has no Stripe price IDs
 // ---------------------------------------------------------------------------
 
 interface PriceEntry {
@@ -18,11 +18,7 @@ interface PriceEntry {
   readonly priceId: string;
 }
 
-/**
- * Stripe price IDs mapped to tier + mode combinations.
- * Each paid tier has a default and advanced price.
- */
-const PRICE_MAP: readonly PriceEntry[] = [
+const DEV_PRICE_MAP: readonly PriceEntry[] = [
   { tier: 'standard', mode: 'default',  priceId: 'price_1TEd7TLQzoadEf8HOKThTum9' },
   { tier: 'standard', mode: 'advanced', priceId: 'price_1TEd7TLQzoadEf8HgRwmmrpo' },
   { tier: 'advanced', mode: 'default',  priceId: 'price_1TEd7ULQzoadEf8H2yUwbrky' },
@@ -31,29 +27,103 @@ const PRICE_MAP: readonly PriceEntry[] = [
   { tier: 'max',      mode: 'advanced', priceId: 'price_1TEd7VLQzoadEf8H8ZUi7m4t' },
 ] as const;
 
-/** Reverse lookup index: priceId → { tier, mode } */
-const PRICE_ID_TO_TIER = new Map<string, { tier: string; mode: string }>(
-  PRICE_MAP.map((entry) => [entry.priceId, { tier: entry.tier, mode: entry.mode }]),
+/** Reverse lookup index for dev fallback */
+const DEV_PRICE_ID_TO_TIER = new Map<string, { tier: string; mode: string }>(
+  DEV_PRICE_MAP.map((entry) => [entry.priceId, { tier: entry.tier, mode: entry.mode }]),
 );
 
 // ---------------------------------------------------------------------------
 // Public helpers
 // ---------------------------------------------------------------------------
 
-/** Get the Stripe price ID for a given tier and mode, or null if not a paid tier. */
-export function getStripePriceId(tier: string, mode: string): string | null {
-  const entry = PRICE_MAP.find((e) => e.tier === tier && e.mode === mode);
+/**
+ * Get the Stripe price ID for a given tier and mode.
+ * Checks tier config (KV-sourced) first, falls back to dev price map.
+ */
+export function getStripePriceId(tier: string, mode: string, tiers?: SubscriptionTierConfig[]): string | null {
+  // Config-sourced: look up stripePriceId / stripeAdvancedPriceId from tier config
+  if (tiers) {
+    const tierConfig = tiers.find((t) => t.id === tier);
+    if (tierConfig) {
+      const priceId = mode === 'advanced' ? tierConfig.stripeAdvancedPriceId : tierConfig.stripePriceId;
+      if (priceId) return priceId;
+    }
+  }
+  // Dev fallback
+  const entry = DEV_PRICE_MAP.find((e) => e.tier === tier && e.mode === mode);
   return entry?.priceId ?? null;
 }
 
-/** Reverse-lookup: resolve tier + mode from a Stripe price ID, or null if unknown. */
-export function resolveTierFromPriceId(priceId: string): { tier: string; mode: string } | null {
-  return PRICE_ID_TO_TIER.get(priceId) ?? null;
+/**
+ * Reverse-lookup: resolve tier + mode from a Stripe price ID.
+ * Checks tier config first, falls back to dev price map.
+ */
+export function resolveTierFromPriceId(priceId: string, tiers?: SubscriptionTierConfig[]): { tier: string; mode: string } | null {
+  // Config-sourced: search tier config for matching price ID
+  if (tiers) {
+    for (const t of tiers) {
+      if (t.stripePriceId === priceId) return { tier: t.id as string, mode: 'default' };
+      if (t.stripeAdvancedPriceId === priceId) return { tier: t.id as string, mode: 'advanced' };
+    }
+  }
+  // Dev fallback
+  return DEV_PRICE_ID_TO_TIER.get(priceId) ?? null;
 }
 
 /** Whether Stripe is configured (STRIPE_SECRET_KEY present and non-empty). */
 export function isStripeConfigured(env: Pick<Env, 'STRIPE_SECRET_KEY'>): boolean {
   return typeof env.STRIPE_SECRET_KEY === 'string' && env.STRIPE_SECRET_KEY.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Stripe Price fetching — for displaying prices on subscribe page
+// ---------------------------------------------------------------------------
+
+/** Cached Stripe price data (1-hour TTL) */
+const priceCache = new Map<string, { amount: number; currency: string; cachedAt: number }>();
+const PRICE_CACHE_TTL_MS = 3_600_000; // 1 hour
+
+/** Fetch price amount + currency from Stripe API for multiple price IDs. */
+export async function getStripePrices(
+  priceIds: string[],
+  secretKey: string,
+): Promise<Map<string, { amount: number; currency: string }>> {
+  const result = new Map<string, { amount: number; currency: string }>();
+  const now = Date.now();
+  const toFetch: string[] = [];
+
+  // Check cache first
+  for (const id of priceIds) {
+    const cached = priceCache.get(id);
+    if (cached && now - cached.cachedAt < PRICE_CACHE_TTL_MS) {
+      result.set(id, { amount: cached.amount, currency: cached.currency });
+    } else {
+      toFetch.push(id);
+    }
+  }
+
+  // Fetch uncached prices in parallel
+  if (toFetch.length > 0) {
+    const fetches = toFetch.map(async (id) => {
+      try {
+        const response = await fetch(`https://api.stripe.com/v1/prices/${id}`, {
+          headers: { 'Authorization': `Bearer ${secretKey}` },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (response.ok) {
+          const data = await response.json() as { unit_amount?: number; currency?: string };
+          if (data.unit_amount != null && data.currency) {
+            const entry = { amount: data.unit_amount, currency: data.currency.toUpperCase() };
+            priceCache.set(id, { ...entry, cachedAt: now });
+            result.set(id, entry);
+          }
+        }
+      } catch { /* non-fatal — price just won't be displayed */ }
+    });
+    await Promise.all(fetches);
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

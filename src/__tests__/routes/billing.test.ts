@@ -476,3 +476,149 @@ describe('POST /billing/portal', () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CF-024: Missing webhook handler tests
+// ---------------------------------------------------------------------------
+describe('Webhook handlers — CF-024', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  async function generateSignature(body: string, secret: string): Promise<string> {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const payload = `${timestamp}.${body}`;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+    );
+    const signatureBytes = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+    const hex = Array.from(new Uint8Array(signatureBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+    return `t=${timestamp},v1=${hex}`;
+  }
+
+  function seedCustomer(mockKV: ReturnType<typeof createMockKV>, customerId: string, email: string) {
+    mockKV._set(`stripe-customer:${customerId}`, null);
+    mockKV._store.set(`stripe-customer:${customerId}`, email);
+    mockKV._set(`user:${email}`, { subscriptionTier: 'standard', stripeCustomerId: customerId, billingStatus: 'active' });
+  }
+
+  it('invoice.payment_failed sets billingStatus to past_due', async () => {
+    const secret = 'whsec_test_123';
+    const event = {
+      id: 'evt_pf_1',
+      type: 'invoice.payment_failed',
+      data: { object: { customer: 'cus_pf', subscription: 'sub_pf' } },
+    };
+    const body = JSON.stringify(event);
+    const sig = await generateSignature(body, secret);
+    const { app, mockKV } = createApp();
+    seedCustomer(mockKV, 'cus_pf', 'pf@example.com');
+
+    // Mock fetch for Stripe API fallback (should not be needed since KV has mapping)
+    globalThis.fetch = originalFetch;
+
+    const res = await app.request('/public/stripe/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
+      body,
+    });
+    expect(res.status).toBe(200);
+
+    const userData = await mockKV.get('user:pf@example.com', 'json') as Record<string, unknown>;
+    expect(userData.billingStatus).toBe('past_due');
+  });
+
+  it('customer.subscription.deleted sets billingStatus to canceled', async () => {
+    const secret = 'whsec_test_123';
+    const event = {
+      id: 'evt_del_1',
+      type: 'customer.subscription.deleted',
+      data: { object: { id: 'sub_del', customer: 'cus_del' } },
+    };
+    const body = JSON.stringify(event);
+    const sig = await generateSignature(body, secret);
+    const { app, mockKV } = createApp();
+    seedCustomer(mockKV, 'cus_del', 'del@example.com');
+
+    const res = await app.request('/public/stripe/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
+      body,
+    });
+    expect(res.status).toBe(200);
+
+    const userData = await mockKV.get('user:del@example.com', 'json') as Record<string, unknown>;
+    expect(userData.billingStatus).toBe('canceled');
+  });
+
+  it('customer.subscription.created sets stripePriceId and billingPeriodEnd', async () => {
+    const secret = 'whsec_test_123';
+    const periodEnd = Math.floor(Date.now() / 1000) + 2592000; // +30 days
+    const event = {
+      id: 'evt_created_1',
+      type: 'customer.subscription.created',
+      data: {
+        object: {
+          id: 'sub_created',
+          customer: 'cus_created',
+          status: 'active',
+          current_period_end: periodEnd,
+          items: { data: [{ price: { id: 'price_1TEd7TLQzoadEf8HOKThTum9' } }] },
+        },
+      },
+    };
+    const body = JSON.stringify(event);
+    const sig = await generateSignature(body, secret);
+    const { app, mockKV } = createApp();
+    seedCustomer(mockKV, 'cus_created', 'created@example.com');
+
+    const res = await app.request('/public/stripe/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
+      body,
+    });
+    expect(res.status).toBe(200);
+
+    const userData = await mockKV.get('user:created@example.com', 'json') as Record<string, unknown>;
+    expect(userData.stripePriceId).toBe('price_1TEd7TLQzoadEf8HOKThTum9');
+    expect(userData.billingPeriodEnd).toBeDefined();
+    expect(userData.billingStatus).toBe('active');
+  });
+
+  it('payment_failed with missing customer mapping does not crash', async () => {
+    const secret = 'whsec_test_123';
+    const event = {
+      id: 'evt_pf_nomap',
+      type: 'invoice.payment_failed',
+      data: { object: { customer: 'cus_unknown_pf' } },
+    };
+    const body = JSON.stringify(event);
+    const sig = await generateSignature(body, secret);
+    const { app } = createApp();
+
+    // Mock Stripe API to return no customer
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      const reqUrl = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (reqUrl.includes('/v1/customers/')) {
+        return new Response(JSON.stringify({ error: { message: 'No such customer' } }), { status: 404 });
+      }
+      return new Response('unexpected', { status: 500 });
+    }) as typeof globalThis.fetch;
+
+    const res = await app.request('/public/stripe/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
+      body,
+    });
+    // Should succeed (200) — handler returns early on unresolved customer
+    expect(res.status).toBe(200);
+  });
+});

@@ -40,6 +40,11 @@ import { useScrambleText } from '../lib/use-scramble-text';
 import '../styles/subscribe-page.css';
 import '../styles/login-page.css';
 
+interface StripePrice {
+  amount: number;
+  currency: string;
+}
+
 interface TierInfo {
   id: string;
   displayName: string;
@@ -51,6 +56,8 @@ interface TierInfo {
   trialQuotaHours?: number;
   trialDays?: number;
   sessionModes: string[];
+  stripePrice?: StripePrice;
+  stripeAdvancedPrice?: StripePrice;
 }
 
 type SubscribePhase = 'home' | 'tiers';
@@ -317,6 +324,29 @@ const SubscribePage: Component = () => {
       renderTurnstileWidget();
       startTurnstileWatch();
     }
+  }
+
+  /** Format a Stripe price for display (e.g., "CHF 29", "$49", "€49"). */
+  function formatStripePrice(price: StripePrice): string {
+    const amount = (price.amount / 100).toFixed(0);
+    switch (price.currency) {
+      case 'CHF': return `CHF ${amount}`;
+      case 'EUR': return `\u20AC${amount}`;
+      case 'GBP': return `\u00A3${amount}`;
+      default: return `$${amount}`;
+    }
+  }
+
+  /** Get display price for the selected tier + mode, or null if free/contact/no Stripe data. */
+  function getDisplayPrice(tier: TierInfo): string | null {
+    const price = globalMode() === 'advanced' ? tier.stripeAdvancedPrice : tier.stripePrice;
+    if (price) return formatStripePrice(price);
+    // Fallback to config price if no Stripe data
+    const cents = globalMode() === 'advanced'
+      ? (tier.advancedPriceMonthly ?? tier.priceMonthly)
+      : tier.priceMonthly;
+    if (cents != null && cents > 0) return `$${(cents / 100).toFixed(0)}`;
+    return null; // free or contact — no price shown
   }
 
   function isFree(tier: TierInfo): boolean {
@@ -615,6 +645,14 @@ const SubscribePage: Component = () => {
                   {(tier) => (
                     <div class="subscribe-detail-panel" data-testid="tier-detail-panel">
                       <h3 class="subscribe-detail-name">{scrambledName()}</h3>
+                      <Show when={getDisplayPrice(tier())}>
+                        {(price) => (
+                          <div class="subscribe-detail-price">
+                            <span class="subscribe-tier-price-amount">{price()}</span>
+                            <span class="subscribe-tier-price-period">/mo</span>
+                          </div>
+                        )}
+                      </Show>
                       <Show when={tier().description}>
                         <p class="subscribe-detail-tagline">{tier().description}</p>
                       </Show>
