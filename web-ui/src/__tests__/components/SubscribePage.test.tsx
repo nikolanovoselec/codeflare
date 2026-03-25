@@ -156,8 +156,8 @@ describe('SubscribePage', () => {
       await openTierView();
 
       const card = screen.getByTestId('mode-chooser');
-      expect(card.textContent).toMatch(/terminal/i);
-      expect(card.textContent).toMatch(/file browser/i);
+      expect(card.textContent).toMatch(/5 AI agents/i);
+      expect(card.textContent).toMatch(/container/i);
     });
 
     it('shows Pro feature bullets when Pro selected', async () => {
@@ -165,9 +165,9 @@ describe('SubscribePage', () => {
       fireEvent.click(screen.getByTestId('mode-card-pro'));
 
       await waitFor(() => {
-        const card = screen.getByTestId('mode-chooser');
-        expect(card.textContent).toMatch(/context capture/i);
-        expect(card.textContent).toMatch(/coding standards/i);
+        const expand = screen.getByTestId('mode-chooser').querySelector('.subscribe-pro-expand');
+        expect(expand).toBeInTheDocument();
+        expect(expand!.classList.contains('subscribe-pro-expand--open')).toBe(true);
       });
     });
 
