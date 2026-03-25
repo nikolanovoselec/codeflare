@@ -280,12 +280,14 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
       expect(body.user.subscriptionTier).toBe('pending');
     });
 
-    it('allows undefined accessTier through (backward compat)', async () => {
+    // CF-005: undefined tiers now resolve to 'pending' (blocked) instead of 'advanced' (allowed).
+    // This prevents free compute for users with corrupted/missing KV records.
+    it('blocks undefined accessTier as pending (CF-005)', async () => {
       mockAuthResult.user = {
         email: 'legacy@example.com',
         authenticated: true,
         role: 'user',
-        // accessTier intentionally omitted
+        // accessTier intentionally omitted — resolves to 'pending' via getEffectiveTier
       };
 
       const app = createApp(requireActiveUser, { SAAS_MODE: 'active' });
@@ -293,8 +295,9 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         headers: { 'cf-access-authenticated-user-email': 'legacy@example.com' },
       });
 
-      // isActiveUser(undefined) returns true — backward compat
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('PENDING');
     });
   });
 
