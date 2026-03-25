@@ -63,6 +63,11 @@ describe('Timekeeper DO', () => {
 
   describe('POST /ping', () => {
     it('increments pendingSeconds by delta', async () => {
+      // Mock a free-tier user so quota check doesn't trip on the default 'pending' tier
+      mockKV.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('user:')) return JSON.stringify({ subscriptionTier: 'free' });
+        return null;
+      });
       const tk = createTimekeeper();
       const res = await tk.fetch(pingRequest({
         bucketName: 'cf-alice',
