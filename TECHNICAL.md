@@ -817,6 +817,7 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 **Webhook events handled:**
 - `checkout.session.completed` — activates subscription, stores customer/subscription IDs
 - `customer.subscription.created` — updates subscription details and price ID
+- `customer.subscription.updated` — handles plan changes (upgrades/downgrades via Customer Portal)
 - `invoice.paid` — confirms billing period, sets status to `active`
 - `invoice.payment_failed` — sets billing status to `past_due`
 - `customer.subscription.deleted` — sets billing status to `canceled`
@@ -840,6 +841,20 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 **Stripe gate:** When `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects paid tiers with "Paid subscriptions require checkout." Only `free` tier is allowed through the direct subscribe endpoint. This ensures payment is collected before tier activation.
 
 **Price map (sandbox):** 6 prices across 3 paid tiers x 2 modes (Standard/Pro). Defined in `src/lib/stripe.ts` as `PRICE_MAP`. `getStripePriceId(tier, mode)` for lookup, `resolveTierFromPriceId(priceId)` for reverse resolution.
+
+**Billing enforcement (`getEffectiveTier()` in `src/lib/subscription.ts`):**
+When `billingStatus` is `canceled` or `past_due` for a paid tier (standard/advanced/max), the user is treated as `free` at all enforcement points. The stored `subscriptionTier` is preserved in KV so resubscription restores the correct plan. Enforcement is read-time, not write-time.
+
+Enforcement points:
+- `GET /api/auth/status` — returns effective tier (free) to frontend
+- `requireActiveUser` middleware — tier gating uses effective tier
+- Container start paygate — quota and session limits use effective tier
+- `billingStatus` field on `AccessUser` — populated during authentication from KV
+
+Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pending`, `blocked`.
+
+**Customer Portal (`POST /api/billing/portal`):**
+Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices, change plan). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min.
 
 ### Timekeeper DO (Usage Tracking)
 

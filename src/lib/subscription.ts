@@ -191,6 +191,26 @@ export function isActiveTier(tier: SubscriptionTier | string | undefined): boole
 // Not yet wired — pending/blocked distinction is handled by isActiveTier() in middleware.
 // Re-export when login-level auth (distinct from IDE access) needs config-aware enforcement.
 
+/** Paid tiers subject to billing enforcement. Enterprise (unlimited) and free tiers are exempt. */
+const PAID_TIERS: ReadonlySet<string> = new Set(['standard', 'advanced', 'max']);
+
+/**
+ * Resolve the effective tier considering billing status.
+ * When billingStatus is 'canceled' or 'past_due' for a paid tier, returns 'free'.
+ * The stored subscriptionTier in KV is preserved so resubscription restores the correct plan.
+ */
+export function getEffectiveTier(
+  subscriptionTier: string | undefined,
+  accessTier: string | undefined,
+  billingStatus: string | null | undefined,
+): string {
+  const raw = subscriptionTier ?? accessTier ?? 'advanced';
+  if (PAID_TIERS.has(raw) && (billingStatus === 'canceled' || billingStatus === 'past_due')) {
+    return 'free';
+  }
+  return raw;
+}
+
 /**
  * Get the max concurrent sessions allowed for a tier.
  */

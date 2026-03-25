@@ -32,13 +32,14 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
   return {
     ...actual,
     createCheckoutSession: vi.fn(async () => ({ id: 'cs_test_123', url: 'https://checkout.stripe.com/test' })),
+    createPortalSession: vi.fn(async () => ({ id: 'bps_test_123', url: 'https://billing.stripe.com/test' })),
   };
 });
 
 // Import after mocks
 import billingRoutes from '../../routes/billing';
 import stripeWebhookRoute from '../../routes/stripe-webhook';
-import { createCheckoutSession } from '../../lib/stripe';
+import { createCheckoutSession, createPortalSession } from '../../lib/stripe';
 
 // ---------------------------------------------------------------------------
 // Test app factory
@@ -369,5 +370,109 @@ describe('POST /public/stripe/webhook', () => {
     });
 
     expect(res.status).toBe(200);
+  });
+
+  it('handles customer.subscription.updated with new price ID', async () => {
+    const secret = 'whsec_test_123';
+    const event = {
+      id: 'evt_sub_updated_1',
+      type: 'customer.subscription.updated',
+      data: {
+        object: {
+          id: 'sub_updated',
+          customer: 'cus_upgrader',
+          status: 'active',
+          current_period_end: Math.floor(Date.now() / 1000) + 86400,
+          items: {
+            data: [{ price: { id: 'price_1TEd7ULQzoadEf8H2yUwbrky' } }], // advanced/default
+          },
+        },
+      },
+    };
+    const body = JSON.stringify(event);
+    const sig = await generateSignature(body, secret);
+
+    const { app, mockKV } = createApp();
+    // Pre-populate customer mapping
+    mockKV._set('stripe-customer:cus_upgrader', null);
+    await mockKV.put('stripe-customer:cus_upgrader', 'upgrader@example.com');
+    mockKV._set('user:upgrader@example.com', {
+      subscriptionTier: 'standard',
+      stripeCustomerId: 'cus_upgrader',
+    });
+
+    const res = await app.request('/public/stripe/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
+      body,
+    });
+
+    expect(res.status).toBe(200);
+
+    const userData = await mockKV.get('user:upgrader@example.com', 'json') as Record<string, unknown>;
+    expect(userData.subscriptionTier).toBe('advanced');
+    expect(userData.subscribedMode).toBe('default');
+    expect(userData.billingStatus).toBe('active');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /billing/portal
+// ---------------------------------------------------------------------------
+describe('POST /billing/portal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuthShouldReject = false;
+    mockAuthResult.user = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: 'standard' };
+  });
+
+  it('returns portalUrl for user with stripeCustomerId', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123' });
+
+    const res = await app.request('/billing/portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { portalUrl: string };
+    expect(body.portalUrl).toBe('https://billing.stripe.com/test');
+    expect(createPortalSession).toHaveBeenCalled();
+  });
+
+  it('rejects user without stripeCustomerId', async () => {
+    const { app } = createApp();
+
+    const res = await app.request('/billing/portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 for unauthenticated request', async () => {
+    mockAuthShouldReject = true;
+    const { app } = createApp();
+
+    const res = await app.request('/billing/portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects when Stripe is not configured', async () => {
+    const { app, mockKV } = createApp({ STRIPE_SECRET_KEY: undefined } as unknown as Partial<Env>);
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123' });
+
+    const res = await app.request('/billing/portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    expect(res.status).toBe(400);
   });
 });

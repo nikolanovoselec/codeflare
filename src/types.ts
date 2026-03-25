@@ -100,6 +100,7 @@ export interface AccessUser {
   role?: UserRole;
   accessTier?: AccessTier;
   subscriptionTier?: SubscriptionTier;
+  billingStatus?: string;
 }
 
 /**

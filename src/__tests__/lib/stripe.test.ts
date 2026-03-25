@@ -5,6 +5,7 @@ import {
   isStripeConfigured,
   verifyWebhookSignature,
   createCheckoutSession,
+  createPortalSession,
   parseStripeEvent,
 } from '../../lib/stripe';
 
@@ -186,5 +187,47 @@ describe('parseStripeEvent', () => {
 
   it('throws on missing required fields', () => {
     expect(() => parseStripeEvent(JSON.stringify({ id: 'evt_123' }))).toThrow('Invalid Stripe event payload');
+  });
+});
+
+describe('createPortalSession', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('sends correct Stripe API call and returns id + url', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'bps_test_123', url: 'https://billing.stripe.com/session/test' }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    const result = await createPortalSession({
+      customerId: 'cus_test_456',
+      returnUrl: 'https://example.com/subscribe',
+      secretKey: 'sk_test_key',
+    });
+
+    expect(result).toEqual({ id: 'bps_test_123', url: 'https://billing.stripe.com/session/test' });
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(fetchCall[0]).toBe('https://api.stripe.com/v1/billing_portal/sessions');
+    expect(fetchCall[1].headers['Authorization']).toBe('Bearer sk_test_key');
+  });
+
+  it('throws on Stripe API error', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { message: 'No such customer' } }), { status: 400 }),
+    ) as typeof globalThis.fetch;
+
+    await expect(createPortalSession({
+      customerId: 'cus_invalid',
+      returnUrl: 'https://example.com/subscribe',
+      secretKey: 'sk_test_key',
+    })).rejects.toThrow('No such customer');
   });
 });

@@ -191,6 +191,30 @@ export async function verifyWebhookSignature(
 }
 
 // ---------------------------------------------------------------------------
+// Customer Portal
+// ---------------------------------------------------------------------------
+
+/** Create a Stripe Billing Portal session for subscription management. */
+export async function createPortalSession(opts: {
+  customerId: string;
+  returnUrl: string;
+  secretKey: string;
+}): Promise<{ id: string; url: string }> {
+  const params: Record<string, string> = {
+    customer: opts.customerId,
+    return_url: opts.returnUrl,
+  };
+
+  const session = await stripeRequest<{ id: string; url: string }>(
+    '/v1/billing_portal/sessions',
+    params,
+    opts.secretKey,
+  );
+
+  return { id: session.id, url: session.url };
+}
+
+// ---------------------------------------------------------------------------
 // Event parsing
 // ---------------------------------------------------------------------------
 

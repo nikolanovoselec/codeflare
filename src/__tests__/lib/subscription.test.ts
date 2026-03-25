@@ -13,6 +13,7 @@ import {
   getMaxSessionsForTier,
   getAllowedSessionModes,
   resetTierConfigCache,
+  getEffectiveTier,
 } from '../../lib/subscription';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -396,5 +397,55 @@ describe('getTierConfig', () => {
     const config = await getTierConfig(mockKV as unknown as KVNamespace);
     const free = config.find((t) => t.id === 'free')!;
     expect(free.monthlySeconds).toBe(14400);
+  });
+});
+
+describe('getEffectiveTier', () => {
+  it('returns paid tier when billing is active', () => {
+    expect(getEffectiveTier('standard', undefined, 'active')).toBe('standard');
+  });
+
+  it('downgrades standard to free when canceled', () => {
+    expect(getEffectiveTier('standard', undefined, 'canceled')).toBe('free');
+  });
+
+  it('downgrades standard to free when past_due', () => {
+    expect(getEffectiveTier('standard', undefined, 'past_due')).toBe('free');
+  });
+
+  it('downgrades max to free when canceled', () => {
+    expect(getEffectiveTier('max', undefined, 'canceled')).toBe('free');
+  });
+
+  it('downgrades advanced to free when past_due', () => {
+    expect(getEffectiveTier('advanced', undefined, 'past_due')).toBe('free');
+  });
+
+  it('returns free unchanged when billingStatus is null', () => {
+    expect(getEffectiveTier('free', undefined, null)).toBe('free');
+  });
+
+  it('returns free unchanged when billingStatus is canceled (already free)', () => {
+    expect(getEffectiveTier('free', undefined, 'canceled')).toBe('free');
+  });
+
+  it('does NOT downgrade unlimited (enterprise exempt)', () => {
+    expect(getEffectiveTier('unlimited', undefined, 'canceled')).toBe('unlimited');
+  });
+
+  it('returns pending unchanged', () => {
+    expect(getEffectiveTier('pending', undefined, null)).toBe('pending');
+  });
+
+  it('falls back to accessTier when subscriptionTier undefined', () => {
+    expect(getEffectiveTier(undefined, 'advanced', null)).toBe('advanced');
+  });
+
+  it('falls back to advanced when both tiers undefined (backward compat)', () => {
+    expect(getEffectiveTier(undefined, undefined, null)).toBe('advanced');
+  });
+
+  it('returns tier unchanged when billingStatus is undefined', () => {
+    expect(getEffectiveTier('standard', undefined, undefined)).toBe('standard');
   });
 });

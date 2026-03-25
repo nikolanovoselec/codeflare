@@ -15,6 +15,7 @@ import {
   isStripeConfigured,
   getStripePriceId,
   createCheckoutSession,
+  createPortalSession,
 } from '../lib/stripe';
 
 const logger = createLogger('billing');
@@ -100,6 +101,41 @@ app.get('/status', requireIdentity, async (c) => {
     checkoutSessionId: userData?.checkoutSessionId ?? null,
     billingStatus: userData?.billingStatus ?? null,
   });
+});
+
+// Rate limit portal creation: 5 per minute per user
+const portalRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 5,
+  keyPrefix: 'billing-portal',
+});
+
+// POST /billing/portal — create a Stripe Customer Portal session
+app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
+  if (!isStripeConfigured(c.env)) {
+    throw new ValidationError('Stripe is not configured.');
+  }
+
+  const user = c.get('user');
+  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  const customerId = userData?.stripeCustomerId as string | undefined;
+
+  if (!customerId) {
+    throw new ValidationError('No active Stripe subscription found.');
+  }
+
+  const customDomain = await c.env.KV.get('setup:custom_domain');
+  const baseUrl = customDomain ? `https://${customDomain}` : new URL(c.req.url).origin;
+  const returnUrl = `${baseUrl}/app/subscribe`;
+
+  const session = await createPortalSession({
+    customerId,
+    returnUrl,
+    secretKey: c.env.STRIPE_SECRET_KEY!,
+  });
+
+  logger.info('Portal session created', { email: user.email, sessionId: session.id });
+  return c.json({ portalUrl: session.url });
 });
 
 export default app;

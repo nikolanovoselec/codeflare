@@ -75,6 +75,9 @@ app.post('/webhook', async (c) => {
       case 'customer.subscription.deleted':
         await handleSubscriptionDeleted(event, c.env);
         break;
+      case 'customer.subscription.updated':
+        await handleSubscriptionUpdated(event, c.env);
+        break;
       default:
         logger.info('Unhandled event type', { type: event.type, eventId: event.id });
     }
@@ -244,6 +247,46 @@ async function handleSubscriptionDeleted(
   await env.KV.put(`user:${email}`, JSON.stringify(updated));
 
   logger.info('Subscription deleted', { email, customerId });
+}
+
+async function handleSubscriptionUpdated(
+  event: { id: string; type: string; data: { object: Record<string, unknown> } },
+  env: Env,
+): Promise<void> {
+  const subscription = event.data.object;
+  const customerId = subscription.customer as string;
+
+  if (!customerId) return;
+
+  const email = await resolveEmailFromCustomer(customerId, env);
+  if (!email) {
+    logger.warn('subscription.updated: cannot resolve email', { customerId });
+    return;
+  }
+
+  // Extract price ID from subscription items
+  const items = subscription.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
+  const priceId = items?.data?.[0]?.price?.id;
+  const tierInfo = priceId ? resolveTierFromPriceId(priceId) : null;
+
+  const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
+  const updated: Record<string, unknown> = {
+    ...existing,
+    stripeSubscriptionId: subscription.id as string,
+    billingStatus: subscription.status as string,
+    ...(priceId ? { stripePriceId: priceId } : {}),
+    ...(tierInfo ? {
+      subscriptionTier: tierInfo.tier,
+      accessTier: tierInfo.tier,
+      subscribedMode: tierInfo.mode,
+    } : {}),
+    ...(typeof subscription.current_period_end === 'number'
+      ? { billingPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString() }
+      : {}),
+  };
+  await env.KV.put(`user:${email}`, JSON.stringify(updated));
+
+  logger.info('Subscription updated', { email, subscriptionId: subscription.id, priceId, tier: tierInfo?.tier });
 }
 
 // ---------------------------------------------------------------------------

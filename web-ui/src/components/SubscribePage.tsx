@@ -31,7 +31,7 @@ import {
   mdiLayersTripleOutline,
   mdiHeadCogOutline,
 } from '@mdi/js';
-import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession } from '../api/client';
+import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession } from '../api/client';
 import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
@@ -116,7 +116,6 @@ const SubscribePage: Component = () => {
   const [turnstileReady, setTurnstileReady] = createSignal(false);
   const [turnstileSiteKey, setTurnstileSiteKey] = createSignal('');
   const [subscribing, setSubscribing] = createSignal<string | null>(null);
-  const [currency, setCurrency] = createSignal('USD');
   const [userEmail, setUserEmail] = createSignal('');
   const [currentTierId, setCurrentTierId] = createSignal<string | null>(null);
   const [globalMode, setGlobalMode] = createSignal<'default' | 'advanced'>('default');
@@ -124,6 +123,8 @@ const SubscribePage: Component = () => {
   const [selectedTierId, setSelectedTierId] = createSignal('advanced');
   const [trialUsed, setTrialUsed] = createSignal(false);
   const [currentMode, setCurrentMode] = createSignal<'default' | 'advanced'>('default');
+  const [billingStatus, setBillingStatus] = createSignal<string | null>(null);
+  const [portalLoading, setPortalLoading] = createSignal(false);
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
@@ -156,7 +157,6 @@ const SubscribePage: Component = () => {
         getPublicTiers().catch((err) => { logger.error('getPublicTiers failed:', err); return { tiers: [] }; }),
       ]);
 
-      if (status.currency) setCurrency(status.currency);
       if (status.email) setUserEmail(status.email);
 
       setTiers(tiersData.tiers as TierInfo[]);
@@ -178,6 +178,8 @@ const SubscribePage: Component = () => {
           setSelectedTierId(ct);
         }
       }
+
+      setBillingStatus(status.billingStatus ?? null);
 
       if (status.trialUsed === true) {
         setTrialUsed(true);
@@ -317,26 +319,6 @@ const SubscribePage: Component = () => {
     }
   }
 
-  function formatPrice(cents: number | null, cur?: string): string {
-    if (cents === null) return 'Contact';
-    if (cents === 0) return 'Free';
-    const code = cur ?? currency();
-    const amount = (cents / 100).toFixed(0);
-    switch (code) {
-      case 'EUR': return `\u20AC${amount}`;
-      case 'GBP': return `\u00A3${amount}`;
-      case 'CHF': return `CHF ${amount}`;
-      default: return `$${amount}`;
-    }
-  }
-
-  function getGlobalModePrice(tier: TierInfo): string {
-    if (globalMode() === 'advanced' && tier.advancedPriceMonthly != null) {
-      return formatPrice(tier.advancedPriceMonthly);
-    }
-    return formatPrice(tier.priceMonthly);
-  }
-
   function isFree(tier: TierInfo): boolean {
     if (globalMode() === 'advanced' && tier.advancedPriceMonthly != null) {
       return tier.advancedPriceMonthly === 0;
@@ -375,10 +357,6 @@ const SubscribePage: Component = () => {
 
   /** Scramble animations for text that changes on tier/mode switch */
   const scrambledName = useScrambleText(() => selectedTier()?.displayName ?? '');
-  const scrambledPrice = useScrambleText(() => {
-    const t = selectedTier();
-    return t ? getGlobalModePrice(t) : '';
-  });
   const scrambledSpecs = useScrambleText(() => {
     const t = selectedTier();
     if (!t) return '';
@@ -492,6 +470,25 @@ const SubscribePage: Component = () => {
                     <div class="subscribe-email">{userEmail()}</div>
                   </Show>
                   <a href="/app/" class="subscribe-action-button">Continue</a>
+                  <Show when={billingStatus()}>
+                    <button
+                      type="button"
+                      class="subscribe-action-button subscribe-action-button--secondary"
+                      disabled={portalLoading()}
+                      onClick={async () => {
+                        setPortalLoading(true);
+                        try {
+                          const { portalUrl } = await createPortalSession();
+                          window.location.href = portalUrl;
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Failed to open billing portal.');
+                          setPortalLoading(false);
+                        }
+                      }}
+                    >
+                      {portalLoading() ? 'Loading...' : 'Manage Subscription'}
+                    </button>
+                  </Show>
                 </Show>
               </div>
 
@@ -621,12 +618,6 @@ const SubscribePage: Component = () => {
                   {(tier) => (
                     <div class="subscribe-detail-panel" data-testid="tier-detail-panel">
                       <h3 class="subscribe-detail-name">{scrambledName()}</h3>
-                      <div class="subscribe-detail-price">
-                        <span class="subscribe-tier-price-amount">{scrambledPrice()}</span>
-                        <Show when={!isFree(tier()) && !isContact(tier())}>
-                          <span class="subscribe-tier-price-period">/mo</span>
-                        </Show>
-                      </div>
                       <Show when={tier().description}>
                         <p class="subscribe-detail-tagline">{tier().description}</p>
                       </Show>

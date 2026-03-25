@@ -461,6 +461,16 @@ export async function createCheckoutSession(tier: string, mode?: string): Promis
   }, CheckoutResponseSchema);
 }
 
+const PortalResponseSchema = z.object({
+  portalUrl: z.string(),
+});
+
+export async function createPortalSession(): Promise<{ portalUrl: string }> {
+  return fetchApi('/billing/portal', {
+    method: 'POST',
+  }, PortalResponseSchema);
+}
+
 export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'DELETE',

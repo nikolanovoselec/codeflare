@@ -5,7 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
-import { getTierConfig } from '../lib/subscription';
+import { getTierConfig, getEffectiveTier } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
@@ -53,12 +53,13 @@ app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
   // Default to 'advanced' for legacy accessTier (pre-setup or service auth backward compat)
   const accessTier = user.accessTier || 'advanced';
-  // subscriptionTier: use actual value, fall back to accessTier for backward compat.
-  // Non-SaaS users without a tier get 'advanced' (full access, same as pre-subscription behavior).
-  const subscriptionTier = user.subscriptionTier ?? accessTier;
 
   // Read user data from KV for additional fields
   const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+
+  // Billing-aware tier resolution: downgrade paid tiers to free when billing is canceled/past_due
+  const billingStatus = (userData?.billingStatus as string) ?? null;
+  const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus);
 
   // Always include turnstile site key in SaaS mode (needed by subscribe page)
   const turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
@@ -106,6 +107,7 @@ app.get('/status', requireIdentity, async (c) => {
     sessionMode,
     subscribedMode,
     currency,
+    billingStatus,
   });
 });
 
