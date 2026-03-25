@@ -24,7 +24,6 @@ import {
   mdiConsole,
   mdiFileDocumentOutline,
   mdiRobotOutline,
-  mdiCloudOutline,
   mdiSync,
   mdiWrenchOutline,
   mdiBookOpenPageVariantOutline,
