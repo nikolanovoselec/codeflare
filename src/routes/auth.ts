@@ -7,7 +7,6 @@ import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
 import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
-import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
