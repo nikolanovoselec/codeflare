@@ -177,6 +177,8 @@ interface CheckoutSessionOptions {
   cancelUrl: string;
   secretKey: string;
   metadata?: Record<string, string>;
+  /** Pass trial_period_days on the subscription. Omit for immediate billing. */
+  trialDays?: number;
 }
 
 interface CheckoutSessionResult {
@@ -199,6 +201,10 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
     for (const [key, value] of Object.entries(opts.metadata)) {
       params[`metadata[${key}]`] = value;
     }
+  }
+
+  if (opts.trialDays != null && opts.trialDays > 0) {
+    params['subscription_data[trial_period_days]'] = String(opts.trialDays);
   }
 
   // CF-030: Derive idempotency key to prevent duplicate checkout sessions on retry
@@ -295,6 +301,22 @@ export async function createPortalSession(opts: {
   );
 
   return { id: session.id, url: session.url };
+}
+
+// ---------------------------------------------------------------------------
+// Trial management
+// ---------------------------------------------------------------------------
+
+/**
+ * End a Stripe subscription trial immediately — triggers first charge.
+ * Called when Timekeeper detects trial compute quota (e.g., 4h) is consumed.
+ */
+export async function endTrialNow(subscriptionId: string, secretKey: string): Promise<void> {
+  await stripeRequest(
+    `/v1/subscriptions/${subscriptionId}`,
+    { trial_end: 'now' },
+    secretKey,
+  );
 }
 
 // ---------------------------------------------------------------------------

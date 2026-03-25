@@ -858,6 +858,15 @@ Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pend
 **Customer Portal (`POST /api/billing/portal`):**
 Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices, change plan). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min.
 
+**Trial model:**
+Every paid tier has a configurable `trialQuotaHours` (default 4h for all tiers). Trial is compute-based, not time-based.
+
+Flow: (1) New user checks out → Stripe creates subscription with `trial_period_days: 30` (billing window). No charge yet. (2) Timekeeper enforces `trialQuotaHours` as the compute cap during trial. (3) When trial compute quota is consumed → `endTrialNow()` calls Stripe API to end trial immediately → first charge. (4) If payment succeeds → full monthly quota unlocks. If fails → `billingStatus: 'past_due'` → downgraded to free. (5) `trialUsed: true` set in KV → subsequent checkouts skip trial (immediate charge).
+
+Key: Stripe's `trial_period_days: 30` is just a maximum billing window. Our compute quota (4h) is the real limit. Stripe cannot enforce compute hours — we end the trial programmatically when the quota is hit.
+
+`endTrialNow(subscriptionId, secretKey)` in `src/lib/stripe.ts` calls `POST /v1/subscriptions/{id}` with `trial_end=now`.
+
 ### Timekeeper DO (Usage Tracking)
 
 One Timekeeper Durable Object per user tracks compute usage. Container DOs ping Timekeeper with monotonic `totalSeconds` per session every 60 seconds (when `SAAS_MODE=active`, bucket name and user email are set, and TIMEKEEPER binding exists). Timekeeper computes deltas, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes. Note: `STRESS_TEST_MODE` only bypasses rate limits and session limits — it does NOT block Timekeeper pings (usage tracking always runs).

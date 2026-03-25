@@ -6,6 +6,7 @@ import {
   verifyWebhookSignature,
   createCheckoutSession,
   createPortalSession,
+  endTrialNow,
   parseStripeEvent,
 } from '../../lib/stripe';
 
@@ -229,5 +230,87 @@ describe('createPortalSession', () => {
       returnUrl: 'https://example.com/subscribe',
       secretKey: 'sk_test_key',
     })).rejects.toThrow('No such customer');
+  });
+});
+
+describe('endTrialNow', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('calls Stripe API to end trial immediately', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'sub_123', status: 'active', trial_end: null }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await endTrialNow('sub_123', 'sk_test_key');
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(fetchCall[0]).toBe('https://api.stripe.com/v1/subscriptions/sub_123');
+    expect(fetchCall[1].method).toBe('POST');
+    expect(fetchCall[1].body).toContain('trial_end=now');
+  });
+
+  it('throws on Stripe API error', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { message: 'No such subscription' } }), { status: 404 }),
+    ) as typeof globalThis.fetch;
+
+    await expect(endTrialNow('sub_invalid', 'sk_test_key')).rejects.toThrow('No such subscription');
+  });
+});
+
+describe('createCheckoutSession with trial', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('includes trial_period_days when trialDays is set', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'cs_trial', url: 'https://checkout.stripe.com/trial' }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await createCheckoutSession({
+      priceId: 'price_test',
+      customerEmail: 'trial@example.com',
+      successUrl: 'https://example.com/success',
+      cancelUrl: 'https://example.com/cancel',
+      secretKey: 'sk_test_key',
+      trialDays: 30,
+    });
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = fetchCall[1].body as string;
+    expect(body).toContain('subscription_data%5Btrial_period_days%5D=30');
+  });
+
+  it('does NOT include trial_period_days when trialDays is undefined', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'cs_notrial', url: 'https://checkout.stripe.com/notrial' }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await createCheckoutSession({
+      priceId: 'price_test',
+      customerEmail: 'notrial@example.com',
+      successUrl: 'https://example.com/success',
+      cancelUrl: 'https://example.com/cancel',
+      secretKey: 'sk_test_key',
+    });
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = fetchCall[1].body as string;
+    expect(body).not.toContain('trial_period_days');
   });
 });

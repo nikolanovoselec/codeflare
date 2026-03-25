@@ -68,6 +68,11 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   const successUrl = `${baseUrl}/app/subscribe?checkout=success`;
   const cancelUrl = `${baseUrl}/app/subscribe?checkout=canceled`;
 
+  // Check if user has already used their trial — if not, include 30-day trial window
+  // (actual compute is capped by trialQuotaHours in tier config; Stripe trial is just the billing window)
+  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  const trialUsed = userData?.trialUsed === true;
+
   const session = await createCheckoutSession({
     priceId,
     customerEmail: user.email,
@@ -75,6 +80,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     cancelUrl,
     secretKey,
     metadata: { tier, mode, email: user.email },
+    trialDays: trialUsed ? undefined : 30,
   });
 
   // Store checkoutSessionId on user KV (non-fatal)
