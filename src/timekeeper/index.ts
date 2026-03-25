@@ -11,8 +11,9 @@
  */
 import type { Env, UsageRecord } from '../types';
 import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
-import { getUserTier, getTierConfig } from '../lib/subscription';
+import { getUserTier, getTierConfig, getEffectiveTier } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
+import { endTrialNow } from '../lib/stripe';
 
 const logger = createLogger('timekeeper');
 
@@ -176,8 +177,11 @@ export class Timekeeper {
       ]);
 
       const userData = userRaw ? JSON.parse(userRaw) : {};
-      const tierValue = userData.subscriptionTier ?? userData.accessTier;
-      const tier = getUserTier(tierValue, tiers);
+      const effectiveTierValue = getEffectiveTier(
+        userData.subscriptionTier, userData.accessTier, userData.billingStatus,
+        userData.billingPeriodEnd, !!this.env.STRIPE_SECRET_KEY,
+      );
+      const tier = getUserTier(effectiveTierValue, tiers);
 
       // Calculate real monthly total
       const now = new Date();
@@ -190,7 +194,25 @@ export class Timekeeper {
       // Persist so crash recovery has accurate flushed total
       void this.ctx.storage.put('lastFlushedMonthlyTotal', kvMonthly);
 
-      if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds) {
+      // Trial enforcement: if subscription is trialing, use trialQuotaHours as the cap.
+      // When trial quota is hit, end the Stripe trial early to trigger first charge.
+      const isTrialing = userData.billingStatus === 'trialing';
+      const trialQuotaSeconds = (tier.trialQuotaHours ?? 0) * 3600;
+
+      if (isTrialing && trialQuotaSeconds > 0 && totalMonthlySeconds >= trialQuotaSeconds) {
+        quotaExceeded = true;
+        // End Stripe trial → triggers first charge
+        if (this.env.STRIPE_SECRET_KEY && userData.stripeSubscriptionId) {
+          try {
+            await endTrialNow(userData.stripeSubscriptionId, this.env.STRIPE_SECRET_KEY);
+            logger.info('Trial ended early — quota consumed', {
+              email: this.email, seconds: totalMonthlySeconds, quota: trialQuotaSeconds,
+            });
+          } catch (err) {
+            logger.error('Failed to end Stripe trial', err instanceof Error ? err : new Error(String(err)));
+          }
+        }
+      } else if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds) {
         quotaExceeded = true;
       }
     } catch {

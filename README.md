@@ -168,7 +168,7 @@ All optional. The defaults work out of the box. I respect your time.
 | Variable | Default | What it does |
 |---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | `codeflare` | Worker name and Access group prefix |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 10 instances) | Container size + instance cap. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), `saas` (1 vCPU, 3 GiB, 1500 instances). |
+| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 10 instances) | Container size + instance cap. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), `saas` (1 vCPU, 3 GiB, 1400 instances). |
 | `ONBOARDING_LANDING_PAGE` | `inactive` | Set to `active` for a public waitlist at `/` (requires Turnstile + `RESEND_API_KEY` secret) |
 | `RUNNER` | `ubuntu-latest` | GitHub Actions runner |
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | Set to `active` to force-reinstall the AI agent layer on every deploy |

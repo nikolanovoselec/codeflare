@@ -869,6 +869,8 @@ Key: Stripe's `trial_period_days: 30` is just a maximum billing window. Our comp
 
 `endTrialNow(subscriptionId, secretKey)` in `src/lib/stripe.ts` calls `POST /v1/subscriptions/{id}` with `trial_end=now`.
 
+**Timekeeper trial enforcement:** The Timekeeper DO's ping handler checks `billingStatus === 'trialing'` and uses `trialQuotaHours` (from tier config) as the compute cap instead of `monthlySeconds`. When trial quota is consumed, Timekeeper calls `endTrialNow()` to end the Stripe trial and trigger the first charge. After the trial ends, the subscription moves to `active` and the full `monthlySeconds` quota applies.
+
 ### Timekeeper DO (Usage Tracking)
 
 One Timekeeper Durable Object per user tracks compute usage. Container DOs ping Timekeeper with monotonic `totalSeconds` per session every 60 seconds (when `SAAS_MODE=active`, bucket name and user email are set, and TIMEKEEPER binding exists). Timekeeper computes deltas, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes. Note: `STRESS_TEST_MODE` only bypasses rate limits and session limits — it does NOT block Timekeeper pings (usage tracking always runs).
