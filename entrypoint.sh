@@ -427,6 +427,94 @@ bisync_with_r2() {
 }
 
 # ============================================================================
+# Self-healing: detect and remove corrupted R2 files
+# ============================================================================
+# When bisync/resync fails, the root cause is often files in R2 that were
+# uploaded without SSE-C encryption (by an older session or different config).
+# These files cause "encryption parameters are not applicable" errors that
+# block all sync operations. This function detects and removes them.
+#
+# Detection: create a temporary rclone config without SSE-C, list all R2 files,
+# then try to HEAD each with the encrypted config. Files that return 400 are
+# unencrypted orphans and get deleted via the unencrypted config.
+#
+# Also removes local files that cause persistent size mismatches (e.g., files
+# actively written during sync that ended up with different sizes).
+nuke_corrupted_r2_files() {
+    echo "[self-heal] Scanning R2 for corrupted/unencrypted files..." | tee -a /tmp/sync.log
+
+    # Extract R2 credentials from existing config (without SSE-C)
+    local R2_EP R2_AK R2_SK
+    R2_EP=$(grep 'endpoint' "$RCLONE_CONFIG" | head -1 | awk '{print $3}')
+    R2_AK=$(grep 'access_key_id' "$RCLONE_CONFIG" | head -1 | awk '{print $3}')
+    R2_SK=$(grep 'secret_access_key' "$RCLONE_CONFIG" | head -1 | awk '{print $3}')
+
+    if [ -z "$R2_EP" ] || [ -z "$R2_AK" ] || [ -z "$R2_SK" ]; then
+        echo "[self-heal] Cannot extract R2 credentials — skipping" | tee -a /tmp/sync.log
+        return 1
+    fi
+
+    # Temporary config without encryption
+    local NOENC_CONF
+    NOENC_CONF=$(mktemp)
+    cat > "$NOENC_CONF" << NOENC
+[r2noenc]
+type = s3
+provider = Cloudflare
+endpoint = $R2_EP
+access_key_id = $R2_AK
+secret_access_key = $R2_SK
+no_check_bucket = true
+NOENC
+
+    # Also check sync.log for specific file paths causing errors
+    local NUKED=0
+
+    # Strategy 1: Find files mentioned in recent error log
+    local ERROR_FILES
+    ERROR_FILES=$(grep -oP '(?<=ERROR : )[^ ]+(?=: Failed to copy|: corrupted on transfer|: Failed to calculate)' /tmp/sync.log 2>/dev/null | sort -u)
+
+    for file in $ERROR_FILES; do
+        # Skip if file contains ANSI escape codes (log artifacts)
+        case "$file" in *[*) continue ;; esac
+        echo "[self-heal] Nuking error file from R2: $file" | tee -a /tmp/sync.log
+        rclone --config "$NOENC_CONF" delete "r2noenc:${R2_BUCKET_NAME}/${file}" 2>/dev/null && NUKED=$((NUKED + 1))
+        # Also delete locally to prevent re-upload of corrupted version
+        rm -f "$USER_HOME/$file" 2>/dev/null
+    done
+
+    # Strategy 2: Scan for encryption-mismatched files (only if Strategy 1 found nothing)
+    if [ $NUKED -eq 0 ]; then
+        echo "[self-heal] No error files in log — scanning R2 for encryption mismatches..." | tee -a /tmp/sync.log
+        local ALL_FILES
+        ALL_FILES=$(mktemp)
+        rclone --config "$NOENC_CONF" lsf "r2noenc:${R2_BUCKET_NAME}" -R --files-only 2>/dev/null > "$ALL_FILES"
+        local TOTAL
+        TOTAL=$(wc -l < "$ALL_FILES")
+        echo "[self-heal] Checking $TOTAL R2 objects..." | tee -a /tmp/sync.log
+
+        while IFS= read -r file; do
+            # Try HEAD with encrypted config — 400 means unencrypted orphan
+            if ! rclone size "r2:${R2_BUCKET_NAME}/${file}" --config "$RCLONE_CONFIG" >/dev/null 2>&1; then
+                echo "[self-heal] Nuking unencrypted orphan: $file" | tee -a /tmp/sync.log
+                rclone --config "$NOENC_CONF" delete "r2noenc:${R2_BUCKET_NAME}/${file}" 2>/dev/null && NUKED=$((NUKED + 1))
+            fi
+        done < "$ALL_FILES"
+        rm -f "$ALL_FILES"
+    fi
+
+    rm -f "$NOENC_CONF"
+
+    if [ $NUKED -gt 0 ]; then
+        echo "[self-heal] Removed $NUKED corrupted files from R2" | tee -a /tmp/sync.log
+        return 0
+    else
+        echo "[self-heal] No corrupted files found" | tee -a /tmp/sync.log
+        return 1
+    fi
+}
+
+# ============================================================================
 # Background sync daemon - bisync every 60 seconds
 # ============================================================================
 start_sync_daemon() {
@@ -482,11 +570,23 @@ start_sync_daemon() {
                     echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Resync fallback succeeded — resuming normal sync" | tee -a /tmp/sync.log >&2
                     CONSECUTIVE_FAILURES=0
                 else
-                    local LAST_ERRORS
-                    LAST_ERRORS=$(grep -i 'error\|fatal\|failed' /tmp/sync.log | tail -3)
-                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') RESYNC FAILED — will retry next cycle. Recent errors:" | tee -a /tmp/sync.log >&2
-                    echo "$LAST_ERRORS" | tee -a /tmp/sync.log >&2
-                    CONSECUTIVE_FAILURES=2  # retry resync after 1 more failure instead of 3
+                    # Self-healing: detect and nuke files causing bisync to fail
+                    echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') RESYNC FAILED — attempting self-healing..." | tee -a /tmp/sync.log >&2
+                    if nuke_corrupted_r2_files; then
+                        echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Corrupted files removed — retrying resync" | tee -a /tmp/sync.log >&2
+                        # Clear bisync state and retry immediately
+                        rm -f /home/user/.cache/rclone/bisync/*.lst-new /home/user/.cache/rclone/bisync/*.lst 2>/dev/null
+                        if establish_bisync_baseline; then
+                            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Self-healing successful — resuming normal sync" | tee -a /tmp/sync.log >&2
+                            CONSECUTIVE_FAILURES=0
+                        else
+                            echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Self-healing resync still failed — will retry next cycle" | tee -a /tmp/sync.log >&2
+                            CONSECUTIVE_FAILURES=2
+                        fi
+                    else
+                        echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') No corrupted files found — will retry next cycle" | tee -a /tmp/sync.log >&2
+                        CONSECUTIVE_FAILURES=2  # retry resync after 1 more failure instead of 3
+                    fi
                 fi
             fi
         fi
@@ -992,7 +1092,22 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
             echo "[entrypoint] Bisync baseline established, starting daemon..."
             start_sync_daemon
         else
-            echo "[entrypoint] Bisync baseline failed, daemon not started"
+            # Self-healing: nuke corrupted files and retry once
+            echo "[entrypoint] Bisync baseline failed — attempting self-healing..." | tee -a /tmp/sync.log
+            if nuke_corrupted_r2_files; then
+                rm -f /home/user/.cache/rclone/bisync/*.lst-new /home/user/.cache/rclone/bisync/*.lst 2>/dev/null
+                if establish_bisync_baseline; then
+                    echo "[entrypoint] Self-healing successful — starting daemon..."
+                    if [ -n "${SESSION_ID:-}" ] && [ "${SESSION_MODE:-default}" = "advanced" ]; then
+                        cleanup_old_memory_files
+                    fi
+                    start_sync_daemon
+                else
+                    echo "[entrypoint] Self-healing resync still failed — daemon not started"
+                fi
+            else
+                echo "[entrypoint] No corrupted files found — daemon not started"
+            fi
         fi
     ) &
     BISYNC_INIT_PID=$!
