@@ -12,6 +12,11 @@ const ACTIVE_TIERS: ReadonlySet<string> = new Set([
   'free', 'trial', 'standard', 'advanced', 'max', 'unlimited',
 ]);
 
+/** Tier IDs available for self-service subscription (shared across routes). */
+export const SUBSCRIBABLE_TIER_IDS: ReadonlySet<string> = new Set([
+  'free', 'standard', 'advanced', 'max', 'unlimited',
+]);
+
 /**
  * Returns the hardcoded default tier configuration (8 tiers).
  * Used as fallback when tiers:config is not in KV.

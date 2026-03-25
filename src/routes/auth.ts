@@ -5,7 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
-import { getTierConfig, getEffectiveTier } from '../lib/subscription';
+import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import { escapeXml } from '../lib/xml-utils';
 import { createLogger } from '../lib/logger';
@@ -42,9 +42,8 @@ app.get('/onboarding-config', requireIdentity, async (c) => {
 
 // GET /api/auth/tiers — subscribable tier config for the subscribe page.
 app.get('/tiers', requireIdentity, async (c) => {
-  const SUBSCRIBABLE_IDS = new Set(['free', 'standard', 'advanced', 'max', 'unlimited']);
   const allTiers = await getTierConfig(c.env.KV);
-  const subscribable = allTiers.filter((t) => SUBSCRIBABLE_IDS.has(t.id as string));
+  const subscribable = allTiers.filter((t) => SUBSCRIBABLE_TIER_IDS.has(t.id as string));
   return c.json({ tiers: subscribable });
 });
 
@@ -226,8 +225,6 @@ const subscribeRateLimiter = createRateLimiter({
   keyPrefix: 'subscribe',
 });
 
-const SUBSCRIBABLE_TIERS = new Set(['free', 'standard', 'advanced', 'max', 'unlimited']);
-
 const SubscribeSchema = z.object({
   tier: z.string().min(1, 'Tier is required'),
   turnstileToken: z.string().optional().default(''),
@@ -244,7 +241,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const parsed = SubscribeSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
 
-  if (!SUBSCRIBABLE_TIERS.has(parsed.data.tier)) {
+  if (!SUBSCRIBABLE_TIER_IDS.has(parsed.data.tier)) {
     throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, advanced, max, unlimited`);
   }
 

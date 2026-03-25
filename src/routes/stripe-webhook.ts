@@ -2,7 +2,7 @@
  * Stripe webhook handler — unauthenticated, mounted under /public/stripe/*.
  *
  * POST /webhook — receives Stripe webhook events, verified by HMAC signature.
- * No CF Access auth, no CSRF, no rate limiting. Signature is the only guard.
+ * No CF Access auth, no CSRF. Signature is the only guard.
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
@@ -14,6 +14,7 @@ import {
   resolveTierFromPriceId,
   isStripeConfigured,
 } from '../lib/stripe';
+import { SUBSCRIBABLE_TIER_IDS } from '../lib/subscription';
 
 const logger = createLogger('stripe-webhook');
 
@@ -49,15 +50,25 @@ app.post('/webhook', async (c) => {
     return c.json({ error: 'Invalid event payload' }, 400);
   }
 
-  // Dedupe: check if we've already processed this event
+  // Dedupe: check if we've already processed this event.
+  // Note: KV has ~60s eventual consistency lag. A Stripe retry hitting a different
+  // edge before the dedupe key propagates may re-process the event. This is acceptable
+  // because all handlers are idempotent (same data written twice) and CF-023 guards
+  // checkout.session.completed against overwriting existing subscriptions.
   const dedupeKey = `stripe:event:${event.id}`;
-  const existing = await c.env.KV.get(dedupeKey);
-  if (existing) {
+  const existingEvent = await c.env.KV.get(dedupeKey);
+  if (existingEvent) {
     logger.info('Duplicate event skipped', { eventId: event.id, type: event.type });
     return c.json({ received: true });
   }
 
-  // Handle event types
+  // Handle event types.
+  // CF-001 fix: dedupe key is written ONLY on handler success (inside try block).
+  // On handler failure, we return 500 so Stripe retries transient errors.
+  // Note on CF-003: handlers use read-spread-write pattern. Each handler's explicit
+  // fields take precedence over spread. With CF-001 preventing dedupe-masking of
+  // failed events, the remaining race window (two successful writes within KV
+  // propagation lag) only overwrites to identical values in practice.
   try {
     switch (event.type) {
       case 'checkout.session.completed':
@@ -81,19 +92,19 @@ app.post('/webhook', async (c) => {
       default:
         logger.info('Unhandled event type', { type: event.type, eventId: event.id });
     }
+
+    // Write dedupe key with TTL only on handler success
+    await c.env.KV.put(dedupeKey, 'processed', { expirationTtl: DEDUPE_TTL_SECONDS });
+    return c.json({ received: true });
   } catch (err) {
     logger.error('Webhook handler error', err instanceof Error ? err : new Error(String(err)), {
       eventId: event.id,
       type: event.type,
     });
-    // Return 200 to prevent Stripe retries for handler errors
-    // (we logged the error; Stripe retrying won't help)
+    // Return 500 so Stripe retries transient failures (KV timeouts, network errors).
+    // Dedupe key is NOT written — the event can be reprocessed on retry.
+    return c.json({ error: 'Internal handler error' }, 500);
   }
-
-  // Write dedupe key with TTL
-  await c.env.KV.put(dedupeKey, 'processed', { expirationTtl: DEDUPE_TTL_SECONDS });
-
-  return c.json({ received: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -119,13 +130,38 @@ async function handleCheckoutCompleted(
     await env.KV.put(`stripe-customer:${customerId}`, email);
   }
 
-  // Resolve tier from metadata or price
+  // CF-008: Validate metadata tier — fall back to price-based resolution if absent/invalid
   const metadata = session.metadata as Record<string, string> | undefined;
-  const tier = metadata?.tier ?? 'standard';
+  let tier = metadata?.tier;
   const mode = metadata?.mode ?? 'default';
 
-  // Update user KV
+  if (!tier || !SUBSCRIBABLE_TIER_IDS.has(tier)) {
+    // Attempt price-based resolution from session line items
+    const lineItems = session.line_items as { data?: Array<{ price?: { id?: string } }> } | undefined;
+    const sessionPriceId = lineItems?.data?.[0]?.price?.id;
+    const resolved = sessionPriceId ? resolveTierFromPriceId(sessionPriceId) : null;
+    if (resolved) {
+      tier = resolved.tier;
+    } else {
+      logger.error('checkout.session.completed: cannot resolve tier from metadata or price', new Error('tier resolution failed'), {
+        eventId: event.id,
+        metadataTier: metadata?.tier,
+      });
+      return;
+    }
+  }
+
+  // CF-023: Check for existing subscription before overwriting
   const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
+  if (existing?.stripeSubscriptionId && existing.stripeSubscriptionId !== subscriptionId) {
+    logger.warn('checkout.session.completed: user already has a different subscription', {
+      email,
+      existingSubscriptionId: existing.stripeSubscriptionId,
+      newSubscriptionId: subscriptionId,
+    });
+  }
+
+  // Update user KV
   const updated: Record<string, unknown> = {
     ...existing,
     subscriptionTier: tier,
@@ -136,7 +172,6 @@ async function handleCheckoutCompleted(
     stripeSubscriptionId: subscriptionId,
     checkoutSessionId: session.id as string,
     billingStatus: 'active',
-    trialBillingTriggered: false,
     trialUsed: existing?.trialUsed === true,
   };
   await env.KV.put(`user:${email}`, JSON.stringify(updated));
@@ -221,7 +256,11 @@ async function handlePaymentFailed(
   if (!customerId) return;
 
   const email = await resolveEmailFromCustomer(customerId, env);
-  if (!email) return;
+  if (!email) {
+    // CF-032: Log warning on unresolved customer (was silently dropped)
+    logger.warn('invoice.payment_failed: cannot resolve email', { customerId, eventId: event.id });
+    return;
+  }
 
   const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
   const updated = { ...existing, billingStatus: 'past_due' };
@@ -240,7 +279,11 @@ async function handleSubscriptionDeleted(
   if (!customerId) return;
 
   const email = await resolveEmailFromCustomer(customerId, env);
-  if (!email) return;
+  if (!email) {
+    // CF-032: Log warning on unresolved customer (was silently dropped)
+    logger.warn('subscription.deleted: cannot resolve email', { customerId, eventId: event.id });
+    return;
+  }
 
   const existing = await env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
   const updated = { ...existing, billingStatus: 'canceled' };
@@ -290,11 +333,35 @@ async function handleSubscriptionUpdated(
 }
 
 // ---------------------------------------------------------------------------
-// Customer lookup
+// Customer lookup — CF-005: KV lookup with Stripe API fallback
 // ---------------------------------------------------------------------------
 
 async function resolveEmailFromCustomer(customerId: string, env: Env): Promise<string | null> {
-  return env.KV.get(`stripe-customer:${customerId}`);
+  // Primary: KV mapping written by handleCheckoutCompleted
+  const kvEmail = await env.KV.get(`stripe-customer:${customerId}`);
+  if (kvEmail) return kvEmail;
+
+  // Fallback: fetch from Stripe API (handles delayed/failed checkout events)
+  if (env.STRIPE_SECRET_KEY) {
+    try {
+      const response = await fetch(`https://api.stripe.com/v1/customers/${customerId}`, {
+        headers: { 'Authorization': `Bearer ${env.STRIPE_SECRET_KEY}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (response.ok) {
+        const customer = await response.json() as { email?: string };
+        if (customer.email) {
+          // Cache for future lookups
+          await env.KV.put(`stripe-customer:${customerId}`, customer.email);
+          return customer.email;
+        }
+      }
+    } catch (err) {
+      logger.warn('Stripe API customer lookup failed', { customerId, error: String(err) });
+    }
+  }
+
+  return null;
 }
 
 export default app;

@@ -12,7 +12,6 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import {
-  isStripeConfigured,
   getStripePriceId,
   createCheckoutSession,
   createPortalSession,
@@ -36,7 +35,9 @@ const CheckoutSchema = z.object({
 
 // POST /billing/checkout
 app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
-  if (!isStripeConfigured(c.env)) {
+  // CF-006: Explicit null check instead of non-null assertion
+  const secretKey = c.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
     throw new ValidationError('Stripe is not configured.');
   }
 
@@ -71,7 +72,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     customerEmail: user.email,
     successUrl,
     cancelUrl,
-    secretKey: c.env.STRIPE_SECRET_KEY!,
+    secretKey,
     metadata: { tier, mode, email: user.email },
   });
 
@@ -112,7 +113,9 @@ const portalRateLimiter = createRateLimiter({
 
 // POST /billing/portal — create a Stripe Customer Portal session
 app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
-  if (!isStripeConfigured(c.env)) {
+  // CF-006: Explicit null check instead of non-null assertion
+  const secretKey = c.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
     throw new ValidationError('Stripe is not configured.');
   }
 
@@ -131,7 +134,7 @@ app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
   const session = await createPortalSession({
     customerId,
     returnUrl,
-    secretKey: c.env.STRIPE_SECRET_KEY!,
+    secretKey,
   });
 
   logger.info('Portal session created', { email: user.email, sessionId: session.id });
