@@ -64,21 +64,21 @@ type SubscribePhase = 'home' | 'tiers';
 
 /** Home view feature highlights */
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRocketLaunchOutline, content: () => <>Code from anywhere — phone, tablet, laptop</> },
-  { icon: mdiRobotOutline, content: () => <>5 AI agents: Claude, Codex, Copilot, Gemini, OpenCode</> },
+  { icon: mdiRobotOutline, content: () => <>Six AI agents — Claude, Codex, Copilot, Gemini, OpenCode, Bash</> },
+  { icon: mdiCellphoneLink, content: () => <>Code from any device with a browser</> },
   { icon: mdiSourceBranch, content: () => <>Push to <span style={{ color: '#3b82f6' }}>GitHub</span>, deploy to <span style={{ color: '#f38020' }}>Cloudflare</span> — built in</> },
-  { icon: mdiCloudLockOutline, content: () => <>Your code stays yours — encrypted, persistent</> },
-  { icon: mdiLightningBolt, content: () => <>From idea to production in one session</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Full VS Code IDE — optimized for every screen</> },
+  { icon: mdiCloudLockOutline, content: () => <>Files persist in R2 — encrypted, always in sync</> },
+  { icon: mdiLightningBolt, content: () => <>From idea to live URL in one session</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Optimized for phones, tablets, and foldables</> },
 ];
 
 /** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
 const TIER_FEATURES: Record<string, string[]> = {
-  free: ['5 AI coding agents', 'Persistent cloud workspace', 'GitHub & Cloudflare deploy'],
-  standard: ['Everything in Free', 'Pro mode with AI workflows', 'Configurable idle timeout', 'Priority support'],
-  advanced: ['Everything in Starter', 'Double the compute hours', 'Run 2 sessions at once', 'Priority support'],
-  max: ['Everything in Advanced', 'Run 3 sessions at once', 'OpenClaw Integration', 'Priority support'],
-  unlimited: ['Everything in Max', 'Unlimited compute', 'OpenClaw Integration', 'Dedicated support', 'Custom SLA'],
+  free: ['6 AI coding agents', 'Persistent R2 workspace', 'GitHub & Cloudflare deploy'],
+  standard: ['Everything in Free', 'Pro mode — skills, memory & workflows', 'Configurable idle timeout', 'Priority support'],
+  advanced: ['Everything in Starter', '2x compute hours', '2 parallel sessions', 'Priority support'],
+  max: ['Everything in Advanced', '4x compute hours', '3 parallel sessions', 'OpenClaw Integration'],
+  unlimited: ['Everything in Max', 'Unlimited compute', '5 parallel sessions', 'Dedicated support'],
 };
 
 /** Features that show a "COMING SOON" badge */
@@ -98,20 +98,20 @@ const TIER_ORDER = ['free', 'standard', 'advanced', 'max', 'unlimited'] as const
 
 /** Standard mode features for mode card */
 const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiRocketLaunchOutline, text: 'Full VS Code in your browser' },
-  { icon: mdiConsole, text: 'Root Linux terminal' },
-  { icon: mdiRobotOutline, text: '5 AI coding agents' },
-  { icon: mdiSync, text: 'Workspace synced to cloud' },
-  { icon: mdiSourceBranch, text: 'Git push & deploy built in' },
-  { icon: mdiFileDocumentOutline, text: 'File browser & editor' },
+  { icon: mdiConsole, text: '6 terminal tabs with tiling mode' },
+  { icon: mdiRobotOutline, text: '6 AI coding agents, pre-loaded' },
+  { icon: mdiSync, text: 'R2 cloud sync every 60 seconds' },
+  { icon: mdiSourceBranch, text: 'GitHub & Cloudflare deploy built in' },
+  { icon: mdiCloudOutline, text: 'Persistent workspace across sessions' },
+  { icon: mdiFileDocumentOutline, text: 'File browser & storage management' },
 ];
 
 /** Pro mode features for mode card */
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiHeadCogOutline, text: 'AI that remembers across sessions' },
-  { icon: mdiLayersTripleOutline, text: 'Multi-agent orchestration' },
-  { icon: mdiWrenchOutline, text: 'Curated skills & automation' },
-  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph memory' },
+  { icon: mdiHeadCogOutline, text: 'Persistent memory across sessions' },
+  { icon: mdiWrenchOutline, text: 'Pre-loaded skills, rules & hooks' },
+  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph via MCP' },
+  { icon: mdiLayersTripleOutline, text: 'Language-specific coding standards' },
 ];
 
 const SubscribePage: Component = () => {
