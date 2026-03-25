@@ -92,7 +92,7 @@ describe('SubscribePage', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       await waitFor(() => {
-        expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
+        expect(screen.getByText(/5 AI agents, pre-warmed and ready/)).toBeInTheDocument();
         expect(screen.getByText(/See subscription plans/i)).toBeInTheDocument();
       });
     });
@@ -166,8 +166,8 @@ describe('SubscribePage', () => {
 
       await waitFor(() => {
         const card = screen.getByTestId('mode-chooser');
-        expect(card.textContent).toMatch(/knowledge graph/i);
-        expect(card.textContent).toMatch(/multi-llm/i);
+        expect(card.textContent).toMatch(/context capture/i);
+        expect(card.textContent).toMatch(/coding standards/i);
       });
     });
 
@@ -207,7 +207,7 @@ describe('SubscribePage', () => {
       fireEvent.click(screen.getByText('Back'));
 
       await waitFor(() => {
-        expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
+        expect(screen.getByText(/5 AI agents, pre-warmed and ready/)).toBeInTheDocument();
         expect(screen.queryByTestId('mode-chooser')).not.toBeInTheDocument();
       });
     });
@@ -369,7 +369,7 @@ describe('SubscribePage', () => {
       fireEvent.click(screen.getByText('Back'));
 
       await waitFor(() => {
-        expect(screen.getByText(/Ready to code in seconds/)).toBeInTheDocument();
+        expect(screen.getByText(/5 AI agents, pre-warmed and ready/)).toBeInTheDocument();
         expect(screen.queryByTestId('lifeline-rail')).not.toBeInTheDocument();
       });
     });
@@ -405,13 +405,13 @@ describe('SubscribePage', () => {
   });
 
   describe('TIER_FEATURES content', () => {
-    it('free tier includes R2 cloud sync', async () => {
+    it('free tier includes Persistent cloud storage', async () => {
       await openTierView();
       fireEvent.click(screen.getByTestId('lifeline-stop-free'));
 
       await waitFor(() => {
         const panel = screen.getByTestId('tier-detail-panel');
-        expect(panel.textContent).toMatch(/R2 cloud sync/);
+        expect(panel.textContent).toMatch(/Persistent cloud storage/);
       });
     });
 

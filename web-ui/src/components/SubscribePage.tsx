@@ -64,21 +64,21 @@ type SubscribePhase = 'home' | 'tiers';
 
 /** Home view feature highlights */
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRobotOutline, content: () => <>Six AI agents — Claude, Codex, Copilot, Gemini, OpenCode, Bash</> },
-  { icon: mdiCellphoneLink, content: () => <>Code from any device with a browser</> },
+  { icon: mdiRobotOutline, content: () => <>5 AI agents, pre-warmed and ready</> },
+  { icon: mdiCellphoneLink, content: () => <>Cloud terminal on any device</> },
   { icon: mdiSourceBranch, content: () => <>Push to <span style={{ color: '#3b82f6' }}>GitHub</span>, deploy to <span style={{ color: '#f38020' }}>Cloudflare</span> — built in</> },
-  { icon: mdiCloudLockOutline, content: () => <>Files persist in R2 — encrypted, always in sync</> },
-  { icon: mdiLightningBolt, content: () => <>From idea to live URL in one session</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Optimized for phones, tablets, and foldables</> },
+  { icon: mdiCloudLockOutline, content: () => <>Files persist, containers disappear</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Tabs, tiling, and mobile-first</> },
+  { icon: mdiLightningBolt, content: () => <>Scales to zero when idle</> },
 ];
 
 /** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
 const TIER_FEATURES: Record<string, string[]> = {
-  free: ['6 AI coding agents', 'Persistent R2 workspace', 'GitHub & Cloudflare deploy'],
-  standard: ['Everything in Free', 'Pro mode — skills, memory & workflows', 'Configurable idle timeout', 'Priority support'],
-  advanced: ['Everything in Starter', '2x compute hours', '2 parallel sessions', 'Priority support'],
-  max: ['Everything in Advanced', '4x compute hours', '3 parallel sessions', 'OpenClaw Integration'],
-  unlimited: ['Everything in Max', 'Unlimited compute', '5 parallel sessions', 'Dedicated support'],
+  free: ['5 AI agents, ready instantly', 'Persistent cloud storage', 'GitHub & Cloudflare deploy'],
+  standard: ['Everything in Free', 'Unlocks Pro mode', 'Configurable idle timeout', 'Priority support'],
+  advanced: ['Everything in Starter', 'Run 2 sessions at once', 'Work across parallel branches', 'Priority support'],
+  max: ['Everything in Advanced', 'Run 3 sessions at once', 'OpenClaw Integration', 'Heavy daily AI workflows'],
+  unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run 5 sessions at once', 'Dedicated support'],
 };
 
 /** Features that show a "COMING SOON" badge */
@@ -98,20 +98,20 @@ const TIER_ORDER = ['free', 'standard', 'advanced', 'max', 'unlimited'] as const
 
 /** Standard mode features for mode card */
 const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiConsole, text: '6 terminal tabs with tiling mode' },
-  { icon: mdiRobotOutline, text: '6 AI coding agents, pre-loaded' },
-  { icon: mdiSync, text: 'R2 cloud sync every 60 seconds' },
-  { icon: mdiSourceBranch, text: 'GitHub & Cloudflare deploy built in' },
-  { icon: mdiCloudOutline, text: 'Persistent workspace across sessions' },
-  { icon: mdiFileDocumentOutline, text: 'File browser & storage management' },
+  { icon: mdiRobotOutline, text: '5 AI agents plus plain Bash' },
+  { icon: mdiConsole, text: 'Isolated container per session' },
+  { icon: mdiSync, text: 'Persistent storage with auto-sync' },
+  { icon: mdiSourceBranch, text: 'GitHub push & Cloudflare deploy' },
+  { icon: mdiLightningBolt, text: 'Fast Start — instant agent boot' },
+  { icon: mdiFileDocumentOutline, text: 'Live CPU, memory & disk metrics' },
 ];
 
 /** Pro mode features for mode card */
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
   { icon: mdiHeadCogOutline, text: 'Persistent memory across sessions' },
   { icon: mdiWrenchOutline, text: 'Pre-loaded skills, rules & hooks' },
-  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph via MCP' },
-  { icon: mdiLayersTripleOutline, text: 'Language-specific coding standards' },
+  { icon: mdiBookOpenPageVariantOutline, text: 'Automatic context capture via MCP' },
+  { icon: mdiLayersTripleOutline, text: 'Coding standards for TS, Python, Go' },
 ];
 
 const SubscribePage: Component = () => {

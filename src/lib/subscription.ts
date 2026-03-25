@@ -63,7 +63,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: 0,
       advancedPriceMonthly: null,
       trialQuotaHours: 0,
-      description: 'Try it — no card needed',
+      description: 'Zero commitment, zero setup',
     },
     {
       id: 'trial',
@@ -91,7 +91,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,         // CF-027: prices come from Stripe via admin-configured stripePriceId
       advancedPriceMonthly: null,
       trialQuotaHours: 40,
-      description: 'Ship side projects faster',
+      description: 'For weekend projects and light coding',
     },
     {
       id: 'advanced',
@@ -105,7 +105,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 80,
-      description: 'Do some serious work',
+      description: 'For serious builders shipping real work',
     },
     {
       id: 'max',
@@ -119,7 +119,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 160,
-      description: 'Build all day, every day',
+      description: 'For daily users pushing AI hard',
     },
     {
       id: 'unlimited',
@@ -133,7 +133,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 0,
-      description: 'No limits, no compromises',
+      description: 'Unlimited compute, zero throttling',
     },
   ];
 }
