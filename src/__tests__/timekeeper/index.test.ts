@@ -451,10 +451,6 @@ describe('Timekeeper DO', () => {
       // Should re-arm alarm for retry (30s)
       expect(mockStorage.setAlarm).toHaveBeenCalledWith(expect.any(Number));
       // pendingSeconds should NOT be reset to 0 (preserved for retry)
-      const putCalls = mockStorage.put.mock.calls.filter(
-        (c: unknown[]) => c[0] === 'pendingSeconds' && c[1] === 0
-      );
-      // The last pendingSeconds write should NOT be 0 since flush failed
       const lastPendingWrite = mockStorage.put.mock.calls
         .filter((c: unknown[]) => c[0] === 'pendingSeconds')
         .pop();
