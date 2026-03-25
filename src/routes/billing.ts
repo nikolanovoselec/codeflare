@@ -13,6 +13,8 @@ import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord } from '../lib/user-record';
 import { getTierConfig } from '../lib/subscription';
+import { getMaxUsers } from '../lib/constants';
+import { getAllUsers } from '../lib/access-policy';
 import {
   getStripePriceId,
   createCheckoutSession,
@@ -44,6 +46,22 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   }
 
   const user = c.get('user');
+
+  // Max users cap — block new checkouts when capacity is reached
+  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  const isAlreadySubscribed = !!userData?.subscribedAt;
+  if (!isAlreadySubscribed) {
+    const maxUsers = getMaxUsers(c.env);
+    if (maxUsers > 0) {
+      const allUsers = await getAllUsers(c.env.KV);
+      const subscribedCount = allUsers.filter((u: Record<string, unknown>) =>
+        u.subscriptionTier && u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+      ).length;
+      if (subscribedCount >= maxUsers) {
+        throw new ValidationError('Subscriptions are currently full. Please try again later.');
+      }
+    }
+  }
 
   let raw: unknown;
   try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }

@@ -59,6 +59,9 @@ export interface Env {
   MAX_SESSIONS_USER?: string;
   MAX_SESSIONS_ADMIN?: string;
 
+  // Maximum total subscribed users (0 = unlimited). When reached, no new subscriptions allowed.
+  MAX_USERS?: string;
+
   // Bypass all rate limits for stress testing (set to 'active' to enable)
   STRESS_TEST_MODE?: string;
 

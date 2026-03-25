@@ -2074,6 +2074,7 @@ GET `/health`, GET `/api/health`
 | `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | GitHub Actions variable / Worker runtime env |
 | `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
+| `MAX_USERS` | Max total subscribed users, 0=unlimited (default: 0). Blocks new subscriptions when reached. | wrangler.toml |
 | `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | Worker secret (optional) |
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | Worker env var |
 | `SAAS_MODE` | `"active"` enables custom login page, auto-provisioning, admin approval | GitHub Actions variable → `--var` at deploy |

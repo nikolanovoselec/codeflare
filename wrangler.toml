@@ -18,6 +18,8 @@ ALLOWED_ORIGINS = ".workers.dev"
 LOG_LEVEL = "info"
 MAX_SESSIONS_USER = "3"
 MAX_SESSIONS_ADMIN = "10"
+# Maximum total subscribed users (0 = unlimited). Block new subscriptions when reached.
+# MAX_USERS = "0"
 # SaaS mode: custom login page, auto-provisioning, admin approval gate
 # Set to "active" via GitHub Actions variable to enable
 # SAAS_MODE = "inactive"

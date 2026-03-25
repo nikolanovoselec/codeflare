@@ -13,6 +13,7 @@ import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessReq
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { isStripeConfigured, getStripePrices } from '../lib/stripe';
+import { getMaxUsers } from '../lib/constants';
 
 const logger = createLogger('auth-routes');
 
@@ -114,6 +115,19 @@ app.get('/status', requireIdentity, async (c) => {
   // subscribedMode = what mode the user paid for (gates Settings Pro toggle)
   const subscribedMode = (userData?.subscribedMode === 'advanced' ? 'advanced' : 'default') as string;
 
+  // Check if user capacity is reached (for frontend to disable subscribe buttons)
+  let userCapacityReached = false;
+  const maxUsers = getMaxUsers(c.env);
+  if (maxUsers > 0 && !hasSubscribed) {
+    try {
+      const allUsers = await getAllUsers(c.env.KV);
+      const subscribedCount = allUsers.filter(u =>
+        u.subscriptionTier && u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+      ).length;
+      userCapacityReached = subscribedCount >= maxUsers;
+    } catch { /* non-fatal */ }
+  }
+
   return c.json({
     email: user.email,
     accessTier,
@@ -127,6 +141,7 @@ app.get('/status', requireIdentity, async (c) => {
     sessionMode,
     subscribedMode,
     billingStatus,
+    userCapacityReached,
   });
 });
 
@@ -253,6 +268,20 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
 
   const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
   const isAlreadySubscribed = !!existingRaw?.subscribedAt;
+
+  // Max users cap — block new subscriptions when capacity is reached
+  if (!isAlreadySubscribed) {
+    const maxUsers = getMaxUsers(c.env);
+    if (maxUsers > 0) {
+      const allUsers = await getAllUsers(c.env.KV);
+      const subscribedCount = allUsers.filter(u =>
+        u.subscriptionTier && u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+      ).length;
+      if (subscribedCount >= maxUsers) {
+        throw new ValidationError('Subscriptions are currently full. Please try again later.');
+      }
+    }
+  }
 
   // Read current mode from preferences (used for idempotency check + email previousMode)
   let previousMode = 'default';

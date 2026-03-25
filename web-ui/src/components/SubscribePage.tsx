@@ -132,6 +132,7 @@ const SubscribePage: Component = () => {
   const [currentMode, setCurrentMode] = createSignal<'default' | 'advanced'>('default');
   const [billingStatus, setBillingStatus] = createSignal<string | null>(null);
   const [portalLoading, setPortalLoading] = createSignal(false);
+  const [capacityReached, setCapacityReached] = createSignal(false);
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
@@ -187,6 +188,9 @@ const SubscribePage: Component = () => {
       }
 
       setBillingStatus(status.billingStatus ?? null);
+      if ((status as Record<string, unknown>).userCapacityReached === true) {
+        setCapacityReached(true);
+      }
 
       if (status.trialUsed === true) {
         setTrialUsed(true);
@@ -426,6 +430,7 @@ const SubscribePage: Component = () => {
     const tier = selectedTier();
     if (!tier) return true;
     if (subscribing() !== null) return true;
+    if (capacityReached() && !isActive()) return true;
     if (isActive() && tier.id === currentTierId() && !isModeChange()) return true;
     if (!isActive() && !turnstileReady()) return true;
     return false;
@@ -454,6 +459,11 @@ const SubscribePage: Component = () => {
           {/* Error display */}
           <Show when={error()}>
             <div class="subscribe-error">{error()}</div>
+          </Show>
+
+          {/* Capacity reached */}
+          <Show when={capacityReached() && !isActive()}>
+            <div class="subscribe-error">Subscriptions are currently full. Please try again later.</div>
           </Show>
 
           {/* Blocked */}
