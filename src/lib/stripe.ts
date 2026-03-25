@@ -19,12 +19,12 @@ interface PriceEntry {
 }
 
 const DEV_PRICE_MAP: readonly PriceEntry[] = [
-  { tier: 'standard', mode: 'default',  priceId: 'price_1TEd7TLQzoadEf8HOKThTum9' },
-  { tier: 'standard', mode: 'advanced', priceId: 'price_1TEd7TLQzoadEf8HgRwmmrpo' },
-  { tier: 'advanced', mode: 'default',  priceId: 'price_1TEd7ULQzoadEf8H2yUwbrky' },
-  { tier: 'advanced', mode: 'advanced', priceId: 'price_1TEd7ULQzoadEf8HekI1KGon' },
-  { tier: 'max',      mode: 'default',  priceId: 'price_1TEd7ULQzoadEf8H3eCbNgfR' },
-  { tier: 'max',      mode: 'advanced', priceId: 'price_1TEd7VLQzoadEf8H8ZUi7m4t' },
+  { tier: 'standard', mode: 'default',  priceId: 'price_1TEt6FLQzoadEf8HqwUJDJgm' },
+  { tier: 'standard', mode: 'advanced', priceId: 'price_1TEt6GLQzoadEf8HZvCXHqPl' },
+  { tier: 'advanced', mode: 'default',  priceId: 'price_1TEt6HLQzoadEf8HwBNn0VNX' },
+  { tier: 'advanced', mode: 'advanced', priceId: 'price_1TEt6ILQzoadEf8HrUDSGgmE' },
+  { tier: 'max',      mode: 'default',  priceId: 'price_1TEt6JLQzoadEf8HIVdDG8LR' },
+  { tier: 'max',      mode: 'advanced', priceId: 'price_1TEt6KLQzoadEf8HBwV5uuJg' },
 ] as const;
 
 /** Reverse lookup index for dev fallback */

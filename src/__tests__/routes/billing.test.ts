@@ -384,7 +384,7 @@ describe('POST /public/stripe/webhook', () => {
           status: 'active',
           current_period_end: Math.floor(Date.now() / 1000) + 86400,
           items: {
-            data: [{ price: { id: 'price_1TEd7ULQzoadEf8H2yUwbrky' } }], // advanced/default
+            data: [{ price: { id: 'price_1TEt6HLQzoadEf8HwBNn0VNX' } }], // advanced/default
           },
         },
       },
@@ -571,7 +571,7 @@ describe('Webhook handlers — CF-024', () => {
           customer: 'cus_created',
           status: 'active',
           current_period_end: periodEnd,
-          items: { data: [{ price: { id: 'price_1TEd7TLQzoadEf8HOKThTum9' } }] },
+          items: { data: [{ price: { id: 'price_1TEt6FLQzoadEf8HqwUJDJgm' } }] },
         },
       },
     };
@@ -588,7 +588,7 @@ describe('Webhook handlers — CF-024', () => {
     expect(res.status).toBe(200);
 
     const userData = await mockKV.get('user:created@example.com', 'json') as Record<string, unknown>;
-    expect(userData.stripePriceId).toBe('price_1TEd7TLQzoadEf8HOKThTum9');
+    expect(userData.stripePriceId).toBe('price_1TEt6FLQzoadEf8HqwUJDJgm');
     expect(userData.billingPeriodEnd).toBeDefined();
     expect(userData.billingStatus).toBe('active');
   });

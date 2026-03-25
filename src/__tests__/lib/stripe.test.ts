@@ -11,19 +11,19 @@ import {
 
 describe('getStripePriceId', () => {
   it('returns correct price ID for standard/default', () => {
-    expect(getStripePriceId('standard', 'default')).toBe('price_1TEd7TLQzoadEf8HOKThTum9');
+    expect(getStripePriceId('standard', 'default')).toBe('price_1TEt6FLQzoadEf8HqwUJDJgm');
   });
 
   it('returns correct price ID for standard/advanced', () => {
-    expect(getStripePriceId('standard', 'advanced')).toBe('price_1TEd7TLQzoadEf8HgRwmmrpo');
+    expect(getStripePriceId('standard', 'advanced')).toBe('price_1TEt6GLQzoadEf8HZvCXHqPl');
   });
 
   it('returns correct price ID for advanced/default', () => {
-    expect(getStripePriceId('advanced', 'default')).toBe('price_1TEd7ULQzoadEf8H2yUwbrky');
+    expect(getStripePriceId('advanced', 'default')).toBe('price_1TEt6HLQzoadEf8HwBNn0VNX');
   });
 
   it('returns correct price ID for max/advanced', () => {
-    expect(getStripePriceId('max', 'advanced')).toBe('price_1TEd7VLQzoadEf8H8ZUi7m4t');
+    expect(getStripePriceId('max', 'advanced')).toBe('price_1TEt6KLQzoadEf8HBwV5uuJg');
   });
 
   it('returns null for free tier', () => {
@@ -41,11 +41,11 @@ describe('getStripePriceId', () => {
 
 describe('resolveTierFromPriceId', () => {
   it('resolves standard/default from price ID', () => {
-    expect(resolveTierFromPriceId('price_1TEd7TLQzoadEf8HOKThTum9')).toEqual({ tier: 'standard', mode: 'default' });
+    expect(resolveTierFromPriceId('price_1TEt6FLQzoadEf8HqwUJDJgm')).toEqual({ tier: 'standard', mode: 'default' });
   });
 
   it('resolves max/advanced from price ID', () => {
-    expect(resolveTierFromPriceId('price_1TEd7VLQzoadEf8H8ZUi7m4t')).toEqual({ tier: 'max', mode: 'advanced' });
+    expect(resolveTierFromPriceId('price_1TEt6KLQzoadEf8HBwV5uuJg')).toEqual({ tier: 'max', mode: 'advanced' });
   });
 
   it('returns null for unknown price ID', () => {
