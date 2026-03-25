@@ -64,21 +64,21 @@ type SubscribePhase = 'home' | 'tiers';
 
 /** Home view feature highlights */
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
-  { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
-  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration</> },
-  { icon: mdiCloudLockOutline, content: () => <>Data persisted & encrypted at rest</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Optimized for mobiles & foldables</> },
-  { icon: mdiLightningBolt, content: () => <>From idea to deployment in minutes</> },
+  { icon: mdiRocketLaunchOutline, content: () => <>Code from anywhere — phone, tablet, laptop</> },
+  { icon: mdiRobotOutline, content: () => <>5 AI agents: Claude, Codex, Copilot, Gemini, OpenCode</> },
+  { icon: mdiSourceBranch, content: () => <>Push to <span style={{ color: '#3b82f6' }}>GitHub</span>, deploy to <span style={{ color: '#f38020' }}>Cloudflare</span> — built in</> },
+  { icon: mdiCloudLockOutline, content: () => <>Your code stays yours — encrypted, persistent</> },
+  { icon: mdiLightningBolt, content: () => <>From idea to production in one session</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Full VS Code IDE — optimized for every screen</> },
 ];
 
 /** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
 const TIER_FEATURES: Record<string, string[]> = {
-  free: ['Standard mode only', 'R2 cloud sync', 'Community support'],
-  standard: ['Standard + Pro modes', 'R2 cloud sync', 'Configurable idle timeout', 'Priority support'],
-  advanced: ['Standard + Pro modes', 'R2 cloud sync', 'Configurable idle timeout', 'Priority support'],
-  max: ['Standard + Pro modes', 'R2 cloud sync', 'Configurable idle timeout', 'OpenClaw Integration', 'Priority support'],
-  unlimited: ['Standard + Pro modes', 'Configurable idle timeout', 'OpenClaw Integration', 'Dedicated support', 'Custom SLA'],
+  free: ['5 AI coding agents', 'Persistent cloud workspace', 'GitHub & Cloudflare deploy'],
+  standard: ['Everything in Free', 'Pro mode with AI workflows', 'Configurable idle timeout', 'Priority support'],
+  advanced: ['Everything in Starter', 'Double the compute hours', 'Run 2 sessions at once', 'Priority support'],
+  max: ['Everything in Advanced', 'Run 3 sessions at once', 'OpenClaw Integration', 'Priority support'],
+  unlimited: ['Everything in Max', 'Unlimited compute', 'OpenClaw Integration', 'Dedicated support', 'Custom SLA'],
 };
 
 /** Features that show a "COMING SOON" badge */
@@ -98,20 +98,20 @@ const TIER_ORDER = ['free', 'standard', 'advanced', 'max', 'unlimited'] as const
 
 /** Standard mode features for mode card */
 const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiRocketLaunchOutline, text: 'Browser-based VS Code IDE' },
-  { icon: mdiConsole, text: 'Full Linux terminal' },
-  { icon: mdiFileDocumentOutline, text: 'File browser & editor' },
+  { icon: mdiRocketLaunchOutline, text: 'Full VS Code in your browser' },
+  { icon: mdiConsole, text: 'Root Linux terminal' },
   { icon: mdiRobotOutline, text: '5 AI coding agents' },
-  { icon: mdiCloudOutline, text: 'Persistent workspace' },
-  { icon: mdiSync, text: 'R2 cloud sync' },
+  { icon: mdiSync, text: 'Workspace synced to cloud' },
+  { icon: mdiSourceBranch, text: 'Git push & deploy built in' },
+  { icon: mdiFileDocumentOutline, text: 'File browser & editor' },
 ];
 
 /** Pro mode features for mode card */
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
-  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph memory (MCP)' },
-  { icon: mdiLayersTripleOutline, text: 'Multi-LLM orchestration' },
-  { icon: mdiHeadCogOutline, text: 'Advanced AI workflows' },
+  { icon: mdiHeadCogOutline, text: 'AI that remembers across sessions' },
+  { icon: mdiLayersTripleOutline, text: 'Multi-agent orchestration' },
+  { icon: mdiWrenchOutline, text: 'Curated skills & automation' },
+  { icon: mdiBookOpenPageVariantOutline, text: 'Knowledge graph memory' },
 ];
 
 const SubscribePage: Component = () => {
@@ -138,8 +138,13 @@ const SubscribePage: Component = () => {
   let tierPhaseRef: HTMLDivElement | undefined;
 
   onMount(async () => {
-    // Detect Stripe checkout redirect: ?checkout=success
+    // Detect Stripe checkout redirect: ?checkout=success or ?checkout=canceled
     const params = new URLSearchParams(window.location.search);
+    if (params.get('checkout') === 'canceled') {
+      // User returned from Stripe without completing — reset button state
+      window.history.replaceState({}, '', window.location.pathname);
+      setSubscribing(null);
+    }
     if (params.get('checkout') === 'success') {
       // Remove query param from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
