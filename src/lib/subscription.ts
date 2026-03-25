@@ -199,19 +199,38 @@ export function isActiveTier(tier: SubscriptionTier | string | undefined): boole
 const PAID_TIERS: ReadonlySet<string> = new Set(['standard', 'advanced', 'max']);
 
 /**
- * Resolve the effective tier considering billing status.
- * When billingStatus is 'canceled' or 'past_due' for a paid tier, returns 'free'.
- * The stored subscriptionTier in KV is preserved so resubscription restores the correct plan.
+ * Resolve the effective tier considering billing status and period expiry.
+ *
+ * Downgrade rules (immediate, no grace period):
+ * - billingStatus 'canceled' or 'past_due' → free (for paid tiers only)
+ * - billingPeriodEnd expired and billingStatus 'active' → free (catches missed webhooks)
+ *
+ * CF-009: When both tiers are undefined and billingActive is true, default to 'pending'
+ * instead of 'advanced' to prevent free compute for corrupted/missing KV records.
  */
 export function getEffectiveTier(
   subscriptionTier: string | undefined,
   accessTier: string | undefined,
   billingStatus: string | null | undefined,
+  billingPeriodEnd?: string | null,
+  billingActive?: boolean,
 ): string {
-  const raw = subscriptionTier ?? accessTier ?? 'advanced';
-  if (PAID_TIERS.has(raw) && (billingStatus === 'canceled' || billingStatus === 'past_due')) {
+  const raw = subscriptionTier ?? accessTier ?? (billingActive ? 'pending' : 'advanced');
+  if (!PAID_TIERS.has(raw)) return raw;
+
+  // Explicit billing failure
+  if (billingStatus === 'canceled' || billingStatus === 'past_due') {
     return 'free';
   }
+
+  // CF-015: Catch missed subscription.deleted webhooks via period expiry
+  if (billingPeriodEnd && billingStatus === 'active') {
+    const expiry = new Date(billingPeriodEnd).getTime();
+    if (!isNaN(expiry) && Date.now() > expiry) {
+      return 'free';
+    }
+  }
+
   return raw;
 }
 

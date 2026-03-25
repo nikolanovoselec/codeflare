@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
+import { createRateLimiter } from '../middleware/rate-limit';
 import {
   verifyWebhookSignature,
   parseStripeEvent,
@@ -24,8 +25,15 @@ const app = new Hono<{ Bindings: Env }>();
 /** Dedupe TTL: 72 hours in seconds */
 const DEDUPE_TTL_SECONDS = 72 * 60 * 60;
 
+// CF-010: Rate limit webhook endpoint to prevent volume-based attacks
+const webhookRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 100,
+  keyPrefix: 'stripe-webhook',
+});
+
 // POST /webhook
-app.post('/webhook', async (c) => {
+app.post('/webhook', webhookRateLimiter, async (c) => {
   if (!isStripeConfigured(c.env) || !c.env.STRIPE_WEBHOOK_SECRET) {
     throw new ValidationError('Stripe webhook not configured.');
   }

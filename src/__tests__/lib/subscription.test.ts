@@ -448,4 +448,34 @@ describe('getEffectiveTier', () => {
   it('returns tier unchanged when billingStatus is undefined', () => {
     expect(getEffectiveTier('standard', undefined, undefined)).toBe('standard');
   });
+
+  // CF-009: default to 'pending' when billing is active and both tiers undefined
+  it('defaults to pending when billingActive is true and tiers undefined', () => {
+    expect(getEffectiveTier(undefined, undefined, null, null, true)).toBe('pending');
+  });
+
+  it('defaults to advanced when billingActive is false and tiers undefined', () => {
+    expect(getEffectiveTier(undefined, undefined, null, null, false)).toBe('advanced');
+  });
+
+  // CF-015: billingPeriodEnd enforcement
+  it('downgrades paid tier to free when billingPeriodEnd is expired', () => {
+    const expired = new Date(Date.now() - 86400000).toISOString(); // yesterday
+    expect(getEffectiveTier('standard', undefined, 'active', expired)).toBe('free');
+  });
+
+  it('keeps paid tier when billingPeriodEnd is in the future', () => {
+    const future = new Date(Date.now() + 86400000).toISOString(); // tomorrow
+    expect(getEffectiveTier('standard', undefined, 'active', future)).toBe('standard');
+  });
+
+  it('does not enforce billingPeriodEnd when billingStatus is not active', () => {
+    const expired = new Date(Date.now() - 86400000).toISOString();
+    expect(getEffectiveTier('standard', undefined, 'canceled', expired)).toBe('free'); // already downgraded by billingStatus
+  });
+
+  it('does not enforce billingPeriodEnd for free tier', () => {
+    const expired = new Date(Date.now() - 86400000).toISOString();
+    expect(getEffectiveTier('free', undefined, 'active', expired)).toBe('free');
+  });
 });

@@ -58,7 +58,9 @@ app.get('/status', requireIdentity, async (c) => {
 
   // Billing-aware tier resolution: downgrade paid tiers to free when billing is canceled/past_due
   const billingStatus = (userData?.billingStatus as string) ?? null;
-  const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus);
+  const billingPeriodEnd = (userData?.billingPeriodEnd as string) ?? null;
+  const stripeActive = isStripeConfigured(c.env);
+  const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus, billingPeriodEnd, stripeActive);
 
   // Always include turnstile site key in SaaS mode (needed by subscribe page)
   const turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
