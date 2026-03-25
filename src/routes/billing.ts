@@ -11,6 +11,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
+import { parseUserRecord } from '../lib/user-record';
 import {
   getStripePriceId,
   createCheckoutSession,
@@ -92,7 +93,8 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
 // GET /billing/status
 app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
-  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  const raw = await c.env.KV.get(`user:${user.email}`, 'json');
+  const userData = parseUserRecord(raw);
 
   return c.json({
     stripeCustomerId: userData?.stripeCustomerId ?? null,
@@ -120,7 +122,8 @@ app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
   }
 
   const user = c.get('user');
-  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  const raw = await c.env.KV.get(`user:${user.email}`, 'json');
+  const userData = parseUserRecord(raw);
   const customerId = userData?.stripeCustomerId as string | undefined;
 
   if (!customerId) {
