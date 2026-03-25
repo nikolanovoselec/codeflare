@@ -427,21 +427,21 @@ bisync_with_r2() {
 }
 
 # ============================================================================
-# Self-healing: detect and remove corrupted R2 files
+# Self-healing: detect and remove files blocking bisync
 # ============================================================================
-# When bisync/resync fails, the root cause is often files in R2 that were
-# uploaded without SSE-C encryption (by an older session or different config).
-# These files cause "encryption parameters are not applicable" errors that
-# block all sync operations. This function detects and removes them.
+# When bisync/resync fails persistently, the root cause is usually one or more
+# specific files that rclone cannot process. Common causes:
+#   - SSE-C encryption mismatch (uploaded by older session without encryption)
+#   - Size mismatch (file changed during transfer, partial upload)
+#   - Corrupted transfer (network drop mid-upload)
+#   - Listing conflict (deleted on one side, modified on other)
 #
-# Detection: create a temporary rclone config without SSE-C, list all R2 files,
-# then try to HEAD each with the encrypted config. Files that return 400 are
-# unencrypted orphans and get deleted via the unencrypted config.
-#
-# Also removes local files that cause persistent size mismatches (e.g., files
-# actively written during sync that ended up with different sizes).
+# Strategy: parse error log for ANY file that caused a fatal error, delete it
+# from both R2 and local. Losing one file is better than losing all sync.
+# If no specific files found in logs, fall back to full R2 scan for encryption
+# mismatches (unencrypted orphans that can't be read with SSE-C config).
 nuke_corrupted_r2_files() {
-    echo "[self-heal] Scanning R2 for corrupted/unencrypted files..." | tee -a /tmp/sync.log
+    echo "[self-heal] Scanning for files blocking bisync..." | tee -a /tmp/sync.log
 
     # Extract R2 credentials from existing config (without SSE-C)
     local R2_EP R2_AK R2_SK
@@ -454,7 +454,7 @@ nuke_corrupted_r2_files() {
         return 1
     fi
 
-    # Temporary config without encryption
+    # Temporary config without encryption (needed to delete unencrypted R2 objects)
     local NOENC_CONF
     NOENC_CONF=$(mktemp)
     cat > "$NOENC_CONF" << NOENC
@@ -467,23 +467,36 @@ secret_access_key = $R2_SK
 no_check_bucket = true
 NOENC
 
-    # Also check sync.log for specific file paths causing errors
     local NUKED=0
 
-    # Strategy 1: Find files mentioned in recent error log
+    # Strategy 1: Parse sync.log for ANY file path that caused a bisync error.
+    # Catches: encryption mismatch, size mismatch, corrupted transfer, copy failure,
+    # hash mismatch, listing conflict — anything rclone reports as ERROR with a file path.
     local ERROR_FILES
-    ERROR_FILES=$(grep -oP '(?<=ERROR : )[^ ]+(?=: Failed to copy|: corrupted on transfer|: Failed to calculate)' /tmp/sync.log 2>/dev/null | sort -u)
+    ERROR_FILES=$(grep -oP '(?<=ERROR : )[^ ]+(?=: Failed to copy|: corrupted on transfer|: Failed to calculate|: Failed to read|: sizes differ|: not found|: error reading)' /tmp/sync.log 2>/dev/null | sort -u)
 
-    for file in $ERROR_FILES; do
-        # Skip if file contains ANSI escape codes (log artifacts)
+    # Also catch "Bisync critical error" lines that mention specific files
+    local CRITICAL_FILES
+    CRITICAL_FILES=$(grep 'Bisync critical error' /tmp/sync.log 2>/dev/null | grep -oP '(?<=error: )[^ ]+' | sort -u)
+
+    # Merge both lists
+    local ALL_ERROR_FILES
+    ALL_ERROR_FILES=$(printf '%s\n%s' "$ERROR_FILES" "$CRITICAL_FILES" | sort -u | grep -v '^$')
+
+    for file in $ALL_ERROR_FILES; do
+        # Skip ANSI escape codes and non-path strings
         case "$file" in *[*) continue ;; esac
-        echo "[self-heal] Nuking error file from R2: $file" | tee -a /tmp/sync.log
-        rclone --config "$NOENC_CONF" delete "r2noenc:${R2_BUCKET_NAME}/${file}" 2>/dev/null && NUKED=$((NUKED + 1))
-        # Also delete locally to prevent re-upload of corrupted version
+        case "$file" in /*) continue ;; esac  # skip absolute paths (not R2 keys)
+        echo "[self-heal] Nuking problematic file: $file" | tee -a /tmp/sync.log
+        # Delete from R2 (try both encrypted and unencrypted configs)
+        rclone delete "r2:${R2_BUCKET_NAME}/${file}" --config "$RCLONE_CONFIG" 2>/dev/null
+        rclone --config "$NOENC_CONF" delete "r2noenc:${R2_BUCKET_NAME}/${file}" 2>/dev/null
+        # Delete locally to prevent re-upload of corrupted version
         rm -f "$USER_HOME/$file" 2>/dev/null
+        NUKED=$((NUKED + 1))
     done
 
-    # Strategy 2: Scan for encryption-mismatched files (only if Strategy 1 found nothing)
+    # Strategy 2: Full R2 scan for encryption-mismatched files (only if Strategy 1 found nothing)
     if [ $NUKED -eq 0 ]; then
         echo "[self-heal] No error files in log — scanning R2 for encryption mismatches..." | tee -a /tmp/sync.log
         local ALL_FILES
