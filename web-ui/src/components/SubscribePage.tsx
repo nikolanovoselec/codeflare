@@ -326,10 +326,6 @@ const SubscribePage: Component = () => {
     return tier.priceMonthly === 0;
   }
 
-  function isContact(tier: TierInfo): boolean {
-    return tier.priceMonthly === null;
-  }
-
   function getTrialBadge(tier: TierInfo): string | null {
     if (trialUsed()) return null;
     const trialHours = tier.trialQuotaHours ?? tier.trialDays ?? 0;
