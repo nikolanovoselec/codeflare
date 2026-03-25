@@ -27,6 +27,8 @@ interface TierConfig {
   trialDays?: number; // backward compat
   description: string;
   advancedPriceMonthly?: number | null;
+  stripePriceId?: string | null;
+  stripeAdvancedPriceId?: string | null;
 }
 
 const EDITABLE_TIERS = new Set(['free', 'trial', 'standard', 'advanced', 'max', 'unlimited']);
@@ -91,17 +93,6 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
     return isNaN(n) ? 0 : Math.round(n * 3600);
   };
 
-  const dollarsFromCents = (cents: number | null | undefined): string => {
-    if (cents === null || cents === undefined || cents === 0) return '0';
-    return (cents / 100).toFixed(2);
-  };
-
-  const centsToDollars = (dollars: string): number | null => {
-    if (dollars === '' || dollars === '0') return 0;
-    const n = parseFloat(dollars);
-    return isNaN(n) ? null : Math.round(n * 100);
-  };
-
   const hasAdvancedMode = () => {
     const t = selectedTier();
     return t && t.sessionModes.includes('advanced');
@@ -164,14 +155,15 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
               </label>
 
               <label class="sub-mgmt-field">
-                <span class="sub-mgmt-label">Normal Price ($/mo)</span>
+                <span class="sub-mgmt-label">Stripe Price ID</span>
                 <input
                   type="text"
                   class="sub-mgmt-input"
-                  value={dollarsFromCents(selectedTier()!.priceMonthly)}
-                  placeholder="0 = free"
-                  onChange={(e) => updateField('priceMonthly', centsToDollars(e.currentTarget.value))}
+                  value={selectedTier()!.stripePriceId ?? ''}
+                  placeholder="price_..."
+                  onChange={(e) => updateField('stripePriceId', e.currentTarget.value || null)}
                 />
+                <span class="sub-mgmt-hint">From Stripe Dashboard (standard mode)</span>
               </label>
 
               <label class="sub-mgmt-field">
@@ -193,15 +185,15 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
 
                 <Show when={hasAdvancedMode()}>
                   <label class="sub-mgmt-field">
-                    <span class="sub-mgmt-label">Advanced Price ($/mo)</span>
+                    <span class="sub-mgmt-label">Stripe Advanced Price ID</span>
                     <input
                       type="text"
                       class="sub-mgmt-input"
-                      value={dollarsFromCents(selectedTier()!.advancedPriceMonthly ?? selectedTier()!.priceMonthly)}
-                      placeholder="Same as normal"
-                      onChange={(e) => updateField('advancedPriceMonthly', centsToDollars(e.currentTarget.value))}
+                      value={selectedTier()!.stripeAdvancedPriceId ?? ''}
+                      placeholder="price_..."
+                      onChange={(e) => updateField('stripeAdvancedPriceId', e.currentTarget.value || null)}
                     />
-                    <span class="sub-mgmt-hint">Higher price for advanced mode</span>
+                    <span class="sub-mgmt-hint">From Stripe Dashboard (pro mode)</span>
                   </label>
                 </Show>
 

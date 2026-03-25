@@ -25,6 +25,8 @@ const TierConfigSchema = z.object({
   trialQuotaHours: z.number().min(0),
   description: z.string().max(200),
   advancedPriceMonthly: z.number().min(0).nullable().optional(),
+  stripePriceId: z.string().nullable().optional(),
+  stripeAdvancedPriceId: z.string().nullable().optional(),
 });
 
 const PutTiersBodySchema = z.array(TierConfigSchema).length(8);
