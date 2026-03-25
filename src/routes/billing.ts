@@ -89,7 +89,6 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
 
   // Check if user has already used their trial — if not, include 30-day trial window
   // (actual compute is capped by trialQuotaHours in tier config; Stripe trial is just the billing window)
-  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
   const trialUsed = userData?.trialUsed === true;
 
   // Read trial quota from tier config for checkout custom text
