@@ -125,6 +125,7 @@ export interface AuthStatus {
   subscribedMode?: 'default' | 'advanced';
   currency?: string;
   billingStatus?: string | null;
+  userCapacityReached?: boolean;
 }
 
 export interface AuthProvider {

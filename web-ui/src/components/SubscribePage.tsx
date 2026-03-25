@@ -188,7 +188,7 @@ const SubscribePage: Component = () => {
       }
 
       setBillingStatus(status.billingStatus ?? null);
-      if ((status as Record<string, unknown>).userCapacityReached === true) {
+      if (status.userCapacityReached === true) {
         setCapacityReached(true);
       }
 

@@ -40,6 +40,7 @@ export const AuthStatusResponseSchema = z.object({
   subscribedMode: z.enum(['default', 'advanced']).optional(),
   currency: z.string().optional(),
   billingStatus: z.string().nullable().optional(),
+  userCapacityReached: z.boolean().optional(),
 });
 
 export const AuthProvidersResponseSchema = z.object({
