@@ -13,7 +13,6 @@ import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessReq
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { isStripeConfigured, getStripePrices } from '../lib/stripe';
-import { getMaxUsers } from '../lib/constants';
 
 const logger = createLogger('auth-routes');
 
@@ -117,7 +116,7 @@ app.get('/status', requireIdentity, async (c) => {
 
   // Check if user capacity is reached (for frontend to disable subscribe buttons)
   let userCapacityReached = false;
-  const maxUsers = getMaxUsers(c.env);
+  const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
   if (maxUsers > 0 && !hasSubscribed) {
     try {
       const allUsers = await getAllUsers(c.env.KV);
@@ -271,7 +270,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
 
   // Max users cap — block new subscriptions when capacity is reached
   if (!isAlreadySubscribed) {
-    const maxUsers = getMaxUsers(c.env);
+    const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
       const subscribedCount = allUsers.filter(u =>

@@ -217,9 +217,16 @@ export async function stopSession(id: string): Promise<void> {
 // User management
 export type UserEntry = z.infer<typeof UserEntrySchema>;
 
-export async function getUsers(): Promise<UserEntry[]> {
+export async function getUsers(): Promise<{ users: UserEntry[]; maxUsers: number }> {
   const data = await fetchApi('/users', {}, GetUsersResponseSchema);
-  return data.users;
+  return { users: data.users, maxUsers: (data as Record<string, unknown>).maxUsers as number ?? 0 };
+}
+
+export async function updateMaxUsers(maxUsers: number): Promise<{ success: boolean; maxUsers: number }> {
+  return fetchApi('/users/max-users', {
+    method: 'PUT',
+    body: JSON.stringify({ maxUsers }),
+  }, z.object({ success: z.boolean(), maxUsers: z.number() }));
 }
 
 

@@ -85,14 +85,3 @@ export function getMaxSessions(role: string | undefined, env: { MAX_SESSIONS_USE
   return Number.isNaN(envVal) ? defaultVal : envVal;
 }
 
-/** Default maximum total subscribed users (0 = unlimited) */
-const DEFAULT_MAX_USERS = 0;
-
-/**
- * Resolve max users cap from env var. 0 means unlimited.
- * When reached, no new subscriptions (any tier) are allowed.
- */
-export function getMaxUsers(env: { MAX_USERS?: string }): number {
-  const val = parseInt(env.MAX_USERS || '');
-  return Number.isNaN(val) ? DEFAULT_MAX_USERS : val;
-}

@@ -13,7 +13,6 @@ import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord } from '../lib/user-record';
 import { getTierConfig } from '../lib/subscription';
-import { getMaxUsers } from '../lib/constants';
 import { getAllUsers } from '../lib/access-policy';
 import {
   getStripePriceId,
@@ -51,7 +50,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
   const isAlreadySubscribed = !!userData?.subscribedAt;
   if (!isAlreadySubscribed) {
-    const maxUsers = getMaxUsers(c.env);
+    const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
       const subscribedCount = allUsers.filter(u =>

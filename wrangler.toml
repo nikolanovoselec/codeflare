@@ -18,8 +18,6 @@ ALLOWED_ORIGINS = ".workers.dev"
 LOG_LEVEL = "info"
 MAX_SESSIONS_USER = "3"
 MAX_SESSIONS_ADMIN = "10"
-# Maximum total subscribed users (0 = unlimited). Block new subscriptions when reached.
-# MAX_USERS = "0"
 # SaaS mode: custom login page, auto-provisioning, admin approval gate
 # Set to "active" via GitHub Actions variable to enable
 # SAAS_MODE = "inactive"
@@ -41,9 +39,8 @@ id = "placeholder"
 [[containers]]
 class_name = "container"
 image = "./Dockerfile"
-# Account limit: 1,500 vCPU concurrent. At 1 vCPU per instance, max is 1,500.
-# GitHub Actions deploy.yml may patch this value per RESSOURCE_TIER.
-max_instances = 1500
+# Default for local dev. deploy.yml patches per RESSOURCE_TIER at deploy time.
+max_instances = 10
 
 [containers.instance_type]
 vcpu = 1

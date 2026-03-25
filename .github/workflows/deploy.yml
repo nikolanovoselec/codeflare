@@ -136,12 +136,17 @@ jobs:
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 2\nmemory_mib = 6144\ndisk_mb = 8000'
               MAX_INSTANCES=10
               ;;
+            saas)
+              # Same instance spec as default, max concurrent instances for SaaS deployment
+              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'
+              MAX_INSTANCES=1500
+              ;;
             default)
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'
               MAX_INSTANCES=10
               ;;
             *)
-              echo "::error::Invalid RESSOURCE_TIER=\"$TIER\". Allowed values: low, high. Leave unset for default."
+              echo "::error::Invalid RESSOURCE_TIER=\"$TIER\". Allowed values: low, high, saas. Leave unset for default."
               exit 1
               ;;
           esac

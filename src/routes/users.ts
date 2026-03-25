@@ -52,7 +52,18 @@ const userMutationRateLimiter = createRateLimiter({
 // GET /api/users - List all users
 app.get('/', requireAdmin, async (c) => {
   const users = await getAllUsers(c.env.KV);
-  return c.json({ users });
+  const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
+  return c.json({ users, maxUsers });
+});
+
+// PUT /api/users/max-users - Set max users cap (admin only)
+app.put('/max-users', requireAdmin, async (c) => {
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const parsed = z.object({ maxUsers: z.number().int().min(0) }).safeParse(raw);
+  if (!parsed.success) throw new ValidationError('maxUsers must be a non-negative integer');
+  await c.env.KV.put('setup:max_users', String(parsed.data.maxUsers));
+  return c.json({ success: true, maxUsers: parsed.data.maxUsers });
 });
 
 // DELETE /api/users/:email - Remove a user (admin only)

@@ -1,6 +1,6 @@
 import { Component, createSignal, createMemo, onMount, For, Show } from 'solid-js';
 import { mdiArrowExpandLeft } from '@mdi/js';
-import { getUsers, type UserEntry, updateUserTier, deleteUser } from '../../api/client';
+import { getUsers, type UserEntry, updateUserTier, deleteUser, updateMaxUsers } from '../../api/client';
 import type { SubscriptionTier } from '../../types';
 import Icon from '../Icon';
 import '../../styles/user-management.css';
@@ -52,11 +52,15 @@ const UserManagement: Component<UserManagementProps> = (props) => {
   const [searchQuery, setSearchQuery] = createSignal('');
   const [updatingEmails, setUpdatingEmails] = createSignal<ReadonlySet<string>>(new Set());
   const [deletingEmails, setDeletingEmails] = createSignal<ReadonlySet<string>>(new Set());
+  const [maxUsers, setMaxUsers] = createSignal(0);
+  const [editingMaxUsers, setEditingMaxUsers] = createSignal(false);
+  const [maxUsersInput, setMaxUsersInput] = createSignal('');
 
   onMount(async () => {
     try {
-      const fetched = await getUsers();
+      const { users: fetched, maxUsers: cap } = await getUsers();
       setUsers(fetched.map((u) => ({ ...u, resolvedTier: resolveTier(u) })));
+      setMaxUsers(cap);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
@@ -200,9 +204,47 @@ const UserManagement: Component<UserManagementProps> = (props) => {
         </button>
         <h1 class="user-mgmt-title">User Management</h1>
         <Show when={!loading()}>
-          <span class="user-mgmt-badge">{users().length} users</span>
+          <span class="user-mgmt-badge">
+            {users().length}{maxUsers() > 0 ? ` / ${maxUsers()}` : ''} users
+          </span>
+          <button
+            type="button"
+            class="user-mgmt-badge"
+            style={{ cursor: 'pointer', 'margin-left': '8px' }}
+            onClick={() => { setEditingMaxUsers(!editingMaxUsers()); setMaxUsersInput(String(maxUsers())); }}
+          >
+            {editingMaxUsers() ? 'Cancel' : 'Set Limit'}
+          </button>
         </Show>
       </div>
+      <Show when={editingMaxUsers()}>
+        <div style={{ display: 'flex', gap: '8px', 'align-items': 'center', padding: '8px 0' }}>
+          <input
+            type="number"
+            min="0"
+            value={maxUsersInput()}
+            onInput={(e) => setMaxUsersInput(e.currentTarget.value)}
+            placeholder="0 = unlimited"
+            style={{ width: '120px', padding: '4px 8px' }}
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const val = parseInt(maxUsersInput()) || 0;
+              try {
+                await updateMaxUsers(val);
+                setMaxUsers(val);
+                setEditingMaxUsers(false);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Failed to update');
+              }
+            }}
+          >
+            Save
+          </button>
+          <span style={{ color: '#888', 'font-size': '12px' }}>0 = unlimited</span>
+        </div>
+      </Show>
 
       {/* Search */}
       <input
