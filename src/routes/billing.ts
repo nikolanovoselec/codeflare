@@ -53,10 +53,11 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
-      const subscribedCount = allUsers.filter(u =>
-        u.subscriptionTier && u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+      const activeCount = allUsers.filter(u =>
+        u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+        && (u.role === 'admin' || !!(u as unknown as Record<string, unknown>).subscribedAt)
       ).length;
-      if (subscribedCount >= maxUsers) {
+      if (activeCount >= maxUsers) {
         throw new ValidationError('Subscriptions are currently full. Please try again later.');
       }
     }

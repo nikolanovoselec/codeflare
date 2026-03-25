@@ -119,10 +119,13 @@ app.get('/status', requireIdentity, async (c) => {
   if (maxUsers > 0 && !hasSubscribed) {
     try {
       const allUsers = await getAllUsers(c.env.KV);
-      const subscribedCount = allUsers.filter(u =>
-        u.subscriptionTier && u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+      // Count everyone who can use the platform: admins + subscribed users (free included).
+      // Only pending and blocked are excluded.
+      const activeCount = allUsers.filter(u =>
+        u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+        && (u.role === 'admin' || !!(u as unknown as Record<string, unknown>).subscribedAt)
       ).length;
-      userCapacityReached = subscribedCount >= maxUsers;
+      userCapacityReached = activeCount >= maxUsers;
     } catch { /* non-fatal */ }
   }
 
@@ -272,10 +275,11 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
-      const subscribedCount = allUsers.filter(u =>
-        u.subscriptionTier && u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+      const activeCount = allUsers.filter(u =>
+        u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
+        && (u.role === 'admin' || !!(u as unknown as Record<string, unknown>).subscribedAt)
       ).length;
-      if (subscribedCount >= maxUsers) {
+      if (activeCount >= maxUsers) {
         throw new ValidationError('Subscriptions are currently full. Please try again later.');
       }
     }
