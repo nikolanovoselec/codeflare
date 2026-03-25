@@ -54,7 +54,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     const maxUsers = getMaxUsers(c.env);
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
-      const subscribedCount = allUsers.filter((u: Record<string, unknown>) =>
+      const subscribedCount = allUsers.filter(u =>
         u.subscriptionTier && u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
       ).length;
       if (subscribedCount >= maxUsers) {
