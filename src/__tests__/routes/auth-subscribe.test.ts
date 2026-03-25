@@ -370,7 +370,7 @@ describe('POST /auth/subscribe', () => {
   // Trial model: quota-based trials, no subscriptionExpiresAt
   // ---------------------------------------------------------------------------
 
-  it('sets trialBillingTriggered=false for paid tier standard', async () => {
+  it('does not write trialBillingTriggered (removed — Stripe manages billing cycle)', async () => {
     mockTurnstileSuccess();
     mockKV._set('user:pending@example.com', {
       addedBy: 'jit',
@@ -383,29 +383,9 @@ describe('POST /auth/subscribe', () => {
     const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'standard' });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { trialQuotaHours: number };
-    expect(body.trialQuotaHours).toBe(0);
-
     const userData = await mockKV.get('user:pending@example.com', 'json') as Record<string, unknown>;
-    expect(userData.trialBillingTriggered).toBe(false);
+    expect(userData.trialBillingTriggered).toBeUndefined();
     expect(userData.subscriptionExpiresAt).toBeUndefined();
-  });
-
-  it('sets trialBillingTriggered=false for paid tier max', async () => {
-    mockTurnstileSuccess();
-    mockKV._set('user:pending@example.com', {
-      addedBy: 'jit',
-      addedAt: '2025-01-01T00:00:00Z',
-      role: 'user',
-      accessTier: 'pending',
-    });
-
-    const app = createApp();
-    const res = await postSubscribe(app, { turnstileToken: 'valid-token', tier: 'max' });
-
-    expect(res.status).toBe(200);
-    const userData = await mockKV.get('user:pending@example.com', 'json') as Record<string, unknown>;
-    expect(userData.trialBillingTriggered).toBe(false);
   });
 
   it('does NOT set subscriptionExpiresAt for any tier', async () => {

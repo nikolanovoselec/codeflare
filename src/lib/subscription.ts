@@ -192,10 +192,6 @@ export function isActiveTier(tier: SubscriptionTier | string | undefined): boole
   return ACTIVE_TIERS.has(tier);
 }
 
-// canUserLogin(tierValue, tiers) — config-aware login check respecting canLogin field.
-// Not yet wired — pending/blocked distinction is handled by isActiveTier() in middleware.
-// Re-export when login-level auth (distinct from IDE access) needs config-aware enforcement.
-
 /** Paid tiers subject to billing enforcement. Enterprise (unlimited) and free tiers are exempt. */
 const PAID_TIERS: ReadonlySet<string> = new Set(['standard', 'advanced', 'max']);
 

@@ -290,7 +290,6 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     accessTier: parsed.data.tier, // backward compat
     subscribedMode: parsed.data.mode, // what mode the user paid for (gates Settings Pro toggle)
     subscribedAt: now.toISOString(),
-    trialBillingTriggered: false,
     trialUsed,
   };
 

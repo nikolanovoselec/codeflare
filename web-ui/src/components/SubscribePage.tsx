@@ -135,10 +135,9 @@ const SubscribePage: Component = () => {
     if (params.get('checkout') === 'success') {
       // Remove query param from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
-      // Poll auth status until subscription is active (webhook processed)
-      const maxAttempts = 15;
-      const pollInterval = 2000;
-      for (let i = 0; i < maxAttempts; i++) {
+      // CF-031: Exponential backoff polling (1s, 2s, 4s, 8s, 16s, 32s = ~63s total)
+      const delays = [1000, 2000, 4000, 8000, 16000, 32000];
+      for (const delay of delays) {
         try {
           const pollStatus = await getAuthStatus();
           if (pollStatus.hasSubscribed) {
@@ -146,9 +145,10 @@ const SubscribePage: Component = () => {
             return;
           }
         } catch { /* ignore poll errors */ }
-        await new Promise(r => setTimeout(r, pollInterval));
+        await new Promise(r => setTimeout(r, delay));
       }
-      // If still not active after polling, let the page load normally
+      // Timeout: show message and let page load normally
+      setError('Your payment was received. Your subscription is being activated — please refresh in a moment.');
     }
 
     try {
@@ -328,7 +328,8 @@ const SubscribePage: Component = () => {
 
   function getTrialBadge(tier: TierInfo): string | null {
     if (trialUsed()) return null;
-    const trialHours = tier.trialQuotaHours ?? tier.trialDays ?? 0;
+    // CF-021: Trial is always in usage hours — trialDays fallback removed
+    const trialHours = tier.trialQuotaHours ?? 0;
     if (trialHours <= 0) return null;
     return `${trialHours}h free trial`;
   }

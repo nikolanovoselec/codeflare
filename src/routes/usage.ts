@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import type { Env, UsageRecord } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
 import { getTimekeeperKey, getUtcMonthString, getUtcDateString } from '../lib/kv-keys';
-import { getTierConfig, getUserTier } from '../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier } from '../lib/subscription';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
@@ -16,7 +16,8 @@ app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
 
   const tiers = await getTierConfig(c.env.KV);
-  const tierValue = user.subscriptionTier ?? user.accessTier;
+  // CF-004: Use billing-aware tier resolution so canceled users see free-tier quotas
+  const tierValue = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus);
   const tier = getUserTier(tierValue, tiers);
 
   // Try real-time data from Timekeeper DO (includes pending unflushed seconds)

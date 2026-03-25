@@ -7,6 +7,9 @@
  * sendTierChangeNotification returns void (fires user + admin emails sequentially).
  */
 import { escapeXml } from './xml-utils';
+import { createLogger } from './logger';
+
+const logger = createLogger('email');
 
 interface SendEmailOptions {
   to: string[];
@@ -48,11 +51,11 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
       }),
     });
     if (!resp.ok) {
-      console.error('Email send failed', { status: resp.status, to: opts.to, subject: opts.subject });
+      logger.error('Email send failed', new Error(`Resend API ${resp.status}`), { to: opts.to, subject: opts.subject });
     }
     return resp.ok;
   } catch (err) {
-    console.error('Email send error', err);
+    logger.error('Email send error', err instanceof Error ? err : new Error(String(err)));
     return false;
   }
 }
