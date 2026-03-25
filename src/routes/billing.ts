@@ -12,6 +12,7 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord } from '../lib/user-record';
+import { getTierConfig } from '../lib/subscription';
 import {
   getStripePriceId,
   createCheckoutSession,
@@ -73,6 +74,11 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
   const trialUsed = userData?.trialUsed === true;
 
+  // Read trial quota from tier config for checkout custom text
+  const tiers = await getTierConfig(c.env.KV);
+  const tierConfig = tiers.find(t => t.id === tier);
+  const trialQuotaHours = tierConfig?.trialQuotaHours ?? 4;
+
   const session = await createCheckoutSession({
     priceId,
     customerEmail: user.email,
@@ -81,6 +87,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     secretKey,
     metadata: { tier, mode, email: user.email },
     trialDays: trialUsed ? undefined : 30,
+    trialQuotaHours: trialUsed ? undefined : trialQuotaHours,
   });
 
   // Store checkoutSessionId on user KV (non-fatal)

@@ -179,6 +179,8 @@ interface CheckoutSessionOptions {
   metadata?: Record<string, string>;
   /** Pass trial_period_days on the subscription. Omit for immediate billing. */
   trialDays?: number;
+  /** Trial compute quota in hours — shown in checkout custom text. */
+  trialQuotaHours?: number;
 }
 
 interface CheckoutSessionResult {
@@ -205,6 +207,7 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
 
   if (opts.trialDays != null && opts.trialDays > 0) {
     params['subscription_data[trial_period_days]'] = String(opts.trialDays);
+    params['custom_text[submit][message]'] = `Your trial includes ${opts.trialQuotaHours ?? 4} hours of compute. Full billing begins after usage or ${opts.trialDays} days, whichever comes first.`;
   }
 
   // CF-030: Derive idempotency key to prevent duplicate checkout sessions on retry
