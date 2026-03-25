@@ -37,9 +37,6 @@ export function parseUserRecord(raw: unknown): UserRecord | null {
   return result.success ? result.data : null;
 }
 
-export { UserRecordSchema };
-export type { UserRecord };
-
 /**
  * CF-008: Atomic read-merge-write helper for user KV records.
  * Reads the existing record, merges the patch, validates, and writes back.
