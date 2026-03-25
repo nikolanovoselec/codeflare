@@ -6,7 +6,7 @@
  */
 import { z } from 'zod';
 
-export const UserRecordSchema = z.object({
+const UserRecordSchema = z.object({
   addedBy: z.string().default('unknown'),
   addedAt: z.string().default(''),
   role: z.enum(['admin', 'user']).default('user'),
@@ -25,7 +25,7 @@ export const UserRecordSchema = z.object({
   requestedAt: z.string().optional(),
 }).passthrough();
 
-export type UserRecord = z.infer<typeof UserRecordSchema>;
+type UserRecord = z.infer<typeof UserRecordSchema>;
 
 /**
  * Parse a raw KV value into a validated UserRecord.
