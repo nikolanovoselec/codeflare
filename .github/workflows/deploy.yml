@@ -139,7 +139,7 @@ jobs:
             saas)
               # Same instance spec as default, max concurrent instances for SaaS deployment
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'
-              MAX_INSTANCES=1400
+              MAX_INSTANCES=1499
               ;;
             default)
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'
