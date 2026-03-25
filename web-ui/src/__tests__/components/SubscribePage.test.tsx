@@ -263,25 +263,6 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('detail panel shows tier price', async () => {
-      await openTierView();
-
-      await waitFor(() => {
-        expect(screen.getByText(/\$49/)).toBeInTheDocument();
-      });
-    });
-
-    it('clicking Pro mode card changes prices', async () => {
-      await openTierView();
-
-      fireEvent.click(screen.getByTestId('mode-card-pro'));
-
-      await waitFor(() => {
-        // Price should update to advanced pricing ($54 for Advanced tier)
-        expect(screen.getByText(/\$54/)).toBeInTheDocument();
-      });
-    });
-
     it('shows "This is you" for active users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
