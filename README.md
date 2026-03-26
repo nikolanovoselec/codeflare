@@ -163,9 +163,9 @@ The minimum permissions for Codeflare to deploy and run. Every scope earns its k
 <details>
 <summary><strong>Configuration</strong></summary>
 
-All optional. The defaults work out of the box. I respect your time.
+All optional. **Default mode needs zero configuration** — just the two secrets from step 2 and you're done. Everything below is for customization, onboarding mode, and SaaS mode.
 
-#### General (all modes)
+#### General
 
 | Variable | Type | Default | What it does |
 |---|---|---|---|
