@@ -23,23 +23,23 @@ const SLOT_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
  * Count users occupying a paid capacity slot: admins + active paid subscribers.
  * Free, pending, and blocked users don't count. Canceled users count until billingPeriodEnd expires.
  */
-export function countPaidSlots(allUsers: Array<{ role?: string; subscriptionTier?: string; [k: string]: unknown }>): number {
+export function countPaidSlots(allUsers: Array<Record<string, unknown>>): number {
   const now = Date.now();
   return allUsers.filter(u => {
-    // Admins always count
-    if (u.role === 'admin') return true;
-    // Must have a paid tier
-    if (!u.subscriptionTier || !SLOT_TIERS.has(u.subscriptionTier)) return false;
-    // Active or trialing → counts
+    const role = u.role as string | undefined;
+    const tier = u.subscriptionTier as string | undefined;
     const status = u.billingStatus as string | undefined;
+    const periodEnd = u.billingPeriodEnd as string | undefined;
+    // Admins always count
+    if (role === 'admin') return true;
+    // Must have a paid tier
+    if (!tier || !SLOT_TIERS.has(tier)) return false;
+    // Active or trialing → counts
     if (!status || status === 'active' || status === 'trialing') return true;
     // Canceled → counts only if billingPeriodEnd is in the future
     if (status === 'canceled' || status === 'past_due') {
-      const periodEnd = u.billingPeriodEnd as string | undefined;
-      if (periodEnd) {
-        return new Date(periodEnd).getTime() > now;
-      }
-      return false; // no period end → expired
+      if (periodEnd) return new Date(periodEnd).getTime() > now;
+      return false;
     }
     return false;
   }).length;
