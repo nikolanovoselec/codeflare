@@ -16,6 +16,8 @@ vi.mock('../../lib/logger', () => ({
   })),
 }));
 
+// Import mocked functions after vi.mock so overrides work per-test
+import { signSessionJWT } from '../../lib/session-jwt';
 import githubAuthRoutes from '../../routes/github-auth';
 
 let mockKV: ReturnType<typeof createMockKV>;
@@ -43,6 +45,8 @@ describe('GitHub OAuth Routes', () => {
     mockKV = createMockKV();
     originalFetch = globalThis.fetch;
     vi.clearAllMocks();
+    // Restore default mock behaviour
+    vi.mocked(signSessionJWT).mockResolvedValue('mock-jwt-token');
   });
 
   afterEach(() => {
