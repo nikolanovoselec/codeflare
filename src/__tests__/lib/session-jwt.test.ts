@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { signSessionJWT, verifySessionJWT, shouldRefreshJWT } from '../../lib/session-jwt';
 
 const TEST_SECRET = 'test-secret-key-for-hmac-256-signing';
