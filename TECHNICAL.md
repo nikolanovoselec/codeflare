@@ -637,7 +637,39 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ## Authentication
 
-### Cloudflare Access Integration
+### Dual Auth Mode
+
+`getUserFromRequest()` checks auth methods in order:
+
+1. **Service token** (`X-Service-Auth` header) — E2E testing, all modes. Constant-time comparison against `SERVICE_AUTH_SECRET`.
+2. **GitHub OIDC** (`codeflare_session` cookie) — SaaS mode when `OAUTH_CLIENT_ID` is set. HMAC-SHA256 JWT signed by `OAUTH_JWT_SECRET`. Replaces CF Access entirely.
+3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) — default/onboarding mode, or SaaS without `OAUTH_CLIENT_ID`. Verified via JWKS.
+4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) — trusted only before setup completes.
+
+### GitHub OIDC (SaaS Mode)
+
+When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured:
+
+```
+Login button → GET /auth/github/login
+  → Set oauth_state cookie (random UUID, 5-min TTL)
+  → 302 to github.com/login/oauth/authorize
+  → User authorizes → GitHub redirects to /auth/github/callback
+  → Validate state (cookie vs query param, not KV — avoids eventual consistency)
+  → Exchange code for access token → fetch verified email from GitHub API
+  → Sign HMAC-SHA256 JWT → Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, 1h)
+  → Redirect to /app/ or /app/subscribe based on user state
+```
+
+- GitHub access token used ephemerally during callback, then discarded
+- Only `primary: true, verified: true` emails accepted from GitHub API
+- OAuth error codes allowlisted (access_denied, redirect_uri_mismatch, application_suspended)
+- Callback rate-limited (10/min per IP)
+- Missing `OAUTH_JWT_SECRET` in SaaS mode throws `AuthError` (fail-loud, no silent fallthrough to CF Access)
+
+**Logout:** `/auth/logout` routes to `/auth/github/logout` (clears cookie) in SaaS mode, or CF Access logout in default mode. Frontend uses `/auth/logout` — never hardcodes CF Access URLs.
+
+### Cloudflare Access Integration (Default/Onboarding Mode)
 
 **Browser/JWT:** `cf-access-authenticated-user-email` + `cf-access-jwt-assertion` headers.
 
@@ -647,17 +679,26 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ### Access Application Destination Strategy
 
-One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`. Including exact + wildcard variants removes ambiguity. Uses all 5 allowed entries.
+One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`. Including exact + wildcard variants removes ambiguity. Uses all 5 allowed entries. **Skipped when `OAUTH_CLIENT_ID` is set** — CF Access app is still created by the setup wizard but auth is bypassed at runtime by the OIDC branch.
 
 ### Access Group Model
 
 Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()` after user mutations — **skipped in SaaS mode** because the Access policy uses `login_method` includes (set by setup); syncing would overwrite them with email/group includes, breaking the policy. `GET /api/setup/prefill` reads existing membership for redeploy prefill (skipped in SaaS mode — returns empty arrays, admin enters everything manually). Admin-only deployments (0 regular users) are supported: the users group is skipped entirely and the Access policy references only the admin group.
+
+### E2E Testing Auth
+
+E2E tests authenticate via `X-Service-Auth` header. The secret comes from:
+- **CF Access mode:** `CF_ACCESS_CLIENT_SECRET` environment secret (also sent as CF Access headers)
+- **GitHub OIDC mode:** `OAUTH_E2E_TEST_SECRET` environment secret (no CF Access headers needed)
+
+Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, service auth is disabled (safe — `env.SERVICE_AUTH_SECRET` is undefined, the check is skipped).
 
 ### Root Redirect
 
 - Setup incomplete -> redirect to `/setup`
 - Setup complete, default mode -> `/` redirects to `/app/`
 - Setup complete, onboarding mode -> authenticated users to `/app/`, unauthenticated to public landing
+- Setup complete, SaaS mode -> `/` shows login page with "Sign in with GitHub" button
 
 ### Auth Flow
 
@@ -666,12 +707,16 @@ flowchart TD
     A[Request] --> B[Edge routing]
     B --> C[CORS]
     C --> D[Auth Middleware]
-    D --> E["getUserFromRequest()<br/>JWT / service token"]
-    E --> F[Normalize email]
-    F --> G[Check KV allowlist]
-    G --> H["getBucketName()"]
-    H --> I["Set c.get('user'), c.get('bucketName')"]
-    I --> J[Route Handler]
+    D --> E["getUserFromRequest()"]
+    E --> F{Service token?}
+    F -->|Yes| G[Return admin user]
+    F -->|No| H{SaaS + OIDC?}
+    H -->|Yes| I[Verify codeflare_session cookie]
+    H -->|No| J[Verify CF Access JWT]
+    I --> K[Normalize email]
+    J --> K
+    K --> L[Resolve user from KV]
+    L --> M[Route Handler]
 ```
 
 ### Per-User Bucket Naming
@@ -2816,6 +2861,30 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 - **Decision:** Accept KV as the billing state store. Mitigations: (1) `getEffectiveTier()` derives effective tier from multiple KV fields with safe defaults — partial updates degrade gracefully to 'free' rather than granting paid access. (2) Stripe webhook retry + idempotent handlers mean transient KV failures self-heal. (3) `billingPeriodEnd` expiry catches missed `subscription.deleted` webhooks.
 - **Consequences:** A partial webhook update can leave billing fields inconsistent for up to 60s. In the worst case, a user briefly sees stale quota information. Billing-critical decisions (tier enforcement, quota checks) use `getEffectiveTier()` which defaults to restrictive ('pending'/'free') on missing data. A periodic reconciliation job validating KV state against Stripe's API is a recommended future improvement.
 
+#### AD: GitHub OIDC Replaces CF Access in SaaS Mode
+- **Status:** Accepted
+- **Context:** Cloudflare Access costs $3/user/month beyond 50 users. At 1,400 users this is $4,050/month for auth alone. GitHub OIDC is free for unlimited users.
+- **Decision:** When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentication directly via GitHub OAuth with HMAC-SHA256 session cookies. CF Access is bypassed at runtime. OAuth state uses HttpOnly cookies (not KV) to avoid eventual consistency issues. Only verified GitHub emails are accepted. The `codeflare_session` cookie is HttpOnly, Secure, SameSite=Lax with 1-hour TTL.
+- **Consequences:** Users must create a GitHub OAuth App per environment. CF Access setup wizard still runs (creating the Access app) but auth is bypassed. Cookie refresh is deferred — users re-login after 1 hour.
+
+#### AD: Max Users Capacity Cap Counts Paid Slots Only
+- **Status:** Accepted
+- **Context:** The `setup:max_users` KV key limits how many users can subscribe. Free tier users (4h/month, 1 session) use minimal resources and shouldn't block paid customers from subscribing.
+- **Decision:** `countPaidSlots()` counts admins + users with paid tiers (standard/advanced/max/unlimited) whose billing is active or trialing. Canceled users count until `billingPeriodEnd` expires. Free, pending, and blocked users are excluded.
+- **Consequences:** A deployment can have unlimited free users without hitting the capacity cap. Canceled users retain their slot until their paid period ends.
+
+#### AD: Webhook Route Order (`/public/stripe` before `/public`)
+- **Status:** Accepted
+- **Context:** Hono's `app.route('/public', publicRoutes)` catches all `/public/*` paths. The Stripe webhook at `/public/stripe/webhook` was unreachable because it was mounted after the catch-all.
+- **Decision:** Mount `/public/stripe` before `/public` in `src/index.ts`. More-specific routes must precede catch-all routes in Hono.
+- **Consequences:** Route ordering in `index.ts` is load-bearing. Future `/public/*` sub-routes must be mounted before the catch-all.
+
+#### AD: Team Tier Uses Contact Flow (Not Self-Service Checkout)
+- **Status:** Accepted
+- **Context:** The Team (unlimited) tier is enterprise-grade — unlimited compute, 5 sessions, custom SLA. Self-service checkout is not appropriate.
+- **Decision:** The subscribe page shows "Get in Touch" for the Team tier. Clicking it sends an email to admins via Resend (`POST /api/auth/contact-team`, rate-limited 1/hour) and changes the button to "We'll get in touch" (disabled). No Stripe checkout for Team tier.
+- **Consequences:** Team tier onboarding is manual. Admins receive the inquiry email and configure the user's subscription directly.
+
 ## Module-Level Caches (CF-014)
 
 All module-level caches in the codebase. Workers isolates do not share memory, so each cache is per-isolate.
@@ -2830,6 +2899,7 @@ All module-level caches in the codebase. Workers isolates do not share memory, s
 | `src/lib/kv-crypto.ts` | imported CryptoKey | Isolate lifetime | AES-256 key from `ENCRYPTION_KEY` env var | (none — persists for isolate lifetime) |
 | `src/lib/rate-limit-core.ts` | `failedKvOps` | Isolate lifetime | Counter for consecutive KV failures (circuit breaker) | (none) |
 | `src/lib/circuit-breakers.ts` | per-container breakers | Isolate lifetime | Circuit breaker state per container ID | (none) |
+| `src/lib/session-jwt.ts` | `cachedKey` | Isolate lifetime | HMAC CryptoKey imported from `OAUTH_JWT_SECRET` | (none — re-imported if secret changes) |
 
 After admin config changes, different isolates may enforce different values for up to the cache TTL. This is an accepted trade-off for KV read performance.
 
