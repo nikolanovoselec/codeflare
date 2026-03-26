@@ -320,15 +320,17 @@ describe('handleSubscriptionUpdated', () => {
       new Response(JSON.stringify({ error: { message: 'No such customer' } }), { status: 404 }),
     ) as typeof globalThis.fetch;
 
-    const body = buildEvent('customer.subscription.updated', {
-      id: 'sub_unknown',
-      customer: 'cus_unknown',
-    });
+    try {
+      const body = buildEvent('customer.subscription.updated', {
+        id: 'sub_unknown',
+        customer: 'cus_unknown',
+      });
 
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    globalThis.fetch = originalFetch;
+      const res = await postWebhook(createApp(), body);
+      expect(res.status).toBe(200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 
@@ -375,15 +377,17 @@ describe('handleSubscriptionDeleted', () => {
       new Response(JSON.stringify({ error: { message: 'No such customer' } }), { status: 404 }),
     ) as typeof globalThis.fetch;
 
-    const body = buildEvent('customer.subscription.deleted', {
-      id: 'sub_del_nomatch',
-      customer: 'cus_unknown_del',
-    });
+    try {
+      const body = buildEvent('customer.subscription.deleted', {
+        id: 'sub_del_nomatch',
+        customer: 'cus_unknown_del',
+      });
 
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    globalThis.fetch = originalFetch;
+      const res = await postWebhook(createApp(), body);
+      expect(res.status).toBe(200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

@@ -138,14 +138,16 @@ describe('syncSubscriptionState', () => {
 
     vi.mocked(fetchSubscription).mockResolvedValue(makeSnapshot());
 
-    await syncSubscriptionState('cus_unknown', 'sub_sync_1', env);
+    try {
+      await syncSubscriptionState('cus_unknown', 'sub_sync_1', env);
 
-    // fetchSubscription should not have been called if email resolution fails
-    // (but the implementation calls resolveEmailFromCustomer first)
-    // No user record should exist
-    expect(mockKV._store.has('user:undefined')).toBe(false);
-
-    globalThis.fetch = originalFetch;
+      // fetchSubscription should not have been called — email resolution fails first
+      expect(fetchSubscription).not.toHaveBeenCalled();
+      // No user record should exist
+      expect(mockKV._store.has('user:undefined')).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('returns early when subscription not found (fetchSubscription returns null)', async () => {
