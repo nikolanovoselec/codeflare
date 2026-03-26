@@ -27,7 +27,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
       KV: mockKV as unknown as KVNamespace,
       OAUTH_CLIENT_ID: 'test-client-id',
       OAUTH_CLIENT_SECRET: 'test-client-secret',
-      JWT_SECRET: 'test-jwt-secret',
+      OAUTH_JWT_SECRET: 'test-jwt-secret',
       SAAS_MODE: 'active',
       ...envOverrides,
     } as Env;

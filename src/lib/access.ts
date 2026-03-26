@@ -56,7 +56,7 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
  *    Constant-time comparison against SERVICE_AUTH_SECRET. Returns admin role.
  *
  * 2. SaaS mode + GitHub OIDC (codeflare_session cookie) — when SAAS_MODE=active
- *    and OAUTH_CLIENT_ID is set. HMAC-SHA256 JWT signed by JWT_SECRET.
+ *    and OAUTH_CLIENT_ID is set. HMAC-SHA256 JWT signed by OAUTH_JWT_SECRET.
  *    Replaces CF Access for SaaS deployments.
  *
  * 3. CF Access JWT (cf-access-jwt-assertion header or CF_Authorization cookie) —
@@ -150,14 +150,14 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
   // SaaS mode + GitHub OIDC: verify codeflare_session cookie (HMAC JWT)
   // This replaces CF Access JWT verification when OAUTH_CLIENT_ID is configured.
   if (env && isSaasModeActive(env.SAAS_MODE) && env.OAUTH_CLIENT_ID) {
-    if (!env.JWT_SECRET) {
-      throw new AuthError('SaaS mode active but JWT_SECRET not configured');
+    if (!env.OAUTH_JWT_SECRET) {
+      throw new AuthError('SaaS mode active but OAUTH_JWT_SECRET not configured');
     }
     const sessionToken = getCookieValue(request.headers.get('Cookie'), 'codeflare_session');
     if (!sessionToken) {
       return { email: '', authenticated: false };
     }
-    const payload = await verifySessionJWT(sessionToken, env.JWT_SECRET);
+    const payload = await verifySessionJWT(sessionToken, env.OAUTH_JWT_SECRET);
     if (!payload) {
       return { email: '', authenticated: false };
     }

@@ -328,12 +328,12 @@ jobs:
           if [ -n "${OAUTH_CLIENT_SECRET}" ]; then
             printf '%s' "${OAUTH_CLIENT_SECRET}" | npx wrangler secret put OAUTH_CLIENT_SECRET --name "${WORKER_NAME}" 2>/dev/null
           fi
-          if [ -n "${JWT_SECRET}" ]; then
-            printf '%s' "${JWT_SECRET}" | npx wrangler secret put JWT_SECRET --name "${WORKER_NAME}" 2>/dev/null
+          if [ -n "${OAUTH_JWT_SECRET}" ]; then
+            printf '%s' "${OAUTH_JWT_SECRET}" | npx wrangler secret put OAUTH_JWT_SECRET --name "${WORKER_NAME}" 2>/dev/null
           fi
         env:
           OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          OAUTH_JWT_SECRET: ${{ secrets.OAUTH_JWT_SECRET }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 

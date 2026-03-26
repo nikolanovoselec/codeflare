@@ -128,7 +128,7 @@ Logout:
 New Hono router mounted at `/auth/github`.
 
 **GET /login:**
-1. Validate `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `JWT_SECRET` exist → 500 if missing
+1. Validate `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET` exist → 500 if missing
 2. Generate random state: `crypto.randomUUID()`
 3. Set cookie: `oauth_state={state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=300`
 4. Build redirect: `github.com/login/oauth/authorize?client_id&redirect_uri&scope=user:email&state`
@@ -144,7 +144,7 @@ New Hono router mounted at `/auth/github`.
    - Wrap in try/catch → 502 on failure
 6. Fetch emails: `GET api.github.com/user/emails` → find `primary: true, verified: true`
    - No verified email → redirect to `/?error=no-verified-email`
-7. Sign session JWT: `signSessionJWT({ email, sub: String(id), ghLogin: login }, JWT_SECRET)`
+7. Sign session JWT: `signSessionJWT({ email, sub: String(id), ghLogin: login }, OAUTH_JWT_SECRET)`
 8. Set cookie: `codeflare_session={jwt}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`
 9. Check user state via KV → redirect to `/app/subscribe` (pending/not found) or `/app/` (active)
 
@@ -168,7 +168,7 @@ New Hono router mounted at `/auth/github`.
 - SaaS + expired cookie → not authenticated
 - SaaS + tampered cookie → not authenticated
 - SaaS + service token (X-Service-Auth) → still works (takes precedence over cookie)
-- SaaS + JWT_SECRET missing → throws Error (not silent fallthrough)
+- SaaS + OAUTH_JWT_SECRET missing → throws Error (not silent fallthrough)
 - Non-SaaS mode ignores codeflare_session cookie, uses CF Access JWT
 - Non-SaaS + CF Access JWT → authenticated (unchanged behavior)
 - Cookie refresh (DEFERRED): near-expiry JWT triggers refreshCookie on context
@@ -183,14 +183,14 @@ Insert after service token check (line 144), before CF Access JWT check (line 14
 // SaaS mode: verify codeflare_session cookie (HMAC JWT)
 if (env && isSaasModeActive(env.SAAS_MODE)) {
   // Fail loud if secrets are missing — never silently fall through to CF Access
-  if (!env.JWT_SECRET || !env.OAUTH_CLIENT_ID) {
+  if (!env.OAUTH_JWT_SECRET || !env.OAUTH_CLIENT_ID) {
     throw new AuthError('SaaS mode active but GitHub OIDC secrets not configured');
   }
   const sessionToken = getCookieValue(request.headers.get('Cookie'), 'codeflare_session');
   if (!sessionToken) {
     return { email: '', authenticated: false };
   }
-  const payload = await verifySessionJWT(sessionToken, env.JWT_SECRET);
+  const payload = await verifySessionJWT(sessionToken, env.OAUTH_JWT_SECRET);
   if (!payload) {
     return { email: '', authenticated: false };
   }
@@ -244,7 +244,7 @@ if (saas && c.env.OAUTH_CLIENT_ID) {
 ```ts
 OAUTH_CLIENT_ID?: string;      // OAuth App client ID (wrangler.toml var)
 OAUTH_CLIENT_SECRET?: string;   // OAuth App client secret (wrangler secret)
-JWT_SECRET?: string;             // HMAC signing key for session JWTs (wrangler secret)
+OAUTH_JWT_SECRET?: string;             // HMAC signing key for session JWTs (wrangler secret)
 ```
 
 ### 4.4 `src/routes/setup/access.ts`
@@ -287,7 +287,7 @@ export interface AuthProvider {
 ### README.md updates:
 - Document OAuth App creation steps
 - Document callback URL format: `https://{domain}/auth/github/callback`
-- Document required secrets: `OAUTH_CLIENT_SECRET`, `JWT_SECRET`
+- Document required secrets: `OAUTH_CLIENT_SECRET`, `OAUTH_JWT_SECRET`
 
 ---
 
@@ -295,7 +295,7 @@ export interface AuthProvider {
 
 ### New secrets (wrangler secret put):
 - `OAUTH_CLIENT_SECRET` — OAuth App client secret
-- `JWT_SECRET` — `openssl rand -base64 32` (256-bit random)
+- `OAUTH_JWT_SECRET` — `openssl rand -base64 32` (256-bit random)
 
 ### New var (wrangler.toml or GitHub Actions):
 - `OAUTH_CLIENT_ID` — OAuth App client ID (public)
@@ -321,7 +321,7 @@ export interface AuthProvider {
 | `src/index.ts` | Mount github-auth, update providers endpoint |
 | `src/middleware/auth.ts` | Unchanged (refresh deferred)
 | `src/routes/auth-redirects.ts` | SaaS mode branch for login/logout |
-| `src/types.ts` | Add OAUTH_CLIENT_ID/SECRET, JWT_SECRET to Env |
+| `src/types.ts` | Add OAUTH_CLIENT_ID/SECRET, OAUTH_JWT_SECRET to Env |
 | `src/routes/setup/access.ts` | Skip CF Access creation in SaaS+OIDC |
 | `web-ui/src/components/LoginPage.tsx` | Use `loginUrl` from provider |
 | `web-ui/src/types.ts` | Add `loginUrl?` to AuthProvider |
@@ -344,7 +344,7 @@ export interface AuthProvider {
 - **Email**: Only `verified: true` emails from GitHub `/user/emails` API
 - **Identity**: GitHub user ID (`sub`) is the primary identity — emails can change
 - **No token storage**: GitHub access token used ephemerally during callback only
-- **Fail-loud**: Missing `JWT_SECRET`/`OAUTH_CLIENT_ID` in SaaS mode throws AuthError (no silent fallthrough to CF Access)
+- **Fail-loud**: Missing `OAUTH_JWT_SECRET`/`OAUTH_CLIENT_ID` in SaaS mode throws AuthError (no silent fallthrough to CF Access)
 - **Rate limiting**: Callback endpoint rate-limited (10/min per IP) to prevent code-exchange spam
 - **Error handling**: GitHub `?error=access_denied` → clean redirect; GitHub API 5xx → 502
 
@@ -352,7 +352,7 @@ export interface AuthProvider {
 
 - **Email change**: GitHub user changes verified email → next login gets new email, old KV record orphaned. Future mitigation: match on `sub` as secondary lookup key.
 - **Private email**: `user:email` scope gets verified email even when hidden.
-- **JWT_SECRET rotation**: Deploy new secret → old cookies fail → users re-login. Acceptable for planned rotation.
+- **OAUTH_JWT_SECRET rotation**: Deploy new secret → old cookies fail → users re-login. Acceptable for planned rotation.
 - **GitHub OAuth App scope**: `user:email` is read-only. No write access to any user data.
 
 ---

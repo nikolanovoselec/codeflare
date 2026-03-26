@@ -169,38 +169,53 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 
 ---
 
-#### All variables and secrets
+#### General (all modes, all optional)
 
-| Variable | Where | Default | When needed | What it does |
-|---|---|---|---|---|
-| | | | | **General — all modes** |
-| `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | optional | Worker name and bucket prefix |
-| `RESSOURCE_TIER` | var | unset | optional | Container size + max instances. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), **`saas`** (1 vCPU, 3 GiB, 1400) |
-| `MAX_SESSIONS_USER` | var | `3` | optional | Max concurrent sessions per user |
-| `MAX_SESSIONS_ADMIN` | var | `10` | optional | Max concurrent sessions per admin |
-| `ENCRYPTION_KEY` | secret | unset | optional | Encrypts API keys in KV + files in R2. Generate: `openssl rand -base64 32` |
-| `RUNNER` | var | `ubuntu-latest` | optional | GitHub Actions runner |
-| `CLAUDE_UNLEASHED_CACHE_BUSTER` | var | `inactive` | optional | Force-reinstall AI agent layer on every deploy |
-| `STRESS_TEST_MODE` | var | unset | optional | Set to `active` to bypass all rate limits (integration testing only — **never enable in production**) |
-| | | | | **Onboarding mode** — set `ONBOARDING_LANDING_PAGE=active` for a public waitlist at `/` |
-| `ONBOARDING_LANDING_PAGE` | var | `inactive` | set to `active` to enable | Enables public waitlist landing page. Turnstile keys are auto-created by the setup wizard |
-| `RESEND_API_KEY` | secret | unset | recommended | Resend API key for welcome + notification emails. Without it, no emails are sent |
-| `RESEND_EMAIL` | secret | unset | optional | Sender address (defaults to `Codeflare <onboarding@resend.dev>`) |
-| | | | | **SaaS mode** — set `SAAS_MODE=active` for custom login, subscriptions, billing, usage tracking |
-| `SAAS_MODE` | var | `inactive` | set to `active` to enable | Custom login page, guided onboarding, tier-based access, usage tracking. Turnstile keys are auto-created by the setup wizard. Use with `RESSOURCE_TIER=saas` for 1400 concurrent instances |
-| `RESEND_API_KEY` | secret | unset | recommended | Same key as onboarding — also sends subscription, tier change, and admin notification emails |
-| `OAUTH_CLIENT_ID` | env var | unset | **recommended** | GitHub OAuth App client ID (public value, injected as Worker var). Enables free GitHub login for unlimited users. Without it, falls back to Cloudflare Access ($3/user/month after 50 users) |
-| `OAUTH_CLIENT_SECRET` | env secret | unset | **required** with `OAUTH_CLIENT_ID` | GitHub OAuth App client secret |
-| `JWT_SECRET` | env secret | unset | **required** with `OAUTH_CLIENT_ID` | HMAC-SHA256 session cookie signing key. Generate: `openssl rand -base64 32` |
-| `STRIPE_SECRET_KEY` | secret | unset | optional | Stripe API key — enables paid subscriptions. Without it, all plans are free (`sk_test_...` or `sk_live_...`) |
-| `STRIPE_WEBHOOK_SECRET` | secret | unset | **required** with `STRIPE_SECRET_KEY` | Stripe webhook signing secret (`whsec_...`) |
-| `SAAS_EXTRA_IDPS` | var | unset | optional | Comma-separated CF Access IdP UUIDs for custom OIDC providers on login page (CF Access mode only) |
-| | | | | **E2E testing** |
-| `CF_ACCESS_CLIENT_ID` | secret | unset | optional | CF Access service token client ID |
-| `CF_ACCESS_CLIENT_SECRET` | secret | unset | optional | CF Access service token client secret |
-| `E2E_BASE_URL` | var | unset | optional | Custom domain URL for E2E tests |
+| Variable | Where | Default | What it does |
+|---|---|---|---|
+| `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | Worker name and bucket prefix |
+| `RESSOURCE_TIER` | var | unset | Container size + max instances. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), **`saas`** (1 vCPU, 3 GiB, 1400) |
+| `MAX_SESSIONS_USER` | var | `3` | Max concurrent sessions per user |
+| `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent sessions per admin |
+| `ENCRYPTION_KEY` | secret | unset | Encrypts API keys in KV + files in R2. Generate: `openssl rand -base64 32` |
+| `RUNNER` | var | `ubuntu-latest` | GitHub Actions runner |
+| `CLAUDE_UNLEASHED_CACHE_BUSTER` | var | `inactive` | Force-reinstall AI agent layer on every deploy |
+| `STRESS_TEST_MODE` | var | unset | Bypass all rate limits (**never enable in production**) |
 
-> **Note:** Turnstile CAPTCHA keys (`TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY`) are **auto-created** by the setup wizard using your Cloudflare API token. You do not need to set them manually. The wizard creates them when `ONBOARDING_LANDING_PAGE` or `SAAS_MODE` is active.
+#### Onboarding mode
+
+Set `ONBOARDING_LANDING_PAGE=active` to show a public waitlist at `/`. Turnstile keys are auto-created by the setup wizard.
+
+| Variable | Where | When needed | What it does |
+|---|---|---|---|
+| `ONBOARDING_LANDING_PAGE` | var | set to `active` to enable | Enables public waitlist landing page |
+| `RESEND_API_KEY` | secret | recommended | Resend API key for welcome + notification emails |
+| `RESEND_EMAIL` | secret | optional | Sender address (defaults to `Codeflare <onboarding@resend.dev>`) |
+
+#### SaaS mode
+
+Set `SAAS_MODE=active` for custom login, subscriptions, billing, and usage tracking. Use with `RESSOURCE_TIER=saas` for 1400 concurrent instances. Turnstile keys are auto-created by the setup wizard.
+
+| Variable | Where | When needed | What it does |
+|---|---|---|---|
+| `SAAS_MODE` | var | set to `active` to enable | Custom login page, guided onboarding, tier-based access, usage tracking |
+| `RESEND_API_KEY` | secret | recommended | Welcome, subscription, tier change, and admin notification emails |
+| `OAUTH_CLIENT_ID` | env var | **recommended** | GitHub OAuth App client ID. Enables free GitHub login for unlimited users. Without it, falls back to CF Access ($3/user after 50) |
+| `OAUTH_CLIENT_SECRET` | env secret | **required** with `OAUTH_CLIENT_ID` | GitHub OAuth App client secret |
+| `OAUTH_JWT_SECRET` | env secret | **required** with `OAUTH_CLIENT_ID` | Session cookie signing key. Generate: `openssl rand -base64 32` |
+| `STRIPE_SECRET_KEY` | secret | optional | Stripe API key — enables paid subscriptions. Without it, all plans are free |
+| `STRIPE_WEBHOOK_SECRET` | secret | **required** with `STRIPE_SECRET_KEY` | Stripe webhook signing secret (`whsec_...`) |
+| `SAAS_EXTRA_IDPS` | var | optional | Comma-separated CF Access IdP UUIDs for custom OIDC providers (CF Access mode only) |
+
+#### E2E testing
+
+| Variable | Where | When needed | What it does |
+|---|---|---|---|
+| `CF_ACCESS_CLIENT_ID` | secret | optional | CF Access service token client ID |
+| `CF_ACCESS_CLIENT_SECRET` | secret | optional | CF Access service token client secret |
+| `E2E_BASE_URL` | var | optional | Custom domain URL for E2E tests |
+
+> **Note:** Turnstile CAPTCHA keys are **auto-created** by the setup wizard using your Cloudflare API token. You do not need to set them manually.
 
 ---
 
@@ -210,7 +225,7 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 |---|---|---|
 | **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
 | **SaaS + CF Access** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | CF Access, Turnstile keys |
 
 ---
@@ -237,7 +252,7 @@ openssl rand -base64 32
 |---|---|
 | `OAUTH_CLIENT_ID` | Client ID from step 1 |
 | `OAUTH_CLIENT_SECRET` | Client secret from step 1 |
-| `JWT_SECRET` | Output from step 2 |
+| `OAUTH_JWT_SECRET` | Output from step 2 |
 
 Create one OAuth App per environment (integration vs production) with the matching callback URL. Deploy — the workflow injects everything automatically.
 

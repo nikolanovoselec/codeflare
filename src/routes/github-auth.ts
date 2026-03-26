@@ -38,7 +38,7 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
 // ---------------------------------------------------------------------------
 app.get('/login', async (c) => {
   const clientId = c.env.OAUTH_CLIENT_ID;
-  if (!clientId || !c.env.OAUTH_CLIENT_SECRET || !c.env.JWT_SECRET) {
+  if (!clientId || !c.env.OAUTH_CLIENT_SECRET || !c.env.OAUTH_JWT_SECRET) {
     logger.error('GitHub OAuth not configured — missing secrets');
     return c.json({ error: 'OAuth not configured' }, 500);
   }
@@ -153,7 +153,7 @@ app.get('/callback', callbackRateLimiter, async (c) => {
   // Sign session JWT
   const jwt = await signSessionJWT(
     { email: email.toLowerCase().trim(), sub: String(userId), ghLogin: userLogin },
-    c.env.JWT_SECRET!,
+    c.env.OAUTH_JWT_SECRET!,
   );
 
   // Determine redirect based on user state

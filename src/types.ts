@@ -85,7 +85,7 @@ export interface Env {
   // Create an OAuth App at github.com/settings/applications/new
   OAUTH_CLIENT_ID?: string;      // OAuth App client ID (wrangler.toml var, public)
   OAUTH_CLIENT_SECRET?: string;   // OAuth App client secret (wrangler secret)
-  JWT_SECRET?: string;             // HMAC-SHA256 signing key for session JWTs (wrangler secret)
+  OAUTH_JWT_SECRET?: string;             // HMAC-SHA256 signing key for session JWTs (wrangler secret)
 
   // Timekeeper Durable Object for per-user usage tracking
   TIMEKEEPER?: DurableObjectNamespace;
