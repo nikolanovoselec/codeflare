@@ -65,12 +65,15 @@ app.get('/login', async (c) => {
 app.get('/callback', callbackRateLimiter, async (c) => {
   const url = new URL(c.req.url);
 
-  // GitHub returns ?error= when user denies or something goes wrong
-  const error = url.searchParams.get('error');
-  if (error) {
+  // GitHub returns ?error= when user denies or something goes wrong.
+  // Allow-list known error codes to prevent reflected content in the redirect URL.
+  const KNOWN_ERRORS = new Set(['access_denied', 'redirect_uri_mismatch', 'application_suspended']);
+  const errorParam = url.searchParams.get('error');
+  if (errorParam) {
+    const safeError = KNOWN_ERRORS.has(errorParam) ? errorParam : 'oauth_error';
     const customDomain = await c.env.KV.get('setup:custom_domain');
     const base = customDomain ? `https://${customDomain}` : url.origin;
-    return c.redirect(`${base}/?error=${encodeURIComponent(error)}`);
+    return c.redirect(`${base}/?error=${encodeURIComponent(safeError)}`);
   }
 
   // Validate state — cookie vs query param (CSRF protection)

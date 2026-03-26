@@ -189,7 +189,7 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | | | | | **SaaS mode** — set `SAAS_MODE=active` for custom login, subscriptions, billing, usage tracking |
 | `SAAS_MODE` | var | `inactive` | set to `active` to enable | Custom login page, guided onboarding, tier-based access, usage tracking. Turnstile keys are auto-created by the setup wizard. Use with `RESSOURCE_TIER=saas` for 1400 concurrent instances |
 | `RESEND_API_KEY` | secret | unset | recommended | Same key as onboarding — also sends subscription, tier change, and admin notification emails |
-| `OAUTH_CLIENT_ID` | env secret | unset | **recommended** | GitHub OAuth App client ID (injected as Worker var, not secret — value is public). Enables free GitHub login for unlimited users. Without it, falls back to Cloudflare Access ($3/user/month after 50 users) |
+| `OAUTH_CLIENT_ID` | env var | unset | **recommended** | GitHub OAuth App client ID (public value, injected as Worker var). Enables free GitHub login for unlimited users. Without it, falls back to Cloudflare Access ($3/user/month after 50 users) |
 | `OAUTH_CLIENT_SECRET` | env secret | unset | **required** with `OAUTH_CLIENT_ID` | GitHub OAuth App client secret |
 | `JWT_SECRET` | env secret | unset | **required** with `OAUTH_CLIENT_ID` | HMAC-SHA256 session cookie signing key. Generate: `openssl rand -base64 32` |
 | `STRIPE_SECRET_KEY` | secret | unset | optional | Stripe API key — enables paid subscriptions. Without it, all plans are free (`sk_test_...` or `sk_live_...`) |
