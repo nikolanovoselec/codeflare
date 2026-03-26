@@ -81,6 +81,16 @@
 }
 .subscribe-logout-button:hover { background: rgba(24, 24, 27, 0.95); border-color: rgba(255, 255, 255, 0.15); color: #fafafa; transform: translateY(-1px); }
 
+.subscribe-home-actions {
+  display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;
+}
+
+.subscribe-manage-button {
+  color: #f38020; border-color: rgba(243, 128, 32, 0.25);
+}
+.subscribe-manage-button:hover { color: #ff9633; border-color: rgba(243, 128, 32, 0.5); }
+.subscribe-manage-button:disabled { opacity: 0.5; cursor: wait; }
+
 /* ── Merged mode card with Standard/Pro toggle ── */
 
 .subscribe-mode-card-merged {

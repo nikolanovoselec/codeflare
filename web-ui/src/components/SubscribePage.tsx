@@ -151,6 +151,7 @@ const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
 
 const SubscribePage: Component = () => {
   const [loading, setLoading] = createSignal(true);
+  const [checkoutPolling, setCheckoutPolling] = createSignal(false);
   const [error, setError] = createSignal('');
   const [tiers, setTiers] = createSignal<TierInfo[]>([]);
   const [isBlocked, setIsBlocked] = createSignal(false);
@@ -183,6 +184,7 @@ const SubscribePage: Component = () => {
     if (params.get('checkout') === 'success') {
       // Remove query param from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
+      setCheckoutPolling(true);
       // CF-031: Exponential backoff polling (1s, 2s, 4s, 8s, 16s, 32s = ~63s total)
       const delays = [1000, 2000, 4000, 8000, 16000, 32000];
       for (const delay of delays) {
@@ -514,7 +516,11 @@ const SubscribePage: Component = () => {
           Ready when you are, wherever you are.
         </p>
 
-        <Show when={!loading()} fallback={<div class="subscribe-loading">Loading...</div>}>
+        <Show when={!loading()} fallback={
+          <div class="subscribe-loading">
+            {checkoutPolling() ? 'Activating your subscription — this may take a minute...' : 'Loading...'}
+          </div>
+        }>
           {/* Error display */}
           <Show when={error()}>
             <div class="subscribe-error">{error()}</div>
@@ -566,35 +572,37 @@ const SubscribePage: Component = () => {
                     <div class="subscribe-email">{userEmail()}</div>
                   </Show>
                   <a href="/app/" class="subscribe-action-button">Continue</a>
-                  <Show when={billingStatus()}>
-                    <button
-                      type="button"
-                      class="subscribe-action-button subscribe-action-button--secondary"
-                      disabled={portalLoading()}
-                      onClick={async () => {
-                        setPortalLoading(true);
-                        try {
-                          const { portalUrl } = await createPortalSession();
-                          window.location.href = portalUrl;
-                        } catch (err) {
-                          setError(err instanceof Error ? err.message : 'Failed to open billing portal.');
-                          setPortalLoading(false);
-                        }
-                      }}
-                    >
-                      {portalLoading() ? 'Loading...' : 'Manage Subscription'}
-                    </button>
-                  </Show>
                 </Show>
               </div>
 
-              <button
-                type="button"
-                class="subscribe-logout-button"
-                onClick={() => setSubscribePhase('tiers')}
-              >
-                See subscription plans
-              </button>
+              <div class="subscribe-home-actions">
+                <button
+                  type="button"
+                  class="subscribe-logout-button"
+                  onClick={() => setSubscribePhase('tiers')}
+                >
+                  See subscription plans
+                </button>
+                <Show when={billingStatus()}>
+                  <button
+                    type="button"
+                    class="subscribe-logout-button subscribe-manage-button"
+                    disabled={portalLoading()}
+                    onClick={async () => {
+                      setPortalLoading(true);
+                      try {
+                        const { portalUrl } = await createPortalSession();
+                        window.location.href = portalUrl;
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Failed to open billing portal.');
+                        setPortalLoading(false);
+                      }
+                    }}
+                  >
+                    {portalLoading() ? 'Loading...' : 'Manage Subscription'}
+                  </button>
+                </Show>
+              </div>
             </Show>
 
             {/* ── Tier selection: mode cards + lifeline + detail — all visible ── */}
