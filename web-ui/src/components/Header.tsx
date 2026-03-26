@@ -2,7 +2,7 @@ import { Component, Show, For, createMemo, createSignal, createEffect, onMount, 
 import {
   mdiXml,
   mdiCogOutline,
-  mdiAccountCircle,
+  mdiAccountCircleOutline,
   mdiAccountOutline,
   mdiRocketLaunchOutline,
   mdiChartBar,
@@ -39,7 +39,7 @@ function formatUsageCompact(seconds: number): string {
 
 function getGravatarUrl(email: string, size = 32): string {
   const hash = md5(email.trim().toLowerCase());
-  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=mp`;
+  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`;
 }
 
 interface HeaderProps {
@@ -275,8 +275,15 @@ const Header: Component<HeaderProps> = (props) => {
             title="User menu"
             onClick={() => setShowUserMenu(!showUserMenu())}
           >
-            <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
-              <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
+            <Show when={props.userName} fallback={<Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" />}>
+              <img
+                src={getGravatarUrl(props.userName!, 48)}
+                alt="Avatar"
+                class="header-user-avatar-img"
+                width={24} height={24}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement?.querySelector('.header-user-avatar-fallback')?.classList.remove('hidden'); }}
+              />
+              <span class="header-user-avatar-fallback hidden"><Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" /></span>
             </Show>
             <Show when={props.userName}>
               <span class="header-user-name">{props.userName}</span>

@@ -29,6 +29,17 @@ import {
   mdiBookOpenPageVariantOutline,
   mdiLayersTripleOutline,
   mdiHeadCogOutline,
+  mdiCloudOutline,
+  mdiTimerOutline,
+  mdiHeadsetOutline,
+  mdiCallSplit,
+  mdiInfinity,
+  mdiShieldAccountOutline,
+  mdiPuzzleOutline,
+  mdiArrowUpBold,
+  mdiMonitorMultiple,
+  mdiTrendingUp,
+  mdiClockFast,
 } from '@mdi/js';
 import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession } from '../api/client';
 import { formatDuration } from '../lib/format';
@@ -85,6 +96,28 @@ const TIER_FEATURES: Record<string, string[]> = {
 /** Features that show a "COMING SOON" badge */
 const COMING_SOON_FEATURES = new Set(['OpenClaw Integration']);
 
+/** Per-feature icon mapping for tier detail panel */
+const FEATURE_ICONS: Record<string, string> = {
+  'All agents, ready instantly': mdiRobotOutline,
+  'Persistent cloud storage': mdiCloudOutline,
+  'GitHub & Cloudflare deploy': mdiSourceBranch,
+  'Everything in Free': mdiArrowUpBold,
+  'Everything in Starter': mdiArrowUpBold,
+  'Everything in Advanced': mdiArrowUpBold,
+  'Everything in Max': mdiArrowUpBold,
+  'Unlocks Pro mode': mdiStarOutline,
+  'Configurable idle timeout': mdiTimerOutline,
+  'Priority support': mdiHeadsetOutline,
+  'Run 2 sessions at once': mdiMonitorMultiple,
+  'Run 3 sessions at once': mdiMonitorMultiple,
+  'Run 5 sessions at once': mdiMonitorMultiple,
+  'Work across parallel branches': mdiCallSplit,
+  '4x the compute of Starter': mdiLightningBolt,
+  'OpenClaw Integration': mdiPuzzleOutline,
+  'Unlimited compute hours': mdiInfinity,
+  'Dedicated support': mdiShieldAccountOutline,
+};
+
 /** Lifeline stop icons */
 const TIER_ICONS: Record<string, string> = {
   free: mdiGiftOutline,
@@ -110,10 +143,10 @@ const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string | (() => JSX.El
 /** Pro mode features for mode card */
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
   { icon: mdiHeadCogOutline, text: 'Agent builds a knowledge graph' },
-  { icon: mdiLightningBolt, text: 'Gets smarter every session' },
+  { icon: mdiTrendingUp, text: 'Gets smarter every session' },
   { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
   { icon: mdiBookOpenPageVariantOutline, text: 'Advanced commands & workflows' },
-  { icon: mdiLayersTripleOutline, text: 'Auto-prunes context over time' },
+  { icon: mdiClockFast, text: 'Auto-prunes context over time' },
   { icon: mdiRocketLaunchOutline, text: 'Never start from scratch again' },
 ];
 
@@ -712,7 +745,7 @@ const SubscribePage: Component = () => {
                           {(scrambled) => (
                             <Show when={scrambled()}>
                               <li class="subscribe-tier-feature-item">
-                                <Icon path={mdiCheck} size={14} />
+                                <Icon path={FEATURE_ICONS[scrambled()] ?? mdiCheck} size={14} />
                                 <span>
                                   {scrambled()}
                                   {COMING_SOON_FEATURES.has(scrambled()) && (

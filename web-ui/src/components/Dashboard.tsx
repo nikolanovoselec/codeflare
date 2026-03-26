@@ -1,6 +1,6 @@
 import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiAccountCircleOutline, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
@@ -22,7 +22,7 @@ import '../styles/dashboard.css';
 
 function getGravatarUrl(email: string, size = 32): string {
   const hash = md5(email.trim().toLowerCase());
-  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=mp`;
+  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`;
 }
 
 interface DashboardProps {
@@ -135,7 +135,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   setShowUserMenu(!showUserMenu());
                 }}
               >
-                <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
+                <Show when={props.userName} fallback={<Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" />}>
                   <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
                 </Show>
                 <Show when={props.userName}>
