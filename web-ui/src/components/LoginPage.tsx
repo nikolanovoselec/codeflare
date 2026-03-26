@@ -1,11 +1,13 @@
 import { Component, onMount, createSignal, Show, For, type JSX } from 'solid-js';
 import {
-  mdiRocketLaunchOutline,
-  mdiCellphoneLink,
-  mdiCloudLockOutline,
-  mdiCellphoneScreenshot,
-  mdiSourceBranch,
+  mdiRobotOutline,
   mdiLightningBolt,
+  mdiSourceBranch,
+  mdiCellphoneLink,
+  mdiCellphoneScreenshot,
+  mdiCloudLockOutline,
+  mdiRocketLaunchOutline,
+  mdiConsole,
 } from '@mdi/js';
 import { getAuthProviders, getAuthStatus } from '../api/client';
 import type { AuthProvider } from '../types';
@@ -48,12 +50,14 @@ function getProviderIcon(provider: AuthProvider) {
 }
 
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRocketLaunchOutline, content: () => <>Ready to code in seconds</> },
-  { icon: mdiCellphoneLink, content: () => <>Runs on any device with a browser</> },
-  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration</> },
-  { icon: mdiCloudLockOutline, content: () => <>Data persisted & encrypted at rest</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Optimized for mobiles & foldables</> },
-  { icon: mdiLightningBolt, content: () => <>From idea to deployment in minutes</> },
+  { icon: mdiRobotOutline, content: () => <>Claude Code · Codex · Copilot · Gemini · OpenCode</> },
+  { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready to code in seconds</> },
+  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration built in</> },
+  { icon: mdiCellphoneLink, content: () => <>Runs on your phone, tablet, or any browser</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when you're done</> },
+  { icon: mdiCloudLockOutline, content: () => <>Encrypted in transit and at rest</> },
+  { icon: mdiRocketLaunchOutline, content: () => <>From idea to deployment in minutes</> },
+  { icon: mdiConsole, content: () => <>Your files persist. Your bad decisions don't.</> },
 ];
 
 const LoginPage: Component = () => {
