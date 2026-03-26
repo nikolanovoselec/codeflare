@@ -16,6 +16,35 @@ import { isStripeConfigured, getStripePrices } from '../lib/stripe';
 
 const logger = createLogger('auth-routes');
 
+/** Paid tier IDs that occupy a capacity slot. Free tier excluded — low resource usage. */
+const SLOT_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
+
+/**
+ * Count users occupying a paid capacity slot: admins + active paid subscribers.
+ * Free, pending, and blocked users don't count. Canceled users count until billingPeriodEnd expires.
+ */
+export function countPaidSlots(allUsers: Array<{ role?: string; subscriptionTier?: string; [k: string]: unknown }>): number {
+  const now = Date.now();
+  return allUsers.filter(u => {
+    // Admins always count
+    if (u.role === 'admin') return true;
+    // Must have a paid tier
+    if (!u.subscriptionTier || !SLOT_TIERS.has(u.subscriptionTier)) return false;
+    // Active or trialing → counts
+    const status = u.billingStatus as string | undefined;
+    if (!status || status === 'active' || status === 'trialing') return true;
+    // Canceled → counts only if billingPeriodEnd is in the future
+    if (status === 'canceled' || status === 'past_due') {
+      const periodEnd = u.billingPeriodEnd as string | undefined;
+      if (periodEnd) {
+        return new Date(periodEnd).getTime() > now;
+      }
+      return false; // no period end → expired
+    }
+    return false;
+  }).length;
+}
+
 /** Map country code to currency for subscription email formatting. */
 function getCurrencyForCountry(country: string): string {
   const EUR_COUNTRIES = new Set(['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY']);
@@ -119,13 +148,7 @@ app.get('/status', requireIdentity, async (c) => {
   if (maxUsers > 0 && !hasSubscribed) {
     try {
       const allUsers = await getAllUsers(c.env.KV);
-      // Count everyone who can use the platform: admins + subscribed users (free included).
-      // Only pending and blocked are excluded.
-      const activeCount = allUsers.filter(u =>
-        u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
-        && (u.role === 'admin' || !!(u as unknown as Record<string, unknown>).subscribedAt)
-      ).length;
-      userCapacityReached = activeCount >= maxUsers;
+      userCapacityReached = countPaidSlots(allUsers) >= maxUsers;
     } catch { /* non-fatal */ }
   }
 
@@ -275,11 +298,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
-      const activeCount = allUsers.filter(u =>
-        u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
-        && (u.role === 'admin' || !!(u as unknown as Record<string, unknown>).subscribedAt)
-      ).length;
-      if (activeCount >= maxUsers) {
+      if (countPaidSlots(allUsers) >= maxUsers) {
         throw new ValidationError('Subscriptions are currently full. Please try again later.');
       }
     }
