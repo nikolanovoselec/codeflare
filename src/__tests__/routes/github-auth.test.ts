@@ -209,6 +209,24 @@ describe('GitHub OAuth Routes', () => {
       expect(res.status).toBe(502);
     });
 
+    it('returns 502 when GitHub profile API fails after successful token exchange', async () => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+        const u = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+        if (u.includes('access_token')) {
+          return new Response(JSON.stringify({ access_token: 'gho_test' }));
+        }
+        // Profile API returns 500
+        return new Response('GitHub API Error', { status: 500 });
+      }) as typeof globalThis.fetch;
+
+      const app = createApp();
+      const res = await app.request('/callback?code=test-code&state=test-state', {
+        headers: { Cookie: 'oauth_state=test-state' },
+      });
+
+      expect(res.status).toBe(502);
+    });
+
     it('redirects to /?error=no-verified-email when no verified email', async () => {
       globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
         const u = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
