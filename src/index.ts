@@ -170,7 +170,7 @@ app.get('/public/auth/providers', async (c) => {
   const saas = isSaasModeActive(c.env.SAAS_MODE);
 
   // SaaS mode with GitHub OIDC: return hardcoded provider with direct login URL
-  if (saas && c.env.GITHUB_CLIENT_ID) {
+  if (saas && c.env.OAUTH_CLIENT_ID) {
     return c.json({
       providers: [{ id: 'github', type: 'github', name: 'GitHub', loginUrl: '/auth/github/login' }],
     });

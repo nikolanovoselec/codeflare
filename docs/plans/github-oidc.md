@@ -104,7 +104,7 @@ export function shouldRefreshJWT(payload: SessionJWTPayload): boolean
 Login:
 - GET /login redirects to github.com with correct client_id, redirect_uri, scope, state
 - GET /login sets oauth_state cookie (HttpOnly, Secure, SameSite=Lax, Max-Age=300)
-- GET /login returns 500 when GITHUB_CLIENT_ID missing
+- GET /login returns 500 when OAUTH_CLIENT_ID missing
 
 Callback — happy path:
 - GET /callback with valid state cookie + matching query state exchanges code
@@ -131,7 +131,7 @@ Logout:
 New Hono router mounted at `/auth/github`.
 
 **GET /login:**
-1. Validate `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` + `JWT_SECRET` exist → 500 if missing
+1. Validate `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `JWT_SECRET` exist → 500 if missing
 2. Generate random state: `crypto.randomUUID()`
 3. Set cookie: `oauth_state={state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=300`
 4. Build redirect: `github.com/login/oauth/authorize?client_id&redirect_uri&scope=user:email&state`
@@ -186,7 +186,7 @@ Insert after service token check (line 144), before CF Access JWT check (line 14
 // SaaS mode: verify codeflare_session cookie (HMAC JWT)
 if (env && isSaasModeActive(env.SAAS_MODE)) {
   // Fail loud if secrets are missing — never silently fall through to CF Access
-  if (!env.JWT_SECRET || !env.GITHUB_CLIENT_ID) {
+  if (!env.JWT_SECRET || !env.OAUTH_CLIENT_ID) {
     throw new AuthError('SaaS mode active but GitHub OIDC secrets not configured');
   }
   const sessionToken = getCookieValue(request.headers.get('Cookie'), 'codeflare_session');
@@ -259,7 +259,7 @@ app.route('/auth/github', githubAuthRoutes);
 
 Update `GET /public/auth/providers`:
 ```ts
-if (saas && c.env.GITHUB_CLIENT_ID) {
+if (saas && c.env.OAUTH_CLIENT_ID) {
   return c.json({ providers: [{ id: 'github', type: 'github', name: 'GitHub', loginUrl: '/auth/github/login' }] });
 }
 ```
@@ -267,14 +267,14 @@ if (saas && c.env.GITHUB_CLIENT_ID) {
 ### 4.3 `src/types.ts`
 
 ```ts
-GITHUB_CLIENT_ID?: string;      // OAuth App client ID (wrangler.toml var)
-GITHUB_CLIENT_SECRET?: string;   // OAuth App client secret (wrangler secret)
+OAUTH_CLIENT_ID?: string;      // OAuth App client ID (wrangler.toml var)
+OAUTH_CLIENT_SECRET?: string;   // OAuth App client secret (wrangler secret)
 JWT_SECRET?: string;             // HMAC signing key for session JWTs (wrangler secret)
 ```
 
 ### 4.4 `src/routes/setup/access.ts`
 
-In `handleCreateAccessApp()`, if `saasMode && env.GITHUB_CLIENT_ID`:
+In `handleCreateAccessApp()`, if `saasMode && env.OAUTH_CLIENT_ID`:
 - Skip all CF Access API calls
 - Store minimal IdP list: `[{ id: 'github', type: 'github', name: 'GitHub' }]`
 - Return success immediately
@@ -312,18 +312,18 @@ export interface AuthProvider {
 ### README.md updates:
 - Document OAuth App creation steps
 - Document callback URL format: `https://{domain}/auth/github/callback`
-- Document required secrets: `GITHUB_CLIENT_SECRET`, `JWT_SECRET`
+- Document required secrets: `OAUTH_CLIENT_SECRET`, `JWT_SECRET`
 
 ---
 
 ## Phase 6: Deployment Config
 
 ### New secrets (wrangler secret put):
-- `GITHUB_CLIENT_SECRET` — OAuth App client secret
+- `OAUTH_CLIENT_SECRET` — OAuth App client secret
 - `JWT_SECRET` — `openssl rand -base64 32` (256-bit random)
 
 ### New var (wrangler.toml or GitHub Actions):
-- `GITHUB_CLIENT_ID` — OAuth App client ID (public)
+- `OAUTH_CLIENT_ID` — OAuth App client ID (public)
 
 ### GitHub OAuth App:
 - Create at `github.com/settings/applications/new`
@@ -346,7 +346,7 @@ export interface AuthProvider {
 | `src/index.ts` | Mount github-auth, cookie refresh middleware, update providers |
 | `src/middleware/auth.ts` | Minor: pass refreshCookie from authenticateRequest to context |
 | `src/routes/auth-redirects.ts` | SaaS mode branch for login/logout |
-| `src/types.ts` | Add GITHUB_CLIENT_ID/SECRET, JWT_SECRET to Env |
+| `src/types.ts` | Add OAUTH_CLIENT_ID/SECRET, JWT_SECRET to Env |
 | `src/routes/setup/access.ts` | Skip CF Access creation in SaaS+OIDC |
 | `web-ui/src/components/LoginPage.tsx` | Use `loginUrl` from provider |
 | `web-ui/src/types.ts` | Add `loginUrl?` to AuthProvider |
@@ -369,7 +369,7 @@ export interface AuthProvider {
 - **Email**: Only `verified: true` emails from GitHub `/user/emails` API
 - **Identity**: GitHub user ID (`sub`) is the primary identity — emails can change
 - **No token storage**: GitHub access token used ephemerally during callback only
-- **Fail-loud**: Missing `JWT_SECRET`/`GITHUB_CLIENT_ID` in SaaS mode throws AuthError (no silent fallthrough to CF Access)
+- **Fail-loud**: Missing `JWT_SECRET`/`OAUTH_CLIENT_ID` in SaaS mode throws AuthError (no silent fallthrough to CF Access)
 - **Rate limiting**: Callback endpoint rate-limited (10/min per IP) to prevent code-exchange spam
 - **Error handling**: GitHub `?error=access_denied` → clean redirect; GitHub API 5xx → 502
 
@@ -405,4 +405,4 @@ export interface AuthProvider {
    - Verify WebSocket terminal connects
    - Click logout → verify cookie cleared, redirected to login
    - Verify service token auth still works (`X-Service-Auth` header)
-3. **Default mode regression**: Deploy without `GITHUB_CLIENT_ID` → verify CF Access flow unchanged
+3. **Default mode regression**: Deploy without `OAUTH_CLIENT_ID` → verify CF Access flow unchanged

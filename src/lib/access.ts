@@ -145,8 +145,8 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
   }
 
   // SaaS mode + GitHub OIDC: verify codeflare_session cookie (HMAC JWT)
-  // This replaces CF Access JWT verification when GITHUB_CLIENT_ID is configured.
-  if (env && isSaasModeActive(env.SAAS_MODE) && env.GITHUB_CLIENT_ID) {
+  // This replaces CF Access JWT verification when OAUTH_CLIENT_ID is configured.
+  if (env && isSaasModeActive(env.SAAS_MODE) && env.OAUTH_CLIENT_ID) {
     if (!env.JWT_SECRET) {
       throw new AuthError('SaaS mode active but JWT_SECRET not configured');
     }

@@ -258,7 +258,7 @@ jobs:
           ${{ vars.STRESS_TEST_MODE && format('--var STRESS_TEST_MODE:{0}', vars.STRESS_TEST_MODE) || '' }}
           ${{ vars.SAAS_MODE && format('--var SAAS_MODE:{0}', vars.SAAS_MODE) || '' }}
           ${{ vars.SAAS_EXTRA_IDPS && format('--var SAAS_EXTRA_IDPS:{0}', vars.SAAS_EXTRA_IDPS) || '' }}
-          ${{ secrets.GITHUB_CLIENT_ID && format('--var GITHUB_CLIENT_ID:{0}', secrets.GITHUB_CLIENT_ID) || '' }}
+          ${{ secrets.OAUTH_CLIENT_ID && format('--var OAUTH_CLIENT_ID:{0}', secrets.OAUTH_CLIENT_ID) || '' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -325,14 +325,14 @@ jobs:
       - name: Set GitHub OIDC secrets (SaaS mode, optional)
         if: ${{ vars.SAAS_MODE == 'active' }}
         run: |
-          if [ -n "${GITHUB_CLIENT_SECRET}" ]; then
-            printf '%s' "${GITHUB_CLIENT_SECRET}" | npx wrangler secret put GITHUB_CLIENT_SECRET --name "${WORKER_NAME}" 2>/dev/null
+          if [ -n "${OAUTH_CLIENT_SECRET}" ]; then
+            printf '%s' "${OAUTH_CLIENT_SECRET}" | npx wrangler secret put OAUTH_CLIENT_SECRET --name "${WORKER_NAME}" 2>/dev/null
           fi
           if [ -n "${JWT_SECRET}" ]; then
             printf '%s' "${JWT_SECRET}" | npx wrangler secret put JWT_SECRET --name "${WORKER_NAME}" 2>/dev/null
           fi
         env:
-          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+          OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

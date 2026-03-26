@@ -25,8 +25,8 @@ function createApp(envOverrides: Partial<Env> = {}) {
   app.use('*', async (c, next) => {
     c.env = {
       KV: mockKV as unknown as KVNamespace,
-      GITHUB_CLIENT_ID: 'test-client-id',
-      GITHUB_CLIENT_SECRET: 'test-client-secret',
+      OAUTH_CLIENT_ID: 'test-client-id',
+      OAUTH_CLIENT_SECRET: 'test-client-secret',
       JWT_SECRET: 'test-jwt-secret',
       SAAS_MODE: 'active',
       ...envOverrides,
@@ -78,8 +78,8 @@ describe('GitHub OAuth Routes', () => {
       expect(setCookie).toContain('SameSite=Lax');
     });
 
-    it('returns 500 when GITHUB_CLIENT_ID missing', async () => {
-      const app = createApp({ GITHUB_CLIENT_ID: undefined } as unknown as Partial<Env>);
+    it('returns 500 when OAUTH_CLIENT_ID missing', async () => {
+      const app = createApp({ OAUTH_CLIENT_ID: undefined } as unknown as Partial<Env>);
       const res = await app.request('/login');
       expect(res.status).toBe(500);
     });

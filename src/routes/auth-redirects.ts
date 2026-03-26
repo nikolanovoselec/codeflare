@@ -10,7 +10,7 @@ const app = new Hono<{ Bindings: Env }>();
 // Login: SaaS mode redirects to GitHub OIDC, default mode uses CF Access.
 app.get('/login/:provider', async (c) => {
   // SaaS mode with GitHub OIDC
-  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.GITHUB_CLIENT_ID) {
+  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.OAUTH_CLIENT_ID) {
     return c.redirect('/auth/github/login');
   }
 
@@ -26,7 +26,7 @@ app.get('/login/:provider', async (c) => {
 
 app.get('/logout', async (c) => {
   // SaaS mode with GitHub OIDC: clear session cookie and redirect to login
-  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.GITHUB_CLIENT_ID) {
+  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.OAUTH_CLIENT_ID) {
     return c.redirect('/auth/github/logout');
   }
 

@@ -188,9 +188,9 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | | | | | **SaaS mode** — set `SAAS_MODE=active` for custom login, subscriptions, billing, usage tracking |
 | `SAAS_MODE` | var | `inactive` | set to `active` to enable | Custom login page, guided onboarding, tier-based access, usage tracking. Turnstile keys are auto-created by the setup wizard. Use with `RESSOURCE_TIER=saas` for 1400 concurrent instances |
 | `RESEND_API_KEY` | secret | unset | recommended | Same key as onboarding — also sends subscription, tier change, and admin notification emails |
-| `GITHUB_CLIENT_ID` | env secret | unset | **recommended** | GitHub OAuth App client ID. Enables free GitHub login for unlimited users. Without it, falls back to Cloudflare Access ($3/user/month after 50 users) |
-| `GITHUB_CLIENT_SECRET` | env secret | unset | **required** with `GITHUB_CLIENT_ID` | GitHub OAuth App client secret |
-| `JWT_SECRET` | env secret | unset | **required** with `GITHUB_CLIENT_ID` | HMAC-SHA256 session cookie signing key. Generate: `openssl rand -base64 32` |
+| `OAUTH_CLIENT_ID` | env secret | unset | **recommended** | GitHub OAuth App client ID. Enables free GitHub login for unlimited users. Without it, falls back to Cloudflare Access ($3/user/month after 50 users) |
+| `OAUTH_CLIENT_SECRET` | env secret | unset | **required** with `OAUTH_CLIENT_ID` | GitHub OAuth App client secret |
+| `JWT_SECRET` | env secret | unset | **required** with `OAUTH_CLIENT_ID` | HMAC-SHA256 session cookie signing key. Generate: `openssl rand -base64 32` |
 | `STRIPE_SECRET_KEY` | secret | unset | optional | Stripe API key — enables paid subscriptions. Without it, all plans are free (`sk_test_...` or `sk_live_...`) |
 | `STRIPE_WEBHOOK_SECRET` | secret | unset | **required** with `STRIPE_SECRET_KEY` | Stripe webhook signing secret (`whsec_...`) |
 | | | | | **E2E testing** |
@@ -208,7 +208,7 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 |---|---|---|
 | **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys (CF Access skipped) |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys (CF Access skipped) |
 | **SaaS + CF Access** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | CF Access, Turnstile keys |
 
 ---
@@ -216,7 +216,7 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 #### GitHub OAuth Setup (SaaS mode)
 <a id="github-oauth-setup-saas-mode"></a>
 
-When `GITHUB_CLIENT_ID` is set in SaaS mode, the Worker handles authentication directly via GitHub OAuth — Cloudflare Access is bypassed. Free for unlimited users.
+When `OAUTH_CLIENT_ID` is set in SaaS mode, the Worker handles authentication directly via GitHub OAuth — Cloudflare Access is bypassed. Free for unlimited users.
 
 **1. Create a GitHub OAuth App** at [github.com/settings/developers](https://github.com/settings/developers) → OAuth Apps → New OAuth App:
 - **Application name:** Your app name (e.g., "Codeflare")
@@ -233,8 +233,8 @@ openssl rand -base64 32
 
 | Secret | Value |
 |---|---|
-| `GITHUB_CLIENT_ID` | Client ID from step 1 |
-| `GITHUB_CLIENT_SECRET` | Client secret from step 1 |
+| `OAUTH_CLIENT_ID` | Client ID from step 1 |
+| `OAUTH_CLIENT_SECRET` | Client secret from step 1 |
 | `JWT_SECRET` | Output from step 2 |
 
 Create one OAuth App per environment (integration vs production) with the matching callback URL. Deploy — the workflow injects everything automatically.

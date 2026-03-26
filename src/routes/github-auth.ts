@@ -1,7 +1,7 @@
 /**
  * GitHub OAuth routes for SaaS mode authentication.
  *
- * Replaces Cloudflare Access when SAAS_MODE=active and GITHUB_CLIENT_ID is set.
+ * Replaces Cloudflare Access when SAAS_MODE=active and OAUTH_CLIENT_ID is set.
  * Mounts at /auth/github — login, callback, and logout.
  */
 import { Hono } from 'hono';
@@ -29,8 +29,8 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
 // GET /login — Redirect to GitHub OAuth authorize
 // ---------------------------------------------------------------------------
 app.get('/login', async (c) => {
-  const clientId = c.env.GITHUB_CLIENT_ID;
-  if (!clientId || !c.env.GITHUB_CLIENT_SECRET || !c.env.JWT_SECRET) {
+  const clientId = c.env.OAUTH_CLIENT_ID;
+  if (!clientId || !c.env.OAUTH_CLIENT_SECRET || !c.env.JWT_SECRET) {
     logger.error('GitHub OAuth not configured — missing secrets');
     return c.json({ error: 'OAuth not configured' }, 500);
   }
@@ -90,8 +90,8 @@ app.get('/callback', async (c) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        client_id: c.env.GITHUB_CLIENT_ID,
-        client_secret: c.env.GITHUB_CLIENT_SECRET,
+        client_id: c.env.OAUTH_CLIENT_ID,
+        client_secret: c.env.OAUTH_CLIENT_SECRET,
         code,
       }),
       signal: AbortSignal.timeout(10_000),
