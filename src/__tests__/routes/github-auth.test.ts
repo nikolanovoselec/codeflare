@@ -3,12 +3,13 @@ import { Hono } from 'hono';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
-// Mock session-jwt
+// Configurable mock auth result
+const mockSignSessionJWT = vi.fn(async () => 'mock-jwt-token');
+
 vi.mock('../../lib/session-jwt', () => ({
-  signSessionJWT: vi.fn(async () => 'mock-jwt-token'),
+  signSessionJWT: mockSignSessionJWT,
 }));
 
-// Mock logger
 vi.mock('../../lib/logger', () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn(),
