@@ -79,7 +79,7 @@ const TIER_FEATURES: Record<string, string[]> = {
   standard: ['Everything in Free', 'Unlocks Pro mode', 'Configurable idle timeout', 'Priority support'],
   advanced: ['Everything in Starter', 'Run 2 sessions at once', 'Work across parallel branches', 'Priority support'],
   max: ['Everything in Advanced', 'Run 3 sessions at once', '4x the compute of Starter', 'OpenClaw Integration'],
-  unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run 5 sessions at once', 'Dedicated support'],
+  unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run 5 sessions at once', 'OpenClaw Integration', 'Dedicated support'],
 };
 
 /** Features that show a "COMING SOON" badge */
@@ -694,11 +694,16 @@ const SubscribePage: Component = () => {
                       <div class="subscribe-detail-specs">
                         <span>{(() => {
                           const text = scrambledSpecs();
-                          // Colorize: hours portion in blue, "month" in orange
-                          const match = text.match(/^(.+?)\s*\/\s*(month.*)$/);
-                          if (!match) return text;
-                          const [, hours, rest] = match;
-                          return <>{<span style={{ color: '#3b82f6' }}>{hours}</span>} / {<span style={{ color: '#f38020' }}>{rest}</span>}</>;
+                          // Colorize: hours in blue, "month" in orange, session count in green
+                          const match = text.match(/^(.+?)\s*\/\s*(month\S*)\s*(·\s*)(\d+)(\s+parallel\s+.*)$/);
+                          if (!match) {
+                            // Fallback: try simpler hours/month split
+                            const simple = text.match(/^(.+?)\s*\/\s*(month.*)$/);
+                            if (!simple) return text;
+                            return <>{<span style={{ color: '#3b82f6' }}>{simple[1]}</span>} / {<span style={{ color: '#f38020' }}>{simple[2]}</span>}</>;
+                          }
+                          const [, hours, month, sep, count, sessions] = match;
+                          return <>{<span style={{ color: '#3b82f6' }}>{hours}</span>} / {<span style={{ color: '#f38020' }}>{month}</span>} {sep}{<span style={{ color: '#22c55e' }}>{count}</span>}{sessions}</>;
                         })()}</span>
                       </div>
 
