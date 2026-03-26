@@ -9,65 +9,32 @@
 import type { Env, SubscriptionTierConfig } from '../types';
 
 // ---------------------------------------------------------------------------
-// Price Map — dev-only fallback when tier config has no Stripe price IDs
-// ---------------------------------------------------------------------------
-
-interface PriceEntry {
-  readonly tier: string;
-  readonly mode: string;
-  readonly priceId: string;
-}
-
-const DEV_PRICE_MAP: readonly PriceEntry[] = [
-  { tier: 'standard', mode: 'default',  priceId: 'price_1TEt6FLQzoadEf8HqwUJDJgm' },
-  { tier: 'standard', mode: 'advanced', priceId: 'price_1TEt6GLQzoadEf8HZvCXHqPl' },
-  { tier: 'advanced', mode: 'default',  priceId: 'price_1TEt6HLQzoadEf8HwBNn0VNX' },
-  { tier: 'advanced', mode: 'advanced', priceId: 'price_1TEt6ILQzoadEf8HrUDSGgmE' },
-  { tier: 'max',      mode: 'default',  priceId: 'price_1TEt6JLQzoadEf8HIVdDG8LR' },
-  { tier: 'max',      mode: 'advanced', priceId: 'price_1TEt6KLQzoadEf8HBwV5uuJg' },
-] as const;
-
-/** Reverse lookup index for dev fallback */
-const DEV_PRICE_ID_TO_TIER = new Map<string, { tier: string; mode: string }>(
-  DEV_PRICE_MAP.map((entry) => [entry.priceId, { tier: entry.tier, mode: entry.mode }]),
-);
-
-// ---------------------------------------------------------------------------
 // Public helpers
 // ---------------------------------------------------------------------------
 
 /**
  * Get the Stripe price ID for a given tier and mode.
- * Checks tier config (KV-sourced) first, falls back to dev price map.
+ * Looks up stripePriceId / stripeAdvancedPriceId from tier config (KV-sourced).
  */
-export function getStripePriceId(tier: string, mode: string, tiers?: SubscriptionTierConfig[]): string | null {
-  // Config-sourced: look up stripePriceId / stripeAdvancedPriceId from tier config
-  if (tiers) {
-    const tierConfig = tiers.find((t) => t.id === tier);
-    if (tierConfig) {
-      const priceId = mode === 'advanced' ? tierConfig.stripeAdvancedPriceId : tierConfig.stripePriceId;
-      if (priceId) return priceId;
-    }
+export function getStripePriceId(tier: string, mode: string, tiers: SubscriptionTierConfig[]): string | null {
+  const tierConfig = tiers.find((t) => t.id === tier);
+  if (tierConfig) {
+    const priceId = mode === 'advanced' ? tierConfig.stripeAdvancedPriceId : tierConfig.stripePriceId;
+    if (priceId) return priceId;
   }
-  // Dev fallback
-  const entry = DEV_PRICE_MAP.find((e) => e.tier === tier && e.mode === mode);
-  return entry?.priceId ?? null;
+  return null;
 }
 
 /**
  * Reverse-lookup: resolve tier + mode from a Stripe price ID.
- * Checks tier config first, falls back to dev price map.
+ * Searches tier config for matching stripePriceId or stripeAdvancedPriceId.
  */
-export function resolveTierFromPriceId(priceId: string, tiers?: SubscriptionTierConfig[]): { tier: string; mode: string } | null {
-  // Config-sourced: search tier config for matching price ID
-  if (tiers) {
-    for (const t of tiers) {
-      if (t.stripePriceId === priceId) return { tier: t.id as string, mode: 'default' };
-      if (t.stripeAdvancedPriceId === priceId) return { tier: t.id as string, mode: 'advanced' };
-    }
+export function resolveTierFromPriceId(priceId: string, tiers: SubscriptionTierConfig[]): { tier: string; mode: string } | null {
+  for (const t of tiers) {
+    if (t.stripePriceId === priceId) return { tier: t.id as string, mode: 'default' };
+    if (t.stripeAdvancedPriceId === priceId) return { tier: t.id as string, mode: 'advanced' };
   }
-  // Dev fallback
-  return DEV_PRICE_ID_TO_TIER.get(priceId) ?? null;
+  return null;
 }
 
 /** Whether Stripe is configured (STRIPE_SECRET_KEY present and non-empty). */
@@ -320,6 +287,69 @@ export async function endTrialNow(subscriptionId: string, secretKey: string): Pr
     { trial_end: 'now' },
     secretKey,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Subscription fetching — Signal and Sync pattern
+// ---------------------------------------------------------------------------
+
+export interface StripeSubscriptionSnapshot {
+  subscriptionId: string;
+  customerId: string;
+  status: string;
+  tier: string | null;       // from price.metadata.tier
+  mode: string | null;       // from price.metadata.mode
+  priceId: string | null;
+  billingPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+/**
+ * Fetch subscription state directly from Stripe API.
+ * Expands price items to extract tier/mode from price metadata.
+ * Returns null on 404, throws on other errors.
+ */
+export async function fetchSubscription(
+  subscriptionId: string,
+  secretKey: string,
+): Promise<StripeSubscriptionSnapshot | null> {
+  const url = `https://api.stripe.com/v1/subscriptions/${subscriptionId}?expand[]=items.data.price`;
+  const response = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${secretKey}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (response.status === 404) return null;
+
+  const data = await response.json() as Record<string, unknown>;
+
+  if (!response.ok) {
+    const errMsg = (data.error as Record<string, unknown>)?.message ?? `Stripe API error ${response.status}`;
+    throw new Error(String(errMsg));
+  }
+
+  // Extract first price item
+  const items = data.items as { data?: Array<{ price?: { id?: string; metadata?: Record<string, string> } }> } | undefined;
+  const firstPrice = items?.data?.[0]?.price;
+
+  const tier = firstPrice?.metadata?.tier || null;
+  const mode = firstPrice?.metadata?.mode || null;
+  const priceId = firstPrice?.id || null;
+
+  const periodEnd = typeof data.current_period_end === 'number'
+    ? new Date((data.current_period_end as number) * 1000).toISOString()
+    : null;
+
+  return {
+    subscriptionId: data.id as string,
+    customerId: data.customer as string,
+    status: data.status as string,
+    tier,
+    mode,
+    priceId,
+    billingPeriodEnd: periodEnd,
+    cancelAtPeriodEnd: data.cancel_at_period_end === true,
+  };
 }
 
 // ---------------------------------------------------------------------------

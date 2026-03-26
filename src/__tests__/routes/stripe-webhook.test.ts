@@ -1,14 +1,14 @@
 /**
- * Stripe webhook handler tests — CF-021 findings.
+ * Stripe webhook handler tests — Signal and Sync pattern.
  *
- * Tests the five security/correctness findings:
- *   1. handleInvoicePaid updates KV with billingStatus active and billingPeriodEnd
- *   2. handleSubscriptionDeleted resets subscriptionTier and accessTier to free (CF-004)
- *   3. handlePaymentFailed resets subscriptionTier and accessTier to free (CF-004)
- *   4. handleCheckoutCompleted prefers metadata.email over customer_email (CF-011)
- *   5. handleCheckoutCompleted cross-checks metadata.tier against price (CF-003)
+ * Tests the three webhook handlers:
+ *   1. checkout.session.completed — maps email→customer, writes checkout fields, calls syncSubscriptionState
+ *   2. customer.subscription.updated — delegates to syncSubscriptionState
+ *   3. customer.subscription.deleted — writes canceled/free directly (CF-004)
  *
- * Stripe verification is mocked so tests focus on handler logic only.
+ * Also tests: syncSubscriptionState integration through webhook handlers.
+ *
+ * Stripe verification and fetchSubscription are mocked so tests focus on handler logic.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
@@ -16,35 +16,29 @@ import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
 // ---------------------------------------------------------------------------
-// Mock stripe lib — verification and parsing stubbed out so tests are not
-// coupled to HMAC timing or real price-map data unless the test needs it.
+// Mock stripe lib
 // ---------------------------------------------------------------------------
 vi.mock('../../lib/stripe', () => ({
   verifyWebhookSignature: vi.fn(async () => true),
   parseStripeEvent: vi.fn((body: string) => JSON.parse(body)),
-  resolveTierFromPriceId: vi.fn(() => null),
   isStripeConfigured: vi.fn(() => true),
+  fetchSubscription: vi.fn(async () => null),
 }));
 
-// Import mocked functions after vi.mock declaration so we can override per-test
 import {
   verifyWebhookSignature,
   parseStripeEvent,
-  resolveTierFromPriceId,
   isStripeConfigured,
+  fetchSubscription,
 } from '../../lib/stripe';
 
-// Import route under test after mocks are registered
 import stripeWebhookRoute from '../../routes/stripe-webhook';
 
 // ---------------------------------------------------------------------------
-// Shared state — reset in beforeEach
+// Shared state
 // ---------------------------------------------------------------------------
 let mockKV: ReturnType<typeof createMockKV>;
 
-// ---------------------------------------------------------------------------
-// App factory
-// ---------------------------------------------------------------------------
 function createApp() {
   const app = new Hono<{ Bindings: Env }>();
   app.use('*', async (c, next) => {
@@ -59,9 +53,6 @@ function createApp() {
   return app;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 function buildEvent(type: string, data: Record<string, unknown>) {
   return JSON.stringify({ id: `evt_${Date.now()}`, type, data: { object: data } });
 }
@@ -86,6 +77,21 @@ function seedCustomer(customerId: string, email: string, extraFields: Record<str
   });
 }
 
+/** Create a mock fetchSubscription return value */
+function mockSubscriptionSnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    subscriptionId: 'sub_sync_1',
+    customerId: 'cus_sync_1',
+    status: 'active',
+    tier: 'standard',
+    mode: 'default',
+    priceId: 'price_std_default',
+    billingPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
+    cancelAtPeriodEnd: false,
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -93,80 +99,243 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockKV = createMockKV();
 
-  // Restore default mock behaviour for every test
   vi.mocked(verifyWebhookSignature).mockResolvedValue(true);
   vi.mocked(parseStripeEvent).mockImplementation((body: string) => JSON.parse(body));
-  vi.mocked(resolveTierFromPriceId).mockReturnValue(null);
   vi.mocked(isStripeConfigured).mockReturnValue(true);
+  vi.mocked(fetchSubscription).mockResolvedValue(null);
 });
 
 // ---------------------------------------------------------------------------
-// CF-021 finding 1: invoice.paid updates billingStatus to active + billingPeriodEnd
+// checkout.session.completed — CF-011: email preference, CF-023: existing sub check
 // ---------------------------------------------------------------------------
-describe('handleInvoicePaid — CF-021 finding 1', () => {
-  it('sets billingStatus to active and writes billingPeriodEnd from invoice line period', async () => {
-    seedCustomer('cus_inv_1', 'inv@example.com');
+describe('handleCheckoutCompleted', () => {
+  it('uses metadata.email when both metadata.email and customer_email are present', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_meta_1', subscriptionId: 'sub_meta_1',
+    }));
 
-    const periodEnd = Math.floor(Date.now() / 1000) + 2_592_000; // +30 days
-    const body = buildEvent('invoice.paid', {
-      customer: 'cus_inv_1',
-      subscription: 'sub_inv_1',
-      lines: {
-        data: [{ period: { end: periodEnd } }],
-      },
+    const body = buildEvent('checkout.session.completed', {
+      id: 'cs_meta_email',
+      customer: 'cus_meta_1',
+      subscription: 'sub_meta_1',
+      customer_email: 'form@example.com',
+      metadata: { email: 'verified@example.com', tier: 'standard', mode: 'default' },
     });
 
     const res = await postWebhook(createApp(), body);
     expect(res.status).toBe(200);
-    const json = await res.json() as { received: boolean };
-    expect(json.received).toBe(true);
 
-    const user = await mockKV.get('user:inv@example.com', 'json') as Record<string, unknown>;
-    expect(user.billingStatus).toBe('active');
-    expect(user.billingPeriodEnd).toBeDefined();
-    // billingPeriodEnd should be an ISO string representing the period end timestamp
-    expect(new Date(user.billingPeriodEnd as string).getTime()).toBeGreaterThan(Date.now());
+    // User record should be keyed on the metadata email, not the form email
+    const verifiedUser = await mockKV.get('user:verified@example.com', 'json') as Record<string, unknown> | null;
+    const formUser = await mockKV.get('user:form@example.com', 'json') as Record<string, unknown> | null;
+
+    expect(verifiedUser).not.toBeNull();
+    expect(verifiedUser?.billingStatus).toBe('active');
+    expect(formUser).toBeNull();
   });
 
-  it('sets billingStatus to active even when invoice has no line period', async () => {
-    seedCustomer('cus_inv_2', 'inv2@example.com');
+  it('falls back to customer_email when metadata.email is absent', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_fallback', subscriptionId: 'sub_fallback',
+    }));
 
-    const body = buildEvent('invoice.paid', {
-      customer: 'cus_inv_2',
-      subscription: 'sub_inv_2',
-      // no lines field
+    const body = buildEvent('checkout.session.completed', {
+      id: 'cs_fallback_email',
+      customer: 'cus_fallback',
+      subscription: 'sub_fallback',
+      customer_email: 'fallback@example.com',
+      metadata: { tier: 'standard', mode: 'default' },
     });
 
     const res = await postWebhook(createApp(), body);
     expect(res.status).toBe(200);
 
-    const user = await mockKV.get('user:inv2@example.com', 'json') as Record<string, unknown>;
-    expect(user.billingStatus).toBe('active');
-    // No period end provided — field should not be set (or remain as-is from seed)
-    expect(user.billingPeriodEnd).toBeUndefined();
+    const user = await mockKV.get('user:fallback@example.com', 'json') as Record<string, unknown> | null;
+    expect(user).not.toBeNull();
+    expect(user?.billingStatus).toBe('active');
   });
 
-  it('updates stripeSubscriptionId when invoice carries a subscription ID', async () => {
-    seedCustomer('cus_inv_3', 'inv3@example.com');
+  it('stores customer mapping under the metadata.email address', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_map_1', subscriptionId: 'sub_map_1',
+    }));
 
-    const body = buildEvent('invoice.paid', {
-      customer: 'cus_inv_3',
-      subscription: 'sub_new_456',
+    const body = buildEvent('checkout.session.completed', {
+      id: 'cs_customer_map',
+      customer: 'cus_map_1',
+      subscription: 'sub_map_1',
+      customer_email: 'form2@example.com',
+      metadata: { email: 'real@example.com', tier: 'standard', mode: 'default' },
     });
 
     const res = await postWebhook(createApp(), body);
     expect(res.status).toBe(200);
 
-    const user = await mockKV.get('user:inv3@example.com', 'json') as Record<string, unknown>;
-    expect(user.stripeSubscriptionId).toBe('sub_new_456');
-    expect(user.billingStatus).toBe('active');
+    const mappedEmail = await mockKV.get('stripe-customer:cus_map_1');
+    expect(mappedEmail).toBe('real@example.com');
+  });
+
+  it('writes subscribedAt, checkoutSessionId, and stripeCustomerId', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_checkout_1', subscriptionId: 'sub_checkout_1',
+    }));
+
+    const body = buildEvent('checkout.session.completed', {
+      id: 'cs_checkout_fields',
+      customer: 'cus_checkout_1',
+      subscription: 'sub_checkout_1',
+      customer_email: 'checkout@example.com',
+      metadata: { email: 'checkout@example.com', tier: 'standard', mode: 'default' },
+    });
+
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+
+    const user = await mockKV.get('user:checkout@example.com', 'json') as Record<string, unknown>;
+    expect(user.subscribedAt).toBeDefined();
+    expect(user.checkoutSessionId).toBe('cs_checkout_fields');
+    expect(user.stripeCustomerId).toBe('cus_checkout_1');
+    expect(user.stripeSubscriptionId).toBe('sub_checkout_1');
+  });
+
+  it('calls syncSubscriptionState which updates tier from Stripe API', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_sync_check', subscriptionId: 'sub_sync_check',
+      tier: 'advanced', mode: 'advanced',
+    }));
+
+    const body = buildEvent('checkout.session.completed', {
+      id: 'cs_sync_check',
+      customer: 'cus_sync_check',
+      subscription: 'sub_sync_check',
+      customer_email: 'sync_check@example.com',
+      metadata: { email: 'sync_check@example.com' },
+    });
+
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+
+    // fetchSubscription should have been called
+    expect(fetchSubscription).toHaveBeenCalledWith('sub_sync_check', 'sk_test_123');
+
+    const user = await mockKV.get('user:sync_check@example.com', 'json') as Record<string, unknown>;
+    expect(user.subscriptionTier).toBe('advanced');
+    expect(user.accessTier).toBe('advanced');
+    expect(user.subscribedMode).toBe('advanced');
+  });
+
+  it('returns 200 and writes checkout fields even when fetchSubscription returns null', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(null);
+
+    const body = buildEvent('checkout.session.completed', {
+      id: 'cs_no_fetch',
+      customer: 'cus_no_fetch',
+      subscription: 'sub_no_fetch',
+      customer_email: 'nofetch@example.com',
+      metadata: { email: 'nofetch@example.com' },
+    });
+
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+
+    const user = await mockKV.get('user:nofetch@example.com', 'json') as Record<string, unknown>;
+    // Checkout-specific fields still written
+    expect(user.subscribedAt).toBeDefined();
+    expect(user.checkoutSessionId).toBe('cs_no_fetch');
+    // But no tier/billing from sync (will be set on next subscription.updated)
   });
 });
 
 // ---------------------------------------------------------------------------
-// CF-021 finding 2: customer.subscription.deleted resets tiers to free (CF-004)
+// customer.subscription.updated — delegates to syncSubscriptionState
 // ---------------------------------------------------------------------------
-describe('handleSubscriptionDeleted — CF-021 finding 2 (CF-004)', () => {
+describe('handleSubscriptionUpdated', () => {
+  it('syncs subscription state from Stripe API', async () => {
+    seedCustomer('cus_upd_1', 'upd@example.com');
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_upd_1', subscriptionId: 'sub_upd_1',
+      tier: 'max', mode: 'default', status: 'active',
+    }));
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_upd_1',
+      customer: 'cus_upd_1',
+    });
+
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+
+    expect(fetchSubscription).toHaveBeenCalledWith('sub_upd_1', 'sk_test_123');
+
+    const user = await mockKV.get('user:upd@example.com', 'json') as Record<string, unknown>;
+    expect(user.subscriptionTier).toBe('max');
+    expect(user.accessTier).toBe('max');
+    expect(user.billingStatus).toBe('active');
+    expect(user.lastSyncedAt).toBeDefined();
+  });
+
+  it('handles plan downgrade via subscription.updated', async () => {
+    seedCustomer('cus_downgrade', 'downgrade@example.com', {
+      subscriptionTier: 'max', accessTier: 'max',
+    });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_downgrade', subscriptionId: 'sub_downgrade',
+      tier: 'standard', mode: 'default',
+    }));
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_downgrade',
+      customer: 'cus_downgrade',
+    });
+
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+
+    const user = await mockKV.get('user:downgrade@example.com', 'json') as Record<string, unknown>;
+    expect(user.subscriptionTier).toBe('standard');
+  });
+
+  it('handles past_due status from Stripe via subscription.updated', async () => {
+    seedCustomer('cus_past_due', 'pastdue@example.com');
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_past_due', subscriptionId: 'sub_past_due',
+      status: 'past_due',
+    }));
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_past_due',
+      customer: 'cus_past_due',
+    });
+
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+
+    const user = await mockKV.get('user:pastdue@example.com', 'json') as Record<string, unknown>;
+    expect(user.billingStatus).toBe('past_due');
+  });
+
+  it('returns 200 when customer mapping is absent', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { message: 'No such customer' } }), { status: 404 }),
+    ) as typeof globalThis.fetch;
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_unknown',
+      customer: 'cus_unknown',
+    });
+
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+
+    globalThis.fetch = originalFetch;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// customer.subscription.deleted — direct write (CF-004)
+// ---------------------------------------------------------------------------
+describe('handleSubscriptionDeleted', () => {
   it('resets subscriptionTier and accessTier to free and sets billingStatus to canceled', async () => {
     seedCustomer('cus_del_1', 'del@example.com', { subscriptionTier: 'advanced', accessTier: 'advanced' });
 
@@ -201,8 +370,6 @@ describe('handleSubscriptionDeleted — CF-021 finding 2 (CF-004)', () => {
   });
 
   it('returns 200 without error when customer mapping is absent', async () => {
-    // No KV mapping and the Stripe API fallback will also fail (no real network)
-    // We stub fetch to simulate no customer found
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ error: { message: 'No such customer' } }), { status: 404 }),
@@ -221,242 +388,21 @@ describe('handleSubscriptionDeleted — CF-021 finding 2 (CF-004)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// CF-021 finding 3: invoice.payment_failed resets tiers to free (CF-004)
+// Unhandled event types — should return 200 (ack to Stripe)
 // ---------------------------------------------------------------------------
-describe('handlePaymentFailed — CF-021 finding 3 (CF-004)', () => {
-  it('resets subscriptionTier and accessTier to free and sets billingStatus to past_due', async () => {
-    seedCustomer('cus_pf_1', 'pf@example.com', { subscriptionTier: 'standard', accessTier: 'standard' });
-
-    const body = buildEvent('invoice.payment_failed', {
-      customer: 'cus_pf_1',
-      subscription: 'sub_pf_1',
-    });
-
+describe('unhandled event types', () => {
+  it('returns 200 for unknown event types', async () => {
+    const body = buildEvent('customer.created', { id: 'cus_new' });
     const res = await postWebhook(createApp(), body);
     expect(res.status).toBe(200);
-
-    const user = await mockKV.get('user:pf@example.com', 'json') as Record<string, unknown>;
-    expect(user.subscriptionTier).toBe('free');
-    expect(user.accessTier).toBe('free');
-    expect(user.billingStatus).toBe('past_due');
   });
 
-  it('resets an advanced-tier user to free on payment failure', async () => {
-    seedCustomer('cus_pf_2', 'pf_adv@example.com', { subscriptionTier: 'advanced', accessTier: 'advanced' });
-
-    const body = buildEvent('invoice.payment_failed', {
-      customer: 'cus_pf_2',
-    });
-
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    const user = await mockKV.get('user:pf_adv@example.com', 'json') as Record<string, unknown>;
-    expect(user.subscriptionTier).toBe('free');
-    expect(user.accessTier).toBe('free');
-    expect(user.billingStatus).toBe('past_due');
-  });
-
-  it('returns 200 without error when customer mapping is absent', async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ error: { message: 'No such customer' } }), { status: 404 }),
-    ) as typeof globalThis.fetch;
-
-    const body = buildEvent('invoice.payment_failed', {
-      customer: 'cus_unknown_pf',
-    });
-
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    globalThis.fetch = originalFetch;
-  });
-});
-
-// ---------------------------------------------------------------------------
-// CF-021 finding 4: handleCheckoutCompleted prefers metadata.email (CF-011)
-// ---------------------------------------------------------------------------
-describe('handleCheckoutCompleted — CF-021 finding 4 (CF-011)', () => {
-  it('uses metadata.email when both metadata.email and customer_email are present', async () => {
-    const body = buildEvent('checkout.session.completed', {
-      id: 'cs_meta_email',
-      customer: 'cus_meta_1',
-      subscription: 'sub_meta_1',
-      // customer_email is what the Stripe form shows — untrusted
-      customer_email: 'form@example.com',
-      metadata: {
-        // metadata.email comes from CF Access — trusted
-        email: 'verified@example.com',
-        tier: 'standard',
-        mode: 'default',
-      },
-    });
-
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    // User record should be keyed on the metadata email, not the form email
-    const verifiedUser = await mockKV.get('user:verified@example.com', 'json') as Record<string, unknown> | null;
-    const formUser = await mockKV.get('user:form@example.com', 'json') as Record<string, unknown> | null;
-
-    expect(verifiedUser).not.toBeNull();
-    expect(verifiedUser?.subscriptionTier).toBe('standard');
-    expect(verifiedUser?.billingStatus).toBe('active');
-
-    // The form email must not have received the subscription update
-    expect(formUser).toBeNull();
-  });
-
-  it('falls back to customer_email when metadata.email is absent', async () => {
-    const body = buildEvent('checkout.session.completed', {
-      id: 'cs_fallback_email',
-      customer: 'cus_fallback',
-      subscription: 'sub_fallback',
-      customer_email: 'fallback@example.com',
-      metadata: {
-        // No email key — missing
-        tier: 'standard',
-        mode: 'default',
-      },
-    });
-
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    const user = await mockKV.get('user:fallback@example.com', 'json') as Record<string, unknown> | null;
-    expect(user).not.toBeNull();
-    expect(user?.subscriptionTier).toBe('standard');
-  });
-
-  it('stores customer mapping under the metadata.email address', async () => {
-    const body = buildEvent('checkout.session.completed', {
-      id: 'cs_customer_map',
-      customer: 'cus_map_1',
-      subscription: 'sub_map_1',
-      customer_email: 'form2@example.com',
-      metadata: {
-        email: 'real@example.com',
-        tier: 'standard',
-        mode: 'default',
-      },
-    });
-
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    // Customer mapping should point to the metadata email
-    const mappedEmail = await mockKV.get('stripe-customer:cus_map_1');
-    expect(mappedEmail).toBe('real@example.com');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// CF-021 finding 5: handleCheckoutCompleted cross-checks metadata.tier vs price (CF-003)
-// ---------------------------------------------------------------------------
-describe('handleCheckoutCompleted — CF-021 finding 5 (CF-003)', () => {
-  it('uses metadata.tier when it matches the resolved price tier', async () => {
-    // resolveTierFromPriceId returns 'standard' for the given price — matches metadata
-    vi.mocked(resolveTierFromPriceId).mockReturnValue({ tier: 'standard', mode: 'default' });
-
-    const body = buildEvent('checkout.session.completed', {
-      id: 'cs_match_1',
-      customer: 'cus_match_1',
-      subscription: 'sub_match_1',
-      customer_email: 'match@example.com',
-      metadata: { email: 'match@example.com', tier: 'standard', mode: 'default' },
-      line_items: {
-        data: [{ price: { id: 'price_standard_default' } }],
-      },
-    });
-
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    const user = await mockKV.get('user:match@example.com', 'json') as Record<string, unknown>;
-    expect(user.subscriptionTier).toBe('standard');
-    expect(user.billingStatus).toBe('active');
-  });
-
-  it('price tier wins when metadata.tier diverges from the resolved price tier (CF-003)', async () => {
-    // Customer paid for 'standard' but metadata claimed 'advanced'
-    vi.mocked(resolveTierFromPriceId).mockReturnValue({ tier: 'standard', mode: 'default' });
-
-    const body = buildEvent('checkout.session.completed', {
-      id: 'cs_mismatch_1',
-      customer: 'cus_mismatch_1',
-      subscription: 'sub_mismatch_1',
-      customer_email: 'mismatch@example.com',
-      metadata: {
-        email: 'mismatch@example.com',
-        // metadata says advanced — but the price resolves to standard
-        tier: 'advanced',
-        mode: 'default',
-      },
-      line_items: {
-        data: [{ price: { id: 'price_standard_default' } }],
-      },
-    });
-
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    const user = await mockKV.get('user:mismatch@example.com', 'json') as Record<string, unknown>;
-    // Price wins — user must be granted standard, not the inflated advanced tier
-    expect(user.subscriptionTier).toBe('standard');
-    expect(user.billingStatus).toBe('active');
-  });
-
-  it('resolves tier from price when metadata.tier is missing and line_items carries a known price', async () => {
-    // No metadata tier — fall back to price resolution
-    vi.mocked(resolveTierFromPriceId).mockReturnValue({ tier: 'max', mode: 'default' });
-
-    const body = buildEvent('checkout.session.completed', {
-      id: 'cs_notier_1',
-      customer: 'cus_notier_1',
-      subscription: 'sub_notier_1',
-      customer_email: 'notier@example.com',
-      metadata: {
-        email: 'notier@example.com',
-        // tier is intentionally absent
-        mode: 'default',
-      },
-      line_items: {
-        data: [{ price: { id: 'price_max_default' } }],
-      },
-    });
-
-    const res = await postWebhook(createApp(), body);
-    expect(res.status).toBe(200);
-
-    const user = await mockKV.get('user:notier@example.com', 'json') as Record<string, unknown>;
-    expect(user.subscriptionTier).toBe('max');
-  });
-
-  it('returns 200 and skips KV write when tier cannot be resolved from metadata or price', async () => {
-    // metadata.tier is absent and price resolution also fails
-    vi.mocked(resolveTierFromPriceId).mockReturnValue(null);
-
-    const body = buildEvent('checkout.session.completed', {
-      id: 'cs_noresolution_1',
-      customer: 'cus_noresolution_1',
-      subscription: 'sub_noresolution_1',
-      customer_email: 'noresolution@example.com',
-      metadata: {
-        email: 'noresolution@example.com',
-        // no tier, no resolvable price
-      },
-      line_items: {
-        data: [{ price: { id: 'price_unknown_xyz' } }],
-      },
-    });
-
-    const res = await postWebhook(createApp(), body);
-    // Handler returns early — webhook still acks 200 to prevent Stripe retries
-    expect(res.status).toBe(200);
-
-    // No user record should have been written
-    const user = await mockKV.get('user:noresolution@example.com', 'json');
-    expect(user).toBeNull();
+  it('returns 200 for old event types that are no longer handled', async () => {
+    // These were previously handled but now hit the default branch
+    for (const type of ['customer.subscription.created', 'invoice.paid', 'invoice.payment_failed']) {
+      const body = buildEvent(type, { customer: 'cus_old', subscription: 'sub_old' });
+      const res = await postWebhook(createApp(), body);
+      expect(res.status).toBe(200);
+    }
   });
 });

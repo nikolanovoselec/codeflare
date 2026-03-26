@@ -849,10 +849,12 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 
 When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanced, max) require Stripe Checkout before activation. Free tier remains direct (no payment). When the secret is absent, all tiers work via direct KV (dev/self-hosted mode).
 
-**Architecture:**
-- Library: `src/lib/stripe.ts` — price map, checkout session creation, webhook signature verification, Stripe API communication
+**Architecture — Signal and Sync pattern:**
+Webhooks are signals that trigger a fetch of the latest state from the Stripe API. KV is a read cache, not the source of truth. This eliminates race conditions from incremental KV patching and ensures KV always reflects the latest Stripe state.
+
+- Library: `src/lib/stripe.ts` — checkout session creation, webhook signature verification, `fetchSubscription()` (Signal and Sync), Stripe API communication
 - Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (authenticated)
-- Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified)
+- Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified), `syncSubscriptionState()`
 - Types: `BillingFields` interface in `src/types.ts`
 
 **Checkout flow:**
@@ -861,15 +863,21 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 3. Frontend redirects to Stripe-hosted checkout page
 4. After payment, Stripe redirects to `/app/subscribe?checkout=success`
 5. Frontend polls `GET /api/auth/status` every 2s (max 30s) waiting for webhook to activate the subscription
-6. Stripe sends `checkout.session.completed` webhook → handler writes tier + billing fields to user KV
+6. Stripe sends `checkout.session.completed` webhook → handler maps email→customer, writes checkout fields, then calls `syncSubscriptionState()`
 
-**Webhook events handled:**
-- `checkout.session.completed` — activates subscription, stores customer/subscription IDs
-- `customer.subscription.created` — updates subscription details and price ID
-- `customer.subscription.updated` — handles plan changes (upgrades/downgrades via Customer Portal)
-- `invoice.paid` — confirms billing period, sets status to `active`
-- `invoice.payment_failed` — sets billing status to `past_due`
-- `customer.subscription.deleted` — sets billing status to `canceled`
+**Webhook events handled (3 events):**
+- `checkout.session.completed` — maps email→customer in KV, writes `subscribedAt`/`checkoutSessionId`, then calls `syncSubscriptionState()`
+- `customer.subscription.updated` — delegates entirely to `syncSubscriptionState()` (handles plan changes, renewals, payment status changes via Customer Portal)
+- `customer.subscription.deleted` — writes `billingStatus: 'canceled'`, resets tiers to `free` directly (subscription is gone from Stripe, can't fetch)
+
+**`syncSubscriptionState(customerId, subscriptionId, env)`:**
+1. Resolves email from customer ID (KV lookup with Stripe API fallback)
+2. Calls `fetchSubscription()` — fetches latest subscription state from `GET /v1/subscriptions/{id}?expand[]=items.data.price`
+3. Timestamp guard: skips write if KV's `lastSyncedAt` >= now (prevents stale webhook from overwriting newer state)
+4. Builds KV patch from snapshot — only sets tier/mode if price metadata is present (preserves existing values when null)
+5. Writes via `updateUserRecord()` (preserves existing KV fields like `addedBy`, `onboardingComplete`)
+
+**Price metadata:** Tier and mode are stored as metadata on Stripe Price objects (`price.metadata.tier`, `price.metadata.mode`). This eliminates reverse price-to-tier lookups and the hardcoded dev price map. Prices must have metadata set in the Stripe Dashboard before deploy.
 
 **Security:**
 - Webhook endpoint at `/public/stripe/webhook` bypasses CF Access (same pattern as `/public/auth/providers`)
@@ -885,14 +893,22 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 - `stripePriceId` — Active Stripe price ID
 - `billingPeriodEnd` — ISO timestamp of current billing period end
 - `checkoutSessionId` — Stripe checkout session ID
-- `billingStatus` — `active`, `past_due`, `canceled`, or `incomplete`
+- `billingStatus` — `active`, `past_due`, `canceled`, `trialing`, or `incomplete`
+- `lastSyncedAt` — ISO timestamp of last sync from Stripe API (timestamp guard for idempotency)
+- `cancelAtPeriodEnd` — whether the subscription will cancel at period end
 
 **Stripe gate:** When `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects paid tiers with "Paid subscriptions require checkout." Only `free` tier is allowed through the direct subscribe endpoint. This ensures payment is collected before tier activation.
 
-**Price map (sandbox):** 6 prices across 3 paid tiers x 2 modes (Standard/Pro). Defined in `src/lib/stripe.ts` as `PRICE_MAP`. `getStripePriceId(tier, mode)` for lookup, `resolveTierFromPriceId(priceId)` for reverse resolution.
+**Price resolution:** `getStripePriceId(tier, mode, tiers)` and `resolveTierFromPriceId(priceId, tiers)` both require tier config (KV-sourced). No dev fallback — prices must be configured in tier config or via Stripe Price metadata.
 
 **Billing enforcement (`getEffectiveTier()` in `src/lib/subscription.ts`):**
-When `billingStatus` is `canceled` or `past_due` for a paid tier (standard/advanced/max), the user is treated as `free` at all enforcement points. The stored `subscriptionTier` is preserved in KV so resubscription restores the correct plan. Enforcement is read-time, not write-time.
+Downgrade rules for paid tiers (standard/advanced/max):
+- `billingStatus === 'canceled'` → immediate downgrade to `free` (no grace period)
+- `billingStatus === 'past_due'` + future `billingPeriodEnd` → keep paid tier (grace period)
+- `billingStatus === 'past_due'` + expired/missing `billingPeriodEnd` → downgrade to `free`
+- `billingPeriodEnd` expired + `billingStatus === 'active'` → downgrade to `free` (catches missed webhooks, CF-015)
+
+The stored `subscriptionTier` is preserved in KV so resubscription restores the correct plan. Enforcement is read-time, not write-time.
 
 Enforcement points:
 - `GET /api/auth/status` — returns effective tier (free) to frontend
@@ -902,8 +918,10 @@ Enforcement points:
 
 Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pending`, `blocked`.
 
+**Emails:** Renewal/payment emails are handled by Stripe native customer emails (configured in Stripe Dashboard). Custom transactional emails (welcome, subscription confirmation, admin notifications) are sent via Resend API.
+
 **Customer Portal (`POST /api/billing/portal`):**
-Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices, change plan). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min.
+Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices, change plan). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min. Plan changes made via Portal trigger `customer.subscription.updated` webhook → `syncSubscriptionState()` picks up the change.
 
 **Trial model:**
 Every paid tier has a configurable `trialQuotaHours` (default 4h for all tiers). Trial is compute-based, not time-based.
@@ -2855,11 +2873,11 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 - **Decision:** Accept Host header parsing for `.workers.dev` domains during setup. The exposure window is: (1) only during first-time setup (minutes), (2) requires CF Access JWT authentication, (3) setup is idempotent. For custom domains, the env var set at deploy time takes precedence.
 - **Consequences:** A spoofed Host header on a `.workers.dev` domain during the setup window could theoretically direct configuration to a different worker name, but this requires authenticated access and the window is extremely narrow.
 
-#### AD: KV as Billing State Store (CF-015)
-- **Status:** Accepted
-- **Context:** All billing state (subscriptionTier, billingStatus, billingPeriodEnd) is stored in Cloudflare KV, which is eventually consistent (~60s propagation) with no transactional guarantees. Webhook handlers use `updateUserRecord()` (read-merge-write) which can lose fields if two handlers fire within the propagation window.
-- **Decision:** Accept KV as the billing state store. Mitigations: (1) `getEffectiveTier()` derives effective tier from multiple KV fields with safe defaults — partial updates degrade gracefully to 'free' rather than granting paid access. (2) Stripe webhook retry + idempotent handlers mean transient KV failures self-heal. (3) `billingPeriodEnd` expiry catches missed `subscription.deleted` webhooks.
-- **Consequences:** A partial webhook update can leave billing fields inconsistent for up to 60s. In the worst case, a user briefly sees stale quota information. Billing-critical decisions (tier enforcement, quota checks) use `getEffectiveTier()` which defaults to restrictive ('pending'/'free') on missing data. A periodic reconciliation job validating KV state against Stripe's API is a recommended future improvement.
+#### AD: KV as Billing Read Cache — Signal and Sync (CF-015)
+- **Status:** Accepted (updated)
+- **Context:** All billing state is stored in Cloudflare KV (eventually consistent, ~60s propagation). The previous design had 6 webhook handlers incrementally patching KV fields, causing race conditions, silent tier update failures, and wrong emails. Plan changes via Customer Portal were not picked up reliably.
+- **Decision:** "Signal and Sync" pattern — webhooks are signals that trigger `syncSubscriptionState()`, which fetches the latest state from the Stripe API and writes a complete snapshot to KV. Stripe is the source of truth; KV is a read cache. `lastSyncedAt` timestamp guard prevents stale webhooks from overwriting newer state. Concurrent webhooks calling sync both fetch the same latest state → idempotent. Price metadata on Stripe Price objects carries tier/mode, eliminating reverse price-to-tier lookups.
+- **Consequences:** KV write propagation (~60s) doesn't affect correctness — sync overwrites complete state. `getEffectiveTier()` still provides read-time enforcement with safe defaults. The `past_due` grace period (keep paid tier while `billingPeriodEnd` is in the future) prevents premature downgrade during Stripe retry windows. Renewal/payment emails are offloaded to Stripe native customer emails.
 
 #### AD: GitHub OIDC Replaces CF Access in SaaS Mode
 - **Status:** Accepted

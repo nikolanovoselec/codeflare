@@ -2,9 +2,11 @@
  * Email sending via Resend API.
  * Exports: sendEmail (boolean), sendWelcomeEmail (boolean),
  * sendSubscriptionEmail (boolean), sendSubscriptionAdminNotification (boolean),
- * sendRenewalEmail (boolean), sendTierChangeNotification (void).
+ * sendTierChangeNotification (void).
  * Non-fatal: sendEmail/send*Email return boolean success, never throw.
  * sendTierChangeNotification returns void (fires user + admin emails sequentially).
+ *
+ * Note: Renewal/payment emails are handled by Stripe native customer emails.
  */
 import { escapeXml } from './xml-utils';
 import { createLogger } from './logger';
@@ -229,36 +231,6 @@ export async function sendSubscriptionAdminNotification(opts: {
   lines.push('</table>');
 
   return sendEmail({ to: adminEmails, subject, html: lines.join('\n'), replyTo: userEmail, env });
-}
-
-/**
- * Send a subscription renewal email. Called by the invoice.paid webhook handler
- * (stripe-webhook.ts) when a recurring payment succeeds.
- */
-export async function sendRenewalEmail(opts: {
-  userEmail: string;
-  tierName: string;
-  monthlyHours: string;
-  maxSessions: number;
-  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
-}): Promise<boolean> {
-  const { userEmail, tierName, monthlyHours, maxSessions, env } = opts;
-  const safeTier = escapeXml(tierName);
-
-  return sendEmail({
-    to: [userEmail],
-    subject: `Codeflare subscription renewed — ${tierName}`,
-    html: [
-      '<h2>Subscription Renewed</h2>',
-      `<p>Your <strong>${safeTier}</strong> plan has been renewed for a new billing period.</p>`,
-      '<table style="border-collapse:collapse;margin:16px 0">',
-      `<tr><td style="padding:4px 16px 4px 0;color:#888">Plan</td><td><strong>${safeTier}</strong></td></tr>`,
-      `<tr><td style="padding:4px 16px 4px 0;color:#888">Compute</td><td><strong>${escapeXml(monthlyHours)}</strong> / month</td></tr>`,
-      `<tr><td style="padding:4px 16px 4px 0;color:#888">Sessions</td><td><strong>${maxSessions}</strong> concurrent</td></tr>`,
-      '</table>',
-    ].join('\n'),
-    env,
-  });
 }
 
 /**

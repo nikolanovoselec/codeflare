@@ -480,12 +480,38 @@ describe('getEffectiveTier', () => {
     expect(getEffectiveTier('standard', undefined, 'canceled', undefined)).toBe('free');
   });
 
-  it('CF-018: billingPeriodEnd is ignored when billingStatus is not active', () => {
-    const future = new Date(Date.now() + 86400000).toISOString();
-    expect(getEffectiveTier('advanced', undefined, 'past_due', future)).toBe('free');
-  });
-
   it('CF-018: default tier when both tiers undefined is pending', () => {
     expect(getEffectiveTier(undefined, undefined, undefined)).toBe('pending');
+  });
+
+  // ---------------------------------------------------------------------------
+  // past_due grace period — Signal and Sync redesign
+  // ---------------------------------------------------------------------------
+
+  it('past_due + future billingPeriodEnd keeps paid tier (grace period)', () => {
+    const future = new Date(Date.now() + 86400000).toISOString(); // tomorrow
+    expect(getEffectiveTier('advanced', undefined, 'past_due', future)).toBe('advanced');
+  });
+
+  it('past_due + expired billingPeriodEnd downgrades to free', () => {
+    const expired = new Date(Date.now() - 86400000).toISOString(); // yesterday
+    expect(getEffectiveTier('advanced', undefined, 'past_due', expired)).toBe('free');
+  });
+
+  it('past_due + no billingPeriodEnd downgrades to free', () => {
+    expect(getEffectiveTier('standard', undefined, 'past_due')).toBe('free');
+    expect(getEffectiveTier('standard', undefined, 'past_due', null)).toBe('free');
+  });
+
+  it('past_due grace period applies to all paid tiers', () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    expect(getEffectiveTier('standard', undefined, 'past_due', future)).toBe('standard');
+    expect(getEffectiveTier('max', undefined, 'past_due', future)).toBe('max');
+  });
+
+  it('canceled always downgrades regardless of billingPeriodEnd', () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    expect(getEffectiveTier('standard', undefined, 'canceled', future)).toBe('free');
+    expect(getEffectiveTier('advanced', undefined, 'canceled', future)).toBe('free');
   });
 });
