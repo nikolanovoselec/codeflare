@@ -163,17 +163,17 @@ The minimum permissions for Codeflare to deploy and run. Every scope earns its k
 <details>
 <summary><strong>Configuration</strong></summary>
 
-**Default mode needs zero configuration** beyond the two secrets in step 2 above. Everything below is optional — for customization, onboarding mode, and SaaS mode.
+**Default mode needs zero configuration** beyond the two secrets in step 2 above. Everything below is optional.
 
-All variables are set in your fork under `Settings` → `Secrets and variables` → `Actions`. **Vars** go under the Variables tab, **secrets** under the Secrets tab, **env secrets** are per-environment (`Settings` → `Environments` → select environment → `Environment secrets`).
+Variables and secrets are set in your fork under `Settings` → `Secrets and variables` → `Actions`. **Vars** go under the Variables tab, **secrets** under Secrets. **Env secrets** are per-environment: `Settings` → `Environments` → select environment → `Environment secrets`.
 
 ---
 
 #### All variables and secrets
 
-| Variable | Where | Default | When required | What it does |
+| Variable | Where | Default | When needed | What it does |
 |---|---|---|---|---|
-| **General** | | | | |
+| | | | | **General — all modes** |
 | `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | optional | Worker name and bucket prefix |
 | `RESSOURCE_TIER` | var | unset | optional | Container size + max instances. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), **`saas`** (1 vCPU, 3 GiB, 1400) |
 | `MAX_SESSIONS_USER` | var | `3` | optional | Max concurrent sessions per user |
@@ -181,33 +181,35 @@ All variables are set in your fork under `Settings` → `Secrets and variables` 
 | `ENCRYPTION_KEY` | secret | unset | optional | Encrypts API keys in KV + files in R2. Generate: `openssl rand -base64 32` |
 | `RUNNER` | var | `ubuntu-latest` | optional | GitHub Actions runner |
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | var | `inactive` | optional | Force-reinstall AI agent layer on every deploy |
-| **Onboarding mode** | | | | |
-| `ONBOARDING_LANDING_PAGE` | var | `inactive` | to enable | Set to `active` for a public waitlist at `/` |
-| `TURNSTILE_SITE_KEY` | var | unset | **mandatory** when onboarding or SaaS active | Cloudflare Turnstile site key (CAPTCHA) |
-| `TURNSTILE_SECRET_KEY` | secret | unset | **mandatory** when onboarding or SaaS active | Turnstile secret (server-side verification) |
-| `RESEND_API_KEY` | secret | unset | recommended when onboarding or SaaS active | Resend API key for transactional emails. Without it, no emails are sent |
+| | | | | **Onboarding mode** — set `ONBOARDING_LANDING_PAGE=active` for a public waitlist at `/` |
+| `ONBOARDING_LANDING_PAGE` | var | `inactive` | set to `active` to enable | Enables public waitlist landing page. Turnstile keys are auto-created by the setup wizard |
+| `RESEND_API_KEY` | secret | unset | recommended | Resend API key for welcome + notification emails. Without it, no emails are sent |
 | `RESEND_EMAIL` | secret | unset | optional | Sender address (defaults to `Codeflare <onboarding@resend.dev>`) |
-| **SaaS mode** | | | | |
-| `SAAS_MODE` | var | `inactive` | to enable | Set to `active` for custom login, subscriptions, billing, usage tracking |
-| `GITHUB_CLIENT_ID` | env secret | unset | **recommended** when SaaS active | GitHub OAuth App client ID. Enables free auth for unlimited users. Without it, falls back to CF Access ($3/user/month after 50) |
-| `GITHUB_CLIENT_SECRET` | env secret | unset | **mandatory** when `GITHUB_CLIENT_ID` is set | GitHub OAuth App client secret |
-| `JWT_SECRET` | env secret | unset | **mandatory** when `GITHUB_CLIENT_ID` is set | Session cookie signing key. Generate: `openssl rand -base64 32` |
-| `STRIPE_SECRET_KEY` | secret | unset | optional | Stripe API key. Enables paid subscriptions. Without it, all plans are free |
-| `STRIPE_WEBHOOK_SECRET` | secret | unset | **mandatory** when `STRIPE_SECRET_KEY` is set | Stripe webhook signing secret (`whsec_...`) |
-| **E2E testing** | | | | |
-| `CF_ACCESS_CLIENT_ID` | secret | unset | optional | CF Access service token ID (E2E only) |
-| `CF_ACCESS_CLIENT_SECRET` | secret | unset | optional | CF Access service token secret (E2E only) |
+| | | | | **SaaS mode** — set `SAAS_MODE=active` for custom login, subscriptions, billing, usage tracking |
+| `SAAS_MODE` | var | `inactive` | set to `active` to enable | Custom login page, guided onboarding, tier-based access, usage tracking. Turnstile keys are auto-created by the setup wizard. Use with `RESSOURCE_TIER=saas` for 1400 concurrent instances |
+| `RESEND_API_KEY` | secret | unset | recommended | Same key as onboarding — also sends subscription, tier change, and admin notification emails |
+| `GITHUB_CLIENT_ID` | env secret | unset | **recommended** | GitHub OAuth App client ID. Enables free GitHub login for unlimited users. Without it, falls back to Cloudflare Access ($3/user/month after 50 users) |
+| `GITHUB_CLIENT_SECRET` | env secret | unset | **required** with `GITHUB_CLIENT_ID` | GitHub OAuth App client secret |
+| `JWT_SECRET` | env secret | unset | **required** with `GITHUB_CLIENT_ID` | HMAC-SHA256 session cookie signing key. Generate: `openssl rand -base64 32` |
+| `STRIPE_SECRET_KEY` | secret | unset | optional | Stripe API key — enables paid subscriptions. Without it, all plans are free (`sk_test_...` or `sk_live_...`) |
+| `STRIPE_WEBHOOK_SECRET` | secret | unset | **required** with `STRIPE_SECRET_KEY` | Stripe webhook signing secret (`whsec_...`) |
+| | | | | **E2E testing** |
+| `CF_ACCESS_CLIENT_ID` | secret | unset | optional | CF Access service token client ID |
+| `CF_ACCESS_CLIENT_SECRET` | secret | unset | optional | CF Access service token client secret |
 | `E2E_BASE_URL` | var | unset | optional | Custom domain URL for E2E tests |
+
+> **Note:** Turnstile CAPTCHA keys (`TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY`) are **auto-created** by the setup wizard using your Cloudflare API token. You do not need to set them manually. The wizard creates them when `ONBOARDING_LANDING_PAGE` or `SAAS_MODE` is active.
 
 ---
 
-#### Quick reference: what you need per mode
+#### Quick reference: what to set per mode
 
-| Mode | Set these | Also needs |
+| Mode | What to set | Auto-configured |
 |---|---|---|
-| **Default** | Nothing beyond step 2 | — |
-| **Onboarding** | `ONBOARDING_LANDING_PAGE=active` | `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`, optionally `RESEND_API_KEY` |
-| **SaaS** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas` | `TURNSTILE_*` keys + `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` keys |
+| **Default** | Nothing beyond step 2 | CF Access, Turnstile (if applicable) |
+| **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | Turnstile keys |
+| **SaaS (recommended)** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys |
+| **SaaS (CF Access)** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access app/groups/policies |
 
 ---
 
