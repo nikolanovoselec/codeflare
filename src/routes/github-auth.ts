@@ -9,10 +9,18 @@ import type { Env } from '../types';
 import { signSessionJWT } from '../lib/session-jwt';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord } from '../lib/user-record';
+import { createRateLimiter } from '../middleware/rate-limit';
 
 const logger = createLogger('github-auth');
 
 const app = new Hono<{ Bindings: Env }>();
+
+/** Rate limit callback to prevent GitHub API exhaustion (10 req/min per IP) */
+const callbackRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 10,
+  keyPrefix: 'github-auth',
+});
 
 /** Extract a cookie value from the Cookie header. */
 function getCookieValue(cookieHeader: string | null, key: string): string | null {
@@ -54,7 +62,7 @@ app.get('/login', async (c) => {
 // ---------------------------------------------------------------------------
 // GET /callback — Exchange code for token, issue session JWT
 // ---------------------------------------------------------------------------
-app.get('/callback', async (c) => {
+app.get('/callback', callbackRateLimiter, async (c) => {
   const url = new URL(c.req.url);
 
   // GitHub returns ?error= when user denies or something goes wrong

@@ -48,19 +48,22 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
 }
 
 /**
- * Extract user info from Cloudflare Access.
+ * Extract user identity from the request.
  *
- * Supports three authentication methods:
+ * Authentication methods (checked in order):
  *
- * 1. Browser/JWT authentication (via CF Access login):
- *    - cf-access-jwt-assertion: full JWT (verified via JWKS when auth_domain/access_aud are configured)
- *    - cf-access-authenticated-user-email: user's email (fallback when JWT config not yet stored)
+ * 1. Service token (X-Service-Auth header) — for API/CLI/E2E clients.
+ *    Constant-time comparison against SERVICE_AUTH_SECRET. Returns admin role.
  *
- * 2. Service token authentication (for API/CLI clients):
- *    - CF-Access-Client-Id: service token ID
- *    - CF-Access-Client-Secret: service token secret
- *    When CF Access validates a service token, it sets cf-access-client-id header.
- *    Service tokens are mapped to SERVICE_TOKEN_EMAIL env var or default email.
+ * 2. SaaS mode + GitHub OIDC (codeflare_session cookie) — when SAAS_MODE=active
+ *    and OAUTH_CLIENT_ID is set. HMAC-SHA256 JWT signed by JWT_SECRET.
+ *    Replaces CF Access for SaaS deployments.
+ *
+ * 3. CF Access JWT (cf-access-jwt-assertion header or CF_Authorization cookie) —
+ *    default/non-SaaS mode. Verified via JWKS from the CF Access auth domain.
+ *
+ * 4. Pre-setup fallback (cf-access-authenticated-user-email header) —
+ *    trusted only before setup is complete (auth_domain not yet configured).
  *
  */
 export async function getUserFromRequest(request: Request, env?: Env): Promise<AccessUser> {

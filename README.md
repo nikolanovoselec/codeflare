@@ -181,6 +181,7 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | `ENCRYPTION_KEY` | secret | unset | optional | Encrypts API keys in KV + files in R2. Generate: `openssl rand -base64 32` |
 | `RUNNER` | var | `ubuntu-latest` | optional | GitHub Actions runner |
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | var | `inactive` | optional | Force-reinstall AI agent layer on every deploy |
+| `STRESS_TEST_MODE` | var | unset | optional | Set to `active` to bypass all rate limits (integration testing only — **never enable in production**) |
 | | | | | **Onboarding mode** — set `ONBOARDING_LANDING_PAGE=active` for a public waitlist at `/` |
 | `ONBOARDING_LANDING_PAGE` | var | `inactive` | set to `active` to enable | Enables public waitlist landing page. Turnstile keys are auto-created by the setup wizard |
 | `RESEND_API_KEY` | secret | unset | recommended | Resend API key for welcome + notification emails. Without it, no emails are sent |
@@ -188,11 +189,12 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | | | | | **SaaS mode** — set `SAAS_MODE=active` for custom login, subscriptions, billing, usage tracking |
 | `SAAS_MODE` | var | `inactive` | set to `active` to enable | Custom login page, guided onboarding, tier-based access, usage tracking. Turnstile keys are auto-created by the setup wizard. Use with `RESSOURCE_TIER=saas` for 1400 concurrent instances |
 | `RESEND_API_KEY` | secret | unset | recommended | Same key as onboarding — also sends subscription, tier change, and admin notification emails |
-| `OAUTH_CLIENT_ID` | env secret | unset | **recommended** | GitHub OAuth App client ID. Enables free GitHub login for unlimited users. Without it, falls back to Cloudflare Access ($3/user/month after 50 users) |
+| `OAUTH_CLIENT_ID` | env secret | unset | **recommended** | GitHub OAuth App client ID (injected as Worker var, not secret — value is public). Enables free GitHub login for unlimited users. Without it, falls back to Cloudflare Access ($3/user/month after 50 users) |
 | `OAUTH_CLIENT_SECRET` | env secret | unset | **required** with `OAUTH_CLIENT_ID` | GitHub OAuth App client secret |
 | `JWT_SECRET` | env secret | unset | **required** with `OAUTH_CLIENT_ID` | HMAC-SHA256 session cookie signing key. Generate: `openssl rand -base64 32` |
 | `STRIPE_SECRET_KEY` | secret | unset | optional | Stripe API key — enables paid subscriptions. Without it, all plans are free (`sk_test_...` or `sk_live_...`) |
 | `STRIPE_WEBHOOK_SECRET` | secret | unset | **required** with `STRIPE_SECRET_KEY` | Stripe webhook signing secret (`whsec_...`) |
+| `SAAS_EXTRA_IDPS` | var | unset | optional | Comma-separated CF Access IdP UUIDs for custom OIDC providers on login page (CF Access mode only) |
 | | | | | **E2E testing** |
 | `CF_ACCESS_CLIENT_ID` | secret | unset | optional | CF Access service token client ID |
 | `CF_ACCESS_CLIENT_SECRET` | secret | unset | optional | CF Access service token client secret |
@@ -208,7 +210,7 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 |---|---|---|
 | **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys (CF Access skipped) |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
 | **SaaS + CF Access** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | CF Access, Turnstile keys |
 
 ---

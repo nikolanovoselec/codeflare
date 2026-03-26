@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { signSessionJWT, verifySessionJWT, shouldRefreshJWT } from '../../lib/session-jwt';
+import { signSessionJWT, verifySessionJWT } from '../../lib/session-jwt';
 
 const TEST_SECRET = 'test-secret-key-for-hmac-256-signing';
 
@@ -107,35 +107,5 @@ describe('session-jwt', () => {
     });
   });
 
-  describe('shouldRefreshJWT', () => {
-    it('returns true when < 15 min remaining', () => {
-      const now = Math.floor(Date.now() / 1000);
-      const result = shouldRefreshJWT({
-        email: 'a@b.com', sub: '1', ghLogin: 'a',
-        iat: now - 3000,
-        exp: now + 600, // 10 min left
-      });
-      expect(result).toBe(true);
-    });
-
-    it('returns false when > 15 min remaining', () => {
-      const now = Math.floor(Date.now() / 1000);
-      const result = shouldRefreshJWT({
-        email: 'a@b.com', sub: '1', ghLogin: 'a',
-        iat: now - 1000,
-        exp: now + 2600, // ~43 min left
-      });
-      expect(result).toBe(false);
-    });
-
-    it('returns false for freshly signed token', () => {
-      const now = Math.floor(Date.now() / 1000);
-      const result = shouldRefreshJWT({
-        email: 'a@b.com', sub: '1', ghLogin: 'a',
-        iat: now,
-        exp: now + 3600, // full hour
-      });
-      expect(result).toBe(false);
-    });
-  });
+  // Cookie refresh (shouldRefreshJWT) deferred to future implementation.
 });

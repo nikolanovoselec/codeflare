@@ -6,7 +6,6 @@
  * CF Access RS256 tokens for non-SaaS mode.
  */
 
-const REFRESH_THRESHOLD_SECONDS = 15 * 60; // 15 minutes
 const DEFAULT_TTL_SECONDS = 3600; // 1 hour
 const HEADER_B64 = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -138,10 +137,5 @@ export async function verifySessionJWT(
   return payload;
 }
 
-/**
- * Check if a JWT should be refreshed (< 15 minutes remaining).
- */
-export function shouldRefreshJWT(payload: SessionJWTPayload): boolean {
-  const now = Math.floor(Date.now() / 1000);
-  return (payload.exp - now) < REFRESH_THRESHOLD_SECONDS;
-}
+// Cookie refresh (shouldRefreshJWT + post-handler middleware) deferred to future.
+// Current design: 1-hour cookies, user re-logins after expiry.

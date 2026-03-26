@@ -365,7 +365,7 @@ export interface AuthProvider {
 ## Security
 
 - **CSRF**: OAuth state stored in HttpOnly cookie (not KV — avoids eventual consistency lag), validated by matching cookie vs query param, cleared on use
-- **Cookie**: `codeflare_session` — HttpOnly, Secure, SameSite=Lax, 1h expiry, auto-refresh at 45min
+- **Cookie**: `codeflare_session` — HttpOnly, Secure, SameSite=Lax, 1h expiry, 1h expiry, re-login on expiry
 - **Email**: Only `verified: true` emails from GitHub `/user/emails` API
 - **Identity**: GitHub user ID (`sub`) is the primary identity — emails can change
 - **No token storage**: GitHub access token used ephemerally during callback only
