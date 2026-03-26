@@ -163,90 +163,71 @@ The minimum permissions for Codeflare to deploy and run. Every scope earns its k
 <details>
 <summary><strong>Configuration</strong></summary>
 
-All optional. **Default mode needs zero configuration** — just the two secrets from step 2 and you're done. Everything below is for customization, onboarding mode, and SaaS mode.
+**Default mode needs zero configuration** beyond the two secrets in step 2 above. Everything below is optional — for customization, onboarding mode, and SaaS mode.
 
-#### General
+All variables are set in your fork under `Settings` → `Secrets and variables` → `Actions`. **Vars** go under the Variables tab, **secrets** under the Secrets tab, **env secrets** are per-environment (`Settings` → `Environments` → select environment → `Environment secrets`).
 
-| Variable | Type | Default | What it does |
-|---|---|---|---|
-| `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | Worker name and Access group prefix |
-| `RESSOURCE_TIER` | var | unset | Container size + instance cap. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), `saas` (1 vCPU, 3 GiB, 1400) |
-| `RUNNER` | var | `ubuntu-latest` | GitHub Actions runner |
-| `CLAUDE_UNLEASHED_CACHE_BUSTER` | var | `inactive` | Set to `active` to force-reinstall AI agent layer on every deploy |
-| `MAX_SESSIONS_USER` | var | `3` | Max concurrent running sessions per regular user |
-| `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent running sessions per admin |
-| `ENCRYPTION_KEY` | secret | unset | Encrypts API keys in KV + files in R2. Generate: `openssl rand -base64 32` |
-| `CF_ACCESS_CLIENT_ID` | secret | unset | CF Access service token client ID (for E2E testing only) |
-| `CF_ACCESS_CLIENT_SECRET` | secret | unset | CF Access service token client secret (for E2E testing only) |
-| `E2E_BASE_URL` | var | unset | Custom domain URL for E2E tests (e.g., `https://codeflare.example.com`) |
+---
 
-#### Onboarding mode (`ONBOARDING_LANDING_PAGE=active`)
+#### All variables and secrets
 
-Public waitlist landing page at `/`. Requires everything above, plus:
+| Variable | Where | Default | When required | What it does |
+|---|---|---|---|---|
+| **General** | | | | |
+| `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | optional | Worker name and bucket prefix |
+| `RESSOURCE_TIER` | var | unset | optional | Container size + max instances. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), **`saas`** (1 vCPU, 3 GiB, 1400) |
+| `MAX_SESSIONS_USER` | var | `3` | optional | Max concurrent sessions per user |
+| `MAX_SESSIONS_ADMIN` | var | `10` | optional | Max concurrent sessions per admin |
+| `ENCRYPTION_KEY` | secret | unset | optional | Encrypts API keys in KV + files in R2. Generate: `openssl rand -base64 32` |
+| `RUNNER` | var | `ubuntu-latest` | optional | GitHub Actions runner |
+| `CLAUDE_UNLEASHED_CACHE_BUSTER` | var | `inactive` | optional | Force-reinstall AI agent layer on every deploy |
+| **Onboarding mode** | | | | |
+| `ONBOARDING_LANDING_PAGE` | var | `inactive` | to enable | Set to `active` for a public waitlist at `/` |
+| `TURNSTILE_SITE_KEY` | var | unset | **mandatory** when onboarding or SaaS active | Cloudflare Turnstile site key (CAPTCHA) |
+| `TURNSTILE_SECRET_KEY` | secret | unset | **mandatory** when onboarding or SaaS active | Turnstile secret (server-side verification) |
+| `RESEND_API_KEY` | secret | unset | recommended when onboarding or SaaS active | Resend API key for transactional emails. Without it, no emails are sent |
+| `RESEND_EMAIL` | secret | unset | optional | Sender address (defaults to `Codeflare <onboarding@resend.dev>`) |
+| **SaaS mode** | | | | |
+| `SAAS_MODE` | var | `inactive` | to enable | Set to `active` for custom login, subscriptions, billing, usage tracking |
+| `GITHUB_CLIENT_ID` | env secret | unset | **recommended** when SaaS active | GitHub OAuth App client ID. Enables free auth for unlimited users. Without it, falls back to CF Access ($3/user/month after 50) |
+| `GITHUB_CLIENT_SECRET` | env secret | unset | **mandatory** when `GITHUB_CLIENT_ID` is set | GitHub OAuth App client secret |
+| `JWT_SECRET` | env secret | unset | **mandatory** when `GITHUB_CLIENT_ID` is set | Session cookie signing key. Generate: `openssl rand -base64 32` |
+| `STRIPE_SECRET_KEY` | secret | unset | optional | Stripe API key. Enables paid subscriptions. Without it, all plans are free |
+| `STRIPE_WEBHOOK_SECRET` | secret | unset | **mandatory** when `STRIPE_SECRET_KEY` is set | Stripe webhook signing secret (`whsec_...`) |
+| **E2E testing** | | | | |
+| `CF_ACCESS_CLIENT_ID` | secret | unset | optional | CF Access service token ID (E2E only) |
+| `CF_ACCESS_CLIENT_SECRET` | secret | unset | optional | CF Access service token secret (E2E only) |
+| `E2E_BASE_URL` | var | unset | optional | Custom domain URL for E2E tests |
 
-| Variable | Type | Required | What it does |
-|---|---|---|---|
-| `ONBOARDING_LANDING_PAGE` | var | yes | Set to `active` to enable |
-| `TURNSTILE_SITE_KEY` | var | yes | Cloudflare Turnstile site key (CAPTCHA on waitlist form) |
-| `TURNSTILE_SECRET_KEY` | secret | yes | Turnstile secret key (server-side CAPTCHA verification) |
-| `RESEND_API_KEY` | secret | recommended | Resend API key for welcome emails. Without it, no emails are sent |
-| `RESEND_EMAIL` | secret | optional | Sender address (defaults to `Codeflare <onboarding@resend.dev>`) |
+---
 
-#### SaaS mode (`SAAS_MODE=active`)
+#### Quick reference: what you need per mode
 
-Custom login page, subscriptions, usage tracking, billing. Requires everything above, plus:
+| Mode | Set these | Also needs |
+|---|---|---|
+| **Default** | Nothing beyond step 2 | — |
+| **Onboarding** | `ONBOARDING_LANDING_PAGE=active` | `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`, optionally `RESEND_API_KEY` |
+| **SaaS** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas` | `TURNSTILE_*` keys + `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` keys |
 
-| Variable | Type | Required | What it does |
-|---|---|---|---|
-| `SAAS_MODE` | var | yes | Set to `active` to enable |
-| `TURNSTILE_SITE_KEY` | var | yes | CAPTCHA on subscribe + access request forms |
-| `TURNSTILE_SECRET_KEY` | secret | yes | Server-side CAPTCHA verification |
-| `RESEND_API_KEY` | secret | recommended | Emails: welcome, subscription, tier change, admin notifications |
-| `RESEND_EMAIL` | secret | optional | Sender address (defaults to `Codeflare <onboarding@resend.dev>`) |
-
-**Authentication** — set these 3 secrets to enable direct GitHub login (free, unlimited users). Without them, the setup wizard configures Cloudflare Access instead (free for 50 users, then $3/user/month).
-
-| Variable | Type | Required | What it does |
-|---|---|---|---|
-| `GITHUB_CLIENT_ID` | env secret | recommended | GitHub OAuth App client ID. Create at `github.com/settings/developers` |
-| `GITHUB_CLIENT_SECRET` | env secret | recommended | GitHub OAuth App client secret (server-side only) |
-| `JWT_SECRET` | env secret | recommended | Session cookie signing key. Generate: `openssl rand -base64 32` |
-
-See [GitHub OAuth Setup](#github-oauth-setup-saas-mode) below for step-by-step instructions.
-
-**Billing** (optional — without Stripe, all plans are free):
-
-| Variable | Type | Required | What it does |
-|---|---|---|---|
-| `STRIPE_SECRET_KEY` | secret | for billing | Stripe API key (`sk_test_...` or `sk_live_...`) |
-| `STRIPE_WEBHOOK_SECRET` | secret | with Stripe | Webhook signing secret (`whsec_...`). Required when `STRIPE_SECRET_KEY` is set |
-
-### SaaS Mode (Custom Login)
-
-Set `SAAS_MODE=active` to replace the Cloudflare Access interstitial with a branded login page, guided onboarding, user management, and self-service subscription flow. New users authenticate via GitHub OAuth, get auto-provisioned with `pending` tier, and are redirected to `/app/subscribe` to choose a plan (free, standard, advanced, max, or unlimited). Turnstile CAPTCHA protects the subscription form. Usage is tracked per-user via a Timekeeper Durable Object with monthly quota enforcement. Admins can manage tiers and users via `/admin/subscriptions`. Leave `SAAS_MODE` unset for the default Cloudflare Access login with unlimited access.
+---
 
 #### GitHub OAuth Setup (SaaS mode)
+<a id="github-oauth-setup-saas-mode"></a>
 
-When `GITHUB_CLIENT_ID` is set in SaaS mode, authentication bypasses Cloudflare Access entirely and uses direct GitHub OAuth. This is free for unlimited users (CF Access charges $3/user/month beyond 50).
+When `GITHUB_CLIENT_ID` is set in SaaS mode, the Worker handles authentication directly via GitHub OAuth — Cloudflare Access is bypassed. Free for unlimited users.
 
-**1. Create a GitHub OAuth App:**
-- Go to [github.com/settings/developers](https://github.com/settings/developers) → OAuth Apps → New OAuth App
+**1. Create a GitHub OAuth App** at [github.com/settings/developers](https://github.com/settings/developers) → OAuth Apps → New OAuth App:
 - **Application name:** Your app name (e.g., "Codeflare")
-- **Homepage URL:** `https://{your-custom-domain}`
-- **Authorization callback URL:** `https://{your-custom-domain}/auth/github/callback`
-- Click **Register application**
-- Copy the **Client ID**
-- Click **Generate a new client secret** → copy it immediately (shown once)
+- **Homepage URL:** `https://{your-domain}`
+- **Authorization callback URL:** `https://{your-domain}/auth/github/callback`
+- Copy the **Client ID** and generate + copy the **Client Secret**
 
 **2. Generate a JWT signing secret:**
 ```bash
 openssl rand -base64 32
 ```
-This produces a 256-bit random key for signing session cookies. Store it securely.
 
-**3. Add to GitHub Actions environment secrets:**
-
-In your fork: `Settings` → `Environments` → select your environment (e.g., `integration`, `production`) → `Environment secrets`:
+**3. Add as GitHub Actions environment secrets** (`Settings` → `Environments` → your environment → `Environment secrets`):
 
 | Secret | Value |
 |---|---|
@@ -254,18 +235,7 @@ In your fork: `Settings` → `Environments` → select your environment (e.g., `
 | `GITHUB_CLIENT_SECRET` | Client secret from step 1 |
 | `JWT_SECRET` | Output from step 2 |
 
-Create one OAuth App per environment (sandbox vs production) with the appropriate callback URL.
-
-**4. Deploy** — the deploy workflow automatically injects `GITHUB_CLIENT_ID` as a Worker var and `GITHUB_CLIENT_SECRET` + `JWT_SECRET` as Worker secrets.
-
-**How it works:**
-- User clicks "Sign in with GitHub" → redirected to GitHub → authorizes → redirected back with a code
-- Worker exchanges code for access token → fetches verified email → signs an HMAC-SHA256 session cookie
-- Cookie (`codeflare_session`) is HttpOnly, Secure, SameSite=Lax, 1-hour expiry with auto-refresh
-- GitHub access token is used once and discarded — never stored
-- CF Access is NOT needed when these secrets are set — the Worker handles authentication directly
-
-See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed auth flow diagrams and architecture.
+Create one OAuth App per environment (integration vs production) with the matching callback URL. Deploy — the workflow injects everything automatically.
 
 </details>
 
