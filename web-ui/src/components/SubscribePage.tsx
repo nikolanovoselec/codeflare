@@ -679,7 +679,7 @@ const SubscribePage: Component = () => {
                 <Show when={selectedTier()} fallback={
                   <div class="subscribe-error">No subscription tiers available.</div>
                 }>
-                  {(tier) => (
+                  {(_tier) => (
                     <div class="subscribe-detail-panel" data-testid="tier-detail-panel">
                       <h3 class="subscribe-detail-name">{scrambledName()}</h3>
                       <Show when={scrambledPrice()}>
@@ -692,7 +692,14 @@ const SubscribePage: Component = () => {
                         <p class="subscribe-detail-tagline">{scrambledTagline()}</p>
                       </Show>
                       <div class="subscribe-detail-specs">
-                        <span>{scrambledSpecs()}</span>
+                        <span>{(() => {
+                          const text = scrambledSpecs();
+                          // Colorize: hours portion in blue, "month" in orange
+                          const match = text.match(/^(.+?)\s*\/\s*(month.*)$/);
+                          if (!match) return text;
+                          const [, hours, rest] = match;
+                          return <>{<span style={{ color: '#3b82f6' }}>{hours}</span>} / {<span style={{ color: '#f38020' }}>{rest}</span>}</>;
+                        })()}</span>
                       </div>
 
                       <ul class="subscribe-tier-features">
