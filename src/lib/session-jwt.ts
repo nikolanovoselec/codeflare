@@ -15,7 +15,7 @@ const HEADER_B64 = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
 let cachedKey: CryptoKey | null = null;
 let cachedKeySecret: string | null = null;
 
-export interface SessionJWTPayload {
+interface SessionJWTPayload {
   email: string;
   sub: string;
   ghLogin: string;
