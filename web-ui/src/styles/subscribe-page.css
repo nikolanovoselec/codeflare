@@ -126,7 +126,7 @@
   display: flex; flex-direction: column; gap: 0.5rem;
 }
 .subscribe-mode-card-feature {
-  display: flex; align-items: center; gap: 0.5rem;
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
   font-size: 0.8125rem; color: #71717a;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.02em;
@@ -135,11 +135,12 @@
 
 .subscribe-mode-you {
   margin-left: auto;
-  font-size: 0.7rem; font-weight: 500;
+  font-size: 0.65rem; font-weight: 500;
   color: #22c55e;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  flex-shrink: 0;
   animation: lifelinePulse 2s ease-in-out infinite;
 }
 
