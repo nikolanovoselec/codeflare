@@ -16,7 +16,6 @@ vi.mock('../../lib/logger', () => ({
 }));
 
 import githubAuthRoutes from '../../routes/github-auth';
-import { signSessionJWT } from '../../lib/session-jwt';
 
 let mockKV: ReturnType<typeof createMockKV>;
 let originalFetch: typeof globalThis.fetch;
@@ -36,16 +35,6 @@ function createApp(envOverrides: Partial<Env> = {}) {
   });
   app.route('/', githubAuthRoutes);
   return app;
-}
-
-function getCookie(res: Response, name: string): string | null {
-  const cookies = res.headers.getAll?.('Set-Cookie') ?? [res.headers.get('Set-Cookie') ?? ''];
-  for (const cookie of cookies) {
-    if (cookie.startsWith(`${name}=`)) {
-      return cookie.split('=')[1].split(';')[0];
-    }
-  }
-  return null;
 }
 
 describe('GitHub OAuth Routes', () => {
