@@ -2,7 +2,7 @@ import { Component, Show, For, createMemo, createSignal, createEffect, onMount, 
 import {
   mdiXml,
   mdiCogOutline,
-  mdiAccountCircleOutline,
+  mdiShieldAccount,
   mdiAccountOutline,
   mdiRocketLaunchOutline,
   mdiChartBar,
@@ -276,7 +276,7 @@ const Header: Component<HeaderProps> = (props) => {
             title="User menu"
             onClick={() => setShowUserMenu(!showUserMenu())}
           >
-            <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" />}>
+            <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
               <img
                 src={getGravatarUrl(props.userName!, 48)}
                 alt="Avatar"

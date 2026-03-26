@@ -1,6 +1,6 @@
 import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiAccountCircleOutline, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
@@ -136,7 +136,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   setShowUserMenu(!showUserMenu());
                 }}
               >
-                <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" />}>
+                <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
                   <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} onError={() => setGravatarFailed(true)} />
                 </Show>
                 <Show when={props.userName}>
