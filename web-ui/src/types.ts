@@ -132,6 +132,7 @@ export interface AuthProvider {
   id: string;
   type: string;
   name: string;
+  loginUrl?: string;
 }
 
 // Note: Backend Session includes `userId` which is not exposed to the frontend

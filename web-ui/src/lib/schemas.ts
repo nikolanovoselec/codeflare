@@ -48,6 +48,7 @@ export const AuthProvidersResponseSchema = z.object({
     id: z.string(),
     type: z.string(),
     name: z.string(),
+    loginUrl: z.string().optional(),
   })),
 });
 
