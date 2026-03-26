@@ -50,14 +50,14 @@ function getProviderIcon(provider: AuthProvider) {
 }
 
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRobotOutline, content: () => <>Claude Code · Codex · Copilot · Gemini · OpenCode</> },
-  { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready to code in seconds</> },
-  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration built in</> },
-  { icon: mdiCellphoneLink, content: () => <>Runs on your phone, tablet, or any browser</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when you're done</> },
+  { icon: mdiRobotOutline, content: () => <>Claude Code, Codex, Gemini & more</> },
+  { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready in seconds</> },
+  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> built in</> },
+  { icon: mdiConsole, content: () => <>Full Linux terminal, any browser</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when done</> },
   { icon: mdiCloudLockOutline, content: () => <>Encrypted in transit and at rest</> },
-  { icon: mdiRocketLaunchOutline, content: () => <>From idea to deployment in minutes</> },
-  { icon: mdiConsole, content: () => <>Your files persist. Your bad decisions don't.</> },
+  { icon: mdiRocketLaunchOutline, content: () => <>Idea to deployment in minutes</> },
+  { icon: mdiCellphoneLink, content: () => <>Files persist. Bad decisions don't.</> },
 ];
 
 const LoginPage: Component = () => {
@@ -177,7 +177,7 @@ const LoginPage: Component = () => {
         </Show>
 
         <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
-        <p class="login-footer login-footer-legal">&copy; 2026 Gray Matter GmbH</p>
+        <p class="login-footer login-footer-legal"><a href="https://graymatter.ch" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', 'text-decoration': 'none' }}>&copy; 2026 Gray Matter GmbH</a></p>
       </div>
     </div>
   );

@@ -63,14 +63,14 @@ type SubscribePhase = 'home' | 'tiers';
 
 /** Home view feature highlights */
 const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRobotOutline, content: () => <>Claude Code · Codex · Copilot · Gemini · OpenCode</> },
-  { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready to code in seconds</> },
-  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> integration built in</> },
-  { icon: mdiCellphoneLink, content: () => <>Runs on your phone, tablet, or any browser</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when you're done</> },
+  { icon: mdiRobotOutline, content: () => <>Claude Code, Codex, Gemini & more</> },
+  { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready in seconds</> },
+  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> built in</> },
+  { icon: mdiConsole, content: () => <>Full Linux terminal, any browser</> },
+  { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when done</> },
   { icon: mdiCloudLockOutline, content: () => <>Encrypted in transit and at rest</> },
-  { icon: mdiRocketLaunchOutline, content: () => <>From idea to deployment in minutes</> },
-  { icon: mdiConsole, content: () => <>Your files persist. Your bad decisions don't.</> },
+  { icon: mdiRocketLaunchOutline, content: () => <>Idea to deployment in minutes</> },
+  { icon: mdiCellphoneLink, content: () => <>Files persist. Bad decisions don't.</> },
 ];
 
 /** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
@@ -98,21 +98,23 @@ const TIER_ICONS: Record<string, string> = {
 const TIER_ORDER = ['free', 'standard', 'advanced', 'max', 'unlimited'] as const;
 
 /** Standard mode features for mode card */
-const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string }> = [
+const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string | (() => JSX.Element) }> = [
   { icon: mdiRobotOutline, text: 'Choose your agent — or just use Bash' },
-  { icon: mdiConsole, text: 'Isolated container per session' },
+  { icon: mdiConsole, text: 'Full Linux terminal per session' },
   { icon: mdiSync, text: 'Persistent storage with auto-sync' },
-  { icon: mdiSourceBranch, text: 'GitHub & Cloudflare integration built in' },
-  { icon: mdiLightningBolt, text: 'Specialized skills for build, push & deploy' },
+  { icon: mdiSourceBranch, text: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> built in</> },
+  { icon: mdiLightningBolt, text: 'Specialized skills to build & deploy' },
   { icon: mdiFileDocumentOutline, text: 'One click to start, zero to configure' },
 ];
 
 /** Pro mode features for mode card */
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
-  { icon: mdiHeadCogOutline, text: 'Agent builds a knowledge graph — gets smarter every session' },
+  { icon: mdiHeadCogOutline, text: 'Agent builds a knowledge graph' },
+  { icon: mdiLightningBolt, text: 'Gets smarter every session' },
   { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
   { icon: mdiBookOpenPageVariantOutline, text: 'Advanced commands & workflows' },
-  { icon: mdiLayersTripleOutline, text: 'Auto-prunes and organizes context across sessions' },
+  { icon: mdiLayersTripleOutline, text: 'Auto-prunes context over time' },
+  { icon: mdiRocketLaunchOutline, text: 'Never start from scratch again' },
 ];
 
 const SubscribePage: Component = () => {
@@ -584,7 +586,7 @@ const SubscribePage: Component = () => {
                       {(f, i) => (
                         <li class="subscribe-mode-card-feature">
                           <Icon path={f.icon} size={16} />
-                          <span>{f.text}</span>
+                          <span>{typeof f.text === 'function' ? f.text() : f.text}</span>
                           <Show when={isActive() && currentMode() === 'default' && i() === STANDARD_MODE_FEATURES.length - 1}>
                             <span class="subscribe-mode-you">This is you</span>
                           </Show>
@@ -729,7 +731,7 @@ const SubscribePage: Component = () => {
         </Show>
 
         <p class="login-footer">From Switzerland <span class="login-footer-flag" aria-label="Swiss flag">&#127464;&#127469;</span> for <span style={{ color: '#f38020' }}>Region: Earth</span></p>
-        <p class="login-footer login-footer-legal">&copy; 2026 Gray Matter GmbH</p>
+        <p class="login-footer login-footer-legal"><a href="https://graymatter.ch" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', 'text-decoration': 'none' }}>&copy; 2026 Gray Matter GmbH</a></p>
       </div>
     </div>
   );

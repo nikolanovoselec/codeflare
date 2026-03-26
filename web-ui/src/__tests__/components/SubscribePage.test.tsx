@@ -157,7 +157,7 @@ describe('SubscribePage', () => {
 
       const card = screen.getByTestId('mode-chooser');
       expect(card.textContent).toMatch(/choose your agent/i);
-      expect(card.textContent).toMatch(/container/i);
+      expect(card.textContent).toMatch(/terminal/i);
     });
 
     it('shows Pro feature bullets when Pro selected', async () => {
