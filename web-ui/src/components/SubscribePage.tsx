@@ -187,11 +187,10 @@ const SubscribePage: Component = () => {
       // Remove query param from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
       setCheckoutPolling(true);
-      // Poll until KV is updated — Stripe webhook + KV eventual consistency can take up to 2 minutes.
-      // Keep trying every 3 seconds for up to 3 minutes (60 attempts).
-      const MAX_ATTEMPTS = 60;
+      // Poll until KV is updated — no timeout. Stripe webhook writes KV,
+      // we keep checking every 3 seconds until hasSubscribed is true.
       const POLL_INTERVAL = 3000;
-      for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      while (true) {
         try {
           const pollStatus = await getAuthStatus();
           if (pollStatus.hasSubscribed) {
@@ -201,9 +200,6 @@ const SubscribePage: Component = () => {
         } catch { /* ignore poll errors */ }
         await new Promise(r => setTimeout(r, POLL_INTERVAL));
       }
-      // Timeout after 3 minutes: show message and let page load normally
-      setCheckoutPolling(false);
-      setError('Your payment was received. Your subscription is being activated — please refresh in a moment.');
     }
 
     try {
