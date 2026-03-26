@@ -1,19 +1,19 @@
 // E2E Test Setup
 // Two auth modes:
 //   CF Access mode:  CF_ACCESS_CLIENT_ID + CF_ACCESS_CLIENT_SECRET (passes CF Access gateway + Worker)
-//   GitHub OIDC mode: OIDC_E2E_TEST_SECRET only (no CF Access gateway, Worker auth via X-Service-Auth)
+//   GitHub OIDC mode: OAUTH_E2E_TEST_SECRET only (no CF Access gateway, Worker auth via X-Service-Auth)
 import { BASE_URL } from './config';
 export { BASE_URL };
 
 const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID || '';
 const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || '';
-const SERVICE_AUTH_SECRET = CF_ACCESS_CLIENT_SECRET || process.env.OIDC_E2E_TEST_SECRET || '';
+const SERVICE_AUTH_SECRET = CF_ACCESS_CLIENT_SECRET || process.env.OAUTH_E2E_TEST_SECRET || '';
 
 if (!SERVICE_AUTH_SECRET) {
   throw new Error(
     'E2E tests require an auth secret.\n' +
     'CF Access mode: set CF_ACCESS_CLIENT_ID + CF_ACCESS_CLIENT_SECRET.\n' +
-    'GitHub OIDC mode: set OIDC_E2E_TEST_SECRET.\n' +
+    'GitHub OIDC mode: set OAUTH_E2E_TEST_SECRET.\n' +
     'Generate with: openssl rand -base64 32'
   );
 }

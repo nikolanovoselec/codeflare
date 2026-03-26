@@ -209,13 +209,13 @@ Set `SAAS_MODE=active` for custom login, subscriptions, billing, and usage track
 
 #### E2E testing
 
-E2E tests authenticate via the `X-Service-Auth` header. The secret comes from either `CF_ACCESS_CLIENT_SECRET` (CF Access mode) or `OIDC_E2E_TEST_SECRET` (GitHub OIDC mode). You only need one — set whichever matches your auth mode. When neither is set, `SERVICE_AUTH_SECRET` is not deployed to the Worker and the `X-Service-Auth` header is ignored (safe — no one can authenticate via this path).
+E2E tests authenticate via the `X-Service-Auth` header. The secret comes from either `CF_ACCESS_CLIENT_SECRET` (CF Access mode) or `OAUTH_E2E_TEST_SECRET` (GitHub OIDC mode). You only need one — set whichever matches your auth mode. When neither is set, `SERVICE_AUTH_SECRET` is not deployed to the Worker and the `X-Service-Auth` header is ignored (safe — no one can authenticate via this path).
 
 | Variable | Where | When needed | What it does |
 |---|---|---|---|
 | `CF_ACCESS_CLIENT_ID` | env secret | CF Access mode | CF Access service token client ID |
 | `CF_ACCESS_CLIENT_SECRET` | env secret | CF Access mode | CF Access service token secret. Also used as Worker `SERVICE_AUTH_SECRET` |
-| `OIDC_E2E_TEST_SECRET` | env secret | GitHub OIDC mode | Random secret for E2E auth (no CF Access needed). Generate: `openssl rand -base64 32` |
+| `OAUTH_E2E_TEST_SECRET` | env secret | GitHub OIDC mode | Random secret for E2E auth (no CF Access needed). Generate: `openssl rand -base64 32` |
 | `E2E_BASE_URL` | var | optional | Custom domain URL for E2E tests |
 
 > **Note:** Turnstile CAPTCHA keys are **auto-created** by the setup wizard using your Cloudflare API token. You do not need to set them manually.
@@ -228,7 +228,7 @@ E2E tests authenticate via the `X-Service-Auth` header. The secret comes from ei
 |---|---|---|
 | **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OIDC_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
 | **SaaS + CF Access** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | CF Access, Turnstile keys |
 
 ---

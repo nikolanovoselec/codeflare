@@ -271,10 +271,10 @@ jobs:
 
       - name: Set service auth secret for E2E testing (optional)
         run: |
-          # Use CF_ACCESS_CLIENT_SECRET (CF Access mode) or OIDC_E2E_TEST_SECRET (GitHub OIDC mode)
-          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OIDC_E2E_TEST_SECRET}}"
+          # Use CF_ACCESS_CLIENT_SECRET (CF Access mode) or OAUTH_E2E_TEST_SECRET (GitHub OIDC mode)
+          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
           if [ -z "${AUTH_SECRET}" ]; then
-            echo "No CF_ACCESS_CLIENT_SECRET or OIDC_E2E_TEST_SECRET — skipping service auth setup"
+            echo "No CF_ACCESS_CLIENT_SECRET or OAUTH_E2E_TEST_SECRET — skipping service auth setup"
             exit 0
           fi
 
@@ -288,7 +288,7 @@ jobs:
           echo "::warning::Could not seed E2E user in KV (non-fatal)"
         env:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-          OIDC_E2E_TEST_SECRET: ${{ secrets.OIDC_E2E_TEST_SECRET }}
+          OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

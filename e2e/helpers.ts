@@ -4,11 +4,11 @@ import { apiRequest, BASE_URL } from './setup';
 import { IS_MOBILE, SUITE_PREFIX, TIMEOUTS } from './config';
 
 // E2E auth: CF Access mode uses CF_ACCESS_CLIENT_ID + CF_ACCESS_CLIENT_SECRET.
-// GitHub OIDC mode (no CF Access) uses OIDC_E2E_TEST_SECRET only.
+// GitHub OIDC mode (no CF Access) uses OAUTH_E2E_TEST_SECRET only.
 // Both set SERVICE_AUTH_SECRET on the Worker via deploy.yml.
 const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID || '';
 const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || '';
-const SERVICE_AUTH_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || process.env.OIDC_E2E_TEST_SECRET || '';
+const SERVICE_AUTH_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || process.env.OAUTH_E2E_TEST_SECRET || '';
 
 /** Workspace-relative directory for E2E failure artifacts (screenshots, HTML dumps). */
 const E2E_ARTIFACTS_DIR = new URL('../e2e-artifacts', import.meta.url).pathname;
