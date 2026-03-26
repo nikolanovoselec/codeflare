@@ -231,6 +231,10 @@ export async function syncSubscriptionState(
   }
 
   // 2. Fetch subscription from Stripe API
+  if (!env.STRIPE_SECRET_KEY) {
+    logger.warn('syncSubscriptionState: STRIPE_SECRET_KEY not configured', { subscriptionId });
+    return;
+  }
   const snapshot = await fetchSubscription(subscriptionId, env.STRIPE_SECRET_KEY);
   if (!snapshot) {
     logger.warn('syncSubscriptionState: subscription not found', { subscriptionId });
