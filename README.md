@@ -185,13 +185,56 @@ All optional. The defaults work out of the box. I respect your time.
 | `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification on waitlist, subscribe, and access request endpoints) |
 | `STRIPE_SECRET_KEY` | unset | Stripe secret API key (secret — SaaS mode only). Enables paid subscriptions via Stripe Checkout. When absent, all plans are free (no billing). Use `sk_test_...` for sandbox, `sk_live_...` for production |
 | `STRIPE_WEBHOOK_SECRET` | unset | Stripe webhook signing secret (secret — SaaS mode only). Required when `STRIPE_SECRET_KEY` is set. Used to verify webhook payloads from Stripe (`whsec_...`) |
+| `GITHUB_CLIENT_ID` | unset | GitHub OAuth App client ID (environment secret — SaaS mode only). Enables direct GitHub authentication, replacing Cloudflare Access. Create an OAuth App at `github.com/settings/developers` with callback URL `https://{your-domain}/auth/github/callback` |
+| `GITHUB_CLIENT_SECRET` | unset | GitHub OAuth App client secret (environment secret — SaaS mode only). From the same OAuth App. Keep this secret — it's used server-side only |
+| `JWT_SECRET` | unset | HMAC-SHA256 signing key for session cookies (environment secret — SaaS mode only). Must be at least 32 bytes of random data, base64-encoded. Generate with `openssl rand -base64 32`. Used to sign and verify the `codeflare_session` cookie that replaces CF Access JWTs |
 | `ENCRYPTION_KEY` | unset | Optional. Encrypts API keys in KV (AES-256-GCM) and file contents in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded (AES-256 requirement). Generate with `openssl rand -base64 32`, then add as a GitHub Actions repository secret. Arbitrary strings will not work. |
 
 ### SaaS Mode (Custom Login)
 
 Set `SAAS_MODE=active` to replace the Cloudflare Access interstitial with a branded login page, guided onboarding, user management, and self-service subscription flow. New users authenticate via GitHub OAuth, get auto-provisioned with `pending` tier, and are redirected to `/app/subscribe` to choose a plan (free, standard, advanced, max, or unlimited). Turnstile CAPTCHA protects the subscription form. Usage is tracked per-user via a Timekeeper Durable Object with monthly quota enforcement. Admins can manage tiers and users via `/admin/subscriptions`. Leave `SAAS_MODE` unset for the default Cloudflare Access login with unlimited access.
 
-See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth flow diagrams, and common pitfalls.
+#### GitHub OAuth Setup (SaaS mode)
+
+When `GITHUB_CLIENT_ID` is set in SaaS mode, authentication bypasses Cloudflare Access entirely and uses direct GitHub OAuth. This is free for unlimited users (CF Access charges $3/user/month beyond 50).
+
+**1. Create a GitHub OAuth App:**
+- Go to [github.com/settings/developers](https://github.com/settings/developers) → OAuth Apps → New OAuth App
+- **Application name:** Your app name (e.g., "Codeflare")
+- **Homepage URL:** `https://{your-custom-domain}`
+- **Authorization callback URL:** `https://{your-custom-domain}/auth/github/callback`
+- Click **Register application**
+- Copy the **Client ID**
+- Click **Generate a new client secret** → copy it immediately (shown once)
+
+**2. Generate a JWT signing secret:**
+```bash
+openssl rand -base64 32
+```
+This produces a 256-bit random key for signing session cookies. Store it securely.
+
+**3. Add to GitHub Actions environment secrets:**
+
+In your fork: `Settings` → `Environments` → select your environment (e.g., `integration`, `production`) → `Environment secrets`:
+
+| Secret | Value |
+|---|---|
+| `GITHUB_CLIENT_ID` | Client ID from step 1 |
+| `GITHUB_CLIENT_SECRET` | Client secret from step 1 |
+| `JWT_SECRET` | Output from step 2 |
+
+Create one OAuth App per environment (sandbox vs production) with the appropriate callback URL.
+
+**4. Deploy** — the deploy workflow automatically injects `GITHUB_CLIENT_ID` as a Worker var and `GITHUB_CLIENT_SECRET` + `JWT_SECRET` as Worker secrets.
+
+**How it works:**
+- User clicks "Sign in with GitHub" → redirected to GitHub → authorizes → redirected back with a code
+- Worker exchanges code for access token → fetches verified email → signs an HMAC-SHA256 session cookie
+- Cookie (`codeflare_session`) is HttpOnly, Secure, SameSite=Lax, 1-hour expiry with auto-refresh
+- GitHub access token is used once and discarded — never stored
+- CF Access is NOT needed when these secrets are set — the Worker handles authentication directly
+
+See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed auth flow diagrams and architecture.
 
 </details>
 
