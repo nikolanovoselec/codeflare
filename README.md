@@ -204,12 +204,12 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 
 #### Quick reference: what to set per mode
 
-| Mode | What to set | Auto-configured |
+| Mode | What to set | Auto-configured by setup wizard |
 |---|---|---|
-| **Default** | Nothing beyond step 2 | CF Access, Turnstile (if applicable) |
-| **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | Turnstile keys |
-| **SaaS (recommended)** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys |
-| **SaaS (CF Access)** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access app/groups/policies |
+| **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
+| **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` + `JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys (CF Access skipped) |
+| **SaaS + CF Access** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | CF Access, Turnstile keys |
 
 ---
 
