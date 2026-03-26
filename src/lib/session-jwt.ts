@@ -145,5 +145,3 @@ export function shouldRefreshJWT(payload: SessionJWTPayload): boolean {
   const now = Math.floor(Date.now() / 1000);
   return payload.exp > now && (payload.exp - now) < REFRESH_THRESHOLD_SECONDS;
 }
-
-export type { SessionJWTPayload };
