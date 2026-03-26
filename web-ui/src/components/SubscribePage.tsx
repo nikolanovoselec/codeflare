@@ -27,7 +27,6 @@ import {
   mdiSync,
   mdiWrenchOutline,
   mdiBookOpenPageVariantOutline,
-  mdiLayersTripleOutline,
   mdiHeadCogOutline,
   mdiCloudOutline,
   mdiTimerOutline,
