@@ -403,6 +403,25 @@ const SubscribePage: Component = () => {
     const sessions = `${t.maxSessions} parallel ${t.maxSessions === 1 ? 'session' : 'sessions'}`;
     return `${hours} / month  ·  ${sessions}`;
   });
+  const scrambledTagline = useScrambleText(() => selectedTier()?.description ?? '');
+  const scrambledPrice = useScrambleText(() => {
+    const t = selectedTier();
+    if (!t) return '';
+    return getDisplayPrice(t) ?? '';
+  });
+  const scrambledTrialBadge = useScrambleText(() => {
+    const t = selectedTier();
+    if (!t) return '';
+    return getTrialBadge(t) ?? '';
+  });
+  // Max 5 feature bullets per tier — create 5 scramble slots
+  const scrambledFeatures = Array.from({ length: 5 }, (_, idx) =>
+    useScrambleText(() => {
+      const t = selectedTier();
+      if (!t) return '';
+      return (TIER_FEATURES[t.id] ?? [])[idx] ?? '';
+    }),
+  );
 
   /** Scramble animations for Pro mode expand */
   const scrambledProLabel = useScrambleText(
@@ -663,39 +682,39 @@ const SubscribePage: Component = () => {
                   {(tier) => (
                     <div class="subscribe-detail-panel" data-testid="tier-detail-panel">
                       <h3 class="subscribe-detail-name">{scrambledName()}</h3>
-                      <Show when={getDisplayPrice(tier())}>
-                        {(price) => (
-                          <div class="subscribe-detail-price">
-                            <span class="subscribe-tier-price-amount">{price()}</span>
-                            <span class="subscribe-tier-price-period">/mo</span>
-                          </div>
-                        )}
+                      <Show when={scrambledPrice()}>
+                        <div class="subscribe-detail-price">
+                          <span class="subscribe-tier-price-amount">{scrambledPrice()}</span>
+                          <span class="subscribe-tier-price-period">/mo</span>
+                        </div>
                       </Show>
-                      <Show when={tier().description}>
-                        <p class="subscribe-detail-tagline">{tier().description}</p>
+                      <Show when={scrambledTagline()}>
+                        <p class="subscribe-detail-tagline">{scrambledTagline()}</p>
                       </Show>
                       <div class="subscribe-detail-specs">
                         <span>{scrambledSpecs()}</span>
                       </div>
 
                       <ul class="subscribe-tier-features">
-                        <For each={TIER_FEATURES[tier().id] ?? []}>
-                          {(feature) => (
-                            <li class="subscribe-tier-feature-item">
-                              <Icon path={mdiCheck} size={14} />
-                              <span>
-                                {feature}
-                                {COMING_SOON_FEATURES.has(feature) && (
-                                  <span class="subscribe-coming-soon-badge">COMING SOON</span>
-                                )}
-                              </span>
-                            </li>
+                        <For each={scrambledFeatures}>
+                          {(scrambled) => (
+                            <Show when={scrambled()}>
+                              <li class="subscribe-tier-feature-item">
+                                <Icon path={mdiCheck} size={14} />
+                                <span>
+                                  {scrambled()}
+                                  {COMING_SOON_FEATURES.has(scrambled()) && (
+                                    <span class="subscribe-coming-soon-badge">COMING SOON</span>
+                                  )}
+                                </span>
+                              </li>
+                            </Show>
                           )}
                         </For>
                       </ul>
 
-                      <Show when={getTrialBadge(tier())}>
-                        {(badge) => <div class="subscribe-tier-badge">{badge()}</div>}
+                      <Show when={scrambledTrialBadge()}>
+                        <div class="subscribe-tier-badge">{scrambledTrialBadge()}</div>
                       </Show>
 
                       <button
