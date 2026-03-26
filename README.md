@@ -174,7 +174,7 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | Variable | Where | Default | What it does |
 |---|---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | Worker name and bucket prefix |
-| `RESSOURCE_TIER` | var | unset | Container size + max instances. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), **`saas`** (1 vCPU, 3 GiB, 1400) |
+| `RESSOURCE_TIER` | var | unset | Container size + max instances. Default when unset: 1 vCPU, 3 GiB RAM, 6 GB disk, 10 instances. Options: `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), **`saas`** (1 vCPU, 3 GiB, 1400) |
 | `MAX_SESSIONS_USER` | var | `3` | Max concurrent sessions per user |
 | `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent sessions per admin |
 | `ENCRYPTION_KEY` | secret | unset | Encrypts API keys in KV + files in R2. Generate: `openssl rand -base64 32` |
