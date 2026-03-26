@@ -1,7 +1,6 @@
 import type { AccessTier, AccessUser, Env, SubscriptionTier, UserRole } from '../types';
 import { verifyAccessJWT } from './jwt';
-import { verifySessionJWT, shouldRefreshJWT, signSessionJWT } from './session-jwt';
-import type { SessionJWTPayload } from './session-jwt';
+import { verifySessionJWT } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
 import { isSaasModeActive } from './onboarding';
