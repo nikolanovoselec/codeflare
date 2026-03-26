@@ -626,6 +626,7 @@ const SubscribePage: Component = () => {
                   >
                     {portalLoading() ? 'Loading...' : 'Manage Subscription'}
                   </button>
+                  <p class="subscribe-portal-note">Changes may take a few minutes to activate.</p>
                 </Show>
               </div>
             </Show>

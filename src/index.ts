@@ -28,6 +28,7 @@ import {
 import { createLogger, setLogLevel } from './lib/logger';
 import type { LogLevel } from './lib/logger';
 import { authenticateRequest } from './lib/access';
+import { verifySessionJWT, shouldRefreshJWT, signSessionJWT } from './lib/session-jwt';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboarding';
 import { isActiveUser } from './lib/access-tier';
 import authApiRoutes from './routes/auth';
@@ -101,6 +102,27 @@ app.use('*', async (c, next) => {
     status: c.res.status,
     durationMs: duration,
   });
+});
+
+// SaaS mode: cookie refresh middleware — extends session when < 15 min remaining
+app.use('*', async (c, next) => {
+  await next();
+  // Only refresh for SaaS OIDC mode
+  if (!isSaasModeActive(c.env.SAAS_MODE) || !c.env.OAUTH_CLIENT_ID || !c.env.OAUTH_JWT_SECRET) return;
+  const cookieHeader = c.req.header('Cookie');
+  if (!cookieHeader) return;
+  const match = cookieHeader.match(/codeflare_session=([^;]+)/);
+  if (!match) return;
+  try {
+    const payload = await verifySessionJWT(match[1], c.env.OAUTH_JWT_SECRET);
+    if (payload && shouldRefreshJWT(payload)) {
+      const refreshed = await signSessionJWT(
+        { email: payload.email, sub: payload.sub, ghLogin: payload.ghLogin },
+        c.env.OAUTH_JWT_SECRET,
+      );
+      c.header('Set-Cookie', `codeflare_session=${refreshed}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`);
+    }
+  } catch { /* non-fatal — don't break the response */ }
 });
 
 // CORS middleware - restrict to trusted origins (configurable via ALLOWED_ORIGINS env var)

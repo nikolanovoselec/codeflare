@@ -136,5 +136,14 @@ export async function verifySessionJWT(
   return payload;
 }
 
-// Cookie refresh deferred to future iteration.
-// Current design: 1-hour cookies, user re-logins after expiry.
+const REFRESH_THRESHOLD_SECONDS = 15 * 60; // 15 minutes
+
+/**
+ * Check if a JWT should be refreshed (< 15 minutes remaining).
+ */
+export function shouldRefreshJWT(payload: SessionJWTPayload): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  return payload.exp > now && (payload.exp - now) < REFRESH_THRESHOLD_SECONDS;
+}
+
+export type { SessionJWTPayload };

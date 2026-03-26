@@ -149,10 +149,11 @@ async function handleCheckoutCompleted(
   // Extract line-item price ID for cross-check and fallback
   const lineItems = session.line_items as { data?: Array<{ price?: { id?: string } }> } | undefined;
   const lineItemPriceId = lineItems?.data?.[0]?.price?.id;
+  const tiers = await getTierConfig(env.KV);
 
   if (!tier || !SUBSCRIBABLE_TIER_IDS.has(tier)) {
     // Attempt price-based resolution from session line items
-    const resolved = lineItemPriceId ? resolveTierFromPriceId(lineItemPriceId) : null;
+    const resolved = lineItemPriceId ? resolveTierFromPriceId(lineItemPriceId, tiers) : null;
     if (resolved) {
       tier = resolved.tier;
     } else {
@@ -165,7 +166,7 @@ async function handleCheckoutCompleted(
   } else if (lineItemPriceId) {
     // CF-003: Cross-check metadata.tier against the price the customer actually paid.
     // If they diverge, the price wins — it's the ground truth from Stripe.
-    const priceResolved = resolveTierFromPriceId(lineItemPriceId);
+    const priceResolved = resolveTierFromPriceId(lineItemPriceId, tiers);
     if (priceResolved && priceResolved.tier !== tier) {
       logger.error('Tier mismatch: metadata vs price', new Error('tier mismatch'), {
         eventId: event.id, metadataTier: tier, priceTier: priceResolved.tier,
@@ -215,10 +216,11 @@ async function handleSubscriptionCreated(
     return;
   }
 
-  // Extract price ID from subscription items
+  // Extract price ID from subscription items — resolve tier from KV config
   const items = subscription.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
   const priceId = items?.data?.[0]?.price?.id;
-  const tierInfo = priceId ? resolveTierFromPriceId(priceId) : null;
+  const tiers = await getTierConfig(env.KV);
+  const tierInfo = priceId ? resolveTierFromPriceId(priceId, tiers) : null;
 
   await updateUserRecord(env.KV, email, {
     stripeSubscriptionId: subscription.id as string,
@@ -230,7 +232,7 @@ async function handleSubscriptionCreated(
     ...(tierInfo ? { subscriptionTier: tierInfo.tier, accessTier: tierInfo.tier, subscribedMode: tierInfo.mode } : {}),
   });
 
-  logger.info('Subscription created', { email, subscriptionId: subscription.id, priceId });
+  logger.info('Subscription created', { email, subscriptionId: subscription.id, priceId, tier: tierInfo?.tier });
 }
 
 async function handleInvoicePaid(
@@ -258,23 +260,27 @@ async function handleInvoicePaid(
     ...(endTs ? { billingPeriodEnd: new Date(endTs * 1000).toISOString() } : {}),
   });
 
-  // CF-012: Send renewal confirmation email (fire-and-forget)
-  try {
-    const updatedRecord = parseUserRecord(await env.KV.get(`user:${email}`, 'json'));
-    const tierValue = updatedRecord?.subscriptionTier ?? 'standard';
-    const tiers = await getTierConfig(env.KV);
-    const tierConfig = getUserTier(tierValue, tiers);
-    const monthlyHours = tierConfig.monthlySeconds !== null
-      ? `${Math.round(tierConfig.monthlySeconds / 3600)}h`
-      : 'Unlimited';
-    void sendRenewalEmail({
-      userEmail: email,
-      tierName: tierConfig.displayName,
-      monthlyHours,
-      maxSessions: tierConfig.maxSessions,
-      env,
-    });
-  } catch { /* non-fatal */ }
+  // Only send renewal email for genuine recurring payments (not initial checkout or plan changes)
+  const billingReason = invoice.billing_reason as string | undefined;
+  if (billingReason === 'subscription_cycle') {
+    try {
+      const updatedRecord = parseUserRecord(await env.KV.get(`user:${email}`, 'json'));
+      const tierValue = updatedRecord?.subscriptionTier ?? 'standard';
+      const modeValue = (updatedRecord?.subscribedMode as string) === 'advanced' ? 'Pro' : 'Standard';
+      const tiers = await getTierConfig(env.KV);
+      const tierConfig = getUserTier(tierValue, tiers);
+      const monthlyHours = tierConfig.monthlySeconds !== null
+        ? `${Math.round(tierConfig.monthlySeconds / 3600)}h`
+        : 'Unlimited';
+      void sendRenewalEmail({
+        userEmail: email,
+        tierName: `${tierConfig.displayName} ${modeValue}`,
+        monthlyHours,
+        maxSessions: tierConfig.maxSessions,
+        env,
+      });
+    } catch { /* non-fatal */ }
+  }
 
   logger.info('Invoice paid', { email, subscriptionId });
 }
@@ -338,10 +344,11 @@ async function handleSubscriptionUpdated(
     return;
   }
 
-  // Extract price ID from subscription items
+  // Extract price ID from subscription items — resolve tier from KV config
   const items = subscription.items as { data?: Array<{ price?: { id?: string } }> } | undefined;
   const priceId = items?.data?.[0]?.price?.id;
-  const tierInfo = priceId ? resolveTierFromPriceId(priceId) : null;
+  const tiers = await getTierConfig(env.KV);
+  const tierInfo = priceId ? resolveTierFromPriceId(priceId, tiers) : null;
 
   await updateUserRecord(env.KV, email, {
     stripeSubscriptionId: subscription.id as string,
