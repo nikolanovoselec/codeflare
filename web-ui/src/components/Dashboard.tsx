@@ -195,7 +195,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       type="button"
                       class="header-user-dropdown-item header-user-dropdown-item--danger"
                       data-testid="header-user-dropdown-logout"
-                      onClick={() => { window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
+                      onClick={() => { window.location.href = '/auth/logout'; }}
                     >
                       <Icon path={mdiLogout} size={16} />
                       <span>Logout</span>

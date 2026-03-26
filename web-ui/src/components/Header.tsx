@@ -53,7 +53,7 @@ interface HeaderProps {
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
-  // Note: logout is handled via CF Access at /cdn-cgi/access/logout
+  // Note: logout goes through /auth/logout which routes to OIDC or CF Access as appropriate
 }
 
 /**
@@ -332,7 +332,7 @@ const Header: Component<HeaderProps> = (props) => {
                 type="button"
                 class="header-user-dropdown-item header-user-dropdown-item--danger"
                 data-testid="header-user-dropdown-logout"
-                onClick={() => { window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
+                onClick={() => { window.location.href = '/auth/logout'; }}
               >
                 <Icon path={mdiLogout} size={16} />
                 <span>Logout</span>
