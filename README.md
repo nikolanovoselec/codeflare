@@ -209,10 +209,13 @@ Set `SAAS_MODE=active` for custom login, subscriptions, billing, and usage track
 
 #### E2E testing
 
+E2E tests authenticate via the `X-Service-Auth` header. The secret comes from either `CF_ACCESS_CLIENT_SECRET` (CF Access mode) or `OIDC_E2E_TEST_SECRET` (GitHub OIDC mode). You only need one — set whichever matches your auth mode. When neither is set, `SERVICE_AUTH_SECRET` is not deployed to the Worker and the `X-Service-Auth` header is ignored (safe — no one can authenticate via this path).
+
 | Variable | Where | When needed | What it does |
 |---|---|---|---|
-| `CF_ACCESS_CLIENT_ID` | secret | optional | CF Access service token client ID |
-| `CF_ACCESS_CLIENT_SECRET` | secret | optional | CF Access service token client secret |
+| `CF_ACCESS_CLIENT_ID` | env secret | CF Access mode | CF Access service token client ID |
+| `CF_ACCESS_CLIENT_SECRET` | env secret | CF Access mode | CF Access service token secret. Also used as Worker `SERVICE_AUTH_SECRET` |
+| `OIDC_E2E_TEST_SECRET` | env secret | GitHub OIDC mode | Random secret for E2E auth (no CF Access needed). Generate: `openssl rand -base64 32` |
 | `E2E_BASE_URL` | var | optional | Custom domain URL for E2E tests |
 
 > **Note:** Turnstile CAPTCHA keys are **auto-created** by the setup wizard using your Cloudflare API token. You do not need to set them manually.
@@ -225,7 +228,7 @@ Set `SAAS_MODE=active` for custom login, subscriptions, billing, and usage track
 |---|---|---|
 | **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OIDC_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
 | **SaaS + CF Access** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | CF Access, Turnstile keys |
 
 ---
@@ -257,26 +260,6 @@ openssl rand -base64 32
 Create one OAuth App per environment (integration vs production) with the matching callback URL. Deploy — the workflow injects everything automatically.
 
 </details>
-
-## Subscription Tiers
-
-When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system (blocked, pending, free, trial, standard, advanced, max, unlimited) controlling monthly compute hours, concurrent sessions, session modes, and pricing. Tiers are configurable by admins via the Subscription Management page (`/admin/subscriptions`) and the admin tiers API (`GET/PUT /api/admin/tiers`). Each user's KV record stores a `subscribedMode` field (`'default'` or `'advanced'`) set during subscription -- this is the mode the user paid for and is distinct from the `sessionMode` preference toggle in Settings.
-
-- New users are auto-provisioned with `pending` tier and land on `/app/subscribe` to choose a plan
-- Turnstile CAPTCHA protects the subscription form for new subscriptions (plan changes skip Turnstile)
-- Paid tiers support configurable trial periods (billing deferred until trial quota consumed)
-- Usage is tracked per-user via a Timekeeper Durable Object (one per user) and displayed on `/app/usage`
-- Timekeeper accumulates seconds from container DO pings (every 60s), flushes to KV every 5 minutes with crash resilience via DO storage
-- Quota enforcement: HTTP 402 on session start when monthly hours exceeded, mid-session eviction via SIGTERM when Timekeeper detects quota exceeded
-- Email notifications via Resend: welcome email on registration, subscription confirmation on plan selection, plan change notifications to user and admins, tier change alerts when admins modify user tiers
-- Session limits are tier-based (`maxSessions` per tier) with env var fallback (`MAX_SESSIONS_USER`, `MAX_SESSIONS_ADMIN`)
-- Session mode enforcement: `default` and `advanced` modes gated per tier (free/trial get `default` only, standard+ get both). Pro mode access requires a dual-gate: both tier support AND `subscribedMode === 'advanced'` in the user's KV record (set via the subscribe page, not the Settings toggle)
-
-**Quota enforcement:**
-- Server-side only — cannot be bypassed by frontend manipulation
-- Non-SaaS deployments resolve all users to `unlimited` tier (no restrictions)
-- Service tokens are treated as `unlimited` tier
-- See [TECHNICAL.md](TECHNICAL.md) Section 9 for full subscription system details
 
 ## Security
 

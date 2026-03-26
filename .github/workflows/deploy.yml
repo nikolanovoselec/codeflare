@@ -271,12 +271,14 @@ jobs:
 
       - name: Set service auth secret for E2E testing (optional)
         run: |
-          if [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
-            echo "No CF_ACCESS_CLIENT_SECRET — skipping service auth setup"
+          # Use CF_ACCESS_CLIENT_SECRET (CF Access mode) or OIDC_E2E_TEST_SECRET (GitHub OIDC mode)
+          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OIDC_E2E_TEST_SECRET}}"
+          if [ -z "${AUTH_SECRET}" ]; then
+            echo "No CF_ACCESS_CLIENT_SECRET or OIDC_E2E_TEST_SECRET — skipping service auth setup"
             exit 0
           fi
 
-          printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | npx wrangler secret put SERVICE_AUTH_SECRET --name "${WORKER_NAME}" 2>/dev/null
+          printf '%s' "${AUTH_SECRET}" | npx wrangler secret put SERVICE_AUTH_SECRET --name "${WORKER_NAME}" 2>/dev/null
 
           # Seed E2E service user in KV allowlist (fixed email matching worker's X-Service-Auth identity)
           SERVICE_EMAIL="e2e-service@codeflare.local"
@@ -286,6 +288,7 @@ jobs:
           echo "::warning::Could not seed E2E user in KV (non-fatal)"
         env:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          OIDC_E2E_TEST_SECRET: ${{ secrets.OIDC_E2E_TEST_SECRET }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
