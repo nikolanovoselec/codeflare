@@ -42,6 +42,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [gravatarFailed, setGravatarFailed] = createSignal(false);
   const [userMenuPos, setUserMenuPos] = createSignal<{ top: number; right: number }>({ top: 0, right: 0 });
   let userBtnRef: HTMLButtonElement | undefined;
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
@@ -135,8 +136,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   setShowUserMenu(!showUserMenu());
                 }}
               >
-                <Show when={props.userName} fallback={<Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" />}>
-                  <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
+                <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" />}>
+                  <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} onError={() => setGravatarFailed(true)} />
                 </Show>
                 <Show when={props.userName}>
                   <span class="header-user-name">{props.userName}</span>
