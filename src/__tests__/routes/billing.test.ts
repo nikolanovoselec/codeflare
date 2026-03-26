@@ -34,6 +34,7 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
     ...actual,
     createCheckoutSession: vi.fn(async () => ({ id: 'cs_test_123', url: 'https://checkout.stripe.com/test' })),
     createPortalSession: vi.fn(async () => ({ id: 'bps_test_123', url: 'https://billing.stripe.com/test' })),
+    createSwitchPortalSession: vi.fn(async () => ({ id: 'bps_switch_123', url: 'https://billing.stripe.com/switch' })),
     fetchSubscription: vi.fn(async () => null),
   };
 });
@@ -41,7 +42,7 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
 // Import after mocks
 import billingRoutes from '../../routes/billing';
 import stripeWebhookRoute from '../../routes/stripe-webhook';
-import { createCheckoutSession, createPortalSession, fetchSubscription } from '../../lib/stripe';
+import { createCheckoutSession, createPortalSession, createSwitchPortalSession, fetchSubscription } from '../../lib/stripe';
 
 // ---------------------------------------------------------------------------
 // Test app factory
@@ -207,6 +208,7 @@ describe('POST /public/stripe/webhook', () => {
     // Default: fetchSubscription returns a standard-tier active subscription
     vi.mocked(fetchSubscription).mockResolvedValue({
       subscriptionId: 'sub_buyer',
+      subscriptionItemId: 'si_buyer_1',
       customerId: 'cus_buyer',
       status: 'active',
       tier: 'standard',
@@ -398,6 +400,7 @@ describe('POST /public/stripe/webhook', () => {
     // Override fetchSubscription to return advanced tier (simulating an upgrade)
     vi.mocked(fetchSubscription).mockResolvedValue({
       subscriptionId: 'sub_updated',
+      subscriptionItemId: 'si_updated_1',
       customerId: 'cus_upgrader',
       status: 'active',
       tier: 'advanced',
@@ -503,6 +506,89 @@ describe('POST /billing/portal', () => {
     });
 
     expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /billing/switch — deep-link portal for plan changes
+// ---------------------------------------------------------------------------
+describe('POST /billing/switch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuthShouldReject = false;
+    mockAuthResult.user = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: 'standard' };
+  });
+
+  it('returns portalUrl for active subscriber switching plans', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', {
+      stripeCustomerId: 'cus_123',
+      stripeSubscriptionId: 'sub_123',
+      billingStatus: 'active',
+    });
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'advanced', mode: 'default' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { portalUrl: string };
+    expect(body.portalUrl).toBe('https://billing.stripe.com/switch');
+    expect(createSwitchPortalSession).toHaveBeenCalled();
+  });
+
+  it('rejects user without stripeSubscriptionId', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123' });
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'advanced', mode: 'default' }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects without tier', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123', stripeSubscriptionId: 'sub_123' });
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects free tier switch', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123', stripeSubscriptionId: 'sub_123' });
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'free' }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 for unauthenticated request', async () => {
+    mockAuthShouldReject = true;
+    const { app } = createApp();
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'advanced' }),
+    });
+
+    expect(res.status).toBe(401);
   });
 });
 

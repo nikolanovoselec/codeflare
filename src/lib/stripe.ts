@@ -273,6 +273,41 @@ export async function createPortalSession(opts: {
   return { id: session.id, url: session.url };
 }
 
+/**
+ * Create a portal session that deep-links to subscription update confirmation.
+ * Uses flow_data[type]=subscription_update_confirm to skip the portal's plan
+ * selection page and go directly to the proration/confirmation step.
+ *
+ * Requires subscriptionItemId (si_xxx) — the first item's ID from the subscription.
+ */
+export async function createSwitchPortalSession(opts: {
+  customerId: string;
+  subscriptionId: string;
+  subscriptionItemId: string;
+  newPriceId: string;
+  returnUrl: string;
+  secretKey: string;
+}): Promise<{ id: string; url: string }> {
+  const params: Record<string, string> = {
+    customer: opts.customerId,
+    'flow_data[type]': 'subscription_update_confirm',
+    'flow_data[subscription_update_confirm][subscription]': opts.subscriptionId,
+    'flow_data[subscription_update_confirm][items][0][id]': opts.subscriptionItemId,
+    'flow_data[subscription_update_confirm][items][0][price]': opts.newPriceId,
+    'flow_data[subscription_update_confirm][items][0][quantity]': '1',
+    'flow_data[after_completion][type]': 'redirect',
+    'flow_data[after_completion][redirect][return_url]': opts.returnUrl,
+  };
+
+  const session = await stripeRequest<{ id: string; url: string }>(
+    '/v1/billing_portal/sessions',
+    params,
+    opts.secretKey,
+  );
+
+  return { id: session.id, url: session.url };
+}
+
 // ---------------------------------------------------------------------------
 // Trial management
 // ---------------------------------------------------------------------------
@@ -295,6 +330,7 @@ export async function endTrialNow(subscriptionId: string, secretKey: string): Pr
 
 export interface StripeSubscriptionSnapshot {
   subscriptionId: string;
+  subscriptionItemId: string | null; // si_xxx — needed for portal subscription_update_confirm flow
   customerId: string;
   status: string;
   tier: string | null;       // from price.metadata.tier
@@ -328,9 +364,11 @@ export async function fetchSubscription(
     throw new Error(String(errMsg));
   }
 
-  // Extract first price item
-  const items = data.items as { data?: Array<{ price?: { id?: string; metadata?: Record<string, string> } }> } | undefined;
-  const firstPrice = items?.data?.[0]?.price;
+  // Extract first subscription item and its price
+  const items = data.items as { data?: Array<{ id?: string; price?: { id?: string; metadata?: Record<string, string> } }> } | undefined;
+  const firstItem = items?.data?.[0];
+  const firstPrice = firstItem?.price;
+  const subscriptionItemId = firstItem?.id || null;
 
   const tier = firstPrice?.metadata?.tier || null;
   const mode = firstPrice?.metadata?.mode || null;
@@ -342,6 +380,7 @@ export async function fetchSubscription(
 
   return {
     subscriptionId: data.id as string,
+    subscriptionItemId,
     customerId: data.customer as string,
     status: data.status as string,
     tier,

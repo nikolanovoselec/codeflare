@@ -360,6 +360,7 @@ describe('fetchSubscription', () => {
         current_period_end: periodEnd,
         items: {
           data: [{
+            id: 'si_item_1',
             price: {
               id: 'price_abc',
               metadata: { tier: 'advanced', mode: 'default' },
@@ -372,6 +373,7 @@ describe('fetchSubscription', () => {
     const snapshot = await fetchSubscription('sub_123', 'sk_test_key');
     expect(snapshot).not.toBeNull();
     expect(snapshot!.subscriptionId).toBe('sub_123');
+    expect(snapshot!.subscriptionItemId).toBe('si_item_1');
     expect(snapshot!.customerId).toBe('cus_456');
     expect(snapshot!.status).toBe('active');
     expect(snapshot!.tier).toBe('advanced');
@@ -421,6 +423,7 @@ describe('fetchSubscription', () => {
         current_period_end: 1700000000,
         items: {
           data: [{
+            id: 'si_no_meta',
             price: {
               id: 'price_no_meta',
               metadata: {},
@@ -449,6 +452,7 @@ describe('fetchSubscription', () => {
         current_period_end: periodEnd,
         items: {
           data: [{
+            id: 'si_period',
             price: {
               id: 'price_period',
               metadata: { tier: 'standard', mode: 'advanced' },

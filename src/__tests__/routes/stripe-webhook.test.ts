@@ -81,6 +81,7 @@ function seedCustomer(customerId: string, email: string, extraFields: Record<str
 function mockSubscriptionSnapshot(overrides: Record<string, unknown> = {}) {
   return {
     subscriptionId: 'sub_sync_1',
+    subscriptionItemId: 'si_sync_1',
     customerId: 'cus_sync_1',
     status: 'active',
     tier: 'standard',

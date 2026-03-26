@@ -19,6 +19,8 @@ import {
   getStripePriceId,
   createCheckoutSession,
   createPortalSession,
+  createSwitchPortalSession,
+  fetchSubscription,
 } from '../lib/stripe';
 
 const logger = createLogger('billing');
@@ -86,7 +88,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   const successUrl = `${baseUrl}/app/subscribe?checkout=success`;
   const cancelUrl = `${baseUrl}/app/subscribe?checkout=canceled`;
 
-  // Check if user has already used their trial — if not, include 30-day trial window
+  // Check if user has already used their trial — if not, include 7-day trial window
   // (actual compute is capped by trialQuotaHours in tier config; Stripe trial is just the billing window)
   const trialUsed = userData?.trialUsed === true;
   const tierConfig = tiers.find(t => t.id === tier);
@@ -99,7 +101,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     cancelUrl,
     secretKey,
     metadata: { tier, mode, email: user.email },
-    trialDays: trialUsed ? undefined : 30,
+    trialDays: trialUsed ? undefined : 7,
     trialQuotaHours: trialUsed ? undefined : trialQuotaHours,
   });
 
@@ -167,6 +169,78 @@ app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
   });
 
   logger.info('Portal session created', { email: user.email, sessionId: session.id });
+  return c.json({ portalUrl: session.url });
+});
+
+// Rate limit switch: 5 per minute per user
+const switchRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 5,
+  keyPrefix: 'billing-switch',
+});
+
+const SwitchSchema = z.object({
+  tier: z.string().min(1, 'Tier is required'),
+  mode: z.enum(['default', 'advanced']).optional().default('default'),
+});
+
+// POST /billing/switch — deep-link portal to plan change confirmation
+app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
+  const secretKey = c.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new ValidationError('Stripe is not configured.');
+  }
+
+  const user = c.get('user');
+
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+
+  const parsed = SwitchSchema.safeParse(raw);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+
+  const { tier, mode } = parsed.data;
+
+  if (tier === 'free') {
+    throw new ValidationError('Use the Customer Portal to cancel or downgrade to free.');
+  }
+
+  // Look up user's existing subscription
+  const userData = parseUserRecord(await c.env.KV.get(`user:${user.email}`, 'json'));
+  const customerId = userData?.stripeCustomerId as string | undefined;
+  const subscriptionId = userData?.stripeSubscriptionId as string | undefined;
+
+  if (!customerId || !subscriptionId) {
+    throw new ValidationError('No active subscription found. Use checkout to subscribe.');
+  }
+
+  // Resolve the new price ID
+  const tiers = await getTierConfig(c.env.KV);
+  const newPriceId = getStripePriceId(tier, mode, tiers);
+  if (!newPriceId) {
+    throw new ValidationError(`No Stripe price found for tier "${tier}" mode "${mode}".`);
+  }
+
+  // Fetch subscription to get the subscription item ID (si_xxx)
+  const snapshot = await fetchSubscription(subscriptionId, secretKey);
+  if (!snapshot?.subscriptionItemId) {
+    throw new ValidationError('Could not resolve subscription details from Stripe.');
+  }
+
+  const customDomain = await c.env.KV.get('setup:custom_domain');
+  const baseUrl = customDomain ? `https://${customDomain}` : new URL(c.req.url).origin;
+  const returnUrl = `${baseUrl}/app/`;
+
+  const session = await createSwitchPortalSession({
+    customerId,
+    subscriptionId,
+    subscriptionItemId: snapshot.subscriptionItemId,
+    newPriceId,
+    returnUrl,
+    secretKey,
+  });
+
+  logger.info('Switch portal session created', { email: user.email, tier, mode, sessionId: session.id });
   return c.json({ portalUrl: session.url });
 });
 

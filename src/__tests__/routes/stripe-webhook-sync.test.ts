@@ -39,6 +39,7 @@ let env: Env;
 function makeSnapshot(overrides: Partial<StripeSubscriptionSnapshot> = {}): StripeSubscriptionSnapshot {
   return {
     subscriptionId: 'sub_sync_1',
+    subscriptionItemId: 'si_sync_1',
     customerId: 'cus_sync_1',
     status: 'active',
     tier: 'advanced',

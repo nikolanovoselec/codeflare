@@ -478,6 +478,13 @@ export async function createPortalSession(): Promise<{ portalUrl: string }> {
   }, PortalResponseSchema);
 }
 
+export async function createSwitchSession(tier: string, mode?: string): Promise<{ portalUrl: string }> {
+  return fetchApi('/billing/switch', {
+    method: 'POST',
+    body: JSON.stringify({ tier, mode }),
+  }, PortalResponseSchema);
+}
+
 export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'DELETE',

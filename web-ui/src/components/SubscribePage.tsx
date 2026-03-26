@@ -40,11 +40,10 @@ import {
   mdiTrendingUp,
   mdiClockFast,
 } from '@mdi/js';
-import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession } from '../api/client';
+import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession, createSwitchSession } from '../api/client';
 import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
-import TipsRotator from './TipsRotator';
 import Icon from './Icon';
 import { useScrambleText } from '../lib/use-scramble-text';
 import '../styles/subscribe-page.css';
@@ -355,7 +354,12 @@ const SubscribePage: Component = () => {
           : (tierData.priceMonthly ?? 0) > 0
       );
 
-      if (isPaid) {
+      if (isPaid && isActive()) {
+        // Existing subscriber switching plans — deep-link to portal confirmation page
+        const { portalUrl } = await createSwitchSession(tierId, mode);
+        window.location.href = portalUrl;
+      } else if (isPaid) {
+        // New subscriber — create checkout session
         const { checkoutUrl } = await createCheckoutSession(tierId, mode);
         window.location.href = checkoutUrl;
       } else {
@@ -532,7 +536,6 @@ const SubscribePage: Component = () => {
             {checkoutPolling() ? (
               <>
                 <p>Activating your subscription — this may take a minute...</p>
-                <TipsRotator sessions={[]} />
                 <Show when={showReportButton()}>
                   <a
                     href={`mailto:hello@graymatter.ch?subject=${encodeURIComponent('Subscription problem')}&body=${encodeURIComponent(`Hi,\n\nI completed a Stripe checkout but my subscription hasn't activated yet.\n\nEmail: ${userEmail()}\nDate: ${new Date().toISOString()}\n\nPlease help.\n`)}`}
