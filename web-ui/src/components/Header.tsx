@@ -66,6 +66,7 @@ interface HeaderProps {
  */
 const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [gravatarFailed, setGravatarFailed] = createSignal(false);
   const [showBookmarksMenu, setShowBookmarksMenu] = createSignal(false);
   const [showCreateBookmark, setShowCreateBookmark] = createSignal(false);
   const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
@@ -275,15 +276,14 @@ const Header: Component<HeaderProps> = (props) => {
             title="User menu"
             onClick={() => setShowUserMenu(!showUserMenu())}
           >
-            <Show when={props.userName} fallback={<Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" />}>
+            <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" />}>
               <img
                 src={getGravatarUrl(props.userName!, 48)}
                 alt="Avatar"
                 class="header-user-avatar-img"
                 width={24} height={24}
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement?.querySelector('.header-user-avatar-fallback')?.classList.remove('hidden'); }}
+                onError={() => setGravatarFailed(true)}
               />
-              <span class="header-user-avatar-fallback hidden"><Icon path={mdiAccountCircleOutline} size={24} class="header-user-avatar" /></span>
             </Show>
             <Show when={props.userName}>
               <span class="header-user-name">{props.userName}</span>

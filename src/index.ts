@@ -190,6 +190,7 @@ app.get('/public/auth/providers', async (c) => {
 
 // Setup routes (public - no auth required)
 app.route('/api/setup', setupRoutes);
+app.route('/public/stripe', stripeWebhookRoute);  // Must be before /public catch-all
 app.route('/public', publicRoutes);
 
 // API routes
@@ -206,7 +207,6 @@ app.route('/api/deploy-keys', deployKeysRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
 app.route('/api/billing', billingRoutes);
-app.route('/public/stripe', stripeWebhookRoute);
 
 // 404 fallback - only for API routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
