@@ -67,7 +67,7 @@ app.get('/callback', async (c) => {
 
   // Validate state — cookie vs query param (CSRF protection)
   const queryState = url.searchParams.get('state');
-  const cookieState = getCookieValue(c.req.header('Cookie'), 'oauth_state');
+  const cookieState = getCookieValue(c.req.header('Cookie') ?? null, 'oauth_state');
   if (!cookieState || !queryState || cookieState !== queryState) {
     return c.json({ error: 'Invalid OAuth state' }, 403);
   }
