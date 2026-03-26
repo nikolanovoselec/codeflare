@@ -433,6 +433,33 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete, trialUsed });
 });
 
+// Rate limit for team contact: 1 per hour per user
+const contactTeamRateLimiter = createRateLimiter({
+  windowMs: 3_600_000,
+  maxRequests: 1,
+  keyPrefix: 'contact-team',
+});
+
+// POST /api/auth/contact-team — notify admins that a user wants Team/Enterprise access
+app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => {
+  const user = c.get('user');
+  try {
+    const users = await getAllUsers(c.env.KV);
+    const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
+    await sendAccessRequestNotification({
+      userEmail: user.email,
+      requestedAt: new Date().toISOString(),
+      remoteIp: c.req.header('CF-Connecting-IP') || null,
+      adminEmails,
+      env: c.env,
+    });
+  } catch (err) {
+    logger.error('Failed to send team contact email', err instanceof Error ? err : new Error(String(err)));
+  }
+  logger.info('Team access inquiry', { email: user.email });
+  return c.json({ success: true });
+});
+
 // POST /api/auth/onboarding-complete — mark guided setup as completed for this user
 app.post('/onboarding-complete', requireIdentity, async (c) => {
   const user = c.get('user');

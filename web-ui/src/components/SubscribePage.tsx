@@ -44,6 +44,7 @@ import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, create
 import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
+import TipsRotator from './TipsRotator';
 import Icon from './Icon';
 import { useScrambleText } from '../lib/use-scramble-text';
 import '../styles/subscribe-page.css';
@@ -169,6 +170,7 @@ const SubscribePage: Component = () => {
   const [billingStatus, setBillingStatus] = createSignal<string | null>(null);
   const [portalLoading, setPortalLoading] = createSignal(false);
   const [capacityReached, setCapacityReached] = createSignal(false);
+  const [contactSent, setContactSent] = createSignal(false);
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
@@ -185,9 +187,11 @@ const SubscribePage: Component = () => {
       // Remove query param from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
       setCheckoutPolling(true);
-      // CF-031: Exponential backoff polling (1s, 2s, 4s, 8s, 16s, 32s = ~63s total)
-      const delays = [1000, 2000, 4000, 8000, 16000, 32000];
-      for (const delay of delays) {
+      // Poll until KV is updated — Stripe webhook + KV eventual consistency can take up to 2 minutes.
+      // Keep trying every 3 seconds for up to 3 minutes (60 attempts).
+      const MAX_ATTEMPTS = 60;
+      const POLL_INTERVAL = 3000;
+      for (let i = 0; i < MAX_ATTEMPTS; i++) {
         try {
           const pollStatus = await getAuthStatus();
           if (pollStatus.hasSubscribed) {
@@ -195,9 +199,10 @@ const SubscribePage: Component = () => {
             return;
           }
         } catch { /* ignore poll errors */ }
-        await new Promise(r => setTimeout(r, delay));
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
       }
-      // Timeout: show message and let page load normally
+      // Timeout after 3 minutes: show message and let page load normally
+      setCheckoutPolling(false);
       setError('Your payment was received. Your subscription is being activated — please refresh in a moment.');
     }
 
@@ -474,10 +479,14 @@ const SubscribePage: Component = () => {
   /** Whether the user changed mode but not tier */
   const isModeChange = () => isActive() && selectedTierId() === currentTierId() && globalMode() !== currentMode();
 
+  /** Whether selected tier is the contact-us (Team/unlimited) tier */
+  const isContactTier = () => selectedTierId() === 'unlimited';
+
   /** CTA button label */
   function ctaLabel(): string {
     const tier = selectedTier();
     if (!tier) return 'Select';
+    if (isContactTier()) return contactSent() ? "We'll get in touch" : 'Get in Touch';
     if (subscribing() === tier.id) return isActive() ? 'Switching...' : 'Subscribing...';
     if (isModeChange()) return globalMode() === 'advanced' ? 'Upgrade to Pro' : 'Switch to Standard';
     if (isActive() && tier.id === currentTierId()) return 'Current Plan';
@@ -490,6 +499,7 @@ const SubscribePage: Component = () => {
   function ctaDisabled(): boolean {
     const tier = selectedTier();
     if (!tier) return true;
+    if (isContactTier()) return false; // always clickable
     if (subscribing() !== null) return true;
     if (capacityReached() && !isActive()) return true;
     if (isActive() && tier.id === currentTierId() && !isModeChange()) return true;
@@ -518,7 +528,12 @@ const SubscribePage: Component = () => {
 
         <Show when={!loading()} fallback={
           <div class="subscribe-loading">
-            {checkoutPolling() ? 'Activating your subscription — this may take a minute...' : 'Loading...'}
+            {checkoutPolling() ? (
+              <>
+                <p>Activating your subscription — this may take a minute...</p>
+                <TipsRotator sessions={[]} />
+              </>
+            ) : 'Loading...'}
           </div>
         }>
           {/* Error display */}
@@ -772,8 +787,19 @@ const SubscribePage: Component = () => {
                       <button
                         type="button"
                         class="subscribe-tier-btn subscribe-tier-btn--primary"
-                        disabled={ctaDisabled()}
-                        onClick={() => void handleSubscribe(selectedTierId())}
+                        disabled={ctaDisabled() || contactSent()}
+                        onClick={() => {
+                          if (isContactTier()) {
+                            setContactSent(true);
+                            // Notify admins via Resend that user wants Team access
+                            void fetch('/api/auth/contact-team', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
+                            }).catch(() => {});
+                            return;
+                          }
+                          void handleSubscribe(selectedTierId());
+                        }}
                       >
                         {ctaLabel()}
                       </button>
