@@ -171,6 +171,7 @@ const SubscribePage: Component = () => {
   const [portalLoading, setPortalLoading] = createSignal(false);
   const [capacityReached, setCapacityReached] = createSignal(false);
   const [contactSent, setContactSent] = createSignal(false);
+  const [showReportButton, setShowReportButton] = createSignal(false);
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
@@ -189,11 +190,15 @@ const SubscribePage: Component = () => {
       setCheckoutPolling(true);
       // Poll until KV is updated — no timeout. Stripe webhook writes KV,
       // we keep checking every 3 seconds until hasSubscribed is true.
+      // After 5 minutes, show a "Report a problem" button.
       const POLL_INTERVAL = 3000;
+      const REPORT_DELAY = 5 * 60 * 1000;
+      const reportTimer = setTimeout(() => setShowReportButton(true), REPORT_DELAY);
       while (true) {
         try {
           const pollStatus = await getAuthStatus();
           if (pollStatus.hasSubscribed) {
+            clearTimeout(reportTimer);
             window.location.href = pollStatus.onboardingComplete ? '/app/' : '/app/onboarding';
             return;
           }
@@ -528,6 +533,15 @@ const SubscribePage: Component = () => {
               <>
                 <p>Activating your subscription — this may take a minute...</p>
                 <TipsRotator sessions={[]} />
+                <Show when={showReportButton()}>
+                  <a
+                    href={`mailto:hello@graymatter.ch?subject=${encodeURIComponent('Subscription problem')}&body=${encodeURIComponent(`Hi,\n\nI completed a Stripe checkout but my subscription hasn't activated yet.\n\nEmail: ${userEmail()}\nDate: ${new Date().toISOString()}\n\nPlease help.\n`)}`}
+                    class="subscribe-logout-button"
+                    style={{ 'margin-top': '1rem', display: 'inline-block' }}
+                  >
+                    Report a problem
+                  </a>
+                </Show>
               </>
             ) : 'Loading...'}
           </div>
