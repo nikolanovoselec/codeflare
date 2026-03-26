@@ -3,11 +3,8 @@ import { Hono } from 'hono';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
-// Configurable mock auth result
-const mockSignSessionJWT = vi.fn(async () => 'mock-jwt-token');
-
 vi.mock('../../lib/session-jwt', () => ({
-  signSessionJWT: mockSignSessionJWT,
+  signSessionJWT: vi.fn(async () => 'mock-jwt-token'),
 }));
 
 vi.mock('../../lib/logger', () => ({
