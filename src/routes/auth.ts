@@ -23,7 +23,8 @@ const SLOT_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
  * Count users occupying a paid capacity slot: admins + active paid subscribers.
  * Free, pending, and blocked users don't count. Canceled users count until billingPeriodEnd expires.
  */
-export function countPaidSlots(allUsers: Array<Record<string, unknown>>): number {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function countPaidSlots(allUsers: any[]): number {
   const now = Date.now();
   return allUsers.filter(u => {
     const role = u.role as string | undefined;
