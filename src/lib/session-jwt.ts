@@ -72,8 +72,7 @@ export async function signSessionJWT(
     exp: now + ttlSeconds,
   };
 
-  const payloadB64 = btoa(JSON.stringify(fullPayload))
-    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const payloadB64 = base64UrlEncode(new TextEncoder().encode(JSON.stringify(fullPayload)));
 
   const signingInput = `${HEADER_B64}.${payloadB64}`;
   const key = await getHmacKey(secret);
@@ -137,5 +136,5 @@ export async function verifySessionJWT(
   return payload;
 }
 
-// Cookie refresh (shouldRefreshJWT + post-handler middleware) deferred to future.
+// Cookie refresh deferred to future iteration.
 // Current design: 1-hour cookies, user re-logins after expiry.

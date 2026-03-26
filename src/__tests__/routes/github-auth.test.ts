@@ -144,6 +144,29 @@ describe('GitHub OAuth Routes', () => {
       expect(setCookie).toContain('codeflare_session=');
       expect(setCookie).toContain('HttpOnly');
       expect(setCookie).toContain('Secure');
+      expect(setCookie).toContain('SameSite=Lax');
+    });
+
+    it('returns 400 when code is missing but state is valid', async () => {
+      const app = createApp();
+      const res = await app.request('/callback?state=test-state', {
+        headers: { Cookie: 'oauth_state=test-state' },
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 502 when GitHub returns 200 with error body (no access_token)', async () => {
+      globalThis.fetch = vi.fn(async () =>
+        new Response(JSON.stringify({ error: 'bad_verification_code' }), { status: 200 }),
+      ) as typeof globalThis.fetch;
+
+      const app = createApp();
+      const res = await app.request('/callback?code=bad-code&state=test-state', {
+        headers: { Cookie: 'oauth_state=test-state' },
+      });
+
+      expect(res.status).toBe(502);
     });
 
     it('redirects to /app/subscribe for new user', async () => {

@@ -67,7 +67,7 @@ function getCookieValue(cookieHeader: string | null, key: string): string | null
  *
  */
 export async function getUserFromRequest(request: Request, env?: Env): Promise<AccessUser> {
-  // Check for JWT assertion header first (primary auth method)
+  // Extract CF Access JWT early — evaluated after service token and SaaS OIDC checks
   const jwtAssertionHeader = request.headers.get('cf-access-jwt-assertion');
   const jwtCookie = getCookieValue(request.headers.get('Cookie'), 'CF_Authorization');
   const jwtToken = jwtAssertionHeader || jwtCookie;

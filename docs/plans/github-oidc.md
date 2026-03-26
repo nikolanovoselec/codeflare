@@ -26,10 +26,10 @@ SaaS mode:
     → Verifies HMAC JWT → returns AccessUser
     → Rest of the stack unchanged (middleware, terminal, routes)
 
-  Cookie refresh:
-    → Global middleware checks refreshCookie on context after route handler
-    → If set, appends Set-Cookie header to response
-    → Transparent to all routes (including WebSocket, terminal, billing)
+  Cookie refresh (DEFERRED):
+    → DEFERRED — users re-login after 1h expiry
+    → Cookie refresh middleware to be implemented in a future iteration
+    
 
 Default mode:
   → CF Access handles everything (unchanged)
@@ -59,9 +59,6 @@ Default mode:
 - verifySessionJWT returns null for tampered signature
 - verifySessionJWT returns null for wrong secret
 - verifySessionJWT returns null for malformed/empty/non-JWT string
-- shouldRefreshJWT returns true when < 15 min remaining
-- shouldRefreshJWT returns false when > 15 min remaining
-- shouldRefreshJWT returns false for freshly signed token
 ```
 
 ### Implementation: `src/lib/session-jwt.ts`
@@ -86,7 +83,7 @@ export async function verifySessionJWT(
   secret: string
 ): Promise<SessionJWTPayload | null>
 
-export function shouldRefreshJWT(payload: SessionJWTPayload): boolean
+// shouldRefreshJWT — DEFERRED to future iteration
 ```
 
 - Uses `crypto.subtle.importKey` + `crypto.subtle.sign`/`verify` with `{ name: 'HMAC', hash: 'SHA-256' }`
@@ -174,8 +171,8 @@ New Hono router mounted at `/auth/github`.
 - SaaS + JWT_SECRET missing → throws Error (not silent fallthrough)
 - Non-SaaS mode ignores codeflare_session cookie, uses CF Access JWT
 - Non-SaaS + CF Access JWT → authenticated (unchanged behavior)
-- Cookie refresh: near-expiry JWT triggers refreshCookie on context
-- Cookie refresh: fresh JWT does NOT trigger refreshCookie
+- Cookie refresh (DEFERRED): near-expiry JWT triggers refreshCookie on context
+- Cookie refresh (DEFERRED): fresh JWT does NOT trigger refreshCookie
 ```
 
 ### Implementation: `src/lib/access.ts`
@@ -202,34 +199,12 @@ if (env && isSaasModeActive(env.SAAS_MODE)) {
 // Existing CF Access flow continues for non-SaaS mode...
 ```
 
-### Cookie refresh: global middleware in `src/index.ts`
+### Cookie refresh (DEFERRED): global middleware in `src/index.ts`
 
 Add after the request tracing middleware, before CORS:
 
 ```ts
-// SaaS mode: cookie refresh middleware (runs after route handler)
-app.use('*', async (c, next) => {
-  await next();
-  const refreshCookie = c.get('refreshCookie');
-  if (refreshCookie) {
-    c.header('Set-Cookie', `codeflare_session=${refreshCookie}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`);
-  }
-});
-```
-
-In `authenticateRequest()`, after verifying session JWT, check refresh:
-```ts
-if (shouldRefreshJWT(payload)) {
-  const refreshed = await signSessionJWT(
-    { email: payload.email, sub: payload.sub, ghLogin: payload.ghLogin },
-    env.JWT_SECRET,
-  );
-  // Store on request context for global middleware to pick up
-  // (passed via return value to middleware, which sets it on Hono context)
-}
-```
-
-This ensures ALL paths — Hono middleware, WebSocket handler in terminal.ts, and any direct callers — benefit from cookie refresh via the global post-handler middleware.
+Cookie refresh middleware deferred to future iteration. Current design: 1-hour cookies, users re-login after expiry.
 
 ---
 
@@ -337,14 +312,14 @@ export interface AuthProvider {
 
 | File | Change |
 |---|---|
-| `src/lib/session-jwt.ts` | **NEW** — HMAC JWT sign/verify/refresh |
+| `src/lib/session-jwt.ts` | **NEW** — HMAC JWT sign/verify |
 | `src/routes/github-auth.ts` | **NEW** — OAuth login/callback/logout |
 | `src/__tests__/lib/session-jwt.test.ts` | **NEW** — JWT unit tests |
 | `src/__tests__/routes/github-auth.test.ts` | **NEW** — OAuth route tests |
 | `src/__tests__/lib/access-saas-oidc.test.ts` | **NEW** — SaaS auth tests |
 | `src/lib/access.ts` | Add SaaS mode branch in `getUserFromRequest()` |
-| `src/index.ts` | Mount github-auth, cookie refresh middleware, update providers |
-| `src/middleware/auth.ts` | Minor: pass refreshCookie from authenticateRequest to context |
+| `src/index.ts` | Mount github-auth, update providers endpoint |
+| `src/middleware/auth.ts` | Unchanged (refresh deferred)
 | `src/routes/auth-redirects.ts` | SaaS mode branch for login/logout |
 | `src/types.ts` | Add OAUTH_CLIENT_ID/SECRET, JWT_SECRET to Env |
 | `src/routes/setup/access.ts` | Skip CF Access creation in SaaS+OIDC |
