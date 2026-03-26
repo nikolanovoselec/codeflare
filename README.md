@@ -204,20 +204,15 @@ Custom login page, subscriptions, usage tracking, billing. Requires everything a
 | `RESEND_API_KEY` | secret | recommended | Emails: welcome, subscription, tier change, admin notifications |
 | `RESEND_EMAIL` | secret | optional | Sender address (defaults to `Codeflare <onboarding@resend.dev>`) |
 
-**Authentication** — choose one:
-
-| Option | Variables needed | Cost |
-|---|---|---|
-| **Cloudflare Access** (default) | None — setup wizard configures it automatically | Free for 50 users, then $3/user/month |
-| **GitHub OIDC** (recommended) | `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` + `JWT_SECRET` | Free, unlimited users |
-
-When `GITHUB_CLIENT_ID` is set, the Worker handles auth directly via GitHub OAuth — CF Access is bypassed entirely for SaaS mode. See [GitHub OAuth Setup](#github-oauth-setup-saas-mode) below.
+**Authentication** — set these 3 secrets to enable direct GitHub login (free, unlimited users). Without them, the setup wizard configures Cloudflare Access instead (free for 50 users, then $3/user/month).
 
 | Variable | Type | Required | What it does |
 |---|---|---|---|
-| `GITHUB_CLIENT_ID` | env secret | for OIDC | GitHub OAuth App client ID. Create at `github.com/settings/developers` |
-| `GITHUB_CLIENT_SECRET` | env secret | for OIDC | GitHub OAuth App client secret (server-side only) |
-| `JWT_SECRET` | env secret | for OIDC | HMAC-SHA256 signing key. Generate: `openssl rand -base64 32` |
+| `GITHUB_CLIENT_ID` | env secret | recommended | GitHub OAuth App client ID. Create at `github.com/settings/developers` |
+| `GITHUB_CLIENT_SECRET` | env secret | recommended | GitHub OAuth App client secret (server-side only) |
+| `JWT_SECRET` | env secret | recommended | Session cookie signing key. Generate: `openssl rand -base64 32` |
+
+See [GitHub OAuth Setup](#github-oauth-setup-saas-mode) below for step-by-step instructions.
 
 **Billing** (optional — without Stripe, all plans are free):
 
@@ -225,12 +220,6 @@ When `GITHUB_CLIENT_ID` is set, the Worker handles auth directly via GitHub OAut
 |---|---|---|---|
 | `STRIPE_SECRET_KEY` | secret | for billing | Stripe API key (`sk_test_...` or `sk_live_...`) |
 | `STRIPE_WEBHOOK_SECRET` | secret | with Stripe | Webhook signing secret (`whsec_...`). Required when `STRIPE_SECRET_KEY` is set |
-
-**Other SaaS options:**
-
-| Variable | Type | Required | What it does |
-|---|---|---|---|
-| `SAAS_EXTRA_IDPS` | var | optional | Comma-separated IdP UUIDs for custom OIDC providers (CF Access mode only) |
 
 ### SaaS Mode (Custom Login)
 
