@@ -439,6 +439,8 @@ describe('SubscribePage', () => {
       await openTierView();
       fireEvent.click(screen.getByTestId('lifeline-stop-standard'));
 
+      // Advance timers to let scramble animation resolve (uses requestAnimationFrame)
+      await vi.advanceTimersByTimeAsync(500);
       await waitFor(() => {
         const panel = screen.getByTestId('tier-detail-panel');
         expect(panel.textContent).toMatch(/Configurable idle timeout/);
