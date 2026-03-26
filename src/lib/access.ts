@@ -1,5 +1,6 @@
 import type { AccessTier, AccessUser, Env, SubscriptionTier, UserRole } from '../types';
 import { verifyAccessJWT } from './jwt';
+import { verifySessionJWT } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
 import { isSaasModeActive } from './onboarding';
@@ -143,7 +144,24 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     // SERVICE_AUTH_SECRET not in env — note for diagnostics but continue to other auth methods
   }
 
-  // JWT verification: if token present and auth is configured, verify it
+  // SaaS mode + GitHub OIDC: verify codeflare_session cookie (HMAC JWT)
+  // This replaces CF Access JWT verification when GITHUB_CLIENT_ID is configured.
+  if (env && isSaasModeActive(env.SAAS_MODE) && env.GITHUB_CLIENT_ID) {
+    if (!env.JWT_SECRET) {
+      throw new AuthError('SaaS mode active but JWT_SECRET not configured');
+    }
+    const sessionToken = getCookieValue(request.headers.get('Cookie'), 'codeflare_session');
+    if (!sessionToken) {
+      return { email: '', authenticated: false };
+    }
+    const payload = await verifySessionJWT(sessionToken, env.JWT_SECRET);
+    if (!payload) {
+      return { email: '', authenticated: false };
+    }
+    return { email: normalizeEmail(payload.email), authenticated: true };
+  }
+
+  // CF Access JWT verification (non-SaaS mode or SaaS without GitHub OIDC)
   if (jwtToken && authConfigured && cachedAuthDomain) {
     for (const expectedAud of accessAudList) {
       const verifiedEmail = await verifyAccessJWT(jwtToken, cachedAuthDomain, expectedAud);

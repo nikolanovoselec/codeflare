@@ -32,6 +32,7 @@ import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboardin
 import { isActiveUser } from './lib/access-tier';
 import authApiRoutes from './routes/auth';
 import authRedirectRoutes from './routes/auth-redirects';
+import githubAuthRoutes from './routes/github-auth';
 
 // Type for app context with request ID
 type AppVariables = {
@@ -158,6 +159,7 @@ app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISO
 
 // Auth routes (mounted before setup routes)
 app.route('/api/auth', authApiRoutes);
+app.route('/auth/github', githubAuthRoutes);
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
@@ -165,11 +167,20 @@ app.route('/auth', authRedirectRoutes);
 // Non-SaaS: show all social IdPs + extra IdPs.
 const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'facebook', 'linkedin']);
 app.get('/public/auth/providers', async (c) => {
+  const saas = isSaasModeActive(c.env.SAAS_MODE);
+
+  // SaaS mode with GitHub OIDC: return hardcoded provider with direct login URL
+  if (saas && c.env.GITHUB_CLIENT_ID) {
+    return c.json({
+      providers: [{ id: 'github', type: 'github', name: 'GitHub', loginUrl: '/auth/github/login' }],
+    });
+  }
+
+  // CF Access mode: fetch IdP list from KV
   const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>('setup:idp_list', 'json');
   const extraIds = new Set(
     (c.env.SAAS_EXTRA_IDPS || '').split(',').map(s => s.trim()).filter(Boolean)
   );
-  const saas = isSaasModeActive(c.env.SAAS_MODE);
   const filtered = (idpList || []).filter(p => {
     if (extraIds.has(p.id)) return true;
     return saas ? p.type === 'github' : SOCIAL_IDP_TYPES.has(p.type);

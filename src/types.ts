@@ -81,6 +81,12 @@ export interface Env {
   // Set via wrangler secret. When absent, credentials stored as plaintext.
   ENCRYPTION_KEY?: string;
 
+  // GitHub OAuth (SaaS mode only — replaces CF Access for authentication)
+  // Create an OAuth App at github.com/settings/applications/new
+  GITHUB_CLIENT_ID?: string;      // OAuth App client ID (wrangler.toml var, public)
+  GITHUB_CLIENT_SECRET?: string;   // OAuth App client secret (wrangler secret)
+  JWT_SECRET?: string;             // HMAC-SHA256 signing key for session JWTs (wrangler secret)
+
   // Timekeeper Durable Object for per-user usage tracking
   TIMEKEEPER?: DurableObjectNamespace;
 
