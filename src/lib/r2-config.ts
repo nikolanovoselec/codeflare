@@ -1,6 +1,7 @@
 import { CF_API_BASE } from './constants';
 import { parseCfResponse } from './cf-api';
 import { ValidationError } from './error-types';
+import { SETUP_KEYS } from './kv-keys';
 import type { Env } from '../types';
 
 /**
@@ -21,7 +22,7 @@ export async function getR2Config(env: Env): Promise<{ accountId: string; endpoi
   }
 
   // 2. Fall back to KV (set by setup wizard)
-  const kvAccountId = await env.KV.get('setup:account_id');
+  const kvAccountId = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
   if (kvAccountId) {
     return {
       accountId: kvAccountId,
@@ -43,8 +44,8 @@ export async function getR2Config(env: Env): Promise<{ accountId: string; endpoi
 
       // Cache in KV so this API call only happens once
       await Promise.allSettled([
-        env.KV.put('setup:account_id', accountId),
-        env.KV.put('setup:r2_endpoint', endpoint),
+        env.KV.put(SETUP_KEYS.ACCOUNT_ID, accountId),
+        env.KV.put(SETUP_KEYS.R2_ENDPOINT, endpoint),
       ]);
 
       return { accountId, endpoint };

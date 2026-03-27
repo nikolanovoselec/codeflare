@@ -9,6 +9,7 @@ import { getTierConfig, SUBSCRIBABLE_TIER_IDS } from '../../lib/subscription';
 import { escapeXml } from '../../lib/xml-utils';
 import { createLogger } from '../../lib/logger';
 import { verifyTurnstileToken } from '../../lib/turnstile';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 
 const logger = createLogger('public-routes');
 
@@ -70,7 +71,7 @@ async function sendWaitlistEmail(params: {
 }
 
 app.get('/onboarding-config', async (c) => {
-  const siteKey = await c.env.KV.get('setup:turnstile_site_key');
+  const siteKey = await c.env.KV.get(SETUP_KEYS.TURNSTILE_SITE_KEY);
   return c.json({
     active: true,
     turnstileSiteKey: siteKey,
@@ -85,7 +86,7 @@ app.post('/waitlist', waitlistRateLimiter, async (c) => {
   }
 
   const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
-    || await c.env.KV.get('setup:turnstile_secret_key');
+    || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
   const resendApiKey = c.env.RESEND_API_KEY;
 
   if (!turnstileSecret || !resendApiKey) {

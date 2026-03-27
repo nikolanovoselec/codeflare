@@ -11,7 +11,7 @@ import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
-import { getPreferencesKey } from '../lib/kv-keys';
+import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
 import { isStripeConfigured, getStripePrices } from '../lib/stripe';
 
 const logger = createLogger('auth-routes');
@@ -29,14 +29,14 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // Public — no authentication required
 app.get('/providers', async (c) => {
-  const idpList = await c.env.KV.get('setup:idp_list', 'json');
+  const idpList = await c.env.KV.get(SETUP_KEYS.IDP_LIST, 'json');
   return c.json({ providers: idpList || [] });
 });
 
 // GET /api/auth/onboarding-config — onboarding page config (turnstile key).
 // Moved from /public/onboarding-config — user is authenticated at this point.
 app.get('/onboarding-config', requireIdentity, async (c) => {
-  const siteKey = await c.env.KV.get('setup:turnstile_site_key');
+  const siteKey = await c.env.KV.get(SETUP_KEYS.TURNSTILE_SITE_KEY);
   return c.json({ active: true, turnstileSiteKey: siteKey });
 });
 
@@ -85,7 +85,7 @@ app.get('/status', requireIdentity, async (c) => {
 
   const [userData, turnstileSiteKey, prefs] = await Promise.all([
     c.env.KV.get(`user:${user.email}`, 'json') as Promise<Record<string, unknown> | null>,
-    c.env.KV.get('setup:turnstile_site_key').then(v => v ?? null),
+    c.env.KV.get(SETUP_KEYS.TURNSTILE_SITE_KEY).then(v => v ?? null),
     prefsKey
       ? c.env.KV.get(prefsKey, 'json').then(v => v as Record<string, unknown> | null).catch(() => null)
       : Promise.resolve(null),
@@ -119,7 +119,7 @@ app.get('/status', requireIdentity, async (c) => {
 
   // Check if user capacity is reached (for frontend to disable subscribe buttons)
   let userCapacityReached = false;
-  const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
+  const maxUsers = parseInt(await c.env.KV.get(SETUP_KEYS.MAX_USERS) ?? '0');
   if (maxUsers > 0 && !hasSubscribed) {
     try {
       const allUsers = await getAllUsers(c.env.KV);
@@ -189,7 +189,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
 
   // Verify Turnstile token (required for SaaS mode access request gating)
   const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
-    || await c.env.KV.get('setup:turnstile_secret_key');
+    || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
 
   if (!turnstileSecret) {
     throw new ValidationError('Turnstile is not configured for access requests');
@@ -269,7 +269,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
 
   // Max users cap — block new subscriptions when capacity is reached
   if (!isAlreadySubscribed) {
-    const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
+    const maxUsers = parseInt(await c.env.KV.get(SETUP_KEYS.MAX_USERS) ?? '0');
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
       if (countPaidSlots(allUsers) >= maxUsers) {
@@ -297,7 +297,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   // Active users switching plans skip Turnstile.
   if (!isAlreadySubscribed) {
     const turnstileSecret = c.env.TURNSTILE_SECRET_KEY
-      || await c.env.KV.get('setup:turnstile_secret_key');
+      || await c.env.KV.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
     if (turnstileSecret) {
       if (!parsed.data.turnstileToken) {
         throw new ForbiddenError('CAPTCHA token required');
@@ -341,7 +341,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   try {
     const tiers = await getTierConfig(c.env.KV);
     const tierConfig = tiers.find(t => t.id === parsed.data.tier);
-    const customDomain = await c.env.KV.get('setup:custom_domain');
+    const customDomain = await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
     const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
 
     const previousTierId = isAlreadySubscribed ? String(existingRaw?.subscriptionTier ?? '') : undefined;

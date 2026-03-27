@@ -5,6 +5,7 @@ import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { CF_API_BASE, logger, getWorkerNameFromHostname } from './shared';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 import { getAccessGroupNames } from './access';
 
 const statusRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, keyPrefix: 'setup-status' });
@@ -19,9 +20,9 @@ const handlers = new Hono<{ Bindings: Env }>();
  * Returns: { configured: boolean, customDomain?: string, saasMode: boolean }
  */
 handlers.get('/status', statusRateLimiter, async (c) => {
-  const setupComplete = await c.env.KV.get('setup:complete');
+  const setupComplete = await c.env.KV.get(SETUP_KEYS.COMPLETE);
   const configured = setupComplete === 'true';
-  const customDomain = configured ? await c.env.KV.get('setup:custom_domain') : null;
+  const customDomain = configured ? await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN) : null;
   // saasMode reflects env var, not KV (set at deploy time, not runtime)
   const saasMode = c.env.SAAS_MODE === 'active';
 
@@ -90,7 +91,7 @@ function extractEmailsFromIncludeRules(includeRules: unknown[]): string[] {
 }
 
 async function resolveAccountId(token: string, kv: KVNamespace): Promise<string | null> {
-  const fromKv = await kv.get('setup:account_id');
+  const fromKv = await kv.get(SETUP_KEYS.ACCOUNT_ID);
   if (fromKv) {
     return fromKv;
   }

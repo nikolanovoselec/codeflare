@@ -6,6 +6,7 @@ import { createLogger } from './logger';
 import { isSaasModeActive } from './onboarding';
 import { sendWelcomeEmail } from './email';
 import { parseUserRecord } from './user-record';
+import { SETUP_KEYS } from './kv-keys';
 
 const logger = createLogger('access');
 
@@ -82,10 +83,10 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
   }
   if (env?.KV) {
     if (cachedAuthDomain === undefined) {
-      cachedAuthDomain = await env.KV.get('setup:auth_domain');
+      cachedAuthDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
     }
     if (cachedAccessAudList === undefined) {
-      const audListRaw = await env.KV.get('setup:access_aud_list');
+      const audListRaw = await env.KV.get(SETUP_KEYS.ACCESS_AUD_LIST);
       if (audListRaw) {
         try {
           const parsed = JSON.parse(audListRaw);
@@ -103,7 +104,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       }
     }
     if (cachedAccessAud === undefined) {
-      cachedAccessAud = await env.KV.get('setup:access_aud');
+      cachedAccessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
     }
     authConfigCachedAt = Date.now();
   }
@@ -308,7 +309,7 @@ export async function resolveOrProvisionUser(
     }));
 
     // Fire-and-forget welcome email (instanceUrl derived from custom domain if available)
-    const customDomain = await kv.get('setup:custom_domain');
+    const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
     const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
     void sendWelcomeEmail({ userEmail: normalizedEmail, instanceUrl, env });
 

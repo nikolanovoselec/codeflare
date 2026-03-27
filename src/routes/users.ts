@@ -12,7 +12,7 @@ import { cleanupUserData } from '../lib/user-cleanup';
 import { isSaasModeActive } from '../lib/onboarding';
 import { sendTierChangeNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
-import { getPreferencesKey } from '../lib/kv-keys';
+import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
 
 const logger = createLogger('users');
 
@@ -26,8 +26,8 @@ async function trySyncAccessPolicy(env: Env): Promise<void> {
   if (isSaasModeActive(env.SAAS_MODE)) return;
 
   try {
-    const accountId = await env.KV.get('setup:account_id');
-    const domain = await env.KV.get('setup:custom_domain');
+    const accountId = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
+    const domain = await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
     if (accountId && domain && env.CLOUDFLARE_API_TOKEN) {
       await syncAccessPolicy(env.CLOUDFLARE_API_TOKEN, accountId, domain, env.KV);
     }
@@ -52,7 +52,7 @@ const userMutationRateLimiter = createRateLimiter({
 // GET /api/users - List all users
 app.get('/', requireAdmin, async (c) => {
   const users = await getAllUsers(c.env.KV);
-  const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
+  const maxUsers = parseInt(await c.env.KV.get(SETUP_KEYS.MAX_USERS) ?? '0');
   return c.json({ users, maxUsers });
 });
 
@@ -62,7 +62,7 @@ app.put('/max-users', requireAdmin, async (c) => {
   try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
   const parsed = z.object({ maxUsers: z.number().int().min(0) }).safeParse(raw);
   if (!parsed.success) throw new ValidationError('maxUsers must be a non-negative integer');
-  await c.env.KV.put('setup:max_users', String(parsed.data.maxUsers));
+  await c.env.KV.put(SETUP_KEYS.MAX_USERS, String(parsed.data.maxUsers));
   return c.json({ success: true, maxUsers: parsed.data.maxUsers });
 });
 

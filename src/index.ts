@@ -28,6 +28,7 @@ import {
 import { createLogger, setLogLevel } from './lib/logger';
 import type { LogLevel } from './lib/logger';
 import { authenticateRequest } from './lib/access';
+import { SETUP_KEYS } from './lib/kv-keys';
 import { verifySessionJWT, shouldRefreshJWT, signSessionJWT } from './lib/session-jwt';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboarding';
 import { isActiveUser } from './lib/access-tier';
@@ -199,7 +200,7 @@ app.get('/public/auth/providers', async (c) => {
   }
 
   // CF Access mode: fetch IdP list from KV
-  const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>('setup:idp_list', 'json');
+  const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>(SETUP_KEYS.IDP_LIST, 'json');
   const extraIds = new Set(
     (c.env.SAAS_EXTRA_IDPS || '').split(',').map(s => s.trim()).filter(Boolean)
   );
@@ -307,7 +308,7 @@ export default {
     if (path !== '/setup' && !path.startsWith('/setup/')) {
       // Check setup status (with in-memory cache)
       if (getSetupCompleteCache() === null) {
-        const status = await env.KV.get('setup:complete');
+        const status = await env.KV.get(SETUP_KEYS.COMPLETE);
         setSetupCompleteCache(status === 'true');
       }
       if (!getSetupCompleteCache()) {

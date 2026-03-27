@@ -1,7 +1,7 @@
 import type { AccessTier, SubscriptionTier, UserRole } from '../types';
 import { AccessTierSchema, SubscriptionTierSchema } from '../types';
 import { createLogger } from './logger';
-import { listAllKvKeys, emailFromKvKey } from './kv-keys';
+import { listAllKvKeys, emailFromKvKey, SETUP_KEYS } from './kv-keys';
 import { CF_API_BASE } from './constants';
 import { cfApiCB } from './circuit-breakers';
 
@@ -84,10 +84,10 @@ export async function syncAccessPolicy(
   const emails = users.map((u) => u.email);
   const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
   const regularEmails = users.filter((u) => u.role !== 'admin').map((u) => u.email);
-  const adminGroupId = await kv.get('setup:access_group_admin_id');
-  const userGroupId = await kv.get('setup:access_group_user_id');
-  const adminGroupNameFromKv = await kv.get('setup:access_group_admin_name');
-  const userGroupNameFromKv = await kv.get('setup:access_group_user_name');
+  const adminGroupId = await kv.get(SETUP_KEYS.ACCESS_GROUP_ADMIN_ID);
+  const userGroupId = await kv.get(SETUP_KEYS.ACCESS_GROUP_USER_ID);
+  const adminGroupNameFromKv = await kv.get(SETUP_KEYS.ACCESS_GROUP_ADMIN_NAME);
+  const userGroupNameFromKv = await kv.get(SETUP_KEYS.ACCESS_GROUP_USER_NAME);
   let include: Array<Record<string, unknown>>;
 
   // When group IDs are available, update them with current email lists

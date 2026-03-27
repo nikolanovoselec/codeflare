@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Env } from '../../types';
 import { ValidationError, toError } from '../../lib/error-types';
 import { resetSetupCache } from '../../lib/cache-reset';
-import { listAllKvKeys, emailFromKvKey, getPreferencesKey } from '../../lib/kv-keys';
+import { listAllKvKeys, emailFromKvKey, getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
 import { getBucketName } from '../../lib/access';
 import { cleanupUserData } from '../../lib/user-cleanup';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
@@ -47,7 +47,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
  */
 function createConditionalSetupAuth() {
   return async (c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) => {
-    const isComplete = await c.env.KV.get('setup:complete');
+    const isComplete = await c.env.KV.get(SETUP_KEYS.COMPLETE);
     if (isComplete === 'true') {
       return authMiddleware(c, async () => requireAdmin(c, next));
     }
@@ -107,7 +107,7 @@ app.post('/configure', async (c) => {
   // Run setup steps in the background, streaming progress as NDJSON
   (async () => {
     const steps: SetupStep[] = [];
-    const lockKey = 'setup:configuring';
+    const lockKey = SETUP_KEYS.CONFIGURING;
     let lockAcquired = false;
 
     // Helper to run a named step with streaming progress
@@ -241,23 +241,23 @@ app.post('/configure', async (c) => {
           handleConfigureTurnstile(token, accountId, customDomain, steps, c.env.KV, workerName, c.req.url)
         );
       }
-      await c.env.KV.put('setup:onboarding_landing_page', onboardingLandingActive ? 'active' : 'inactive');
+      await c.env.KV.put(SETUP_KEYS.ONBOARDING_LANDING_PAGE, onboardingLandingActive ? 'active' : 'inactive');
 
       // Store custom domain in KV (case-insensitive per RFC 4343)
-      await c.env.KV.put('setup:custom_domain', customDomain.toLowerCase());
+      await c.env.KV.put(SETUP_KEYS.CUSTOM_DOMAIN, customDomain.toLowerCase());
 
       // Build combined allowed origins list
       const combinedOrigins = new Set<string>(allowedOrigins || []);
       combinedOrigins.add(`.${customDomain.toLowerCase()}`);
       combinedOrigins.add('.workers.dev');
-      await c.env.KV.put('setup:allowed_origins', JSON.stringify([...combinedOrigins]));
+      await c.env.KV.put(SETUP_KEYS.ALLOWED_ORIGINS, JSON.stringify([...combinedOrigins]));
 
       // Final step: Mark setup as complete
       await runStep('finalize', async () => {
-        await c.env.KV.put('setup:account_id', accountId);
-        await c.env.KV.put('setup:r2_endpoint', `https://${accountId}.r2.cloudflarestorage.com`);
-        await c.env.KV.put('setup:completed_at', new Date().toISOString());
-        await c.env.KV.put('setup:complete', 'true');
+        await c.env.KV.put(SETUP_KEYS.ACCOUNT_ID, accountId);
+        await c.env.KV.put(SETUP_KEYS.R2_ENDPOINT, `https://${accountId}.r2.cloudflarestorage.com`);
+        await c.env.KV.put(SETUP_KEYS.COMPLETED_AT, new Date().toISOString());
+        await c.env.KV.put(SETUP_KEYS.COMPLETE, 'true');
       });
 
       resetSetupCache();

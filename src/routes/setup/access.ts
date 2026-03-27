@@ -2,6 +2,7 @@ import { SetupError, toErrorMessage } from '../../lib/error-types';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { CF_API_BASE, logger, addStep, withSetupRetry } from './shared';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 import type { SetupStep } from './shared';
 
 interface AccessApp {
@@ -83,7 +84,7 @@ async function resolveManagedAccessApp(
     return byDesiredDomain;
   }
 
-  const storedAppId = await kv.get('setup:access_app_id');
+  const storedAppId = await kv.get(SETUP_KEYS.ACCESS_APP_ID);
   if (storedAppId) {
     const byStoredId = existingApps.find((app) => app.id === storedAppId) ?? null;
     if (byStoredId) {
@@ -474,16 +475,16 @@ async function storeAccessConfig(
   accessAppId?: string
 ): Promise<void> {
   if (audienceTags.length > 0) {
-    await kv.put('setup:access_aud', audienceTags[0]);
-    await kv.put('setup:access_aud_list', JSON.stringify(audienceTags));
+    await kv.put(SETUP_KEYS.ACCESS_AUD, audienceTags[0]);
+    await kv.put(SETUP_KEYS.ACCESS_AUD_LIST, JSON.stringify(audienceTags));
   }
   if (accessAppId) {
-    await kv.put('setup:access_app_id', accessAppId);
+    await kv.put(SETUP_KEYS.ACCESS_APP_ID, accessAppId);
   }
-  await kv.put('setup:access_group_admin_id', groupIds.admin);
-  await kv.put('setup:access_group_user_id', groupIds.user);
-  await kv.put('setup:access_group_admin_name', groupNames.admin);
-  await kv.put('setup:access_group_user_name', groupNames.user);
+  await kv.put(SETUP_KEYS.ACCESS_GROUP_ADMIN_ID, groupIds.admin);
+  await kv.put(SETUP_KEYS.ACCESS_GROUP_USER_ID, groupIds.user);
+  await kv.put(SETUP_KEYS.ACCESS_GROUP_ADMIN_NAME, groupNames.admin);
+  await kv.put(SETUP_KEYS.ACCESS_GROUP_USER_NAME, groupNames.user);
 
   try {
     const orgRes = await cfApiCB.execute(() => fetch(
@@ -493,7 +494,7 @@ async function storeAccessConfig(
     const orgData = await parseCfResponse<{ auth_domain: string }>(orgRes);
 
     if (orgData.success && orgData.result?.auth_domain) {
-      await kv.put('setup:auth_domain', orgData.result.auth_domain);
+      await kv.put(SETUP_KEYS.AUTH_DOMAIN, orgData.result.auth_domain);
       logger.info('Stored auth_domain in KV', { authDomain: orgData.result.auth_domain });
     } else {
       logger.warn('Could not retrieve auth_domain from Access organization', { success: orgData.success });
@@ -533,7 +534,7 @@ export async function handleCreateAccessApp(
     // Fetch IdPs early — needed for SaaS mode policy AND stored in KV for login page
     const idpList = await listIdentityProviders(token, accountId);
     if (idpList.length > 0) {
-      await kv.put('setup:idp_list', JSON.stringify(idpList));
+      await kv.put(SETUP_KEYS.IDP_LIST, JSON.stringify(idpList));
       logger.info('Stored IdP list in KV', { count: idpList.length });
     }
 

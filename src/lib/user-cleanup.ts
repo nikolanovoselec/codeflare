@@ -7,7 +7,7 @@
  */
 import type { Env, Session } from '../types';
 import { getBucketName } from './access';
-import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey } from './kv-keys';
+import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, SETUP_KEYS } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -78,7 +78,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
   // Must use getAndDecrypt — r2token values are encrypted when ENCRYPTION_KEY is set.
   // Raw KV.get('json') throws SyntaxError on the "v1:..." ciphertext prefix.
-  const accountId = await env.KV.get('setup:account_id');
+  const accountId = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
   const cryptoKey = await getOrImportKey(env);
   const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${normalizedEmail}`, cryptoKey);
 

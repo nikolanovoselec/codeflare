@@ -2,6 +2,7 @@ import { SetupError, toError } from '../../lib/error-types';
 import { parseCfResponse } from '../../lib/cf-api';
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { CF_API_BASE, addStep, logger, withSetupRetry } from './shared';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 import type { SetupStep } from './shared';
 
 function buildTurnstileDomains(customDomain: string, requestUrl?: string): string[] {
@@ -181,8 +182,8 @@ export async function handleConfigureTurnstile(
         widgetName
       );
       if (updated?.sitekey && updated.secret) {
-        await kv.put('setup:turnstile_site_key', updated.sitekey);
-        await kv.put('setup:turnstile_secret_key', updated.secret);
+        await kv.put(SETUP_KEYS.TURNSTILE_SITE_KEY, updated.sitekey);
+        await kv.put(SETUP_KEYS.TURNSTILE_SECRET_KEY, updated.secret);
         steps[stepIndex].status = 'success';
         logger.info('Reused existing Turnstile widget', {
           domains,
@@ -250,7 +251,7 @@ export async function handleConfigureTurnstile(
     }
 
     if (!resolvedSecret) {
-      const secretFromKv = await kv.get('setup:turnstile_secret_key');
+      const secretFromKv = await kv.get(SETUP_KEYS.TURNSTILE_SECRET_KEY);
       if (secretFromKv) {
         resolvedSecret = secretFromKv;
       }
@@ -263,8 +264,8 @@ export async function handleConfigureTurnstile(
       throw new SetupError(err, steps);
     }
 
-    await kv.put('setup:turnstile_site_key', resolvedSitekey);
-    await kv.put('setup:turnstile_secret_key', resolvedSecret);
+    await kv.put(SETUP_KEYS.TURNSTILE_SITE_KEY, resolvedSitekey);
+    await kv.put(SETUP_KEYS.TURNSTILE_SECRET_KEY, resolvedSecret);
     steps[stepIndex].status = 'success';
     logger.info('Configured Turnstile widget', {
       domains,

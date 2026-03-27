@@ -8,6 +8,7 @@ import type { Env } from '../types';
 import { DEFAULT_ALLOWED_ORIGINS } from './constants';
 import { toErrorMessage } from './error-types';
 import { createLogger } from './logger';
+import { SETUP_KEYS } from './kv-keys';
 
 const logger = createLogger('cors-cache');
 
@@ -58,7 +59,7 @@ async function getKvOrigins(env: Env): Promise<string[]> {
 
   // CF-022: Separate try/catch for each KV read to prevent partial-list caching
   try {
-    const customDomain = await env.KV.get('setup:custom_domain');
+    const customDomain = await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
     if (customDomain) {
       origins.push(customDomain);
     }
@@ -67,7 +68,7 @@ async function getKvOrigins(env: Env): Promise<string[]> {
   }
 
   try {
-    const originsJson = await env.KV.get('setup:allowed_origins');
+    const originsJson = await env.KV.get(SETUP_KEYS.ALLOWED_ORIGINS);
     if (originsJson) {
       const parsed = JSON.parse(originsJson) as string[];
       if (Array.isArray(parsed)) {

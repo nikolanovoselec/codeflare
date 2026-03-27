@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { createLogger } from '../lib/logger';
 import { isSaasModeActive } from '../lib/onboarding';
+import { SETUP_KEYS } from '../lib/kv-keys';
 
 const logger = createLogger('auth-redirects');
 
@@ -15,7 +16,7 @@ app.get('/login/:provider', async (c) => {
   }
 
   // Default mode: redirect to /app/ and let CF Access handle authentication
-  const customDomain = await c.env.KV.get('setup:custom_domain');
+  const customDomain = await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
   if (!customDomain) {
     return c.json({ error: 'Auth not configured' }, 503);
   }
@@ -31,8 +32,8 @@ app.get('/logout', async (c) => {
   }
 
   // Default mode: CF Access logout
-  const authDomain = await c.env.KV.get('setup:auth_domain');
-  const customDomain = await c.env.KV.get('setup:custom_domain');
+  const authDomain = await c.env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
+  const customDomain = await c.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
   const returnTo = customDomain
     ? `https://${customDomain}/`
     : `${new URL(c.req.url).protocol}//${new URL(c.req.url).host}/`;
