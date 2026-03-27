@@ -322,8 +322,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                           >
                             <div class="user-mgmt-actions">
                               <Show
-                                when={user.role !== 'admin'}
-                                fallback={<span class="user-mgmt-tier-fixed">Unlimited</span>}
+                                when={true}
                               >
                                 <select
                                   class="user-mgmt-tier-select"
