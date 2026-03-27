@@ -47,6 +47,8 @@ export async function getAllUsers(kv: KVNamespace): Promise<UserEntry[]> {
       return {
         ...data,
         email: emailFromKvKey(key.name),
+        addedBy: (data.addedBy as string) ?? 'unknown',
+        addedAt: (data.addedAt as string) ?? '',
         role: (data.role as UserRole) ?? 'user',
         accessTier: tierParsed.success ? tierParsed.data : undefined,
         subscriptionTier: subTierParsed.success ? subTierParsed.data : undefined,
