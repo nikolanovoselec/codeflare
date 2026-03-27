@@ -11,7 +11,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
-import { parseUserRecord } from '../lib/user-record';
+import { parseUserRecord, updateUserRecord } from '../lib/user-record';
 import { getTierConfig } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import { countPaidSlots } from './auth';
@@ -223,7 +223,23 @@ app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
 
   // Fetch subscription to get the subscription item ID (si_xxx)
   const snapshot = await fetchSubscription(subscriptionId, secretKey);
-  if (!snapshot?.subscriptionItemId) {
+  if (!snapshot) {
+    // Subscription no longer exists on Stripe — clean up stale KV fields
+    logger.warn('Stale subscription in KV, cleaning up', { email: user.email, subscriptionId });
+    await updateUserRecord(c.env.KV, user.email, {
+      stripeSubscriptionId: undefined,
+      stripeCustomerId: undefined,
+      stripePriceId: undefined,
+      billingStatus: undefined,
+      billingPeriodEnd: undefined,
+      subscriptionTier: 'pending',
+      accessTier: 'pending',
+      cancelAtPeriodEnd: undefined,
+      lastSyncedAt: undefined,
+    });
+    throw new ValidationError('Subscription expired. Redirecting to checkout.');
+  }
+  if (!snapshot.subscriptionItemId) {
     throw new ValidationError('Could not resolve subscription details from Stripe.');
   }
 
