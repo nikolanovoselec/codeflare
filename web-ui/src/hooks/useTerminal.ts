@@ -236,14 +236,25 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     terminalStore.registerFitAddon(props.sessionId, props.terminalId, fa);
     setTerminalInstance(t);
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (!fitAddon || !containerEl || !term) return;
-        if (containerEl.clientHeight === 0) return;
-        fitAddon.fit();
-        setDimensions({ cols: term.cols, rows: term.rows });
-      });
-    });
+    // Fit xterm to container once layout is stable. On mobile (especially
+    // Samsung Internet), the container may report clientHeight === 0 during
+    // initial mount if the flex layout hasn't resolved yet. Retry with rAF
+    // polling instead of giving up — the ResizeObserver backup may not fire
+    // if props.active is false during the initializing phase.
+    let fitRetries = 0;
+    const MAX_FIT_RETRIES = 20; // ~330ms at 60fps
+    function tryFit() {
+      if (!fitAddon || !containerEl || !term) return;
+      if (containerEl.clientHeight === 0) {
+        if (fitRetries++ < MAX_FIT_RETRIES) {
+          requestAnimationFrame(tryFit);
+        }
+        return;
+      }
+      fitAddon.fit();
+      setDimensions({ cols: term.cols, rows: term.rows });
+    }
+    requestAnimationFrame(() => requestAnimationFrame(tryFit));
 
     // Resize observer
     resizeObserver = new ResizeObserver(() => {
