@@ -7,6 +7,7 @@ import { logger } from '../lib/logger';
 import {
   WS_RETRY_DELAY_MS,
   WS_RETRYABLE_CLOSE_CODES,
+  WS_CONTAINER_STOPPED_CODE,
 } from '../lib/constants';
 import {
   registerUrlDetectionDeps,
@@ -394,29 +395,18 @@ function connect(
         return;
       }
 
-      // Retry on retryable close codes (forever, flat delay)
-      if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
-        // Detect dead container: reconnect failure means the container stopped
-        // (503 from Container DO). Only trigger on reconnects (attemptNumber > 1),
-        // not on initial connection during startup.
-        if (attemptNumber > 1) {
-          // When the tab is hidden, browsers throttle/kill WS connections.
-          // A failed retry while hidden is NOT evidence the container stopped —
-          // defer to reconnectOnVisibilityReturn when the user comes back.
-          if (typeof document !== 'undefined' && document.hidden) {
-            logger.info(`[Terminal ${key}] WS retry failed while tab hidden — deferring`);
-            setConnectionState(sessionId, terminalId, 'disconnected');
-            return;
-          }
-          logger.warn(`[Terminal ${key}] WS reconnect failed — container stopped`);
-          setConnectionState(sessionId, terminalId, 'disconnected');
-          setRetryMessage(sessionId, terminalId, 'Session stopped');
-          if (_onContainerStoppedCallback) {
-            _onContainerStoppedCallback(sessionId);
-          }
-          return; // Stop retrying
-        }
+      // Server-authoritative: container is definitively not running (4503 from DO).
+      // Don't retry — session status will be updated by KV polling or is already stopped.
+      if (event.code === WS_CONTAINER_STOPPED_CODE) {
+        logger.info(`[Terminal ${key}] Container stopped (4503)`);
+        setConnectionState(sessionId, terminalId, 'disconnected');
+        setRetryMessage(sessionId, terminalId, 'Session stopped');
+        return;
+      }
 
+      // Retry on retryable close codes (flat delay, no limit).
+      // Network errors (1006) just retry — KV polling handles session status.
+      if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
         logger.warn(`[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}, code=${event.code}`);
         const timeout = setTimeout(() => {
           attemptConnection(attemptNumber + 1);
@@ -776,14 +766,6 @@ export function cancelScheduledDisconnect(): void {
     disconnectTimerId = null;
     logger.debug('[Terminal] Scheduled disconnect cancelled');
   }
-}
-
-// Callback for notifying session store when container is detected as stopped
-// via consecutive WS failures. Set by session store to avoid circular imports.
-let _onContainerStoppedCallback: ((sessionId: string) => void) | null = null;
-
-export function setOnContainerStoppedCallback(cb: (sessionId: string) => void): void {
-  _onContainerStoppedCallback = cb;
 }
 
 // Export store and actions

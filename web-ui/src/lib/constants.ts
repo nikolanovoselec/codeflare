@@ -40,6 +40,10 @@ export const WS_RETRYABLE_CLOSE_CODES = new Set([
   1013,  // Try Again Later
 ]);
 
+/** Custom WS close code: Container DO confirmed container is not running.
+ *  Authoritative — not an inference from network failure. Client should not retry. */
+export const WS_CONTAINER_STOPPED_CODE = 4503;
+
 
 // =============================================================================
 // Session

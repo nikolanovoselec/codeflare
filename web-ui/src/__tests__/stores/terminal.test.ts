@@ -650,11 +650,10 @@ describe('Terminal Store', () => {
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('detects dead container on first reconnect failure and stops retrying', async () => {
+    it('stops retrying on 4503 (container stopped) and sets disconnected', async () => {
       const terminal = createMockTerminal();
-
       const OriginalWebSocket = globalThis.WebSocket;
-      const connectTimestamps: number[] = [];
+      let connectCount = 0;
 
       vi.stubGlobal('WebSocket', class {
         static CONNECTING = 0;
@@ -672,11 +671,12 @@ describe('Terminal Store', () => {
 
         constructor(url: string) {
           this.url = url;
-          connectTimestamps.push(Date.now());
+          connectCount++;
           setTimeout(() => {
             this.readyState = 3;
             if (this.onclose) {
-              this.onclose(new CloseEvent('close', { code: 1006 }));
+              // Server-authoritative: container is not running
+              this.onclose(new CloseEvent('close', { code: 4503, reason: 'container-stopped' }));
             }
           }, 0);
         }
@@ -688,27 +688,20 @@ describe('Terminal Store', () => {
       } as unknown as typeof WebSocket);
 
       terminalStore.connect(sessionId, terminalId, terminal);
-
-      expect(connectTimestamps.length).toBe(1);
-
-      // Let first attempt fail (initial connect)
       await vi.advanceTimersByTimeAsync(0);
 
-      // Advance through first retry cycle: WS_RETRY_DELAY_MS (100ms mocked)
-      await vi.advanceTimersByTimeAsync(101);
+      // Should NOT retry — 4503 is authoritative
+      await vi.advanceTimersByTimeAsync(200);
+      expect(connectCount).toBe(1);
 
-      // Should have 2 total attempts (1 initial + 1 retry that detects dead container)
-      expect(connectTimestamps.length).toBe(2);
+      expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('disconnected');
+      expect(terminalStore.getRetryMessage(sessionId, terminalId)).toBe('Session stopped');
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('stops retrying and notifies callback on reconnect failure', async () => {
+    it('retries indefinitely on 1006 (network error) without dead-container inference', async () => {
       const terminal = createMockTerminal();
-      const stoppedCallback = vi.fn();
-      const { setOnContainerStoppedCallback } = await import('../../stores/terminal');
-      setOnContainerStoppedCallback(stoppedCallback);
-
       const OriginalWebSocket = globalThis.WebSocket;
       let connectCount = 0;
 
@@ -745,142 +738,21 @@ describe('Terminal Store', () => {
 
       terminalStore.connect(sessionId, terminalId, terminal);
 
-      // Initial connect fails
+      // Let initial attempt fail + 4 retries
       await vi.advanceTimersByTimeAsync(0);
-      // First retry (attemptNumber=2) — detects dead container
+      await vi.advanceTimersByTimeAsync(101);
+      await vi.advanceTimersByTimeAsync(101);
+      await vi.advanceTimersByTimeAsync(101);
       await vi.advanceTimersByTimeAsync(101);
 
-      // Should have stopped after 2 attempts (initial + 1 retry)
-      expect(connectCount).toBe(2);
-
-      // Should be disconnected, not still connecting
-      const state = terminalStore.getConnectionState(sessionId, terminalId);
-      expect(state).toBe('disconnected');
-
-      // Container stopped callback should have fired
-      expect(stoppedCallback).toHaveBeenCalledWith(sessionId);
+      // Should keep retrying — no dead-container cutoff at attemptNumber > 1
+      expect(connectCount).toBeGreaterThanOrEqual(5);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
     it('exports getRetryMessage in the store API', () => {
       expect('getRetryMessage' in terminalStore).toBe(true);
-    });
-
-    it('defers container-stopped detection when document is hidden (tab backgrounded)', async () => {
-      const terminal = createMockTerminal();
-      const stoppedCallback = vi.fn();
-      const { setOnContainerStoppedCallback } = await import('../../stores/terminal');
-      setOnContainerStoppedCallback(stoppedCallback);
-
-      const OriginalWebSocket = globalThis.WebSocket;
-      let connectCount = 0;
-
-      vi.stubGlobal('WebSocket', class {
-        static CONNECTING = 0;
-        static OPEN = 1;
-        static CLOSING = 2;
-        static CLOSED = 3;
-
-        readyState = 0;
-        url: string;
-        binaryType: BinaryType = 'blob';
-        onopen: ((event: Event) => void) | null = null;
-        onclose: ((event: CloseEvent) => void) | null = null;
-        onmessage: ((event: MessageEvent) => void) | null = null;
-        onerror: ((event: Event) => void) | null = null;
-
-        constructor(url: string) {
-          this.url = url;
-          connectCount++;
-          setTimeout(() => {
-            this.readyState = 3;
-            if (this.onclose) {
-              this.onclose(new CloseEvent('close', { code: 1006 }));
-            }
-          }, 0);
-        }
-
-        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
-        close(_code?: number, _reason?: string): void {
-          this.readyState = 3;
-        }
-      } as unknown as typeof WebSocket);
-
-      // Simulate hidden tab — browsers throttle/kill WS in background tabs
-      Object.defineProperty(document, 'hidden', { value: true, configurable: true });
-
-      terminalStore.connect(sessionId, terminalId, terminal);
-
-      // Initial connect fails
-      await vi.advanceTimersByTimeAsync(0);
-      // First retry (attemptNumber=2) fires while tab is hidden
-      await vi.advanceTimersByTimeAsync(101);
-
-      // Should have 2 attempts
-      expect(connectCount).toBe(2);
-
-      // Terminal should be disconnected (not "Session stopped")
-      expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('disconnected');
-
-      // Container stopped callback should NOT have fired — tab was hidden
-      expect(stoppedCallback).not.toHaveBeenCalled();
-
-      // Restore
-      Object.defineProperty(document, 'hidden', { value: false, configurable: true });
-      vi.stubGlobal('WebSocket', OriginalWebSocket);
-    });
-
-    it('still detects dead container when tab is visible', async () => {
-      const terminal = createMockTerminal();
-      const stoppedCallback = vi.fn();
-      const { setOnContainerStoppedCallback } = await import('../../stores/terminal');
-      setOnContainerStoppedCallback(stoppedCallback);
-
-      const OriginalWebSocket = globalThis.WebSocket;
-
-      vi.stubGlobal('WebSocket', class {
-        static CONNECTING = 0;
-        static OPEN = 1;
-        static CLOSING = 2;
-        static CLOSED = 3;
-
-        readyState = 0;
-        url: string;
-        binaryType: BinaryType = 'blob';
-        onopen: ((event: Event) => void) | null = null;
-        onclose: ((event: CloseEvent) => void) | null = null;
-        onmessage: ((event: MessageEvent) => void) | null = null;
-        onerror: ((event: Event) => void) | null = null;
-
-        constructor(url: string) {
-          this.url = url;
-          setTimeout(() => {
-            this.readyState = 3;
-            if (this.onclose) {
-              this.onclose(new CloseEvent('close', { code: 1006 }));
-            }
-          }, 0);
-        }
-
-        send(_data: string | ArrayBuffer | Blob | ArrayBufferView): void {}
-        close(_code?: number, _reason?: string): void {
-          this.readyState = 3;
-        }
-      } as unknown as typeof WebSocket);
-
-      // Tab is visible — dead container detection should work normally
-      Object.defineProperty(document, 'hidden', { value: false, configurable: true });
-
-      terminalStore.connect(sessionId, terminalId, terminal);
-
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(101);
-
-      // Container stopped callback SHOULD have fired — tab is visible
-      expect(stoppedCallback).toHaveBeenCalledWith(sessionId);
-
-      vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
   });
 

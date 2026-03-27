@@ -3,7 +3,7 @@ import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
-import { terminalStore, setOnContainerStoppedCallback } from './terminal';
+import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, SESSION_LIST_POLL_INTERVAL_MS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
@@ -537,21 +537,22 @@ async function refreshSessionStatuses(): Promise<void> {
         }));
       }
 
-      // Guard: skip status transitions for the active session
-      if (shouldSkipStatusTransition(session.id, state.activeSessionId)) continue;
+      // Guard: don't overwrite user-initiated "stopping" with stale KV
+      if (session.status === 'stopping') continue;
+      // Guard: don't clobber init progress UI with stale KV
+      if (session.status === 'initializing') continue;
 
-      // Guard: skip status transitions for initializing sessions to avoid
-      // clobbering the init progress UI with stale KV data. The container
-      // may report 'running' in batch-status before the init flow completes.
-      if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
+      // KV is source of truth for session status (polled every 5s).
+      // 4503 from Container DO handles immediate stop detection;
+      // KV handles cross-colo propagation for idle timeouts.
+      if (remote.status === 'running' && session.status !== 'running') {
         updateSessionStatus(session.id, 'running');
-        // Do NOT call initializeTerminalsForSession here — KV "running" after
-        // a stopped→running transition may be stale (eventual consistency).
-        // Creating new WS connections on stale data causes a flapping loop:
-        // stale KV "running" → new WS → 503 → handleContainerStopped → repeat.
-        // User clicks the session card to reconnect explicitly.
-      } else if (remote.status === 'stopped' && session.status !== 'stopped' && session.status !== 'stopping' && session.status !== 'initializing') {
+      } else if (remote.status === 'stopped' && session.status !== 'stopped') {
         updateSessionStatus(session.id, 'stopped');
+        terminalStore.disposeSession(session.id);
+        if (session.id === state.activeSessionId) {
+          setState('activeSessionId', null);
+        }
       }
     }
   } catch (err) {
@@ -618,45 +619,6 @@ function hasRecentContext(session: SessionWithStatus): boolean {
   return Date.now() - new Date(session.lastActiveAt).getTime() < CONTEXT_EXPIRY_MS;
 }
 
-// Export store and actions
-/**
- * Whether KV polling should skip status transitions for this session.
- * The active session's lifecycle is managed by WebSocket/startup-status
- * (which talk to the DO directly), not by eventually-consistent KV.
- */
-export function shouldSkipStatusTransition(sessionId: string, activeSessionId: string | null): boolean {
-  return sessionId === activeSessionId && activeSessionId !== null;
-}
-
-/**
- * Called by terminal store when WS reconnect fails — container is dead.
- * Sets session to stopped, keeps activeSessionId for 3 minutes to block
- * stale KV "running" overwrites, then clears it. After 3 minutes KV is
- * treated as the single source of truth.
- */
-let containerStoppedTimer: ReturnType<typeof setTimeout> | null = null;
-const CONTAINER_STOPPED_KEEPALIVE_MS = 180_000; // 3 minutes
-
-function handleContainerStopped(sessionId: string): void {
-  // Set the session to stopped — Layout.tsx will transition to dashboard
-  updateSessionStatus(sessionId, 'stopped');
-  // Dispose terminal WS retry loops
-  terminalStore.disposeSession(sessionId);
-
-  // Keep activeSessionId set for 3 minutes so shouldSkipStatusTransition
-  // blocks stale KV "running" from overwriting our "stopped" status.
-  // After 3 minutes KV has propagated and is trusted as source of truth.
-  if (containerStoppedTimer) clearTimeout(containerStoppedTimer);
-  containerStoppedTimer = setTimeout(() => {
-    if (state.activeSessionId === sessionId) {
-      setState('activeSessionId', null);
-    }
-    containerStoppedTimer = null;
-  }, CONTAINER_STOPPED_KEEPALIVE_MS);
-}
-
-// Register callback so terminal store can notify us when container stops
-setOnContainerStoppedCallback(handleContainerStopped);
 
 export const sessionStore = {
   // State (readonly)

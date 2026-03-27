@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../stores/terminal', () => ({
-  setOnContainerStoppedCallback: vi.fn(),
   terminalStore: {
     dispose: vi.fn(),
     disposeSession: vi.fn(),

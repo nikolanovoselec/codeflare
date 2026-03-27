@@ -337,6 +337,14 @@ export class container extends Container<Env> {
     // container via super.fetch() (which triggers the SDK's startIfNotRunning).
     // The DO knows the container state authoritatively — no KV read needed.
     if (!this.ctx.container?.running) {
+      // WS upgrade: accept then close with custom code 4503 so the client
+      // can distinguish "container stopped" from network errors (1006).
+      if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+        const pair = new WebSocketPair();
+        pair[1].accept();
+        pair[1].close(4503, 'container-stopped');
+        return new Response(null, { status: 101, webSocket: pair[0] });
+      }
       return new Response(JSON.stringify({ error: 'Container not running' }), {
         status: 503,
         headers: { 'Content-Type': 'application/json' },

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock terminal store before importing session store
 vi.mock('../../stores/terminal', () => ({
-  setOnContainerStoppedCallback: vi.fn(),
   terminalStore: {
     dispose: vi.fn(),
     disposeSession: vi.fn(),

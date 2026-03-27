@@ -5,7 +5,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // reconnection logic. dispose() in the real store tears down WebSockets and xterm;
 // here it's a no-op. sendInputToTerminal writes to the WebSocket in production.
 vi.mock('../../stores/terminal', () => ({
-  setOnContainerStoppedCallback: vi.fn(),
   terminalStore: {
     dispose: vi.fn(),
     disposeSession: vi.fn(),
@@ -51,7 +50,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { sessionStore, shouldSkipStatusTransition } from '../../stores/session';
+import { sessionStore } from '../../stores/session';
 import { applyMetricsUpdate } from '../../stores/session';
 import * as api from '../../api/client';
 import * as terminal from '../../stores/terminal';
@@ -1220,15 +1219,6 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.length).toBe(1);
       // Error state should be set
       expect(sessionStore.error).toBe('Batch status network error');
-    });
-  });
-
-  describe('shouldSkipStatusTransition', () => {
-    it('refreshSessionStatuses calls shouldSkipStatusTransition (not inline check)', async () => {
-      // Verify that shouldSkipStatusTransition is exported and works correctly
-      expect(shouldSkipStatusTransition('session-1', 'session-1')).toBe(true);
-      expect(shouldSkipStatusTransition('session-1', null)).toBe(false);
-      expect(shouldSkipStatusTransition('session-1', 'session-2')).toBe(false);
     });
   });
 
