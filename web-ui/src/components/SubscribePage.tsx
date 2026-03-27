@@ -356,10 +356,16 @@ const SubscribePage: Component = () => {
 
       if (isPaid && isActive()) {
         // Existing subscriber switching plans — deep-link to portal confirmation page
-        const { portalUrl } = await createSwitchSession(tierId, mode);
-        window.location.href = portalUrl;
-      } else if (isPaid) {
-        // New subscriber — create checkout session
+        // Falls back to checkout if subscription is gone from Stripe (stale KV)
+        try {
+          const { portalUrl } = await createSwitchSession(tierId, mode);
+          window.location.href = portalUrl;
+          return;
+        } catch {
+          // Subscription no longer exists on Stripe — fall through to checkout
+        }
+      }
+      if (isPaid) {
         const { checkoutUrl } = await createCheckoutSession(tierId, mode);
         window.location.href = checkoutUrl;
       } else {
