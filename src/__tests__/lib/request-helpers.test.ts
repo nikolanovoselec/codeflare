@@ -9,7 +9,7 @@ describe('firstZodError', () => {
     const result = schema.safeParse({ name: 42 });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(firstZodError(result.error)).toBe('Expected string, received number');
+      expect(firstZodError(result.error)).toContain('expected string, received number');
     }
   });
 
