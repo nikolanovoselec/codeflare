@@ -455,8 +455,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       sessionMode,
       sleepAfter,
       encryptionKey: c.env.ENCRYPTION_KEY,
-      llmKeys,
-      deployKeys,
+      llmKeys: llmKeys ?? undefined,
+      deployKeys: deployKeys ?? undefined,
       logger: reqLogger,
     });
 
