@@ -445,7 +445,7 @@ app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => 
   const user = c.get('user');
   let plan: string | undefined;
   try {
-    const body = await c.req.json<{ plan?: string }>().catch(() => ({}));
+    const body = await c.req.json<{ plan?: string }>().catch(() => ({} as { plan?: string }));
     plan = typeof body.plan === 'string' ? body.plan.slice(0, 64) : undefined;
   } catch { /* body parsing is best-effort */ }
   try {
