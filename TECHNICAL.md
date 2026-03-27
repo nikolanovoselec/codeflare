@@ -327,6 +327,9 @@ function connect() {
 | `src/lib/jwt.ts` | RS256 verification against CF Access JWKS (`https://{authDomain}/cdn-cgi/access/certs`). Per-isolate JWKS cache with `resetJWKSCache()`. |
 | `src/lib/cache-reset.ts` | Centralized invalidation of CORS + auth config + JWKS caches. Called by setup wizard after configuration changes. |
 | `src/lib/cf-api.ts` | Cloudflare API client. `parseCfResponse` checks `Content-Type` header before JSON parsing. When content-type is not `application/json`, attempts `JSON.parse` on the text body as a lenient fallback (Cloudflare sometimes omits content-type on valid JSON). Only throws a structured `AppError` with the first 200 chars of the response body if the parse actually fails -- this gives clear diagnostics for HTML error pages or plain text from expired tokens, instead of opaque JSON parse errors. |
+| `src/lib/request-helpers.ts` | Shared request handling: `parseJsonBody(c)` (JSON parse with ValidationError on malformed input), `firstZodError(error)` (first Zod issue message with fallback), `validateSessionId(id)` (throws on invalid format), `maskSecret(value)` (shows last 4 chars). |
+| `src/lib/kv-keys.ts` | KV key utilities: session/user key helpers, `SETUP_KEYS` const for all 20 `setup:*` configuration keys, `getBaseUrl(kv, requestUrl)`, `listAllKvKeys()`. |
+| `src/types.ts` | `BillingStatus` union type (`'active' | 'trialing' | 'past_due' | 'canceled'`) with `BILLING_STATUS` const and `isBillingStatus()` guard. `ContainerConfigPayload` groups 16 container initialization params into logical sub-objects (R2 creds, LlmKeys, DeployKeys, preferences). |
 
 ### Setup Wizard Resilience
 
@@ -904,11 +907,13 @@ Webhooks are signals that trigger a fetch of the latest state from the Stripe AP
 **Price resolution:** `getStripePriceId(tier, mode, tiers)` and `resolveTierFromPriceId(priceId, tiers)` both require tier config (KV-sourced). No dev fallback — prices must be configured in tier config or via Stripe Price metadata.
 
 **Billing enforcement (`getEffectiveTier()` in `src/lib/subscription.ts`):**
+Uses `BILLING_STATUS` constants from `types.ts` for type-safe comparisons (not raw strings). `BillingStatus` union type: `'active' | 'trialing' | 'past_due' | 'canceled'`. `StripeSubscriptionSnapshot.status` remains `string` since Stripe may return statuses outside this enum (e.g., `'incomplete'`). The `parseUserRecord` Zod schema uses `.catch(undefined)` to gracefully handle unexpected values from KV.
+
 Downgrade rules for paid tiers (standard/advanced/max):
-- `billingStatus === 'canceled'` → immediate downgrade to `free` (no grace period)
-- `billingStatus === 'past_due'` + future `billingPeriodEnd` → keep paid tier (grace period)
-- `billingStatus === 'past_due'` + expired/missing `billingPeriodEnd` → downgrade to `free`
-- `billingPeriodEnd` expired + `billingStatus === 'active'` → downgrade to `free` (catches missed webhooks, CF-015)
+- `billingStatus === BILLING_STATUS.CANCELED` → immediate downgrade to `free` (no grace period)
+- `billingStatus === BILLING_STATUS.PAST_DUE` + future `billingPeriodEnd` → keep paid tier (grace period)
+- `billingStatus === BILLING_STATUS.PAST_DUE` + expired/missing `billingPeriodEnd` → downgrade to `free`
+- `billingPeriodEnd` expired + `billingStatus === BILLING_STATUS.ACTIVE` → downgrade to `free` (catches missed webhooks, CF-015)
 
 The stored `subscriptionTier` is preserved in KV so resubscription restores the correct plan. Enforcement is read-time, not write-time.
 
