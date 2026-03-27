@@ -822,6 +822,7 @@ const SubscribePage: Component = () => {
                             void fetch('/api/auth/contact-team', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
+                              body: JSON.stringify({ plan: selectedTier()?.displayName ?? 'Team' }),
                             }).catch(() => {});
                             return;
                           }

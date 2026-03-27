@@ -146,6 +146,7 @@
   white-space: nowrap;
   margin-left: auto;
   flex-shrink: 0;
+  margin-top: 0.15rem;
   animation: lifelinePulse 2s ease-in-out infinite;
 }
 

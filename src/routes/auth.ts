@@ -443,6 +443,11 @@ const contactTeamRateLimiter = createRateLimiter({
 // POST /api/auth/contact-team — notify admins that a user wants Team/Enterprise access
 app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => {
   const user = c.get('user');
+  let plan: string | undefined;
+  try {
+    const body = await c.req.json<{ plan?: string }>().catch(() => ({}));
+    plan = typeof body.plan === 'string' ? body.plan.slice(0, 64) : undefined;
+  } catch { /* body parsing is best-effort */ }
   try {
     const users = await getAllUsers(c.env.KV);
     const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
@@ -450,13 +455,14 @@ app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => 
       userEmail: user.email,
       requestedAt: new Date().toISOString(),
       remoteIp: c.req.header('CF-Connecting-IP') || null,
+      plan: plan || 'Team',
       adminEmails,
       env: c.env,
     });
   } catch (err) {
     logger.error('Failed to send team contact email', err instanceof Error ? err : new Error(String(err)));
   }
-  logger.info('Team access inquiry', { email: user.email });
+  logger.info('Team access inquiry', { email: user.email, plan });
   return c.json({ success: true });
 });
 

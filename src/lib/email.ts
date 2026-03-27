@@ -283,28 +283,55 @@ export async function sendTierChangeNotification(opts: {
 }
 
 /**
- * Send admin notification for a new access request (CF-020).
- * Replaces raw fetch call in auth.ts request-access handler.
+ * Send admin notification for an access or Team plan inquiry (CF-020).
+ * When `plan` is provided, the email is formatted as a Team/Enterprise inquiry
+ * with a call to action. Otherwise it falls back to a generic access request.
  */
 export async function sendAccessRequestNotification(opts: {
   userEmail: string;
   requestedAt: string;
   remoteIp: string | null;
+  plan?: string;
   adminEmails: string[];
   env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
   if (opts.adminEmails.length === 0) return false;
   const safeEmail = escapeXml(opts.userEmail);
   const safeIp = escapeXml(opts.remoteIp || 'unknown');
+  const safePlan = opts.plan ? escapeXml(opts.plan) : null;
+
+  const date = new Date(opts.requestedAt);
+  const formattedDate = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    + ' at ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
+
+  const subject = safePlan
+    ? `${safePlan} plan inquiry: ${opts.userEmail.replace(/[\r\n]/g, '')}`
+    : `Codeflare access request: ${opts.userEmail.replace(/[\r\n]/g, '')}`;
+
+  const lines = safePlan
+    ? [
+        `<h2>${safePlan} Plan Inquiry</h2>`,
+        `<p>A user has requested information about the <strong>${safePlan}</strong> plan.</p>`,
+        '<table style="border-collapse:collapse;margin:16px 0">',
+        `<tr><td style="padding:4px 16px 4px 0;color:#888">Email</td><td><strong>${safeEmail}</strong></td></tr>`,
+        `<tr><td style="padding:4px 16px 4px 0;color:#888">Plan</td><td><strong>${safePlan}</strong> (unlimited compute, 10 parallel sessions)</td></tr>`,
+        `<tr><td style="padding:4px 16px 4px 0;color:#888">Requested</td><td>${escapeXml(formattedDate)}</td></tr>`,
+        `<tr><td style="padding:4px 16px 4px 0;color:#888">IP</td><td>${safeIp}</td></tr>`,
+        '</table>',
+        '<hr style="border:none;border-top:1px solid #ddd;margin:24px 0" />',
+        `<p><strong>Next step:</strong> Reply to this email to reach <strong>${safeEmail}</strong> directly and discuss pricing, onboarding, or a demo.</p>`,
+      ]
+    : [
+        '<h2>New Codeflare access request</h2>',
+        `<p><strong>Email:</strong> ${safeEmail}</p>`,
+        `<p><strong>Requested at:</strong> ${escapeXml(formattedDate)}</p>`,
+        `<p><strong>IP:</strong> ${safeIp}</p>`,
+      ];
+
   return sendEmail({
     to: opts.adminEmails,
-    subject: `Codeflare access request: ${opts.userEmail.replace(/[\r\n]/g, '')}`,
-    html: [
-      '<h2>New Codeflare access request</h2>',
-      `<p><strong>Email:</strong> ${safeEmail}</p>`,
-      `<p><strong>Requested at:</strong> ${opts.requestedAt}</p>`,
-      `<p><strong>IP:</strong> ${safeIp}</p>`,
-    ].join('\n'),
+    subject,
+    html: lines.join('\n'),
     replyTo: opts.userEmail.replace(/[\r\n]/g, ''),
     env: opts.env,
   });
