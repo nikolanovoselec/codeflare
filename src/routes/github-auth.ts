@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { signSessionJWT } from '../lib/session-jwt';
 import { createLogger } from '../lib/logger';
+import { toError } from '../lib/error-types';
 import { parseUserRecord } from '../lib/user-record';
 import { getCookieValue } from '../lib/access';
 import { getBaseUrl } from '../lib/kv-keys';
@@ -108,7 +109,7 @@ app.get('/callback', callbackRateLimiter, async (c) => {
     if (!tokenData.access_token) throw new Error(tokenData.error || 'No access token');
     accessToken = tokenData.access_token;
   } catch (err) {
-    logger.error('GitHub token exchange failed', err instanceof Error ? err : new Error(String(err)));
+    logger.error('GitHub token exchange failed', toError(err));
     return c.json({ error: 'GitHub authentication failed' }, 502);
   }
 
@@ -135,7 +136,7 @@ app.get('/callback', callbackRateLimiter, async (c) => {
     const primary = emails.find(e => e.primary && e.verified);
     email = primary?.email ?? null;
   } catch (err) {
-    logger.error('GitHub API failed', err instanceof Error ? err : new Error(String(err)));
+    logger.error('GitHub API failed', toError(err));
     return c.json({ error: 'Failed to fetch GitHub profile' }, 502);
   }
 

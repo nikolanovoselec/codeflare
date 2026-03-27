@@ -9,22 +9,13 @@ import { getDeployKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
+import { maskSecret } from '../lib/request-helpers';
 
 const UpdateDeployKeysBody = z.object({
   githubToken: z.string().max(256).nullable().optional(),
   cloudflareApiToken: z.string().max(256).nullable().optional(),
   cloudflareAccountId: z.string().max(128).nullable().optional(),
 }).strict();
-
-/**
- * Mask a token for safe display: show only last 4 characters.
- * Returns undefined if the token is not set.
- */
-function maskToken(token: string | undefined): string | undefined {
-  if (!token) return undefined;
-  if (token.length <= 4) return '****';
-  return '****' + token.slice(-4);
-}
 
 /**
  * Validate a GitHub fine-grained PAT by calling the GitHub API.
@@ -84,8 +75,8 @@ app.get('/', async (c) => {
   const stored = await getAndDecrypt<DeployKeys>(c.env.KV, kvKey, cryptoKey);
 
   return c.json({
-    githubToken: maskToken(stored?.githubToken),
-    cloudflareApiToken: maskToken(stored?.cloudflareApiToken),
+    githubToken: maskSecret(stored?.githubToken),
+    cloudflareApiToken: maskSecret(stored?.cloudflareApiToken),
     cloudflareAccountId: stored?.cloudflareAccountId ?? undefined,
   });
 });
@@ -150,8 +141,8 @@ app.put('/', async (c) => {
   }
 
   return c.json({
-    githubToken: maskToken(updated.githubToken),
-    cloudflareApiToken: maskToken(updated.cloudflareApiToken),
+    githubToken: maskSecret(updated.githubToken),
+    cloudflareApiToken: maskSecret(updated.cloudflareApiToken),
     cloudflareAccountId: updated.cloudflareAccountId ?? undefined,
     ...(cloudflareAccounts && { cloudflareAccounts }),
   });

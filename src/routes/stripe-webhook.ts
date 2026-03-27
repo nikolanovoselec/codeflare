@@ -10,7 +10,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { BILLING_STATUS } from '../types';
-import { ValidationError } from '../lib/error-types';
+import { ValidationError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { createRateLimiter } from '../middleware/rate-limit';
 import {
@@ -96,7 +96,7 @@ app.post('/webhook', webhookRateLimiter, async (c) => {
     await c.env.KV.put(dedupeKey, 'processed', { expirationTtl: DEDUPE_TTL_SECONDS });
     return c.json({ received: true });
   } catch (err) {
-    logger.error('Webhook handler error', err instanceof Error ? err : new Error(String(err)), {
+    logger.error('Webhook handler error', toError(err), {
       eventId: event.id,
       type: event.type,
     });

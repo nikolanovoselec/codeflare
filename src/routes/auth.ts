@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { ValidationError, ForbiddenError } from '../lib/error-types';
+import { ValidationError, ForbiddenError, toError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
 import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots } from '../lib/subscription';
 import { getAllUsers, getAdminEmails } from '../lib/access-policy';
@@ -225,7 +225,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
       env: c.env,
     });
   } catch (err) {
-    logger.error('Failed to send access request notification email', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Failed to send access request notification email', toError(err));
   }
 
   logger.info('Access request submitted', { email: user.email });
@@ -399,7 +399,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
       void emailPromise;
     }
   } catch (err) {
-    logger.error('Failed to send subscription emails', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Failed to send subscription emails', toError(err));
   }
 
   return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete, trialUsed });
@@ -431,7 +431,7 @@ app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => 
       env: c.env,
     });
   } catch (err) {
-    logger.error('Failed to send team contact email', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Failed to send team contact email', toError(err));
   }
   logger.info('Team access inquiry', { email: user.email, plan });
   return c.json({ success: true });

@@ -24,7 +24,7 @@ import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Env, Session, TabConfig } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
-import { toErrorMessage } from '../lib/error-types';
+import { toError, toErrorMessage } from '../lib/error-types';
 import { getSessionKey } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
@@ -525,7 +525,7 @@ export class container extends Container<Env> {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
-      this.logger.error('setBucketName failed', err instanceof Error ? err : new Error(toErrorMessage(err)));
+      this.logger.error('setBucketName failed', toError(err));
       return new Response(JSON.stringify({ error: 'Internal error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
@@ -549,7 +549,7 @@ export class container extends Container<Env> {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (err) {
-      this.logger.error('setSessionId failed', err instanceof Error ? err : new Error(toErrorMessage(err)));
+      this.logger.error('setSessionId failed', toError(err));
       return new Response(JSON.stringify({ error: 'Internal error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
@@ -771,7 +771,7 @@ export class container extends Container<Env> {
       await this.env.KV.put(key, JSON.stringify(session));
       this.logger.info('updateKvStatus: wrote to KV', { key, status, field });
     } catch (err) {
-      this.logger.error('Failed to update KV status', err instanceof Error ? err : new Error(String(err)));
+      this.logger.error('Failed to update KV status', toError(err));
     }
   }
 
@@ -803,7 +803,7 @@ export class container extends Container<Env> {
       this._sessionMode = 'default';
       this.logger.info('Operational storage cleared');
     } catch (err) {
-      this.logger.error('Failed to clear storage', err instanceof Error ? err : new Error(toErrorMessage(err)));
+      this.logger.error('Failed to clear storage', toError(err));
     }
     return super.destroy();
   }

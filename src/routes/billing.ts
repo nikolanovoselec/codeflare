@@ -10,7 +10,7 @@ import type { Env } from '../types';
 import { BILLING_STATUS } from '../types';
 import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { ValidationError } from '../lib/error-types';
+import { ValidationError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord, updateUserRecord } from '../lib/user-record';
 import { getTierConfig, countPaidSlots } from '../lib/subscription';
@@ -109,7 +109,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   try {
     await updateUserRecord(c.env.KV, user.email, { checkoutSessionId: session.id });
   } catch (err) {
-    logger.error('Failed to store checkoutSessionId', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Failed to store checkoutSessionId', toError(err));
   }
 
   logger.info('Checkout session created', { email: user.email, tier, mode, sessionId: session.id });

@@ -10,6 +10,7 @@
  */
 import { escapeXml } from './xml-utils';
 import { createLogger } from './logger';
+import { toError } from './error-types';
 
 const logger = createLogger('email');
 
@@ -116,7 +117,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
     }
     return resp.ok;
   } catch (err) {
-    logger.error('Email send error', err instanceof Error ? err : new Error(String(err)));
+    logger.error('Email send error', toError(err));
     return false;
   }
 }

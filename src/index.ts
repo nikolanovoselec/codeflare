@@ -18,7 +18,7 @@ import adminTiersRoutes from './routes/admin/tiers';
 import billingRoutes from './routes/billing';
 import stripeWebhookRoute from './routes/stripe-webhook';
 import { REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, CORS_MAX_AGE_SECONDS } from './lib/constants';
-import { AppError } from './lib/error-types';
+import { AppError, toError } from './lib/error-types';
 import { isAllowedOrigin } from './lib/cors-cache';
 import {
   resetSetupCache as resetSetupCacheShared,
@@ -265,7 +265,7 @@ app.onError((err, c) => {
     return c.json(err.toJSON(), err.statusCode as AppStatusCode);
   }
 
-  logger.error('Unexpected error', err instanceof Error ? err : new Error(String(err)), { requestId });
+  logger.error('Unexpected error', toError(err), { requestId });
   return c.json({ error: 'An unexpected error occurred' }, 500);
 });
 

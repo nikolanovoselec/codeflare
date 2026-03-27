@@ -14,6 +14,7 @@ import { BILLING_STATUS } from '../types';
 import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
 import { getUserTier, getTierConfig, getEffectiveTier } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
+import { toError } from '../lib/error-types';
 import { endTrialNow } from '../lib/stripe';
 
 const logger = createLogger('timekeeper');
@@ -95,7 +96,7 @@ export class Timekeeper {
         this.ctx.storage.put('lastFlushedMonthlyTotal', this.lastFlushedMonthlyTotal),
       ]);
     } catch (err) {
-      logger.error('Flush failed, will retry', err instanceof Error ? err : new Error(String(err)));
+      logger.error('Flush failed, will retry', toError(err));
       // Re-arm for retry
       await this.ctx.storage.setAlarm(Date.now() + RETRY_INTERVAL_MS);
       return;
@@ -212,7 +213,7 @@ export class Timekeeper {
               email: this.email, seconds: totalMonthlySeconds, quota: trialQuotaSeconds,
             });
           } catch (err) {
-            logger.error('Failed to end Stripe trial', err instanceof Error ? err : new Error(String(err)));
+            logger.error('Failed to end Stripe trial', toError(err));
           }
         }
       } else if (tier.monthlySeconds !== null && totalMonthlySeconds >= tier.monthlySeconds) {

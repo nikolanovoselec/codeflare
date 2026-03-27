@@ -9,21 +9,12 @@ import { getLlmKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
+import { maskSecret } from '../lib/request-helpers';
 
 const UpdateLlmKeysBody = z.object({
   openaiApiKey: z.string().max(256).nullable().optional(),
   geminiApiKey: z.string().max(256).nullable().optional(),
 }).strict();
-
-/**
- * Mask an API key for safe display: show only last 4 characters.
- * Returns undefined if the key is not set.
- */
-function maskKey(key: string | undefined): string | undefined {
-  if (!key) return undefined;
-  if (key.length <= 4) return '****';
-  return '****' + key.slice(-4);
-}
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -40,8 +31,8 @@ app.get('/', async (c) => {
   const stored = await getAndDecrypt<LlmKeys>(c.env.KV, kvKey, cryptoKey);
 
   return c.json({
-    openaiApiKey: maskKey(stored?.openaiApiKey),
-    geminiApiKey: maskKey(stored?.geminiApiKey),
+    openaiApiKey: maskSecret(stored?.openaiApiKey),
+    geminiApiKey: maskSecret(stored?.geminiApiKey),
   });
 });
 
@@ -87,8 +78,8 @@ app.put('/', async (c) => {
   }
 
   return c.json({
-    openaiApiKey: maskKey(updated.openaiApiKey),
-    geminiApiKey: maskKey(updated.geminiApiKey),
+    openaiApiKey: maskSecret(updated.openaiApiKey),
+    geminiApiKey: maskSecret(updated.geminiApiKey),
   });
 });
 

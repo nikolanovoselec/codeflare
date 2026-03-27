@@ -7,6 +7,7 @@ import { r2AdminCB } from './circuit-breakers';
 import { CF_API_BASE } from './constants';
 import { parseCfResponse } from './cf-api';
 import { getAndDecrypt, encryptAndStore } from './kv-crypto';
+import { toError } from './error-types';
 
 const logger = createLogger('r2-admin');
 
@@ -156,7 +157,7 @@ export async function createScopedR2Token(
       );
     } catch (err) {
       // Network errors are retryable
-      lastError = err instanceof Error ? err : new Error(String(err));
+      lastError = toError(err);
       if (attempt >= MAX_RETRIES) throw lastError;
       await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
       continue;
