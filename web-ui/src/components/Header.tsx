@@ -20,9 +20,9 @@ import {
 } from '@mdi/js';
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
-import { sessionStore, getUsageState } from '../stores/session';
+import { sessionStore } from '../stores/session';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
-import { formatDuration } from '../lib/format';
+import UsageInlineBadge from './UsageInlineBadge';
 
 import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl } from '../lib/gravatar';
@@ -297,16 +297,7 @@ const Header: Component<HeaderProps> = (props) => {
               >
                 <Icon path={mdiChartBar} size={16} />
                 <span>Usage</span>
-                {(() => {
-                  const usage = getUsageState();
-                  if (usage.monthlyQuotaSeconds !== null) {
-                    return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)} / {formatDuration(usage.monthlyQuotaSeconds)}</span>;
-                  }
-                  if (usage.monthlySeconds > 0) {
-                    return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)}</span>;
-                  }
-                  return null;
-                })()}
+                <UsageInlineBadge />
               </a>
               <a
                 href="/app/onboarding"

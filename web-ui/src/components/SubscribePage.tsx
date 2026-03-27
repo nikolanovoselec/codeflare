@@ -10,9 +10,6 @@ declare global {
 import { Component, onMount, onCleanup, createSignal, createEffect, createMemo, Show, For, type JSX } from 'solid-js';
 import {
   mdiRocketLaunchOutline,
-  mdiCellphoneLink,
-  mdiCloudLockOutline,
-  mdiCellphoneScreenshot,
   mdiSourceBranch,
   mdiLightningBolt,
   mdiCheck,
@@ -46,6 +43,7 @@ import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
 import { useScrambleText } from '../lib/use-scramble-text';
+import { FEATURES } from '../lib/marketing-content';
 import '../styles/subscribe-page.css';
 import '../styles/login-page.css';
 
@@ -71,17 +69,6 @@ interface TierInfo {
 
 type SubscribePhase = 'home' | 'tiers';
 
-/** Home view feature highlights */
-const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRobotOutline, content: () => <>Claude Code, Codex, Gemini & more</> },
-  { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready in seconds</> },
-  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> built in</> },
-  { icon: mdiConsole, content: () => <>Full Linux terminal, any browser</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when done</> },
-  { icon: mdiCloudLockOutline, content: () => <>Encrypted in transit and at rest</> },
-  { icon: mdiRocketLaunchOutline, content: () => <>Idea to deployment in minutes</> },
-  { icon: mdiCellphoneLink, content: () => <>Files persist. Bad decisions don't.</> },
-];
 
 /** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
 const TIER_FEATURES: Record<string, string[]> = {

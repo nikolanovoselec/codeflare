@@ -1,18 +1,9 @@
-import { Component, onMount, createSignal, Show, For, type JSX } from 'solid-js';
-import {
-  mdiRobotOutline,
-  mdiLightningBolt,
-  mdiSourceBranch,
-  mdiCellphoneLink,
-  mdiCellphoneScreenshot,
-  mdiCloudLockOutline,
-  mdiRocketLaunchOutline,
-  mdiConsole,
-} from '@mdi/js';
+import { Component, onMount, createSignal, Show, For } from 'solid-js';
 import { getAuthProviders, getAuthStatus } from '../api/client';
 import type { AuthProvider } from '../types';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
+import { FEATURES } from '../lib/marketing-content';
 import { logger } from '../lib/logger';
 import '../styles/login-page.css';
 
@@ -49,16 +40,6 @@ function getProviderIcon(provider: AuthProvider) {
   return null;
 }
 
-const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
-  { icon: mdiRobotOutline, content: () => <>Claude Code, Codex, Gemini & more</> },
-  { icon: mdiLightningBolt, content: () => <>Pre-loaded, ready in seconds</> },
-  { icon: mdiSourceBranch, content: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> built in</> },
-  { icon: mdiConsole, content: () => <>Full Linux terminal, any browser</> },
-  { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when done</> },
-  { icon: mdiCloudLockOutline, content: () => <>Encrypted in transit and at rest</> },
-  { icon: mdiRocketLaunchOutline, content: () => <>Idea to deployment in minutes</> },
-  { icon: mdiCellphoneLink, content: () => <>Files persist. Bad decisions don't.</> },
-];
 
 const LoginPage: Component = () => {
   const [loading, setLoading] = createSignal(true);
