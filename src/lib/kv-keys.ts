@@ -142,6 +142,14 @@ export function getIsoWeekStart(date: Date): string {
 }
 
 /**
+ * Resolve the base URL for redirects using custom domain from KV or the request origin.
+ */
+export async function getBaseUrl(kv: KVNamespace, requestUrl: string): Promise<string> {
+  const customDomain = await kv.get('setup:custom_domain');
+  return customDomain ? `https://${customDomain}` : new URL(requestUrl).origin;
+}
+
+/**
  * Fetch all KV keys matching a prefix, handling pagination safely.
  *
  * Cloudflare KV returns a maximum of 1000 keys per call. This function

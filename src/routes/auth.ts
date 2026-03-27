@@ -6,7 +6,7 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
 import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots } from '../lib/subscription';
-import { getAllUsers } from '../lib/access-policy';
+import { getAllUsers, getAdminEmails } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
@@ -17,8 +17,8 @@ import { isStripeConfigured, getStripePrices } from '../lib/stripe';
 const logger = createLogger('auth-routes');
 
 /** Map country code to currency for subscription email formatting. */
+const EUR_COUNTRIES = new Set(['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY']);
 function getCurrencyForCountry(country: string): string {
-  const EUR_COUNTRIES = new Set(['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY']);
   if (country === 'CH' || country === 'LI') return 'CHF';
   if (country === 'GB') return 'GBP';
   if (EUR_COUNTRIES.has(country)) return 'EUR';
@@ -216,8 +216,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
 
   // Send admin notification email (non-fatal, using shared sendEmail helper)
   try {
-    const users = await getAllUsers(c.env.KV);
-    const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
+    const adminEmails = await getAdminEmails(c.env.KV);
     await sendAccessRequestNotification({
       userEmail: user.email,
       requestedAt,
@@ -377,8 +376,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
         env: c.env,
       }),
       (async () => {
-        const users = await getAllUsers(c.env.KV);
-        const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
+        const adminEmails = await getAdminEmails(c.env.KV);
         return sendSubscriptionAdminNotification({
           userEmail: user.email,
           tierName: tierConfig?.displayName ?? parsed.data.tier,
@@ -423,8 +421,7 @@ app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => 
     plan = typeof body.plan === 'string' ? body.plan.slice(0, 64) : undefined;
   } catch { /* body parsing is best-effort */ }
   try {
-    const users = await getAllUsers(c.env.KV);
-    const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
+    const adminEmails = await getAdminEmails(c.env.KV);
     await sendAccessRequestNotification({
       userEmail: user.email,
       requestedAt: new Date().toISOString(),
@@ -437,21 +434,6 @@ app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => 
     logger.error('Failed to send team contact email', err instanceof Error ? err : new Error(String(err)));
   }
   logger.info('Team access inquiry', { email: user.email, plan });
-  return c.json({ success: true });
-});
-
-// POST /api/auth/onboarding-complete — mark guided setup as completed for this user
-app.post('/onboarding-complete', requireIdentity, async (c) => {
-  const user = c.get('user');
-  const existingRaw = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
-  if (!existingRaw) {
-    throw new ValidationError('User record not found');
-  }
-
-  const updated = { ...existingRaw, onboardingComplete: true };
-  await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
-
-  logger.info('Onboarding marked complete', { email: user.email });
   return c.json({ success: true });
 });
 

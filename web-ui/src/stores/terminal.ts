@@ -26,6 +26,8 @@ import {
   refitAllTerminalsExported as _refitAllTerminals,
 } from './terminal-layout';
 
+const textDecoder = new TextDecoder();
+
 // Callback for process-name messages (avoids circular import with session store)
 let onProcessName: ((sessionId: string, terminalId: string, processName: string) => void) | null = null;
 
@@ -345,7 +347,7 @@ function connect(
       // Server sends RAW terminal data - write directly to xterm
       let messageData: string;
       if (event.data instanceof ArrayBuffer) {
-        messageData = new TextDecoder().decode(event.data);
+        messageData = textDecoder.decode(event.data);
       } else if (typeof event.data === 'string') {
         messageData = event.data;
       } else {

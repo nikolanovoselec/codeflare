@@ -10,6 +10,7 @@ import { signSessionJWT } from '../lib/session-jwt';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord } from '../lib/user-record';
 import { getCookieValue } from '../lib/access';
+import { getBaseUrl } from '../lib/kv-keys';
 import { createRateLimiter } from '../middleware/rate-limit';
 
 const logger = createLogger('github-auth');
@@ -34,8 +35,7 @@ app.get('/login', async (c) => {
   }
 
   const state = crypto.randomUUID();
-  const customDomain = await c.env.KV.get('setup:custom_domain');
-  const origin = customDomain ? `https://${customDomain}` : new URL(c.req.url).origin;
+  const origin = await getBaseUrl(c.env.KV, c.req.url);
   const redirectUri = `${origin}/auth/github/callback`;
 
   const params = new URLSearchParams({
@@ -60,9 +60,8 @@ app.get('/callback', callbackRateLimiter, async (c) => {
 
   const url = new URL(c.req.url);
 
-  // Read custom domain once for all redirects in this handler
-  const customDomain = await c.env.KV.get('setup:custom_domain');
-  const base = customDomain ? `https://${customDomain}` : url.origin;
+  // Read base URL once for all redirects in this handler
+  const base = await getBaseUrl(c.env.KV, c.req.url);
 
   // GitHub returns ?error= when user denies or something goes wrong.
   // Allow-list known error codes to prevent reflected content in the redirect URL.
@@ -166,8 +165,7 @@ app.get('/callback', callbackRateLimiter, async (c) => {
 // ---------------------------------------------------------------------------
 app.get('/logout', async (c) => {
   c.header('Set-Cookie', `codeflare_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
-  const customDomain = await c.env.KV.get('setup:custom_domain');
-  const base = customDomain ? `https://${customDomain}` : new URL(c.req.url).origin;
+  const base = await getBaseUrl(c.env.KV, c.req.url);
   return c.redirect(`${base}/`);
 });
 

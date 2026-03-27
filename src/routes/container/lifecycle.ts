@@ -467,10 +467,10 @@ app.post('/start', containerStartRateLimiter, async (c) => {
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
     const cryptoKey = await getOrImportKey(c.env);
-    const llmKeysKey = getLlmKeysKey(bucketName);
-    const llmKeys = await getAndDecrypt<LlmKeys>(c.env.KV, llmKeysKey, cryptoKey);
-    const deployKeysKey = getDeployKeysKey(bucketName);
-    const deployKeys = await getAndDecrypt<DeployKeys>(c.env.KV, deployKeysKey, cryptoKey);
+    const [llmKeys, deployKeys] = await Promise.all([
+      getAndDecrypt<LlmKeys>(c.env.KV, getLlmKeysKey(bucketName), cryptoKey),
+      getAndDecrypt<DeployKeys>(c.env.KV, getDeployKeysKey(bucketName), cryptoKey),
+    ]);
 
     // Step 2: Ensure R2 bucket exists and seed if new
     const { r2Config } = await ensureBucketAndSeed({

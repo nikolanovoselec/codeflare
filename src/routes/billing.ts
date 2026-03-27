@@ -13,6 +13,7 @@ import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord, updateUserRecord } from '../lib/user-record';
 import { getTierConfig, countPaidSlots } from '../lib/subscription';
+import { getBaseUrl } from '../lib/kv-keys';
 import { getAllUsers } from '../lib/access-policy';
 import {
   getStripePriceId,
@@ -82,8 +83,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   }
 
   // Build success/cancel URLs using custom domain or request origin
-  const customDomain = await c.env.KV.get('setup:custom_domain');
-  const baseUrl = customDomain ? `https://${customDomain}` : new URL(c.req.url).origin;
+  const baseUrl = await getBaseUrl(c.env.KV, c.req.url);
   const successUrl = `${baseUrl}/app/subscribe?checkout=success`;
   const cancelUrl = `${baseUrl}/app/subscribe?checkout=canceled`;
 
@@ -194,8 +194,7 @@ app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
     throw new ValidationError('No active Stripe subscription found.');
   }
 
-  const customDomain = await c.env.KV.get('setup:custom_domain');
-  const baseUrl = customDomain ? `https://${customDomain}` : new URL(c.req.url).origin;
+  const baseUrl = await getBaseUrl(c.env.KV, c.req.url);
   const returnUrl = `${baseUrl}/app/subscribe`;
 
   const session = await createPortalSession({
@@ -274,8 +273,7 @@ app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
     throw new ValidationError('Could not resolve subscription details from Stripe.');
   }
 
-  const customDomain = await c.env.KV.get('setup:custom_domain');
-  const baseUrl = customDomain ? `https://${customDomain}` : new URL(c.req.url).origin;
+  const baseUrl = await getBaseUrl(c.env.KV, c.req.url);
   const returnUrl = `${baseUrl}/app/`;
 
   const session = await createSwitchPortalSession({

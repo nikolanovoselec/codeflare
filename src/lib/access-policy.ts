@@ -59,6 +59,14 @@ export async function getAllUsers(kv: KVNamespace): Promise<UserEntry[]> {
 }
 
 /**
+ * Get email addresses of all admin users from KV.
+ */
+export async function getAdminEmails(kv: KVNamespace): Promise<string[]> {
+  const users = await getAllUsers(kv);
+  return users.filter((u) => u.role === 'admin').map((u) => u.email);
+}
+
+/**
  * Sync CF Access policy to match current KV users (non-SaaS mode only).
  * Updates admin and user Access groups with emails from KV.
  * Then updates all Access apps' policies to reference these groups.

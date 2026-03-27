@@ -5,7 +5,7 @@ import type { Env } from '../types';
 import { AccessTierSchema, SubscriptionTierSchema } from '../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { getAllUsers, syncAccessPolicy } from '../lib/access-policy';
+import { getAllUsers, getAdminEmails, syncAccessPolicy } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
@@ -171,8 +171,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   });
 
   // Fire-and-forget tier change notification email
-  const adminUsers = await getAllUsers(c.env.KV);
-  const adminEmails = adminUsers.filter((u) => u.role === 'admin').map((u) => u.email);
+  const adminEmails = await getAdminEmails(c.env.KV);
   void sendTierChangeNotification({
     userEmail: email,
     previousTier,
