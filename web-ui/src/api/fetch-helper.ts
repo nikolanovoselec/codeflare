@@ -67,6 +67,13 @@ export async function baseFetch<T>(
       );
     }
 
+    // Auto-redirect to login on 401 (expired session cookie).
+    // Skip redirect for /public/* endpoints (unauthenticated by design).
+    if (response.status === 401 && !finalUrl.includes('/public/')) {
+      window.location.href = '/';
+      throw new ApiError('Session expired — redirecting to login', 401, 'Unauthorized');
+    }
+
     let code: string | undefined;
     try {
       if (body) {
