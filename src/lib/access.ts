@@ -1,4 +1,4 @@
-import type { AccessTier, AccessUser, Env, SubscriptionTier, UserRole } from '../types';
+import type { AccessTier, AccessUser, BillingStatus, Env, SubscriptionTier, UserRole } from '../types';
 import { verifyAccessJWT } from './jwt';
 import { verifySessionJWT } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
@@ -249,7 +249,7 @@ export function getBucketName(email: string, workerName?: string): string {
 export async function resolveUserFromKV(
   kv: KVNamespace,
   email: string
-): Promise<{ addedBy: string; addedAt: string; role: UserRole; accessTier?: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: string; billingPeriodEnd?: string } | null> {
+): Promise<{ addedBy: string; addedAt: string; role: UserRole; accessTier?: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: BillingStatus; billingPeriodEnd?: string } | null> {
   const normalizedEmail = normalizeEmail(email);
   const raw = await kv.get(`user:${normalizedEmail}`, 'json');
   // CF-010/CF-017: Use parseUserRecord for validated, typed parsing
@@ -281,7 +281,7 @@ export async function resolveOrProvisionUser(
   kv: KVNamespace,
   email: string,
   env: Env
-): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: string; billingPeriodEnd?: string }> {
+): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: BillingStatus; billingPeriodEnd?: string }> {
   const normalizedEmail = normalizeEmail(email);
   const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
 
