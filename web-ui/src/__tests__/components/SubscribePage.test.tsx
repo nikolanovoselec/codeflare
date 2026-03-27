@@ -17,13 +17,18 @@ vi.mock('../../api/client', () => ({
   getAuthStatus: vi.fn(),
   getPublicTiers: vi.fn(),
   subscribe: vi.fn(),
+  getBillingStatus: vi.fn(),
+  createCheckoutSession: vi.fn(),
+  createPortalSession: vi.fn(),
+  createSwitchSession: vi.fn(),
 }));
 
-import { getAuthStatus, getPublicTiers, subscribe } from '../../api/client';
+import { getAuthStatus, getPublicTiers, subscribe, getBillingStatus } from '../../api/client';
 
 const mockedGetAuthStatus = vi.mocked(getAuthStatus);
 const mockedGetPublicTiers = vi.mocked(getPublicTiers);
 const mockedSubscribe = vi.mocked(subscribe);
+const mockedGetBillingStatus = vi.mocked(getBillingStatus);
 
 const MOCK_PUBLIC_TIERS = [
   { id: 'free', displayName: 'Free', monthlySeconds: 14400, maxSessions: 1, priceMonthly: 0, advancedPriceMonthly: null, description: 'Get started for free', trialQuotaHours: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
@@ -66,6 +71,16 @@ describe('SubscribePage', () => {
     });
 
     mockedGetPublicTiers.mockResolvedValue({ tiers: MOCK_PUBLIC_TIERS });
+
+    // Default: no active Stripe subscription (pending user)
+    mockedGetBillingStatus.mockResolvedValue({
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      stripePriceId: null,
+      billingPeriodEnd: null,
+      checkoutSessionId: null,
+      billingStatus: null,
+    });
     mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: false });
 
     originalLocation = window.location;
@@ -270,6 +285,14 @@ describe('SubscribePage', () => {
         subscriptionTier: 'standard',
         role: 'user',
         hasSubscribed: true,
+      });
+      mockedGetBillingStatus.mockResolvedValue({
+        stripeCustomerId: 'cus_active',
+        stripeSubscriptionId: 'sub_active',
+        stripePriceId: 'price_std',
+        billingPeriodEnd: '2026-04-27T00:00:00Z',
+        checkoutSessionId: null,
+        billingStatus: 'active',
       });
 
       await openTierView();
