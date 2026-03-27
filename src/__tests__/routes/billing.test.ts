@@ -164,7 +164,19 @@ describe('GET /billing/status', () => {
     mockAuthResult.user = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: 'standard' };
   });
 
-  it('returns billing fields for subscribed user', async () => {
+  it('returns billing fields from Stripe for subscribed user', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue({
+      subscriptionId: 'sub_123',
+      subscriptionItemId: 'si_123',
+      customerId: 'cus_123',
+      status: 'active',
+      tier: 'standard',
+      mode: 'default',
+      priceId: 'price_std_default',
+      billingPeriodEnd: '2026-04-27T00:00:00Z',
+      cancelAtPeriodEnd: false,
+    });
+
     const { app, mockKV } = createApp();
     mockKV._set('user:user@example.com', {
       stripeCustomerId: 'cus_123',
@@ -177,6 +189,25 @@ describe('GET /billing/status', () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body.stripeCustomerId).toBe('cus_123');
     expect(body.billingStatus).toBe('active');
+    expect(body.stripeSubscriptionId).toBe('sub_123');
+  });
+
+  it('returns nulls and cleans KV when subscription is gone from Stripe', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(null);
+
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', {
+      stripeCustomerId: 'cus_gone',
+      stripeSubscriptionId: 'sub_gone',
+      billingStatus: 'active',
+    });
+
+    const res = await app.request('/billing/status');
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.stripeCustomerId).toBeNull();
+    expect(body.billingStatus).toBeNull();
+    expect(body.stripeSubscriptionId).toBeNull();
   });
 
   it('returns nulls for free user', async () => {
