@@ -134,10 +134,8 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   }).passthrough();
   const existing = kvUserSchema.parse(existingRaw);
 
-  // Admin users always have unlimited tier — prevent accidental lockout
-  if (existing.role === 'admin') {
-    throw new ValidationError('Cannot change admin subscription tier');
-  }
+  // Admin tier changes allowed — needed for recovery from corrupted KV state.
+  // Only admins can reach this endpoint (requireAdmin middleware).
 
   // Map new tier to nearest valid AccessTier for backward compat.
   // New tiers (free/trial/max/unlimited) don't exist in the old 4-value schema —
