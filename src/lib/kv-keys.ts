@@ -142,10 +142,36 @@ export function getIsoWeekStart(date: Date): string {
 }
 
 /**
+ * Centralized setup KV key constants. Eliminates raw 'setup:*' strings across 17+ files.
+ */
+export const SETUP_KEYS = {
+  COMPLETE: 'setup:complete',
+  COMPLETED_AT: 'setup:completed_at',
+  CONFIGURING: 'setup:configuring',
+  ACCOUNT_ID: 'setup:account_id',
+  R2_ENDPOINT: 'setup:r2_endpoint',
+  CUSTOM_DOMAIN: 'setup:custom_domain',
+  ALLOWED_ORIGINS: 'setup:allowed_origins',
+  ONBOARDING_LANDING_PAGE: 'setup:onboarding_landing_page',
+  AUTH_DOMAIN: 'setup:auth_domain',
+  ACCESS_AUD: 'setup:access_aud',
+  ACCESS_AUD_LIST: 'setup:access_aud_list',
+  ACCESS_APP_ID: 'setup:access_app_id',
+  ACCESS_GROUP_ADMIN_ID: 'setup:access_group_admin_id',
+  ACCESS_GROUP_USER_ID: 'setup:access_group_user_id',
+  ACCESS_GROUP_ADMIN_NAME: 'setup:access_group_admin_name',
+  ACCESS_GROUP_USER_NAME: 'setup:access_group_user_name',
+  IDP_LIST: 'setup:idp_list',
+  MAX_USERS: 'setup:max_users',
+  TURNSTILE_SITE_KEY: 'setup:turnstile_site_key',
+  TURNSTILE_SECRET_KEY: 'setup:turnstile_secret_key',
+} as const;
+
+/**
  * Resolve the base URL for redirects using custom domain from KV or the request origin.
  */
 export async function getBaseUrl(kv: KVNamespace, requestUrl: string): Promise<string> {
-  const customDomain = await kv.get('setup:custom_domain');
+  const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
   return customDomain ? `https://${customDomain}` : new URL(requestUrl).origin;
 }
 

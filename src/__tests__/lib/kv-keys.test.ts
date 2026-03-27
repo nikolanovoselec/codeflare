@@ -12,6 +12,7 @@ import {
   getUtcDateString,
   getUtcMonthString,
   getIsoWeekStart,
+  SETUP_KEYS,
 } from '../../lib/kv-keys';
 import { NotFoundError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -276,5 +277,31 @@ describe('getIsoWeekStart', () => {
     // 2026-01-05 is a Monday
     const date = new Date('2026-01-05T12:00:00Z');
     expect(getIsoWeekStart(date)).toBe('2026-01-05');
+  });
+});
+
+describe('SETUP_KEYS', () => {
+  it('contains 20 setup keys', () => {
+    expect(Object.keys(SETUP_KEYS)).toHaveLength(20);
+  });
+
+  it('all values start with "setup:"', () => {
+    for (const value of Object.values(SETUP_KEYS)) {
+      expect(value).toMatch(/^setup:/);
+    }
+  });
+
+  it('all values are unique', () => {
+    const values = Object.values(SETUP_KEYS);
+    expect(new Set(values).size).toBe(values.length);
+  });
+
+  it('has correct values for commonly used keys', () => {
+    expect(SETUP_KEYS.CUSTOM_DOMAIN).toBe('setup:custom_domain');
+    expect(SETUP_KEYS.ACCOUNT_ID).toBe('setup:account_id');
+    expect(SETUP_KEYS.TURNSTILE_SITE_KEY).toBe('setup:turnstile_site_key');
+    expect(SETUP_KEYS.MAX_USERS).toBe('setup:max_users');
+    expect(SETUP_KEYS.COMPLETE).toBe('setup:complete');
+    expect(SETUP_KEYS.IDP_LIST).toBe('setup:idp_list');
   });
 });
