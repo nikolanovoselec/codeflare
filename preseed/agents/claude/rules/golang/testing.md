@@ -6,8 +6,6 @@ paths:
 ---
 # Go Testing
 
-> This file extends [common/testing.md](../common/testing.md) with Go specific content.
-
 ## Framework
 
 Use the standard `go test` with **table-driven tests**.
@@ -25,7 +23,3 @@ go test -race ./...
 ```bash
 go test -cover ./...
 ```
-
-## Reference
-
-See skill: `golang-testing` for detailed Go testing patterns and helpers.

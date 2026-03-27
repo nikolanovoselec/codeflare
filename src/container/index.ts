@@ -28,6 +28,7 @@ import { toErrorMessage } from '../lib/error-types';
 import { getSessionKey } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
+import { isSaasModeActive } from '../lib/onboarding';
 
 const SESSION_ID_KEY = '_sessionId';
 
@@ -97,9 +98,11 @@ export class container extends Container<Env> {
   // Terminal server handles all endpoints: WebSocket, health check, metrics
   defaultPort = 8080;
 
-  // Container goes to sleep after this duration of inactivity (no HTTP fetch() calls).
+  // Default idle timeout before the container goes to sleep.
   // collectMetrics() renews via renewActivityTimeout() when new user input is detected.
-  override sleepAfter = '30m';
+  // The fetch() override uses super.fetch() (SDK handles readiness/networking).
+  // collectMetrics() handles real idle detection independently.
+  override sleepAfter = '5m';
 
   // Environment variables - set via property assignment in updateEnvVars()
   private _bucketName: string | null = null;
@@ -119,6 +122,9 @@ export class container extends Container<Env> {
   private _sessionMode: string = 'default';
   private _containerAuthToken: string | null = null;
   private _sessionId: string | null = null;
+  private _userEmail: string | null = null;
+  /** Monotonic usage counter (seconds) — sent to Timekeeper for delta computation */
+  private _usageSeconds = 0;
   private containerStartedAt = 0;
   /** Last seen lastInputAt from /activity — used to detect NEW input for renewal. */
   private lastSeenInputAt: number | null = null;
@@ -148,6 +154,8 @@ export class container extends Container<Env> {
       }
       this._tabConfig = await this.ctx.storage.get<TabConfig[]>('tabConfig') || null;
       this._sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY) || null;
+      this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
+      this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;
 
       // Resolve R2 config via shared helper (env vars first, KV fallback)
       try {
@@ -248,6 +256,14 @@ export class container extends Container<Env> {
     return this._bucketName;
   }
 
+  /** Parse sleepAfter string ('5m', '30m', '1h', '2h') to milliseconds. */
+  private parseSleepAfterMs(): number {
+    const s = this.sleepAfter;
+    if (s.endsWith('h')) return parseInt(s, 10) * 3_600_000;
+    if (s.endsWith('m')) return parseInt(s, 10) * 60_000;
+    return 300_000; // fallback 5 minutes
+  }
+
   /**
    * Update envVars with current bucket name
    * Called after setBucketName to ensure envVars has correct value
@@ -327,7 +343,12 @@ export class container extends Container<Env> {
       });
     }
 
-    // Inject container auth token for requests proxied to the container
+    // Use super.fetch() for reliable container proxying (handles startup
+    // readiness, WebSocket upgrades, and container networking).
+    // Note: super.fetch() calls renewActivityTimeout() internally, resetting
+    // the SDK sleepAfter timer on every request. This means the SDK timer
+    // alone cannot enforce idle sleep. Instead, collectMetrics() tracks real
+    // user input and calls this.stop('SIGTERM') explicitly when idle.
     if (this._containerAuthToken) {
       const authedRequest = new Request(request, {
         headers: new Headers(request.headers),
@@ -343,10 +364,11 @@ export class container extends Container<Env> {
    */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
-      const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode } =
+      const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, sleepAfter: sleepAfterPref } =
         await request.json() as {
           bucketName: string;
           sessionId?: string;
+          userEmail?: string;
           r2AccessKeyId?: string;
           r2SecretAccessKey?: string;
           r2AccountId?: string;
@@ -361,6 +383,7 @@ export class container extends Container<Env> {
           cloudflareAccountId?: string;
           encryptionKey?: string;
           sessionMode?: string;
+          sleepAfter?: string;
         };
 
       // FIX-28: Idempotency — once bucket name is set, reject subsequent calls.
@@ -426,6 +449,19 @@ export class container extends Container<Env> {
           prefsChanged = true;
         }
 
+        // Update sleepAfter on restart
+        if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
+          this.sleepAfter = sleepAfterPref;
+          this.renewActivityTimeout();
+        }
+
+        // Update userEmail on restart (critical for Timekeeper pings)
+        if (userEmail && userEmail !== this._userEmail) {
+          this._userEmail = userEmail;
+          await this.ctx.storage.put('userEmail', userEmail);
+          this.logger.info('Updated userEmail on restart', { userEmail });
+        }
+
         if (prefsChanged || sessionId) {
           this.updateEnvVars();
         }
@@ -455,6 +491,12 @@ export class container extends Container<Env> {
         this._sessionId = sessionId;
       }
 
+      // Store user email for Timekeeper pings
+      if (userEmail) {
+        await this.ctx.storage.put('userEmail', userEmail);
+        this._userEmail = userEmail;
+      }
+
       await this.setBucketName(bucketName, {
         r2AccessKeyId,
         r2SecretAccessKey,
@@ -471,6 +513,13 @@ export class container extends Container<Env> {
         encryptionKey,
         sessionMode,
       });
+
+      // Apply user-configurable sleepAfter (validated values: 5m, 15m, 30m, 1h, 2h)
+      if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
+        this.sleepAfter = sleepAfterPref;
+        this.renewActivityTimeout();
+        this.logger.info('sleepAfter set from user preference', { sleepAfter: sleepAfterPref });
+      }
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
         headers: { 'Content-Type': 'application/json' },
@@ -524,6 +573,9 @@ export class container extends Container<Env> {
     this.containerStartedAt = Date.now();
     this.updateEnvVars();
     await this.updateKvStatus('running', 'lastStartedAt');
+    // Also set lastActiveAt to start time so the frontend timer icon
+    // has a reference timestamp even before any user input occurs.
+    await this.updateKvStatus(null, 'lastActiveAt');
     this.logger.info('Container started');
     // Clear any stale schedule rows from previous runs before arming fresh
     try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
@@ -539,22 +591,18 @@ export class container extends Container<Env> {
     }
 
     // Keep-alive: renew sleepAfter only when new user input is detected.
-    // The SDK only resets sleepAfterMs via containerFetch() — WebSocket frames
-    // flow through raw TCP and never call renewActivityTimeout(). Without this,
-    // the container dies after sleepAfter even during active terminal use.
+    // User-input-based idle detection. super.fetch() resets the SDK's sleepAfter
+    // timer on every proxied request (including WebSocket reconnects), so we cannot
+    // rely on onActivityExpired() alone. Instead, collectMetrics() tracks real user
+    // input and explicitly stops the container when idle exceeds sleepAfter duration.
     try {
       const activityPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
       const activityRes = await activityPort.fetch('http://localhost/activity');
       if (!activityRes.ok) {
-        // Don't renew on non-OK — broken activity endpoint shouldn't keep containers alive
         this.logger.warn('collectMetrics: /activity returned non-OK, NOT renewing', { status: activityRes.status });
       } else {
         const activity = await activityRes.json() as ActivityState;
 
-        // Renew sleepAfter only when NEW input is detected (lastInputAt changed).
-        // This ensures the sleepAfter timer runs from the last actual input, not
-        // from the last poll cycle — giving exactly sleepAfter duration of idle
-        // time before the container stops (no 2x overshoot).
         const hasNewInput = activity.lastInputAt !== null
           && activity.lastInputAt !== this.lastSeenInputAt;
 
@@ -563,12 +611,30 @@ export class container extends Container<Env> {
         }
         this.lastSeenInputAt = activity.lastInputAt;
 
+        // Explicit idle-stop: check if idle duration exceeds sleepAfter.
+        // super.fetch() resets the SDK timer on every HTTP request (including
+        // WS reconnects), so onActivityExpired() may not fire for short timeouts.
+        // Use containerStartedAt as fallback when user never typed (lastInputAt null).
+        const referenceTime = activity.lastInputAt ?? this.containerStartedAt;
+        const idleMs = Date.now() - referenceTime;
+        const sleepMs = this.parseSleepAfterMs();
+        if (idleMs > sleepMs) {
+          this.logger.info('collectMetrics: idle exceeded sleepAfter, stopping', {
+            idleMs, sleepMs, referenceTime, lastInputAt: activity.lastInputAt,
+          });
+          // Write KV status before stop — DO state can be lost during shutdown
+          await this.updateKvStatus('stopped', 'lastActiveAt');
+          await this.stop('SIGTERM');
+          return;
+        }
+
         this.logger.info('collectMetrics: activity check', {
           renewed: hasNewInput,
           lastInputAt: activity.lastInputAt,
           lastSeenInputAt: this.lastSeenInputAt,
           connectedClients: activity.connectedClients,
           hasActiveConnections: activity.hasActiveConnections,
+          idleMs, sleepMs, sleepAfter: this.sleepAfter,
         });
       }
     } catch (err) {
@@ -595,26 +661,75 @@ export class container extends Container<Env> {
         if (!sessionId || !bucketName) {
           this.logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
           return; // Don't re-arm schedule — zombie DO, let it die
-        } else {
+        } else if (this.ctx.container?.running) {
+          // Only write metrics while container is running — prevents overwriting
+          // a "stopped" status that onStop() may have written concurrently.
+          // Read-modify-write only touches .metrics, never .status.
           const key = getSessionKey(bucketName, sessionId);
           const session = await this.env.KV.get<Session>(key, 'json');
-          if (!session) {
-            this.logger.info('collectMetrics: session not found in KV', { key });
-          } else {
-            session.metrics = {
-              cpu: health.cpu,
-              mem: health.mem,
-              hdd: health.hdd,
-              syncStatus: health.syncStatus,
-              updatedAt: new Date().toISOString(),
+          if (session) {
+            const updated = {
+              ...session,
+              metrics: {
+                cpu: health.cpu,
+                mem: health.mem,
+                hdd: health.hdd,
+                syncStatus: health.syncStatus,
+                updatedAt: new Date().toISOString(),
+              },
+              lastActiveAt: this.lastSeenInputAt
+                ? new Date(this.lastSeenInputAt).toISOString()
+                : session.lastActiveAt,
             };
-            await this.env.KV.put(key, JSON.stringify(session));
-            this.logger.debug('collectMetrics: wrote metrics to KV', { key, cpu: health.cpu, mem: health.mem });
+            await this.env.KV.put(key, JSON.stringify(updated));
           }
         }
       }
     } catch (err) {
       this.logger.warn('collectMetrics: fetch/write failed', { error: err instanceof Error ? err.message : String(err) });
+    }
+
+    // Timekeeper usage ping (SaaS mode only)
+    if (isSaasModeActive(this.env.SAAS_MODE)
+        && this._bucketName
+        && this._userEmail
+        && this.env.TIMEKEEPER) {
+      try {
+        this._usageSeconds += 60;
+        await this.ctx.storage.put('usageSeconds', this._usageSeconds);
+
+        const tkId = this.env.TIMEKEEPER.idFromName(this._bucketName);
+        const tk = this.env.TIMEKEEPER.get(tkId);
+        const pingRes = await tk.fetch(new Request('http://timekeeper/ping', {
+          method: 'POST',
+          body: JSON.stringify({
+            bucketName: this._bucketName,
+            sessionId: this._sessionId,
+            totalSeconds: this._usageSeconds,
+            email: this._userEmail!,
+          }),
+          headers: { 'Content-Type': 'application/json' },
+        }));
+
+        if (pingRes.ok) {
+          const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
+          if (quotaExceeded) {
+            this.logger.warn('Quota exceeded — stopping container', { bucketName: this._bucketName });
+            await this.stop('SIGTERM');
+            return; // Don't re-arm after stop
+          }
+        }
+      } catch (err) {
+        // Non-fatal: log and continue — Timekeeper will catch up on next ping
+        this.logger.warn('Timekeeper ping failed', { error: err instanceof Error ? err.message : String(err) });
+      }
+    } else {
+      this.logger.info('Timekeeper ping skipped', {
+        saasMode: isSaasModeActive(this.env.SAAS_MODE),
+        bucketName: !!this._bucketName,
+        userEmail: !!this._userEmail,
+        timekeeper: !!this.env.TIMEKEEPER,
+      });
     }
 
     // Re-arm only if still running. schedule() is one-shot — if we don't

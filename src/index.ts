@@ -13,6 +13,10 @@ import preferenceRoutes from './routes/preferences';
 import llmKeysRoutes from './routes/llm-keys';
 import deployKeysRoutes from './routes/deploy-keys';
 import publicRoutes from './routes/public/index';
+import usageRoutes from './routes/usage';
+import adminTiersRoutes from './routes/admin/tiers';
+import billingRoutes from './routes/billing';
+import stripeWebhookRoute from './routes/stripe-webhook';
 import { REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, CORS_MAX_AGE_SECONDS } from './lib/constants';
 import { AppError } from './lib/error-types';
 import { isAllowedOrigin } from './lib/cors-cache';
@@ -61,10 +65,19 @@ const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 const logger = createLogger('index');
 
+// CF-012: Log once per isolate if both SAAS_MODE and STRESS_TEST_MODE are active
+let stressTestSaasWarningLogged = false;
+
 // ============================================================================
 // Request Tracing Middleware
 // ============================================================================
 app.use('*', async (c, next) => {
+  // CF-012: Defense-in-depth — warn loudly when stress test mode is active in production SaaS
+  if (!stressTestSaasWarningLogged && c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active') {
+    logger.error('CRITICAL: STRESS_TEST_MODE active in SaaS production — rate limits disabled');
+    stressTestSaasWarningLogged = true;
+  }
+
   const clientId = c.req.header('X-Request-ID');
   const requestId = (clientId && REQUEST_ID_PATTERN.test(clientId))
     ? clientId
@@ -179,6 +192,10 @@ app.route('/api/presets', presetRoutes);
 app.route('/api/preferences', preferenceRoutes);
 app.route('/api/llm-keys', llmKeysRoutes);
 app.route('/api/deploy-keys', deployKeysRoutes);
+app.route('/api/usage', usageRoutes);
+app.route('/api/admin/tiers', adminTiersRoutes);
+app.route('/api/billing', billingRoutes);
+app.route('/public/stripe', stripeWebhookRoute);
 
 // 404 fallback - only for API routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
@@ -200,7 +217,7 @@ export function resetSetupCache() {
 // Convention: Routes should throw AppError subclasses for error handling.
 // Exception: Routes with domain-specific error response shapes (e.g., startup-status)
 // may catch and return directly when the shape differs from AppError.toJSON().
-type AppStatusCode = 400 | 401 | 403 | 404 | 409 | 429 | 500 | 503;
+type AppStatusCode = 400 | 401 | 402 | 403 | 404 | 409 | 429 | 500 | 503;
 
 app.onError((err, c) => {
   const requestId = c.get('requestId') || 'unknown';
@@ -274,7 +291,7 @@ export default {
       if (saasActive) {
         try {
           const { user } = await authenticateRequest(request, env);
-          if (isActiveUser(user.accessTier)) {
+          if (isActiveUser(user.subscriptionTier ?? user.accessTier)) {
             return redirectWithHeaders('/app/');
           }
           // Authenticated but pending/blocked — redirect to subscribe page
@@ -313,3 +330,4 @@ export default {
 // Export Durable Objects
 // Export container class for Durable Objects
 export { container } from './container';
+export { Timekeeper as timekeeper } from './timekeeper/index';

@@ -4,13 +4,14 @@
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { AgentTypeSchema, SessionModeSchema, type Env, type UserPreferences } from '../types';
+import { AgentTypeSchema, SessionModeSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { canUseSessionMode } from '../lib/access-tier';
+import { canUseSessionModeWithConfig } from '../lib/access-tier';
 import { isSaasModeActive } from '../lib/onboarding';
+import { getTierConfig } from '../lib/subscription';
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
@@ -18,6 +19,7 @@ const UpdatePreferencesBody = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
+  sleepAfter: z.enum(SleepAfterOptions as unknown as [string, ...string[]]).optional(),
 }).strict();
 
 const preferencesPatchRateLimiter = createRateLimiter({
@@ -62,14 +64,16 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
   if (parsed.data.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
     const user = c.get('user');
-    if (!canUseSessionMode(user.accessTier, parsed.data.sessionMode)) {
-      throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your access tier`);
+    const effectiveTier = user.subscriptionTier ?? user.accessTier;
+    const tiers = await getTierConfig(c.env.KV);
+    if (!canUseSessionModeWithConfig(effectiveTier, parsed.data.sessionMode, tiers)) {
+      throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your subscription tier`);
     }
   }
 
   const key = getPreferencesKey(bucketName);
   const existing = await c.env.KV.get<UserPreferences>(key, 'json') || {};
-  const updated: UserPreferences = { ...existing, ...parsed.data };
+  const updated: UserPreferences = { ...existing, ...parsed.data } as UserPreferences;
 
   await c.env.KV.put(key, JSON.stringify(updated));
 

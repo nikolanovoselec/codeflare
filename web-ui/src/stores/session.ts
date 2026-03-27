@@ -75,7 +75,7 @@ interface SessionMetrics {
   hdd?: string;
 }
 
-/** Batch status entry shape from the backend (L9: named type for inline type) */
+/** Batch status entry shape from the backend */
 type BatchStatusEntry = {
   status: 'running' | 'stopped';
   ptyActive: boolean;
@@ -86,7 +86,7 @@ type BatchStatusEntry = {
 };
 
 /**
- * Populate sessionMetrics from KV-pushed metrics (M5: extracted helper).
+ * Populate sessionMetrics from batch-status metrics.
  * Mutates the `sessionMetrics` record in place — designed for use inside `produce()` or direct object mutation.
  */
 export function applyMetricsUpdate(
@@ -235,7 +235,7 @@ async function loadSessions(): Promise<void> {
         }
       }
 
-      // Populate sessionMetrics from KV-pushed metrics (M5: use extracted helper)
+      // Populate sessionMetrics from batch-status metrics
       if (batchStatus.metrics) {
         setState(produce(s => {
           applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!);
@@ -421,7 +421,7 @@ async function stopSession(id: string): Promise<void> {
           }
         }, STOP_POLL_INTERVAL_MS);
 
-        // Track stop-polling interval for cleanup (FIX-17)
+        // Track stop-polling interval for cleanup
         startupCleanups.set(id, () => {
           clearInterval(interval);
         });
@@ -494,6 +494,9 @@ async function refreshSessionStatuses(): Promise<void> {
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
     if (batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
+    if (batchResponse.usage) {
+      setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
+    }
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions — they may not appear in batch status yet.
@@ -527,14 +530,14 @@ async function refreshSessionStatuses(): Promise<void> {
         if (remote.lastStartedAt) setState('sessions', idx, 'lastStartedAt', remote.lastStartedAt);
       }
 
-      // Populate sessionMetrics from KV-pushed metrics (M5: use extracted helper)
+      // Populate sessionMetrics from batch-status metrics
       if (remote.metrics) {
         setState(produce(s => {
           applyMetricsUpdate(s.sessionMetrics, session.id, remote.metrics!);
         }));
       }
 
-      // Guard: skip status transitions for the active session (L5: use named function)
+      // Guard: skip status transitions for the active session
       if (shouldSkipStatusTransition(session.id, state.activeSessionId)) continue;
 
       // Guard: skip status transitions for initializing sessions to avoid
@@ -542,7 +545,11 @@ async function refreshSessionStatuses(): Promise<void> {
       // may report 'running' in batch-status before the init flow completes.
       if (remote.status === 'running' && session.status !== 'running' && session.status !== 'initializing') {
         updateSessionStatus(session.id, 'running');
-        initializeTerminalsForSession(session.id);
+        // Do NOT call initializeTerminalsForSession here — KV "running" after
+        // a stopped→running transition may be stale (eventual consistency).
+        // Creating new WS connections on stale data causes a flapping loop:
+        // stale KV "running" → new WS → 503 → handleContainerStopped → repeat.
+        // User clicks the session card to reconnect explicitly.
       } else if (remote.status === 'stopped' && session.status !== 'stopped' && session.status !== 'stopping' && session.status !== 'initializing') {
         updateSessionStatus(session.id, 'stopped');
       }
@@ -623,10 +630,12 @@ export function shouldSkipStatusTransition(sessionId: string, activeSessionId: s
 
 /**
  * Called by terminal store when WS reconnect fails — container is dead.
- * Sets session to stopped, keeps activeSessionId for 2 minutes to block
- * stale KV "running" overwrites, then clears it.
+ * Sets session to stopped, keeps activeSessionId for 3 minutes to block
+ * stale KV "running" overwrites, then clears it. After 3 minutes KV is
+ * treated as the single source of truth.
  */
 let containerStoppedTimer: ReturnType<typeof setTimeout> | null = null;
+const CONTAINER_STOPPED_KEEPALIVE_MS = 180_000; // 3 minutes
 
 function handleContainerStopped(sessionId: string): void {
   // Set the session to stopped — Layout.tsx will transition to dashboard
@@ -634,16 +643,16 @@ function handleContainerStopped(sessionId: string): void {
   // Dispose terminal WS retry loops
   terminalStore.disposeSession(sessionId);
 
-  // Keep activeSessionId set for 2 minutes so shouldSkipStatusTransition
+  // Keep activeSessionId set for 3 minutes so shouldSkipStatusTransition
   // blocks stale KV "running" from overwriting our "stopped" status.
-  // After 2 minutes KV will have propagated the real "stopped" status.
+  // After 3 minutes KV has propagated and is trusted as source of truth.
   if (containerStoppedTimer) clearTimeout(containerStoppedTimer);
   containerStoppedTimer = setTimeout(() => {
     if (state.activeSessionId === sessionId) {
       setState('activeSessionId', null);
     }
     containerStoppedTimer = null;
-  }, 120_000);
+  }, CONTAINER_STOPPED_KEEPALIVE_MS);
 }
 
 // Register callback so terminal store can notify us when container stops
@@ -742,3 +751,53 @@ export const sessionStore = {
   _resetMissCounters: () => sessionMissCounters.clear(),
   _resetAuthExpired: () => setAuthExpired(false),
 };
+
+// ── Usage quota state (reactive signal for live dropdown updates) ──
+
+interface UsageState {
+  monthlySeconds: number;
+  monthlyQuotaSeconds: number | null;
+}
+
+function loadCachedUsage(): UsageState {
+  try {
+    const cached = localStorage.getItem('cf_usage');
+    if (cached) {
+      const parsed = JSON.parse(cached) as UsageState;
+      if (typeof parsed.monthlySeconds === 'number') return parsed;
+    }
+  } catch { /* localStorage unavailable or corrupt */ }
+  return { monthlySeconds: 0, monthlyQuotaSeconds: null };
+}
+
+const [usageSignal, setUsageSignal] = createSignal<UsageState>(loadCachedUsage());
+
+export function setUsageState(monthly: number, quota: number | null): void {
+  const next: UsageState = { monthlySeconds: monthly, monthlyQuotaSeconds: quota };
+  setUsageSignal(next);
+  try {
+    localStorage.setItem('cf_usage', JSON.stringify(next));
+  } catch { /* localStorage unavailable */ }
+}
+
+export function getUsageState(): { monthlySeconds: number; monthlyQuotaSeconds: number | null } {
+  return usageSignal();
+}
+
+export function isAtUsageQuota(): boolean {
+  const { monthlySeconds, monthlyQuotaSeconds } = usageSignal();
+  if (monthlyQuotaSeconds === null) return false;
+  return monthlySeconds >= monthlyQuotaSeconds;
+}
+
+export type UsageWarningLevel = 'none' | '80' | '95' | '100';
+
+export function getUsageWarningLevel(): UsageWarningLevel {
+  const { monthlySeconds, monthlyQuotaSeconds } = usageSignal();
+  if (monthlyQuotaSeconds === null || monthlyQuotaSeconds === 0) return 'none';
+  const pct = (monthlySeconds / monthlyQuotaSeconds) * 100;
+  if (pct >= 100) return '100';
+  if (pct >= 95) return '95';
+  if (pct >= 80) return '80';
+  return 'none';
+}

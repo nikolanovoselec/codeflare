@@ -164,7 +164,7 @@ async function loadExistingConfig(): Promise<void> {
 
     if (statusRes.configured) {
       // Reconfiguration: load existing config so admin can see what's set
-      const usersRes = await api.getUsers();
+      const { users: usersRes } = await api.getUsers();
       setState(
         produce((s) => {
           if (statusRes.customDomain) {

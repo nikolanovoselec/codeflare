@@ -2,7 +2,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { AccessTierSchema } from '../types';
+import { AccessTierSchema, SubscriptionTierSchema } from '../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getAllUsers, syncAccessPolicy } from '../lib/access-policy';
@@ -10,6 +10,7 @@ import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
 import { isSaasModeActive } from '../lib/onboarding';
+import { sendTierChangeNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey } from '../lib/kv-keys';
 
@@ -39,7 +40,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
 
 /**
- * Rate limiter for user mutations (DELETE)
+ * Rate limiter for user mutations (DELETE and PATCH)
  * Limits to 20 mutations per minute per user
  */
 const userMutationRateLimiter = createRateLimiter({
@@ -51,7 +52,18 @@ const userMutationRateLimiter = createRateLimiter({
 // GET /api/users - List all users
 app.get('/', requireAdmin, async (c) => {
   const users = await getAllUsers(c.env.KV);
-  return c.json({ users });
+  const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
+  return c.json({ users, maxUsers });
+});
+
+// PUT /api/users/max-users - Set max users cap (admin only)
+app.put('/max-users', requireAdmin, async (c) => {
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const parsed = z.object({ maxUsers: z.number().int().min(0) }).safeParse(raw);
+  if (!parsed.success) throw new ValidationError('maxUsers must be a non-negative integer');
+  await c.env.KV.put('setup:max_users', String(parsed.data.maxUsers));
+  return c.json({ success: true, maxUsers: parsed.data.maxUsers });
 });
 
 // DELETE /api/users/:email - Remove a user (admin only)
@@ -84,10 +96,10 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   return c.json({ success: true, email });
 });
 
-// PATCH /api/users/:email - Update a user's access tier (admin only, SaaS mode only)
+// PATCH /api/users/:email - Update a user's subscription tier (admin only, SaaS mode only)
 app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   if (!isSaasModeActive(c.env.SAAS_MODE)) {
-    throw new ValidationError('Access tiers are only available in SaaS mode');
+    throw new ValidationError('Subscription tiers are only available in SaaS mode');
   }
 
   const rawEmail = c.req.param('email');
@@ -97,9 +109,18 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   let raw: unknown;
   try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
 
-  const patchSchema = z.object({ accessTier: AccessTierSchema });
+  // Accept both subscriptionTier (new) and accessTier (backward compat)
+  const patchSchema = z.object({
+    subscriptionTier: SubscriptionTierSchema.optional(),
+    accessTier: AccessTierSchema.optional(),
+  }).refine(
+    (d) => d.subscriptionTier !== undefined || d.accessTier !== undefined,
+    { message: 'Either subscriptionTier or accessTier is required' }
+  );
   const parsed = patchSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+
+  const newTier = parsed.data.subscriptionTier ?? parsed.data.accessTier!;
 
   // Validate existing record with schema before merging
   const existingRaw = await c.env.KV.get(`user:${email}`, 'json');
@@ -108,22 +129,26 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     addedBy: z.string().default('unknown'),
     addedAt: z.string().default(''),
     role: z.enum(['admin', 'user']).default('user'),
-    accessTier: AccessTierSchema.optional(),
+    accessTier: SubscriptionTierSchema.optional(),
+    subscriptionTier: SubscriptionTierSchema.optional(),
   }).passthrough();
   const existing = kvUserSchema.parse(existingRaw);
 
-  // Admin users always have advanced tier — prevent accidental lockout
+  // Admin users always have unlimited tier — prevent accidental lockout
   if (existing.role === 'admin') {
-    throw new ValidationError('Cannot change admin access tier');
+    throw new ValidationError('Cannot change admin subscription tier');
   }
 
-  const updated = { ...existing, accessTier: parsed.data.accessTier };
+  // Map new tier to nearest valid AccessTier for backward compat.
+  // New tiers (free/trial/max/unlimited) don't exist in the old 4-value schema —
+  // writing them raw would cause AccessTierSchema.safeParse to reject → fallback 'advanced'.
+  const LEGACY_TIERS = new Set(['pending', 'standard', 'advanced', 'blocked']);
+  const legacyAccessTier = LEGACY_TIERS.has(newTier) ? newTier : 'advanced';
+  const updated = { ...existing, subscriptionTier: newTier, accessTier: legacyAccessTier };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
 
-  // Auto-set sessionMode to 'advanced' for newly promoted advanced users.
-  // This ensures their first session seeds advanced agent skills and rules.
-  // Existing sessionMode preferences are NOT overridden.
-  if (parsed.data.accessTier === 'advanced') {
+  // Auto-set sessionMode to 'advanced' for tiers that support it.
+  if (newTier === 'advanced' || newTier === 'max' || newTier === 'unlimited') {
     const bucketName = getBucketName(email, c.env.CLOUDFLARE_WORKER_NAME);
     const prefsKey = getPreferencesKey(bucketName);
     const existingPrefs = await c.env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
@@ -132,14 +157,27 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     }
   }
 
-  logger.info('User access tier updated', {
+  const previousTier = existing.subscriptionTier ?? existing.accessTier ?? 'unset';
+  logger.info('User subscription tier updated', {
     email,
-    previousTier: existing.accessTier ?? 'unset',
-    accessTier: parsed.data.accessTier,
+    previousTier,
+    subscriptionTier: newTier,
     updatedBy: c.get('user').email,
   });
 
-  return c.json({ success: true, email, accessTier: parsed.data.accessTier });
+  // Fire-and-forget tier change notification email
+  const adminUsers = await getAllUsers(c.env.KV);
+  const adminEmails = adminUsers.filter((u) => u.role === 'admin').map((u) => u.email);
+  void sendTierChangeNotification({
+    userEmail: email,
+    previousTier,
+    newTier,
+    changedBy: c.get('user').email,
+    adminEmails,
+    env: c.env,
+  });
+
+  return c.json({ success: true, email, subscriptionTier: newTier, accessTier: legacyAccessTier });
 });
 
 export default app;

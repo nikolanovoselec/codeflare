@@ -192,7 +192,7 @@ app.post('/configure', async (c) => {
       }
 
       // Store users in KV with role.
-      // In SaaS mode, preserve existing fields (e.g. accessTier) for admin users
+      // In SaaS mode, preserve existing fields for admin users
       // that may already exist from JIT provisioning.
       const adminSet = new Set(normalizedAdmins);
       const isSaas = isSaasModeActive(c.env.SAAS_MODE);
@@ -200,13 +200,15 @@ app.post('/configure', async (c) => {
         const role = adminSet.has(email) ? 'admin' : 'user';
         const base = { addedBy: 'setup', addedAt: new Date().toISOString(), role };
         if (isSaas) {
-          // Merge with existing KV entry to preserve accessTier and other fields
+          // Merge with existing KV entry to preserve tiers and other fields
           const existing = await c.env.KV.get(`user:${email}`, 'json') as Record<string, unknown> | null;
-          const merged = { ...existing, ...base, accessTier: 'advanced' };
+          const merged = { ...existing, ...base, accessTier: 'unlimited', subscriptionTier: 'unlimited' };
           return c.env.KV.put(`user:${email}`, JSON.stringify(merged));
         }
-        // In non-SaaS mode, explicitly set accessTier for admins
-        const entry = role === 'admin' ? { ...base, accessTier: 'advanced' } : base;
+        // In non-SaaS mode, explicitly set tier for admins
+        const entry = role === 'admin'
+          ? { ...base, accessTier: 'advanced', subscriptionTier: 'unlimited' }
+          : base;
         return c.env.KV.put(`user:${email}`, JSON.stringify(entry));
       });
       await Promise.all(userWrites);

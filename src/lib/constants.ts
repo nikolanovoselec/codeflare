@@ -84,3 +84,4 @@ export function getMaxSessions(role: string | undefined, env: { MAX_SESSIONS_USE
   const defaultVal = role === 'admin' ? DEFAULT_MAX_SESSIONS_ADMIN : DEFAULT_MAX_SESSIONS_USER;
   return Number.isNaN(envVal) ? defaultVal : envVal;
 }
+

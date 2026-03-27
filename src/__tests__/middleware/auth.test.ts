@@ -63,8 +63,8 @@ describe('Auth Middleware', () => {
     expect(body.user.email).toBe(testEmail);
     expect(body.user.authenticated).toBe(true);
     expect(body.bucketName).toContain('codeflare-');
-    // Verify KV was checked for the user entry
-    expect(mockKV.get).toHaveBeenCalledWith(`user:${testEmail}`);
+    // Verify KV was checked for the user entry (resolveUserFromKV uses 'json' format)
+    expect(mockKV.get).toHaveBeenCalledWith(`user:${testEmail}`, 'json');
   });
 
   it('returns 403 Forbidden when user is NOT in KV allowlist', async () => {
@@ -81,8 +81,8 @@ describe('Auth Middleware', () => {
     expect(res.status).toBe(403);
     const body = await res.json() as { error: string; code: string };
     expect(body.code).toBe('FORBIDDEN');
-    // Verify KV was checked
-    expect(mockKV.get).toHaveBeenCalledWith(`user:${testEmail}`);
+    // Verify KV was checked (resolveUserFromKV uses 'json' format)
+    expect(mockKV.get).toHaveBeenCalledWith(`user:${testEmail}`, 'json');
   });
 
   it('returns 401 when unauthenticated (no CF Access headers)', async () => {

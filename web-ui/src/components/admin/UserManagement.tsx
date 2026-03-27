@@ -1,7 +1,7 @@
 import { Component, createSignal, createMemo, onMount, For, Show } from 'solid-js';
 import { mdiArrowExpandLeft } from '@mdi/js';
-import { getUsers, type UserEntry, updateUserAccessTier, deleteUser } from '../../api/client';
-import type { AccessTier } from '../../types';
+import { getUsers, type UserEntry, updateUserTier, deleteUser, updateMaxUsers } from '../../api/client';
+import type { SubscriptionTier } from '../../types';
 import Icon from '../Icon';
 import '../../styles/user-management.css';
 
@@ -9,22 +9,28 @@ interface UserManagementProps {
   onBack: () => void;
 }
 
-/** User entry with a resolved access tier (defaults undefined to 'advanced'). */
+/** User entry with a resolved subscription tier (defaults undefined to 'standard'). */
 interface ResolvedUser extends UserEntry {
-  resolvedTier: AccessTier;
+  resolvedTier: SubscriptionTier;
 }
 
-const TIER_ORDER: readonly AccessTier[] = ['pending', 'standard', 'advanced', 'blocked'] as const;
+const TIER_ORDER: readonly SubscriptionTier[] = [
+  'pending', 'free', 'trial', 'standard', 'advanced', 'max', 'unlimited', 'blocked',
+] as const;
 
-const SECTION_LABELS: Record<AccessTier, string> = {
+const SECTION_LABELS: Record<SubscriptionTier, string> = {
+  blocked: 'Blocked',
   pending: 'Pending',
+  free: 'Free',
+  trial: 'Trial',
   standard: 'Standard',
   advanced: 'Advanced',
-  blocked: 'Blocked',
+  max: 'Max',
+  unlimited: 'Unlimited',
 };
 
-function resolveTier(user: UserEntry): AccessTier {
-  return user.accessTier ?? 'advanced';
+function resolveTier(user: UserEntry): SubscriptionTier {
+  return (user.subscriptionTier ?? user.accessTier ?? 'standard') as SubscriptionTier;
 }
 
 function formatDate(iso: string): string {
@@ -46,11 +52,15 @@ const UserManagement: Component<UserManagementProps> = (props) => {
   const [searchQuery, setSearchQuery] = createSignal('');
   const [updatingEmails, setUpdatingEmails] = createSignal<ReadonlySet<string>>(new Set());
   const [deletingEmails, setDeletingEmails] = createSignal<ReadonlySet<string>>(new Set());
+  const [maxUsers, setMaxUsers] = createSignal(0);
+  const [editingMaxUsers, setEditingMaxUsers] = createSignal(false);
+  const [maxUsersInput, setMaxUsersInput] = createSignal('');
 
   onMount(async () => {
     try {
-      const fetched = await getUsers();
+      const { users: fetched, maxUsers: cap } = await getUsers();
       setUsers(fetched.map((u) => ({ ...u, resolvedTier: resolveTier(u) })));
+      setMaxUsers(cap);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
@@ -67,29 +77,19 @@ const UserManagement: Component<UserManagementProps> = (props) => {
 
   // Group filtered users by tier
   const groupedUsers = createMemo(() => {
-    const groups: Record<AccessTier, readonly ResolvedUser[]> = {
-      pending: [],
-      standard: [],
-      advanced: [],
-      blocked: [],
-    };
-    const mutable: Record<AccessTier, ResolvedUser[]> = {
-      pending: [],
-      standard: [],
-      advanced: [],
-      blocked: [],
-    };
-    for (const user of filteredUsers()) {
-      mutable[user.resolvedTier].push(user);
-    }
-    // Return as readonly
+    const mutable: Record<string, ResolvedUser[]> = {};
     for (const tier of TIER_ORDER) {
-      groups[tier] = mutable[tier];
+      mutable[tier] = [];
     }
-    return groups;
+    for (const user of filteredUsers()) {
+      const bucket = mutable[user.resolvedTier];
+      if (bucket) bucket.push(user);
+      else mutable[user.resolvedTier] = [user];
+    }
+    return mutable as Record<SubscriptionTier, readonly ResolvedUser[]>;
   });
 
-  const handleTierChange = async (email: string, newTier: AccessTier) => {
+  const handleTierChange = async (email: string, newTier: SubscriptionTier) => {
     // Mark as updating
     setUpdatingEmails((prev) => {
       const next = new Set(prev);
@@ -98,12 +98,12 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     });
 
     try {
-      await updateUserAccessTier(email, newTier);
+      await updateUserTier(email, newTier);
       // Update local state immutably
       setUsers((prev) =>
         prev.map((u) =>
           u.email === email
-            ? { ...u, accessTier: newTier, resolvedTier: newTier }
+            ? { ...u, subscriptionTier: newTier, resolvedTier: newTier }
             : u
         )
       );
@@ -136,12 +136,12 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     // Process sequentially to avoid overwhelming the API
     for (const user of pending) {
       try {
-        await updateUserAccessTier(user.email, 'standard');
+        await updateUserTier(user.email, 'standard');
         // Update local state immutably after each success
         setUsers((prev) =>
           prev.map((u) =>
             u.email === user.email
-              ? { ...u, accessTier: 'standard' as AccessTier, resolvedTier: 'standard' as AccessTier }
+              ? { ...u, subscriptionTier: 'standard' as SubscriptionTier, resolvedTier: 'standard' as SubscriptionTier }
               : u
           )
         );
@@ -204,9 +204,47 @@ const UserManagement: Component<UserManagementProps> = (props) => {
         </button>
         <h1 class="user-mgmt-title">User Management</h1>
         <Show when={!loading()}>
-          <span class="user-mgmt-badge">{users().length} users</span>
+          <span class="user-mgmt-badge">
+            {users().length}{maxUsers() > 0 ? ` / ${maxUsers()}` : ''} users
+          </span>
+          <button
+            type="button"
+            class="user-mgmt-badge"
+            style={{ cursor: 'pointer', 'margin-left': '8px' }}
+            onClick={() => { setEditingMaxUsers(!editingMaxUsers()); setMaxUsersInput(String(maxUsers())); }}
+          >
+            {editingMaxUsers() ? 'Cancel' : 'Set Limit'}
+          </button>
         </Show>
       </div>
+      <Show when={editingMaxUsers()}>
+        <div style={{ display: 'flex', gap: '8px', 'align-items': 'center', padding: '8px 0' }}>
+          <input
+            type="number"
+            min="0"
+            value={maxUsersInput()}
+            onInput={(e) => setMaxUsersInput(e.currentTarget.value)}
+            placeholder="0 = unlimited"
+            style={{ width: '120px', padding: '4px 8px' }}
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const val = parseInt(maxUsersInput()) || 0;
+              try {
+                await updateMaxUsers(val);
+                setMaxUsers(val);
+                setEditingMaxUsers(false);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Failed to update');
+              }
+            }}
+          >
+            Save
+          </button>
+          <span style={{ color: '#888', 'font-size': '12px' }}>0 = unlimited</span>
+        </div>
+      </Show>
 
       {/* Search */}
       <input
@@ -285,22 +323,26 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                             <div class="user-mgmt-actions">
                               <Show
                                 when={user.role !== 'admin'}
-                                fallback={<span class="user-mgmt-tier-fixed">Advanced</span>}
+                                fallback={<span class="user-mgmt-tier-fixed">Unlimited</span>}
                               >
                                 <select
                                   class="user-mgmt-tier-select"
                                   value={user.resolvedTier}
                                   onChange={(e) => {
-                                    const newTier = e.currentTarget.value as AccessTier;
+                                    const newTier = e.currentTarget.value as SubscriptionTier;
                                     if (newTier !== user.resolvedTier) {
                                       void handleTierChange(user.email, newTier);
                                     }
                                   }}
                                 >
+                                  <option value="blocked">Blocked</option>
                                   <option value="pending">Pending</option>
+                                  <option value="free">Free</option>
+                                  <option value="trial">Trial</option>
                                   <option value="standard">Standard</option>
                                   <option value="advanced">Advanced</option>
-                                  <option value="blocked">Blocked</option>
+                                  <option value="max">Max</option>
+                                  <option value="unlimited">Unlimited</option>
                                 </select>
                                 <button
                                   type="button"

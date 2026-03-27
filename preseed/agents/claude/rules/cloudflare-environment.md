@@ -12,7 +12,7 @@ If the user does not specify a deployment target or tech preference, use Cloudfl
 
 ## Environment
 
-- 1-CPU container. See [no-local-builds.md](../no-local-builds.md) for local execution restrictions.
+- 1-CPU container. See [no-local-builds.md](./no-local-builds.md) for local execution restrictions.
 - No browser. Use `BROWSER=""` prefix for CLI tools that might try to open one.
 - Git over HTTPS only, no SSH keys.
 - `gh` CLI is pre-installed.

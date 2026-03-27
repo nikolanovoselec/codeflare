@@ -36,7 +36,7 @@ vi.mock('../../api/client', () => ({
   getDeployKeys: () => mockGetDeployKeys(),
   updateDeployKeys: (body: unknown) => mockUpdateDeployKeys(body),
   deleteDeployKeys: vi.fn(async () => undefined),
-  getUser: vi.fn(async () => ({ email: 'test@example.com', authenticated: true, bucketName: 'test' })),
+  getUser: vi.fn(async () => ({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true })),
 }));
 
 vi.mock('../../api/storage', () => ({
@@ -328,6 +328,26 @@ describe('SettingsPanel Component', () => {
 
       const hint = screen.getByTestId('session-mode-hint');
       expect(hint.textContent).toContain('Recreate');
+    });
+
+    it('Pro mode radio is disabled when subscribedMode is default', async () => {
+      const { getUser } = await import('../../api/client');
+      vi.mocked(getUser).mockResolvedValueOnce({
+        email: 'test@example.com',
+        authenticated: true,
+        bucketName: 'test',
+        subscribedMode: 'default',
+        hasSubscribed: true,
+      } as Awaited<ReturnType<typeof getUser>>);
+
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      // Wait for the async getUser() call to resolve and update the signal
+      await new Promise((r) => setTimeout(r, 50));
+
+      const advancedRadio = screen.getByTestId('session-mode-advanced');
+      expect(advancedRadio).toHaveAttribute('disabled');
     });
   });
 

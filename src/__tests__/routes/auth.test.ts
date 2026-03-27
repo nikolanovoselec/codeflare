@@ -7,7 +7,7 @@ import { createMockKV } from '../helpers/mock-kv';
 
 // Configurable mock auth result
 const mockAuthResult = {
-  user: { email: 'test@example.com', authenticated: true, role: 'user', accessTier: 'standard' } as AccessUser,
+  user: { email: 'test@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: 'standard' } as AccessUser,
   bucketName: 'codeflare-test',
 };
 let mockAuthShouldReject = false;
@@ -36,6 +36,7 @@ describe('Auth routes', () => {
       authenticated: true,
       role: 'user',
       accessTier: 'standard',
+      subscriptionTier: 'standard',
     };
     mockAuthResult.bucketName = 'codeflare-test';
   });
@@ -108,12 +109,13 @@ describe('Auth routes', () => {
   // GET /auth/status
   // ===========================================================================
   describe('GET /status', () => {
-    it('returns email, accessTier, role for authenticated user', async () => {
+    it('returns email, accessTier, subscriptionTier, role for authenticated user', async () => {
       mockAuthResult.user = {
         email: 'user@example.com',
         authenticated: true,
         role: 'admin',
         accessTier: 'advanced',
+        subscriptionTier: 'advanced',
       };
 
       const app = createApp();
@@ -122,9 +124,10 @@ describe('Auth routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as { email: string; accessTier: string; role: string };
+      const body = await res.json() as { email: string; accessTier: string; subscriptionTier: string; role: string };
       expect(body.email).toBe('user@example.com');
       expect(body.accessTier).toBe('advanced');
+      expect(body.subscriptionTier).toBe('advanced');
       expect(body.role).toBe('admin');
     });
 
@@ -139,12 +142,40 @@ describe('Auth routes', () => {
       expect(body.code).toBe('AUTH_ERROR');
     });
 
-    it('defaults accessTier to advanced when undefined', async () => {
+    it('returns subscribedMode from user KV record', async () => {
+      mockAuthResult.user = {
+        email: 'pro@example.com',
+        authenticated: true,
+        role: 'user',
+        accessTier: 'advanced',
+        subscriptionTier: 'max',
+      };
+
+      mockKV._set('user:pro@example.com', {
+        addedBy: 'jit',
+        addedAt: '2025-01-01T00:00:00Z',
+        role: 'user',
+        accessTier: 'advanced',
+        subscriptionTier: 'max',
+        subscribedMode: 'advanced',
+      });
+
+      const app = createApp();
+      const res = await app.request('/auth/status', {
+        headers: { 'cf-access-authenticated-user-email': 'pro@example.com' },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { subscribedMode: string };
+      expect(body.subscribedMode).toBe('advanced');
+    });
+
+    it('defaults accessTier and subscriptionTier to advanced when undefined', async () => {
       mockAuthResult.user = {
         email: 'legacy@example.com',
         authenticated: true,
         role: 'user',
-        // accessTier intentionally omitted
+        // accessTier and subscriptionTier intentionally omitted
       };
 
       const app = createApp();
@@ -153,8 +184,9 @@ describe('Auth routes', () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as { accessTier: string; role: string };
+      const body = await res.json() as { accessTier: string; subscriptionTier: string; role: string };
       expect(body.accessTier).toBe('advanced');
+      expect(body.subscriptionTier).toBe('advanced');
       expect(body.role).toBe('user');
     });
   });

@@ -1,6 +1,6 @@
 import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiLogout } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
@@ -16,7 +16,8 @@ import SessionLimitPopup from './SessionLimitPopup';
 import ScrambleText from './ScrambleText';
 import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
-import { sessionStore } from '../stores/session';
+import { sessionStore, isAtUsageQuota, getUsageState } from '../stores/session';
+import { formatDuration } from '../lib/format';
 import '../styles/dashboard.css';
 
 function getGravatarUrl(email: string, size = 32): string {
@@ -162,7 +163,25 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       data-testid="header-user-dropdown-profile"
                     >
                       <Icon path={mdiAccountOutline} size={16} />
-                      <span>Profile</span>
+                      <span>Subscription</span>
+                    </a>
+                    <a
+                      href="/app/usage"
+                      class="header-user-dropdown-item"
+                      data-testid="header-user-dropdown-usage"
+                    >
+                      <Icon path={mdiChartBar} size={16} />
+                      <span>Usage</span>
+                      {(() => {
+                        const usage = getUsageState();
+                        if (usage.monthlyQuotaSeconds !== null) {
+                          return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)} / {formatDuration(usage.monthlyQuotaSeconds)}</span>;
+                        }
+                        if (usage.monthlySeconds > 0) {
+                          return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)}</span>;
+                        }
+                        return null;
+                      })()}
                     </a>
                     <a
                       href="/app/onboarding"
@@ -223,8 +242,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   ref={setNewSessionBtnRef}
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
-                  disabled={!sessionStore.r2Ready}
-                  aria-label={!sessionStore.r2Ready ? 'Waiting for storage setup' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
+                  disabled={!sessionStore.r2Ready || isAtUsageQuota()}
+                  aria-label={!sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
                   onClick={() => {
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());

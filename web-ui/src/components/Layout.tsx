@@ -5,7 +5,8 @@ import SettingsPanel from './SettingsPanel';
 import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
-import { sessionStore } from '../stores/session';
+import { sessionStore, getUsageWarningLevel } from '../stores/session';
+import { storageStore } from '../stores/storage';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
@@ -19,6 +20,7 @@ interface LayoutProps {
   userName?: string;
   userRole?: 'admin' | 'user';
   userAccessTier?: import('../types').AccessTier;
+  userSubscriptionTier?: import('../types').SubscriptionTier;
   onboardingActive?: boolean;
 }
 
@@ -34,6 +36,7 @@ interface LayoutProps {
  * +------------------------------------------------------------------+
  */
 const Layout: Component<LayoutProps> = (props) => {
+  const usageWarning = () => getUsageWarningLevel();
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
@@ -57,8 +60,18 @@ const Layout: Component<LayoutProps> = (props) => {
     sessionStore.startSessionListPolling();
   });
 
+  // Auto-refresh sessions + storage when tab returns from background
+  const handleVisibilityChange = () => {
+    if (!document.hidden) {
+      sessionStore.refreshSessionStatuses?.();
+      storageStore.refresh?.({ silent: true });
+    }
+  };
+  onMount(() => document.addEventListener('visibilitychange', handleVisibilityChange));
+
   onCleanup(() => {
     sessionStore.stopSessionListPolling();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
     cleanupDebugOverlay();
   });
 
@@ -119,7 +132,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // Sync viewState with session store
   createEffect(() => {
     const session = sessionStore.getActiveSession();
-    const hasActiveTerminal = session && (session.status === 'running' || session.status === 'initializing');
+    const hasActiveTerminal = session && (session.status === 'running' || session.status === 'initializing' || sessionStore.isSessionInitializing(session.id));
 
     if (hasActiveTerminal && viewState() === 'dashboard') {
       setViewState('terminal');
@@ -267,6 +280,23 @@ const Layout: Component<LayoutProps> = (props) => {
           <button type="button" onClick={() => window.location.reload()}>
             Refresh
           </button>
+        </div>
+      </Show>
+
+      {/* Usage quota warning banners */}
+      <Show when={usageWarning() === '80'}>
+        <div class="layout-auth-banner layout-usage-warning" data-testid="usage-warning-80">
+          <span>You've used 80% of your monthly compute quota. <a href="/app/subscribe">Upgrade plan</a></span>
+        </div>
+      </Show>
+      <Show when={usageWarning() === '95'}>
+        <div class="layout-auth-banner layout-usage-critical" data-testid="usage-warning-95">
+          <span>You've used 95% of your monthly compute quota. <a href="/app/subscribe">Upgrade now</a></span>
+        </div>
+      </Show>
+      <Show when={usageWarning() === '100'}>
+        <div class="layout-auth-banner layout-usage-exceeded" data-testid="usage-warning-100">
+          <span>Monthly compute quota exceeded. Sessions cannot start until quota resets. <a href="/app/subscribe">Upgrade plan</a></span>
         </div>
       </Show>
 

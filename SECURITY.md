@@ -27,10 +27,14 @@ Codeflare delegates authentication entirely to **Cloudflare Access**:
 - **Email normalization:** User emails are trimmed and lowercased before KV lookup to prevent casing-based bypass.
 - **Three-tier access control** enforced via middleware:
   - `requireIdentity`: Authenticates request only, permits all users (pending, standard, advanced, blocked).
-  - `requireActiveUser`: Authenticates + enforces tier gating when SaaS mode is active. Pending/blocked users receive 403 error. Active tiers: `standard`, `advanced`, or `undefined` (non-SaaS).
+  - `requireActiveUser`: Authenticates + enforces subscription tier gating when SaaS mode is active. Pending/blocked users receive 403 error. Active tiers: `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`, or `undefined` (non-SaaS backward compat).
   - `requireAdmin`: Requires `role: 'admin'`. Must follow requireIdentity or requireActiveUser.
-- **SaaS mode (JIT provisioning):** When `SAAS_MODE=active`, new users are auto-provisioned with `pending` tier (requires admin approval). Redirects pending users to `/app/subscribe` on HTML requests, or returns 403 with code `PENDING` on API requests. Blocked users receive 403 with code `BLOCKED`.
-- **Session limits:** Configurable per role via `MAX_SESSIONS_USER` (default 3) and `MAX_SESSIONS_ADMIN` (default 10). Enforced at container creation time.
+- **SaaS mode (JIT provisioning):** When `SAAS_MODE=active`, new users are auto-provisioned with `pending` tier. Redirects pending users to `/app/subscribe` on HTML requests, or returns 403 with code `PENDING` on API requests. Blocked users receive 403 with code `BLOCKED`.
+- **Self-service subscription:** Pending users choose a subscription tier (free, standard, advanced, max, unlimited) at `/app/subscribe`. Cloudflare Turnstile CAPTCHA protects the subscription form for new subscriptions (plan changes by already-subscribed users skip Turnstile). Trial periods are configurable per tier and enforced server-side.
+- **Subscription tier-based access control:** 8-tier system (blocked/pending/free/trial/standard/advanced/max/unlimited) controls monthly compute hours, max concurrent sessions, allowed session modes, pricing, and trial eligibility. Quota enforcement is server-side only — frontend displays are informational. Service tokens are treated as `unlimited` tier. Non-SaaS deployments resolve all users to `unlimited`.
+- **Pro mode dual-gate:** Access to Pro (advanced) session mode requires both (1) a tier that supports advanced mode (`advanced`, `max`, `unlimited`, or unset) AND (2) `subscribedMode === 'advanced'` in the user's KV record at `user:{email}`. The `subscribedMode` field is set by `POST /api/auth/subscribe` and is NOT changed by the Settings session mode toggle. This prevents users from bypassing subscription by toggling the Settings preference -- the gate checks what they paid for (`subscribedMode`), not what they selected in Settings (`sessionMode`).
+- **Usage quota enforcement:** Monthly compute hours are enforced at session start (HTTP 402 when quota exceeded) and mid-session via Timekeeper DO ping. Server-side only — cannot be bypassed by frontend manipulation. When quota is exceeded mid-session, containers are gracefully shut down via `SIGTERM`.
+- **Session limits:** Tier-based (`maxSessions` per tier config), with env var fallback via `MAX_SESSIONS_USER` (default 3) and `MAX_SESSIONS_ADMIN` (default 10). Enforced at container creation time.
 
 ### Security Headers
 
@@ -49,7 +53,8 @@ Every response from the worker includes the following security headers:
 
 - **KV-backed per-user rate limiting** on API endpoints via `src/middleware/rate-limit.ts`.
 - **WebSocket connection rate limiting:** `WS_RATE_LIMIT_WINDOW_MS = 60,000` with `WS_RATE_LIMIT_MAX_CONNECTIONS = 30` per window.
-- **Session caps:** `MAX_SESSIONS_USER = 3` (default), `MAX_SESSIONS_ADMIN = 10` (default). Configurable via worker variables.
+- **Subscribe endpoint rate limiting:** `POST /api/auth/subscribe` is rate limited to 3 requests per minute per user via `subscribeRateLimiter` in `src/routes/auth.ts`.
+- **Session caps:** `MAX_SESSIONS_USER = 3` (default), `MAX_SESSIONS_ADMIN = 10` (default). Configurable via worker variables. In SaaS mode, tier-based `maxSessions` overrides env var defaults.
 - **Stress test bypass:** When `STRESS_TEST_MODE` is set to `"active"`, all rate limits (HTTP and WebSocket) are bypassed. This variable is **only set on the integration worker** for k6 load testing. Production workers must never have this variable set. The bypass requires the exact string `"active"` — no other value disables rate limiting.
 
 ### Input Validation
@@ -73,6 +78,24 @@ Every response from the worker includes the following security headers:
 ### Storage Isolation
 
 The `PROTECTED_PATHS` array in `src/lib/constants.ts` is deliberately empty. Each user's storage is bucket-scoped (isolated per user via sanitized email-derived bucket names), and users already have unrestricted terminal access to the same files inside their container. Path-level restrictions within a user's own bucket would add complexity without meaningful security benefit.
+
+### Email System (Resend)
+
+- **Provider:** Resend API (`https://api.resend.com/emails`) for all outbound emails (welcome, subscription, tier change, admin notifications).
+- **Secrets:** `RESEND_API_KEY` (required for email functionality) and `RESEND_EMAIL` (optional sender address, defaults to `Codeflare <onboarding@resend.dev>`).
+- **HTML injection prevention:** All user-supplied values interpolated into email HTML bodies are escaped via `escapeXml()` in `src/lib/xml-utils.ts` before rendering.
+- **Non-fatal:** Email sending never throws — `sendEmail()` returns boolean success. API errors are logged server-side but never leak to the user. Callers fire-and-forget via `waitUntil`.
+- **Timeout:** All Resend API calls use `AbortSignal.timeout(10_000)` to prevent hanging requests.
+- **No PII in logs:** Email send failures log the recipient address and subject but never log email body content.
+
+### Usage Tracking (Timekeeper DO)
+
+- **One DO per user:** Each user has a dedicated Timekeeper Durable Object identified by their bucket name. No cross-user data access.
+- **Identity binding:** The first ping sets the `bucketName` and `email` on the DO. Subsequent pings with mismatched identity return HTTP 403.
+- **Delta clamping:** Each ping computes a delta from the previous session total, clamped to `MAX_DELTA_PER_PING` (300 seconds / 5 minutes) to prevent usage spikes from corrupt data.
+- **Crash resilience:** `pendingSeconds`, `sessionTotals`, `bucketName`, and `email` are persisted to DO storage. On restart, state is restored via `blockConcurrencyWhile`.
+- **Fail-open quota check:** If KV reads fail during a Timekeeper ping, the quota check is skipped (fail-open) to avoid blocking active sessions on transient errors.
+- **Session eviction:** When quota is exceeded mid-session, the container DO sends `SIGTERM` to the container process, allowing graceful cleanup.
 
 ### Supply Chain Security
 

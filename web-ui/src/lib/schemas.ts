@@ -22,14 +22,25 @@ const TabPresetSchema = z.object({
 export const SessionModeSchema = z.enum(['default', 'advanced']);
 
 export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
+export const SubscriptionTierSchema = z.enum([
+  'blocked', 'pending', 'free', 'trial', 'standard', 'advanced', 'max', 'unlimited',
+]);
 
 export const AuthStatusResponseSchema = z.object({
   email: z.string(),
   accessTier: AccessTierSchema,
+  subscriptionTier: SubscriptionTierSchema.optional(),
   role: z.enum(['admin', 'user']),
   turnstileSiteKey: z.string().nullable().optional(),
   requestedAt: z.string().nullable().optional(),
   onboardingComplete: z.boolean().optional(),
+  hasSubscribed: z.boolean().optional(),
+  trialUsed: z.boolean().optional(),
+  sessionMode: z.enum(['default', 'advanced']).optional(),
+  subscribedMode: z.enum(['default', 'advanced']).optional(),
+  currency: z.string().optional(),
+  billingStatus: z.string().nullable().optional(),
+  userCapacityReached: z.boolean().optional(),
 });
 
 export const AuthProvidersResponseSchema = z.object({
@@ -47,6 +58,7 @@ export const UserPreferencesSchema = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
+  sleepAfter: z.enum(['5m', '15m', '30m', '1h', '2h']).optional(),
 });
 
 // Preset API response schemas
@@ -85,9 +97,12 @@ export const UserResponseSchema = z.object({
   workerName: z.string().optional(),
   role: z.enum(['admin', 'user']).optional(),
   accessTier: AccessTierSchema.optional(),
+  subscriptionTier: SubscriptionTierSchema.optional(),
   onboardingActive: z.boolean().optional(),
   saasMode: z.boolean().optional(),
   onboardingComplete: z.boolean().optional(),
+  hasSubscribed: z.boolean().optional(),
+  subscribedMode: z.enum(['default', 'advanced']).optional(),
 });
 
 export const SessionsResponseSchema = z.object({
@@ -144,6 +159,12 @@ export const BatchSessionStatusResponseSchema = z.object({
     totalFolders: z.number(),
     totalSizeBytes: z.number(),
   }).optional(),
+  usage: z.object({
+    dailySeconds: z.number(),
+    monthlySeconds: z.number(),
+    monthlyQuotaSeconds: z.number().nullable(),
+    tier: z.string(),
+  }).optional(),
 });
 
 // Setup API schemas — moved from client.ts (strict versions)
@@ -174,6 +195,7 @@ export const UserEntrySchema = z.object({
   addedAt: z.string(),
   role: z.enum(['admin', 'user']).default('user'),
   accessTier: AccessTierSchema.optional(),
+  subscriptionTier: SubscriptionTierSchema.optional(),
 });
 
 export const GetUsersResponseSchema = z.object({

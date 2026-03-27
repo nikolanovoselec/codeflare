@@ -1,6 +1,15 @@
 # Trivy vulnerability suppressions
 # Review monthly and remove entries when upstream fixes are available.
 
+# rclone v1.73.2 built with grpc v1.76.0 — fix requires grpc v1.79.3.
+# Waiting for rclone upstream to update. Authorization bypass via missing
+# leading slash in :path — rclone doesn't expose gRPC services.
+CVE-2026-33186
+
+# rclone/lazygit: jsonparser DoS via crafted JSON input.
+# These are CLI tools in sandboxed container, not processing untrusted JSON.
+GHSA-6g7g-w4f8-9c9x
+
 # lazygit v0.60.0 built with Go 1.25.x — may still need Go 1.25.8+ for fix.
 # Risk: crypto/tls session resumption — lazygit doesn't expose TLS services.
 CVE-2025-68121

@@ -12,11 +12,12 @@ import type { Settings } from '../lib/settings';
 import { sessionStore } from '../stores/session';
 import { recreateGettingStartedDocs, recreateAgentConfigs } from '../api/storage';
 import { getUser } from '../api/client';
-import type { AccessTier } from '../types';
+import type { AccessTier, SubscriptionTier } from '../types';
 import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
 import LlmKeysSection from './settings/LlmKeysSection';
+// SubscriptionManagement moved to standalone admin page at /admin/subscriptions
 import '../styles/settings-panel.css';
 
 interface SettingsPanelProps {
@@ -115,19 +116,22 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
   const [openGroup, setOpenGroup] = createSignal<AccordionGroup>('appearance');
 
-  // Live access tier — refreshed from API each time panel opens so tier
+  // Live tier — refreshed from API each time panel opens so tier
   // upgrades take effect without a full page reload.
-  const [liveAccessTier, setLiveAccessTier] = createSignal<AccessTier | undefined>(props.currentUserAccessTier);
+  const [liveAccessTier, setLiveAccessTier] = createSignal<AccessTier | SubscriptionTier | undefined>(props.currentUserAccessTier);
 
   // Reset accordion to Appearance when panel is closed then reopened (false → true)
   createEffect(on(
     () => props.isOpen,
     (isOpen, prevIsOpen) => {
-      if (isOpen && prevIsOpen === false) {
+      if (isOpen && !prevIsOpen) {
         setOpenGroup('appearance');
-        // Re-fetch access tier on panel open
+        // Re-fetch tier on panel open
         getUser().then((user) => {
-          if (user.accessTier) setLiveAccessTier(user.accessTier);
+          const tier = user.subscriptionTier ?? user.accessTier;
+          if (tier) setLiveAccessTier(tier);
+          setUserHasSubscribed(user.hasSubscribed === true);
+          setLiveSubscribedMode(user.subscribedMode ?? 'default');
         }).catch(() => {});
       }
     }
@@ -138,16 +142,28 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const isAdmin = () => props.currentUserRole === 'admin';
+  // Initialize from local preference until async getUser() returns the server-side subscribedMode
+  const [liveSubscribedMode, setLiveSubscribedMode] = createSignal<'default' | 'advanced'>(
+    (sessionStore.preferences.sessionMode as 'default' | 'advanced') ?? 'default'
+  );
   const canUseAdvanced = () => {
-    // Admins always have advanced access regardless of stored tier
-    if (isAdmin()) return true;
+    // Tier must support advanced mode (admins always pass tier check)
     const tier = liveAccessTier();
-    // advanced tier or no tier set (backward compat: non-SaaS defaults to full access)
-    return !tier || tier === 'advanced';
+    const tierSupportsAdvanced = isAdmin() || !tier || tier === 'advanced' || tier === 'max' || tier === 'unlimited';
+    // User must have subscribed to Pro via subscribe page (stored in user record, not preferences)
+    const subscribedToPro = liveSubscribedMode() === 'advanced';
+    return tierSupportsAdvanced && subscribedToPro;
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
+  const isFreeUser = () => {
+    const tier = liveAccessTier();
+    return tier === 'free';
+  };
+  const sleepAfter = () => isFreeUser() ? '5m' : (sessionStore.preferences.sleepAfter ?? '30m');
+  const [userHasSubscribed, setUserHasSubscribed] = createSignal(false);
+  const canChangeSleepAfter = () => (isAdmin() || userHasSubscribed()) && !isFreeUser();
 
   const showButtonLabels = () => settings().showButtonLabels !== false;
   const showTips = () => settings().showTips !== false;
@@ -191,6 +207,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const handleSessionModeChange = (mode: 'default' | 'advanced') => {
     if (mode === currentSessionMode()) return;
     void sessionStore.updatePreferences({ sessionMode: mode });
+  };
+
+  const handleSleepAfterChange = (value: string) => {
+    if (value === sleepAfter()) return;
+    void sessionStore.updatePreferences({ sleepAfter: value as import('../types').SleepAfterOption });
   };
 
   const handleRecreateDocs = async () => {
@@ -307,6 +328,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               fastStartEnabled={fastStartEnabled}
               workspaceSyncEnabled={workspaceSyncEnabled}
               clipboardAccess={clipboardAccess}
+              sleepAfter={sleepAfter}
+              canChangeSleepAfter={canChangeSleepAfter}
+              isFreeUser={isFreeUser}
               recreateDocsLoading={recreateDocsLoading}
               recreateDocsMessage={recreateDocsMessage}
               recreateDocsError={recreateDocsError}
@@ -316,6 +340,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               onSessionModeChange={handleSessionModeChange}
               onFastStartToggle={handleFastStartToggle}
               onWorkspaceSyncToggle={handleWorkspaceSyncToggle}
+              onSleepAfterChange={handleSleepAfterChange}
               onRecreateDocs={() => { void handleRecreateDocs(); }}
               onRecreateAgentConfigs={() => { void handleRecreateAgentConfigs(); }}
               updateSetting={updateSetting}
@@ -387,6 +412,26 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <span class="settings-hint" data-testid="settings-r2-warning">
                   If you rotate your Cloudflare API token, redeploy with the new token and re-run the Setup Wizard.
                 </span>
+              </section>
+              <section class="settings-section">
+                <div class="settings-section-header">
+                  <Icon path={mdiCogOutline} size={16} />
+                  <h3 class="settings-section-title">Subscription Tiers</h3>
+                </div>
+                <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+                  Configure monthly hours, pricing, trial periods, and session modes for each tier.
+                </p>
+                <div class="settings-admin-actions">
+                  <button
+                    type="button"
+                    class="provider-row-connect-btn"
+                    style={{ background: '#059669' }}
+                    onClick={() => { window.location.href = '/admin/subscriptions'; }}
+                  >
+                    <Icon path={mdiCogOutline} size={24} style={{ color: 'white' }} />
+                    <span>Manage Subscriptions</span>
+                  </button>
+                </div>
               </section>
             </AccordionSection>
           </Show>

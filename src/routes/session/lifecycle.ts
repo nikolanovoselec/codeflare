@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
-import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString } from '../../lib/kv-keys';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -14,6 +14,9 @@ import { getContainerId, safeCheckContainerHealth } from '../../lib/container-he
 import { getContainerSessionsCB } from '../../lib/circuit-breakers';
 import { toApiSession } from '../../lib/session-helpers';
 import { ValidationError } from '../../lib/error-types';
+import { isSaasModeActive } from '../../lib/onboarding';
+import { getTierConfig, getUserTier } from '../../lib/subscription';
+import type { UsageRecord } from '../../types';
 
 /**
  * Check container health and PTY status for a session.
@@ -108,7 +111,31 @@ app.get('/batch-status', async (c) => {
   const storageStatsCached = await c.env.KV.get(`storage-stats:${bucketName}`, 'json') as { totalFiles: number; totalFolders: number; totalSizeBytes: number } | null;
   const storageStats = storageStatsCached || undefined;
 
-  return c.json({ statuses, maxSessions, storageStats });
+  // Include usage data when SaaS mode is active
+  let usage: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string } | undefined;
+  if (isSaasModeActive(c.env.SAAS_MODE)) {
+    try {
+      const [record, tiers] = await Promise.all([
+        c.env.KV.get<UsageRecord>(getTimekeeperKey(bucketName), 'json'),
+        getTierConfig(c.env.KV),
+      ]);
+      const tierValue = user.subscriptionTier ?? user.accessTier;
+      const tier = getUserTier(tierValue, tiers);
+      const now = new Date();
+      const currentMonth = getUtcMonthString(now);
+      const currentDate = getUtcDateString(now);
+      usage = {
+        dailySeconds: (record && record.today.date === currentDate) ? record.today.seconds : 0,
+        monthlySeconds: (record && record.thisMonth.month === currentMonth) ? record.thisMonth.seconds : 0,
+        monthlyQuotaSeconds: tier.monthlySeconds,
+        tier: tier.id,
+      };
+    } catch {
+      // Non-fatal — usage display is best-effort
+    }
+  }
+
+  return c.json({ statuses, maxSessions, storageStats, usage });
 });
 
 /**

@@ -38,7 +38,9 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
   const activeSessionId = () => sessionStore.activeSessionId;
 
   const runningSessions = createMemo(() =>
-    sessionStore.sessions.filter((s) => s.status === 'running' || s.status === 'initializing')
+    sessionStore.sessions.filter((s) =>
+      s.status === 'running' || s.status === 'initializing' || sessionStore.isSessionInitializing(s.id)
+    )
   );
 
   const hasInitializingSession = createMemo(() =>

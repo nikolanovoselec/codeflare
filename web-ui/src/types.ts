@@ -22,12 +22,15 @@ export interface TabPreset {
 /** User preferences persisted across sessions */
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 
+export type SleepAfterOption = '5m' | '15m' | '30m' | '1h' | '2h';
+
 export interface UserPreferences {
   lastAgentType?: AgentType;
   lastPresetId?: string;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
+  sleepAfter?: SleepAfterOption;
 }
 
 /** Mirrors backend Session type (see src/types.ts). Keep in sync manually. */
@@ -106,14 +109,23 @@ export interface StartupStatusResponse {
 }
 
 export type AccessTier = 'pending' | 'standard' | 'advanced' | 'blocked';
+export type SubscriptionTier = 'blocked' | 'pending' | 'free' | 'trial' | 'standard' | 'advanced' | 'max' | 'unlimited';
 
 export interface AuthStatus {
   email: string;
   accessTier: AccessTier;
+  subscriptionTier?: SubscriptionTier;
   role: 'admin' | 'user';
   turnstileSiteKey?: string | null;
   requestedAt?: string | null;
   onboardingComplete?: boolean;
+  hasSubscribed?: boolean;
+  trialUsed?: boolean;
+  sessionMode?: 'default' | 'advanced';
+  subscribedMode?: 'default' | 'advanced';
+  currency?: string;
+  billingStatus?: string | null;
+  userCapacityReached?: boolean;
 }
 
 export interface AuthProvider {
@@ -130,9 +142,12 @@ export interface UserInfo {
   workerName?: string;
   role?: 'admin' | 'user';
   accessTier?: AccessTier;
+  subscriptionTier?: SubscriptionTier;
   onboardingActive?: boolean;
   saasMode?: boolean;
   onboardingComplete?: boolean;
+  hasSubscribed?: boolean;
+  subscribedMode?: 'default' | 'advanced';
 }
 
 // Terminal connection state (no 'error' — infinite retries mean we never give up)

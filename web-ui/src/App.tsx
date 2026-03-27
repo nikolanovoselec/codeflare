@@ -1,5 +1,5 @@
 import { Component, onMount, onCleanup, createSignal, Show, lazy, type JSX } from 'solid-js';
-import type { AccessTier } from './types';
+import type { AccessTier, SubscriptionTier } from './types';
 import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
 import SetupWizard from './components/setup/SetupWizard';
@@ -17,6 +17,8 @@ const LoginPage = lazy(() => import('./components/LoginPage'));
 const SubscribePage = lazy(() => import('./components/SubscribePage'));
 const UserManagement = lazy(() => import('./components/admin/UserManagement'));
 const OnboardingPage = lazy(() => import('./components/OnboardingPage'));
+const UsagePage = lazy(() => import('./components/UsagePage'));
+const AdminSubscriptionManagement = lazy(() => import('./components/admin/SubscriptionManagement'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -36,6 +38,7 @@ const AppContent: Component = () => {
   const [userName, setUserName] = createSignal<string | undefined>();
   const [userRole, setUserRole] = createSignal<'admin' | 'user' | undefined>();
   const [userAccessTier, setUserAccessTier] = createSignal<AccessTier | undefined>();
+  const [userSubscriptionTier, setUserSubscriptionTier] = createSignal<SubscriptionTier | undefined>();
   const [onboardingActive, setOnboardingActive] = createSignal<boolean | undefined>();
   const [loading, setLoading] = createSignal(true);
   const [authError, setAuthError] = createSignal<string | null>(null);
@@ -46,9 +49,19 @@ const AppContent: Component = () => {
       setUserName(user.email);
       setUserRole(user.role);
       setUserAccessTier(user.accessTier);
+      setUserSubscriptionTier(user.subscriptionTier);
       setOnboardingActive(user.onboardingActive);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
-      // First-time user: redirect to guided setup
+
+      // SaaS mode redirect priority:
+      // 1. Pending tier → subscribe page (choose a plan)
+      // 2. Not onboarded → onboarding page (first-time guided setup)
+      // 3. Otherwise → dashboard
+      const effectiveTier = user.subscriptionTier ?? user.accessTier;
+      if (user.saasMode && effectiveTier === 'pending') {
+        window.location.href = '/app/subscribe';
+        return;
+      }
       if (user.saasMode && !user.onboardingComplete) {
         window.location.href = '/app/onboarding';
         return;
@@ -104,7 +117,7 @@ const AppContent: Component = () => {
           </div>
         }
       >
-        <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} onboardingActive={onboardingActive()} />
+        <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} />
       </Show>
     </Show>
   );
@@ -212,9 +225,15 @@ const App: Component = () => {
       <Route path="/login" component={LoginPage} />
       <Route path="/app/subscribe" component={SubscribePage} />
       <Route path="/app/onboarding" component={OnboardingPage} />
+      <Route path="/app/usage" component={UsagePage} />
       <Route path="/admin/users" component={() => (
         <SetupGuard>
           <UserManagement onBack={() => { window.location.href = '/app/'; }} />
+        </SetupGuard>
+      )} />
+      <Route path="/admin/subscriptions" component={() => (
+        <SetupGuard>
+          <AdminSubscriptionManagement onBack={() => { window.location.href = '/app/'; }} />
         </SetupGuard>
       )} />
       <Route

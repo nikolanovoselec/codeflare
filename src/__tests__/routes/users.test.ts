@@ -476,7 +476,7 @@ describe('Users Routes', () => {
       const res = await saasApp.request('/users/target-admin%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'standard' }),
+        body: JSON.stringify({ subscriptionTier: 'standard' }),
       });
 
       expect(res.status).toBe(400);
@@ -512,13 +512,13 @@ describe('Users Routes', () => {
       const res = await saasApp.request('/users/regular%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'standard' }),
+        body: JSON.stringify({ subscriptionTier: 'standard' }),
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json() as { success: boolean; accessTier: string };
+      const body = await res.json() as { success: boolean; subscriptionTier: string };
       expect(body.success).toBe(true);
-      expect(body.accessTier).toBe('standard');
+      expect(body.subscriptionTier).toBe('standard');
     });
 
     it('PATCH user to advanced tier auto-sets sessionMode preference', async () => {
@@ -550,7 +550,7 @@ describe('Users Routes', () => {
       const res = await saasApp.request('/users/newuser%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'advanced' }),
+        body: JSON.stringify({ subscriptionTier: 'advanced' }),
       });
 
       expect(res.status).toBe(200);
@@ -596,7 +596,7 @@ describe('Users Routes', () => {
       const res = await saasApp.request('/users/existing%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'advanced' }),
+        body: JSON.stringify({ subscriptionTier: 'advanced' }),
       });
 
       expect(res.status).toBe(200);
@@ -606,6 +606,47 @@ describe('Users Routes', () => {
       const parsed = typeof prefs === 'string' ? JSON.parse(prefs) : prefs;
       expect(parsed.sessionMode).toBe('default');
       expect(parsed.lastAgentType).toBe('codex');
+    });
+
+    it('PATCH succeeds when user has accessTier: free (written by subscribe endpoint)', async () => {
+      const saasApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      saasApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          SAAS_MODE: 'active',
+          CLOUDFLARE_WORKER_NAME: 'codeflare',
+        } as unknown as Env;
+        return next();
+      });
+      saasApp.route('/users', usersRoutes);
+      saasApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      // Subscribe endpoint writes accessTier: 'free' which is not in AccessTierSchema
+      mockKV._set('user:subscriber@example.com', {
+        addedBy: 'jit',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+        accessTier: 'free',
+        subscriptionTier: 'free',
+        subscribedAt: '2024-01-02T00:00:00.000Z',
+      });
+
+      const res = await saasApp.request('/users/subscriber%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionTier: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { success: boolean; subscriptionTier: string };
+      expect(body.success).toBe(true);
+      expect(body.subscriptionTier).toBe('advanced');
     });
 
     it('PATCH user to standard tier does not write preferences', async () => {
@@ -637,7 +678,7 @@ describe('Users Routes', () => {
       await saasApp.request('/users/stduser%40example.com', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessTier: 'standard' }),
+        body: JSON.stringify({ subscriptionTier: 'standard' }),
       });
 
       // No preferences should be written

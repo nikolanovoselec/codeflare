@@ -30,6 +30,19 @@ export function formatRelativeTime(date: Date | undefined): string {
   return `${month} ${day}, ${date.getFullYear()}`;
 }
 
+/**
+ * Format a duration in seconds to a human-readable string.
+ * 0 → "0s", 59 → "59s", 60 → "1m", 3600 → "1h 0m", 7260 → "2h 1m"
+ */
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

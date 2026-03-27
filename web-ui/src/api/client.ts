@@ -23,6 +23,7 @@ import {
   AuthStatusResponseSchema,
   AuthProvidersResponseSchema,
   AccessTierSchema,
+  SubscriptionTierSchema,
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
 import { ApiError, baseFetch } from './fetch-helper';
@@ -98,9 +99,9 @@ export async function deleteSession(id: string): Promise<void> {
  * Get status for all sessions in a single batch call
  * Returns statuses map, maxSessions limit, and optional storageStats
  */
-export async function getBatchSessionStatus(): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number } }> {
+export async function getBatchSessionStatus(): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string } }> {
   const response = await fetchApi('/sessions/batch-status', {}, BatchSessionStatusResponseSchema);
-  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats };
+  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage };
 }
 
 // Get container startup status (polling endpoint)
@@ -216,9 +217,16 @@ export async function stopSession(id: string): Promise<void> {
 // User management
 export type UserEntry = z.infer<typeof UserEntrySchema>;
 
-export async function getUsers(): Promise<UserEntry[]> {
+export async function getUsers(): Promise<{ users: UserEntry[]; maxUsers: number }> {
   const data = await fetchApi('/users', {}, GetUsersResponseSchema);
-  return data.users;
+  return { users: data.users, maxUsers: (data as Record<string, unknown>).maxUsers as number ?? 0 };
+}
+
+export async function updateMaxUsers(maxUsers: number): Promise<{ success: boolean; maxUsers: number }> {
+  return fetchApi('/users/max-users', {
+    method: 'PUT',
+    body: JSON.stringify({ maxUsers }),
+  }, z.object({ success: z.boolean(), maxUsers: z.number() }));
 }
 
 
@@ -329,11 +337,7 @@ export async function deleteDeployKeys(): Promise<void> {
 export type OnboardingConfigResponse = z.infer<typeof OnboardingConfigResponseSchema>;
 
 export async function getOnboardingConfig(): Promise<OnboardingConfigResponse> {
-  // Public endpoints live at /public/* (outside /api/*) to avoid CF Access interception
-  return baseFetch<OnboardingConfigResponse>('/onboarding-config', {}, {
-    basePath: '/public',
-    schema: OnboardingConfigResponseSchema,
-  });
+  return fetchApi('/auth/onboarding-config', {}, OnboardingConfigResponseSchema);
 }
 
 // Mark onboarding as complete for the current user
@@ -353,7 +357,7 @@ export async function ensureR2Token(): Promise<{ ready: boolean }> {
   return data ?? { ready: false };
 }
 
-// Auth API — providers endpoint uses /public/ prefix to bypass CF Access
+// Auth providers — stays public because login page needs it before user is authenticated
 export async function getAuthProviders(): Promise<{ providers: AuthProvider[] }> {
   return baseFetch<{ providers: AuthProvider[] }>('/auth/providers', {}, {
     basePath: '/public',
@@ -365,28 +369,113 @@ export async function getAuthStatus(): Promise<AuthStatus> {
   return fetchApi('/auth/status', {}, AuthStatusResponseSchema);
 }
 
-export async function requestAccess(turnstileToken: string): Promise<{ success: boolean }> {
-  return fetchApi('/auth/request-access', {
-    method: 'POST',
-    body: JSON.stringify({ turnstileToken }),
-  }, z.object({ success: z.boolean() }));
-}
+// requestAccess removed — replaced by subscribe() for self-service tier selection
 
 
 const UpdateUserTierResponseSchema = z.object({
   success: z.boolean(),
   email: z.string(),
-  accessTier: AccessTierSchema,
+  subscriptionTier: SubscriptionTierSchema,
+  accessTier: AccessTierSchema.or(SubscriptionTierSchema),
 });
 
-export async function updateUserAccessTier(
+export async function updateUserTier(
   email: string,
-  accessTier: string
+  subscriptionTier: string
 ): Promise<z.infer<typeof UpdateUserTierResponseSchema>> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ accessTier }),
+    body: JSON.stringify({ subscriptionTier }),
   }, UpdateUserTierResponseSchema);
+}
+
+
+const UsageResponseSchema = z.object({
+  dailySeconds: z.number(),
+  monthlySeconds: z.number(),
+  monthlyQuotaSeconds: z.number().nullable(),
+  tier: z.string(),
+});
+
+export async function getUsage(): Promise<z.infer<typeof UsageResponseSchema>> {
+  return fetchApi('/usage', {}, UsageResponseSchema);
+}
+
+// Robust schema for tier objects — tolerates null, missing, and string values
+// from KV data that may have been written by older code versions.
+const TierObjectSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  monthlySeconds: z.number().nullable(),
+  maxSessions: z.number(),
+  sessionModes: z.array(z.string()).default(['default']),
+  canLogin: z.boolean(),
+  order: z.number(),
+  isDefault: z.boolean(),
+  priceMonthly: z.number().nullable(),
+  trialQuotaHours: z.number().nullable().optional(),
+  trialDays: z.number().nullable().optional(),
+  description: z.string().default(''),
+  advancedPriceMonthly: z.number().nullable().optional(),
+}).passthrough(); // allow extra fields from KV without failing
+
+const TiersResponseSchema = z.object({
+  tiers: z.array(TierObjectSchema),
+});
+
+const PublicTiersResponseSchema = z.object({
+  tiers: z.array(TierObjectSchema),
+});
+
+export async function getTiers(): Promise<z.infer<typeof TiersResponseSchema>> {
+  return fetchApi('/admin/tiers', {}, TiersResponseSchema);
+}
+
+export async function updateTiers(tiers: unknown[]): Promise<{ success: boolean }> {
+  return fetchApi('/admin/tiers', {
+    method: 'PUT',
+    body: JSON.stringify(tiers),
+  }, z.object({ success: z.boolean() }));
+}
+
+export async function getPublicTiers(): Promise<z.infer<typeof PublicTiersResponseSchema>> {
+  return fetchApi('/auth/tiers', {}, PublicTiersResponseSchema);
+}
+
+const SubscribeResponseSchema = z.object({
+  success: z.boolean(),
+  tier: z.string(),
+  trialQuotaHours: z.number(),
+  onboardingComplete: z.boolean(),
+});
+
+export async function subscribe(tier: string, turnstileToken: string, mode?: string): Promise<z.infer<typeof SubscribeResponseSchema>> {
+  return fetchApi('/auth/subscribe', {
+    method: 'POST',
+    body: JSON.stringify({ tier, turnstileToken, mode }),
+  }, SubscribeResponseSchema);
+}
+
+// Billing API
+const CheckoutResponseSchema = z.object({
+  checkoutUrl: z.string(),
+});
+
+export async function createCheckoutSession(tier: string, mode?: string): Promise<{ checkoutUrl: string }> {
+  return fetchApi('/billing/checkout', {
+    method: 'POST',
+    body: JSON.stringify({ tier, mode }),
+  }, CheckoutResponseSchema);
+}
+
+const PortalResponseSchema = z.object({
+  portalUrl: z.string(),
+});
+
+export async function createPortalSession(): Promise<{ portalUrl: string }> {
+  return fetchApi('/billing/portal', {
+    method: 'POST',
+  }, PortalResponseSchema);
 }
 
 export async function deleteUser(email: string): Promise<{ success: boolean; email: string }> {

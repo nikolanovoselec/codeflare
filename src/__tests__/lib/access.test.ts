@@ -79,10 +79,8 @@ describe('access.ts', () => {
       mockKV._store.set('user:arr@example.com', '[1, 2, 3]');
 
       const result = await resolveUserFromKV(mockKV as unknown as KVNamespace, 'arr@example.com');
-      // Arrays are typeof 'object' and not null, so they pass the check
-      // but the result will have defaults for missing fields
-      expect(result).not.toBeNull();
-      expect(result!.role).toBe('user'); // no .role on array → defaults
+      // CF-010: parseUserRecord rejects non-object values (arrays fail Zod z.object schema)
+      expect(result).toBeNull();
     });
 
     it('defaults role to user when role field is missing', async () => {

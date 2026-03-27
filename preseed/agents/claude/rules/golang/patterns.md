@@ -6,8 +6,6 @@ paths:
 ---
 # Go Patterns
 
-> This file extends [common/patterns.md](../common/patterns.md) with Go specific content.
-
 ## Functional Options
 
 ```go
@@ -39,7 +37,3 @@ func NewUserService(repo UserRepository, logger Logger) *UserService {
     return &UserService{repo: repo, logger: logger}
 }
 ```
-
-## Reference
-
-See skill: `golang-patterns` for comprehensive Go patterns including concurrency, error handling, and package organization.

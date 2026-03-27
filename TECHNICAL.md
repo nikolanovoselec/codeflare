@@ -2,7 +2,7 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-**Last Updated:** 2026-03-18
+**Last Updated:** 2026-03-21
 
 ---
 
@@ -24,11 +24,14 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 9. [Security Model](#security-model)
 10. [Rate Limiting](#rate-limiting)
 
+### Billing & Payments
+11. [Stripe Payment Integration](#stripe-payment-integration)
+
 ### APIs & Configuration
-11. [API Reference](#api-reference)
+12. [API Reference](#api-reference)
     - [Setup Wizard](#setup)
-12. [Environment Variables](#environment-variables)
-13. [Configuration](#configuration)
+13. [Environment Variables](#environment-variables)
+14. [Configuration](#configuration)
 
 ### Deployment & Infrastructure
 14. [Container Image](#container-image)
@@ -98,31 +101,34 @@ if (wsRouteResult.isWebSocketRoute) {
 
 **CORS:** Checks static patterns from `env.ALLOWED_ORIGINS` + dynamic origins from KV (cached in memory). Uses `matchesPattern()` with domain-boundary enforcement (dot-prefixed = suffix match, bare domains = exact or subdomain with dot boundary).
 
-**Route Registration:** `/health`, `/api/user`, `/api/users`, `/api/container`, `/api/sessions`, `/api/terminal`, `/api/setup`, `/api/storage`, `/api/presets`, `/api/preferences`, `/api/llm-keys`, `/public`
+**Route Registration:** `/health`, `/api/health`, `/api/auth`, `/auth`, `/public/auth/providers`, `/api/setup`, `/public`, `/api/user`, `/api/container`, `/api/sessions`, `/api/terminal`, `/api/users`, `/api/storage`, `/api/presets`, `/api/preferences`, `/api/llm-keys`, `/api/deploy-keys`, `/api/usage`, `/api/admin/tiers`
 
 **Workers Assets Routing Guardrails (`wrangler.toml`):**
 
-With SPA fallback (`not_found_handling = "single-page-application"`), control-plane paths must execute Worker logic first via `run_worker_first = ["/", "/api/*", "/public/*", "/health"]`. Missing `/api/*` causes setup/auth flows to break (API endpoints return HTML instead of JSON).
+With SPA fallback (`not_found_handling = "single-page-application"`), control-plane paths must execute Worker logic first via `run_worker_first = ["/", "/auth/*", "/api/*", "/public/*", "/health"]`. Missing `/api/*` causes setup/auth flows to break (API endpoints return HTML instead of JSON).
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. `defaultPort = 8080`, `sleepAfter = '30m'` (SDK-managed lifecycle, renewed only on new user input via input-change detection).
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `defaultPort = 8080`, `sleepAfter = '5m'` class default (overridden per user from preferences on session start — see [Auto-sleep](#auto-sleep-configurable-sleepafter)). SDK-managed lifecycle, renewed only on new user input via input-change detection. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` as lowercase `timekeeper` for per-user usage tracking (see [Timekeeper DO](#timekeeper-do-usage-tracking)).
 
-**SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` updates KV with `lastStartedAt` timestamp, clears stale `collectMetrics` schedules, and arms a fresh 60-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
+**SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` records `containerStartedAt`, refreshes `envVars` via `updateEnvVars()`, updates KV with `lastStartedAt` timestamp AND `lastActiveAt` (set to start time so the frontend sleep timer icon has a reference timestamp even before any user input), clears stale `collectMetrics` schedules, and arms a fresh 60-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
+
+**Fetch proxy bypass:** The `fetch()` override proxies requests via `getTcpPort().fetch()` instead of `super.fetch()` (which calls the SDK's `containerFetch()`). This is critical because `containerFetch()` calls `renewActivityTimeout()` internally, resetting the idle timer on every WebSocket reconnection — defeating the input-change-based renewal in `collectMetrics()`. By using `getTcpPort().fetch()`, only explicit `renewActivityTimeout()` calls (triggered by new user input) reset the timer.
 
 **`collectMetrics()` Input-Change Detection (every 60s):**
 1. Checks `this.ctx.container?.running` - returns early (no re-arm) if container is dead
 2. Fetches `/activity` via `getTcpPort()` - uses input-change detection to decide whether to renew `sleepAfter`:
    - Reads `lastInputAt` from the activity response (Unix timestamp of last real user input)
    - Compares to `this.lastSeenInputAt` (the value from the previous poll)
-   - **New input detected** (`lastInputAt !== null && lastInputAt !== lastSeenInputAt`): calls `renewActivityTimeout()` to reset the 30-minute `sleepAfter` timer
+   - **New input detected** (`lastInputAt !== null && lastInputAt !== lastSeenInputAt`): calls `renewActivityTimeout()` to reset the `sleepAfter` timer
    - **No new input**: does not renew — the `sleepAfter` timer continues counting down from the last renewal
    - Non-OK `/activity` response: does not renew (broken activity endpoint should not keep containers alive)
    - Activity logs are at info level for all renewal decisions
 3. Fetches `/health` via `getTcpPort()` - reads cpu/mem/hdd/syncStatus
-4. Writes metrics to KV session record (`session.metrics`)
-5. Re-arms schedule if container still running
-6. **Zombie DO detection**: When identifiers are missing (post-`destroy()`), returns early WITHOUT re-arming - kills both metrics push and schedule re-arm via if/else pattern
+4. **Zombie DO detection**: When identifiers are missing (post-`destroy()`), returns early WITHOUT re-arming
+5. Writes metrics to KV session record (`session.metrics`) if container still running
+6. **Timekeeper usage ping** (SaaS mode only, when `SAAS_MODE=active` + `bucketName` + `userEmail` + `TIMEKEEPER` binding): increments `_usageSeconds` by 60, persists to DO storage, pings Timekeeper DO with `{ bucketName, sessionId, totalSeconds, email }`. If Timekeeper returns `quotaExceeded: true`, calls `stop('SIGTERM')` and returns without re-arming
+7. Re-arms schedule if container still running
 
 **Zombie DO Detection:** When `collectMetrics` reaches the health-fetch stage but `sessionId` or `bucketName` are missing from DO storage (happens after `destroy()` clears them), it logs `"missing identifiers, not re-arming (zombie DO)"` and returns without scheduling the next cycle. This is the kill switch for orphaned DOs.
 
@@ -134,7 +140,7 @@ flowchart TD
     FetchAct --> ActOK{"Response OK?"}
     ActOK -->|No| NoRenewErr["Don't renew<br/>(broken endpoint)"]
     ActOK -->|Yes| InputChanged{"lastInputAt changed<br/>since last poll?"}
-    InputChanged -->|Yes| Renew["renewActivityTimeout()<br/>(reset 30m sleepAfter)"]
+    InputChanged -->|Yes| Renew["renewActivityTimeout()<br/>(reset sleepAfter timer)"]
     InputChanged -->|No| NoRenew["Don't renew<br/>(no new input)"]
     Renew --> FetchHealth["Fetch /health<br/>from container"]
     NoRenew --> FetchHealth
@@ -142,12 +148,17 @@ flowchart TD
     FetchHealth --> IDs{"identifiers exist?<br/>(sessionId + bucketName)"}
     IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
     IDs -->|Yes| WriteKV["Write metrics to KV"]
-    WriteKV --> ReArm["schedule(60, 'collectMetrics')<br/>(if container.running)"]
+    WriteKV --> TK{"SaaS mode +<br/>Timekeeper binding?"}
+    TK -->|Yes| Ping["Timekeeper ping<br/>(+60s usage)"]
+    Ping --> QuotaCheck{"quotaExceeded?"}
+    QuotaCheck -->|Yes| Stop["stop(SIGTERM)<br/>(no re-arm)"]
+    QuotaCheck -->|No| ReArm["schedule(60, 'collectMetrics')<br/>(if container.running)"]
+    TK -->|No| ReArm
 ```
 
-**`onActivityExpired()` Override:** Performs a final input-change check before stopping. Fetches `/activity` and compares `lastInputAt` to `lastSeenInputAt`. If new input was received since the last `collectMetrics` poll (i.e., user typed between the last poll and expiry), renews `sleepAfter` and returns. Otherwise calls `this.stop('SIGTERM')`. Container not running, non-OK `/activity` response, or fetch error all result in `this.stop('SIGTERM')`. By the time `onActivityExpired` fires, 30 minutes of zero `renewActivityTimeout()` calls have elapsed.
+**`onActivityExpired()` Override:** Performs a final input-change check before stopping. Fetches `/activity` and compares `lastInputAt` to `lastSeenInputAt`. If new input was received since the last `collectMetrics` poll (i.e., user typed between the last poll and expiry), renews `sleepAfter` and returns. Otherwise calls `this.stop('SIGTERM')`. Container not running, non-OK `/activity` response, or fetch error all result in `this.stop('SIGTERM')`. By the time `onActivityExpired` fires, the user-configured `sleepAfter` duration of zero `renewActivityTimeout()` calls has elapsed.
 
-**`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled` from DO storage and nulls `_bucketName` in memory BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
+**`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled` from DO storage and nulls `_bucketName`, `_sessionId`, `_r2AccessKeyId`, `_r2SecretAccessKey`, `_containerAuthToken`, `_openaiApiKey`, `_geminiApiKey`, `_githubToken`, `_cloudflareApiToken`, `_cloudflareAccountId`, `_encryptionKey` in memory, and resets `_sessionMode` to `'default'` BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
 **Environment Variables Injection:** R2 credentials flow via two paths: (1) `_internal/setBucketName` request body (primary, from Worker), (2) `this.env` fallback (DO restart). Fallback chain: Worker-provided > `this.env` > empty string.
 
@@ -160,7 +171,7 @@ sequenceDiagram
     participant C as Container
 
     W->>DO: new DO instance (blockConcurrencyWhile)
-    DO->>DO: Load sessionId + bucketName from storage
+    DO->>DO: Load sessionId + bucketName + prefs<br/>+ usageSeconds + userEmail from storage
     W->>SBN: POST with R2 creds in body
     SBN->>DO: Store bucketName + creds in storage
     DO->>OS: startAndWaitForPorts()
@@ -171,7 +182,7 @@ sequenceDiagram
 
 **Critical: `envVars` must be set as a property assignment**, not as a getter. Cloudflare Containers reads `this.envVars` as a plain property at `start()` time.
 
-**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId`, `workspaceSyncEnabled`, `tabConfig`, and `fastStartEnabled` in DO storage -- this ensures `collectMetrics`/`onStop` can find the KV entry even on session restarts (where the DO already has a bucket set but needs the sessionId for the new lifecycle), and that user preference changes take effect without container recreation.
+**`setBucketName` Idempotency (409 Path):** Once `_bucketName` is set, subsequent `setBucketName` calls return 409. BUT the 409 handler still stores `sessionId`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled`, and `userEmail` in DO storage, updates in-memory LLM keys, deploy keys, encryption key, and session mode, and applies `sleepAfter` preference -- this ensures `collectMetrics`/`onStop` can find the KV entry even on session restarts (where the DO already has a bucket set but needs the sessionId for the new lifecycle), that user preference changes take effect without container recreation, and that the Timekeeper gets the correct user identity.
 
 **Lifecycle Route Re-calls `setBucketName` After `destroy()`:** In the `needsBucketUpdate` path (restart with different bucket), `destroy()` wipes DO storage. The lifecycle route must call `setBucketName` again after `destroy()` to re-populate sessionId, bucketName, and R2 credentials. See `src/routes/container/lifecycle.ts`.
 
@@ -187,7 +198,15 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null }`. Used by both `collectMetrics()` (input-change detection) and `onActivityExpired()` (final input check). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected). `lastInputAt` is the Unix timestamp (ms) of the last real user input — determined by `containsUserInput()` after `stripTerminalResponses()` removes terminal protocol chatter (CPR, OSC, DA). The DO compares `lastInputAt` to its `lastSeenInputAt` field to detect new input between polls.
 
-**Idle Detection (Input-Change Detection):** The Container DO's `collectMetrics()` polls `/activity` every 60s and compares `lastInputAt` to its stored `lastSeenInputAt`. If the value changed (new user input), `renewActivityTimeout()` resets the 30-minute `sleepAfter` timer. If no new input is detected across polls, the timer counts down and the container stops after 30 minutes of idle time. `containsUserInput()` in `host/src/session.ts` uses a whitelist approach — only actual keypresses count (printable characters, control keys, arrow keys, function keys, Alt+key, mouse clicks). Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to the PTY. Scenarios: user stops typing → container stops in ~30 min; browser closed → container stops in ~30 min (no further input to detect).
+**Idle Detection (Two-Layer):** The Container DO enforces idle timeout through two complementary mechanisms:
+
+1. **SDK timer (`onActivityExpired`):** The SDK's built-in `sleepAfter` timer fires when no HTTP requests pass through `super.fetch()` for the configured duration. Works well for longer timeouts (30m+) where WebSocket reconnects are infrequent. `onActivityExpired()` checks `/activity` one last time and calls `this.stop('SIGTERM')`. The KV status write happens in `onStop()`, not in `onActivityExpired()` itself.
+
+2. **Explicit idle-stop (`collectMetrics`):** `collectMetrics()` polls `/activity` every 60s and independently checks idle time: `Date.now() - (lastInputAt ?? containerStartedAt)`. If this exceeds `parseSleepAfterMs()`, it writes KV status `'stopped'` and calls `this.stop('SIGTERM')`. This is the **primary** enforcement for short timeouts (5m) because `super.fetch()` resets the SDK timer on every HTTP request (including periodic WebSocket reconnects), preventing `onActivityExpired()` from firing.
+
+The `containerStartedAt` fallback is critical: if a user opens a terminal but never types, `lastInputAt` stays `null`. Without the fallback, the idle check would be skipped and the container would run forever. With the fallback, idle time is measured from container start.
+
+`containsUserInput()` in `host/src/session.ts` uses a whitelist approach — only actual keypresses count (printable characters, control keys, arrow keys, function keys, Alt+key, mouse clicks). Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to the PTY. Scenarios: user stops typing → container stops after `sleepAfter` + up to 60s (poll granularity); browser closed → same; user opens terminal but never types → container stops after `sleepAfter` from start time.
 
 **WebSocket Wake-Loop Prevention:** Three layers prevent browser auto-reconnect from waking a hibernated container in an infinite stop/start cycle:
 1. **DO fetch gate** (`container/index.ts`): The `fetch()` override returns 503 when `!this.ctx.container?.running` for all non-internal routes. This is authoritative (the DO knows container state directly, no KV read needed) and prevents `super.fetch()` from triggering the SDK's `startIfNotRunning`.
@@ -204,13 +223,15 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **Directory:** `web-ui/`
 
-Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Layout.tsx` (orchestrates dashboard/terminal views, manages WS disconnect/reconnect lifecycle), `SessionStatCard.tsx` (dashboard card with three-color status dot and metrics), `StorageBrowser.tsx` (R2 browser with toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, `Dashboard.tsx`, `OnboardingLanding.tsx`, `OnboardingPage.tsx` (guided setup), `KittScanner.tsx`.
+Key files: `App.tsx` (root), `Terminal.tsx` (xterm.js), `TerminalTabs.tsx`, `Layout.tsx` (orchestrates dashboard/terminal views, manages WS disconnect/reconnect lifecycle), `SessionStatCard.tsx` (dashboard card with three-color status dot and metrics), `StorageBrowser.tsx` (R2 browser with toolbar), `StoragePanel.tsx` (slide-in drawer), `SettingsPanel.tsx`, `Dashboard.tsx`, `OnboardingLanding.tsx`, `OnboardingPage.tsx` (guided setup), `SubscribePage.tsx` (subscription flow), `UsagePage.tsx` (usage dashboard), `LoginPage.tsx` (SaaS login), `Header.tsx` (nav + user dropdown + inline usage), `KittScanner.tsx`.
 
 Stores: `terminal.ts` (WebSocket state, compound key `sessionId:terminalId`, scheduled disconnect/reconnect), `terminal-url-detection.ts` (URL detection signals for floating buttons), `terminal-layout.ts` (terminal layout state), `session.ts` (CRUD, `terminalsPerSession`, `stopSession()` sets `'stopping'` and polls, `refreshSessionStatuses()` for lightweight dashboard polling — also updates storage stats from batch-status via `updateStatsFromBatch()`), `storage.ts` (R2 operations), `setup.ts`, `tiling.ts` (tiled terminal layout), `session-presets.ts` (preset/bookmark management), `session-tabs.ts` (tab configuration).
 
 #### Dashboard WS Disconnect Flow
 
-When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (30m). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then `reconnectDisconnectedTerminals(activeSessionId)` reconnects only the active session's terminals. The `untrack()` fix in `Layout.tsx`'s `createEffect` wraps `activeSessionId` to prevent the reactive dependency from triggering reconnects on unrelated session changes.
+When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (user-configurable, default 30m for paying users, 5m for free tier). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then `reconnectDisconnectedTerminals(activeSessionId)` reconnects only the active session's terminals. The `untrack()` fix in `Layout.tsx`'s `createEffect` wraps `activeSessionId` to prevent the reactive dependency from triggering reconnects on unrelated session changes.
+
+**Tab Visibility Auto-Refresh:** `Layout.tsx` listens for `visibilitychange` events. When the tab returns from background (mobile browser tab switch, screen off/on), it auto-refreshes session statuses and storage listing. This prevents stale "Failed to fetch" errors that appear when background tabs have their network requests aborted by the browser. Storage refresh is silent (no loading spinner) to avoid UI flicker.
 
 ```mermaid
 sequenceDiagram
@@ -238,7 +259,7 @@ sequenceDiagram
 
 #### Polling and Consistency
 
-**Polling Interval:** `SESSION_LIST_POLL_INTERVAL_MS = 5000` -- frontend polls at 5s for responsive UI. The DO's `collectMetrics` pushes metrics to KV every 60s, so metrics may be up to ~60s stale on the dashboard. `CONTEXT_EXPIRY_MS = 30 * 60 * 1000` (30m) matches backend `sleepAfter` for accurate context-expired detection.
+**Polling Interval:** `SESSION_LIST_POLL_INTERVAL_MS = 5000` -- frontend polls at 5s for responsive UI. The DO's `collectMetrics` pushes metrics to KV every 60s, so metrics may be up to ~60s stale on the dashboard. `CONTEXT_EXPIRY_MS = 30 * 60 * 1000` (30m) is the frontend context expiry threshold for detecting stale sessions. Note: backend `sleepAfter` is now user-configurable (5m–2h, default 30m), so context expiry may not exactly match all users' sleep timers.
 
 **KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully -- `SessionStatCard` shows last-known metrics for recently-stopped sessions.
 
@@ -263,17 +284,17 @@ function connect() {
 
 **R2 Storage Stats Caching:** `GET /api/storage/stats` paginates all R2 objects and caches results in KV (`storage-stats:{bucketName}`, 60s TTL). `batch-status` piggybacks cached stats (no TTL check — relies on cache being fresh). Mutation endpoints (upload, delete, move, seed) invalidate the KV cache after successful operations. Dashboard calls `storageStore.fetchStats()` on mount, which hits `/api/storage/stats` and refreshes from R2 if the cache is stale or missing.
 
-**Logout:** Always redirects to `/auth/logout` (backend route in `auth-redirects.ts`). The backend redirects to `https://{authDomain}/cdn-cgi/access/logout?returnTo=https://{customDomain}/`, ensuring the user lands back on the login page instead of the Cloudflare team URL.
+**Logout:** The frontend navigates directly to `/cdn-cgi/access/logout?returnTo={origin}/` via `window.location.href` (CF Access system endpoint). A backend route at `/auth/logout` (in `auth-redirects.ts`) also exists and redirects to `https://{authDomain}/cdn-cgi/access/logout?returnTo=https://{customDomain}/`, but the frontend currently uses the direct CF Access path.
 
-**Header User Dropdown:** Clicking the avatar/username in both Header (terminal view) and Dashboard opens a dropdown with three items: Profile (`/app/subscribe`), Guided Setup (`/app/onboarding`), and Logout. Profile and Guided Setup use plain `<a href>` tags with no `onClick` handlers — SolidJS Router's top-level DOM listener intercepts clicks for client-side navigation (no full page reload, no white flash on dark backgrounds). This is critical for mobile: previous attempts using `<button>` + `window.location.href` or `onClick` handlers failed due to touch event race conditions with Portal DOM removal. Logout uses `window.location.href` since it's a real server redirect. Dashboard dropdown uses `Portal` with the dropdown nested inside the overlay as a child (not a sibling) — `stopPropagation` on the dropdown div prevents touch events from reaching the overlay's `onClick`. Desktop: positioned below avatar via `getBoundingClientRect()`. Mobile: bottom sheet.
+**Header User Dropdown:** Clicking the avatar/username in both Header (terminal view) and Dashboard opens a dropdown with three items: Profile (`/app/subscribe`), Guided Setup (`/app/onboarding`), and Logout. Profile and Guided Setup use plain `<a href>` tags with no `onClick` handlers — SolidJS Router's top-level DOM listener intercepts clicks for client-side navigation (no full page reload, no white flash on dark backgrounds). This is critical for mobile: previous attempts using `<button>` + `window.location.href` or `onClick` handlers failed due to touch event race conditions with Portal DOM removal. Logout uses `window.location.href` to navigate to `/cdn-cgi/access/logout` (CF Access system endpoint). Dashboard dropdown uses `Portal` with the dropdown nested inside the overlay as a child (not a sibling) — `stopPropagation` on the dropdown div prevents touch events from reaching the overlay's `onClick`. Desktop: positioned below avatar via `getBoundingClientRect()`. Mobile: bottom sheet.
 
 **Onboarding Page (`/app/onboarding`):** Guided setup page for new users. Three sections: (1) Connect GitHub — saves PAT via `updateDeployKeys`, (2) Connect Cloudflare — saves API token, (3) Coding Agents — informational cards linking to signup pages for 6 supported agents. Reuses `ProviderRow` and `BrandIcons` from settings. "Skip and Continue to Codeflare" button always visible. Uses standalone `.onboarding-page` container (`position: fixed; inset: 0; overflow-y: auto`) instead of `.login-page` — same pattern as `.setup-wizard` — because `.login-page` has `overflow: hidden` that blocks scrolling. **First-time redirect:** In SaaS mode, `AppContent` checks `onboardingComplete` from `/api/user` — if `false`, redirects to `/app/onboarding`. The Skip/Continue buttons call `POST /api/user/onboarding-complete` which sets `onboardingComplete: true` in the user's KV entry. Subsequent visits go directly to the dashboard. Users can always revisit via the header dropdown ("Guided Setup").
 
 **Font consistency:** Login, subscribe, and onboarding pages all use `JetBrains Mono` monospace font via `font-family` on `.login-content` and `.onboarding-content` root containers. All child text inherits — no sans-serif fallback.
 
-**Admin Protection:** Admin users always have `advanced` access tier and can switch between default/advanced session modes freely. `canUseAdvanced()` in SettingsPanel returns `true` for admins regardless of stored `accessTier` — prevents admin lockout when JIT-provisioned with `pending` tier before being promoted. Backend rejects both tier changes (`PATCH /api/users/:email`) and deletions (`DELETE /api/users/:email`) for admin-role users. Frontend hides tier dropdown and delete button for admins in UserManagement.
+**Admin Protection:** Admin users always have `unlimited` subscription tier and can switch between default/advanced session modes freely. `canUseAdvanced()` in SettingsPanel returns `true` for admins regardless of stored tier — prevents admin lockout when JIT-provisioned with `pending` tier before being promoted. Backend rejects both tier changes (`PATCH /api/users/:email`) and deletions (`DELETE /api/users/:email`) for admin-role users. Frontend hides tier dropdown and delete button for admins in UserManagement.
 
-**Live Access Tier Refresh:** `SettingsPanel` re-fetches `/api/user` each time it opens, updating a `liveAccessTier` signal. This ensures tier upgrades (admin promotes user from `standard` to `advanced`) take effect without a full page reload — the user just needs to close and reopen Settings.
+**Live Tier Refresh:** `SettingsPanel` re-fetches `/api/user` each time it opens, updating a `liveAccessTier` signal with `subscriptionTier ?? accessTier` and `userHasSubscribed` signal from `hasSubscribed`. This ensures tier upgrades (admin promotes user to a higher tier) and subscription status changes take effect without a full page reload — the user just needs to close and reopen Settings. The `hasSubscribed` flag controls whether the auto-sleep dropdown is enabled.
 
 **Auto-advanced session mode:** When a user is promoted to `advanced` tier via `PATCH /api/users/:email`, the backend also writes `sessionMode: 'advanced'` to their preferences (`user-prefs:{bucketName}`) if no `sessionMode` is set yet. This ensures their first bucket creation seeds advanced skills and agent rules. Existing user preferences (where `sessionMode` is already set) are not overridden. Admin users created by setup also get `sessionMode: 'advanced'` in their preferences automatically.
 
@@ -285,7 +306,7 @@ function connect() {
 
 #### Frontend Constants
 
-**File:** `web-ui/src/lib/constants.ts` -- 19 constants for polling intervals, timeouts, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
+**File:** `web-ui/src/lib/constants.ts` -- 19 exported constants for polling intervals, timeouts, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ---
 
@@ -295,9 +316,9 @@ function connect() {
 |------|---------|
 | `src/middleware/auth.ts` | Shared authentication middleware. Delegates to `authenticateRequest()` which throws `AuthError`/`ForbiddenError` on failure. Sets `c.get('user')` and `c.get('bucketName')` for downstream handlers. |
 | `src/lib/container-helpers.ts` | Consolidated container initialization: `getSessionIdFromQuery()` (from query param), `getContainerId()` (with validation, never fallbacks), `getContainerContext()` (full context for route handlers). |
-| `src/lib/error-types.ts` | `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401), `ForbiddenError` (403), `SetupError` (400), `RateLimitError` (429), `CircuitBreakerOpenError` (503). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`. |
+| `src/lib/error-types.ts` | `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401), `ForbiddenError` (403), `SetupError` (400), `RateLimitError` (429), `QuotaExceededError` (402), `CircuitBreakerOpenError` (503). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`. |
 | `src/lib/type-guards.ts` | Runtime type validation replacing unsafe type casts (e.g., `isBucketNameResponse()`). |
-| `src/lib/constants.ts` | Single source of truth for 18 configuration constants: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, request ID config, session limits. |
+| `src/lib/constants.ts` | Single source of truth for 18 constants + 1 exported function: ports (`TERMINAL_SERVER_PORT = 8080`), session ID validation, CORS defaults, rate limit keys/windows, container fetch timeouts, max presets/tabs, protected paths, request ID config, session limits (`getMaxSessions()`). |
 | `src/lib/circuit-breaker.ts` | Prevents cascading failures. States: CLOSED (normal), OPEN (fail fast), HALF_OPEN (testing recovery). Wraps `container.fetch()` calls. |
 | `src/middleware/rate-limit.ts` | Per-user rate limiting (bucketName from auth, IP fallback). Stores counts in KV. Adds `X-RateLimit-*` headers. |
 | `src/lib/logger.ts` | JSON logging with `createLogger(module)`, child loggers with request context. |
@@ -331,7 +352,7 @@ flowchart TD
 
 **Error propagation:** `listAccessApps()` and `listAccessGroups()` propagate errors through `withSetupRetry` rather than silently returning `[]`. Errors surface as `SetupError` with step details. The frontend `ApiError` carries a `steps` array from `SetupError` JSON responses.
 
-**Stale user removal during reconfiguration:** When `POST /configure` is re-run with a new `allowedUsers` list, users no longer in the list are removed via `cleanupUserData()` (`src/lib/user-cleanup.ts`), wrapped in `runStep('cleanup_stale_users')` for progress visibility. This performs full cleanup identical to `DELETE /api/users/:email`: destroys all active sessions/containers, deletes bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), deletes the R2 scoped token, empties the R2 bucket (paginated `ListObjectsV2` + `DeleteObjects` via `emptyR2Bucket`), and deletes the bucket via CF API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency). **SaaS mode:** only admin-role users removed from the admin list are cleaned up — JIT-provisioned regular users are preserved (managed via User Management, not setup). Each existing KV user is checked for `role: 'admin'` before deletion. Admin KV writes merge with existing entries (preserving `accessTier`) and always set `accessTier: 'advanced'`. **Self-removal prevention:** during reconfiguration, the backend rejects the request if the current authenticated user is not in the submitted admin list (`ValidationError: 'You cannot remove yourself from the admin list'`). The Zod schema enforces at least 1 admin user.
+**Stale user removal during reconfiguration:** When `POST /configure` is re-run with a new `allowedUsers` list, users no longer in the list are removed via `cleanupUserData()` (`src/lib/user-cleanup.ts`), wrapped in `runStep('cleanup_stale_users')` for progress visibility. This performs full cleanup identical to `DELETE /api/users/:email`: destroys all active sessions/containers, deletes bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`, `timekeeper:`), deletes the R2 scoped token, empties the R2 bucket (paginated `ListObjectsV2` + `DeleteObjects` via `emptyR2Bucket`), and deletes the bucket via CF API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency). **SaaS mode:** only admin-role users removed from the admin list are cleaned up — JIT-provisioned regular users are preserved (managed via User Management, not setup). Each existing KV user is checked for `role: 'admin'` before deletion. Admin KV writes merge with existing entries (preserving tier fields) and always set `subscriptionTier: 'unlimited'`. **Self-removal prevention:** during reconfiguration, the backend rejects the request if the current authenticated user is not in the submitted admin list (`ValidationError: 'You cannot remove yourself from the admin list'`). The Zod schema enforces at least 1 admin user.
 
 ### Session Route Architecture
 
@@ -339,7 +360,7 @@ flowchart TD
 
 **Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` -- prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
 
-**Session Stop Flow (idle):** `onActivityExpired()` detects no new user input since last `collectMetrics` poll, or unreachable activity endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV.
+**Session Stop Flow (idle):** `onActivityExpired()` detects no new user input since last `collectMetrics` poll, or unreachable activity endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV. Note: `onActivityExpired()` itself does not write KV — the KV write happens in `onStop()`.
 
 ---
 
@@ -402,7 +423,9 @@ stateDiagram-v2
 
 **Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> `lastInputAt` unchanged since last poll (no new input) or unreachable endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule -> KV status = `'stopped'`
 
-**Fast container-stopped detection (frontend):** When a terminal WebSocket reconnect attempt fails (code 1006 — the browser's representation of a 503 from the Container DO's "not running" guard), the terminal store detects this as a dead container and notifies the session store via `handleContainerStopped(sessionId)`. This immediately sets the session status to `'stopped'`, disposes all terminal WS retry loops, and transitions the UI back to the dashboard. The `activeSessionId` is kept set for 2 minutes so that `shouldSkipStatusTransition` blocks stale KV "running" from overwriting the locally-set "stopped" status. After 2 minutes (by which time KV has propagated), `activeSessionId` is cleared. This provides instant detection (~1 second) compared to waiting for KV eventual consistency (up to 2-3 minutes).
+**Fast container-stopped detection (frontend):** When a terminal WebSocket reconnect attempt fails (code 1006 — the browser's representation of a 503 from the Container DO's "not running" guard), the terminal store detects this as a dead container and notifies the session store via `handleContainerStopped(sessionId)`. This immediately sets the session status to `'stopped'`, disposes all terminal WS retry loops, and transitions the UI back to the dashboard. The `activeSessionId` is kept set for **3 minutes** (`CONTAINER_STOPPED_KEEPALIVE_MS = 180_000`) so that `shouldSkipStatusTransition` blocks stale KV "running" from overwriting the locally-set "stopped" status. After 3 minutes, `activeSessionId` is cleared and KV becomes the single source of truth. This provides instant detection (~1 second) compared to waiting for KV eventual consistency.
+
+**Anti-flapping (KV stopped→running):** When KV batch-status polling detects a `stopped→running` transition for a non-active session, `refreshSessionStatuses()` updates the session status dot but does **not** call `initializeTerminalsForSession()`. This prevents a flapping cycle observed in production: stale KV "running" → `initializeTerminalsForSession` creates new WS connections → 503 from dead container → `handleContainerStopped` fires → session set to stopped → 3-min keepalive expires → next stale KV "running" read restarts the cycle. Without auto-terminal-init, the worst case is a brief dot color flicker (yellow → gray) that self-resolves as KV propagates. The user explicitly clicks the session card to reconnect. Terminal initialization only occurs during: (1) explicit session start by user, (2) `loadSessions()` on initial page load where KV is authoritative.
 
 **Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so no KV write)
 
@@ -507,6 +530,8 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 60s, f
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 60s cycle.
 
+`--min-size 1B` on all rclone commands (sync, bisync baseline, bisync daemon) excludes 0-byte files from transfer. R2 SSE-C fails on empty objects — the HeadObject call returns 400 when SSE-C headers are sent for a 0-byte object, which causes rclone to abort with "encryption parameters are not applicable". Empty files (`.lock`, `__init__.py`, etc.) carry no data and are excluded entirely.
+
 `--max-delete 100` allows bisync to propagate bulk deletions (e.g., deleting entire workspace folders). The rclone default of 50% aborts bisync when more than half the files are deleted in one cycle — in a config-heavy sync with few files, even a single folder deletion can exceed this threshold.
 
 ### What's Synced vs Excluded
@@ -547,6 +572,8 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 `--retries 3 --retries-sleep 10s` (rclone v1.66+) on both functions adds bisync-level retries for transient R2 API failures. Each bisync invocation retries up to 3 times with 10s sleep between attempts, before the daemon-level retry logic even kicks in.
 
 **Consecutive failure recovery:** The daemon tracks consecutive bisync failures. After 3 consecutive failures (each with 3 internal retries = 9 total attempts), falls back to `establish_bisync_baseline` (which uses `--resync`) to re-establish clean bisync state. `--resync` merges both sides (files present on only one side get copied to the other), so this is a last resort. The counter resets to 0 on any success or after the resync fallback. Resync failures are logged with full command output for diagnostic visibility. The baseline establishment timeout is 600s (10 minutes) to accommodate large initial syncs.
+
+**Self-healing (`nuke_corrupted_r2_files`):** When resync fails (even after 3 daemon retries), the entrypoint automatically detects and removes files blocking bisync. Two strategies: (1) parse sync.log for ANY file path that caused a bisync error — catches encryption mismatch, size mismatch, corrupted transfer, copy failure, hash mismatch, listing conflicts. Files are deleted from both R2 (using both encrypted and unencrypted configs) and local. (2) If no error files found in logs, full R2 scan — list all objects with an unencrypted config, HEAD each with the encrypted config, delete any returning 400 (unencrypted orphans from older sessions). After nuking, bisync state is cleared and resync retried immediately. Self-healing runs both at startup (if initial baseline fails) and in the daemon (if resync fallback fails). Principle: losing one problematic file is better than losing all sync.
 
 **Bisync exit code handling:** `bisync_with_r2()` uses a temp file approach instead of `| tee` to capture both output and exit code. Piping through `tee` swallows the rclone exit code (the pipe's exit code is `tee`'s, not rclone's), masking bisync failures and breaking error detection in the daemon loop. Both functions redirect with `> "$FILE" 2>&1` (not `2>&1 > "$FILE"`). The old order sent stderr to the parent process's stdout (lost) and only captured stdout in the file. rclone outputs errors and verbose info to stderr, so all diagnostic output was invisible in `/tmp/sync.log`.
 
@@ -659,18 +686,18 @@ flowchart TD
 
 ## SaaS Mode Authentication
 
-When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` access tier and require admin approval. This section documents the complete SaaS auth flow from initial setup through user approval to session management.
+When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` subscription tier and require admin approval. This section documents the complete SaaS auth flow from initial setup through user approval to session management.
 
 ### Deployment Modes
 
 | Mode | Auth provider | User provisioning | Access control |
 |------|--------------|-------------------|----------------|
 | **Default** (no `SAAS_MODE`) | Cloudflare Access (JWT) | Manual allowlist via setup wizard | CF Access policies + KV allowlist |
-| **SaaS** (`SAAS_MODE=active`) | Custom login page + CF Access IdP hints | Auto-provisioned on first login | Three-tier middleware + KV access tiers |
+| **SaaS** (`SAAS_MODE=active`) | Custom login page + CF Access IdP hints | Auto-provisioned on first login | Three-tier middleware + KV subscription tiers |
 
 ### Complete SaaS Authentication Flow
 
-The diagram below shows the entire journey from first visitor to approved, active user:
+The diagram below shows the entire journey from first visitor to active user (self-service subscription flow):
 
 ```mermaid
 flowchart TD
@@ -685,28 +712,25 @@ flowchart TD
     I --> J["Extract user email<br/>from JWT claims"]
     J --> K{"User in KV?<br/>user:{email} record"}
     K -->|no| L["JIT Provision:<br/>new record with pending tier"]
-    K -->|yes| M["Load existing<br/>access tier"]
+    K -->|yes| M["Load existing<br/>subscription tier"]
     L --> N["requireActiveUser check"]
     M --> N
     N -->|tier=pending| O["Redirect to /app/subscribe"]
-    N -->|tier=standard| P["Allow IDE access"]
-    N -->|tier=advanced| P
-    N -->|tier=blocked| Q["Redirect: blocked message"]
-    O --> R["SubscribePage shows Turnstile"]
-    R --> S["User completes CAPTCHA"]
-    S --> T["POST /api/auth/request-access<br/>with turnstileToken"]
-    T --> U["Verify token with Turnstile API"]
-    U --> V["Set requestedAt timestamp<br/>in KV user record"]
-    V --> W["Send admin notification<br/>via Resend email"]
-    W --> X["SubscribePage polls /api/auth/status<br/>every 10 seconds"]
-    X --> Y{"Admin approves?<br/>sets tier to standard"}
-    Y -->|no| X
-    Y -->|yes| Z["Frontend detects tier change"]
-    Z --> AA["Show 'Access Granted' state"]
-    AA --> AB["User clicks Continue → /app/"]
-    AB --> P
+    N -->|active tier| P["Allow IDE access"]
+    N -->|tier=blocked| Q["Show blocked message"]
+    O --> R["SubscribePage Phase 1:<br/>features + status"]
+    R --> R2["User clicks<br/>See subscription plans"]
+    R2 --> R3["Phase 2: lifeline rail<br/>5 tiers + detail panel"]
+    R3 --> S["User selects tier +<br/>completes Turnstile CAPTCHA"]
+    S --> T["POST /api/auth/subscribe<br/>{ tier, turnstileToken }"]
+    T --> U["Verify Turnstile token"]
+    U --> V["Write subscriptionTier +<br/>accessTier + subscribedAt +<br/>subscribedMode + trialBillingTriggered +<br/>trialUsed to KV"]
+    V --> W{"First time?"}
+    W -->|yes| X["Redirect to /app/onboarding"]
+    X --> P
+    W -->|no| P
     P --> AC["Session created with tier"]
-    AC --> AD["Tier controls session mode<br/>standard=default only<br/>advanced=default+advanced"]
+    AC --> AD["Tier controls session mode +<br/>max sessions + usage quota"]
 ```
 
 This flow highlights the key architectural choice: **CF Access handles authentication (identity), while the Worker handles authorization (access control)**. CF Access only knows "is this person GitHub-authenticated?" while the Worker enforces the business logic: "is this person an approved tier?"
@@ -715,33 +739,434 @@ This flow highlights the key architectural choice: **CF Access handles authentic
 
 SaaS mode uses a layered middleware stack on every request to protected routes. See `src/middleware/auth.ts`:
 
-1. **`requireIdentity`** — Resolves the user from CF Access JWT (verified via JWKS at auth_domain). If the user is not in KV, auto-provisions them with `pending` tier via `resolveOrProvisionUser()`. Sets `c.get('user')` with email, role, and accessTier. Used for endpoints like `/api/auth/status` where pending users need to see Turnstile and request-access button.
+1. **`requireIdentity`** — Resolves the user from CF Access JWT (verified via JWKS at auth_domain). If the user is not in KV, auto-provisions them with `pending` tier via `resolveOrProvisionUser()`. Sets `c.get('user')` with email, role, subscriptionTier, and accessTier. Used for endpoints like `/api/auth/status` and `/api/auth/subscribe` where pending users need access to the subscribe page flow.
 
-2. **`requireActiveUser`** — Authenticates (same as requireIdentity) then checks `accessTier` is `standard` or `advanced`. When SAAS_MODE is active:
-   - Pending users on API routes get 403 JSON: `{ error: 'Access denied', code: 'PENDING' }`
-   - Pending users on HTML requests get 403 but frontend catches it and redirects to `/app/subscribe`
+2. **`requireActiveUser`** — Authenticates (same as requireIdentity) then checks `subscriptionTier ?? accessTier` is an active tier (free/trial/standard/advanced/max/unlimited) via `isActiveTier()`. When SAAS_MODE is active:
+   - Pending users get 403 JSON: `{ error: 'Access denied', code: 'PENDING' }` -- frontend catches this and redirects to `/app/subscribe`
    - Blocked users get 403 JSON: `{ error: 'Access denied', code: 'BLOCKED' }`
-   - Standard/advanced users pass through
+   - Active tier users pass through
 
-   When SAAS_MODE is NOT active, requireActiveUser behaves identically to requireIdentity (no tier checking, backward compat).
+   When SAAS_MODE is NOT active, requireActiveUser behaves identically to requireIdentity (no tier checking, backward compat). Also exported as `authMiddleware` alias for backward compatibility.
 
 3. **`requireAdmin`** — Checks `role === 'admin'`. Must be used AFTER requireIdentity or requireActiveUser. Used for `/admin/*` and user management endpoints.
 
-### Access Tiers
+### Subscription Tiers
 
-| Tier | Can log in | Can use IDE | Session modes | How assigned |
-|------|-----------|-------------|---------------|-------------|
-| `pending` | Yes | No | None | Auto-assigned on first login (JIT provisioning) |
-| `standard` | Yes | Yes | `default` only | Admin manually promotes from `pending` in User Management |
-| `advanced` | Yes | Yes | `default` + `advanced` | Admin manually grants full access (or users created via allowedUsers list at setup) |
-| `blocked` | Yes | No | None | Admin blocks user to revoke IDE access without deleting record |
+Codeflare uses a multi-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes. Tier IDs: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`. Pricing and quota details are maintained separately (not in this repo).
 
-Tiers are stored in the KV record at `user:{email}` in the `accessTier` field (JSON value is `{ addedBy, addedAt, role, accessTier }`). Existing users without `accessTier` default to `advanced` (backward compatibility with setups created before tier support).
+**Tier properties (in `SubscriptionTierConfig`):**
+- `id: SubscriptionTier | string` — unique tier identifier
+- `displayName: string` — user-friendly name
+- `monthlySeconds: number | null` — monthly compute quota in seconds (null = unlimited)
+- `maxSessions: number` — max concurrent running sessions
+- `sessionModes: SessionMode[]` — allowed modes (`default`, `advanced`, or both)
+- `canLogin: boolean` — whether users can authenticate (pending=true, blocked=false)
+- `priceMonthly: number | null` — Standard mode price in cents; null = not purchasable
+- `advancedPriceMonthly?: number | null` — Pro mode price in cents (optional)
+- `trialQuotaHours: number` — hours of free usage before billing; 0 = no trial
+- `description: string` — short description (max 200 chars)
+- `order: number` — display order in admin UI
+- `isDefault: boolean` — fallback tier for undefined/missing users (currently `standard`)
 
-The tier logic is defined in `src/lib/access-tier.ts`:
-- `isActiveUser(tier)` — returns true if tier is `standard`, `advanced`, or undefined
-- `allowedSessionModes(tier)` — returns array of modes user can select: `advanced` tier gets both `default` and `advanced`, `standard` gets only `default`
-- `canUseSessionMode(tier, mode)` — checks if a specific mode is allowed
+**Self-service subscription flow:**
+1. New users (pending tier) land on `/app/subscribe` which displays 5 subscribable tiers: `free`, `standard`, `advanced`, `max`, `unlimited`
+2. Each tier card shows pricing, description, monthly hours, max sessions, session modes, and trial badge
+3. User selects a tier → client validates via Turnstile CAPTCHA
+4. `POST /api/auth/subscribe` (rate-limited 3/min):
+   - Validates Turnstile token
+   - Resolves tier config via `getTierConfig(kv)`
+   - Sets `subscriptionTier`, `accessTier`, `subscribedAt` timestamp, `subscribedMode`
+   - Sets `trialBillingTriggered: false`, `trialUsed: false` (booleans) for all subscriptions
+   - Returns `{ success, tier, trialQuotaHours, trialUsed, onboardingComplete }`
+5. Frontend redirects: first-time → `/app/onboarding`, returning → `/app/`
+
+**Tier storage and caching:**
+- Tiers are stored in the KV record at `user:{email}` in the `subscriptionTier` field
+- Default tier config is hardcoded in `src/lib/subscription.ts:getDefaultTiers()`
+- Admins can customize tiers via `/admin/subscriptions` page → `PUT /api/admin/tiers` → `tiers:config` KV key
+- `getTierConfig()` reads from KV with **60-second module-level TTL**, falling back to defaults if unavailable
+- Admin changes take effect within 60 seconds (per isolate cache refresh)
+- Cache can be reset via `resetTierConfigCache()` (used in tests)
+
+**Tier resolution logic (in `src/lib/subscription.ts`):**
+- `isActiveTier(tier)` — returns true for free/trial/standard/advanced/max/unlimited (undefined → true for backward compat)
+- `getUserTier(tierValue, tiers)` — resolves tier config; falls back to the tier with `isDefault: true`
+- `getMaxSessionsForTier(tierValue, tiers)` — max concurrent sessions allowed
+- `getAllowedSessionModes(tierValue, tiers)` — list of session modes allowed
+
+**Backward compatibility:**
+- Legacy `accessTier` field (4-tier system: pending/standard/advanced/blocked) is maintained in KV
+- Code reads `subscriptionTier` first, falls back to `accessTier` for pre-migration users
+- Non-SaaS users without a tier default to `unlimited` access
+- Legacy bridge in `src/lib/access-tier.ts` delegates to `subscription.ts`
+
+### Stripe Payment Integration
+
+When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanced, max) require Stripe Checkout before activation. Free tier remains direct (no payment). When the secret is absent, all tiers work via direct KV (dev/self-hosted mode).
+
+**Architecture:**
+- Library: `src/lib/stripe.ts` — price map, checkout session creation, webhook signature verification, Stripe API communication
+- Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (authenticated)
+- Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified)
+- Types: `BillingFields` interface in `src/types.ts`
+
+**Checkout flow:**
+1. User selects paid tier on subscribe page → frontend calls `POST /api/billing/checkout` with `{ tier, mode }`
+2. Backend creates Stripe Checkout Session with `customer_email` and tier/mode metadata
+3. Frontend redirects to Stripe-hosted checkout page
+4. After payment, Stripe redirects to `/app/subscribe?checkout=success`
+5. Frontend polls `GET /api/auth/status` every 2s (max 30s) waiting for webhook to activate the subscription
+6. Stripe sends `checkout.session.completed` webhook → handler writes tier + billing fields to user KV
+
+**Webhook events handled:**
+- `checkout.session.completed` — activates subscription, stores customer/subscription IDs
+- `customer.subscription.created` — updates subscription details and price ID
+- `customer.subscription.updated` — handles plan changes (upgrades/downgrades via Customer Portal)
+- `invoice.paid` — confirms billing period, sets status to `active`
+- `invoice.payment_failed` — sets billing status to `past_due`
+- `customer.subscription.deleted` — sets billing status to `canceled`
+
+**Security:**
+- Webhook endpoint at `/public/stripe/webhook` bypasses CF Access (same pattern as `/public/auth/providers`)
+- HMAC-SHA256 signature verification using `STRIPE_WEBHOOK_SECRET` via `crypto.subtle.timingSafeEqual()`
+- 5-minute timestamp tolerance prevents replay attacks
+- Event deduplication via KV key `stripe:event:{eventId}` with 72-hour TTL
+
+**Customer mapping:** `stripe-customer:{customerId}` → email stored in KV on checkout completion. Subsequent webhook events use this mapping to resolve the user.
+
+**KV fields added to user record (BillingFields):**
+- `stripeCustomerId` — Stripe customer ID
+- `stripeSubscriptionId` — Stripe subscription ID
+- `stripePriceId` — Active Stripe price ID
+- `billingPeriodEnd` — ISO timestamp of current billing period end
+- `checkoutSessionId` — Stripe checkout session ID
+- `billingStatus` — `active`, `past_due`, `canceled`, or `incomplete`
+
+**Stripe gate:** When `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects paid tiers with "Paid subscriptions require checkout." Only `free` tier is allowed through the direct subscribe endpoint. This ensures payment is collected before tier activation.
+
+**Price map (sandbox):** 6 prices across 3 paid tiers x 2 modes (Standard/Pro). Defined in `src/lib/stripe.ts` as `PRICE_MAP`. `getStripePriceId(tier, mode)` for lookup, `resolveTierFromPriceId(priceId)` for reverse resolution.
+
+**Billing enforcement (`getEffectiveTier()` in `src/lib/subscription.ts`):**
+When `billingStatus` is `canceled` or `past_due` for a paid tier (standard/advanced/max), the user is treated as `free` at all enforcement points. The stored `subscriptionTier` is preserved in KV so resubscription restores the correct plan. Enforcement is read-time, not write-time.
+
+Enforcement points:
+- `GET /api/auth/status` — returns effective tier (free) to frontend
+- `requireActiveUser` middleware — tier gating uses effective tier
+- Container start paygate — quota and session limits use effective tier
+- `billingStatus` field on `AccessUser` — populated during authentication from KV
+
+Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pending`, `blocked`.
+
+**Customer Portal (`POST /api/billing/portal`):**
+Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices, change plan). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min.
+
+**Trial model:**
+Every paid tier has a configurable `trialQuotaHours` (default 4h for all tiers). Trial is compute-based, not time-based.
+
+Flow: (1) New user checks out → Stripe creates subscription with `trial_period_days: 30` (billing window). No charge yet. (2) Timekeeper enforces `trialQuotaHours` as the compute cap during trial. (3) When trial compute quota is consumed → `endTrialNow()` calls Stripe API to end trial immediately → first charge. (4) If payment succeeds → full monthly quota unlocks. If fails → `billingStatus: 'past_due'` → downgraded to free. (5) `trialUsed: true` set in KV → subsequent checkouts skip trial (immediate charge).
+
+Key: Stripe's `trial_period_days: 30` is just a maximum billing window. Our compute quota (4h) is the real limit. Stripe cannot enforce compute hours — we end the trial programmatically when the quota is hit.
+
+`endTrialNow(subscriptionId, secretKey)` in `src/lib/stripe.ts` calls `POST /v1/subscriptions/{id}` with `trial_end=now`.
+
+**Timekeeper trial enforcement:** The Timekeeper DO's ping handler checks `billingStatus === 'trialing'` and uses `trialQuotaHours` (from tier config) as the compute cap instead of `monthlySeconds`. When trial quota is consumed, Timekeeper calls `endTrialNow()` to end the Stripe trial and trigger the first charge. After the trial ends, the subscription moves to `active` and the full `monthlySeconds` quota applies.
+
+### Timekeeper DO (Usage Tracking)
+
+One Timekeeper Durable Object per user tracks compute usage. Container DOs ping Timekeeper with monotonic `totalSeconds` per session every 60 seconds (when `SAAS_MODE=active`, bucket name and user email are set, and TIMEKEEPER binding exists). Timekeeper computes deltas, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes. Note: `STRESS_TEST_MODE` only bypasses rate limits and session limits — it does NOT block Timekeeper pings (usage tracking always runs).
+
+```
+Container DO (session 1) ── ping ──→ Timekeeper DO (user X)
+Container DO (session 2) ── ping ──→ Timekeeper DO (user X)
+                                           │
+                                  flush every 5 min (alarm)
+                                           │
+                                           ▼
+                                KV: timekeeper:{bucketName}
+```
+
+**Ping handler** (`POST /ping`): receives `{ bucketName, sessionId, totalSeconds, email }`, computes delta per session, accumulates pendingSeconds, arms alarm, performs quota check. Returns `{ quotaExceeded, totalMonthlySeconds }`.
+
+**Usage query** (`GET /usage`): returns real-time usage (KV flushed + pending). Used by paygate and `/api/usage` route.
+
+**Alarm flush**: reads KV record, adds pendingSeconds to daily/weekly/monthly/yearly/allTime counters, handles rollovers, writes back. Resets pendingSeconds only after successful KV write. Retries on failure (30s backoff).
+
+**Mid-session eviction**: when Timekeeper returns `quotaExceeded: true`, the Container DO calls `stop('SIGTERM')` for graceful shutdown.
+
+KV value shape at `timekeeper:{bucketName}`:
+```typescript
+interface UsageRecord {
+  today:     { date: string; seconds: number };     // "2026-03-18"
+  thisWeek:  { weekStart: string; seconds: number }; // "2026-03-17" (Monday)
+  thisMonth: { month: string; seconds: number };     // "2026-03"
+  thisYear:  { year: string; seconds: number };      // "2026"
+  allTime:   { seconds: number };
+  lastUpdatedAt: string;
+}
+```
+
+### Paygate Enforcement
+
+Session start (`POST /api/container/start`) checks tier-based usage quota in `validateSessionAndCheckLimits()`:
+1. Resolves user's tier from `subscriptionTier ?? accessTier`
+2. Reads monthly usage from `timekeeper:{bucketName}` KV
+3. Compares against `tier.monthlySeconds` (skip for `null`/unlimited)
+4. Throws `QuotaExceededError` (HTTP 402, code `QUOTA_EXCEEDED`) if exceeded
+5. Skips for non-SaaS mode and stress test mode, fail-open on KV errors
+
+Frontend detects `code === 'QUOTA_EXCEEDED'` via `ApiError.code` field and shows upgrade CTA.
+
+### Subscribe Page (Unified Layout)
+
+All users land on `/app/subscribe` with an identical two-phase layout. The only differences are data-driven (status text, button labels, current tier highlight).
+
+**Phase 1 — Home view** (initial landing):
+- Logo, ScrambleText title, subtitle
+- Feature highlights list (6 items with MDI icons: instant startup, cross-device, GitHub/Cloudflare, encryption, mobile-optimized, fast deployment)
+- Status area (varies by user state — see below)
+- "See subscription plans" button → transitions to Phase 2, scrolls to top
+
+**Phase 2 — Plan view** (after clicking "See subscription plans"):
+- Replaces Phase 1 content entirely (same logo/title/subtitle remain)
+- **Mode card**: merged card with Standard/Pro toggle at top. Standard features always visible; Pro features animate in via CSS `grid-template-rows: 0fr → 1fr` transition with `useScrambleText` decrypt animation on all Pro text. Pro toggle disabled for tiers that only support Standard (e.g. Free). Toggling Standard/Pro does not change scroll position
+- **Lifeline rail**: horizontal rail with 5 plan stops (Free → Starter → Advanced → Max → Team — mapping to tier IDs `free`, `standard`, `advanced`, `max`, `unlimited`), each with MDI icon. Straight horizontal dashed line using `var(--color-accent)` (theme-responsive via `color-mix()` for opacity variants). Default: `advanced` for pending users, `currentTierId` for active users. Selected stop has wider horizontal padding (0.75rem) for breathing room. "This is you" marker (green, pulsing, arrow-above-text column layout) at active user's current plan. Dashed track positioned at `top: 18px` (half of 36px icon, 16px on mobile for 32px icons)
+- **Detail panel**: single panel showing selected tier's name, price (large, switches between `priceMonthly` and `advancedPriceMonthly` based on Standard/Pro toggle), tagline, hours/month, sessions, feature checklist, trial badge, CTA button. Tier name, price, and specs use `useScrambleText` for decrypt animation on selection change
+- **Action buttons**: "Get Started" (free) / "Start Trial" (paid with `trialQuotaHours > 0`) / "Switch Plan" (active, different tier) / "Current Plan" (active, same tier, disabled)
+- Turnstile CAPTCHA (pending users only — rendered via explicit `turnstile.render()` since widget mounts after script auto-scan)
+- "Back" button returns to Phase 1
+
+**Status text by user state** (replaces SVG icons — styled as JetBrains Mono, 1.5rem, bold):
+| State | Text | Color | Additional |
+|-------|------|-------|-----------|
+| Pending | "Not Subscribed" | Orange (`#f97316`) | Email badge |
+| Active | "Subscribed" | Green (`#22c55e`) | Email badge + "Continue" link to `/app/` |
+| Blocked | "Blocked" | Red (`#ef4444`) | Blocked message, no tier button |
+
+**Per-tier feature bullets** (`TIER_FEATURES` in `SubscribePage.tsx`):
+- Free (`free`): Standard mode only, R2 cloud sync, Community support
+- Starter/Advanced (`standard`/`advanced`): Standard + Pro modes, R2 cloud sync, Configurable idle timeout, Priority support
+- Max (`max`): Standard + Pro modes, R2 cloud sync, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Priority support
+- Team (`unlimited`): Standard + Pro modes, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Dedicated support, Custom SLA
+
+Features in the `COMING_SOON_FEATURES` set render with an inline accent-colored uppercase badge.
+
+**Content width:** Phase 1 uses narrow layout (`login-content`), Phase 2 uses wide layout (`subscribe-content`, max-width 680px). Mobile: mode card compacts, lifeline labels shrink, 44px minimum tap targets.
+
+### Login Redirect Flow
+
+1. New user logs in → always lands on `/app/subscribe` (Phase 1 with orange "Not Subscribed" status text)
+2. User clicks "See subscription plans" → Phase 2
+3. User picks a tier + verifies Turnstile → `POST /api/auth/subscribe` → sets subscription
+4. First-time user → redirect to `/app/onboarding`
+5. Returning user (already subscribed) → sees Phase 1 with green "Subscribed" status text + Continue link
+
+Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscribe page, !onboardingComplete → onboarding, otherwise → dashboard.
+
+### Self-Service Subscribe API
+
+**`POST /api/auth/subscribe`** (requires identity, rate-limited 3/min):
+- Request body: `{ tier: string, turnstileToken: string, mode?: 'default' | 'advanced' }`
+- Validates Turnstile token (if `TURNSTILE_SECRET_KEY` is configured)
+- Validates tier is in subscribable set: `free`, `standard`, `advanced`, `max`, `unlimited`
+- Resolves tier config via `getTierConfig()` to extract `trialQuotaHours`
+- Writes to KV record at `user:{email}`:
+  - `subscriptionTier`: the selected tier
+  - `accessTier`: backward-compat legacy tier value
+  - `subscribedAt`: ISO timestamp of subscription
+  - `subscribedMode`: `'default'` or `'advanced'` (the mode the user selected on the subscribe page)
+  - `trialBillingTriggered`: `false` (boolean, always set — reserved for future billing integration)
+  - `trialUsed`: `false` (boolean, tracks whether trial quota has been consumed)
+- Response: `{ success: boolean, tier: string, trialQuotaHours: 0, trialUsed: boolean, onboardingComplete: boolean }` (trialQuotaHours is always 0 — reserved for future billing)
+- Sends subscription confirmation email via `waitUntil` (non-blocking, non-fatal) using `sendSubscriptionEmail()` from `src/lib/email.ts`
+- Idempotent: if switching to same tier and mode (`subscribedAt` exists, tier and mode both match), returns success with current tier. Switching to a different tier or mode re-writes the KV record
+
+**`GET /api/auth/tiers`** (requires identity) and **`GET /public/tiers`** (unauthenticated, only available when `ONBOARDING_LANDING_PAGE=active`):
+- Both return subscribable tier configs: `free`, `standard`, `advanced`, `max`, `unlimited` (filtered from full 8-tier config)
+- The frontend SubscribePage uses `/api/auth/tiers` (identity-gated) via `getPublicTiers()` in `web-ui/src/api/client.ts`; `/public/tiers` is gated behind onboarding landing page middleware
+- Response: `{ tiers: SubscriptionTierConfig[] }` — each tier object includes all properties:
+  - `id`, `displayName`, `monthlySeconds`, `maxSessions`, `sessionModes`
+  - `priceMonthly` (cents), `advancedPriceMonthly` (cents, optional), `trialQuotaHours`, `description`
+  - `order`, `canLogin`, `isDefault`
+- Used by subscribe page to render tier selection cards
+- Data is cached at 60-second TTL via `getTierConfig()`
+
+### Admin Subscription Management
+
+Standalone admin page at `/admin/subscriptions` (routes to `web-ui/src/components/admin/SubscriptionManagement.tsx`). Accessed via Settings > Administration > "Manage Subscriptions" button.
+
+**Features:**
+- Displays 6 editable tiers in a dropdown (free, trial, standard, advanced, max, unlimited; blocked/pending are read-only and hidden)
+- Dropdown uses SolidJS `<For>` component (keyed rendering) + `createEffect` ref to preserve selection when tier data changes (prevents reset-to-first-item bug)
+- Edit form allows customizing tier properties:
+  - Monthly compute hours (seconds or null for unlimited)
+  - Max concurrent sessions
+  - Allowed session modes (checkboxes for default/advanced)
+  - Monthly price (cents or null if not purchasable)
+  - Trial period (days; 0 = no trial)
+  - User-visible description (max 200 chars)
+- Submit → `PUT /api/admin/tiers` → validates array of 8 tier objects → writes `tiers:config` to KV
+- Admin changes take effect within 60 seconds (module-level cache refresh)
+- Tier IDs and order cannot be changed (schema enforces exact match to defaults)
+
+### Usage Pages + Header Inline Display
+
+**`/app/usage`** (Usage page):
+- Dark glass panel (matches subscribe detail panel styling) with plan name, percentage, horizontal progress bar (blue/yellow/red by threshold), used/total labels, and Today/Month/Quota stat row
+- Polls `/api/usage` endpoint every 30 seconds for real-time data
+- Routes to `web-ui/src/components/UsagePage.tsx`
+
+**Header inline display** (Layout dropdown):
+- User dropdown in header shows inline spent time next to "Usage" link
+- Format: "X minutes / Y hours" (under 60m) or "X.X hours / Y hours" (60m+)
+- Examples: "7 minutes / 160 hours", "1.7 hours / 160 hours"
+- Styled at `0.75rem` font-size with `var(--color-text-secondary)` for mobile readability (was `0.65rem` / `--color-text-dimmed`)
+- Computed from `getUsageState()` — a reactive SolidJS signal (`createSignal`) in session store, updated live via batch-status piggyback. Dropdown re-renders automatically when usage data changes (no page refresh needed)
+
+**Warning banners** (Layout.tsx):
+- Displayed at usage thresholds: 80%, 95%, 100% of monthly quota
+- Color-coded: yellow (80%), orange (95%), red (100%)
+- Uses `getUsageWarningLevel()` from session store
+- "New Session" button disabled when quota is exceeded (`isAtUsageQuota()`)
+
+### Migration Strategy
+
+Deploy new code first (backward compat), then run migration script:
+1. New code reads `subscriptionTier` first, falls back to `accessTier`
+2. `scripts/migrate-tiers.ts` adds `subscriptionTier` to all `user:*` KV records
+3. Admins → `unlimited`, missing → `standard` (SaaS) / `unlimited` (non-SaaS)
+4. Old `accessTier` kept for rollback safety
+
+### Session Limit Enforcement
+
+In SaaS mode, `validateSessionAndCheckLimits()` resolves the effective max sessions from the user's tier config (`tier.maxSessions`) rather than using the role-based `MAX_SESSIONS_USER`/`MAX_SESSIONS_ADMIN` env vars. Falls back to role-based limits on KV error. This ensures free-tier users (maxSessions=1) cannot start multiple sessions even if the env var allows it.
+
+### Session Mode Authorization
+
+Session mode access requires **both** tier support AND an active Pro mode subscription:
+
+**Frontend (`canUseAdvanced()` in SettingsPanel):** Admin bypass applies to tier check only (admins always pass tier support), NOT to mode check. Regular users AND admins need: (1) tier supports advanced (`advanced`, `max`, `unlimited`, or unset), AND (2) `subscribedMode === 'advanced'` in user KV record (set by subscribe endpoint, NOT the Settings preference toggle). Settings labels: "Standard" / "Pro" (renamed from "Default" / "Advanced").
+
+**Two distinct mode fields:**
+- `subscribedMode` (user KV record `user:{email}`) — what mode the user paid for on the subscribe page. Set by `POST /api/auth/subscribe`. Read by SettingsPanel (`canUseAdvanced` gate) and subscribe page (`currentMode` display). NOT changed by Settings toggle.
+- `sessionMode` (preferences KV `user-prefs:{bucket}`) — what mode the next session uses. Changed by Settings toggle. Does NOT affect subscribe page display or Pro gate.
+
+Users can freely toggle Standard/Pro in Settings within what they subscribed to. Switching to Standard in Settings does not lock Pro — the gate checks `subscribedMode`, not `sessionMode`. To change subscription mode, users go through the subscribe page.
+
+**Backend (`canUseSessionMode()` / `allowedSessionModes()`):** The **hardcoded fast path** in `access-tier.ts:allowedSessionModes()` allows advanced for: `advanced`, `max`, `unlimited`, `undefined`. Tiers restricted to default only: `standard`, `free`, `trial`. The **config-aware path** (`canUseSessionModeWithConfig` / `getAllowedSessionModes()` from `subscription.ts`) reads from tier config — by default, `standard` allows `['default', 'advanced']` in `getDefaultTiers()`, so the config path is more permissive. Admin users always have advanced access regardless of stored tier.
+
+### Batch-Status Usage Piggyback
+
+The `GET /api/sessions/batch-status` response includes an optional `usage` field (SaaS mode only) with `{ dailySeconds, monthlySeconds, monthlyQuotaSeconds, tier }`. This is consumed by `refreshSessionStatuses()` in the frontend session store, which calls `setUsageState()` to update the usage warning level. The warning banners in `Layout.tsx` read from `getUsageWarningLevel()` which returns `'none'`, `'80'`, `'95'`, or `'100'` based on the percentage of monthly quota used. The `isAtUsageQuota()` function disables the "New Session" button in the Dashboard when quota is exceeded.
+
+### Email Notifications
+
+Notifications are sent via Resend API (`src/lib/email.ts`, sender: `RESEND_EMAIL` secret). The `sendEmail()` helper logs errors for non-ok responses and fetch failures. All email sending is non-blocking and non-fatal.
+
+**Subscription emails** (`sendSubscriptionEmail`): Show old/new plan+mode (e.g. "Previous: Starter (Standard) → New: Advanced (Pro)"), compute hours, sessions, price (currency from `CF-IPCountry`), trial/billing status, activation timestamp, instance URL link, and "reply for support" footer. Price uses `advancedPriceMonthly` for Pro mode, hidden for free tier. Trial row shows "Xh free compute before billing" when active, "Monthly billing active" when trial used.
+
+**Admin notifications** (`sendSubscriptionAdminNotification`): Same format as user email — old/new plan+mode, compute, sessions, price, billing, activation date. Sent to all admin-role users. Reply-to set to subscriber's email.
+
+**Email triggers:** User confirmation + admin notification sent from subscribe endpoint via `waitUntil()`. `previousMode` read from preferences KV before overwrite. `previousTierName` resolved to display name via tier config lookup. `subscribedAt` formatted as human-readable date.
+
+**`waitUntil` pattern:** The subscribe endpoint (`POST /api/auth/subscribe`) uses `c.executionCtx.waitUntil(sendSubscriptionEmail(...))` to ensure the email promise survives past the response. Without `waitUntil`, the Worker isolate may terminate the promise when `return c.json(...)` completes. The JIT provision welcome email in `access.ts` uses `void` (fire-and-forget) which is safe because the isolate remains alive during the request that continues to `requireActiveUser`.
+
+**RESEND_API_KEY:** Must be set as a Worker secret via `wrangler secret put RESEND_API_KEY` (not just a GitHub Actions secret). GitHub Actions secrets are only available during CI builds, not in the deployed Worker runtime.
+
+### Timekeeper Crash Resilience
+
+The Timekeeper DO persists all critical state to DO storage: `pendingSeconds`, `sessionTotals`, `bucketName`, `email`, and `lastFlushedMonthlyTotal`. On cold start, the constructor restores all fields via `blockConcurrencyWhile()`. The `lastFlushedMonthlyTotal` is updated both after alarm flush (successful KV write) and after KV re-read during ping quota checks, ensuring accurate quota enforcement after DO eviction.
+
+### Legacy AccessTier Backward Compatibility
+
+The original 4-tier system (`pending`/`standard`/`advanced`/`blocked`) is preserved for backward compatibility. New code uses `subscriptionTier` with fallback to `accessTier`. When writing tier changes via `PATCH /api/users/:email`, both fields are written: `subscriptionTier` gets the exact new value, while `accessTier` gets the nearest valid legacy value (new tiers like `free`, `trial`, `max`, `unlimited` map to `'advanced'` in the legacy field).
+
+**Admin PATCH schema fix:** The `kvUserSchema` in `PATCH /api/users/:email` validates existing KV records before merging. The `accessTier` field uses `SubscriptionTierSchema` (not `AccessTierSchema`) because the subscribe endpoint writes `accessTier: 'free'` for backward compat — a value not in the 4-tier `AccessTierSchema`. Using `AccessTierSchema` would cause `z.parse()` to throw when an admin tries to promote a free-tier user.
+
+### Real-Time Usage Data
+
+The `/api/usage` endpoint queries the Timekeeper DO directly (`GET /usage` on the DO) for real-time data that includes both KV-flushed seconds and in-memory pending seconds. This eliminates the up-to-5-minute staleness of reading KV alone. Falls back to KV when the `TIMEKEEPER` binding is unavailable. The batch-status endpoint (`GET /api/sessions/batch-status`) still reads from KV for performance (it runs on every poll cycle), accepting the 5-minute staleness window for display purposes. Authoritative quota enforcement on session start reads KV (approximate), while mid-session enforcement via Timekeeper DO ping is real-time.
+
+### Timekeeper DO Storage Configuration
+
+**DO storage (crash resilience):**
+- Timekeeper uses standard Durable Object key-value storage: `ctx.storage.get()`, `ctx.storage.put()`, `ctx.storage.setAlarm()`
+- **NOT** SQLite (`new_sqlite_classes`) — this is a plain DO with alarm-based flushing
+- Persisted state fields (restored on cold start):
+  - `pendingSeconds` — unflushed usage waiting for alarm
+  - `sessionTotals` — per-session monotonic totals (JSON string)
+  - `bucketName` — user's R2 bucket (for identity validation)
+  - `email` — user's email (for identity validation)
+  - `lastFlushedMonthlyTotal` — monthly total from last successful KV flush (for quota accuracy after DO eviction)
+
+**Alarm-based flushing:**
+- Alarm fires every 5 minutes (`FLUSH_INTERVAL_MS = 300_000`) when `pendingSeconds > 0`
+- On failure, retries after 30 seconds (`RETRY_INTERVAL_MS = 30_000`)
+- Successful flush: reads current KV record, adds pendingSeconds, resets counter, updates `lastFlushedMonthlyTotal`
+- Only decrements `pendingSeconds` after successful KV write to prevent loss of usage data
+
+**Crash recovery:**
+- Constructor runs `ctx.blockConcurrencyWhile(async () => {...})` to restore all state on cold start
+- Ensures accurate quota enforcement even after DO eviction and restart
+
+### Timekeeper Security
+
+**Identity validation:**
+- Timekeeper DO stores `bucketName` and `email` on first ping (initial state)
+- Subsequent pings with mismatched `bucketName` or `email` are rejected with 403 Forbidden
+- Prevents cross-user usage poisoning (one user's container sending pings to another user's Timekeeper)
+
+**Delta clamping:**
+- Per-ping delta is clamped to **300 seconds max** (`MAX_DELTA_PER_PING`)
+- Prevents corrupt `sessionTotals` from causing massive usage spikes due to DO storage corruption or session ID collision
+- If `totalSeconds < previousTotal` (session restarted/reused), treats new value as fresh start
+
+**Storage management:**
+- `sessionTotals` map keys are automatically evicted when exceeding 30 entries (`MAX_SESSION_ENTRIES`)
+- Oldest session entries are removed first to prevent unbounded growth (multiple container crashes/restarts)
+
+**Access control:**
+- Timekeeper DO is only reachable via internal Worker-to-DO RPC (not exposed to public internet)
+- Worker calls it via `c.env.TIMEKEEPER.get(idFromName).fetch()` — never directly accessible from client
+
+### Tier Config Caching
+
+**Module-level cache:**
+- `getTierConfig()` in `src/lib/subscription.ts` maintains a module-level cache with **60-second TTL** (`TIER_CONFIG_CACHE_TTL_MS = 60_000`)
+- Cache variables: `cachedTierConfig` and `tierConfigCachedAt`
+- Shared across all requests within a single Worker isolate
+- Avoids KV reads on every request and every Timekeeper ping
+
+**Cache refresh behavior:**
+- First call: reads `tiers:config` from KV (or uses defaults if key doesn't exist)
+- Subsequent calls within 60s: returns cached value
+- After 60s: reads fresh config from KV
+- Admin tier changes take effect within 60 seconds (per isolate)
+
+**Cache reset:**
+- `resetTierConfigCache()` clears the cache (used in tests and after setup changes)
+- Called when tier config is known to have changed (e.g., after `PUT /api/admin/tiers`)
+
+### Config-Aware Authorization
+
+Two authorization modes exist for session modes:
+1. **Fast path** (`access-tier.ts:allowedSessionModes`) — hardcoded defaults matching `getDefaultTiers()`. Used when tier config is not available.
+2. **Config-aware** (`access-tier.ts:canUseSessionModeWithConfig`) — reads from tier config, respecting admin overrides via `tiers:config` KV. Used in preferences route for session mode changes.
+
+The `canLogin` field in tier config is defined for future use (e.g., blocking authentication entirely at the CF Access level). Currently, `isActiveTier()` handles the authorization gate: pending/blocked are rejected by `requireActiveUser`, while all 6 active tiers pass through. The `sessionTotals` map in Timekeeper DO is capped at 30 entries with automatic eviction of the oldest to prevent unbounded growth.
+
+### Default Tier Behavior
+
+Users without a stored `subscriptionTier` fall back to `accessTier`. If neither exists:
+- **Auth status** (`/api/auth/status`): returns `'advanced'` (pre-subscription backward compat)
+- **Tier resolution** (`getUserTier(undefined)`): returns the `isDefault` tier from config (standard)
+- **isActiveTier(undefined)**: returns `true` (backward compat — non-SaaS users have full access)
+- **Service tokens**: get `role: 'admin'` which bypasses all tier checks
+
+In practice, `resolveOrProvisionUser()` always writes both `subscriptionTier` and `accessTier` for new users, so the undefined path only occurs for pre-migration users or service tokens.
+
+### User Data Cleanup
+
+`cleanupUserData()` normalizes the email defensively (`trim().toLowerCase()`) before constructing KV keys. This ensures `user:{email}`, `r2token:{email}`, and `timekeeper:{bucketName}` keys are deleted correctly even if callers pass non-normalized input.
 
 ### CF Access Configuration Strategy
 
@@ -751,9 +1176,9 @@ The setup wizard (Step 5 in `src/routes/setup/index.ts`) calls `handleCreateAcce
 
 - **Groups (default mode):** `include: { group: { id: adminGroupId } }, { group: { id: userGroupId } }` — CF Access only allows users in these specific allowlisted groups. Works for closed deployments with known user emails.
 
-- **login_method (SaaS mode):** `include: { login_method: { id: githubIdpId } }` — CF Access allows ANY GitHub-authenticated user. The Worker then enforces per-user access tiers (pending/standard/advanced/blocked) based on KV records. This enables open SaaS signup.
+- **login_method (SaaS mode):** `include: { login_method: { id: githubIdpId } }` — CF Access allows ANY GitHub-authenticated user. The Worker then enforces per-user subscription tiers (blocked/pending/free/trial/standard/advanced/max/unlimited) based on KV records. This enables open SaaS signup.
 
-The policy is created via `upsertAccessPolicy()` at line 384-465 of `src/routes/setup/access.ts`:
+The policy is created via `upsertAccessPolicy()` in `src/routes/setup/access.ts`:
 - If `saasLoginMethods` array is provided, use `login_method` includes (SaaS mode)
 - Otherwise, use `group` includes (default mode)
 
@@ -765,7 +1190,7 @@ Later deployments should NOT call `syncAccessPolicy()` if SaaS mode is active. I
 
 #### Access Application Configuration
 
-The setup wizard configures the Access app (created/updated via `upsertAccessApp()` at line 147-217) with these SaaS-specific settings:
+The setup wizard configures the Access app (created/updated via `upsertAccessApp()`) with these SaaS-specific settings:
 
 ```typescript
 appBody = {
@@ -786,7 +1211,7 @@ Key points:
 - `skip_interstitial: true` — skips the "you are being redirected" page after OAuth completes
 - `session_duration: '24h'` — CF Access JWT is valid for 24 hours; user must re-authenticate when cookie expires
 
-The IdP list is fetched early and stored in KV (`setup:idp_list`) for frontend use. See line 533-538 of `src/routes/setup/access.ts`.
+The IdP list is fetched early and stored in KV (`setup:idp_list`) for frontend use. See `src/routes/setup/access.ts`.
 
 ### JIT User Provisioning
 
@@ -800,10 +1225,11 @@ When a GitHub-authenticated user (verified CF Access JWT) makes their first requ
      "addedBy": "jit",
      "addedAt": "2025-03-15T12:00:00Z",
      "role": "user",
-     "accessTier": "pending"
+     "accessTier": "pending",
+     "subscriptionTier": "pending"
    }
    ```
-4. The user is returned with `accessTier: 'pending'`
+4. The user is returned with `subscriptionTier: 'pending'`
 5. If the route uses `requireActiveUser`, it rejects with 403 → frontend redirects to `/app/subscribe`
 
 **Concurrency note:** KV has eventual consistency. If two requests for the same new user arrive simultaneously, both may reach the JIT provision step and write identical records. This is benign — both produce the same result. KV's per-key serialization prevents split-brain scenarios.
@@ -812,7 +1238,7 @@ When a GitHub-authenticated user (verified CF Access JWT) makes their first requ
 
 ### First-Time Onboarding Redirect
 
-When an active user logs in for the first time, the frontend (`web-ui/src/App.tsx` at line 52-54) checks:
+When an active user logs in for the first time, the frontend (`web-ui/src/App.tsx` `AppContent.onMount`) checks:
 ```typescript
 if (user.saasMode && !user.onboardingComplete) {
   window.location.href = '/app/onboarding';
@@ -820,27 +1246,36 @@ if (user.saasMode && !user.onboardingComplete) {
 }
 ```
 
-The `onboardingComplete` flag is set in KV when the user calls `POST /api/auth/onboarding-complete` (line 192-205 of `src/routes/auth.ts`). This allows the setup wizard or onboarding page to mark guided setup as finished, and the user won't be redirected again.
+The `onboardingComplete` flag is set in KV when the user calls `POST /api/auth/onboarding-complete` in `src/routes/auth.ts`. This allows the setup wizard or onboarding page to mark guided setup as finished, and the user won't be redirected again.
 
-### Access Request Flow (Pending → Approval)
+### Self-Service Subscription Flow (Current)
 
-When a pending user submits an access request via `/app/subscribe`:
+When a pending user lands on `/app/subscribe`:
 
-1. **Turnstile verification:** The frontend renders a Cloudflare Turnstile CAPTCHA (data-sitekey from `/api/auth/status`). User completes the challenge, obtaining a token.
+1. **Tier selection:** Frontend fetches `/api/auth/tiers` (requires identity) to display 5 subscribable tiers: free, standard, advanced, max, unlimited. Each tier card shows pricing, monthly hours, max sessions, session modes, trial badge, and description.
 
-2. **Rate limiting:** `POST /api/auth/request-access` is rate-limited to 3 requests per hour per user (see `src/routes/auth.ts` line 55-59). This prevents spam.
+2. **Turnstile CAPTCHA:** User selects a tier → Turnstile CAPTCHA widget is rendered (site key from `/api/auth/status`). User completes the challenge to obtain a token.
 
-3. **Idempotency:** If `requestedAt` is already set in the user's KV record, the endpoint returns success without re-notifying admins (line 113-116).
+3. **Subscription request:** User clicks "Subscribe" (or "Get Started"/"Start Trial" depending on tier). Frontend calls `POST /api/auth/subscribe` with `{ tier: string, turnstileToken: string, mode?: 'default' | 'advanced' }`.
 
-4. **Admin notification:** If `RESEND_API_KEY` env var is set, the Worker sends an email to all admins with the user's email and request timestamp (line 154-186). Email is sent via Resend API.
+4. **Backend validation & storage:**
+   - Verifies Turnstile token for new subscriptions (active users switching plans skip Turnstile)
+   - Validates tier is subscribable: free/standard/advanced/max/unlimited
+   - Resolves tier config via `getTierConfig()` to extract `trialQuotaHours`
+   - Writes to KV at `user:{email}`: `subscriptionTier`, `accessTier` (backward compat), `subscribedAt`, `subscribedMode`, `trialBillingTriggered: false`, `trialUsed: false`
+   - Returns `{ success, tier, trialQuotaHours, trialUsed, onboardingComplete }`
 
-5. **Polling:** The frontend polls `/api/auth/status` every 10 seconds (line 36 of `src/components/SubscribePage.tsx`). When the admin approves the user (changing `accessTier` to `standard` or `advanced`), the poll detects the change and updates the UI to "Access Granted".
+5. **Redirect:** Frontend redirects to `/app/onboarding` (first-time) or `/app/` (returning user).
 
-6. **No auto-redirect:** Active users are NOT automatically redirected from `/app/subscribe`. They choose when to click "Continue". This allows them to always see their account status. (This was a key lesson learned: automatic redirects create confusion when the user wants to verify their account status.)
+**Key difference from old request-access flow:**
+- Old flow: pending users clicked "Request Access" → admin manually approved → user's tier changed
+- New flow: pending users select their own tier immediately → user is active without admin approval for free/paid tiers
+
+The legacy `POST /api/auth/request-access` endpoint still exists for backward compatibility but is no longer used by the UI.
 
 ### Session Mode Upgrade (Auto-Advanced)
 
-When the frontend detects a tier change to `advanced`, it can optionally upgrade the user's `sessionMode` preference from `default` to `advanced` (if stored in KV). See `src/lib/access-tier.ts` at line 7-10 for the tier-to-modes mapping. This allows users to immediately use advanced sessions after promotion.
+When an admin changes a user's tier to `advanced`, `max`, or `unlimited`, the backend auto-sets `sessionMode` to `advanced` in user preferences (if not already set). See `src/lib/subscription.ts:getAllowedSessionModes()` for the tier-to-modes mapping. This allows users to immediately use advanced sessions after promotion.
 
 ### Logout Flow
 
@@ -854,29 +1289,44 @@ When the frontend detects a tier change to `advanced`, it can optionally upgrade
    ```
 4. CF Access clears the `CF_Authorization` cookie and redirects back to returnTo
 
-The frontend calls this via `window.location.href = '/cdn-cgi/access/logout?returnTo=...'` directly (see `web-ui/src/components/SubscribePage.tsx` line 298-300), which also works because `/cdn-cgi/access/logout` is a CF Access system endpoint.
+The frontend calls this via `window.location.href = '/cdn-cgi/access/logout?returnTo=...'` directly (see `web-ui/src/components/Header.tsx` logout button in the user dropdown), which also works because `/cdn-cgi/access/logout` is a CF Access system endpoint.
 
 ### Frontend Components
 
 #### LoginPage (`web-ui/src/components/LoginPage.tsx`)
 
 Shown at `/` when `SAAS_MODE=active` and providers are configured. Features:
-- Detects if the current user is already authenticated (pending, standard, advanced, or blocked)
-- If tier is pending/standard/advanced, redirects to `/app/`; if blocked, shows blocked message
+- Detects if the current user is already authenticated (pending, active, or blocked)
+- Active tier (free/trial/standard/advanced/max/unlimited) redirects to `/app/`; pending redirects to `/app/subscribe`; blocked shows blocked message
 - If unauthenticated, fetches providers from `/public/auth/providers` and renders GitHub login button
 - Uses `window.location.href` to navigate (avoids SolidJS Router intercepting the navigation)
 - Animated logo (float + glow), ScrambleText title animation, feature highlights with MDI icons
 
 #### SubscribePage (`web-ui/src/components/SubscribePage.tsx`)
 
-Shown at `/app/subscribe` for pending and approved users. States:
-- **Loading:** Shows spinner while fetching `/api/auth/status`
-- **Pending (no request):** Renders Turnstile CAPTCHA + "Request Access" button. Turnstile script is dynamically loaded from `https://challenges.cloudflare.com/turnstile/v0/api.js`. Uses `MutationObserver` to detect when Turnstile token appears in the DOM (rather than polling a timer).
-- **Pending (requested):** Shows "Pending Approval" with pulsing indicator. Polls `/api/auth/status` every 10 seconds.
-- **Active (standard/advanced):** Shows green checkmark, "Your Access is Active", and "Continue" button.
-- **Blocked:** Shows red message + logout link.
+Shown at `/app/subscribe` for pending users and already-subscribed users. Two-phase layout with three user states in Phase 1 (home view):
 
-#### RootPage (`web-ui/src/App.tsx` lines 159-205)
+**Pending (not subscribed):**
+- Fetches tier options from `GET /api/auth/tiers` (requires identity)
+- Displays 5 subscribable tiers (free, standard, advanced, max, unlimited) in a lifeline rail layout
+- Each card shows: displayName, price, monthly hours, max sessions, session modes, description, trial badge
+- Renders Turnstile CAPTCHA widget (site key from `/api/auth/status`)
+- Turnstile script dynamically loaded from `https://challenges.cloudflare.com/turnstile/v0/api.js`
+- Uses `MutationObserver` to detect when Turnstile token appears in DOM (avoids timer-based polling)
+- "Subscribe" / "Get Started" / "Start Trial" button (disabled until Turnstile ready)
+- On click: calls `POST /api/auth/subscribe` → redirects to `/app/onboarding` or `/app/`
+
+**Active (already subscribed):**
+- Shows "Subscribed" status text (green, `#22c55e`) with email badge
+- "Continue" link to `/app/`
+- "See subscription plans" button to view/switch plans (Phase 2)
+
+**Blocked:**
+- Shows "Blocked" status text (red, `#ef4444`)
+- "Account Blocked" heading with contact admin instruction
+- No tier selection or logout link shown
+
+#### RootPage (`web-ui/src/App.tsx`)
 
 Determines deployment mode and renders appropriate landing:
 1. Calls `/public/auth/providers` (public, no auth required) — if it returns providers, show LoginPage (SaaS mode)
@@ -892,9 +1342,9 @@ Set as GitHub Actions repository variables (not secrets, since they're non-sensi
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SAAS_MODE` | unset | Set to `active` to enable custom login, JIT provisioning, and admin approval |
-| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for future multi-IdP support (currently unused) |
-| `RESEND_API_KEY` | unset | Resend email API token for admin notifications on access requests |
-| `WAITLIST_FROM_EMAIL` | `Codeflare <onboarding@resend.dev>` | From address for admin notification emails |
+| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers on login page (filtered by `/public/auth/providers`) |
+| `RESEND_API_KEY` | unset | Resend email API token for notifications (access requests, subscriptions, tier changes) |
+| `RESEND_EMAIL` | `Codeflare <onboarding@resend.dev>` | From address for all notification emails |
 | `ONBOARDING_LANDING_PAGE` | unset | Set to `active` to show waitlist/onboarding page at `/` instead of login |
 
 Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--var` in `deploy.yml`.
@@ -911,11 +1361,11 @@ These issues were discovered and fixed during SaaS mode implementation:
 
 4. **Concurrent first-login writes:** KV eventual consistency means two simultaneous first-logins could write the same user record twice. This is actually benign (idempotent), but the code includes a note about it for future maintainers.
 
-5. **CSRF on state-changing requests:** Early versions didn't check for `X-Requested-With` header on POST/PUT/DELETE. Added in `authenticateRequest()` at line 292-298 of `src/lib/access.ts`.
+5. **CSRF on state-changing requests:** Early versions didn't check for `X-Requested-With` header on POST/PUT/DELETE. Added in `authenticateRequest()` in `src/lib/access.ts`.
 
-6. **Email header spoofing post-setup:** If auth was configured (auth_domain set), the Worker would reject requests without a valid JWT, preventing header spoofing via `cf-access-authenticated-user-email`. This is intentional (line 154-158 of `src/lib/access.ts`).
+6. **Email header spoofing post-setup:** If auth was configured (auth_domain set), the Worker would reject requests without a valid JWT, preventing header spoofing via `cf-access-authenticated-user-email`. This is intentional -- see `authenticateRequest()` in `src/lib/access.ts`.
 
-7. **Service token auth for e2e tests:** Added support for `X-Service-Auth` header with custom secret for CI/e2e tests that can't go through CF Access (line 112-139).
+7. **Service token auth for e2e tests:** Added support for `X-Service-Auth` header with custom secret for CI/e2e tests that can't go through CF Access. See `authenticateRequest()` in `src/lib/access.ts`.
 
 ---
 
@@ -971,7 +1421,7 @@ Applied to every response in `src/index.ts`:
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Permissions-Policy`
 
-HSTS is also applied to all redirect responses via `secureRedirect()` helper, including root redirect and CORS preflight redirects, ensuring browsers upgrade to HTTPS even on redirect hops.
+HSTS is also applied to all redirect responses via `redirectWithHeaders()` helper in `src/index.ts`, including root redirect and setup redirect, ensuring browsers upgrade to HTTPS even on redirect hops. Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 
 ### Session ID Validation
 
@@ -1124,6 +1574,7 @@ When the limit is exceeded: HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: 
 | `/api/setup/configure` | POST | 5/min | `setup-configure` |
 | `PATCH /api/preferences` | PATCH | 20/min | `preferences-patch` |
 | `POST /api/auth/request-access` | POST | 3/hr | `request-access` |
+| `POST /api/auth/subscribe` | POST | 3/min | `subscribe` |
 | `POST /public/waitlist` | POST | 5/min | `waitlist-submit` |
 
 **Adding a new rate limiter:**
@@ -1198,7 +1649,7 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 { "error": "User-friendly message", "code": "ERROR_CODE" }
 ```
 
-Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AUTH_ERROR` (401), `FORBIDDEN` (403), `SETUP_ERROR` (400), `RATE_LIMIT_ERROR` (429), `CIRCUIT_BREAKER_OPEN` (503).
+Codes: `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `CONTAINER_ERROR` (500), `AUTH_ERROR` (401), `FORBIDDEN` (403), `SETUP_ERROR` (400), `RATE_LIMIT_ERROR` (429), `QUOTA_EXCEEDED` (402), `CIRCUIT_BREAKER_OPEN` (503).
 
 Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, error, code }` instead of the standard `{ error, code }`.
 
@@ -1214,7 +1665,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | POST | `/api/sessions/:id/touch` | Update lastAccessedAt |
 | POST | `/api/sessions/:id/stop` | Stop session (KV 'stopped' + container.destroy()) |
 | GET | `/api/sessions/:id/status` | Get session and container status |
-| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache) |
+| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode) |
 
 ### Container Lifecycle
 
@@ -1242,6 +1693,32 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | POST | `/api/user/ensure-r2-token` | Create scoped R2 token if missing (rate limited) |
 | GET | `/api/users` | List allowed users (admin only) |
 | DELETE | `/api/users/:email` | Remove allowed user (admin only) |
+| PATCH | `/api/users/:email` | Update user tier/role (admin only) |
+
+### Auth (SaaS Mode)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/auth/providers` | List configured IdPs (public, no auth) |
+| GET | `/api/auth/status` | Auth status (tier, email, turnstile key, currency, hasSubscribed) |
+| GET | `/api/auth/tiers` | Subscribable tier configs (requires identity) |
+| GET | `/api/auth/onboarding-config` | Onboarding page config (turnstile key) |
+| POST | `/api/auth/subscribe` | Self-service tier selection (rate-limited 3/min) |
+| POST | `/api/auth/request-access` | Request access with Turnstile (rate-limited 3/hr) |
+| POST | `/api/auth/onboarding-complete` | Mark onboarding as done |
+
+### Usage
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/usage` | Current user's real-time usage (Timekeeper DO with KV fallback) |
+
+### Admin
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/tiers` | Get current tier config (admin only) |
+| PUT | `/api/admin/tiers` | Update tier config (admin only, 8-tier array) |
 
 ### Setup
 
@@ -1333,8 +1810,8 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 **SaaS-specific behavior:**
 - The Access app is configured with `allowed_idps` restricted to GitHub IdP only (if available).
 - The policy uses `login_method` includes (any GitHub-authenticated user passes CF Access) instead of group includes.
-- The user group is skipped entirely — Worker enforces per-user access-tier authorization (pending/standard/advanced).
-- Admin users created via allowedUsers have `accessTier: 'advanced'` set automatically.
+- The user group is skipped entirely — Worker enforces per-user subscription tier authorization (8 tiers).
+- Admin users created via allowedUsers have `subscriptionTier: 'unlimited'` set automatically.
 
 **Step 6 -- `configure_turnstile` (conditional)**
 
@@ -1476,7 +1953,7 @@ The following KV keys are written during setup. All keys use the `setup:` prefix
 | `setup:turnstile_secret_key` | step 6 | Turnstile widget secret |
 | `setup:idp_list` | step 5 | JSON array of IdP objects (id, type, name) |
 
-User records are stored separately under the `user:{email}` key pattern with a JSON value containing `addedBy`, `addedAt`, `role` (`"admin"` or `"user"`), and `accessTier` (SaaS mode only).
+User records are stored separately under the `user:{email}` key pattern with a JSON value containing `addedBy`, `addedAt`, `role` (`"admin"` or `"user"`), `subscriptionTier` (8 values), and legacy `accessTier`. Usage tracking data is stored at `timekeeper:{bucketName}`. Tier configuration is at `tiers:config`.
 
 #### Authentication
 
@@ -1558,7 +2035,7 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
-`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
+`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle), `sessionMode` (SessionMode, optional — default/advanced), `sleepAfter` (SleepAfterOption, optional — auto-sleep duration, see [Auto-sleep](#auto-sleep-configurable-sleepafter)). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](#fast-start).
 
 ### LLM API Keys
 
@@ -1594,11 +2071,12 @@ GET `/health`, GET `/api/health`
 | `LOG_LEVEL` | Min log level (default: "info") | wrangler.toml |
 | `ONBOARDING_LANDING_PAGE` | `"active"` enables public waitlist landing | wrangler.toml |
 | `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | Optional |
-| `RESEND_API_KEY` | Notification emails (waitlist + access requests) | Optional |
-| `WAITLIST_FROM_EMAIL` | Sender identity for notification emails | Optional |
+| `RESEND_API_KEY` | Notification emails (waitlist, access requests, subscriptions, tier changes) | Optional |
+| `RESEND_EMAIL` | Sender identity for notification emails (default: `Codeflare <onboarding@resend.dev>`) | Optional |
 | `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | GitHub Actions variable / Worker runtime env |
 | `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | wrangler.toml |
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | wrangler.toml |
+| `MAX_USERS` | **Removed** — replaced by KV key `setup:max_users` (admin-configurable via User Management page). | — |
 | `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | Worker secret (optional) |
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | Worker env var |
 | `SAAS_MODE` | `"active"` enables custom login page, auto-provisioning, admin approval | GitHub Actions variable → `--var` at deploy |
@@ -1763,6 +2241,38 @@ When enabled, `entrypoint.sh` disables auto-update checks for all 5 AI tools, el
 
 When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`CLAUDE_UNLEASHED_NO_UPDATE`, `CLAUDE_UNLEASHED_CHANNEL`, `DISABLE_INSTALLATION_CHECKS`) and the entrypoint-level `OPENCODE_DISABLE_AUTOUPDATE`, and skips writing config files and setting `COPILOT_AUTO_UPDATE`, allowing all tools to check for updates normally.
 
+### Auto-sleep (Configurable sleepAfter)
+
+**User preference:** `sleepAfter` (type: `SleepAfterOption`, optional) in `UserPreferences`. Allowed values: `5m`, `15m`, `30m`, `1h`, `2h`. Default when not set: `30m` (applied by container lifecycle route). **Free tier override:** backend forces `5m` regardless of stored preference; frontend locks dropdown and shows upgrade hint.
+
+**Class default:** `override sleepAfter = '5m'` in `container/index.ts` — this is the SDK fallback if no preference is sent via `setBucketName`. Set to match the minimum user-configurable value. In practice, the lifecycle route always passes the user's preference (defaulting to `'30m'`).
+
+**Data flow:**
+1. User selects auto-sleep duration in Settings > Session Defaults > Auto-sleep dropdown
+2. `PATCH /api/preferences` saves `{ sleepAfter: '30m' }` to KV (`user-prefs:{bucketName}`)
+3. On next session start, `POST /api/container/start` reads preferences from KV
+4. `configureContainerDO()` → `buildSetBucketNameBody()` includes `sleepAfter` in the JSON body
+5. Container DO receives it in `handleSetBucketName()`, validates against `/^(5m|15m|30m|1h|2h)$/`, and sets `this.sleepAfter = sleepAfterPref`
+6. SDK uses the new `sleepAfter` value for its idle detection alarm
+7. On restart (idempotent 409 path), `sleepAfter` is also updated from the latest preference
+
+**Access control:**
+- **Admins** — always allowed to change their own `sleepAfter`
+- **Paying users** (standard, advanced, max, unlimited) — allowed to change, default `30m`
+- **Free users** — dropdown visible but disabled, locked to `5m`; hint text: "Fixed at 5 minutes on the Free plan. Upgrade for longer idle timeouts."
+- **Non-subscribed users** — dropdown disabled; hint text: "Auto-sleep is managed by your administrator."
+- Backend enforcement in `lifecycle.ts`: `effectiveTier === 'free' ? '5m' : (preferences.sleepAfter || '30m')` — free tier cannot bypass via API
+
+**Settings UI:** Rendered in `SessionSection.tsx` as a `<select>` dropdown with 5 options. `SettingsPanel.tsx` fetches `hasSubscribed` from `/api/user` and computes `isFreeUser()` from `liveAccessTier()`. The `canChangeSleepAfter` accessor returns `(isAdmin() || userHasSubscribed()) && !isFreeUser()`. The `isFreeUser` prop is passed to `SessionSection` to show tier-specific hint text.
+
+**`SleepAfterOption` type:** Defined in `src/types.ts` and `web-ui/src/types.ts`. The `SleepAfterOptions` array (`['5m', '15m', '30m', '1h', '2h']`) is also exported from `src/types.ts` for use in the zod validation schema.
+
+**Sleep timer UI (`web-ui/src/lib/sleep-timer.ts`):** Frontend displays a countdown clock icon when a session's idle timeout is approaching. Computes `remainingMs = sleepAfterMs - (now - lastActiveAt)` from batch-status data. Only visible when < 10 min remaining. Orange pulse at < 10 min, red faster pulse at < 5 min. Hidden for stopped sessions or when `lastActiveAt` is null.
+
+- **Session cards** (`SessionStatCard.tsx`): Clock icon (`mdiClockTimeEightOutline`) between status dot and menu trigger. Click shows inline tooltip with explanation text (same pattern as Workspace tooltip in `FileList.tsx`).
+- **Header toolbar** (`Header.tsx`): Clock icon between avatar and bookmarks button. Click shows dropdown with countdown bucket + explanation text.
+- **Data source:** `lastActiveAt` initialized to container start time by `onStart()`, then updated by `collectMetrics` every 60s when user input is detected (from `lastSeenInputAt` timestamp). This ensures the timer icon works from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5s session list poll.
+
 ---
 
 ## Claude Code Integration
@@ -1881,7 +2391,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
-**Count:** 82 test files.
+**Count:** 88 test files.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -1890,16 +2400,16 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
-**Count:** 76 test files.
+**Count:** 78 test files.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
 ### Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
-**Count:** 12 test files, ~86 tests.
+**Count:** 15 test files, ~86 tests.
 **Run:** `cd host && npm test`
-**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup.
+**Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup, container memory tracking, entrypoint ECC validation, entrypoint hooks merge, metrics collection, session manager lifecycle.
 
 ### Property-Based Fuzz Tests
 
@@ -1910,7 +2420,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 |-------|------|-------|----------------|
 | Backend | `src/__tests__/fuzz/input-validation.fuzz.test.ts` | 120 | XML injection/parsing, getBucketName, validateKey (path traversal, null bytes, encoding tricks), KV namespacing, ReDoS, circuit breaker state machine, error types, logger, content-type helpers |
 | Frontend | `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` | 13 | md5 (custom impl), isActionableUrl (ReDoS resistance), cleanupMapByPrefix (Map iteration+deletion) |
-| Host | `host/__tests__/fuzz-host.test.js` | 9 | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
+| Host | `host/__tests__/fuzz-host.test.js` | 15 | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
 
 **Test selection criteria:** Every test must exercise real production code (no replicas) on an untrusted input boundary (user input, API responses, WebSocket data, env vars). Tests that verify framework guarantees (Zod safeParse), language features (class inheritance), or trivial formatters are excluded.
 
@@ -1930,7 +2440,7 @@ Both root and `web-ui/` use Vitest v3.x. Vitest 4.x is incompatible with `@cloud
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 
-Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `error-responses`, `rate-limiting`.
+Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `container-lifecycle`, `error-responses`, `rate-limiting`.
 
 ### E2E UI Tests
 
@@ -2036,27 +2546,34 @@ codeflare/
 │   │   │   ├── stats.ts      # File/folder counts
 │   │   │   ├── upload.ts     # Upload (single + multipart)
 │   │   │   └── validation.ts # Path validation
+│   │   ├── admin/
+│   │   │   └── tiers.ts      # Admin tier management (GET/PUT /api/admin/tiers)
 │   │   ├── public/
-│   │   │   └── index.ts      # Onboarding endpoints
+│   │   │   └── index.ts      # Onboarding endpoints + public tiers
+│   │   ├── auth.ts           # Auth routes (status, subscribe, request-access, onboarding-complete)
+│   │   ├── usage.ts          # Usage API (real-time via Timekeeper DO, KV fallback)
 │   │   ├── presets.ts        # Preset CRUD
 │   │   ├── preferences.ts    # User preferences
 │   │   ├── terminal.ts       # Terminal WebSocket proxy
 │   │   ├── user-profile.ts   # User info
 │   │   └── users.ts          # User management
+│   ├── timekeeper/index.ts    # Timekeeper DO class (per-user usage tracking)
 │   ├── middleware/            # auth.ts, rate-limit.ts
-│   ├── lib/                  # access, access-policy, agent-config, cache-reset, cf-api,
+│   ├── lib/                  # access, access-policy, access-tier, activity-policy, agent-config,
+│   │                         # agent-seed.generated, cache-reset, cf-api,
 │   │                         # circuit-breaker, circuit-breakers (per-container CB via
 │   │                         #   getContainerXxxCB(containerId) — no more global singletons),
 │   │                         # constants, container-helpers,
-│   │                         # cors-cache, error-types, jwt, kv-keys, logger, onboarding,
-│   │                         # r2-admin, r2-client, r2-config, r2-seed, schemas,
-│   │                         # session-helpers, tutorial-seed.generated, type-guards,
-│   │                         # user-cleanup, xml-utils
+│   │                         # cors-cache, email, error-types, jwt, kv-crypto, kv-keys,
+│   │                         # logger, onboarding, r2-admin, r2-client, r2-config, r2-seed,
+│   │                         # r2-sse, rate-limit-core, schemas, session-helpers, session-mode,
+│   │                         # subscription, tutorial-seed.generated,
+│   │                         # turnstile, type-guards, user-cleanup, xml-utils
 │   │                         #   escapeXml() — sanitizes user input for XML/HTML interpolation
 │   │                         #   decodeXmlEntities() — decodes &amp; &lt; etc. from R2 S3 API responses
 │   │                         #   FIX-39 audit trail in file header tracks all interpolation sites
 │   ├── container/index.ts    # Container DO class
-│   └── __tests__/            # Backend unit tests (68 files, ~996 tests)
+│   └── __tests__/            # Backend unit tests (88 files)
 ├── e2e/                      # E2E tests: 12 API files (~55 tests) + 10 UI files (~75 tests, Puppeteer)
 ├── host/                        # TypeScript (migrated from JS)
 │   ├── src/
@@ -2073,13 +2590,15 @@ codeflare/
 │   └── package.json
 ├── web-ui/
 │   └── src/
-│       ├── components/       # SolidJS components (Terminal, Layout, SessionCard, StorageBrowser, etc.)
+│       ├── components/       # SolidJS components (Terminal, Layout, SessionCard, StorageBrowser,
+│       │                     #   SubscribePage, UsagePage, Header, SettingsPanel, LoginPage,
+│       │                     #   admin/SubscriptionManagement, settings/SessionSection, etc.)
 │       ├── stores/           # terminal.ts, terminal-layout.ts, terminal-url-detection.ts, session.ts, storage.ts, setup.ts, tiling.ts, session-presets.ts, session-tabs.ts, preferences.ts, r2-readiness.ts
 │       ├── api/              # client.ts, fetch-helper.ts, storage.ts
 │       ├── hooks/            # useTerminal.ts, useStageTimings.ts
-│       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, xterm-internals, settings, format, mobile, + others
+│       ├── lib/              # constants, schemas, terminal-config, terminal-link-provider, xterm-internals, settings, format, mobile, sleep-timer, + others
 │       ├── styles/           # CSS (design tokens, animations, component styles)
-│       └── __tests__/        # Frontend unit tests (71 files)
+│       └── __tests__/        # Frontend unit tests (78 files)
 ├── .oxlintrc.json            # oxlint configuration (root + web-ui)
 ├── scripts/                  # generate-tutorial-seed.mjs, generate-agent-seed.mjs, fix-broken-sourcemaps.js
 ├── tutorials/                # Tutorial content (Getting Started, Examples, etc.)
@@ -2111,7 +2630,7 @@ codeflare/
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
-API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/api/*", "/public/*", "/health"]` in `[assets]` section of `wrangler.toml`.
+API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/auth/*", "/api/*", "/public/*", "/health"]` in `[assets]` section of `wrangler.toml`.
 
 ### `/setup` Shows "Access Denied"
 
@@ -2229,7 +2748,7 @@ Notes:
 - R2: First 10 GB free, $0.015/GB/month after
 - Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
 
-Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (30m) of no SDK-proxied requests. Hibernated containers = zero cost.
+Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (default 30m, configurable 5m–2h) of no user input. Hibernated containers = zero cost.
 
 ---
 
@@ -2270,7 +2789,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 | AD31 | Root container is intentional | <details><summary>rclone mount, tool installation, and user workspace access all require root</summary><br>The Dockerfile has no USER directive; all container processes run as root. Dropping privileges post-init via gosu was evaluated and rejected because tool installation (user-initiated npm install -g, etc.) and rclone FUSE mount operations continue throughout the container lifetime, not just during init. The security boundary is network isolation via the Durable Object proxy — only the DO can reach the container's port 8080. Container auth token (random UUID per DO lifecycle) validates all proxied requests. User note: "this is by design."</details> |
 | AD32 | ENCRYPTION_KEY is optional | <details><summary>Optional encryption eases onboarding; operators accept plaintext KV storage as trade-off</summary><br>When ENCRYPTION_KEY is absent, LLM API keys, GitHub tokens, and Cloudflare API tokens are stored as plaintext JSON in KV with no warning. This is an intentional deployment-complexity trade-off. New deployers can get a running instance without generating and managing an encryption key. The target audience is self-hosted single-user/small-team deployments where the operator and the user are the same person. A startup warning when ENCRYPTION_KEY is absent is a recommended future improvement. Operators who want encryption set ENCRYPTION_KEY.</details> |
 | AD33 | Pre-setup CSRF risk accepted | <details><summary>Bootstrap window is seconds to minutes; AD10 trade-off applies</summary><br>createConditionalSetupAuth() calls next() directly when setup is not complete, bypassing the X-Requested-With CSRF check. AD10 accepts the open pre-setup endpoint as a bootstrap necessity. The pre-setup CSRF risk is accepted under the same rationale: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact workers.dev URL during its unconfigured window. Adding Origin validation to the pre-setup path is a low-cost future hardening.</details> |
-| AD34 | WebSocket auth bypass of Hono middleware | <details><summary>workerd constraint — WS upgrades cannot use Hono middleware; parallel auth path is manually synchronized</summary><br>WebSocket upgrades must be intercepted before the Hono middleware chain (documented workaround for cloudflare/workerd#2319). This creates a parallel auth path replicating authentication, CORS, rate limiting, and access-tier gating. The duplication is explicit and documented. Any change to the Hono middleware auth chain must be manually mirrored in the WebSocket handler. SaaS tier gating tests for the parallel path are tracked as a fix item.</details> |
+| AD34 | WebSocket auth bypass of Hono middleware | <details><summary>workerd constraint — WS upgrades cannot use Hono middleware; parallel auth path is manually synchronized</summary><br>WebSocket upgrades must be intercepted before the Hono middleware chain (documented workaround for cloudflare/workerd#2319). This creates a parallel auth path replicating authentication, CORS, rate limiting, and subscription-tier gating. The duplication is explicit and documented. Any change to the Hono middleware auth chain must be manually mirrored in the WebSocket handler. SaaS tier gating tests for the parallel path are tracked as a fix item.</details> |
 | AD35 | splash-cursor-logic.ts old-style constructor with any types | <details><summary>Vendored creative/WebGL code — TypeScript coverage not worth the refactoring effort</summary><br>An old-style constructor function with this: any causes all downstream pointer/rendering functions to use any types. AD19 covers as any casts in this module. The constructor is adapted from a visual effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.</details> |
 
 #### AD: Stress Test Rate-Limit Bypass is Integration-Only
@@ -2290,6 +2809,29 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 - **Context:** During setup, the worker name is derived from the Host header for `.workers.dev` subdomains. For custom domains, the `CLOUDFLARE_WORKER_NAME` env var is preferred.
 - **Decision:** Accept Host header parsing for `.workers.dev` domains during setup. The exposure window is: (1) only during first-time setup (minutes), (2) requires CF Access JWT authentication, (3) setup is idempotent. For custom domains, the env var set at deploy time takes precedence.
 - **Consequences:** A spoofed Host header on a `.workers.dev` domain during the setup window could theoretically direct configuration to a different worker name, but this requires authenticated access and the window is extremely narrow.
+
+#### AD: KV as Billing State Store (CF-015)
+- **Status:** Accepted
+- **Context:** All billing state (subscriptionTier, billingStatus, billingPeriodEnd) is stored in Cloudflare KV, which is eventually consistent (~60s propagation) with no transactional guarantees. Webhook handlers use `updateUserRecord()` (read-merge-write) which can lose fields if two handlers fire within the propagation window.
+- **Decision:** Accept KV as the billing state store. Mitigations: (1) `getEffectiveTier()` derives effective tier from multiple KV fields with safe defaults — partial updates degrade gracefully to 'free' rather than granting paid access. (2) Stripe webhook retry + idempotent handlers mean transient KV failures self-heal. (3) `billingPeriodEnd` expiry catches missed `subscription.deleted` webhooks.
+- **Consequences:** A partial webhook update can leave billing fields inconsistent for up to 60s. In the worst case, a user briefly sees stale quota information. Billing-critical decisions (tier enforcement, quota checks) use `getEffectiveTier()` which defaults to restrictive ('pending'/'free') on missing data. A periodic reconciliation job validating KV state against Stripe's API is a recommended future improvement.
+
+## Module-Level Caches (CF-014)
+
+All module-level caches in the codebase. Workers isolates do not share memory, so each cache is per-isolate.
+
+| Module | Cache Variable | TTL | What It Caches | Reset Function |
+|---|---|---|---|---|
+| `src/lib/access.ts` | `cachedAuthDomain`, `cachedAccessAud`, `cachedAccessAudList` | 5 min | CF Access auth domain and audience config | `resetAuthConfigCache()` |
+| `src/lib/subscription.ts` | `cachedTierConfig` | 60s | Tier configuration from `tiers:config` KV key | `resetTierConfigCache()` |
+| `src/lib/cors-cache.ts` | `cachedKvOrigins` | 5 min | CORS origins from `setup:custom_domain` + `setup:allowed_origins` | `resetCorsOriginsCache()` |
+| `src/lib/jwt.ts` | JWKS key cache | 1 hour | Cloudflare Access JWKS public keys | `resetJwksCache()` |
+| `src/lib/stripe.ts` | `priceCache` | 1 hour | Stripe price amount/currency per price ID | (none — TTL-only) |
+| `src/lib/kv-crypto.ts` | imported CryptoKey | Isolate lifetime | AES-256 key from `ENCRYPTION_KEY` env var | (none — persists for isolate lifetime) |
+| `src/lib/rate-limit-core.ts` | `failedKvOps` | Isolate lifetime | Counter for consecutive KV failures (circuit breaker) | (none) |
+| `src/lib/circuit-breakers.ts` | per-container breakers | Isolate lifetime | Circuit breaker state per container ID | (none) |
+
+After admin config changes, different isolates may enforce different values for up to the cache TTL. This is an accepted trade-off for KV read performance.
 
 ## Technical Debt
 
@@ -2619,44 +3161,72 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 30 user messages. Zero manual intervention required.
 
-### Architecture
+### Architecture — Two-Phase Memory (Capture + Compact)
+
+The memory system uses two phases with different models optimized for their task:
+
+**Phase 1 — Capture (haiku, fast, every 30 messages):**
+Raw observation capture into daily `chat-{TODAY}` entities. Haiku's job is speed — dump 3-5 observations per window without worrying about graph structure. This is the "write-ahead log."
+
+**Phase 2 — Compact (opus, thorough, triggered at 100 observations):**
+When the capture agent detects the graph has grown past 100 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: 50-80 quality observations per active project.
 
 ```
-UserPromptSubmit hook (~150ms)           Main agent                    Background Task agent (haiku)
-    |                                        |                              |
-    +-- read stdin JSON                      |                              |
-    +-- jq: count user messages              |                              |
-    +-- check counter (delta < 15?) → exit   |                              |
-    +-- check lock → exit                    |                              |
-    +-- write .vars JSON file                |                              |
-    +-- output JSON + exit 0 ─────────> receive additionalContext           |
-                                        create lock                         |
-                                        spawn Task agent ───────────> read prompt .md + .vars JSON
-                                             |                         read transcript from line offset
-                                        (continues normally)           summarize into MCP memory
-                                                                       compaction check (>1000 → ~300)
-                                                                       write counter file
-                                                                       rm lock file
+UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: haiku capture     Phase 2: opus compact
+    |                                    |                            |                          |
+    +-- count user msgs                  |                            |                          |
+    +-- delta < 30? → exit               |                            |                          |
+    +-- check lock → exit                |                            |                          |
+    +-- write .vars JSON                 |                            |                          |
+    +-- output JSON + exit 0 ──────> check .vars freshness            |                          |
+                                    (skip if >60s stale)              |                          |
+                                    create lock                       |                          |
+                                    spawn haiku agent ──────────> read prompt + vars             |
+                                         |                       read transcript                 |
+                                    (continues normally)         save 3-5 obs to chat-{TODAY}    |
+                                         |                       if obs >100: write .compact     |
+                                         |                       write counter, rm lock          |
+                                    check .compact marker             |                          |
+                                    if exists: spawn opus ────────────────────────────────> read full graph
+                                                                                           distill chat-* → semantic entities
+                                                                                           build relations
+                                                                                           deduplicate + prune
+                                                                                           target 50-80 obs
+                                                                                           rm .compact marker
 ```
 
 ### Hook Mechanics
 
-The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0` protocol to inject a short instruction into the main agent's context on each user message.
+The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0` protocol to inject a short instruction into the main agent's context.
 
 1. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
 2. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
-3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 15, exits silently.
+3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If the delta is < 30, exits silently.
 4. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits. Stale locks (>2 minutes) are removed automatically.
 5. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the context string short.
 6. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. Exits with code 0 — no blocking, no loop guard needed.
 
-### Prompt File
+### Stale Context Prevention
 
-The background agent's full instructions live in `~/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md` (preseeded alongside the hook script). This keeps the hook's reason string short (~200 chars) while providing detailed instructions for:
+The `additionalContext` string persists in the conversation context across turns. To prevent re-triggering on stale messages, the `rules/memory.md` execution protocol uses a **freshness check**: `stat -c %Y <VARS_FILE>` must show a timestamp within the last 60 seconds. If the `.vars` file is older, the instruction is from a prior turn and is skipped. The instruction is explicitly marked as ONE-SHOT — execute once, then ignore even if the text remains visible.
 
-- Observation quality (merge related facts, skip trivial events, max 5-8 per window)
-- MCP memory entity naming (`chat-YYYY-MM-DD`)
-- **Automatic compaction**: When total observations exceed 1000, compact to ~300 by archiving old chat entities (>3 days) into `chat-archive-YYYY-MM`, merging redundant observations, and deleting stale data.
+### Prompt Files
+
+Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/` (preseeded alongside the hook script):
+
+**`memory-agent-prompt.md`** (haiku capture):
+- Reads transcript from line offset, extracts 3-5 observations
+- Saves to `chat-{TODAY}` entity (daily raw capture bucket)
+- Checks total observations — if >100, writes `.compact` marker file
+- Does NOT attempt compaction itself
+
+**`memory-compact-prompt.md`** (opus compaction):
+- Reads full graph, identifies entity structure by domain
+- Distills `chat-*` entities older than 3 days into semantic entities (`project-*`, `*-architecture`, `*-session-archive`, `user-preferences`, `reference-*`)
+- Keeps recent `chat-*` (last 3 days) as raw buffer
+- Deduplicates, prunes stale data, builds relations
+- Target: 50-80 observations per active project
+- Graph designed to grow over time as projects accumulate — compaction is per-project, not global
 
 ### Counter Storage
 
@@ -2729,12 +3299,12 @@ All preseed content is deployed via the manifest pipeline:
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
-**Manifest structure (59 total entries)**:
+**Manifest structure (60 total entries)**:
 - `rules/` (28): core (4 default+advanced: ci-monitoring, cloudflare-environment, no-local-builds, deploy-credentials; + 1 advanced-only: memory), common (3), typescript (5), python (5), golang (5), swift (5)
 - `agents/` (7): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, plan, review (advanced only)
 - `skills/` (13): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first
-- `plugins/` (6): known_marketplaces.json (default+advanced), codeflare-memory plugin (3 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md), codeflare-hooks plugin (2 files, advanced only: plugin.json, block-attributed-commits.sh)
+- `plugins/` (7): known_marketplaces.json (default+advanced), codeflare-memory plugin (4 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md, memory-compact-prompt.md), codeflare-hooks plugin (2 files, advanced only: plugin.json, block-attributed-commits.sh)
 
 ### Multi-Agent Preseed
 
@@ -2765,18 +3335,18 @@ The generator produces adapted config files for 6 agents from CC's preseed as si
 
 | Agent | Instructions | Skills | Agents | Total |
 |-------|-------------|--------|--------|-------|
-| CC | 0 (individual rules) | 13 | 7 | 58 (all categories) |
+| CC | 0 (individual rules) | 13 | 7 | 59 (all categories) |
 | Codex | 2 (default+advanced) | 12 | 0 | 14 |
 | Gemini | 2 | 12 | 7 | 21 |
 | Copilot | 2 | 0 | 7 | 9 |
 | OpenCode | 2 | 12 | 7 | 21 |
-| **Total** | | | | **123** |
+| **Total** | | | | **124** |
 
 **Excluded from non-CC agents**: hooks (CC hook system), commands (CC slash commands), plugins (CC plugin system, including codeflare-memory), `rules/memory.md` (depends on MCP memory server), `consult-llm` skill (depends on CC-specific MCP tool).
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1) concatenates applicable rules into a single instructions file, (2) remaps tool names in agent definition frontmatter, (3) removes `model` field from frontmatter, (4) replaces `~/.claude/` path references with agent-specific config paths, (5) uses correct file extensions (e.g., `.agent.md` for Copilot agents).
 
-**Per-mode counts**: Default mode seeds 24 files, advanced mode seeds 119 files. Total array size is 123 (includes variant-per-mode duplicates for instructions files).
+**Per-mode counts**: Default mode seeds 24 files, advanced mode seeds 119 files. Total array size is 124 (includes variant-per-mode duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the generated array — once for default mode (3 rules) and once for advanced mode (all rules including memory, ECC), with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this correctly by excluding keys that have a variant in the target mode.
 
@@ -2799,7 +3369,9 @@ The generator produces adapted config files for 6 agents from CC's preseed as si
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
-- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only).
+- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only). Check that the `.vars` file timestamp is fresh (<60 seconds) — stale context replays are intentionally skipped.
+- **Agent re-triggering every turn**: The `additionalContext` persists in conversation context across turns. The `rules/memory.md` freshness check (`stat -c %Y` on `.vars` file) prevents re-execution. If this keeps happening, verify the rule file is loaded and contains the ONE-SHOT instruction.
+- **Compaction not running**: Compaction triggers when haiku writes a `.compact` marker file (total observations >100). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
 - **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entry pointing to `block-attributed-commits.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint SESSION_MODE gating may have failed. Remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 

@@ -79,6 +79,81 @@
           color: var(--color-text-primary);
         }
 
+        /* ── Sleep timer ── */
+
+        .header-timer-wrapper {
+          position: relative;
+        }
+
+        .header-timer-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: var(--space-1);
+          border: none;
+          border-radius: var(--radius-md);
+          background: transparent;
+          cursor: pointer;
+          transition: background var(--transition-fast);
+        }
+
+        .header-timer-button--warning {
+          color: var(--color-warning);
+          animation: timer-pulse 2s ease-in-out infinite;
+        }
+
+        .header-timer-button--critical {
+          color: var(--color-error);
+          animation: timer-pulse 1s ease-in-out infinite;
+        }
+
+        .header-timer-button:hover {
+          background: var(--color-bg-muted);
+        }
+
+        .header-timer-dropdown {
+          position: absolute;
+          top: calc(100% + 8px);
+          right: 0;
+          min-width: 220px;
+          max-width: 280px;
+          background: var(--color-bg-elevated);
+          border: 1px solid var(--color-border-default);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-lg);
+          padding: var(--space-3);
+          z-index: 80;
+        }
+
+        .header-timer-bucket {
+          font-size: var(--text-sm);
+          font-weight: 600;
+          color: var(--color-text-primary);
+          font-family: 'JetBrains Mono', 'Fira Code', monospace;
+          margin-bottom: var(--space-2);
+        }
+
+        .header-timer-explanation {
+          font-size: var(--text-xs);
+          color: var(--color-text-secondary);
+          line-height: 1.5;
+          margin: 0;
+        }
+
+        @keyframes timer-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.9); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .header-timer-button--warning,
+          .header-timer-button--critical {
+            animation: none !important;
+          }
+        }
+
+        /* ── Bookmarks ── */
+
         .header-bookmarks-wrapper {
           position: relative;
         }
@@ -335,11 +410,19 @@
           position: relative;
         }
 
+        .header-usage-inline {
+          margin-left: auto;
+          font-size: 0.75rem;
+          color: var(--color-text-secondary);
+          font-family: 'JetBrains Mono', 'Fira Code', monospace;
+          white-space: nowrap;
+        }
+
         .header-user-dropdown {
           position: absolute;
           top: calc(100% + 8px);
           right: 0;
-          min-width: 180px;
+          white-space: nowrap;
           background: var(--color-bg-elevated);
           border: 1px solid var(--color-border-default);
           border-radius: var(--radius-lg);
@@ -386,7 +469,7 @@
 
         .header-user-dropdown--portal {
           position: fixed;
-          min-width: 180px;
+          white-space: nowrap;
           border-radius: var(--radius-lg);
           padding: var(--space-1);
           animation: header-bookmark-slide-in 150ms ease-out;

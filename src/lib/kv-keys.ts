@@ -96,6 +96,52 @@ export function getDeployKeysKey(bucketName: string): string {
 }
 
 /**
+ * Get KV key for subscription tier configuration
+ */
+export function getTiersConfigKey(): string {
+  return 'tiers:config';
+}
+
+/**
+ * Get KV key for a user's Timekeeper usage record
+ */
+export function getTimekeeperKey(bucketName: string): string {
+  return `timekeeper:${bucketName}`;
+}
+
+/**
+ * Get UTC date string in YYYY-MM-DD format
+ */
+export function getUtcDateString(date: Date): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Get UTC month string in YYYY-MM format
+ */
+export function getUtcMonthString(date: Date): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+/**
+ * Get the ISO week start (Monday) date string for a given date.
+ * ISO weeks start on Monday. Returns YYYY-MM-DD of the Monday.
+ */
+export function getIsoWeekStart(date: Date): string {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  // getUTCDay() returns 0=Sun, 1=Mon, ..., 6=Sat
+  // Convert to Mon=0, Tue=1, ..., Sun=6
+  const dayOfWeek = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dayOfWeek);
+  return getUtcDateString(d);
+}
+
+/**
  * Fetch all KV keys matching a prefix, handling pagination safely.
  *
  * Cloudflare KV returns a maximum of 1000 keys per call. This function

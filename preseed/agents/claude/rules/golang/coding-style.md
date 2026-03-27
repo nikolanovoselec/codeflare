@@ -26,7 +26,3 @@ if err != nil {
     return fmt.Errorf("failed to create user: %w", err)
 }
 ```
-
-## Reference
-
-See skill: `golang-patterns` for comprehensive Go idioms and patterns.

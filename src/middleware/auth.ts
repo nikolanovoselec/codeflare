@@ -10,7 +10,7 @@ import { Context, Next } from 'hono';
 import { authenticateRequest } from '../lib/access';
 import { ForbiddenError } from '../lib/error-types';
 import { isSaasModeActive } from '../lib/onboarding';
-import { isActiveUser } from '../lib/access-tier';
+import { isActiveTier, getEffectiveTier } from '../lib/subscription';
 import type { Env, AccessUser } from '../types';
 
 /**
@@ -40,10 +40,12 @@ export async function requireIdentity(c: Context<{ Bindings: Env; Variables: Aut
  * requireActiveUser — authenticate + enforce access-tier gate when SAAS_MODE is active.
  *
  * In SaaS mode:
- *   - standard / advanced / undefined tier → pass through
- *   - pending tier + HTML request → redirect to /app/subscribe
- *   - pending tier + API request  → 403 { code: 'PENDING' }
- *   - blocked tier                → 403 { code: 'BLOCKED' }
+ *   - active tier (free/trial/standard/advanced/max/unlimited/undefined) → pass through
+ *   - pending tier → 403 { code: 'PENDING' }
+ *   - blocked tier → 403 { code: 'BLOCKED' }
+ *
+ * Note: HTML redirect to /app/subscribe for pending users is handled in index.ts routing,
+ * not here. This middleware always returns JSON 403.
  *
  * When SAAS_MODE is not set, behaves identically to requireIdentity (backward compat).
  */
@@ -52,9 +54,15 @@ export async function requireActiveUser(c: Context<{ Bindings: Env; Variables: A
   c.set('user', user);
   c.set('bucketName', bucketName);
 
-  if (isSaasModeActive(c.env.SAAS_MODE) && !isActiveUser(user.accessTier)) {
-    const code = user.accessTier === 'blocked' ? 'BLOCKED' : 'PENDING';
-    return c.json({ error: 'Access denied', code }, 403);
+  if (isSaasModeActive(c.env.SAAS_MODE)) {
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    // isActiveTier: blocked/pending → false (403), active tiers → true (pass)
+    // Note: canLogin in tier config controls authentication (pending=true → can see subscribe page).
+    // requireActiveUser controls IDE access — pending users are blocked from API routes.
+    if (!isActiveTier(effectiveTier)) {
+      const code = effectiveTier === 'blocked' ? 'BLOCKED' : 'PENDING';
+      return c.json({ error: 'Access denied', code }, 403);
+    }
   }
 
   return next();

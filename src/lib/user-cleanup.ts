@@ -7,7 +7,7 @@
  */
 import type { Env, Session } from '../types';
 import { getBucketName } from './access';
-import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey } from './kv-keys';
+import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -34,7 +34,9 @@ interface CleanupResult {
  * callers are responsible for those concerns.
  */
 export async function cleanupUserData(email: string, env: Env): Promise<CleanupResult> {
-  const bucketName = getBucketName(email, env.CLOUDFLARE_WORKER_NAME);
+  // Normalize defensively — callers should already normalize, but KV keys must match
+  const normalizedEmail = email.trim().toLowerCase();
+  const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
   const result: CleanupResult = {
     deletedSessions: 0,
     bucketDeleted: false,
@@ -61,7 +63,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   }
 
   // --- Block B: User KV deletion ---
-  await env.KV.delete(`user:${email}`);
+  await env.KV.delete(`user:${normalizedEmail}`);
 
   // --- Block B2: Bucket-keyed KV cleanup ---
   await Promise.all([
@@ -70,6 +72,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
     env.KV.delete(getPreferencesKey(bucketName)),
     env.KV.delete(getLlmKeysKey(bucketName)),
     env.KV.delete(getDeployKeysKey(bucketName)),
+    env.KV.delete(getTimekeeperKey(bucketName)),
   ]);
 
   // --- Read R2 token data ONCE before cleanup (used by Block C and D) ---
@@ -77,7 +80,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
   // Raw KV.get('json') throws SyntaxError on the "v1:..." ciphertext prefix.
   const accountId = await env.KV.get('setup:account_id');
   const cryptoKey = await getOrImportKey(env);
-  const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${email}`, cryptoKey);
+  const r2TokenData = await getAndDecrypt<{ tokenId?: string; accessKeyId?: string; secretAccessKey?: string }>(env.KV, `r2token:${normalizedEmail}`, cryptoKey);
 
   // --- Block C: R2 scoped token cleanup ---
   try {
@@ -89,7 +92,7 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
     logger.warn('Failed to delete scoped R2 token during user deletion', { email, error: String(err) });
   }
   try {
-    await env.KV.delete(`r2token:${email}`);
+    await env.KV.delete(`r2token:${normalizedEmail}`);
   } catch (err) {
     logger.warn('Failed to delete r2token KV entry', { email, error: String(err) });
   }

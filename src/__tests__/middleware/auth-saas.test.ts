@@ -33,6 +33,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
       authenticated: true,
       role: 'user',
       accessTier: 'standard',
+      subscriptionTier: 'standard',
     };
     mockAuthResult.bucketName = 'codeflare-test';
   });
@@ -125,6 +126,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'user',
         accessTier: 'pending',
+        subscriptionTier: 'pending',
       };
 
       const app = createApp(requireIdentity);
@@ -134,7 +136,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json() as { user: AccessUser };
-      expect(body.user.accessTier).toBe('pending');
+      expect(body.user.subscriptionTier).toBe('pending');
     });
 
     it('throws on unauthenticated request', async () => {
@@ -159,6 +161,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'user',
         accessTier: 'standard',
+        subscriptionTier: 'standard',
       };
 
       const app = createApp(requireActiveUser, { SAAS_MODE: 'active' });
@@ -168,7 +171,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json() as { user: AccessUser };
-      expect(body.user.accessTier).toBe('standard');
+      expect(body.user.subscriptionTier).toBe('standard');
     });
 
     it('allows advanced tier through when SAAS_MODE=active', async () => {
@@ -177,6 +180,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'user',
         accessTier: 'advanced',
+        subscriptionTier: 'advanced',
       };
 
       const app = createApp(requireActiveUser, { SAAS_MODE: 'active' });
@@ -186,7 +190,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json() as { user: AccessUser };
-      expect(body.user.accessTier).toBe('advanced');
+      expect(body.user.subscriptionTier).toBe('advanced');
     });
 
     it('returns 403 with code PENDING for pending users on API request (Accept: application/json)', async () => {
@@ -195,6 +199,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'user',
         accessTier: 'pending',
+        subscriptionTier: 'pending',
       };
 
       const app = createApp(requireActiveUser, { SAAS_MODE: 'active' });
@@ -217,6 +222,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'user',
         accessTier: 'pending',
+        subscriptionTier: 'pending',
       };
 
       const app = createApp(requireActiveUser, { SAAS_MODE: 'active' });
@@ -238,6 +244,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'user',
         accessTier: 'blocked',
+        subscriptionTier: 'blocked',
       };
 
       const app = createApp(requireActiveUser, { SAAS_MODE: 'active' });
@@ -259,6 +266,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'user',
         accessTier: 'pending',
+        subscriptionTier: 'pending',
       };
 
       // No SAAS_MODE env var
@@ -269,15 +277,17 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json() as { user: AccessUser };
-      expect(body.user.accessTier).toBe('pending');
+      expect(body.user.subscriptionTier).toBe('pending');
     });
 
-    it('allows undefined accessTier through (backward compat)', async () => {
+    // CF-005: undefined tiers now resolve to 'pending' (blocked) instead of 'advanced' (allowed).
+    // This prevents free compute for users with corrupted/missing KV records.
+    it('blocks undefined accessTier as pending (CF-005)', async () => {
       mockAuthResult.user = {
         email: 'legacy@example.com',
         authenticated: true,
         role: 'user',
-        // accessTier intentionally omitted
+        // accessTier intentionally omitted — resolves to 'pending' via getEffectiveTier
       };
 
       const app = createApp(requireActiveUser, { SAAS_MODE: 'active' });
@@ -285,8 +295,9 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         headers: { 'cf-access-authenticated-user-email': 'legacy@example.com' },
       });
 
-      // isActiveUser(undefined) returns true — backward compat
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('PENDING');
     });
   });
 
@@ -300,6 +311,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'admin',
         accessTier: 'advanced',
+        subscriptionTier: 'unlimited',
       };
 
       const app = createAdminApp();
@@ -318,6 +330,7 @@ describe('Three-tier auth middleware (SaaS mode)', () => {
         authenticated: true,
         role: 'user',
         accessTier: 'standard',
+        subscriptionTier: 'standard',
       };
 
       const app = createAdminApp();

@@ -5,8 +5,6 @@ paths:
 ---
 # Swift Patterns
 
-> This file extends [common/patterns.md](../common/patterns.md) with Swift specific content.
-
 ## Protocol-Oriented Design
 
 Define small, focused protocols. Use protocol extensions for shared defaults:
@@ -60,7 +58,3 @@ struct UserService {
 }
 ```
 
-## References
-
-See skill: `swift-actor-persistence` for actor-based persistence patterns.
-See skill: `swift-protocol-di-testing` for protocol-based DI and testing.

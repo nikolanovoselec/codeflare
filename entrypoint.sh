@@ -302,6 +302,7 @@ initial_sync_from_r2() {
         "${RCLONE_FILTERS[@]}" \
         --fast-list \
         --size-only \
+        --min-size 1B \
         --multi-thread-streams 4 \
         --transfers 32 \
         --checkers 32 \
@@ -338,6 +339,7 @@ establish_bisync_baseline() {
         "${RCLONE_FILTERS[@]}" \
         --resync \
         --fast-list \
+        --min-size 1B \
         --conflict-resolve newer \
         --resilient \
         --recover \
@@ -401,6 +403,7 @@ bisync_with_r2() {
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
         --fast-list \
+        --min-size 1B \
         --conflict-resolve newer \
         --resilient \
         --recover \

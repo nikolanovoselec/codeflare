@@ -76,6 +76,61 @@
   color: var(--color-text-secondary);
 }
 
+/* Sleep timer icon */
+.session-stat-card__timer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.session-stat-card__timer--warning {
+  color: var(--color-warning);
+  animation: timer-pulse 2s ease-in-out infinite;
+}
+
+.session-stat-card__timer--critical {
+  color: var(--color-error);
+  animation: timer-pulse 1s ease-in-out infinite;
+}
+
+@keyframes timer-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.9); }
+}
+
+.session-stat-card__timer-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-elevated);
+  border-radius: inherit;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+  z-index: 5;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-stat-card__timer--warning,
+  .session-stat-card__timer--critical {
+    animation: none !important;
+  }
+}
+
 /* Progress bar for initializing */
 .session-stat-card__progress {
   margin-top: 4px;

@@ -72,9 +72,12 @@ export function useScrollCorrection(
     }
   };
 
-  container.addEventListener('wheel', markUserScrollIntent, { passive: true });
-  container.addEventListener('pointerdown', markUserScrollIntent, { passive: true });
-  container.addEventListener('keydown', onNavKeyDown);
+  // Use capture phase so intent is registered BEFORE xterm processes the event
+  // and fires onScroll. In bubble phase, xterm's internal handler on .xterm-viewport
+  // fires first → onScroll → Strategy 1 snaps to bottom before intent is marked.
+  container.addEventListener('wheel', markUserScrollIntent, { passive: true, capture: true });
+  container.addEventListener('pointerdown', markUserScrollIntent, { passive: true, capture: true });
+  container.addEventListener('keydown', onNavKeyDown, { capture: true });
 
   // --- Scroll event handler ---
 
@@ -180,9 +183,9 @@ export function useScrollCorrection(
   // --- Cleanup ---
 
   onCleanup(() => {
-    container.removeEventListener('wheel', markUserScrollIntent);
-    container.removeEventListener('pointerdown', markUserScrollIntent);
-    container.removeEventListener('keydown', onNavKeyDown);
+    container.removeEventListener('wheel', markUserScrollIntent, { capture: true });
+    container.removeEventListener('pointerdown', markUserScrollIntent, { capture: true });
+    container.removeEventListener('keydown', onNavKeyDown, { capture: true });
     scrollDisposable.dispose();
     clearScrollIntent(sessionId, terminalId);
   });

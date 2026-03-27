@@ -12,9 +12,11 @@ import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, ContainerError, NotFoundError, RateLimitError, toError, toErrorMessage } from '../../lib/error-types';
+import { AppError, ContainerError, NotFoundError, RateLimitError, QuotaExceededError, toError, toErrorMessage } from '../../lib/error-types';
+import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
+import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix } from '../../lib/kv-keys';
+import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
@@ -22,7 +24,7 @@ import type { Logger } from '../../lib/logger';
 import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 
 // ---------------------------------------------------------------------------
-// Extracted helpers (FIX-8)
+// Extracted helpers
 // ---------------------------------------------------------------------------
 
 /**
@@ -32,6 +34,7 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 function buildSetBucketNameBody(params: {
   bucketName: string;
   sessionId: string;
+  userEmail: string;
   scopedCreds: { accessKeyId: string; secretAccessKey: string };
   r2Config: { accountId: string; endpoint: string };
   tabConfig: TabConfig[];
@@ -44,10 +47,12 @@ function buildSetBucketNameBody(params: {
   cloudflareAccountId?: string;
   encryptionKey?: string;
   sessionMode: string;
+  sleepAfter?: string;
 }): string {
   return JSON.stringify({
     bucketName: params.bucketName,
     sessionId: params.sessionId,
+    userEmail: params.userEmail,
     r2AccessKeyId: params.scopedCreds.accessKeyId,
     r2SecretAccessKey: params.scopedCreds.secretAccessKey,
     r2AccountId: params.r2Config.accountId,
@@ -62,6 +67,7 @@ function buildSetBucketNameBody(params: {
     cloudflareAccountId: params.cloudflareAccountId ?? null,
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
+    sleepAfter: params.sleepAfter ?? '30m',
   });
 }
 
@@ -104,8 +110,12 @@ export async function validateSessionAndCheckLimits(params: {
   bucketName: string;
   sessionId: string;
   maxSessions: number;
+  subscriptionTier?: string;
+  accessTier?: string;
+  billingStatus?: string;
+  billingPeriodEnd?: string;
 }): Promise<Session> {
-  const { env, bucketName, sessionId, maxSessions } = params;
+  const { env, bucketName, sessionId, maxSessions, subscriptionTier, accessTier, billingStatus, billingPeriodEnd } = params;
 
   const sessionKey = getSessionKey(bucketName, sessionId);
   const sessionData = await env.KV.get<Session>(sessionKey, 'json');
@@ -113,9 +123,20 @@ export async function validateSessionAndCheckLimits(params: {
     throw new NotFoundError('Session', sessionId);
   }
 
-  // Session limit check: enforce max concurrent running sessions per role.
-  // Bypass when stress testing so E2E suites can start unlimited containers.
+  // Session limit + quota checks. Bypass when stress testing.
   if (env.STRESS_TEST_MODE !== 'active') {
+    // Resolve tier once for both session limit and quota checks (cached 60s)
+    const isSaas = isSaasModeActive(env.SAAS_MODE);
+    let resolvedTier: ReturnType<typeof getUserTier> | null = null;
+    if (isSaas) {
+      try {
+        const tiers = await getTierConfig(env.KV);
+        resolvedTier = getUserTier(getEffectiveTier(subscriptionTier, accessTier, billingStatus, billingPeriodEnd), tiers);
+      } catch { /* fall back to role-based */ }
+    }
+
+    // Session limit: tier-based in SaaS mode, role-based otherwise
+    const effectiveMaxSessions = resolvedTier?.maxSessions ?? maxSessions;
     const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
     const sessionSettled = await Promise.allSettled(
       sessionKeys.map(key => env.KV.get<Session>(key.name, 'json'))
@@ -127,10 +148,31 @@ export async function validateSessionAndCheckLimits(params: {
       (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
     ).length;
 
-    if (runningCount >= maxSessions) {
+    if (runningCount >= effectiveMaxSessions) {
       throw new RateLimitError(
-        `Session limit reached (${runningCount}/${maxSessions}). Stop an existing session to start a new one.`
+        `Session limit reached (${runningCount}/${effectiveMaxSessions}). Stop an existing session to start a new one.`
       );
+    }
+
+    // Usage quota check (SaaS mode only)
+    if (isSaas && resolvedTier && resolvedTier.monthlySeconds !== null) {
+      try {
+        const usageRecord = await env.KV.get(getTimekeeperKey(bucketName), 'json') as { thisMonth?: { month: string; seconds: number } } | null;
+        const now = new Date();
+        const currentMonth = getUtcMonthString(now);
+        const monthlySeconds = (usageRecord?.thisMonth?.month === currentMonth)
+          ? usageRecord.thisMonth.seconds : 0;
+
+        if (monthlySeconds >= resolvedTier.monthlySeconds) {
+          const usedHours = Math.round(monthlySeconds / 3600);
+          const quotaHours = Math.round(resolvedTier.monthlySeconds / 3600);
+          throw new QuotaExceededError(
+            `Monthly compute quota reached (${usedHours}h / ${quotaHours}h). Upgrade your plan.`
+          );
+        }
+      } catch (err) {
+        if (err instanceof QuotaExceededError) throw err;
+      }
     }
   }
 
@@ -212,6 +254,7 @@ export async function configureContainerDO(params: {
   container: { fetch: (req: Request) => Promise<Response> };
   bucketName: string;
   sessionId: string;
+  userEmail: string;
   containerId: string;
   scopedCreds: { accessKeyId: string; secretAccessKey: string };
   r2Config: { accountId: string; endpoint: string };
@@ -225,6 +268,7 @@ export async function configureContainerDO(params: {
   cloudflareAccountId?: string;
   encryptionKey?: string;
   sessionMode: string;
+  sleepAfter?: string;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
   const { container, bucketName, containerId, logger } = params;
@@ -234,6 +278,7 @@ export async function configureContainerDO(params: {
   const setBucketBody = buildSetBucketNameBody({
     bucketName: params.bucketName,
     sessionId: params.sessionId,
+    userEmail: params.userEmail,
     scopedCreds: params.scopedCreds,
     r2Config: params.r2Config,
     tabConfig: params.tabConfig,
@@ -246,6 +291,7 @@ export async function configureContainerDO(params: {
     cloudflareAccountId: params.cloudflareAccountId,
     encryptionKey: params.encryptionKey,
     sessionMode: params.sessionMode,
+    sleepAfter: params.sleepAfter,
   });
 
   const needsBucketUpdate = storedBucketName !== bucketName;
@@ -396,12 +442,16 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const user = c.get('user');
     const maxSessions = getMaxSessions(user.role, c.env);
 
-    // Step 1: Validate session and check limits
+    // Step 1: Validate session and check limits (including usage quota)
     const sessionData = await validateSessionAndCheckLimits({
       env: c.env,
       bucketName,
       sessionId,
       maxSessions,
+      subscriptionTier: user.subscriptionTier,
+      accessTier: user.accessTier,
+      billingStatus: user.billingStatus,
+      billingPeriodEnd: user.billingPeriodEnd,
     });
 
     const containerId = getContainerId(bucketName, sessionId);
@@ -411,6 +461,9 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     const sessionMode = resolveSessionMode(preferences);
+    // Free tier: locked to 5m idle timeout. All other tiers: user preference or 30m default.
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    const sleepAfter = effectiveTier === 'free' ? '5m' : (preferences.sleepAfter || '30m');
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
     const cryptoKey = await getOrImportKey(c.env);
@@ -442,6 +495,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       container,
       bucketName,
       sessionId,
+      userEmail: user.email,
       containerId,
       scopedCreds,
       r2Config,
@@ -455,6 +509,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       cloudflareAccountId: deployKeys?.cloudflareAccountId,
       encryptionKey: c.env.ENCRYPTION_KEY,
       sessionMode,
+      sleepAfter,
       logger: reqLogger,
     });
 

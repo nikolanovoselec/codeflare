@@ -5,8 +5,6 @@ paths:
 ---
 # Python Patterns
 
-> This file extends [common/patterns.md](../common/patterns.md) with Python specific content.
-
 ## Protocol (Duck Typing)
 
 ```python
@@ -33,7 +31,3 @@ class CreateUserRequest:
 
 - Use context managers (`with` statement) for resource management
 - Use generators for lazy evaluation and memory-efficient iteration
-
-## Reference
-
-See skill: `python-patterns` for comprehensive patterns including decorators, concurrency, and package organization.

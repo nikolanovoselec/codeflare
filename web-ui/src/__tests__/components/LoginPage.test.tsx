@@ -85,6 +85,7 @@ describe('LoginPage', () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'user@example.com',
         accessTier: 'standard',
+        subscriptionTier: 'standard',
         role: 'user',
       });
 
@@ -99,6 +100,7 @@ describe('LoginPage', () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'user@example.com',
         accessTier: 'pending',
+        subscriptionTier: 'pending',
         role: 'user',
       });
 
@@ -113,6 +115,7 @@ describe('LoginPage', () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'user@example.com',
         accessTier: 'blocked',
+        subscriptionTier: 'blocked',
         role: 'user',
       });
 

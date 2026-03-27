@@ -65,6 +65,8 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 - Set your API key once. It syncs across sessions forever. (It's rclone, but magic sounds better.)
 - Push & Deploy - connect your GitHub and Cloudflare accounts once in Settings. Every session gets automatic auth. No more pasting tokens into terminals like it's 2019.
 - Dashboard for managing sessions, browsing files, and inviting users (or revoking them when they get too creative). Live CPU/memory/disk metrics per session. Three-color status: green (active), yellow (idle but alive), gray (stopped).
+- Usage dashboard - track daily and monthly compute hours, see quota remaining, per-user Timekeeper Durable Object accumulates seconds and flushes to KV every 5 minutes.
+- Configurable auto-sleep - containers stop after a period of inactivity (no terminal input). Choose 5m, 15m, 30m, 1h, or 2h in Settings. Free tier is locked to 5m. Sleep is input-aware: the timer only resets when you actually type something, not on WebSocket reconnects or background polls.
 - CPU cost scales to zero when idle. You pay for what you use. Nothing when you don't.
 
 ## Architecture
@@ -76,18 +78,22 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 flowchart LR
     A[Browser] --> B["Cloudflare Worker
     Hono router + SolidJS static UI"]
-    B --> C["Durable Object
+    B --> C["Container DO
     session lifecycle + hibernation"]
     C --> D["Cloudflare Container
     isolated per session, pre-warmed PTY"]
     D --> E["R2
     per-user storage, bisync every 60s"]
-    D -. "idle after ~35m
-    (no visibility heartbeat)" .-> F["Hibernated
+    C -. "ping every 60s" .-> G["Timekeeper DO
+    per-user usage + quota"]
+    G --> H["KV
+    usage records, flush every 5m"]
+    D -. "idle after sleepAfter
+    (no terminal input)" .-> F["Hibernated
     zero cost"]
 ```
 
-Containers scale to zero when idle (no sessions = no bill). Storage persists. Auth is handled by Cloudflare Access with a branded login page - one-click GitHub OAuth, automatic user provisioning, and admin approval workflow.
+Containers scale to zero when idle (no sessions = no bill). Storage persists. A per-user Timekeeper Durable Object tracks compute usage and enforces monthly quotas. Auth is handled by Cloudflare Access with a branded login page - one-click GitHub OAuth, automatic user provisioning, and admin approval workflow.
 
 ## Setup
 
@@ -150,7 +156,7 @@ The minimum permissions for Codeflare to deploy and run. Every scope earns its k
 
 | Scope | Permission | Access | Why |
 |---|---|---|---|
-| Account | Turnstile | Edit | Only needed when `ONBOARDING_LANDING_PAGE=active` - adds bot protection to the public waitlist page |
+| Account | Turnstile | Edit | Needed when `ONBOARDING_LANDING_PAGE=active` or `SAAS_MODE=active` - adds bot protection to the public waitlist page, subscribe form, and access request form |
 
 </details>
 
@@ -162,7 +168,7 @@ All optional. The defaults work out of the box. I respect your time.
 | Variable | Default | What it does |
 |---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | `codeflare` | Worker name and Access group prefix |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB RAM) | Container size: `low` (0.25 vCPU, 1 GiB) or `high` (2 vCPU, 6 GiB). Spelling is intentional - matches the Cloudflare API naming. |
+| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 10 instances) | Container size + instance cap. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), `saas` (1 vCPU, 3 GiB, 1400 instances). |
 | `ONBOARDING_LANDING_PAGE` | `inactive` | Set to `active` for a public waitlist at `/` (requires Turnstile + `RESEND_API_KEY` secret) |
 | `RUNNER` | `ubuntu-latest` | GitHub Actions runner |
 | `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | Set to `active` to force-reinstall the AI agent layer on every deploy |
@@ -173,18 +179,41 @@ All optional. The defaults work out of the box. I respect your time.
 | `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers on the login page (SaaS mode only) |
 | `CF_ACCESS_CLIENT_ID` | unset | CF Access service token client ID (secret — for E2E testing) |
 | `CF_ACCESS_CLIENT_SECRET` | unset | CF Access service token client secret (secret — for E2E testing) |
-| `RESEND_API_KEY` | unset | Resend API key (secret — for sending admin approval/rejection emails in SaaS or onboarding mode) |
-| `TURNSTILE_SITE_KEY` | unset | Cloudflare Turnstile site key (for CAPTCHA on public waitlist, required when `ONBOARDING_LANDING_PAGE=active`) |
-| `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification, required when `ONBOARDING_LANDING_PAGE=active`) |
+| `RESEND_API_KEY` | unset | Resend API key (secret — for sending welcome emails, subscription confirmations, plan change notifications, tier change alerts, and admin approval/rejection emails in SaaS or onboarding mode) |
+| `RESEND_EMAIL` | unset | Sender email address for Resend (secret — defaults to `Codeflare <onboarding@resend.dev>` when unset) |
+| `TURNSTILE_SITE_KEY` | unset | Cloudflare Turnstile site key (for CAPTCHA on public waitlist and subscribe page, required when `ONBOARDING_LANDING_PAGE=active` or `SAAS_MODE=active`) |
+| `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification on waitlist, subscribe, and access request endpoints) |
+| `STRIPE_SECRET_KEY` | unset | Stripe secret API key (secret — SaaS mode only). Enables paid subscriptions via Stripe Checkout. When absent, all plans are free (no billing). Use `sk_test_...` for sandbox, `sk_live_...` for production |
+| `STRIPE_WEBHOOK_SECRET` | unset | Stripe webhook signing secret (secret — SaaS mode only). Required when `STRIPE_SECRET_KEY` is set. Used to verify webhook payloads from Stripe (`whsec_...`) |
 | `ENCRYPTION_KEY` | unset | Optional. Encrypts API keys in KV (AES-256-GCM) and file contents in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded (AES-256 requirement). Generate with `openssl rand -base64 32`, then add as a GitHub Actions repository secret. Arbitrary strings will not work. |
 
 ### SaaS Mode (Custom Login)
 
-Set `SAAS_MODE=active` to replace the Cloudflare Access interstitial with a branded login page, guided onboarding, user management, and admin approval workflow. New users authenticate via GitHub OAuth, get auto-provisioned with `pending` status, and require admin approval before accessing the IDE. Leave `SAAS_MODE` unset for the default Cloudflare Access login.
+Set `SAAS_MODE=active` to replace the Cloudflare Access interstitial with a branded login page, guided onboarding, user management, and self-service subscription flow. New users authenticate via GitHub OAuth, get auto-provisioned with `pending` tier, and are redirected to `/app/subscribe` to choose a plan (free, standard, advanced, max, or unlimited). Turnstile CAPTCHA protects the subscription form. Usage is tracked per-user via a Timekeeper Durable Object with monthly quota enforcement. Admins can manage tiers and users via `/admin/subscriptions`. Leave `SAAS_MODE` unset for the default Cloudflare Access login with unlimited access.
 
 See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth flow diagrams, and common pitfalls.
 
 </details>
+
+## Subscription Tiers
+
+When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system (blocked, pending, free, trial, standard, advanced, max, unlimited) controlling monthly compute hours, concurrent sessions, session modes, and pricing. Tiers are configurable by admins via the Subscription Management page (`/admin/subscriptions`) and the admin tiers API (`GET/PUT /api/admin/tiers`). Each user's KV record stores a `subscribedMode` field (`'default'` or `'advanced'`) set during subscription -- this is the mode the user paid for and is distinct from the `sessionMode` preference toggle in Settings.
+
+- New users are auto-provisioned with `pending` tier and land on `/app/subscribe` to choose a plan
+- Turnstile CAPTCHA protects the subscription form for new subscriptions (plan changes skip Turnstile)
+- Paid tiers support configurable trial periods (billing deferred until trial quota consumed)
+- Usage is tracked per-user via a Timekeeper Durable Object (one per user) and displayed on `/app/usage`
+- Timekeeper accumulates seconds from container DO pings (every 60s), flushes to KV every 5 minutes with crash resilience via DO storage
+- Quota enforcement: HTTP 402 on session start when monthly hours exceeded, mid-session eviction via SIGTERM when Timekeeper detects quota exceeded
+- Email notifications via Resend: welcome email on registration, subscription confirmation on plan selection, plan change notifications to user and admins, tier change alerts when admins modify user tiers
+- Session limits are tier-based (`maxSessions` per tier) with env var fallback (`MAX_SESSIONS_USER`, `MAX_SESSIONS_ADMIN`)
+- Session mode enforcement: `default` and `advanced` modes gated per tier (free/trial get `default` only, standard+ get both). Pro mode access requires a dual-gate: both tier support AND `subscribedMode === 'advanced'` in the user's KV record (set via the subscribe page, not the Settings toggle)
+
+**Quota enforcement:**
+- Server-side only — cannot be bypassed by frontend manipulation
+- Non-SaaS deployments resolve all users to `unlimited` tier (no restrictions)
+- Service tokens are treated as `unlimited` tier
+- See [TECHNICAL.md](TECHNICAL.md) Section 9 for full subscription system details
 
 ## Security
 

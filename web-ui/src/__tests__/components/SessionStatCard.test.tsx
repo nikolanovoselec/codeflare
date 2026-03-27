@@ -14,6 +14,7 @@ vi.mock('../../stores/session', () => ({
       hdd: '2.1G/10G',
     })),
     getInitProgressForSession: vi.fn(() => ({ progress: 50 })),
+    preferences: { sleepAfter: '30m' },
   },
 }));
 
@@ -181,6 +182,66 @@ describe('SessionStatCard', () => {
       const menuBtn = screen.getByTitle('Session actions');
       fireEvent.click(menuBtn);
       expect(onMenuClick).toHaveBeenCalled();
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Sleep timer icon', () => {
+    it('shows warning timer when remaining < 10 min', () => {
+      const session = createSession({
+        status: 'running',
+        lastActiveAt: new Date(Date.now() - 22 * 60_000).toISOString(),
+      });
+      render(() => <SessionStatCard {...defaultProps} session={session} />);
+      expect(screen.getByTestId('session-stat-card-test-1-timer')).toBeInTheDocument();
+      expect(screen.getByTestId('session-stat-card-test-1-timer')).toHaveClass('session-stat-card__timer--warning');
+    });
+
+    it('shows critical timer when remaining < 5 min', () => {
+      const session = createSession({
+        status: 'running',
+        lastActiveAt: new Date(Date.now() - 27 * 60_000).toISOString(),
+      });
+      render(() => <SessionStatCard {...defaultProps} session={session} />);
+      expect(screen.getByTestId('session-stat-card-test-1-timer')).toHaveClass('session-stat-card__timer--critical');
+    });
+
+    it('hides timer when remaining >= 10 min', () => {
+      const session = createSession({
+        status: 'running',
+        lastActiveAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+      });
+      render(() => <SessionStatCard {...defaultProps} session={session} />);
+      expect(screen.queryByTestId('session-stat-card-test-1-timer')).not.toBeInTheDocument();
+    });
+
+    it('hides timer for stopped sessions', () => {
+      const session = createSession({
+        status: 'stopped',
+        lastActiveAt: new Date(Date.now() - 28 * 60_000).toISOString(),
+      });
+      render(() => <SessionStatCard {...defaultProps} session={session} />);
+      expect(screen.queryByTestId('session-stat-card-test-1-timer')).not.toBeInTheDocument();
+    });
+
+    it('shows tooltip on click', () => {
+      const session = createSession({
+        status: 'running',
+        lastActiveAt: new Date(Date.now() - 26 * 60_000).toISOString(),
+      });
+      render(() => <SessionStatCard {...defaultProps} session={session} />);
+      fireEvent.click(screen.getByTestId('session-stat-card-test-1-timer'));
+      expect(screen.getByText(/remaining.*idle timeout/i)).toBeInTheDocument();
+    });
+
+    it('does not trigger onSelect when timer icon is clicked', () => {
+      const onSelect = vi.fn();
+      const session = createSession({
+        status: 'running',
+        lastActiveAt: new Date(Date.now() - 26 * 60_000).toISOString(),
+      });
+      render(() => <SessionStatCard {...defaultProps} session={session} onSelect={onSelect} />);
+      fireEvent.click(screen.getByTestId('session-stat-card-test-1-timer'));
       expect(onSelect).not.toHaveBeenCalled();
     });
   });

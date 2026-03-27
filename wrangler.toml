@@ -39,8 +39,7 @@ id = "placeholder"
 [[containers]]
 class_name = "container"
 image = "./Dockerfile"
-# This is the repo-level ceiling. GitHub Actions deploy.yml patches this value
-# per RESSOURCE_TIER (all tiers use max_instances=10). See README for tier details.
+# Default for local dev. deploy.yml patches per RESSOURCE_TIER at deploy time.
 max_instances = 10
 
 [containers.instance_type]
@@ -53,10 +52,19 @@ disk_mb = 6000
 name = "CONTAINER"
 class_name = "container"
 
+# Durable Objects binding for per-user usage tracking
+[[durable_objects.bindings]]
+name = "TIMEKEEPER"
+class_name = "timekeeper"
+
 # Migrations
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["container"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["timekeeper"]
 
 # Static assets (frontend) with SPA routing
 [assets]
