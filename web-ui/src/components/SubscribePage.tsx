@@ -174,6 +174,13 @@ const SubscribePage: Component = () => {
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
+  let polling = true;
+  let pollReportTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onCleanup(() => {
+    polling = false;
+    if (pollReportTimer) clearTimeout(pollReportTimer);
+  });
 
   onMount(async () => {
     // Detect Stripe checkout redirect: ?checkout=success or ?checkout=canceled
@@ -187,21 +194,22 @@ const SubscribePage: Component = () => {
       // Remove query param from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
       setCheckoutPolling(true);
-      // Poll until KV is updated — no timeout. Stripe webhook writes KV,
+      // Poll until KV is updated. Stripe webhook writes KV,
       // we keep checking every 3 seconds until hasSubscribed is true.
       // After 5 minutes, show a "Report a problem" button.
       const POLL_INTERVAL = 3000;
       const REPORT_DELAY = 5 * 60 * 1000;
-      const reportTimer = setTimeout(() => setShowReportButton(true), REPORT_DELAY);
-      while (true) {
+      pollReportTimer = setTimeout(() => setShowReportButton(true), REPORT_DELAY);
+      while (polling) {
         try {
           const pollStatus = await getAuthStatus();
           if (pollStatus.hasSubscribed) {
-            clearTimeout(reportTimer);
+            if (pollReportTimer) clearTimeout(pollReportTimer);
             window.location.href = pollStatus.onboardingComplete ? '/app/' : '/app/onboarding';
             return;
           }
         } catch { /* ignore poll errors */ }
+        if (!polling) break;
         await new Promise(r => setTimeout(r, POLL_INTERVAL));
       }
     }

@@ -233,6 +233,8 @@ When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOA
 
 **Tab Visibility Auto-Refresh:** `Layout.tsx` listens for `visibilitychange` events. When the tab returns from background (mobile browser tab switch, screen off/on), it auto-refreshes session statuses and storage listing. This prevents stale "Failed to fetch" errors that appear when background tabs have their network requests aborted by the browser. Storage refresh is silent (no loading spinner) to avoid UI flicker.
 
+**Hidden-Tab WS Guard:** Browsers throttle/kill WebSocket connections in background tabs. When a WS drops and the retry also fails, the terminal store normally infers the container is dead (`handleContainerStopped`). However, in a hidden tab, retry failure is expected behavior — not evidence of a stopped container. The WS close handler checks `document.hidden` before triggering the container-stopped callback. If hidden, it sets the terminal to `'disconnected'` and defers to `reconnectOnVisibilityReturn()` when the user returns. This prevents false "session stopped" transitions that would force the user to refresh. Note: batch-status is KV-only (eventual consistency, ~60s lag), so it cannot be used for real-time recovery verification — prevention at the WS layer is the correct approach.
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -263,7 +265,7 @@ sequenceDiagram
 
 **KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully -- `SessionStatCard` shows last-known metrics for recently-stopped sessions.
 
-**Auto-Reconnect:** Infinite retries with 1-second delay (`WS_RETRY_DELAY_MS = 1000`). Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops.
+**Auto-Reconnect:** Infinite retries with 1-second delay (`WS_RETRY_DELAY_MS = 1000`). Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops. Dead container detection: if the first retry (attemptNumber > 1) fails with a retryable close code while the tab is **visible**, the terminal store calls `handleContainerStopped()` — marking the session stopped and disposing terminals. If the tab is **hidden**, the failure is deferred (terminal set to `'disconnected'`, no callback) since browser WS throttling makes retry failure unreliable as a stop signal.
 
 **No Application-Level WS Pings:** Removed. Cloudflare's runtime handles protocol-level WebSocket keepalive for DO/Container connections automatically.
 
@@ -3247,7 +3249,7 @@ This eliminates the feedback loop without weakening either protection mechanism.
 
 #### WS Retryable Close Codes (Fix 5)
 
-The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.
+The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry. When a retry fails (attemptNumber > 1), a `document.hidden` check prevents false container-stopped detection in background tabs — see "Hidden-Tab WS Guard" in the Frontend section.
 
 ---
 

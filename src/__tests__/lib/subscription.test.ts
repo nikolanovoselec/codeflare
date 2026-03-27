@@ -14,6 +14,7 @@ import {
   getAllowedSessionModes,
   resetTierConfigCache,
   getEffectiveTier,
+  countPaidSlots,
 } from '../../lib/subscription';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -513,5 +514,49 @@ describe('getEffectiveTier', () => {
     const future = new Date(Date.now() + 86400000).toISOString();
     expect(getEffectiveTier('standard', undefined, 'canceled', future)).toBe('free');
     expect(getEffectiveTier('advanced', undefined, 'canceled', future)).toBe('free');
+  });
+});
+
+describe('countPaidSlots', () => {
+  it('counts admins regardless of tier', () => {
+    const users = [
+      { role: 'admin', subscriptionTier: 'free' },
+      { role: 'admin' },
+    ];
+    expect(countPaidSlots(users)).toBe(2);
+  });
+
+  it('counts active paid tier users', () => {
+    const users = [
+      { subscriptionTier: 'standard', billingStatus: 'active' },
+      { subscriptionTier: 'advanced', billingStatus: 'active' },
+      { subscriptionTier: 'max', billingStatus: 'trialing' },
+      { subscriptionTier: 'unlimited' },
+    ];
+    expect(countPaidSlots(users)).toBe(4);
+  });
+
+  it('excludes free, pending, and blocked users', () => {
+    const users = [
+      { subscriptionTier: 'free', billingStatus: 'active' },
+      { subscriptionTier: 'pending' },
+      { subscriptionTier: 'blocked' },
+    ];
+    expect(countPaidSlots(users)).toBe(0);
+  });
+
+  it('counts canceled users only while billingPeriodEnd is in the future', () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    const past = new Date(Date.now() - 86400000).toISOString();
+    const users = [
+      { subscriptionTier: 'standard', billingStatus: 'canceled', billingPeriodEnd: future },
+      { subscriptionTier: 'advanced', billingStatus: 'canceled', billingPeriodEnd: past },
+      { subscriptionTier: 'max', billingStatus: 'canceled' },
+    ];
+    expect(countPaidSlots(users)).toBe(1);
+  });
+
+  it('returns 0 for empty array', () => {
+    expect(countPaidSlots([])).toBe(0);
   });
 });

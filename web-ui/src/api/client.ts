@@ -423,10 +423,6 @@ const TiersResponseSchema = z.object({
   tiers: z.array(TierObjectSchema),
 });
 
-const PublicTiersResponseSchema = z.object({
-  tiers: z.array(TierObjectSchema),
-});
-
 export async function getTiers(): Promise<z.infer<typeof TiersResponseSchema>> {
   return fetchApi('/admin/tiers', {}, TiersResponseSchema);
 }
@@ -438,8 +434,8 @@ export async function updateTiers(tiers: unknown[]): Promise<{ success: boolean 
   }, z.object({ success: z.boolean() }));
 }
 
-export async function getPublicTiers(): Promise<z.infer<typeof PublicTiersResponseSchema>> {
-  return fetchApi('/auth/tiers', {}, PublicTiersResponseSchema);
+export async function getPublicTiers(): Promise<z.infer<typeof TiersResponseSchema>> {
+  return fetchApi('/auth/tiers', {}, TiersResponseSchema);
 }
 
 const SubscribeResponseSchema = z.object({

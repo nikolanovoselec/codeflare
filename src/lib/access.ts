@@ -35,7 +35,7 @@ export function resetAuthConfigCache(): void {
   authConfigCachedAt = 0;
 }
 
-function getCookieValue(cookieHeader: string | null, key: string): string | null {
+export function getCookieValue(cookieHeader: string | null, key: string): string | null {
   if (!cookieHeader) return null;
   const pairs = cookieHeader.split(';');
   for (const pair of pairs) {

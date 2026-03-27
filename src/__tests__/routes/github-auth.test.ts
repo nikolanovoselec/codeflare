@@ -108,6 +108,14 @@ describe('GitHub OAuth Routes', () => {
       }) as typeof globalThis.fetch;
     }
 
+    it('returns 500 when OAUTH_JWT_SECRET missing', async () => {
+      const app = createApp({ OAUTH_JWT_SECRET: undefined } as unknown as Partial<Env>);
+      const res = await app.request('/callback?code=test-code&state=test-state', {
+        headers: { Cookie: 'oauth_state=test-state' },
+      });
+      expect(res.status).toBe(500);
+    });
+
     it('redirects to /?error=access_denied when GitHub returns error', async () => {
       const app = createApp();
       const res = await app.request('/callback?error=access_denied');

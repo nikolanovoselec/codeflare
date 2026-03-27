@@ -12,9 +12,8 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord, updateUserRecord } from '../lib/user-record';
-import { getTierConfig } from '../lib/subscription';
+import { getTierConfig, countPaidSlots } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
-import { countPaidSlots } from './auth';
 import {
   getStripePriceId,
   createCheckoutSession,
@@ -107,9 +106,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
 
   // Store checkoutSessionId on user KV (non-fatal)
   try {
-    const existing = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
-    const updated = { ...existing, checkoutSessionId: session.id };
-    await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
+    await updateUserRecord(c.env.KV, user.email, { checkoutSessionId: session.id });
   } catch (err) {
     logger.error('Failed to store checkoutSessionId', err instanceof Error ? err : new Error(String(err)));
   }

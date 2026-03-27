@@ -9,6 +9,7 @@ import type { Env } from '../types';
 import { signSessionJWT } from '../lib/session-jwt';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord } from '../lib/user-record';
+import { getCookieValue } from '../lib/access';
 import { createRateLimiter } from '../middleware/rate-limit';
 
 const logger = createLogger('github-auth');
@@ -21,17 +22,6 @@ const callbackRateLimiter = createRateLimiter({
   maxRequests: 10,
   keyPrefix: 'github-auth',
 });
-
-/** Extract a cookie value from the Cookie header. */
-function getCookieValue(cookieHeader: string | null, key: string): string | null {
-  if (!cookieHeader) return null;
-  const pairs = cookieHeader.split(';');
-  for (const pair of pairs) {
-    const [rawKey, ...rest] = pair.trim().split('=');
-    if (rawKey === key) return rest.join('=') || null;
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // GET /login — Redirect to GitHub OAuth authorize
@@ -63,7 +53,16 @@ app.get('/login', async (c) => {
 // GET /callback — Exchange code for token, issue session JWT
 // ---------------------------------------------------------------------------
 app.get('/callback', callbackRateLimiter, async (c) => {
+  if (!c.env.OAUTH_CLIENT_ID || !c.env.OAUTH_CLIENT_SECRET || !c.env.OAUTH_JWT_SECRET) {
+    logger.error('GitHub OAuth not configured — missing secrets');
+    return c.json({ error: 'OAuth not configured' }, 500);
+  }
+
   const url = new URL(c.req.url);
+
+  // Read custom domain once for all redirects in this handler
+  const customDomain = await c.env.KV.get('setup:custom_domain');
+  const base = customDomain ? `https://${customDomain}` : url.origin;
 
   // GitHub returns ?error= when user denies or something goes wrong.
   // Allow-list known error codes to prevent reflected content in the redirect URL.
@@ -71,8 +70,6 @@ app.get('/callback', callbackRateLimiter, async (c) => {
   const errorParam = url.searchParams.get('error');
   if (errorParam) {
     const safeError = KNOWN_ERRORS.has(errorParam) ? errorParam : 'oauth_error';
-    const customDomain = await c.env.KV.get('setup:custom_domain');
-    const base = customDomain ? `https://${customDomain}` : url.origin;
     return c.redirect(`${base}/?error=${encodeURIComponent(safeError)}`);
   }
 
@@ -145,20 +142,16 @@ app.get('/callback', callbackRateLimiter, async (c) => {
 
   // Reject if no verified email
   if (!email) {
-    const customDomain = await c.env.KV.get('setup:custom_domain');
-    const base = customDomain ? `https://${customDomain}` : url.origin;
     return c.redirect(`${base}/?error=no-verified-email`);
   }
 
   // Sign session JWT
   const jwt = await signSessionJWT(
     { email: email.toLowerCase().trim(), sub: String(userId), ghLogin: userLogin },
-    c.env.OAUTH_JWT_SECRET!,
+    c.env.OAUTH_JWT_SECRET,
   );
 
   // Determine redirect based on user state
-  const customDomain = await c.env.KV.get('setup:custom_domain');
-  const base = customDomain ? `https://${customDomain}` : url.origin;
   const userRecord = parseUserRecord(await c.env.KV.get(`user:${email.toLowerCase().trim()}`, 'json'));
   const isActive = userRecord?.subscribedAt;
   const redirectTo = isActive ? `${base}/app/` : `${base}/app/subscribe`;

@@ -5,7 +5,7 @@ import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
 import { getDownloadUrl } from '../api/storage';
-import { md5 } from '../lib/md5';
+import { getGravatarUrl } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
 import SessionContextMenu from './SessionContextMenu';
 import StatCards from './StatCards';
@@ -19,11 +19,6 @@ import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota, getUsageState } from '../stores/session';
 import { formatDuration } from '../lib/format';
 import '../styles/dashboard.css';
-
-function getGravatarUrl(email: string, size = 32): string {
-  const hash = md5(email.trim().toLowerCase());
-  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`;
-}
 
 interface DashboardProps {
   sessions: SessionWithStatus[];

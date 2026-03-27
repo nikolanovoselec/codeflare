@@ -5,7 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
-import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS } from '../lib/subscription';
+import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
@@ -15,36 +15,6 @@ import { getPreferencesKey } from '../lib/kv-keys';
 import { isStripeConfigured, getStripePrices } from '../lib/stripe';
 
 const logger = createLogger('auth-routes');
-
-/** Paid tier IDs that occupy a capacity slot. Free tier excluded — low resource usage. */
-const SLOT_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
-
-/**
- * Count users occupying a paid capacity slot: admins + active paid subscribers.
- * Free, pending, and blocked users don't count. Canceled users count until billingPeriodEnd expires.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function countPaidSlots(allUsers: any[]): number {
-  const now = Date.now();
-  return allUsers.filter(u => {
-    const role = u.role as string | undefined;
-    const tier = u.subscriptionTier as string | undefined;
-    const status = u.billingStatus as string | undefined;
-    const periodEnd = u.billingPeriodEnd as string | undefined;
-    // Admins always count
-    if (role === 'admin') return true;
-    // Must have a paid tier
-    if (!tier || !SLOT_TIERS.has(tier)) return false;
-    // Active or trialing → counts
-    if (!status || status === 'active' || status === 'trialing') return true;
-    // Canceled → counts only if billingPeriodEnd is in the future
-    if (status === 'canceled' || status === 'past_due') {
-      if (periodEnd) return new Date(periodEnd).getTime() > now;
-      return false;
-    }
-    return false;
-  }).length;
-}
 
 /** Map country code to currency for subscription email formatting. */
 function getCurrencyForCountry(country: string): string {
@@ -106,16 +76,26 @@ app.get('/status', requireIdentity, async (c) => {
   // Default to 'advanced' for legacy accessTier (pre-setup or service auth backward compat)
   const accessTier = user.accessTier || 'advanced';
 
-  // Read user data from KV for additional fields
-  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  // Parallelize independent KV reads: user data, turnstile key, and session preferences
+  let prefsKey: string | null = null;
+  try {
+    const bucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+    prefsKey = getPreferencesKey(bucketName);
+  } catch { /* getBucketName may not be available in test mocks */ }
+
+  const [userData, turnstileSiteKey, prefs] = await Promise.all([
+    c.env.KV.get(`user:${user.email}`, 'json') as Promise<Record<string, unknown> | null>,
+    c.env.KV.get('setup:turnstile_site_key').then(v => v ?? null),
+    prefsKey
+      ? c.env.KV.get(prefsKey, 'json').then(v => v as Record<string, unknown> | null).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   // Billing-aware tier resolution: downgrade paid tiers to free when billing is canceled/past_due
   const billingStatus = (userData?.billingStatus as string) ?? null;
   const billingPeriodEnd = (userData?.billingPeriodEnd as string) ?? null;
   const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus, billingPeriodEnd);
 
-  // Always include turnstile site key in SaaS mode (needed by subscribe page)
-  const turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
   let requestedAt: string | null = null;
   if (subscriptionTier === 'pending') {
     if (userData && typeof userData.requestedAt === 'string') {
@@ -132,13 +112,7 @@ app.get('/status', requireIdentity, async (c) => {
   // trialUsed = user has already used their free trial (no new trials on plan switch)
   const trialUsed = userData?.trialUsed === true;
 
-  // Read session mode from user preferences (non-fatal — default if unavailable)
-  let sessionMode = 'default';
-  try {
-    const bucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
-    const prefs = await c.env.KV.get(getPreferencesKey(bucketName), 'json') as Record<string, unknown> | null;
-    if (prefs?.sessionMode === 'advanced') sessionMode = 'advanced';
-  } catch { /* getBucketName may not be available in test mocks */ }
+  const sessionMode = prefs?.sessionMode === 'advanced' ? 'advanced' : 'default';
 
   // subscribedMode = what mode the user paid for (gates Settings Pro toggle)
   const subscribedMode = (userData?.subscribedMode === 'advanced' ? 'advanced' : 'default') as string;
