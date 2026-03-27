@@ -55,6 +55,7 @@ async function openTierView() {
 describe('SubscribePage', () => {
   let mockLocation: { href: string };
   let originalLocation: Location;
+  let mockActiveSubscription: (tier?: string) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -82,6 +83,19 @@ describe('SubscribePage', () => {
       billingStatus: null,
     });
     mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: false });
+
+    // Helper: call this inside any test that sets hasSubscribed: true
+    // to also provide Stripe-verified billing data
+    mockActiveSubscription = (tier = 'standard') => {
+      mockedGetBillingStatus.mockResolvedValue({
+        stripeCustomerId: 'cus_active',
+        stripeSubscriptionId: 'sub_active',
+        stripePriceId: `price_${tier}_default`,
+        billingPeriodEnd: '2026-04-27T00:00:00Z',
+        checkoutSessionId: null,
+        billingStatus: 'active',
+      });
+    };
 
     originalLocation = window.location;
     mockLocation = { href: '' };
@@ -129,6 +143,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
@@ -258,6 +273,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       await openTierView();
 
@@ -286,14 +302,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
-      mockedGetBillingStatus.mockResolvedValue({
-        stripeCustomerId: 'cus_active',
-        stripeSubscriptionId: 'sub_active',
-        stripePriceId: 'price_std',
-        billingPeriodEnd: '2026-04-27T00:00:00Z',
-        checkoutSessionId: null,
-        billingStatus: 'active',
-      });
+      mockActiveSubscription();
 
       await openTierView();
 
@@ -334,6 +343,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       await openTierView();
 
@@ -350,6 +360,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       await openTierView();
       fireEvent.click(screen.getByTestId('lifeline-stop-max'));
