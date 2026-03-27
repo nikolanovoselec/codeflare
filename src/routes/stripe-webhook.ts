@@ -9,6 +9,7 @@
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { BILLING_STATUS } from '../types';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { createRateLimiter } from '../middleware/rate-limit';
@@ -200,7 +201,7 @@ async function handleSubscriptionDeleted(
 
   // CF-004: Reset tiers to 'free' so all enforcement paths (including raw field reads) deny access
   await updateUserRecord(env.KV, email, {
-    billingStatus: 'canceled',
+    billingStatus: BILLING_STATUS.CANCELED,
     subscriptionTier: 'free',
     accessTier: 'free',
   });

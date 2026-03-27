@@ -7,6 +7,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
+import { BILLING_STATUS } from '../types';
 import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError } from '../lib/error-types';
@@ -134,7 +135,7 @@ app.get('/status', requireIdentity, async (c) => {
         void updateUserRecord(c.env.KV, user.email, {
           subscriptionTier: 'pending',
           accessTier: 'pending',
-          billingStatus: 'canceled',
+          billingStatus: BILLING_STATUS.CANCELED,
         });
         return c.json({
           stripeCustomerId: null,
@@ -265,7 +266,7 @@ app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
     await updateUserRecord(c.env.KV, user.email, {
       subscriptionTier: 'pending',
       accessTier: 'pending',
-      billingStatus: 'canceled',
+      billingStatus: BILLING_STATUS.CANCELED,
     });
     throw new ValidationError('Subscription expired. Redirecting to checkout.');
   }

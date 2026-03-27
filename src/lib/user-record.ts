@@ -12,7 +12,7 @@ const UserRecordSchema = z.object({
   role: z.string().default('user'),
   accessTier: z.string().optional(),
   subscriptionTier: z.string().optional(),
-  billingStatus: z.string().optional(),
+  billingStatus: z.enum(['active', 'trialing', 'past_due', 'canceled']).optional().catch(undefined),
   subscribedAt: z.string().optional(),
   subscribedMode: z.string().optional(),
   stripeCustomerId: z.string().optional(),

@@ -106,7 +106,7 @@ export interface AccessUser {
   role?: UserRole;
   accessTier?: AccessTier;
   subscriptionTier?: SubscriptionTier;
-  billingStatus?: string;
+  billingStatus?: BillingStatus;
   billingPeriodEnd?: string;
 }
 
@@ -145,6 +145,20 @@ export type SessionMode = z.infer<typeof SessionModeSchema>;
 
 export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
 export type AccessTier = z.infer<typeof AccessTierSchema>;
+
+export const BillingStatusSchema = z.enum(['active', 'trialing', 'past_due', 'canceled']);
+export type BillingStatus = z.infer<typeof BillingStatusSchema>;
+
+export const BILLING_STATUS = {
+  ACTIVE: 'active',
+  TRIALING: 'trialing',
+  PAST_DUE: 'past_due',
+  CANCELED: 'canceled',
+} as const satisfies Record<string, BillingStatus>;
+
+export function isBillingStatus(value: unknown): value is BillingStatus {
+  return typeof value === 'string' && BillingStatusSchema.safeParse(value).success;
+}
 
 export const SubscriptionTierSchema = z.enum([
   'blocked', 'pending', 'free', 'trial', 'standard', 'advanced', 'max', 'unlimited',

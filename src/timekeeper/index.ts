@@ -10,6 +10,7 @@
  * See UsageRecord in src/types.ts for the KV value shape.
  */
 import type { Env, UsageRecord } from '../types';
+import { BILLING_STATUS } from '../types';
 import { getTimekeeperKey, getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../lib/kv-keys';
 import { getUserTier, getTierConfig, getEffectiveTier } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
@@ -198,7 +199,7 @@ export class Timekeeper {
 
       // Trial enforcement: if subscription is trialing, use trialQuotaHours as the cap.
       // When trial quota is hit, end the Stripe trial early to trigger first charge.
-      const isTrialing = userData.billingStatus === 'trialing';
+      const isTrialing = userData.billingStatus === BILLING_STATUS.TRIALING;
       const trialQuotaSeconds = (tier.trialQuotaHours ?? 0) * 3600;
 
       if (isTrialing && trialQuotaSeconds > 0 && totalMonthlySeconds >= trialQuotaSeconds) {

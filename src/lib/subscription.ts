@@ -6,6 +6,7 @@
  * accessTier values map directly to matching subscription tiers.
  */
 import type { SubscriptionTier, SubscriptionTierConfig, SessionMode } from '../types';
+import { BILLING_STATUS } from '../types';
 import { getTiersConfigKey } from './kv-keys';
 
 const ACTIVE_TIERS: ReadonlySet<string> = new Set([
@@ -224,12 +225,12 @@ export function getEffectiveTier(
   if (!PAID_TIERS.has(raw)) return raw;
 
   // Explicit cancellation — always downgrade, no grace period
-  if (billingStatus === 'canceled') {
+  if (billingStatus === BILLING_STATUS.CANCELED) {
     return 'free';
   }
 
   // past_due: grace period while billingPeriodEnd is in the future
-  if (billingStatus === 'past_due') {
+  if (billingStatus === BILLING_STATUS.PAST_DUE) {
     if (billingPeriodEnd) {
       const expiry = new Date(billingPeriodEnd).getTime();
       if (!isNaN(expiry) && Date.now() <= expiry) return raw; // grace period
@@ -238,7 +239,7 @@ export function getEffectiveTier(
   }
 
   // CF-015: Catch missed subscription.deleted webhooks via period expiry
-  if (billingPeriodEnd && billingStatus === 'active') {
+  if (billingPeriodEnd && billingStatus === BILLING_STATUS.ACTIVE) {
     const expiry = new Date(billingPeriodEnd).getTime();
     if (!isNaN(expiry) && Date.now() > expiry) {
       return 'free';
@@ -290,9 +291,9 @@ export function countPaidSlots(allUsers: any[]): number {
     // Must have a paid tier
     if (!tier || !SLOT_TIERS.has(tier)) return false;
     // Active or trialing → counts
-    if (!status || status === 'active' || status === 'trialing') return true;
+    if (!status || status === BILLING_STATUS.ACTIVE || status === BILLING_STATUS.TRIALING) return true;
     // Canceled → counts only if billingPeriodEnd is in the future
-    if (status === 'canceled' || status === 'past_due') {
+    if (status === BILLING_STATUS.CANCELED || status === BILLING_STATUS.PAST_DUE) {
       if (periodEnd) return new Date(periodEnd).getTime() > now;
       return false;
     }
