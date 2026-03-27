@@ -2,7 +2,7 @@ import { Component, Show, For, createMemo, createSignal, createEffect, onMount, 
 import {
   mdiXml,
   mdiCogOutline,
-  mdiAccountCircle,
+  mdiShieldAccount,
   mdiAccountOutline,
   mdiRocketLaunchOutline,
   mdiChartBar,
@@ -22,25 +22,13 @@ import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
 import { sessionStore, getUsageState } from '../stores/session';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
+import { formatDuration } from '../lib/format';
 
 import { terminalStore } from '../stores/terminal';
-import { md5 } from '../lib/md5';
+import { getGravatarUrl } from '../lib/gravatar';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
-
-/** Format seconds as "X minutes" (<60m) or "X.X hours" (>=60m) for dropdown */
-function formatUsageCompact(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} minutes`;
-  const hours = seconds / 3600;
-  return `${hours % 1 === 0 ? hours : hours.toFixed(1)} hours`;
-}
-
-function getGravatarUrl(email: string, size = 32): string {
-  const hash = md5(email.trim().toLowerCase());
-  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=mp`;
-}
 
 interface HeaderProps {
   userName?: string;
@@ -53,7 +41,7 @@ interface HeaderProps {
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
-  // Note: logout is handled via CF Access at /cdn-cgi/access/logout
+  // Note: logout goes through /auth/logout which routes to OIDC or CF Access as appropriate
 }
 
 /**
@@ -66,6 +54,7 @@ interface HeaderProps {
  */
 const Header: Component<HeaderProps> = (props) => {
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [gravatarFailed, setGravatarFailed] = createSignal(false);
   const [showBookmarksMenu, setShowBookmarksMenu] = createSignal(false);
   const [showCreateBookmark, setShowCreateBookmark] = createSignal(false);
   const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
@@ -275,8 +264,14 @@ const Header: Component<HeaderProps> = (props) => {
             title="User menu"
             onClick={() => setShowUserMenu(!showUserMenu())}
           >
-            <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
-              <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
+            <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
+              <img
+                src={getGravatarUrl(props.userName!, 48)}
+                alt="Avatar"
+                class="header-user-avatar-img"
+                width={24} height={24}
+                onError={() => setGravatarFailed(true)}
+              />
             </Show>
             <Show when={props.userName}>
               <span class="header-user-name">{props.userName}</span>
@@ -305,10 +300,10 @@ const Header: Component<HeaderProps> = (props) => {
                 {(() => {
                   const usage = getUsageState();
                   if (usage.monthlyQuotaSeconds !== null) {
-                    return <span class="header-usage-inline">{formatUsageCompact(usage.monthlySeconds)} / {formatUsageCompact(usage.monthlyQuotaSeconds)}</span>;
+                    return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)} / {formatDuration(usage.monthlyQuotaSeconds)}</span>;
                   }
                   if (usage.monthlySeconds > 0) {
-                    return <span class="header-usage-inline">{formatUsageCompact(usage.monthlySeconds)}</span>;
+                    return <span class="header-usage-inline">{formatDuration(usage.monthlySeconds)}</span>;
                   }
                   return null;
                 })()}
@@ -325,7 +320,7 @@ const Header: Component<HeaderProps> = (props) => {
                 type="button"
                 class="header-user-dropdown-item header-user-dropdown-item--danger"
                 data-testid="header-user-dropdown-logout"
-                onClick={() => { window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
+                onClick={() => { window.location.href = '/auth/logout'; }}
               >
                 <Icon path={mdiLogout} size={16} />
                 <span>Logout</span>

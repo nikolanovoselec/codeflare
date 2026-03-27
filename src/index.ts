@@ -28,10 +28,12 @@ import {
 import { createLogger, setLogLevel } from './lib/logger';
 import type { LogLevel } from './lib/logger';
 import { authenticateRequest } from './lib/access';
+import { verifySessionJWT, shouldRefreshJWT, signSessionJWT } from './lib/session-jwt';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboarding';
 import { isActiveUser } from './lib/access-tier';
 import authApiRoutes from './routes/auth';
 import authRedirectRoutes from './routes/auth-redirects';
+import githubAuthRoutes from './routes/github-auth';
 
 // Type for app context with request ID
 type AppVariables = {
@@ -102,6 +104,27 @@ app.use('*', async (c, next) => {
   });
 });
 
+// SaaS mode: cookie refresh middleware — extends session when < 15 min remaining
+app.use('*', async (c, next) => {
+  await next();
+  // Only refresh for SaaS OIDC mode
+  if (!isSaasModeActive(c.env.SAAS_MODE) || !c.env.OAUTH_CLIENT_ID || !c.env.OAUTH_JWT_SECRET) return;
+  const cookieHeader = c.req.header('Cookie');
+  if (!cookieHeader) return;
+  const match = cookieHeader.match(/codeflare_session=([^;]+)/);
+  if (!match) return;
+  try {
+    const payload = await verifySessionJWT(match[1], c.env.OAUTH_JWT_SECRET);
+    if (payload && shouldRefreshJWT(payload)) {
+      const refreshed = await signSessionJWT(
+        { email: payload.email, sub: payload.sub, ghLogin: payload.ghLogin },
+        c.env.OAUTH_JWT_SECRET,
+      );
+      c.header('Set-Cookie', `codeflare_session=${refreshed}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`);
+    }
+  } catch { /* non-fatal — don't break the response */ }
+});
+
 // CORS middleware - restrict to trusted origins (configurable via ALLOWED_ORIGINS env var)
 app.use('*', async (c, next) => {
   const origin = c.req.header('Origin');
@@ -158,6 +181,7 @@ app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISO
 
 // Auth routes (mounted before setup routes)
 app.route('/api/auth', authApiRoutes);
+app.route('/auth/github', githubAuthRoutes);
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
@@ -165,11 +189,20 @@ app.route('/auth', authRedirectRoutes);
 // Non-SaaS: show all social IdPs + extra IdPs.
 const SOCIAL_IDP_TYPES = new Set(['google', 'github', 'facebook', 'linkedin']);
 app.get('/public/auth/providers', async (c) => {
+  const saas = isSaasModeActive(c.env.SAAS_MODE);
+
+  // SaaS mode with GitHub OIDC: return hardcoded provider with direct login URL
+  if (saas && c.env.OAUTH_CLIENT_ID) {
+    return c.json({
+      providers: [{ id: 'github', type: 'github', name: 'GitHub', loginUrl: '/auth/github/login' }],
+    });
+  }
+
+  // CF Access mode: fetch IdP list from KV
   const idpList = await c.env.KV.get<Array<{ id: string; type: string; name: string }>>('setup:idp_list', 'json');
   const extraIds = new Set(
     (c.env.SAAS_EXTRA_IDPS || '').split(',').map(s => s.trim()).filter(Boolean)
   );
-  const saas = isSaasModeActive(c.env.SAAS_MODE);
   const filtered = (idpList || []).filter(p => {
     if (extraIds.has(p.id)) return true;
     return saas ? p.type === 'github' : SOCIAL_IDP_TYPES.has(p.type);
@@ -179,6 +212,7 @@ app.get('/public/auth/providers', async (c) => {
 
 // Setup routes (public - no auth required)
 app.route('/api/setup', setupRoutes);
+app.route('/public/stripe', stripeWebhookRoute);  // Must be before /public catch-all
 app.route('/public', publicRoutes);
 
 // API routes
@@ -195,7 +229,6 @@ app.route('/api/deploy-keys', deployKeysRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
 app.route('/api/billing', billingRoutes);
-app.route('/public/stripe', stripeWebhookRoute);
 
 // 404 fallback - only for API routes
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

@@ -5,6 +5,7 @@ import type { Env, AccessUser } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
+import { getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 
 // ---------------------------------------------------------------------------
 // Auth mock
@@ -33,20 +34,31 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
     ...actual,
     createCheckoutSession: vi.fn(async () => ({ id: 'cs_test_123', url: 'https://checkout.stripe.com/test' })),
     createPortalSession: vi.fn(async () => ({ id: 'bps_test_123', url: 'https://billing.stripe.com/test' })),
+    createSwitchPortalSession: vi.fn(async () => ({ id: 'bps_switch_123', url: 'https://billing.stripe.com/switch' })),
+    fetchSubscription: vi.fn(async () => null),
   };
 });
 
 // Import after mocks
 import billingRoutes from '../../routes/billing';
 import stripeWebhookRoute from '../../routes/stripe-webhook';
-import { createCheckoutSession, createPortalSession } from '../../lib/stripe';
+import { createCheckoutSession, createPortalSession, createSwitchPortalSession, fetchSubscription } from '../../lib/stripe';
 
 // ---------------------------------------------------------------------------
 // Test app factory
 // ---------------------------------------------------------------------------
 
 function createApp(envOverrides: Partial<Env> = {}) {
+  resetTierConfigCache(); // Ensure fresh tier config from this test's KV
   const mockKV = createMockKV();
+  // Seed tier config with Stripe price IDs (required since DEV_PRICE_MAP was removed)
+  const tiersWithPrices = getDefaultTiers().map((t) => {
+    if (t.id === 'standard') return { ...t, stripePriceId: 'price_std_default', stripeAdvancedPriceId: 'price_std_advanced' };
+    if (t.id === 'advanced') return { ...t, stripePriceId: 'price_adv_default', stripeAdvancedPriceId: 'price_adv_advanced' };
+    if (t.id === 'max') return { ...t, stripePriceId: 'price_max_default', stripeAdvancedPriceId: 'price_max_advanced' };
+    return t;
+  });
+  mockKV._set('tiers:config', tiersWithPrices);
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
   app.use('*', async (c, next) => {
@@ -152,7 +164,19 @@ describe('GET /billing/status', () => {
     mockAuthResult.user = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: 'standard' };
   });
 
-  it('returns billing fields for subscribed user', async () => {
+  it('returns billing fields from Stripe for subscribed user', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue({
+      subscriptionId: 'sub_123',
+      subscriptionItemId: 'si_123',
+      customerId: 'cus_123',
+      status: 'active',
+      tier: 'standard',
+      mode: 'default',
+      priceId: 'price_std_default',
+      billingPeriodEnd: '2026-04-27T00:00:00Z',
+      cancelAtPeriodEnd: false,
+    });
+
     const { app, mockKV } = createApp();
     mockKV._set('user:user@example.com', {
       stripeCustomerId: 'cus_123',
@@ -165,6 +189,25 @@ describe('GET /billing/status', () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body.stripeCustomerId).toBe('cus_123');
     expect(body.billingStatus).toBe('active');
+    expect(body.stripeSubscriptionId).toBe('sub_123');
+  });
+
+  it('returns nulls and cleans KV when subscription is gone from Stripe', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(null);
+
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', {
+      stripeCustomerId: 'cus_gone',
+      stripeSubscriptionId: 'sub_gone',
+      billingStatus: 'active',
+    });
+
+    const res = await app.request('/billing/status');
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.stripeCustomerId).toBeNull();
+    expect(body.billingStatus).toBeNull();
+    expect(body.stripeSubscriptionId).toBeNull();
   });
 
   it('returns nulls for free user', async () => {
@@ -193,6 +236,18 @@ describe('POST /public/stripe/webhook', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     originalFetch = globalThis.fetch;
+    // Default: fetchSubscription returns a standard-tier active subscription
+    vi.mocked(fetchSubscription).mockResolvedValue({
+      subscriptionId: 'sub_buyer',
+      subscriptionItemId: 'si_buyer_1',
+      customerId: 'cus_buyer',
+      status: 'active',
+      tier: 'standard',
+      mode: 'default',
+      priceId: 'price_std_default',
+      billingPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
+      cancelAtPeriodEnd: false,
+    });
   });
 
   afterEach(() => {
@@ -373,6 +428,19 @@ describe('POST /public/stripe/webhook', () => {
   });
 
   it('handles customer.subscription.updated with new price ID', async () => {
+    // Override fetchSubscription to return advanced tier (simulating an upgrade)
+    vi.mocked(fetchSubscription).mockResolvedValue({
+      subscriptionId: 'sub_updated',
+      subscriptionItemId: 'si_updated_1',
+      customerId: 'cus_upgrader',
+      status: 'active',
+      tier: 'advanced',
+      mode: 'default',
+      priceId: 'price_adv_default',
+      billingPeriodEnd: new Date(Date.now() + 86400000).toISOString(),
+      cancelAtPeriodEnd: false,
+    });
+
     const secret = 'whsec_test_123';
     const event = {
       id: 'evt_sub_updated_1',
@@ -381,11 +449,6 @@ describe('POST /public/stripe/webhook', () => {
         object: {
           id: 'sub_updated',
           customer: 'cus_upgrader',
-          status: 'active',
-          current_period_end: Math.floor(Date.now() / 1000) + 86400,
-          items: {
-            data: [{ price: { id: 'price_1TEt6HLQzoadEf8HwBNn0VNX' } }], // advanced/default
-          },
         },
       },
     };
@@ -478,6 +541,89 @@ describe('POST /billing/portal', () => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /billing/switch — deep-link portal for plan changes
+// ---------------------------------------------------------------------------
+describe('POST /billing/switch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuthShouldReject = false;
+    mockAuthResult.user = { email: 'user@example.com', authenticated: true, role: 'user', accessTier: 'standard', subscriptionTier: 'standard' };
+  });
+
+  it('returns portalUrl for active subscriber switching plans', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', {
+      stripeCustomerId: 'cus_123',
+      stripeSubscriptionId: 'sub_123',
+      billingStatus: 'active',
+    });
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'advanced', mode: 'default' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { portalUrl: string };
+    expect(body.portalUrl).toBe('https://billing.stripe.com/switch');
+    expect(createSwitchPortalSession).toHaveBeenCalled();
+  });
+
+  it('rejects user without stripeSubscriptionId', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123' });
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'advanced', mode: 'default' }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects without tier', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123', stripeSubscriptionId: 'sub_123' });
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects free tier switch', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', { stripeCustomerId: 'cus_123', stripeSubscriptionId: 'sub_123' });
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'free' }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 for unauthenticated request', async () => {
+    mockAuthShouldReject = true;
+    const { app } = createApp();
+
+    const res = await app.request('/billing/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'advanced' }),
+    });
+
+    expect(res.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // CF-024: Missing webhook handler tests
 // ---------------------------------------------------------------------------
 describe('Webhook handlers — CF-024', () => {
@@ -510,32 +656,6 @@ describe('Webhook handlers — CF-024', () => {
     mockKV._set(`user:${email}`, { subscriptionTier: 'standard', stripeCustomerId: customerId, billingStatus: 'active' });
   }
 
-  it('invoice.payment_failed sets billingStatus to past_due', async () => {
-    const secret = 'whsec_test_123';
-    const event = {
-      id: 'evt_pf_1',
-      type: 'invoice.payment_failed',
-      data: { object: { customer: 'cus_pf', subscription: 'sub_pf' } },
-    };
-    const body = JSON.stringify(event);
-    const sig = await generateSignature(body, secret);
-    const { app, mockKV } = createApp();
-    seedCustomer(mockKV, 'cus_pf', 'pf@example.com');
-
-    // Mock fetch for Stripe API fallback (should not be needed since KV has mapping)
-    globalThis.fetch = originalFetch;
-
-    const res = await app.request('/public/stripe/webhook', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
-      body,
-    });
-    expect(res.status).toBe(200);
-
-    const userData = await mockKV.get('user:pf@example.com', 'json') as Record<string, unknown>;
-    expect(userData.billingStatus).toBe('past_due');
-  });
-
   it('customer.subscription.deleted sets billingStatus to canceled', async () => {
     const secret = 'whsec_test_123';
     const event = {
@@ -559,66 +679,22 @@ describe('Webhook handlers — CF-024', () => {
     expect(userData.billingStatus).toBe('canceled');
   });
 
-  it('customer.subscription.created sets stripePriceId and billingPeriodEnd', async () => {
-    const secret = 'whsec_test_123';
-    const periodEnd = Math.floor(Date.now() / 1000) + 2592000; // +30 days
-    const event = {
-      id: 'evt_created_1',
-      type: 'customer.subscription.created',
-      data: {
-        object: {
-          id: 'sub_created',
-          customer: 'cus_created',
-          status: 'active',
-          current_period_end: periodEnd,
-          items: { data: [{ price: { id: 'price_1TEt6FLQzoadEf8HqwUJDJgm' } }] },
-        },
-      },
-    };
-    const body = JSON.stringify(event);
-    const sig = await generateSignature(body, secret);
-    const { app, mockKV } = createApp();
-    seedCustomer(mockKV, 'cus_created', 'created@example.com');
-
-    const res = await app.request('/public/stripe/webhook', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
-      body,
-    });
-    expect(res.status).toBe(200);
-
-    const userData = await mockKV.get('user:created@example.com', 'json') as Record<string, unknown>;
-    expect(userData.stripePriceId).toBe('price_1TEt6FLQzoadEf8HqwUJDJgm');
-    expect(userData.billingPeriodEnd).toBeDefined();
-    expect(userData.billingStatus).toBe('active');
-  });
-
-  it('payment_failed with missing customer mapping does not crash', async () => {
+  it('unhandled event types return 200 (ack to Stripe)', async () => {
     const secret = 'whsec_test_123';
     const event = {
-      id: 'evt_pf_nomap',
+      id: 'evt_unhandled_1',
       type: 'invoice.payment_failed',
-      data: { object: { customer: 'cus_unknown_pf' } },
+      data: { object: { customer: 'cus_unhandled' } },
     };
     const body = JSON.stringify(event);
     const sig = await generateSignature(body, secret);
     const { app } = createApp();
 
-    // Mock Stripe API to return no customer
-    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
-      const reqUrl = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-      if (reqUrl.includes('/v1/customers/')) {
-        return new Response(JSON.stringify({ error: { message: 'No such customer' } }), { status: 404 });
-      }
-      return new Response('unexpected', { status: 500 });
-    }) as typeof globalThis.fetch;
-
     const res = await app.request('/public/stripe/webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Stripe-Signature': sig },
       body,
     });
-    // Should succeed (200) — handler returns early on unresolved customer
     expect(res.status).toBe(200);
   });
 });

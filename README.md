@@ -163,57 +163,103 @@ The minimum permissions for Codeflare to deploy and run. Every scope earns its k
 <details>
 <summary><strong>Configuration</strong></summary>
 
-All optional. The defaults work out of the box. I respect your time.
+**Default mode needs zero configuration** beyond the two secrets in step 2 above. Everything below is optional.
 
-| Variable | Default | What it does |
+Variables and secrets are set in your fork under `Settings` → `Secrets and variables` → `Actions`. **Vars** go under the Variables tab, **secrets** under Secrets. **Env secrets** are per-environment: `Settings` → `Environments` → select environment → `Environment secrets`.
+
+---
+
+#### General (all modes, all optional)
+
+| Variable | Where | Default | What it does |
+|---|---|---|---|
+| `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | Worker name, R2 bucket prefix, and CF Access group prefix. Set to a unique name when running multiple instances on the same account |
+| `RESSOURCE_TIER` | var | unset | Container resources and max concurrent instances. When unset: 1 vCPU, 3 GiB RAM, 6 GB disk, 10 instances. Set to `low` for 0.25 vCPU, 1 GiB, 10 instances. Set to `high` for 2 vCPU, 6 GiB, 10 instances. Set to **`saas`** for 1 vCPU, 3 GiB, 1400 instances |
+| `MAX_SESSIONS_USER` | var | `3` | Max concurrent running sessions per regular user. Set to any number (e.g., `5`). Ignored in SaaS mode — tier config controls session limits instead |
+| `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent running sessions per admin. Set to any number. Ignored in SaaS mode — tier config controls session limits instead |
+| `ENCRYPTION_KEY` | secret | unset | AES-256 key for encrypting API keys in KV and files in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded. Generate: `openssl rand -base64 32`. When unset, credentials are stored as plaintext |
+| `RUNNER` | var | `ubuntu-latest` | GitHub Actions runner for CI/CD workflows. Set to a custom runner label if you use self-hosted runners |
+| `CLAUDE_UNLEASHED_CACHE_BUSTER` | var | unset | Set to `active` to force Docker to reinstall the AI agent layer (claude-unleashed) on every deploy, bypassing the Docker cache. Useful after agent updates. When unset or any other value, the cached layer is reused for faster builds |
+| `STRESS_TEST_MODE` | var | unset | Set to `active` to bypass ALL rate limits (HTTP, WebSocket, container start). For integration/stress testing only. **Never set to `active` in production** — it disables all rate limiting |
+
+#### Onboarding mode
+
+Set `ONBOARDING_LANDING_PAGE` to `active` to show a public waitlist landing page at `/`. The setup wizard auto-creates Turnstile CAPTCHA keys using your Cloudflare API token — you do not need to configure Turnstile manually.
+
+| Variable | Where | When needed | What it does |
+|---|---|---|---|
+| `ONBOARDING_LANDING_PAGE` | var | set to `active` to enable | Shows a public waitlist page at `/` with Turnstile CAPTCHA. When unset or `inactive`, the root URL redirects to `/app/` |
+| `RESEND_API_KEY` | secret | recommended | [Resend](https://resend.com) API key for sending welcome emails when users sign up via the waitlist. When unset, signups still work but no confirmation email is sent. Get your key at `resend.com/api-keys` |
+| `RESEND_EMAIL` | secret | optional | Sender email address for outgoing emails (e.g., `Codeflare <hello@yourdomain.com>`). When unset, defaults to `Codeflare <onboarding@resend.dev>`. Must be a verified sender in your Resend account |
+
+#### SaaS mode
+
+Set `SAAS_MODE` to `active` for the full SaaS experience: custom GitHub login page, guided onboarding, subscription tiers, Stripe billing, and per-user usage tracking. Use with `RESSOURCE_TIER=saas` for 1400 concurrent container instances. Turnstile keys are auto-created by the setup wizard.
+
+| Variable | Where | When needed | What it does |
+|---|---|---|---|
+| `SAAS_MODE` | var | set to `active` to enable | Activates custom login page, JIT user provisioning, 8-tier subscription system, usage tracking via Timekeeper DO, and admin management at `/admin/users`. When unset or `inactive`, all users get unlimited access via CF Access |
+| `RESEND_API_KEY` | secret | recommended | Same Resend API key as onboarding. In SaaS mode, also sends: subscription confirmations, plan change notifications, and tier change alerts to admins. Renewal/payment emails are handled by Stripe native customer emails. When unset, all email notifications are silently skipped |
+| `OAUTH_CLIENT_ID` | env var | **recommended** | GitHub OAuth App client ID (public value). Enables direct GitHub login — free for unlimited users. Create an OAuth App at `github.com/settings/developers` with callback URL `https://{your-domain}/auth/github/callback`. When unset, the setup wizard configures Cloudflare Access instead (free for 50 users, $3/user/month after that) |
+| `OAUTH_CLIENT_SECRET` | env secret | **required** when `OAUTH_CLIENT_ID` is set | GitHub OAuth App client secret. Copied from the OAuth App page after clicking "Generate a new client secret". Server-side only — never exposed to the browser |
+| `OAUTH_JWT_SECRET` | env secret | **required** when `OAUTH_CLIENT_ID` is set | HMAC-SHA256 signing key for the `codeflare_session` cookie. Must be at least 32 bytes of random data, base64-encoded. Generate: `openssl rand -base64 32`. When this secret is rotated, all active sessions expire and users must re-login |
+| `STRIPE_SECRET_KEY` | secret | optional | Stripe API key for paid subscriptions. Use `sk_test_...` for sandbox or `sk_live_...` for production. When unset, all subscription tiers are free (no billing). Get your key at `dashboard.stripe.com/apikeys` |
+| `STRIPE_WEBHOOK_SECRET` | secret | **required** when `STRIPE_SECRET_KEY` is set | Stripe webhook signing secret (`whsec_...`). Created when you add a webhook endpoint in the Stripe Dashboard at `dashboard.stripe.com/webhooks` pointing to `https://{your-domain}/public/stripe/webhook`. Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Stripe Price metadata (`tier`, `mode`) must be set on all prices |
+| `SAAS_EXTRA_IDPS` | var | optional | Comma-separated Cloudflare Access Identity Provider UUIDs to show on the login page alongside GitHub (e.g., custom OIDC/SAML providers). Only applies when using CF Access authentication (not GitHub OIDC). When unset, only GitHub is shown |
+
+#### E2E testing
+
+E2E tests authenticate via the `X-Service-Auth` header. Set **one** of the two secrets below depending on your auth mode. The deploy workflow injects it as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, the service auth path is disabled and no one can authenticate via `X-Service-Auth` (safe by design).
+
+| Variable | Where | When needed | What it does |
+|---|---|---|---|
+| `CF_ACCESS_CLIENT_ID` | env secret | CF Access mode only | CF Access service token client ID. Create a service token at `Zero Trust → Access → Service Auth → Service Tokens`. The E2E tests send this as the `CF-Access-Client-Id` header to pass the CF Access gateway |
+| `CF_ACCESS_CLIENT_SECRET` | env secret | CF Access mode only | CF Access service token client secret. Also deployed as the Worker's `SERVICE_AUTH_SECRET`. E2E tests send it as both `CF-Access-Client-Secret` (CF Access gateway) and `X-Service-Auth` (Worker auth) headers |
+| `OAUTH_E2E_TEST_SECRET` | env secret | GitHub OIDC mode only | Random secret for E2E auth when CF Access is not configured. Generate: `openssl rand -base64 32`. Deployed as the Worker's `SERVICE_AUTH_SECRET`. E2E tests send it as the `X-Service-Auth` header only (no CF Access headers needed) |
+| `E2E_BASE_URL` | var | optional | Full URL of your integration environment for E2E tests (e.g., `https://codeflare.novoselec.ch`). When unset, E2E tests derive the URL from the worker name |
+
+> **Note:** Turnstile CAPTCHA keys (`TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY`) are **auto-created** by the setup wizard using your Cloudflare API token. You do not need to set them manually. The wizard creates and configures Turnstile when `ONBOARDING_LANDING_PAGE` or `SAAS_MODE` is `active`.
+
+---
+
+#### Quick reference: what to set per mode
+
+| Mode | What to set | Auto-configured by setup wizard |
 |---|---|---|
-| `CLOUDFLARE_WORKER_NAME` | `codeflare` | Worker name and Access group prefix |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 10 instances) | Container size + instance cap. `low` (0.25 vCPU, 1 GiB, 10), `high` (2 vCPU, 6 GiB, 10), `saas` (1 vCPU, 3 GiB, 1400 instances). |
-| `ONBOARDING_LANDING_PAGE` | `inactive` | Set to `active` for a public waitlist at `/` (requires Turnstile + `RESEND_API_KEY` secret) |
-| `RUNNER` | `ubuntu-latest` | GitHub Actions runner |
-| `CLAUDE_UNLEASHED_CACHE_BUSTER` | `inactive` | Set to `active` to force-reinstall the AI agent layer on every deploy |
-| `MAX_SESSIONS_USER` | `3` | Max concurrent running sessions per regular user |
-| `MAX_SESSIONS_ADMIN` | `10` | Max concurrent running sessions per admin user |
-| `E2E_BASE_URL` | unset | Custom domain URL for E2E tests (e.g., `https://codeflare.example.com`) |
-| `SAAS_MODE` | `inactive` | Set to `active` for custom login page with social IdPs, guided onboarding, user management, and admin approval gate. See [TECHNICAL.md](TECHNICAL.md) Section 8 for full auth architecture. |
-| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers on the login page (SaaS mode only) |
-| `CF_ACCESS_CLIENT_ID` | unset | CF Access service token client ID (secret — for E2E testing) |
-| `CF_ACCESS_CLIENT_SECRET` | unset | CF Access service token client secret (secret — for E2E testing) |
-| `RESEND_API_KEY` | unset | Resend API key (secret — for sending welcome emails, subscription confirmations, plan change notifications, tier change alerts, and admin approval/rejection emails in SaaS or onboarding mode) |
-| `RESEND_EMAIL` | unset | Sender email address for Resend (secret — defaults to `Codeflare <onboarding@resend.dev>` when unset) |
-| `TURNSTILE_SITE_KEY` | unset | Cloudflare Turnstile site key (for CAPTCHA on public waitlist and subscribe page, required when `ONBOARDING_LANDING_PAGE=active` or `SAAS_MODE=active`) |
-| `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile secret key (secret — for CAPTCHA verification on waitlist, subscribe, and access request endpoints) |
-| `STRIPE_SECRET_KEY` | unset | Stripe secret API key (secret — SaaS mode only). Enables paid subscriptions via Stripe Checkout. When absent, all plans are free (no billing). Use `sk_test_...` for sandbox, `sk_live_...` for production |
-| `STRIPE_WEBHOOK_SECRET` | unset | Stripe webhook signing secret (secret — SaaS mode only). Required when `STRIPE_SECRET_KEY` is set. Used to verify webhook payloads from Stripe (`whsec_...`) |
-| `ENCRYPTION_KEY` | unset | Optional. Encrypts API keys in KV (AES-256-GCM) and file contents in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded (AES-256 requirement). Generate with `openssl rand -base64 32`, then add as a GitHub Actions repository secret. Arbitrary strings will not work. |
+| **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
+| **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
+| **SaaS + CF Access** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | CF Access, Turnstile keys |
 
-### SaaS Mode (Custom Login)
+---
 
-Set `SAAS_MODE=active` to replace the Cloudflare Access interstitial with a branded login page, guided onboarding, user management, and self-service subscription flow. New users authenticate via GitHub OAuth, get auto-provisioned with `pending` tier, and are redirected to `/app/subscribe` to choose a plan (free, standard, advanced, max, or unlimited). Turnstile CAPTCHA protects the subscription form. Usage is tracked per-user via a Timekeeper Durable Object with monthly quota enforcement. Admins can manage tiers and users via `/admin/subscriptions`. Leave `SAAS_MODE` unset for the default Cloudflare Access login with unlimited access.
+#### GitHub OAuth Setup (SaaS mode)
+<a id="github-oauth-setup-saas-mode"></a>
 
-See [TECHNICAL.md](TECHNICAL.md) Section 8 for detailed setup instructions, auth flow diagrams, and common pitfalls.
+When `OAUTH_CLIENT_ID` is set in SaaS mode, the Worker handles authentication directly via GitHub OAuth — Cloudflare Access is bypassed. Free for unlimited users.
+
+**1. Create a GitHub OAuth App** at [github.com/settings/developers](https://github.com/settings/developers) → OAuth Apps → New OAuth App:
+- **Application name:** Your app name (e.g., "Codeflare")
+- **Homepage URL:** `https://{your-domain}`
+- **Authorization callback URL:** `https://{your-domain}/auth/github/callback`
+- Copy the **Client ID** and generate + copy the **Client Secret**
+
+**2. Generate a JWT signing secret:**
+```bash
+openssl rand -base64 32
+```
+
+**3. Add as GitHub Actions environment secrets** (`Settings` → `Environments` → your environment → `Environment secrets`):
+
+| Secret | Value |
+|---|---|
+| `OAUTH_CLIENT_ID` | Client ID from step 1 |
+| `OAUTH_CLIENT_SECRET` | Client secret from step 1 |
+| `OAUTH_JWT_SECRET` | Output from step 2 |
+
+Create one OAuth App per environment (integration vs production) with the matching callback URL. Deploy — the workflow injects everything automatically.
 
 </details>
-
-## Subscription Tiers
-
-When `SAAS_MODE` is active, Codeflare uses an 8-tier subscription system (blocked, pending, free, trial, standard, advanced, max, unlimited) controlling monthly compute hours, concurrent sessions, session modes, and pricing. Tiers are configurable by admins via the Subscription Management page (`/admin/subscriptions`) and the admin tiers API (`GET/PUT /api/admin/tiers`). Each user's KV record stores a `subscribedMode` field (`'default'` or `'advanced'`) set during subscription -- this is the mode the user paid for and is distinct from the `sessionMode` preference toggle in Settings.
-
-- New users are auto-provisioned with `pending` tier and land on `/app/subscribe` to choose a plan
-- Turnstile CAPTCHA protects the subscription form for new subscriptions (plan changes skip Turnstile)
-- Paid tiers support configurable trial periods (billing deferred until trial quota consumed)
-- Usage is tracked per-user via a Timekeeper Durable Object (one per user) and displayed on `/app/usage`
-- Timekeeper accumulates seconds from container DO pings (every 60s), flushes to KV every 5 minutes with crash resilience via DO storage
-- Quota enforcement: HTTP 402 on session start when monthly hours exceeded, mid-session eviction via SIGTERM when Timekeeper detects quota exceeded
-- Email notifications via Resend: welcome email on registration, subscription confirmation on plan selection, plan change notifications to user and admins, tier change alerts when admins modify user tiers
-- Session limits are tier-based (`maxSessions` per tier) with env var fallback (`MAX_SESSIONS_USER`, `MAX_SESSIONS_ADMIN`)
-- Session mode enforcement: `default` and `advanced` modes gated per tier (free/trial get `default` only, standard+ get both). Pro mode access requires a dual-gate: both tier support AND `subscribedMode === 'advanced'` in the user's KV record (set via the subscribe page, not the Settings toggle)
-
-**Quota enforcement:**
-- Server-side only — cannot be bypassed by frontend manipulation
-- Non-SaaS deployments resolve all users to `unlimited` tier (no restrictions)
-- Service tokens are treated as `unlimited` tier
-- See [TECHNICAL.md](TECHNICAL.md) Section 9 for full subscription system details
 
 ## Security
 

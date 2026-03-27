@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendRenewalEmail, sendSubscriptionAdminNotification } from '../../lib/email';
+import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendSubscriptionAdminNotification } from '../../lib/email';
 
 describe('sendEmail', () => {
   const originalFetch = globalThis.fetch;
@@ -225,23 +225,6 @@ describe('sendSubscriptionEmail', () => {
     const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
     expect(body.subject).toContain('Plan changed');
     expect(body.html).toContain('Plan Changed');
-  });
-});
-
-describe('sendRenewalEmail', () => {
-  const originalFetch = globalThis.fetch;
-  beforeEach(() => { globalThis.fetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 })); });
-  afterEach(() => { globalThis.fetch = originalFetch; });
-
-  it('sends renewal confirmation', async () => {
-    const result = await sendRenewalEmail({
-      userEmail: 'alice@example.com', tierName: 'Starter', monthlyHours: '40h',
-      maxSessions: 3, env: testEnv,
-    });
-    expect(result).toBe(true);
-    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(body.subject).toContain('renewed');
-    expect(body.html).toContain('Starter');
   });
 });
 

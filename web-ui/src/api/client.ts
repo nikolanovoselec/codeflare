@@ -423,10 +423,6 @@ const TiersResponseSchema = z.object({
   tiers: z.array(TierObjectSchema),
 });
 
-const PublicTiersResponseSchema = z.object({
-  tiers: z.array(TierObjectSchema),
-});
-
 export async function getTiers(): Promise<z.infer<typeof TiersResponseSchema>> {
   return fetchApi('/admin/tiers', {}, TiersResponseSchema);
 }
@@ -438,8 +434,8 @@ export async function updateTiers(tiers: unknown[]): Promise<{ success: boolean 
   }, z.object({ success: z.boolean() }));
 }
 
-export async function getPublicTiers(): Promise<z.infer<typeof PublicTiersResponseSchema>> {
-  return fetchApi('/auth/tiers', {}, PublicTiersResponseSchema);
+export async function getPublicTiers(): Promise<z.infer<typeof TiersResponseSchema>> {
+  return fetchApi('/auth/tiers', {}, TiersResponseSchema);
 }
 
 const SubscribeResponseSchema = z.object({
@@ -475,6 +471,26 @@ const PortalResponseSchema = z.object({
 export async function createPortalSession(): Promise<{ portalUrl: string }> {
   return fetchApi('/billing/portal', {
     method: 'POST',
+  }, PortalResponseSchema);
+}
+
+const BillingStatusSchema = z.object({
+  stripeCustomerId: z.string().nullable(),
+  stripeSubscriptionId: z.string().nullable(),
+  stripePriceId: z.string().nullable(),
+  billingPeriodEnd: z.string().nullable(),
+  checkoutSessionId: z.string().nullable(),
+  billingStatus: z.string().nullable(),
+});
+
+export async function getBillingStatus(): Promise<z.infer<typeof BillingStatusSchema>> {
+  return fetchApi('/billing/status', { method: 'GET' }, BillingStatusSchema);
+}
+
+export async function createSwitchSession(tier: string, mode?: string): Promise<{ portalUrl: string }> {
+  return fetchApi('/billing/switch', {
+    method: 'POST',
+    body: JSON.stringify({ tier, mode }),
   }, PortalResponseSchema);
 }
 

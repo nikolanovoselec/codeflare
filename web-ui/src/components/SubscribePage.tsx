@@ -27,10 +27,20 @@ import {
   mdiSync,
   mdiWrenchOutline,
   mdiBookOpenPageVariantOutline,
-  mdiLayersTripleOutline,
   mdiHeadCogOutline,
+  mdiCloudOutline,
+  mdiTimerOutline,
+  mdiShieldCheckOutline,
+  mdiCallSplit,
+  mdiInfinity,
+  mdiShieldAccountOutline,
+  mdiPuzzleOutline,
+  mdiArrowUpBold,
+  mdiMonitorMultiple,
+  mdiTrendingUp,
+  mdiClockFast,
 } from '@mdi/js';
-import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession } from '../api/client';
+import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession, createSwitchSession, getBillingStatus } from '../api/client';
 import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
@@ -79,11 +89,33 @@ const TIER_FEATURES: Record<string, string[]> = {
   standard: ['Everything in Free', 'Unlocks Pro mode', 'Configurable idle timeout', 'Priority support'],
   advanced: ['Everything in Starter', 'Run 2 sessions at once', 'Work across parallel branches', 'Priority support'],
   max: ['Everything in Advanced', 'Run 3 sessions at once', '4x the compute of Starter', 'OpenClaw Integration'],
-  unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run 5 sessions at once', 'Dedicated support'],
+  unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run 5 sessions at once', 'OpenClaw Integration', 'Dedicated support'],
 };
 
 /** Features that show a "COMING SOON" badge */
 const COMING_SOON_FEATURES = new Set(['OpenClaw Integration']);
+
+/** Per-feature icon mapping for tier detail panel */
+const FEATURE_ICONS: Record<string, string> = {
+  'All agents, ready instantly': mdiRobotOutline,
+  'Persistent cloud storage': mdiCloudOutline,
+  'GitHub & Cloudflare deploy': mdiSourceBranch,
+  'Everything in Free': mdiArrowUpBold,
+  'Everything in Starter': mdiArrowUpBold,
+  'Everything in Advanced': mdiArrowUpBold,
+  'Everything in Max': mdiArrowUpBold,
+  'Unlocks Pro mode': mdiStarOutline,
+  'Configurable idle timeout': mdiTimerOutline,
+  'Priority support': mdiShieldCheckOutline,
+  'Run 2 sessions at once': mdiMonitorMultiple,
+  'Run 3 sessions at once': mdiMonitorMultiple,
+  'Run 5 sessions at once': mdiMonitorMultiple,
+  'Work across parallel branches': mdiCallSplit,
+  '4x the compute of Starter': mdiLightningBolt,
+  'OpenClaw Integration': mdiPuzzleOutline,
+  'Unlimited compute hours': mdiInfinity,
+  'Dedicated support': mdiShieldAccountOutline,
+};
 
 /** Lifeline stop icons */
 const TIER_ICONS: Record<string, string> = {
@@ -110,15 +142,16 @@ const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string | (() => JSX.El
 /** Pro mode features for mode card */
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
   { icon: mdiHeadCogOutline, text: 'Agent builds a knowledge graph' },
-  { icon: mdiLightningBolt, text: 'Gets smarter every session' },
+  { icon: mdiTrendingUp, text: 'Gets smarter every session' },
   { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
   { icon: mdiBookOpenPageVariantOutline, text: 'Advanced commands & workflows' },
-  { icon: mdiLayersTripleOutline, text: 'Auto-prunes context over time' },
+  { icon: mdiClockFast, text: 'Auto-prunes context over time' },
   { icon: mdiRocketLaunchOutline, text: 'Never start from scratch again' },
 ];
 
 const SubscribePage: Component = () => {
   const [loading, setLoading] = createSignal(true);
+  const [checkoutPolling, setCheckoutPolling] = createSignal(false);
   const [error, setError] = createSignal('');
   const [tiers, setTiers] = createSignal<TierInfo[]>([]);
   const [isBlocked, setIsBlocked] = createSignal(false);
@@ -136,9 +169,18 @@ const SubscribePage: Component = () => {
   const [billingStatus, setBillingStatus] = createSignal<string | null>(null);
   const [portalLoading, setPortalLoading] = createSignal(false);
   const [capacityReached, setCapacityReached] = createSignal(false);
+  const [contactSent, setContactSent] = createSignal(false);
+  const [showReportButton, setShowReportButton] = createSignal(false);
 
   let observer: MutationObserver | null = null;
   let tierPhaseRef: HTMLDivElement | undefined;
+  let polling = true;
+  let pollReportTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onCleanup(() => {
+    polling = false;
+    if (pollReportTimer) clearTimeout(pollReportTimer);
+  });
 
   onMount(async () => {
     // Detect Stripe checkout redirect: ?checkout=success or ?checkout=canceled
@@ -151,26 +193,32 @@ const SubscribePage: Component = () => {
     if (params.get('checkout') === 'success') {
       // Remove query param from URL without reload
       window.history.replaceState({}, '', window.location.pathname);
-      // CF-031: Exponential backoff polling (1s, 2s, 4s, 8s, 16s, 32s = ~63s total)
-      const delays = [1000, 2000, 4000, 8000, 16000, 32000];
-      for (const delay of delays) {
+      setCheckoutPolling(true);
+      // Poll until KV is updated. Stripe webhook writes KV,
+      // we keep checking every 3 seconds until hasSubscribed is true.
+      // After 5 minutes, show a "Report a problem" button.
+      const POLL_INTERVAL = 3000;
+      const REPORT_DELAY = 5 * 60 * 1000;
+      pollReportTimer = setTimeout(() => setShowReportButton(true), REPORT_DELAY);
+      while (polling) {
         try {
           const pollStatus = await getAuthStatus();
           if (pollStatus.hasSubscribed) {
+            if (pollReportTimer) clearTimeout(pollReportTimer);
             window.location.href = pollStatus.onboardingComplete ? '/app/' : '/app/onboarding';
             return;
           }
         } catch { /* ignore poll errors */ }
-        await new Promise(r => setTimeout(r, delay));
+        if (!polling) break;
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
       }
-      // Timeout: show message and let page load normally
-      setError('Your payment was received. Your subscription is being activated — please refresh in a moment.');
     }
 
     try {
-      const [status, tiersData] = await Promise.all([
+      const [status, tiersData, billing] = await Promise.all([
         getAuthStatus(),
         getPublicTiers().catch((err) => { logger.error('getPublicTiers failed:', err); return { tiers: [] }; }),
+        getBillingStatus().catch(() => null),
       ]);
 
       if (status.email) setUserEmail(status.email);
@@ -185,17 +233,22 @@ const SubscribePage: Component = () => {
         return;
       }
 
-      if (status.hasSubscribed === true) {
+      // Stripe is source of truth for paid subscriptions, but admin-managed tiers
+      // (unlimited) have no Stripe subscription. Use KV hasSubscribed as fallback
+      // when billing endpoint returns no subscription or is unavailable.
+      const stripeActive = billing && !!billing.stripeSubscriptionId && !!billing.billingStatus;
+      const hasActiveSubscription = stripeActive || status.hasSubscribed === true;
+
+      if (hasActiveSubscription) {
         setIsActive(true);
         const ct = status.subscriptionTier ?? status.accessTier ?? 'advanced';
         setCurrentTierId(ct);
-        // Default lifeline selection to current tier if it's in the public list
         if (TIER_ORDER.includes(ct as typeof TIER_ORDER[number])) {
           setSelectedTierId(ct);
         }
       }
 
-      setBillingStatus(status.billingStatus ?? null);
+      setBillingStatus(billing?.billingStatus ?? status.billingStatus ?? null);
       if (status.userCapacityReached === true) {
         setCapacityReached(true);
       }
@@ -315,6 +368,18 @@ const SubscribePage: Component = () => {
           : (tierData.priceMonthly ?? 0) > 0
       );
 
+      if (isPaid && isActive()) {
+        // Existing subscriber switching plans — deep-link to portal confirmation page
+        try {
+          const { portalUrl } = await createSwitchSession(tierId, mode);
+          window.location.href = portalUrl;
+          return;
+        } catch {
+          // Subscription no longer exists on Stripe — backend cleaned KV.
+          // Fall through to checkout for re-subscription.
+          setIsActive(false);
+        }
+      }
       if (isPaid) {
         const { checkoutUrl } = await createCheckoutSession(tierId, mode);
         window.location.href = checkoutUrl;
@@ -440,10 +505,14 @@ const SubscribePage: Component = () => {
   /** Whether the user changed mode but not tier */
   const isModeChange = () => isActive() && selectedTierId() === currentTierId() && globalMode() !== currentMode();
 
+  /** Whether selected tier is the contact-us (Team/unlimited) tier */
+  const isContactTier = () => selectedTierId() === 'unlimited';
+
   /** CTA button label */
   function ctaLabel(): string {
     const tier = selectedTier();
     if (!tier) return 'Select';
+    if (isContactTier()) return contactSent() ? "We'll get in touch" : 'Get in Touch';
     if (subscribing() === tier.id) return isActive() ? 'Switching...' : 'Subscribing...';
     if (isModeChange()) return globalMode() === 'advanced' ? 'Upgrade to Pro' : 'Switch to Standard';
     if (isActive() && tier.id === currentTierId()) return 'Current Plan';
@@ -456,6 +525,7 @@ const SubscribePage: Component = () => {
   function ctaDisabled(): boolean {
     const tier = selectedTier();
     if (!tier) return true;
+    if (isContactTier()) return false; // always clickable
     if (subscribing() !== null) return true;
     if (capacityReached() && !isActive()) return true;
     if (isActive() && tier.id === currentTierId() && !isModeChange()) return true;
@@ -482,7 +552,24 @@ const SubscribePage: Component = () => {
           Ready when you are, wherever you are.
         </p>
 
-        <Show when={!loading()} fallback={<div class="subscribe-loading">Loading...</div>}>
+        <Show when={!loading()} fallback={
+          <div class="subscribe-loading">
+            {checkoutPolling() ? (
+              <>
+                <p>Activating your subscription — this may take a minute...</p>
+                <Show when={showReportButton()}>
+                  <a
+                    href={`mailto:hello@graymatter.ch?subject=${encodeURIComponent('Subscription problem')}&body=${encodeURIComponent(`Hi,\n\nI completed a Stripe checkout but my subscription hasn't activated yet.\n\nEmail: ${userEmail()}\nDate: ${new Date().toISOString()}\n\nPlease help.\n`)}`}
+                    class="subscribe-logout-button"
+                    style={{ 'margin-top': '1rem', display: 'inline-block' }}
+                  >
+                    Report a problem
+                  </a>
+                </Show>
+              </>
+            ) : 'Loading...'}
+          </div>
+        }>
           {/* Error display */}
           <Show when={error()}>
             <div class="subscribe-error">{error()}</div>
@@ -534,35 +621,38 @@ const SubscribePage: Component = () => {
                     <div class="subscribe-email">{userEmail()}</div>
                   </Show>
                   <a href="/app/" class="subscribe-action-button">Continue</a>
-                  <Show when={billingStatus()}>
-                    <button
-                      type="button"
-                      class="subscribe-action-button subscribe-action-button--secondary"
-                      disabled={portalLoading()}
-                      onClick={async () => {
-                        setPortalLoading(true);
-                        try {
-                          const { portalUrl } = await createPortalSession();
-                          window.location.href = portalUrl;
-                        } catch (err) {
-                          setError(err instanceof Error ? err.message : 'Failed to open billing portal.');
-                          setPortalLoading(false);
-                        }
-                      }}
-                    >
-                      {portalLoading() ? 'Loading...' : 'Manage Subscription'}
-                    </button>
-                  </Show>
                 </Show>
               </div>
 
-              <button
-                type="button"
-                class="subscribe-logout-button"
-                onClick={() => setSubscribePhase('tiers')}
-              >
-                See subscription plans
-              </button>
+              <div class="subscribe-home-actions">
+                <button
+                  type="button"
+                  class="subscribe-logout-button"
+                  onClick={() => setSubscribePhase('tiers')}
+                >
+                  See subscription plans
+                </button>
+                <Show when={billingStatus()}>
+                  <button
+                    type="button"
+                    class="subscribe-logout-button subscribe-manage-button"
+                    disabled={portalLoading()}
+                    onClick={async () => {
+                      setPortalLoading(true);
+                      try {
+                        const { portalUrl } = await createPortalSession();
+                        window.location.href = portalUrl;
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Failed to open billing portal.');
+                        setPortalLoading(false);
+                      }
+                    }}
+                  >
+                    {portalLoading() ? 'Loading...' : 'Manage Subscription'}
+                  </button>
+                  <p class="subscribe-portal-note">Changes may take a few minutes to activate.</p>
+                </Show>
+              </div>
             </Show>
 
             {/* ── Tier selection: mode cards + lifeline + detail — all visible ── */}
@@ -694,11 +784,16 @@ const SubscribePage: Component = () => {
                       <div class="subscribe-detail-specs">
                         <span>{(() => {
                           const text = scrambledSpecs();
-                          // Colorize: hours portion in blue, "month" in orange
-                          const match = text.match(/^(.+?)\s*\/\s*(month.*)$/);
-                          if (!match) return text;
-                          const [, hours, rest] = match;
-                          return <>{<span style={{ color: '#3b82f6' }}>{hours}</span>} / {<span style={{ color: '#f38020' }}>{rest}</span>}</>;
+                          // Colorize: hours in blue, "month" in orange, session count in green
+                          const match = text.match(/^(.+?)\s*\/\s*(month\S*)\s*(·\s*)(\d+)(\s+parallel\s+.*)$/);
+                          if (!match) {
+                            // Fallback: try simpler hours/month split
+                            const simple = text.match(/^(.+?)\s*\/\s*(month.*)$/);
+                            if (!simple) return text;
+                            return <>{<span style={{ color: '#3b82f6' }}>{simple[1]}</span>} / {<span style={{ color: '#f38020' }}>{simple[2]}</span>}</>;
+                          }
+                          const [, hours, month, sep, count, sessions] = match;
+                          return <>{<span style={{ color: '#3b82f6' }}>{hours}</span>} / {<span style={{ color: '#f38020' }}>{month}</span>} {sep}{<span style={{ color: '#22c55e' }}>{count}</span>}{sessions}</>;
                         })()}</span>
                       </div>
 
@@ -707,7 +802,7 @@ const SubscribePage: Component = () => {
                           {(scrambled) => (
                             <Show when={scrambled()}>
                               <li class="subscribe-tier-feature-item">
-                                <Icon path={mdiCheck} size={14} />
+                                <Icon path={FEATURE_ICONS[scrambled()] ?? mdiCheck} size={14} />
                                 <span>
                                   {scrambled()}
                                   {COMING_SOON_FEATURES.has(scrambled()) && (
@@ -727,8 +822,20 @@ const SubscribePage: Component = () => {
                       <button
                         type="button"
                         class="subscribe-tier-btn subscribe-tier-btn--primary"
-                        disabled={ctaDisabled()}
-                        onClick={() => void handleSubscribe(selectedTierId())}
+                        disabled={ctaDisabled() || contactSent()}
+                        onClick={() => {
+                          if (isContactTier()) {
+                            setContactSent(true);
+                            // Notify admins via Resend that user wants Team access
+                            void fetch('/api/auth/contact-team', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
+                              body: JSON.stringify({ plan: selectedTier()?.displayName ?? 'Team' }),
+                            }).catch(() => {});
+                            return;
+                          }
+                          void handleSubscribe(selectedTierId());
+                        }}
                       >
                         {ctaLabel()}
                       </button>

@@ -6,19 +6,21 @@ paths:
 ---
 # Go Testing
 
+**Important:** Tests run via CI only (GitHub Actions). Do not run test suites locally — the container has 1 vCPU. Write tests, push, and verify via `gh run view`.
+
 ## Framework
 
 Use the standard `go test` with **table-driven tests**.
 
-## Race Detection
+## Race Detection (CI only)
 
-Always run with the `-race` flag:
+Always run with the `-race` flag in CI:
 
 ```bash
 go test -race ./...
 ```
 
-## Coverage
+## Coverage (CI only)
 
 ```bash
 go test -cover ./...

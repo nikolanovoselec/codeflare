@@ -14,6 +14,7 @@ import {
   getAllowedSessionModes,
   resetTierConfigCache,
   getEffectiveTier,
+  countPaidSlots,
 } from '../../lib/subscription';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -480,12 +481,82 @@ describe('getEffectiveTier', () => {
     expect(getEffectiveTier('standard', undefined, 'canceled', undefined)).toBe('free');
   });
 
-  it('CF-018: billingPeriodEnd is ignored when billingStatus is not active', () => {
-    const future = new Date(Date.now() + 86400000).toISOString();
-    expect(getEffectiveTier('advanced', undefined, 'past_due', future)).toBe('free');
-  });
-
   it('CF-018: default tier when both tiers undefined is pending', () => {
     expect(getEffectiveTier(undefined, undefined, undefined)).toBe('pending');
+  });
+
+  // ---------------------------------------------------------------------------
+  // past_due grace period — Signal and Sync redesign
+  // ---------------------------------------------------------------------------
+
+  it('past_due + future billingPeriodEnd keeps paid tier (grace period)', () => {
+    const future = new Date(Date.now() + 86400000).toISOString(); // tomorrow
+    expect(getEffectiveTier('advanced', undefined, 'past_due', future)).toBe('advanced');
+  });
+
+  it('past_due + expired billingPeriodEnd downgrades to free', () => {
+    const expired = new Date(Date.now() - 86400000).toISOString(); // yesterday
+    expect(getEffectiveTier('advanced', undefined, 'past_due', expired)).toBe('free');
+  });
+
+  it('past_due + no billingPeriodEnd downgrades to free', () => {
+    expect(getEffectiveTier('standard', undefined, 'past_due')).toBe('free');
+    expect(getEffectiveTier('standard', undefined, 'past_due', null)).toBe('free');
+  });
+
+  it('past_due grace period applies to all paid tiers', () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    expect(getEffectiveTier('standard', undefined, 'past_due', future)).toBe('standard');
+    expect(getEffectiveTier('max', undefined, 'past_due', future)).toBe('max');
+  });
+
+  it('canceled always downgrades regardless of billingPeriodEnd', () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    expect(getEffectiveTier('standard', undefined, 'canceled', future)).toBe('free');
+    expect(getEffectiveTier('advanced', undefined, 'canceled', future)).toBe('free');
+  });
+});
+
+describe('countPaidSlots', () => {
+  it('counts admins regardless of tier', () => {
+    const users = [
+      { role: 'admin', subscriptionTier: 'free' },
+      { role: 'admin' },
+    ];
+    expect(countPaidSlots(users)).toBe(2);
+  });
+
+  it('counts active paid tier users', () => {
+    const users = [
+      { subscriptionTier: 'standard', billingStatus: 'active' },
+      { subscriptionTier: 'advanced', billingStatus: 'active' },
+      { subscriptionTier: 'max', billingStatus: 'trialing' },
+      { subscriptionTier: 'unlimited' },
+    ];
+    expect(countPaidSlots(users)).toBe(4);
+  });
+
+  it('excludes free, pending, and blocked users', () => {
+    const users = [
+      { subscriptionTier: 'free', billingStatus: 'active' },
+      { subscriptionTier: 'pending' },
+      { subscriptionTier: 'blocked' },
+    ];
+    expect(countPaidSlots(users)).toBe(0);
+  });
+
+  it('counts canceled users only while billingPeriodEnd is in the future', () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    const past = new Date(Date.now() - 86400000).toISOString();
+    const users = [
+      { subscriptionTier: 'standard', billingStatus: 'canceled', billingPeriodEnd: future },
+      { subscriptionTier: 'advanced', billingStatus: 'canceled', billingPeriodEnd: past },
+      { subscriptionTier: 'max', billingStatus: 'canceled' },
+    ];
+    expect(countPaidSlots(users)).toBe(1);
+  });
+
+  it('returns 0 for empty array', () => {
+    expect(countPaidSlots([])).toBe(0);
   });
 });

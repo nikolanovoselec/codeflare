@@ -1,11 +1,11 @@
 import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiAccountCircle, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
 import Icon from './Icon';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
 import { getDownloadUrl } from '../api/storage';
-import { md5 } from '../lib/md5';
+import { getGravatarUrl } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
 import SessionContextMenu from './SessionContextMenu';
 import StatCards from './StatCards';
@@ -19,11 +19,6 @@ import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota, getUsageState } from '../stores/session';
 import { formatDuration } from '../lib/format';
 import '../styles/dashboard.css';
-
-function getGravatarUrl(email: string, size = 32): string {
-  const hash = md5(email.trim().toLowerCase());
-  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=mp`;
-}
 
 interface DashboardProps {
   sessions: SessionWithStatus[];
@@ -42,6 +37,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
+  const [gravatarFailed, setGravatarFailed] = createSignal(false);
   const [userMenuPos, setUserMenuPos] = createSignal<{ top: number; right: number }>({ top: 0, right: 0 });
   let userBtnRef: HTMLButtonElement | undefined;
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
@@ -135,8 +131,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   setShowUserMenu(!showUserMenu());
                 }}
               >
-                <Show when={props.userName} fallback={<Icon path={mdiAccountCircle} size={24} class="header-user-avatar" />}>
-                  <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} />
+                <Show when={props.userName && !gravatarFailed()} fallback={<Icon path={mdiShieldAccount} size={24} class="header-user-avatar" />}>
+                  <img src={getGravatarUrl(props.userName!, 48)} alt="Avatar" class="header-user-avatar-img" width={24} height={24} onError={() => setGravatarFailed(true)} />
                 </Show>
                 <Show when={props.userName}>
                   <span class="header-user-name">{props.userName}</span>
@@ -195,7 +191,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       type="button"
                       class="header-user-dropdown-item header-user-dropdown-item--danger"
                       data-testid="header-user-dropdown-logout"
-                      onClick={() => { window.location.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(window.location.origin + '/')}`; }}
+                      onClick={() => { window.location.href = '/auth/logout'; }}
                     >
                       <Icon path={mdiLogout} size={16} />
                       <span>Logout</span>

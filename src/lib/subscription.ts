@@ -201,8 +201,10 @@ const PAID_TIERS: ReadonlySet<string> = new Set(['standard', 'advanced', 'max'])
 /**
  * Resolve the effective tier considering billing status and period expiry.
  *
- * Downgrade rules (immediate, no grace period):
- * - billingStatus 'canceled' or 'past_due' → free (for paid tiers only)
+ * Downgrade rules:
+ * - billingStatus 'canceled' → free (immediate, no grace period)
+ * - billingStatus 'past_due' + future billingPeriodEnd → keep paid tier (grace period)
+ * - billingStatus 'past_due' + expired/missing billingPeriodEnd → free
  * - billingPeriodEnd expired and billingStatus 'active' → free (catches missed webhooks)
  *
  * CF-009: When both tiers are undefined, default to 'pending'
@@ -221,8 +223,17 @@ export function getEffectiveTier(
   const raw = subscriptionTier ?? accessTier ?? 'pending';
   if (!PAID_TIERS.has(raw)) return raw;
 
-  // Explicit billing failure
-  if (billingStatus === 'canceled' || billingStatus === 'past_due') {
+  // Explicit cancellation — always downgrade, no grace period
+  if (billingStatus === 'canceled') {
+    return 'free';
+  }
+
+  // past_due: grace period while billingPeriodEnd is in the future
+  if (billingStatus === 'past_due') {
+    if (billingPeriodEnd) {
+      const expiry = new Date(billingPeriodEnd).getTime();
+      if (!isNaN(expiry) && Date.now() <= expiry) return raw; // grace period
+    }
     return 'free';
   }
 
@@ -257,4 +268,34 @@ export function getAllowedSessionModes(
 ): SessionMode[] {
   const tier = tiers.find((t) => t.id === tierValue);
   return tier?.sessionModes ?? [];
+}
+
+/** Paid tier IDs that occupy a capacity slot. Free tier excluded — low resource usage. */
+const SLOT_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
+
+/**
+ * Count users occupying a paid capacity slot: admins + active paid subscribers.
+ * Free, pending, and blocked users don't count. Canceled users count until billingPeriodEnd expires.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function countPaidSlots(allUsers: any[]): number {
+  const now = Date.now();
+  return allUsers.filter(u => {
+    const role = u.role as string | undefined;
+    const tier = u.subscriptionTier as string | undefined;
+    const status = u.billingStatus as string | undefined;
+    const periodEnd = u.billingPeriodEnd as string | undefined;
+    // Admins always count
+    if (role === 'admin') return true;
+    // Must have a paid tier
+    if (!tier || !SLOT_TIERS.has(tier)) return false;
+    // Active or trialing → counts
+    if (!status || status === 'active' || status === 'trialing') return true;
+    // Canceled → counts only if billingPeriodEnd is in the future
+    if (status === 'canceled' || status === 'past_due') {
+      if (periodEnd) return new Date(periodEnd).getTime() > now;
+      return false;
+    }
+    return false;
+  }).length;
 }

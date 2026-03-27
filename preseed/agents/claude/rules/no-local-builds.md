@@ -16,7 +16,9 @@ Never run any of these locally:
 
 - Use GitHub Actions CI to run tests, builds, linting, and type checking.
 - To verify changes, push to the branch and check CI results with `gh run list` and `gh run view`.
+- Use the **code-reviewer** agent to catch issues before pushing (static analysis, no compilation).
 - If you need to check syntax or logic, read the code — do not compile it.
+- Auto-formatting tools (prettier, gofmt, etc.) also should NOT run locally — they are CPU-intensive on large codebases.
 
 ## Override procedure
 

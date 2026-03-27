@@ -134,9 +134,12 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   }).passthrough();
   const existing = kvUserSchema.parse(existingRaw);
 
-  // Admin users always have unlimited tier — prevent accidental lockout
+  // Admin tier changes only allowed for self (recovery from corrupted KV state).
   if (existing.role === 'admin') {
-    throw new ValidationError('Cannot change admin subscription tier');
+    const currentUser = c.get('user');
+    if (email !== currentUser.email.trim().toLowerCase()) {
+      throw new ValidationError('Cannot change another admin\'s tier');
+    }
   }
 
   // Map new tier to nearest valid AccessTier for backward compat.
@@ -144,7 +147,9 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   // writing them raw would cause AccessTierSchema.safeParse to reject → fallback 'advanced'.
   const LEGACY_TIERS = new Set(['pending', 'standard', 'advanced', 'blocked']);
   const legacyAccessTier = LEGACY_TIERS.has(newTier) ? newTier : 'advanced';
-  const updated = { ...existing, subscriptionTier: newTier, accessTier: legacyAccessTier };
+  const PRO_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
+  const subscribedMode = PRO_TIERS.has(newTier) ? 'advanced' : 'default';
+  const updated = { ...existing, subscriptionTier: newTier, accessTier: legacyAccessTier, subscribedMode };
   await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
 
   // Auto-set sessionMode to 'advanced' for tiers that support it.

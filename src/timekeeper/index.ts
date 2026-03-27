@@ -154,16 +154,18 @@ export class Timekeeper {
 
     this.pendingSeconds += delta;
 
-    // Persist to DO storage
-    await Promise.all([
-      this.ctx.storage.put('pendingSeconds', this.pendingSeconds),
-      this.ctx.storage.put('sessionTotals', JSON.stringify(this.sessionTotals)),
-    ]);
+    // Only persist to DO storage when state actually changed
+    if (delta > 0) {
+      await Promise.all([
+        this.ctx.storage.put('pendingSeconds', this.pendingSeconds),
+        this.ctx.storage.put('sessionTotals', JSON.stringify(this.sessionTotals)),
+      ]);
 
-    // Arm alarm if none pending
-    const existingAlarm = await this.ctx.storage.getAlarm();
-    if (!existingAlarm) {
-      await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
+      // Arm alarm if none pending
+      const existingAlarm = await this.ctx.storage.getAlarm();
+      if (!existingAlarm) {
+        await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
+      }
     }
 
     // Quota check (fail-open)

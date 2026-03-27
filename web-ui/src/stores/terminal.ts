@@ -398,10 +398,17 @@ function connect(
         // (503 from Container DO). Only trigger on reconnects (attemptNumber > 1),
         // not on initial connection during startup.
         if (attemptNumber > 1) {
+          // When the tab is hidden, browsers throttle/kill WS connections.
+          // A failed retry while hidden is NOT evidence the container stopped —
+          // defer to reconnectOnVisibilityReturn when the user comes back.
+          if (typeof document !== 'undefined' && document.hidden) {
+            logger.info(`[Terminal ${key}] WS retry failed while tab hidden — deferring`);
+            setConnectionState(sessionId, terminalId, 'disconnected');
+            return;
+          }
           logger.warn(`[Terminal ${key}] WS reconnect failed — container stopped`);
           setConnectionState(sessionId, terminalId, 'disconnected');
           setRetryMessage(sessionId, terminalId, 'Session stopped');
-          // Notify session store — imported via onContainerStoppedCallback
           if (_onContainerStoppedCallback) {
             _onContainerStoppedCallback(sessionId);
           }

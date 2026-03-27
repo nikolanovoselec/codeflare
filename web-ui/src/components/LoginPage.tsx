@@ -161,10 +161,10 @@ const LoginPage: Component = () => {
             <For each={providers()}>
               {(provider) => (
                 <a
-                  href="/app/"
+                  href={provider.loginUrl ?? '/app/'}
                   class="login-provider-button"
                   data-provider={provider.type}
-                  onClick={(e) => { e.preventDefault(); window.location.href = '/app/'; }}
+                  onClick={(e) => { e.preventDefault(); window.location.href = provider.loginUrl ?? '/app/'; }}
                 >
                   <span class="login-provider-icon">
                     {getProviderIcon(provider)}

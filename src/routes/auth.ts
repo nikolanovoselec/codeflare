@@ -5,7 +5,7 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
-import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS } from '../lib/subscription';
+import { getTierConfig, getEffectiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
@@ -76,16 +76,26 @@ app.get('/status', requireIdentity, async (c) => {
   // Default to 'advanced' for legacy accessTier (pre-setup or service auth backward compat)
   const accessTier = user.accessTier || 'advanced';
 
-  // Read user data from KV for additional fields
-  const userData = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
+  // Parallelize independent KV reads: user data, turnstile key, and session preferences
+  let prefsKey: string | null = null;
+  try {
+    const bucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
+    prefsKey = getPreferencesKey(bucketName);
+  } catch { /* getBucketName may not be available in test mocks */ }
+
+  const [userData, turnstileSiteKey, prefs] = await Promise.all([
+    c.env.KV.get(`user:${user.email}`, 'json') as Promise<Record<string, unknown> | null>,
+    c.env.KV.get('setup:turnstile_site_key').then(v => v ?? null),
+    prefsKey
+      ? c.env.KV.get(prefsKey, 'json').then(v => v as Record<string, unknown> | null).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   // Billing-aware tier resolution: downgrade paid tiers to free when billing is canceled/past_due
   const billingStatus = (userData?.billingStatus as string) ?? null;
   const billingPeriodEnd = (userData?.billingPeriodEnd as string) ?? null;
   const subscriptionTier = getEffectiveTier(user.subscriptionTier, accessTier, billingStatus, billingPeriodEnd);
 
-  // Always include turnstile site key in SaaS mode (needed by subscribe page)
-  const turnstileSiteKey = await c.env.KV.get('setup:turnstile_site_key') ?? null;
   let requestedAt: string | null = null;
   if (subscriptionTier === 'pending') {
     if (userData && typeof userData.requestedAt === 'string') {
@@ -102,13 +112,7 @@ app.get('/status', requireIdentity, async (c) => {
   // trialUsed = user has already used their free trial (no new trials on plan switch)
   const trialUsed = userData?.trialUsed === true;
 
-  // Read session mode from user preferences (non-fatal — default if unavailable)
-  let sessionMode = 'default';
-  try {
-    const bucketName = getBucketName(user.email, c.env.CLOUDFLARE_WORKER_NAME);
-    const prefs = await c.env.KV.get(getPreferencesKey(bucketName), 'json') as Record<string, unknown> | null;
-    if (prefs?.sessionMode === 'advanced') sessionMode = 'advanced';
-  } catch { /* getBucketName may not be available in test mocks */ }
+  const sessionMode = prefs?.sessionMode === 'advanced' ? 'advanced' : 'default';
 
   // subscribedMode = what mode the user paid for (gates Settings Pro toggle)
   const subscribedMode = (userData?.subscribedMode === 'advanced' ? 'advanced' : 'default') as string;
@@ -119,13 +123,7 @@ app.get('/status', requireIdentity, async (c) => {
   if (maxUsers > 0 && !hasSubscribed) {
     try {
       const allUsers = await getAllUsers(c.env.KV);
-      // Count everyone who can use the platform: admins + subscribed users (free included).
-      // Only pending and blocked are excluded.
-      const activeCount = allUsers.filter(u =>
-        u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
-        && (u.role === 'admin' || !!(u as unknown as Record<string, unknown>).subscribedAt)
-      ).length;
-      userCapacityReached = activeCount >= maxUsers;
+      userCapacityReached = countPaidSlots(allUsers) >= maxUsers;
     } catch { /* non-fatal */ }
   }
 
@@ -275,11 +273,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
-      const activeCount = allUsers.filter(u =>
-        u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
-        && (u.role === 'admin' || !!(u as unknown as Record<string, unknown>).subscribedAt)
-      ).length;
-      if (activeCount >= maxUsers) {
+      if (countPaidSlots(allUsers) >= maxUsers) {
         throw new ValidationError('Subscriptions are currently full. Please try again later.');
       }
     }
@@ -411,6 +405,39 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   }
 
   return c.json({ success: true, tier: parsed.data.tier, trialQuotaHours: 0, onboardingComplete, trialUsed });
+});
+
+// Rate limit for team contact: 1 per hour per user
+const contactTeamRateLimiter = createRateLimiter({
+  windowMs: 3_600_000,
+  maxRequests: 1,
+  keyPrefix: 'contact-team',
+});
+
+// POST /api/auth/contact-team — notify admins that a user wants Team/Enterprise access
+app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => {
+  const user = c.get('user');
+  let plan: string | undefined;
+  try {
+    const body = await c.req.json<{ plan?: string }>().catch(() => ({} as { plan?: string }));
+    plan = typeof body.plan === 'string' ? body.plan.slice(0, 64) : undefined;
+  } catch { /* body parsing is best-effort */ }
+  try {
+    const users = await getAllUsers(c.env.KV);
+    const adminEmails = users.filter((u) => u.role === 'admin').map((u) => u.email);
+    await sendAccessRequestNotification({
+      userEmail: user.email,
+      requestedAt: new Date().toISOString(),
+      remoteIp: c.req.header('CF-Connecting-IP') || null,
+      plan: plan || 'Team',
+      adminEmails,
+      env: c.env,
+    });
+  } catch (err) {
+    logger.error('Failed to send team contact email', err instanceof Error ? err : new Error(String(err)));
+  }
+  logger.info('Team access inquiry', { email: user.email, plan });
+  return c.json({ success: true });
 });
 
 // POST /api/auth/onboarding-complete — mark guided setup as completed for this user

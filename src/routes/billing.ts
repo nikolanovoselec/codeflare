@@ -11,13 +11,15 @@ import { requireIdentity, type AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
-import { parseUserRecord } from '../lib/user-record';
-import { getTierConfig } from '../lib/subscription';
+import { parseUserRecord, updateUserRecord } from '../lib/user-record';
+import { getTierConfig, countPaidSlots } from '../lib/subscription';
 import { getAllUsers } from '../lib/access-policy';
 import {
   getStripePriceId,
   createCheckoutSession,
   createPortalSession,
+  createSwitchPortalSession,
+  fetchSubscription,
 } from '../lib/stripe';
 
 const logger = createLogger('billing');
@@ -53,11 +55,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     const maxUsers = parseInt(await c.env.KV.get('setup:max_users') ?? '0');
     if (maxUsers > 0) {
       const allUsers = await getAllUsers(c.env.KV);
-      const activeCount = allUsers.filter(u =>
-        u.subscriptionTier !== 'pending' && u.subscriptionTier !== 'blocked'
-        && (u.role === 'admin' || !!(u as unknown as Record<string, unknown>).subscribedAt)
-      ).length;
-      if (activeCount >= maxUsers) {
+      if (countPaidSlots(allUsers) >= maxUsers) {
         throw new ValidationError('Subscriptions are currently full. Please try again later.');
       }
     }
@@ -89,7 +87,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   const successUrl = `${baseUrl}/app/subscribe?checkout=success`;
   const cancelUrl = `${baseUrl}/app/subscribe?checkout=canceled`;
 
-  // Check if user has already used their trial — if not, include 30-day trial window
+  // Check if user has already used their trial — if not, include 7-day trial window
   // (actual compute is capped by trialQuotaHours in tier config; Stripe trial is just the billing window)
   const trialUsed = userData?.trialUsed === true;
   const tierConfig = tiers.find(t => t.id === tier);
@@ -102,15 +100,13 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     cancelUrl,
     secretKey,
     metadata: { tier, mode, email: user.email },
-    trialDays: trialUsed ? undefined : 30,
+    trialDays: trialUsed ? undefined : 7,
     trialQuotaHours: trialUsed ? undefined : trialQuotaHours,
   });
 
   // Store checkoutSessionId on user KV (non-fatal)
   try {
-    const existing = await c.env.KV.get(`user:${user.email}`, 'json') as Record<string, unknown> | null;
-    const updated = { ...existing, checkoutSessionId: session.id };
-    await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
+    await updateUserRecord(c.env.KV, user.email, { checkoutSessionId: session.id });
   } catch (err) {
     logger.error('Failed to store checkoutSessionId', err instanceof Error ? err : new Error(String(err)));
   }
@@ -119,12 +115,51 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   return c.json({ checkoutUrl: session.url });
 });
 
-// GET /billing/status
+// GET /billing/status — returns live billing state from Stripe (source of truth)
 app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
   const raw = await c.env.KV.get(`user:${user.email}`, 'json');
   const userData = parseUserRecord(raw);
+  const subscriptionId = userData?.stripeSubscriptionId as string | undefined;
+  const secretKey = c.env.STRIPE_SECRET_KEY;
 
+  // If user has a subscription ID and Stripe is configured, verify it still exists
+  if (subscriptionId && secretKey) {
+    try {
+      const snapshot = await fetchSubscription(subscriptionId, secretKey);
+      if (!snapshot) {
+        // Subscription gone from Stripe — return cleared state
+        // Clean up billing fields in KV (non-blocking). Only reset billing
+        // fields — never touch identity fields (addedBy, addedAt, role).
+        void updateUserRecord(c.env.KV, user.email, {
+          subscriptionTier: 'pending',
+          accessTier: 'pending',
+          billingStatus: 'canceled',
+        });
+        return c.json({
+          stripeCustomerId: null,
+          stripeSubscriptionId: null,
+          stripePriceId: null,
+          billingPeriodEnd: null,
+          checkoutSessionId: userData?.checkoutSessionId ?? null,
+          billingStatus: null,
+        });
+      }
+      // Return live Stripe state
+      return c.json({
+        stripeCustomerId: snapshot.customerId,
+        stripeSubscriptionId: snapshot.subscriptionId,
+        stripePriceId: snapshot.priceId,
+        billingPeriodEnd: snapshot.billingPeriodEnd,
+        checkoutSessionId: userData?.checkoutSessionId ?? null,
+        billingStatus: snapshot.status,
+      });
+    } catch {
+      // Stripe API error — fall through to KV data
+    }
+  }
+
+  // No subscription or Stripe not configured — return KV data
   return c.json({
     stripeCustomerId: userData?.stripeCustomerId ?? null,
     stripeSubscriptionId: userData?.stripeSubscriptionId ?? null,
@@ -170,6 +205,89 @@ app.post('/portal', requireIdentity, portalRateLimiter, async (c) => {
   });
 
   logger.info('Portal session created', { email: user.email, sessionId: session.id });
+  return c.json({ portalUrl: session.url });
+});
+
+// Rate limit switch: 5 per minute per user
+const switchRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 5,
+  keyPrefix: 'billing-switch',
+});
+
+const SwitchSchema = z.object({
+  tier: z.string().min(1, 'Tier is required'),
+  mode: z.enum(['default', 'advanced']).optional().default('default'),
+});
+
+// POST /billing/switch — deep-link portal to plan change confirmation
+app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
+  const secretKey = c.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new ValidationError('Stripe is not configured.');
+  }
+
+  const user = c.get('user');
+
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+
+  const parsed = SwitchSchema.safeParse(raw);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+
+  const { tier, mode } = parsed.data;
+
+  if (tier === 'free') {
+    throw new ValidationError('Use the Customer Portal to cancel or downgrade to free.');
+  }
+
+  // Look up user's existing subscription
+  const userData = parseUserRecord(await c.env.KV.get(`user:${user.email}`, 'json'));
+  const customerId = userData?.stripeCustomerId as string | undefined;
+  const subscriptionId = userData?.stripeSubscriptionId as string | undefined;
+
+  if (!customerId || !subscriptionId) {
+    throw new ValidationError('No active subscription found. Use checkout to subscribe.');
+  }
+
+  // Resolve the new price ID
+  const tiers = await getTierConfig(c.env.KV);
+  const newPriceId = getStripePriceId(tier, mode, tiers);
+  if (!newPriceId) {
+    throw new ValidationError(`No Stripe price found for tier "${tier}" mode "${mode}".`);
+  }
+
+  // Fetch subscription to get the subscription item ID (si_xxx)
+  const snapshot = await fetchSubscription(subscriptionId, secretKey);
+  if (!snapshot) {
+    // Subscription no longer exists on Stripe — clean up billing fields in KV.
+    // Only reset billing fields — never touch identity fields (addedBy, addedAt, role).
+    logger.warn('Stale subscription in KV, cleaning up', { email: user.email, subscriptionId });
+    await updateUserRecord(c.env.KV, user.email, {
+      subscriptionTier: 'pending',
+      accessTier: 'pending',
+      billingStatus: 'canceled',
+    });
+    throw new ValidationError('Subscription expired. Redirecting to checkout.');
+  }
+  if (!snapshot.subscriptionItemId) {
+    throw new ValidationError('Could not resolve subscription details from Stripe.');
+  }
+
+  const customDomain = await c.env.KV.get('setup:custom_domain');
+  const baseUrl = customDomain ? `https://${customDomain}` : new URL(c.req.url).origin;
+  const returnUrl = `${baseUrl}/app/`;
+
+  const session = await createSwitchPortalSession({
+    customerId,
+    subscriptionId,
+    subscriptionItemId: snapshot.subscriptionItemId,
+    newPriceId,
+    returnUrl,
+    secretKey,
+  });
+
+  logger.info('Switch portal session created', { email: user.email, tier, mode, sessionId: session.id });
   return c.json({ portalUrl: session.url });
 });
 

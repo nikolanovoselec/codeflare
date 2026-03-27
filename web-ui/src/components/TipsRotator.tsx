@@ -21,6 +21,10 @@ const ALL_TIPS: Tip[] = [
   { text: 'Upload and download files from the storage panel', category: 'mobile' },
   { text: 'Add to Home Screen for a standalone app experience', category: 'mobile' },
   { text: 'Toggle terminal button labels in Settings', category: 'mobile' },
+  { text: 'Tap the [] button then press a key to send Ctrl+C, Ctrl+B, etc.', category: 'mobile' },
+  { text: 'Use the paste button to paste from your clipboard into the terminal', category: 'mobile' },
+  { text: 'When a login URL is detected, a special icon appears \u2014 tap it to open automatically', category: 'mobile' },
+  { text: 'Tap the copy button to copy a detected URL to your clipboard', category: 'mobile' },
   // Desktop
   { text: 'Drag and drop files into the storage panel to upload', category: 'desktop' },
   { text: 'Drag tabs in the terminal to reorder them. Tab 1 stays fixed', category: 'desktop' },
@@ -39,13 +43,32 @@ const ALL_TIPS: Tip[] = [
   { text: 'Chunked uploads let you upload large files from the storage panel', category: 'general' },
   { text: 'Getting Started guide and example projects are preloaded in the storage panel', category: 'general' },
   { text: 'Use GitHub Actions to build and deploy \u2014 ask your agent to set it up', category: 'general' },
+  { text: 'Connect your GitHub account in Settings to push code from every session', category: 'general' },
+  { text: 'Connect your Cloudflare account in Settings to deploy from every session', category: 'general' },
+  { text: 'Switch to Pro mode in Settings to unlock persistent memory across sessions', category: 'general' },
+  { text: 'Change your idle timeout in Settings \u2014 from 5 minutes to 2 hours', category: 'general' },
+  { text: 'Check your compute usage on the Usage page', category: 'general' },
+  { text: 'Turn off Fast Start in Settings if you want agents to auto-update on boot', category: 'general' },
+  { text: 'Your files sync to R2 every 60 seconds \u2014 safe even if your session dies', category: 'general' },
+  { text: 'Ask your agent to build a Cloudflare Workers project and deploy it for you', category: 'general' },
 ];
+
+/** Fisher-Yates shuffle — returns a new shuffled array */
+function shuffle<T>(arr: T[]): T[] {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
 
 function filterTips(): Tip[] {
   const touch = isTouchDevice();
-  return ALL_TIPS.filter(
+  const filtered = ALL_TIPS.filter(
     (tip) => tip.category === 'general' || (touch ? tip.category === 'mobile' : tip.category === 'desktop'),
   );
+  return shuffle(filtered);
 }
 
 const ROTATION_INTERVAL_MS = 15_000;

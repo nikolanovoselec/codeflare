@@ -223,15 +223,20 @@ When available, also check project-specific conventions from `CLAUDE.md` or proj
 
 Adapt your review to the project's established patterns. When in doubt, match what the rest of the codebase does.
 
-## v1.8 AI-Generated Code Review Addendum
+## Impact Analysis
+
+Before approving any change, verify:
+
+- **Caller impact**: Grep for all importers/callers of modified functions — check they still work with the new signature/behavior
+- **Schema alignment**: When API response shapes change, verify both backend and frontend schemas match (Zod, TypeScript types, validation)
+- **JSON serialization safety**: Flag `undefined` values in objects destined for `JSON.stringify` — they silently strip fields. Use explicit reset values or omit the field
+- **KV/DB field safety**: Never delete required fields from stored records — use explicit values (e.g., `'pending'` not `undefined`)
+
+## AI-Generated Code Review
 
 When reviewing AI-generated changes, prioritize:
 
 1. Behavioral regressions and edge-case handling
 2. Security assumptions and trust boundaries
 3. Hidden coupling or accidental architecture drift
-4. Unnecessary model-cost-inducing complexity
-
-Cost-awareness check:
-- Flag workflows that escalate to higher-cost models without clear reasoning need.
-- Recommend defaulting to lower-cost tiers for deterministic refactors.
+4. Caller impact — AI tools frequently change function signatures without updating all callers

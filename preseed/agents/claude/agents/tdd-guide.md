@@ -86,7 +86,7 @@ Next failing test for next behavior.
 
 For detailed mocking patterns and framework-specific examples, consult the project's testing documentation.
 
-## v1.8 Eval-Driven TDD Addendum
+## Eval-Driven TDD
 
 Integrate eval-driven development into TDD flow:
 
@@ -95,4 +95,11 @@ Integrate eval-driven development into TDD flow:
 3. Implement minimum passing change.
 4. Re-run tests and evals; report pass@1 and pass@3.
 
-Release-critical paths should target pass^3 stability before merge.
+Release-critical paths should target pass@3 stability before merge.
+
+## CI-Only Test Execution
+
+In constrained environments (1 vCPU, no local builds), tests run via CI only:
+- Write tests locally, push to branch, verify via `gh run view`
+- Use the code-reviewer agent to catch issues before pushing
+- Never run test suites, linters, or type checkers locally unless explicitly asked

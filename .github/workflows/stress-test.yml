@@ -32,6 +32,7 @@ jobs:
     env:
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
@@ -54,14 +55,15 @@ jobs:
 
       - name: Ensure SERVICE_AUTH_SECRET is set on target worker
         run: |
-          if [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
-            echo "::error::CF_ACCESS_CLIENT_SECRET is not set in the integration environment."
+          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
+          if [ -z "${AUTH_SECRET}" ]; then
+            echo "::error::Neither CF_ACCESS_CLIENT_SECRET nor OAUTH_E2E_TEST_SECRET is set."
             exit 1
           fi
 
           WORKER="${{ vars.CLOUDFLARE_WORKER_NAME }}"
           echo "Setting SERVICE_AUTH_SECRET on worker: $WORKER"
-          printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
+          printf '%s' "${AUTH_SECRET}" | wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
 
           # Seed stress test service user in KV allowlist
           SERVICE_EMAIL="e2e-service@codeflare.local"
@@ -99,11 +101,12 @@ jobs:
           fi
 
           # Auth check with retries (worker secret propagation + KV consistency)
+          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
           for i in 1 2 3 4; do
             SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
-              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-              -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
+              ${CF_ACCESS_CLIENT_ID:+-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID"} \
+              ${CF_ACCESS_CLIENT_SECRET:+-H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"} \
+              -H "X-Service-Auth: $AUTH_SECRET" || true)
             echo "Attempt $i: /api/sessions -> $SESSIONS"
 
             if [ "$SESSIONS" = "200" ]; then
@@ -112,11 +115,10 @@ jobs:
             fi
 
             if [ "$SESSIONS" = "302" ]; then
-              # Capture redirect target for diagnostics
               LOCATION=$(curl -sS -o /dev/null -D - "$BASE/api/sessions" \
-                -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-                -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-                -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" 2>/dev/null \
+                ${CF_ACCESS_CLIENT_ID:+-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID"} \
+                ${CF_ACCESS_CLIENT_SECRET:+-H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"} \
+                -H "X-Service-Auth: $AUTH_SECRET" 2>/dev/null \
                 | grep -i "^location:" || true)
               echo "302 redirect location: $LOCATION"
             fi
@@ -146,6 +148,7 @@ jobs:
       E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -181,6 +184,7 @@ jobs:
       E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -216,6 +220,7 @@ jobs:
       E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -251,6 +256,7 @@ jobs:
       E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 

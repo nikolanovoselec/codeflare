@@ -81,6 +81,21 @@
 }
 .subscribe-logout-button:hover { background: rgba(24, 24, 27, 0.95); border-color: rgba(255, 255, 255, 0.15); color: #fafafa; transform: translateY(-1px); }
 
+.subscribe-home-actions {
+  display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;
+}
+
+.subscribe-portal-note {
+  font-size: 0.7rem; color: #52525b; text-align: center; margin: 0.25rem 0 0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.subscribe-manage-button {
+  color: #f38020; border-color: rgba(243, 128, 32, 0.25);
+}
+.subscribe-manage-button:hover { color: #ff9633; border-color: rgba(243, 128, 32, 0.5); }
+.subscribe-manage-button:disabled { opacity: 0.5; cursor: wait; }
+
 /* ── Merged mode card with Standard/Pro toggle ── */
 
 .subscribe-mode-card-merged {
@@ -116,20 +131,22 @@
   display: flex; flex-direction: column; gap: 0.5rem;
 }
 .subscribe-mode-card-feature {
-  display: flex; align-items: center; gap: 0.5rem;
+  display: flex; align-items: flex-start; gap: 0.5rem;
   font-size: 0.8125rem; color: #71717a;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.02em;
 }
-.subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; }
+.subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; margin-top: 0.15rem; }
 
 .subscribe-mode-you {
-  margin-left: auto;
-  font-size: 0.7rem; font-weight: 500;
+  font-size: 0.65rem; font-weight: 500;
   color: #22c55e;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  margin-left: auto;
+  flex-shrink: 0;
+  margin-top: 0.15rem;
   animation: lifelinePulse 2s ease-in-out infinite;
 }
 
@@ -215,7 +232,9 @@
 .subscribe-tier-feature-item svg { color: #22c55e; flex-shrink: 0; }
 
 .subscribe-tier-badge {
-  font-size: 0.7rem; color: #22c55e;
+  font-size: 0.8125rem; color: #22c55e;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
   background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2);
   border-radius: 6px; padding: 0.25rem 0.5rem;
   display: inline-block; margin-bottom: 1rem;

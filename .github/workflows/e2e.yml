@@ -45,14 +45,16 @@ jobs:
 
       - name: Ensure SERVICE_AUTH_SECRET is set on target worker
         run: |
-          if [ -z "${CF_ACCESS_CLIENT_SECRET}" ]; then
-            echo "::error::CF_ACCESS_CLIENT_SECRET is not set in the integration environment."
+          # Use CF_ACCESS_CLIENT_SECRET (CF Access mode) or OAUTH_E2E_TEST_SECRET (GitHub OIDC mode)
+          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
+          if [ -z "${AUTH_SECRET}" ]; then
+            echo "::error::Neither CF_ACCESS_CLIENT_SECRET nor OAUTH_E2E_TEST_SECRET is set."
             exit 1
           fi
 
           WORKER="${{ steps.target.outputs.worker_name }}"
           echo "Setting SERVICE_AUTH_SECRET on worker: $WORKER"
-          printf '%s' "${CF_ACCESS_CLIENT_SECRET}" | wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
+          printf '%s' "${AUTH_SECRET}" | wrangler secret put SERVICE_AUTH_SECRET --name "$WORKER" 2>&1
 
           # Seed E2E service user in KV allowlist
           # Uses fixed email matching worker's X-Service-Auth identity
@@ -92,11 +94,12 @@ jobs:
           fi
 
           # Auth check with retries (KV eventual consistency ~60s)
+          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
           for i in 1 2 3 4; do
             SESSIONS=$(curl -sS -o /tmp/sessions.json -w "%{http_code}" "$BASE/api/sessions" \
-              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-              -H "X-Service-Auth: $CF_ACCESS_CLIENT_SECRET" || true)
+              ${CF_ACCESS_CLIENT_ID:+-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID"} \
+              ${CF_ACCESS_CLIENT_SECRET:+-H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"} \
+              -H "X-Service-Auth: $AUTH_SECRET" || true)
             echo "Attempt $i: /api/sessions -> $SESSIONS"
 
             if [ "$SESSIONS" = "200" ]; then
@@ -128,6 +131,7 @@ jobs:
     env:
       CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
       CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       E2E_BASE_URL: ${{ needs.setup.outputs.base_url }}

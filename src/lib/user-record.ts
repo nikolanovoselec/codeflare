@@ -23,6 +23,8 @@ const UserRecordSchema = z.object({
   onboardingComplete: z.boolean().optional(),
   trialUsed: z.boolean().optional(),
   requestedAt: z.string().optional(),
+  lastSyncedAt: z.string().optional(),
+  cancelAtPeriodEnd: z.boolean().optional(),
 }).passthrough();
 
 type UserRecord = z.infer<typeof UserRecordSchema>;

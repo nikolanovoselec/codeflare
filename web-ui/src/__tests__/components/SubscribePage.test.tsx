@@ -17,13 +17,18 @@ vi.mock('../../api/client', () => ({
   getAuthStatus: vi.fn(),
   getPublicTiers: vi.fn(),
   subscribe: vi.fn(),
+  getBillingStatus: vi.fn(),
+  createCheckoutSession: vi.fn(),
+  createPortalSession: vi.fn(),
+  createSwitchSession: vi.fn(),
 }));
 
-import { getAuthStatus, getPublicTiers, subscribe } from '../../api/client';
+import { getAuthStatus, getPublicTiers, subscribe, getBillingStatus } from '../../api/client';
 
 const mockedGetAuthStatus = vi.mocked(getAuthStatus);
 const mockedGetPublicTiers = vi.mocked(getPublicTiers);
 const mockedSubscribe = vi.mocked(subscribe);
+const mockedGetBillingStatus = vi.mocked(getBillingStatus);
 
 const MOCK_PUBLIC_TIERS = [
   { id: 'free', displayName: 'Free', monthlySeconds: 14400, maxSessions: 1, priceMonthly: 0, advancedPriceMonthly: null, description: 'Get started for free', trialQuotaHours: 0, sessionModes: ['default'], canLogin: true, order: 2, isDefault: false },
@@ -50,6 +55,7 @@ async function openTierView() {
 describe('SubscribePage', () => {
   let mockLocation: { href: string };
   let originalLocation: Location;
+  let mockActiveSubscription: (tier?: string) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -66,7 +72,30 @@ describe('SubscribePage', () => {
     });
 
     mockedGetPublicTiers.mockResolvedValue({ tiers: MOCK_PUBLIC_TIERS });
+
+    // Default: no active Stripe subscription (pending user)
+    mockedGetBillingStatus.mockResolvedValue({
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      stripePriceId: null,
+      billingPeriodEnd: null,
+      checkoutSessionId: null,
+      billingStatus: null,
+    });
     mockedSubscribe.mockResolvedValue({ success: true, tier: 'free', trialQuotaHours: 0, onboardingComplete: false });
+
+    // Helper: call this inside any test that sets hasSubscribed: true
+    // to also provide Stripe-verified billing data
+    mockActiveSubscription = (tier = 'standard') => {
+      mockedGetBillingStatus.mockResolvedValue({
+        stripeCustomerId: 'cus_active',
+        stripeSubscriptionId: 'sub_active',
+        stripePriceId: `price_${tier}_default`,
+        billingPeriodEnd: '2026-04-27T00:00:00Z',
+        checkoutSessionId: null,
+        billingStatus: 'active',
+      });
+    };
 
     originalLocation = window.location;
     mockLocation = { href: '' };
@@ -114,6 +143,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       render(() => <SubscribePage />);
       await vi.advanceTimersByTimeAsync(0);
@@ -243,6 +273,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       await openTierView();
 
@@ -271,6 +302,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       await openTierView();
 
@@ -311,6 +343,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       await openTierView();
 
@@ -327,6 +360,7 @@ describe('SubscribePage', () => {
         role: 'user',
         hasSubscribed: true,
       });
+      mockActiveSubscription();
 
       await openTierView();
       fireEvent.click(screen.getByTestId('lifeline-stop-max'));

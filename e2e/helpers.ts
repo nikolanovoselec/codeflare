@@ -3,9 +3,12 @@ import { afterEach } from 'vitest';
 import { apiRequest, BASE_URL } from './setup';
 import { IS_MOBILE, SUITE_PREFIX, TIMEOUTS } from './config';
 
-const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID!;
-const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
-const SERVICE_AUTH_SECRET = process.env.CF_ACCESS_CLIENT_SECRET!;
+// E2E auth: CF Access mode uses CF_ACCESS_CLIENT_ID + CF_ACCESS_CLIENT_SECRET.
+// GitHub OIDC mode (no CF Access) uses OAUTH_E2E_TEST_SECRET only.
+// Both set SERVICE_AUTH_SECRET on the Worker via deploy.yml.
+const CF_ACCESS_CLIENT_ID = process.env.CF_ACCESS_CLIENT_ID || '';
+const CF_ACCESS_CLIENT_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || '';
+const SERVICE_AUTH_SECRET = process.env.CF_ACCESS_CLIENT_SECRET || process.env.OAUTH_E2E_TEST_SECRET || '';
 
 /** Workspace-relative directory for E2E failure artifacts (screenshots, HTML dumps). */
 const E2E_ARTIFACTS_DIR = new URL('../e2e-artifacts', import.meta.url).pathname;
@@ -26,11 +29,10 @@ export async function createPage(browser: Browser): Promise<Page> {
 
   // Set extra HTTP headers — needed for API fetch calls made within the page context
   // (e.g. waitForContainerReady's page.waitForFunction that calls fetch()).
-  await page.setExtraHTTPHeaders({
-    'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
-    'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
-    'X-Service-Auth': SERVICE_AUTH_SECRET,
-  });
+  const authHeaders: Record<string, string> = { 'X-Service-Auth': SERVICE_AUTH_SECRET };
+  if (CF_ACCESS_CLIENT_ID) authHeaders['CF-Access-Client-Id'] = CF_ACCESS_CLIENT_ID;
+  if (CF_ACCESS_CLIENT_SECRET) authHeaders['CF-Access-Client-Secret'] = CF_ACCESS_CLIENT_SECRET;
+  await page.setExtraHTTPHeaders(authHeaders);
 
   // Request interception: inject CF Access service token headers on EVERY request,
   // including redirect targets. setExtraHTTPHeaders may not survive CF Access 302
@@ -42,14 +44,10 @@ export async function createPage(browser: Browser): Promise<Page> {
     // Third-party requests (e.g. CF Access login page assets) should not get our tokens.
     if (url.startsWith(BASE_ORIGIN)) {
       const headers = request.headers();
-      request.continue({
-        headers: {
-          ...headers,
-          'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
-          'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
-          'X-Service-Auth': SERVICE_AUTH_SECRET,
-        },
-      });
+      const injected: Record<string, string> = { ...headers, 'X-Service-Auth': SERVICE_AUTH_SECRET };
+      if (CF_ACCESS_CLIENT_ID) injected['CF-Access-Client-Id'] = CF_ACCESS_CLIENT_ID;
+      if (CF_ACCESS_CLIENT_SECRET) injected['CF-Access-Client-Secret'] = CF_ACCESS_CLIENT_SECRET;
+      request.continue({ headers: injected });
     } else {
       request.continue();
     }

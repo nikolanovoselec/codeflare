@@ -233,6 +233,8 @@ When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOA
 
 **Tab Visibility Auto-Refresh:** `Layout.tsx` listens for `visibilitychange` events. When the tab returns from background (mobile browser tab switch, screen off/on), it auto-refreshes session statuses and storage listing. This prevents stale "Failed to fetch" errors that appear when background tabs have their network requests aborted by the browser. Storage refresh is silent (no loading spinner) to avoid UI flicker.
 
+**Hidden-Tab WS Guard:** Browsers throttle/kill WebSocket connections in background tabs. When a WS drops and the retry also fails, the terminal store normally infers the container is dead (`handleContainerStopped`). However, in a hidden tab, retry failure is expected behavior — not evidence of a stopped container. The WS close handler checks `document.hidden` before triggering the container-stopped callback. If hidden, it sets the terminal to `'disconnected'` and defers to `reconnectOnVisibilityReturn()` when the user returns. This prevents false "session stopped" transitions that would force the user to refresh. Note: batch-status is KV-only (eventual consistency, ~60s lag), so it cannot be used for real-time recovery verification — prevention at the WS layer is the correct approach.
+
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -263,7 +265,7 @@ sequenceDiagram
 
 **KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully -- `SessionStatCard` shows last-known metrics for recently-stopped sessions.
 
-**Auto-Reconnect:** Infinite retries with 1-second delay (`WS_RETRY_DELAY_MS = 1000`). Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops.
+**Auto-Reconnect:** Infinite retries with 1-second delay (`WS_RETRY_DELAY_MS = 1000`). Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops. Dead container detection: if the first retry (attemptNumber > 1) fails with a retryable close code while the tab is **visible**, the terminal store calls `handleContainerStopped()` — marking the session stopped and disposing terminals. If the tab is **hidden**, the failure is deferred (terminal set to `'disconnected'`, no callback) since browser WS throttling makes retry failure unreliable as a stop signal.
 
 **No Application-Level WS Pings:** Removed. Cloudflare's runtime handles protocol-level WebSocket keepalive for DO/Container connections automatically.
 
@@ -637,7 +639,39 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ## Authentication
 
-### Cloudflare Access Integration
+### Dual Auth Mode
+
+`getUserFromRequest()` checks auth methods in order:
+
+1. **Service token** (`X-Service-Auth` header) — E2E testing, all modes. Constant-time comparison against `SERVICE_AUTH_SECRET`.
+2. **GitHub OIDC** (`codeflare_session` cookie) — SaaS mode when `OAUTH_CLIENT_ID` is set. HMAC-SHA256 JWT signed by `OAUTH_JWT_SECRET`. Replaces CF Access entirely.
+3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) — default/onboarding mode, or SaaS without `OAUTH_CLIENT_ID`. Verified via JWKS.
+4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) — trusted only before setup completes.
+
+### GitHub OIDC (SaaS Mode)
+
+When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured:
+
+```
+Login button → GET /auth/github/login
+  → Set oauth_state cookie (random UUID, 5-min TTL)
+  → 302 to github.com/login/oauth/authorize
+  → User authorizes → GitHub redirects to /auth/github/callback
+  → Validate state (cookie vs query param, not KV — avoids eventual consistency)
+  → Exchange code for access token → fetch verified email from GitHub API
+  → Sign HMAC-SHA256 JWT → Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, 1h)
+  → Redirect to /app/ or /app/subscribe based on user state
+```
+
+- GitHub access token used ephemerally during callback, then discarded
+- Only `primary: true, verified: true` emails accepted from GitHub API
+- OAuth error codes allowlisted (access_denied, redirect_uri_mismatch, application_suspended)
+- Callback rate-limited (10/min per IP)
+- Missing `OAUTH_JWT_SECRET` in SaaS mode throws `AuthError` (fail-loud, no silent fallthrough to CF Access)
+
+**Logout:** `/auth/logout` routes to `/auth/github/logout` (clears cookie) in SaaS mode, or CF Access logout in default mode. Frontend uses `/auth/logout` — never hardcodes CF Access URLs.
+
+### Cloudflare Access Integration (Default/Onboarding Mode)
 
 **Browser/JWT:** `cf-access-authenticated-user-email` + `cf-access-jwt-assertion` headers.
 
@@ -647,17 +681,26 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 
 ### Access Application Destination Strategy
 
-One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`. Including exact + wildcard variants removes ambiguity. Uses all 5 allowed entries.
+One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`. Including exact + wildcard variants removes ambiguity. Uses all 5 allowed entries. **Skipped when `OAUTH_CLIENT_ID` is set** — CF Access app is still created by the setup wizard but auth is bypassed at runtime by the OIDC branch.
 
 ### Access Group Model
 
 Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()` after user mutations — **skipped in SaaS mode** because the Access policy uses `login_method` includes (set by setup); syncing would overwrite them with email/group includes, breaking the policy. `GET /api/setup/prefill` reads existing membership for redeploy prefill (skipped in SaaS mode — returns empty arrays, admin enters everything manually). Admin-only deployments (0 regular users) are supported: the users group is skipped entirely and the Access policy references only the admin group.
+
+### E2E Testing Auth
+
+E2E tests authenticate via `X-Service-Auth` header. The secret comes from:
+- **CF Access mode:** `CF_ACCESS_CLIENT_SECRET` environment secret (also sent as CF Access headers)
+- **GitHub OIDC mode:** `OAUTH_E2E_TEST_SECRET` environment secret (no CF Access headers needed)
+
+Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, service auth is disabled (safe — `env.SERVICE_AUTH_SECRET` is undefined, the check is skipped).
 
 ### Root Redirect
 
 - Setup incomplete -> redirect to `/setup`
 - Setup complete, default mode -> `/` redirects to `/app/`
 - Setup complete, onboarding mode -> authenticated users to `/app/`, unauthenticated to public landing
+- Setup complete, SaaS mode -> `/` shows login page with "Sign in with GitHub" button
 
 ### Auth Flow
 
@@ -666,12 +709,16 @@ flowchart TD
     A[Request] --> B[Edge routing]
     B --> C[CORS]
     C --> D[Auth Middleware]
-    D --> E["getUserFromRequest()<br/>JWT / service token"]
-    E --> F[Normalize email]
-    F --> G[Check KV allowlist]
-    G --> H["getBucketName()"]
-    H --> I["Set c.get('user'), c.get('bucketName')"]
-    I --> J[Route Handler]
+    D --> E["getUserFromRequest()"]
+    E --> F{Service token?}
+    F -->|Yes| G[Return admin user]
+    F -->|No| H{SaaS + OIDC?}
+    H -->|Yes| I[Verify codeflare_session cookie]
+    H -->|No| J[Verify CF Access JWT]
+    I --> K[Normalize email]
+    J --> K
+    K --> L[Resolve user from KV]
+    L --> M[Route Handler]
 ```
 
 ### Per-User Bucket Naming
@@ -804,10 +851,12 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 
 When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanced, max) require Stripe Checkout before activation. Free tier remains direct (no payment). When the secret is absent, all tiers work via direct KV (dev/self-hosted mode).
 
-**Architecture:**
-- Library: `src/lib/stripe.ts` — price map, checkout session creation, webhook signature verification, Stripe API communication
-- Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (authenticated)
-- Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified)
+**Architecture — Signal and Sync pattern:**
+Webhooks are signals that trigger a fetch of the latest state from the Stripe API. KV is a read cache, not the source of truth. This eliminates race conditions from incremental KV patching and ensures KV always reflects the latest Stripe state.
+
+- Library: `src/lib/stripe.ts` — checkout session creation, webhook signature verification, `fetchSubscription()` (Signal and Sync), Stripe API communication
+- Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (Stripe-verified), `POST /api/billing/switch` (portal deep-link for plan changes)
+- Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified), `syncSubscriptionState()`
 - Types: `BillingFields` interface in `src/types.ts`
 
 **Checkout flow:**
@@ -816,15 +865,21 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 3. Frontend redirects to Stripe-hosted checkout page
 4. After payment, Stripe redirects to `/app/subscribe?checkout=success`
 5. Frontend polls `GET /api/auth/status` every 2s (max 30s) waiting for webhook to activate the subscription
-6. Stripe sends `checkout.session.completed` webhook → handler writes tier + billing fields to user KV
+6. Stripe sends `checkout.session.completed` webhook → handler maps email→customer, writes checkout fields, then calls `syncSubscriptionState()`
 
-**Webhook events handled:**
-- `checkout.session.completed` — activates subscription, stores customer/subscription IDs
-- `customer.subscription.created` — updates subscription details and price ID
-- `customer.subscription.updated` — handles plan changes (upgrades/downgrades via Customer Portal)
-- `invoice.paid` — confirms billing period, sets status to `active`
-- `invoice.payment_failed` — sets billing status to `past_due`
-- `customer.subscription.deleted` — sets billing status to `canceled`
+**Webhook events handled (3 events):**
+- `checkout.session.completed` — maps email→customer in KV, writes `subscribedAt`/`checkoutSessionId`, then calls `syncSubscriptionState()`
+- `customer.subscription.updated` — delegates entirely to `syncSubscriptionState()` (handles plan changes, renewals, payment status changes via Customer Portal)
+- `customer.subscription.deleted` — writes `billingStatus: 'canceled'`, resets tiers to `free` directly (subscription is gone from Stripe, can't fetch)
+
+**`syncSubscriptionState(customerId, subscriptionId, env)`:**
+1. Resolves email from customer ID (KV lookup with Stripe API fallback)
+2. Calls `fetchSubscription()` — fetches latest subscription state from `GET /v1/subscriptions/{id}?expand[]=items.data.price`
+3. Timestamp guard: skips write if KV's `lastSyncedAt` >= now (prevents stale webhook from overwriting newer state)
+4. Builds KV patch from snapshot — only sets tier/mode if price metadata is present (preserves existing values when null)
+5. Writes via `updateUserRecord()` (preserves existing KV fields like `addedBy`, `onboardingComplete`)
+
+**Price metadata:** Tier and mode are stored as metadata on Stripe Price objects (`price.metadata.tier`, `price.metadata.mode`). This eliminates reverse price-to-tier lookups and the hardcoded dev price map. Prices must have metadata set in the Stripe Dashboard before deploy.
 
 **Security:**
 - Webhook endpoint at `/public/stripe/webhook` bypasses CF Access (same pattern as `/public/auth/providers`)
@@ -840,14 +895,22 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 - `stripePriceId` — Active Stripe price ID
 - `billingPeriodEnd` — ISO timestamp of current billing period end
 - `checkoutSessionId` — Stripe checkout session ID
-- `billingStatus` — `active`, `past_due`, `canceled`, or `incomplete`
+- `billingStatus` — `active`, `past_due`, `canceled`, `trialing`, or `incomplete`
+- `lastSyncedAt` — ISO timestamp of last sync from Stripe API (timestamp guard for idempotency)
+- `cancelAtPeriodEnd` — whether the subscription will cancel at period end
 
 **Stripe gate:** When `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects paid tiers with "Paid subscriptions require checkout." Only `free` tier is allowed through the direct subscribe endpoint. This ensures payment is collected before tier activation.
 
-**Price map (sandbox):** 6 prices across 3 paid tiers x 2 modes (Standard/Pro). Defined in `src/lib/stripe.ts` as `PRICE_MAP`. `getStripePriceId(tier, mode)` for lookup, `resolveTierFromPriceId(priceId)` for reverse resolution.
+**Price resolution:** `getStripePriceId(tier, mode, tiers)` and `resolveTierFromPriceId(priceId, tiers)` both require tier config (KV-sourced). No dev fallback — prices must be configured in tier config or via Stripe Price metadata.
 
 **Billing enforcement (`getEffectiveTier()` in `src/lib/subscription.ts`):**
-When `billingStatus` is `canceled` or `past_due` for a paid tier (standard/advanced/max), the user is treated as `free` at all enforcement points. The stored `subscriptionTier` is preserved in KV so resubscription restores the correct plan. Enforcement is read-time, not write-time.
+Downgrade rules for paid tiers (standard/advanced/max):
+- `billingStatus === 'canceled'` → immediate downgrade to `free` (no grace period)
+- `billingStatus === 'past_due'` + future `billingPeriodEnd` → keep paid tier (grace period)
+- `billingStatus === 'past_due'` + expired/missing `billingPeriodEnd` → downgrade to `free`
+- `billingPeriodEnd` expired + `billingStatus === 'active'` → downgrade to `free` (catches missed webhooks, CF-015)
+
+The stored `subscriptionTier` is preserved in KV so resubscription restores the correct plan. Enforcement is read-time, not write-time.
 
 Enforcement points:
 - `GET /api/auth/status` — returns effective tier (free) to frontend
@@ -857,8 +920,16 @@ Enforcement points:
 
 Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pending`, `blocked`.
 
+**Emails:** Renewal/payment emails are handled by Stripe native customer emails (configured in Stripe Dashboard). Custom transactional emails (welcome, subscription confirmation, admin notifications) are sent via Resend API.
+
 **Customer Portal (`POST /api/billing/portal`):**
-Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices, change plan). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min.
+Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min.
+
+**Plan switching (`POST /api/billing/switch`):**
+Creates a portal session with `flow_data[type]=subscription_update_confirm` that deep-links directly to the Stripe confirmation page with the new price pre-selected. Skips the portal's sparse plan list — users compare plans on the Codeflare subscribe page (rich features, hours, sessions) and only see Stripe for payment confirmation. Requires `subscriptionItemId` from `fetchSubscription()`. Falls back: if the subscription no longer exists on Stripe, cleans up stale KV fields and returns an error so the frontend redirects to checkout. After confirmation, redirects back to `/app/`. Plan changes trigger `customer.subscription.updated` webhook → `syncSubscriptionState()` picks up the change.
+
+**Billing status (`GET /api/billing/status`):**
+Returns live billing state verified against Stripe API (source of truth). When a `stripeSubscriptionId` exists, calls `fetchSubscription()` to verify the subscription still exists. If gone, resets billing fields (`subscriptionTier`/`accessTier` → `pending`, `billingStatus` → `canceled`) and returns null fields. Identity fields (`addedBy`, `addedAt`, `role`) are never touched during cleanup. Falls back to KV data if Stripe is unavailable or not configured. The subscribe page calls this on load to determine whether to show "Subscribe" or "Switch Plan".
 
 **Trial model:**
 Every paid tier has a configurable `trialQuotaHours` (default 4h for all tiers). Trial is compute-based, not time-based.
@@ -2810,11 +2881,35 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 - **Decision:** Accept Host header parsing for `.workers.dev` domains during setup. The exposure window is: (1) only during first-time setup (minutes), (2) requires CF Access JWT authentication, (3) setup is idempotent. For custom domains, the env var set at deploy time takes precedence.
 - **Consequences:** A spoofed Host header on a `.workers.dev` domain during the setup window could theoretically direct configuration to a different worker name, but this requires authenticated access and the window is extremely narrow.
 
-#### AD: KV as Billing State Store (CF-015)
+#### AD: KV as Billing Read Cache — Signal and Sync (CF-015)
+- **Status:** Accepted (updated)
+- **Context:** All billing state is stored in Cloudflare KV (eventually consistent, ~60s propagation). The previous design had 6 webhook handlers incrementally patching KV fields, causing race conditions, silent tier update failures, and wrong emails. Plan changes via Customer Portal were not picked up reliably.
+- **Decision:** "Signal and Sync" pattern — webhooks are signals that trigger `syncSubscriptionState()`, which fetches the latest state from the Stripe API and writes a complete snapshot to KV. Stripe is the source of truth; KV is a read cache. `lastSyncedAt` timestamp guard prevents stale webhooks from overwriting newer state. Concurrent webhooks calling sync both fetch the same latest state → idempotent. Price metadata on Stripe Price objects carries tier/mode, eliminating reverse price-to-tier lookups.
+- **Consequences:** KV write propagation (~60s) doesn't affect correctness — sync overwrites complete state. `getEffectiveTier()` still provides read-time enforcement with safe defaults. The `past_due` grace period (keep paid tier while `billingPeriodEnd` is in the future) prevents premature downgrade during Stripe retry windows. Renewal/payment emails are offloaded to Stripe native customer emails.
+
+#### AD: GitHub OIDC Replaces CF Access in SaaS Mode
 - **Status:** Accepted
-- **Context:** All billing state (subscriptionTier, billingStatus, billingPeriodEnd) is stored in Cloudflare KV, which is eventually consistent (~60s propagation) with no transactional guarantees. Webhook handlers use `updateUserRecord()` (read-merge-write) which can lose fields if two handlers fire within the propagation window.
-- **Decision:** Accept KV as the billing state store. Mitigations: (1) `getEffectiveTier()` derives effective tier from multiple KV fields with safe defaults — partial updates degrade gracefully to 'free' rather than granting paid access. (2) Stripe webhook retry + idempotent handlers mean transient KV failures self-heal. (3) `billingPeriodEnd` expiry catches missed `subscription.deleted` webhooks.
-- **Consequences:** A partial webhook update can leave billing fields inconsistent for up to 60s. In the worst case, a user briefly sees stale quota information. Billing-critical decisions (tier enforcement, quota checks) use `getEffectiveTier()` which defaults to restrictive ('pending'/'free') on missing data. A periodic reconciliation job validating KV state against Stripe's API is a recommended future improvement.
+- **Context:** Cloudflare Access costs $3/user/month beyond 50 users. At 1,400 users this is $4,050/month for auth alone. GitHub OIDC is free for unlimited users.
+- **Decision:** When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentication directly via GitHub OAuth with HMAC-SHA256 session cookies. CF Access is bypassed at runtime. OAuth state uses HttpOnly cookies (not KV) to avoid eventual consistency issues. Only verified GitHub emails are accepted. The `codeflare_session` cookie is HttpOnly, Secure, SameSite=Lax with 1-hour TTL.
+- **Consequences:** Users must create a GitHub OAuth App per environment. CF Access setup wizard still runs (creating the Access app) but auth is bypassed. The `codeflare_session` cookie has a 1-hour TTL. A middleware in `index.ts` auto-refreshes the cookie when < 15 minutes remain on any response — active users stay logged in indefinitely. When the cookie expires (user inactive > 1 hour), the frontend auto-redirects to `/` for re-authentication via `baseFetch` 401 handler.
+
+#### AD: Max Users Capacity Cap Counts Paid Slots Only
+- **Status:** Accepted
+- **Context:** The `setup:max_users` KV key limits how many users can subscribe. Free tier users (4h/month, 1 session) use minimal resources and shouldn't block paid customers from subscribing.
+- **Decision:** `countPaidSlots()` counts admins + users with paid tiers (standard/advanced/max/unlimited) whose billing is active or trialing. Canceled users count until `billingPeriodEnd` expires. Free, pending, and blocked users are excluded.
+- **Consequences:** A deployment can have unlimited free users without hitting the capacity cap. Canceled users retain their slot until their paid period ends.
+
+#### AD: Webhook Route Order (`/public/stripe` before `/public`)
+- **Status:** Accepted
+- **Context:** Hono's `app.route('/public', publicRoutes)` catches all `/public/*` paths. The Stripe webhook at `/public/stripe/webhook` was unreachable because it was mounted after the catch-all.
+- **Decision:** Mount `/public/stripe` before `/public` in `src/index.ts`. More-specific routes must precede catch-all routes in Hono.
+- **Consequences:** Route ordering in `index.ts` is load-bearing. Future `/public/*` sub-routes must be mounted before the catch-all.
+
+#### AD: Team Tier Uses Contact Flow (Not Self-Service Checkout)
+- **Status:** Accepted
+- **Context:** The Team (unlimited) tier is enterprise-grade — unlimited compute, 5 sessions, custom SLA. Self-service checkout is not appropriate.
+- **Decision:** The subscribe page shows "Get in Touch" for the Team tier. Clicking it sends an email to admins via Resend (`POST /api/auth/contact-team`, rate-limited 1/hour) and changes the button to "We'll get in touch" (disabled). No Stripe checkout for Team tier.
+- **Consequences:** Team tier onboarding is manual. Admins receive the inquiry email and configure the user's subscription directly.
 
 ## Module-Level Caches (CF-014)
 
@@ -2830,6 +2925,7 @@ All module-level caches in the codebase. Workers isolates do not share memory, s
 | `src/lib/kv-crypto.ts` | imported CryptoKey | Isolate lifetime | AES-256 key from `ENCRYPTION_KEY` env var | (none — persists for isolate lifetime) |
 | `src/lib/rate-limit-core.ts` | `failedKvOps` | Isolate lifetime | Counter for consecutive KV failures (circuit breaker) | (none) |
 | `src/lib/circuit-breakers.ts` | per-container breakers | Isolate lifetime | Circuit breaker state per container ID | (none) |
+| `src/lib/session-jwt.ts` | `cachedKey` | Isolate lifetime | HMAC CryptoKey imported from `OAUTH_JWT_SECRET` | (none — re-imported if secret changes) |
 
 After admin config changes, different isolates may enforce different values for up to the cache TTL. This is an accepted trade-off for KV read performance.
 
@@ -3153,7 +3249,7 @@ This eliminates the feedback loop without weakening either protection mechanism.
 
 #### WS Retryable Close Codes (Fix 5)
 
-The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry.
+The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry. When a retry fails (attemptNumber > 1), a `document.hidden` check prevents false container-stopped detection in background tabs — see "Hidden-Tab WS Guard" in the Frontend section.
 
 ---
 

@@ -1,6 +1,6 @@
 import { Component, createSignal, createMemo, onMount, For, Show } from 'solid-js';
 import { mdiArrowExpandLeft } from '@mdi/js';
-import { getUsers, type UserEntry, updateUserTier, deleteUser, updateMaxUsers } from '../../api/client';
+import { getUsers, type UserEntry, updateUserTier, deleteUser, updateMaxUsers, getAuthStatus } from '../../api/client';
 import type { SubscriptionTier } from '../../types';
 import Icon from '../Icon';
 import '../../styles/user-management.css';
@@ -55,12 +55,17 @@ const UserManagement: Component<UserManagementProps> = (props) => {
   const [maxUsers, setMaxUsers] = createSignal(0);
   const [editingMaxUsers, setEditingMaxUsers] = createSignal(false);
   const [maxUsersInput, setMaxUsersInput] = createSignal('');
+  const [currentEmail, setCurrentEmail] = createSignal('');
 
   onMount(async () => {
     try {
-      const { users: fetched, maxUsers: cap } = await getUsers();
+      const [{ users: fetched, maxUsers: cap }, auth] = await Promise.all([
+        getUsers(),
+        getAuthStatus().catch(() => ({ email: '' })),
+      ]);
       setUsers(fetched.map((u) => ({ ...u, resolvedTier: resolveTier(u) })));
       setMaxUsers(cap);
+      setCurrentEmail((auth.email ?? '').toLowerCase());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
@@ -322,7 +327,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                           >
                             <div class="user-mgmt-actions">
                               <Show
-                                when={user.role !== 'admin'}
+                                when={user.role !== 'admin' || user.email.toLowerCase() === currentEmail()}
                                 fallback={<span class="user-mgmt-tier-fixed">Unlimited</span>}
                               >
                                 <select
