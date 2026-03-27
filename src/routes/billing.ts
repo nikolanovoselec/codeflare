@@ -132,17 +132,12 @@ app.get('/status', requireIdentity, async (c) => {
       const snapshot = await fetchSubscription(subscriptionId, secretKey);
       if (!snapshot) {
         // Subscription gone from Stripe — return cleared state
-        // Also clean up KV in the background (non-blocking)
+        // Clean up billing fields in KV (non-blocking). Only reset billing
+        // fields — never touch identity fields (addedBy, addedAt, role).
         void updateUserRecord(c.env.KV, user.email, {
-          stripeSubscriptionId: undefined,
-          stripeCustomerId: undefined,
-          stripePriceId: undefined,
-          billingStatus: undefined,
-          billingPeriodEnd: undefined,
           subscriptionTier: 'pending',
           accessTier: 'pending',
-          cancelAtPeriodEnd: undefined,
-          lastSyncedAt: undefined,
+          billingStatus: 'canceled',
         });
         return c.json({
           stripeCustomerId: null,
@@ -268,18 +263,13 @@ app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
   // Fetch subscription to get the subscription item ID (si_xxx)
   const snapshot = await fetchSubscription(subscriptionId, secretKey);
   if (!snapshot) {
-    // Subscription no longer exists on Stripe — clean up stale KV fields
+    // Subscription no longer exists on Stripe — clean up billing fields in KV.
+    // Only reset billing fields — never touch identity fields (addedBy, addedAt, role).
     logger.warn('Stale subscription in KV, cleaning up', { email: user.email, subscriptionId });
     await updateUserRecord(c.env.KV, user.email, {
-      stripeSubscriptionId: undefined,
-      stripeCustomerId: undefined,
-      stripePriceId: undefined,
-      billingStatus: undefined,
-      billingPeriodEnd: undefined,
       subscriptionTier: 'pending',
       accessTier: 'pending',
-      cancelAtPeriodEnd: undefined,
-      lastSyncedAt: undefined,
+      billingStatus: 'canceled',
     });
     throw new ValidationError('Subscription expired. Redirecting to checkout.');
   }
