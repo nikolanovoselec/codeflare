@@ -225,11 +225,11 @@ const SubscribePage: Component = () => {
         return;
       }
 
-      // Use Stripe (billing status) as source of truth for active subscription.
-      // KV-based hasSubscribed is the fallback when billing endpoint is unavailable.
-      const hasActiveSubscription = billing
-        ? !!billing.stripeSubscriptionId && !!billing.billingStatus
-        : status.hasSubscribed === true;
+      // Stripe is source of truth for paid subscriptions, but admin-managed tiers
+      // (unlimited) have no Stripe subscription. Use KV hasSubscribed as fallback
+      // when billing endpoint returns no subscription or is unavailable.
+      const stripeActive = billing && !!billing.stripeSubscriptionId && !!billing.billingStatus;
+      const hasActiveSubscription = stripeActive || status.hasSubscribed === true;
 
       if (hasActiveSubscription) {
         setIsActive(true);
