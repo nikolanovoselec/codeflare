@@ -9,7 +9,7 @@ import { getDeployKeysKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto';
-import { maskSecret } from '../lib/request-helpers';
+import { maskSecret, parseJsonBody, firstZodError } from '../lib/request-helpers';
 
 const UpdateDeployKeysBody = z.object({
   githubToken: z.string().max(256).nullable().optional(),
@@ -91,10 +91,10 @@ app.get('/', async (c) => {
  */
 app.put('/', async (c) => {
   const bucketName = c.get('bucketName');
-  const raw = await c.req.json();
+  const raw = await parseJsonBody(c);
   const parsed = UpdateDeployKeysBody.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   const kvKey = getDeployKeysKey(bucketName);

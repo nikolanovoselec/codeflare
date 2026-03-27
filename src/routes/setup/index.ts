@@ -2,6 +2,7 @@ import { Hono, type Context, type Next } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../../types';
 import { ValidationError, toError } from '../../lib/error-types';
+import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
 import { listAllKvKeys, emailFromKvKey, getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
 import { getBucketName } from '../../lib/access';
@@ -76,11 +77,10 @@ app.use('/configure', createConditionalSetupAuth());
 app.use('/configure', setupRateLimiter);
 app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   const parsed = ConfigureBodySchema.safeParse(body);
   if (!parsed.success) {
-    const firstError = parsed.error.issues[0];
-    throw new ValidationError(firstError.message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   const { customDomain, allowedUsers, adminUsers, allowedOrigins } = parsed.data;

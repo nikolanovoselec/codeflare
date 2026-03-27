@@ -23,6 +23,7 @@ import {
   createSwitchPortalSession,
   fetchSubscription,
 } from '../lib/stripe';
+import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 
 const logger = createLogger('billing');
 
@@ -63,11 +64,10 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     }
   }
 
-  let raw: unknown;
-  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const raw = await parseJsonBody(c);
 
   const parsed = CheckoutSchema.safeParse(raw);
-  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+  if (!parsed.success) throw new ValidationError(firstZodError(parsed.error));
 
   const { tier, mode } = parsed.data;
 
@@ -229,11 +229,10 @@ app.post('/switch', requireIdentity, switchRateLimiter, async (c) => {
 
   const user = c.get('user');
 
-  let raw: unknown;
-  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const raw = await parseJsonBody(c);
 
   const parsed = SwitchSchema.safeParse(raw);
-  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+  if (!parsed.success) throw new ValidationError(firstZodError(parsed.error));
 
   const { tier, mode } = parsed.data;
 

@@ -9,6 +9,7 @@ import { getPresetsKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { MAX_PRESETS, MAX_TABS } from '../lib/constants';
 import { ValidationError, NotFoundError } from '../lib/error-types';
+import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { TabConfigSchema } from '../lib/schemas';
 
 const CreatePresetBody = z.object({
@@ -37,10 +38,10 @@ app.get('/', async (c) => {
  */
 app.post('/', async (c) => {
   const bucketName = c.get('bucketName');
-  const raw = await c.req.json();
+  const raw = await parseJsonBody(c);
   const parsed = CreatePresetBody.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   const key = getPresetsKey(bucketName);
@@ -70,10 +71,10 @@ app.post('/', async (c) => {
 app.patch('/:id', async (c) => {
   const bucketName = c.get('bucketName');
   const presetId = c.req.param('id');
-  const raw = await c.req.json();
+  const raw = await parseJsonBody(c);
   const parsed = z.object({ label: z.string().trim().min(1, 'Label cannot be blank').max(50) }).strict().safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   const key = getPresetsKey(bucketName);

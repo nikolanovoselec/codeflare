@@ -11,6 +11,7 @@ import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
+import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
 import { isStripeConfigured, getStripePrices } from '../lib/stripe';
 
@@ -179,12 +180,11 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
   }
 
   // Parse body
-  let raw: unknown;
-  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const raw = await parseJsonBody(c);
 
   const parsed = RequestAccessSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   // Verify Turnstile token (required for SaaS mode access request gating)
@@ -249,11 +249,10 @@ const SubscribeSchema = z.object({
 app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const user = c.get('user');
 
-  let raw: unknown;
-  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const raw = await parseJsonBody(c);
 
   const parsed = SubscribeSchema.safeParse(raw);
-  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+  if (!parsed.success) throw new ValidationError(firstZodError(parsed.error));
 
   if (!SUBSCRIBABLE_TIER_IDS.has(parsed.data.tier)) {
     throw new ValidationError(`Invalid tier: ${parsed.data.tier}. Must be one of: free, standard, advanced, max, unlimited`);

@@ -8,6 +8,7 @@ import { isOnboardingLandingPageActive } from '../../lib/onboarding';
 import { getTierConfig, SUBSCRIBABLE_TIER_IDS } from '../../lib/subscription';
 import { escapeXml } from '../../lib/xml-utils';
 import { createLogger } from '../../lib/logger';
+import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
 import { verifyTurnstileToken } from '../../lib/turnstile';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 
@@ -79,10 +80,10 @@ app.get('/onboarding-config', async (c) => {
 });
 
 app.post('/waitlist', waitlistRateLimiter, async (c) => {
-  const body = await c.req.json();
+  const body = await parseJsonBody(c);
   const parsed = WaitlistRequestSchema.safeParse(body);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   const turnstileSecret = c.env.TURNSTILE_SECRET_KEY

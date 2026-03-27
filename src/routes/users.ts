@@ -10,6 +10,7 @@ import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
 import { isSaasModeActive } from '../lib/onboarding';
+import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { sendTierChangeNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
@@ -58,8 +59,7 @@ app.get('/', requireAdmin, async (c) => {
 
 // PUT /api/users/max-users - Set max users cap (admin only)
 app.put('/max-users', requireAdmin, async (c) => {
-  let raw: unknown;
-  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const raw = await parseJsonBody(c);
   const parsed = z.object({ maxUsers: z.number().int().min(0) }).safeParse(raw);
   if (!parsed.success) throw new ValidationError('maxUsers must be a non-negative integer');
   await c.env.KV.put(SETUP_KEYS.MAX_USERS, String(parsed.data.maxUsers));
@@ -106,8 +106,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   if (!rawEmail) throw new ValidationError('Email parameter is required');
   const email = rawEmail.trim().toLowerCase();
 
-  let raw: unknown;
-  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const raw = await parseJsonBody(c);
 
   // Accept both subscriptionTier (new) and accessTier (backward compat)
   const patchSchema = z.object({
@@ -118,7 +117,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     { message: 'Either subscriptionTier or accessTier is required' }
   );
   const parsed = patchSchema.safeParse(raw);
-  if (!parsed.success) throw new ValidationError(parsed.error.issues[0].message);
+  if (!parsed.success) throw new ValidationError(firstZodError(parsed.error));
 
   const newTier = parsed.data.subscriptionTier ?? parsed.data.accessTier!;
 

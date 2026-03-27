@@ -8,6 +8,7 @@ import { AgentTypeSchema, SessionModeSchema, SleepAfterOptions, type Env, type U
 import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
+import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { canUseSessionModeWithConfig } from '../lib/access-tier';
 import { isSaasModeActive } from '../lib/onboarding';
@@ -50,16 +51,11 @@ app.get('/', async (c) => {
 app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
 
-  let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    throw new ValidationError('Invalid JSON body');
-  }
+  const raw = await parseJsonBody(c);
 
   const parsed = UpdatePreferencesBody.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   if (parsed.data.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {

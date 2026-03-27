@@ -13,6 +13,7 @@ import { MAX_SESSION_NAME_LENGTH, MAX_TABS, SESSION_ID_PATTERN } from '../../lib
 import { getContainerId } from '../../lib/container-helpers';
 import { createLogger } from '../../lib/logger';
 import { ValidationError } from '../../lib/error-types';
+import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
 import { toApiSession } from '../../lib/session-helpers';
 import { TabConfigSchema } from '../../lib/schemas';
 
@@ -87,10 +88,10 @@ app.get('/', async (c) => {
  */
 app.post('/', sessionCreateRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
-  const raw = await c.req.json();
+  const raw = await parseJsonBody(c);
   const parsed = CreateSessionBody.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   let sessionName = parsed.data.name?.trim() || 'Terminal';
@@ -149,10 +150,10 @@ app.patch('/:id', async (c) => {
 
   const session = await getSessionOrThrow(c.env.KV, key);
 
-  const raw = await c.req.json();
+  const raw = await parseJsonBody(c);
   const parsed = UpdateSessionBody.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   // Update fields (immutable)

@@ -11,6 +11,7 @@ import { authMiddleware, requireAdmin, type AuthVariables } from '../../middlewa
 import { getTiersConfigKey } from '../../lib/kv-keys';
 import { getDefaultTiers, getTierConfig } from '../../lib/subscription';
 import { ValidationError } from '../../lib/error-types';
+import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
 
 const TierConfigSchema = z.object({
   id: z.string(),
@@ -40,12 +41,11 @@ app.get('/', requireAdmin, async (c) => {
 });
 
 app.put('/', requireAdmin, async (c) => {
-  let raw: unknown;
-  try { raw = await c.req.json(); } catch { throw new ValidationError('Invalid JSON body'); }
+  const raw = await parseJsonBody(c);
 
   const parsed = PutTiersBodySchema.safeParse(raw);
   if (!parsed.success) {
-    throw new ValidationError(parsed.error.issues[0].message);
+    throw new ValidationError(firstZodError(parsed.error));
   }
 
   // Validate tier IDs match defaults (cannot add/remove/rename tiers)
