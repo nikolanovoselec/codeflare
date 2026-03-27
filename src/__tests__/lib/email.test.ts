@@ -1,5 +1,106 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendSubscriptionAdminNotification } from '../../lib/email';
+import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendSubscriptionAdminNotification, getModeLabel, buildPlanChangeRows, buildSubscriptionDetailRows } from '../../lib/email';
+
+describe('getModeLabel', () => {
+  it('returns "Pro" for "advanced" mode', () => {
+    expect(getModeLabel('advanced')).toBe('Pro');
+  });
+
+  it('returns "Standard" for "default" mode', () => {
+    expect(getModeLabel('default')).toBe('Standard');
+  });
+
+  it('returns "Standard" for undefined', () => {
+    expect(getModeLabel(undefined)).toBe('Standard');
+  });
+
+  it('returns "Standard" for any other string', () => {
+    expect(getModeLabel('custom')).toBe('Standard');
+  });
+});
+
+describe('buildPlanChangeRows', () => {
+  it('returns Previous/New table with tier names and mode labels', () => {
+    const rows = buildPlanChangeRows({
+      previousTierName: 'Starter',
+      tierName: 'Advanced',
+      previousMode: 'default',
+      sessionMode: 'advanced',
+    });
+    const html = rows.join('\n');
+    expect(html).toContain('Previous');
+    expect(html).toContain('Starter (Standard)');
+    expect(html).toContain('New');
+    expect(html).toContain('Advanced (Pro)');
+    expect(html).toContain('<table');
+    expect(html).toContain('</table>');
+  });
+
+  it('uses tierName as fallback when previousTierName is undefined', () => {
+    const rows = buildPlanChangeRows({ tierName: 'Max', sessionMode: 'default' });
+    const html = rows.join('\n');
+    expect(html).toContain('Max (Standard)');
+  });
+
+  it('escapes HTML in tier names', () => {
+    const rows = buildPlanChangeRows({ previousTierName: '<script>xss</script>', tierName: 'Safe' });
+    const html = rows.join('\n');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+});
+
+describe('buildSubscriptionDetailRows', () => {
+  it('includes Compute row when monthlyHours provided', () => {
+    const html = buildSubscriptionDetailRows({ monthlyHours: '40h' }).join('\n');
+    expect(html).toContain('Compute');
+    expect(html).toContain('40h');
+  });
+
+  it('includes Sessions row when maxSessions provided', () => {
+    const html = buildSubscriptionDetailRows({ maxSessions: 3 }).join('\n');
+    expect(html).toContain('Sessions');
+    expect(html).toContain('3');
+  });
+
+  it('includes Price row when price provided', () => {
+    const html = buildSubscriptionDetailRows({ price: '$29' }).join('\n');
+    expect(html).toContain('Price');
+    expect(html).toContain('$29');
+  });
+
+  it('excludes Price row when price not provided', () => {
+    const html = buildSubscriptionDetailRows({ monthlyHours: '40h' }).join('\n');
+    expect(html).not.toContain('Price');
+  });
+
+  it('includes Trial row when trialHours > 0', () => {
+    const html = buildSubscriptionDetailRows({ trialHours: 40 }).join('\n');
+    expect(html).toContain('Trial');
+    expect(html).toContain('40h');
+  });
+
+  it('shows billing active when trialHours is 0 and price exists', () => {
+    const html = buildSubscriptionDetailRows({ trialHours: 0, price: '$29' }).join('\n');
+    expect(html).toContain('Billing');
+    expect(html).toContain('Monthly billing active');
+  });
+
+  it('excludes rows when all params are undefined', () => {
+    const html = buildSubscriptionDetailRows({}).join('\n');
+    expect(html).toContain('<table');
+    expect(html).toContain('</table>');
+    expect(html).not.toContain('Compute');
+    expect(html).not.toContain('Sessions');
+    expect(html).not.toContain('Price');
+  });
+
+  it('escapes HTML in monthlyHours', () => {
+    const html = buildSubscriptionDetailRows({ monthlyHours: '<img onerror=alert(1)>' }).join('\n');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+  });
+});
 
 describe('sendEmail', () => {
   const originalFetch = globalThis.fetch;

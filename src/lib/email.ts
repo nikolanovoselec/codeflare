@@ -13,6 +13,65 @@ import { createLogger } from './logger';
 
 const logger = createLogger('email');
 
+// ── Shared email helpers ──
+
+const TD_STYLE = 'padding:4px 16px 4px 0;color:#888';
+
+/** Derive user-facing mode label from session mode. */
+export function getModeLabel(mode?: string): string {
+  return mode === 'advanced' ? 'Pro' : 'Standard';
+}
+
+/** Build Previous/New plan comparison rows for subscription emails. */
+export function buildPlanChangeRows(opts: {
+  previousTierName?: string;
+  tierName: string;
+  previousMode?: string;
+  sessionMode?: string;
+}): string[] {
+  const prevModeLabel = getModeLabel(opts.previousMode);
+  const modeLabel = getModeLabel(opts.sessionMode);
+  return [
+    '<table style="border-collapse:collapse;margin:16px 0">',
+    `<tr><td style="${TD_STYLE}">Previous</td><td>${escapeXml(opts.previousTierName ?? opts.tierName)} (${prevModeLabel})</td></tr>`,
+    `<tr><td style="${TD_STYLE}">New</td><td><strong>${escapeXml(opts.tierName)} (${modeLabel})</strong></td></tr>`,
+    '</table>',
+  ];
+}
+
+/** Build subscription detail table rows (Compute, Sessions, Price, Trial, Activated). */
+export function buildSubscriptionDetailRows(opts: {
+  monthlyHours?: string;
+  maxSessions?: number;
+  price?: string;
+  trialHours?: number;
+  subscribedAt?: string;
+}): string[] {
+  const rows: string[] = ['<table style="border-collapse:collapse;margin:16px 0">'];
+  if (opts.monthlyHours) {
+    rows.push(`<tr><td style="${TD_STYLE}">Compute</td><td><strong>${escapeXml(opts.monthlyHours)}</strong> / month</td></tr>`);
+  }
+  if (opts.maxSessions) {
+    rows.push(`<tr><td style="${TD_STYLE}">Sessions</td><td><strong>${opts.maxSessions}</strong> concurrent</td></tr>`);
+  }
+  if (opts.price) {
+    rows.push(`<tr><td style="${TD_STYLE}">Price</td><td><strong>${escapeXml(opts.price)}</strong> / month</td></tr>`);
+  }
+  if (opts.trialHours && opts.trialHours > 0) {
+    rows.push(`<tr><td style="${TD_STYLE}">Trial</td><td><strong>${opts.trialHours}h</strong> free compute before billing</td></tr>`);
+  } else if (opts.price) {
+    rows.push(`<tr><td style="${TD_STYLE}">Billing</td><td>Monthly billing active</td></tr>`);
+  }
+  if (opts.subscribedAt) {
+    const date = new Date(opts.subscribedAt);
+    const formatted = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      + ' at ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
+    rows.push(`<tr><td style="${TD_STYLE}">Activated</td><td>${escapeXml(formatted)}</td></tr>`);
+  }
+  rows.push('</table>');
+  return rows;
+}
+
 interface SendEmailOptions {
   to: string[];
   subject: string;
@@ -108,7 +167,7 @@ export async function sendSubscriptionEmail(opts: {
   const { userEmail, tierName, previousTierName, monthlyHours, maxSessions, trialHours, sessionMode, previousMode, price, subscribedAt, instanceUrl, env } = opts;
   const safeTier = escapeXml(tierName);
   const isChange = !!previousTierName || !!previousMode;
-  const modeLabel = sessionMode === 'advanced' ? 'Pro' : 'Standard';
+  const modeLabel = getModeLabel(sessionMode);
   const subject = isChange ? `Plan changed to ${tierName} (${modeLabel})` : `Your Codeflare plan: ${tierName} (${modeLabel})`;
 
   const lines = [
@@ -116,41 +175,12 @@ export async function sendSubscriptionEmail(opts: {
   ];
 
   if (isChange) {
-    const prevModeLabel = previousMode === 'advanced' ? 'Pro' : 'Standard';
-    lines.push(
-      '<table style="border-collapse:collapse;margin:16px 0">',
-      `<tr><td style="padding:4px 16px 4px 0;color:#888">Previous</td><td>${escapeXml(previousTierName ?? tierName)} (${prevModeLabel})</td></tr>`,
-      `<tr><td style="padding:4px 16px 4px 0;color:#888">New</td><td><strong>${safeTier} (${modeLabel})</strong></td></tr>`,
-      '</table>',
-    );
+    lines.push(...buildPlanChangeRows({ previousTierName, tierName, previousMode, sessionMode }));
   } else {
     lines.push(`<p>Your Codeflare plan is now <strong>${safeTier} (${modeLabel})</strong>.</p>`);
   }
 
-  lines.push(
-    '<table style="border-collapse:collapse;margin:16px 0">',
-    `<tr><td style="padding:4px 16px 4px 0;color:#888">Compute</td><td><strong>${escapeXml(monthlyHours)}</strong> / month</td></tr>`,
-    `<tr><td style="padding:4px 16px 4px 0;color:#888">Sessions</td><td><strong>${maxSessions}</strong> concurrent</td></tr>`,
-  );
-
-  if (price) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Price</td><td><strong>${escapeXml(price)}</strong> / month</td></tr>`);
-  }
-
-  if (trialHours > 0) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Trial</td><td><strong>${trialHours}h</strong> free compute before billing</td></tr>`);
-  } else if (price) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Billing</td><td>Monthly billing active</td></tr>`);
-  }
-
-  if (subscribedAt) {
-    const date = new Date(subscribedAt);
-    const formatted = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-      + ' at ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Activated</td><td>${escapeXml(formatted)}</td></tr>`);
-  }
-
-  lines.push('</table>');
+  lines.push(...buildSubscriptionDetailRows({ monthlyHours, maxSessions, price, trialHours, subscribedAt }));
 
   if (instanceUrl) {
     lines.push(`<p><a href="${escapeXml(instanceUrl)}">Open Codeflare</a></p>`);
@@ -184,7 +214,7 @@ export async function sendSubscriptionAdminNotification(opts: {
   const safeUser = escapeXml(userEmail);
   const safeTier = escapeXml(tierName);
   const isChange = !!previousTierName || !!previousMode;
-  const modeLabel = sessionMode === 'advanced' ? 'Pro' : 'Standard';
+  const modeLabel = getModeLabel(sessionMode);
 
   const subject = isChange
     ? `Plan change: ${userEmail} → ${tierName} (${modeLabel})`
@@ -196,39 +226,12 @@ export async function sendSubscriptionAdminNotification(opts: {
   ];
 
   if (isChange) {
-    const prevModeLabel = previousMode === 'advanced' ? 'Pro' : 'Standard';
-    lines.push(
-      '<table style="border-collapse:collapse;margin:16px 0">',
-      `<tr><td style="padding:4px 16px 4px 0;color:#888">Previous</td><td>${escapeXml(previousTierName ?? tierName)} (${prevModeLabel})</td></tr>`,
-      `<tr><td style="padding:4px 16px 4px 0;color:#888">New</td><td><strong>${safeTier} (${modeLabel})</strong></td></tr>`,
-      '</table>',
-    );
+    lines.push(...buildPlanChangeRows({ previousTierName, tierName, previousMode, sessionMode }));
   } else {
     lines.push(`<p><strong>Plan:</strong> ${safeTier} (${modeLabel})</p>`);
   }
 
-  lines.push('<table style="border-collapse:collapse;margin:16px 0">');
-  if (monthlyHours) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Compute</td><td><strong>${escapeXml(monthlyHours)}</strong> / month</td></tr>`);
-  }
-  if (maxSessions) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Sessions</td><td><strong>${maxSessions}</strong> concurrent</td></tr>`);
-  }
-  if (price) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Price</td><td><strong>${escapeXml(price)}</strong> / month</td></tr>`);
-  }
-  if (trialHours && trialHours > 0) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Trial</td><td><strong>${trialHours}h</strong> free compute before billing</td></tr>`);
-  } else if (price) {
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Billing</td><td>Monthly billing active</td></tr>`);
-  }
-  if (subscribedAt) {
-    const date = new Date(subscribedAt);
-    const formatted = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-      + ' at ' + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
-    lines.push(`<tr><td style="padding:4px 16px 4px 0;color:#888">Activated</td><td>${escapeXml(formatted)}</td></tr>`);
-  }
-  lines.push('</table>');
+  lines.push(...buildSubscriptionDetailRows({ monthlyHours, maxSessions, price, trialHours, subscribedAt }));
 
   return sendEmail({ to: adminEmails, subject, html: lines.join('\n'), replyTo: userEmail, env });
 }

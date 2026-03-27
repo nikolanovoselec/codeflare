@@ -146,7 +146,7 @@ export type SessionMode = z.infer<typeof SessionModeSchema>;
 export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
 export type AccessTier = z.infer<typeof AccessTierSchema>;
 
-export const BillingStatusSchema = z.enum(['active', 'trialing', 'past_due', 'canceled']);
+const BillingStatusSchema = z.enum(['active', 'trialing', 'past_due', 'canceled']);
 export type BillingStatus = z.infer<typeof BillingStatusSchema>;
 
 export const BILLING_STATUS = {
