@@ -170,16 +170,18 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
     updatedBy: c.get('user').email,
   });
 
-  // Fire-and-forget tier change notification email
-  const adminEmails = await getAdminEmails(c.env.KV);
-  void sendTierChangeNotification({
-    userEmail: email,
-    previousTier,
-    newTier,
-    changedBy: c.get('user').email,
-    adminEmails,
-    env: c.env,
-  });
+  // Fire-and-forget tier change notification email (non-fatal)
+  try {
+    const adminEmails = await getAdminEmails(c.env.KV);
+    void sendTierChangeNotification({
+      userEmail: email,
+      previousTier,
+      newTier,
+      changedBy: c.get('user').email,
+      adminEmails,
+      env: c.env,
+    });
+  } catch { /* notification failure must not block tier update response */ }
 
   return c.json({ success: true, email, subscriptionTier: newTier, accessTier: legacyAccessTier });
 });
