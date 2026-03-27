@@ -17,16 +17,14 @@ API keys must be configured in **Settings > LLM API Keys** before using this ski
 
 ## Model Selection
 
-By default, query both models in parallel:
+By default, query both providers in parallel using their latest flagship model:
 
-| Provider | Model ID |
-|----------|----------|
-| OpenAI | `gpt-5.4` |
-| Google | `gemini-3.1-pro-preview` |
+| Provider | Default |
+|----------|---------|
+| OpenAI | Latest GPT model available via `consult_llm` |
+| Google | Latest Gemini model available via `consult_llm` |
 
-If the user explicitly names a model (e.g., "ask GPT", "consult Gemini", "use gpt-5.2"), only call that model instead of both.
-
-All supported models: `gpt-5.4`, `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gemini-3.1-pro-preview`, `gemini-3-pro-preview`, `gemini-2.5-pro`. If the user asks what models are available, list these.
+If the user explicitly names a provider or model (e.g., "ask GPT", "consult Gemini"), only call that provider. The `consult_llm` tool resolves to the best available model for each provider.
 
 ## How to Invoke
 
@@ -55,16 +53,16 @@ When this skill triggers, follow these steps:
 ## Example Usage
 
 **User:** "discuss with llms whether we should use KV or D1 for session storage"
-- Models: gpt-5.4 + gemini-3.1-pro-preview
+- Models: both (GPT + Gemini)
 - Task mode: plan
 
 **User:** "ask llms to review the auth middleware"
-- Models: gpt-5.4 + gemini-3.1-pro-preview
+- Models: both (GPT + Gemini)
 - Task mode: review
 - Files: include the auth middleware file path
 
 **User:** "ask Gemini what it thinks about this approach"
-- Models: gemini-3.1-pro-preview only
+- Models: Gemini only
 - Task mode: general
 
 ## Troubleshooting

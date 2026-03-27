@@ -138,7 +138,7 @@ Use Redis Stack with vector search capability.
 Accepted
 
 ## Date
-2025-01-15
+YYYY-MM-DD
 ```
 
 ## System Design Checklist

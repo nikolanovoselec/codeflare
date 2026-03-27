@@ -12,6 +12,10 @@ CORRECT: update(original, field, value) → returns new copy with change
 
 Rationale: Immutable data prevents hidden side effects, makes debugging easier, and enables safe concurrency.
 
+NEVER set object fields to `undefined` in patches meant for JSON storage.
+`JSON.stringify` strips `undefined` values, silently deleting fields.
+Use explicit reset values or omit the field from the patch.
+
 ## File Organization
 
 MANY SMALL FILES > FEW LARGE FILES:
@@ -46,3 +50,5 @@ Before marking work complete:
 - [ ] Proper error handling
 - [ ] No hardcoded values (use constants or config)
 - [ ] No mutation (immutable patterns used)
+- [ ] No `undefined` in objects destined for JSON serialization
+- [ ] All callers of modified functions checked for compatibility

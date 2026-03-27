@@ -5,11 +5,13 @@ paths:
 ---
 # Python Testing
 
+**Important:** Tests run via CI only (GitHub Actions). Do not run test suites locally — the container has 1 vCPU. Write tests, push, and verify via `gh run view`.
+
 ## Framework
 
 Use **pytest** as the testing framework.
 
-## Coverage
+## Coverage (CI only)
 
 ```bash
 pytest --cov=src --cov-report=term-missing
