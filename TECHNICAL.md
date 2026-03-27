@@ -2889,7 +2889,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 - **Status:** Accepted
 - **Context:** Cloudflare Access costs $3/user/month beyond 50 users. At 1,400 users this is $4,050/month for auth alone. GitHub OIDC is free for unlimited users.
 - **Decision:** When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentication directly via GitHub OAuth with HMAC-SHA256 session cookies. CF Access is bypassed at runtime. OAuth state uses HttpOnly cookies (not KV) to avoid eventual consistency issues. Only verified GitHub emails are accepted. The `codeflare_session` cookie is HttpOnly, Secure, SameSite=Lax with 1-hour TTL.
-- **Consequences:** Users must create a GitHub OAuth App per environment. CF Access setup wizard still runs (creating the Access app) but auth is bypassed. Cookie refresh is deferred — users re-login after 1 hour.
+- **Consequences:** Users must create a GitHub OAuth App per environment. CF Access setup wizard still runs (creating the Access app) but auth is bypassed. The `codeflare_session` cookie has a 1-hour TTL. A middleware in `index.ts` auto-refreshes the cookie when < 15 minutes remain on any response — active users stay logged in indefinitely. When the cookie expires (user inactive > 1 hour), the frontend auto-redirects to `/` for re-authentication via `baseFetch` 401 handler.
 
 #### AD: Max Users Capacity Cap Counts Paid Slots Only
 - **Status:** Accepted
