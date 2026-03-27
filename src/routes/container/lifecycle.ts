@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session, SessionMode, UserPreferences, ContainerConfigPayload } from '../../types';
+import type { Env, Session, SessionMode, UserPreferences, LlmKeys, DeployKeys, ContainerConfigPayload } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
 import { resolveSessionMode } from '../../lib/session-mode';
