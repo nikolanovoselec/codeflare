@@ -853,7 +853,7 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 Webhooks are signals that trigger a fetch of the latest state from the Stripe API. KV is a read cache, not the source of truth. This eliminates race conditions from incremental KV patching and ensures KV always reflects the latest Stripe state.
 
 - Library: `src/lib/stripe.ts` — checkout session creation, webhook signature verification, `fetchSubscription()` (Signal and Sync), Stripe API communication
-- Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (authenticated)
+- Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (Stripe-verified), `POST /api/billing/switch` (portal deep-link for plan changes)
 - Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified), `syncSubscriptionState()`
 - Types: `BillingFields` interface in `src/types.ts`
 
@@ -921,7 +921,13 @@ Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pend
 **Emails:** Renewal/payment emails are handled by Stripe native customer emails (configured in Stripe Dashboard). Custom transactional emails (welcome, subscription confirmation, admin notifications) are sent via Resend API.
 
 **Customer Portal (`POST /api/billing/portal`):**
-Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices, change plan). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min. Plan changes made via Portal trigger `customer.subscription.updated` webhook → `syncSubscriptionState()` picks up the change.
+Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min.
+
+**Plan switching (`POST /api/billing/switch`):**
+Creates a portal session with `flow_data[type]=subscription_update_confirm` that deep-links directly to the Stripe confirmation page with the new price pre-selected. Skips the portal's sparse plan list — users compare plans on the Codeflare subscribe page (rich features, hours, sessions) and only see Stripe for payment confirmation. Requires `subscriptionItemId` from `fetchSubscription()`. Falls back: if the subscription no longer exists on Stripe, cleans up stale KV fields and returns an error so the frontend redirects to checkout. After confirmation, redirects back to `/app/`. Plan changes trigger `customer.subscription.updated` webhook → `syncSubscriptionState()` picks up the change.
+
+**Billing status (`GET /api/billing/status`):**
+Returns live billing state verified against Stripe API (source of truth). When a `stripeSubscriptionId` exists, calls `fetchSubscription()` to verify the subscription still exists. If gone, cleans up stale KV fields and returns null fields. Falls back to KV data if Stripe is unavailable or not configured. The subscribe page calls this on load to determine whether to show "Subscribe" or "Switch Plan".
 
 **Trial model:**
 Every paid tier has a configurable `trialQuotaHours` (default 4h for all tiers). Trial is compute-based, not time-based.

@@ -40,7 +40,7 @@ import {
   mdiTrendingUp,
   mdiClockFast,
 } from '@mdi/js';
-import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession, createSwitchSession } from '../api/client';
+import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession, createSwitchSession, getBillingStatus } from '../api/client';
 import { formatDuration } from '../lib/format';
 import { logger } from '../lib/logger';
 import ScrambleText from './ScrambleText';
@@ -207,9 +207,10 @@ const SubscribePage: Component = () => {
     }
 
     try {
-      const [status, tiersData] = await Promise.all([
+      const [status, tiersData, billing] = await Promise.all([
         getAuthStatus(),
         getPublicTiers().catch((err) => { logger.error('getPublicTiers failed:', err); return { tiers: [] }; }),
+        getBillingStatus().catch(() => null),
       ]);
 
       if (status.email) setUserEmail(status.email);
@@ -224,17 +225,22 @@ const SubscribePage: Component = () => {
         return;
       }
 
-      if (status.hasSubscribed === true) {
+      // Use Stripe (billing status) as source of truth for active subscription.
+      // KV-based hasSubscribed is the fallback when billing endpoint is unavailable.
+      const hasActiveSubscription = billing
+        ? !!billing.stripeSubscriptionId && !!billing.billingStatus
+        : status.hasSubscribed === true;
+
+      if (hasActiveSubscription) {
         setIsActive(true);
         const ct = status.subscriptionTier ?? status.accessTier ?? 'advanced';
         setCurrentTierId(ct);
-        // Default lifeline selection to current tier if it's in the public list
         if (TIER_ORDER.includes(ct as typeof TIER_ORDER[number])) {
           setSelectedTierId(ct);
         }
       }
 
-      setBillingStatus(status.billingStatus ?? null);
+      setBillingStatus(billing?.billingStatus ?? status.billingStatus ?? null);
       if (status.userCapacityReached === true) {
         setCapacityReached(true);
       }

@@ -478,6 +478,19 @@ export async function createPortalSession(): Promise<{ portalUrl: string }> {
   }, PortalResponseSchema);
 }
 
+const BillingStatusSchema = z.object({
+  stripeCustomerId: z.string().nullable(),
+  stripeSubscriptionId: z.string().nullable(),
+  stripePriceId: z.string().nullable(),
+  billingPeriodEnd: z.string().nullable(),
+  checkoutSessionId: z.string().nullable(),
+  billingStatus: z.string().nullable(),
+});
+
+export async function getBillingStatus(): Promise<z.infer<typeof BillingStatusSchema>> {
+  return fetchApi('/billing/status', { method: 'GET' }, BillingStatusSchema);
+}
+
 export async function createSwitchSession(tier: string, mode?: string): Promise<{ portalUrl: string }> {
   return fetchApi('/billing/switch', {
     method: 'POST',

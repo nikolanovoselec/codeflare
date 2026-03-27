@@ -118,12 +118,56 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   return c.json({ checkoutUrl: session.url });
 });
 
-// GET /billing/status
+// GET /billing/status — returns live billing state from Stripe (source of truth)
 app.get('/status', requireIdentity, async (c) => {
   const user = c.get('user');
   const raw = await c.env.KV.get(`user:${user.email}`, 'json');
   const userData = parseUserRecord(raw);
+  const subscriptionId = userData?.stripeSubscriptionId as string | undefined;
+  const secretKey = c.env.STRIPE_SECRET_KEY;
 
+  // If user has a subscription ID and Stripe is configured, verify it still exists
+  if (subscriptionId && secretKey) {
+    try {
+      const snapshot = await fetchSubscription(subscriptionId, secretKey);
+      if (!snapshot) {
+        // Subscription gone from Stripe — return cleared state
+        // Also clean up KV in the background (non-blocking)
+        void updateUserRecord(c.env.KV, user.email, {
+          stripeSubscriptionId: undefined,
+          stripeCustomerId: undefined,
+          stripePriceId: undefined,
+          billingStatus: undefined,
+          billingPeriodEnd: undefined,
+          subscriptionTier: 'pending',
+          accessTier: 'pending',
+          cancelAtPeriodEnd: undefined,
+          lastSyncedAt: undefined,
+        });
+        return c.json({
+          stripeCustomerId: null,
+          stripeSubscriptionId: null,
+          stripePriceId: null,
+          billingPeriodEnd: null,
+          checkoutSessionId: userData?.checkoutSessionId ?? null,
+          billingStatus: null,
+        });
+      }
+      // Return live Stripe state
+      return c.json({
+        stripeCustomerId: snapshot.customerId,
+        stripeSubscriptionId: snapshot.subscriptionId,
+        stripePriceId: snapshot.priceId,
+        billingPeriodEnd: snapshot.billingPeriodEnd,
+        checkoutSessionId: userData?.checkoutSessionId ?? null,
+        billingStatus: snapshot.status,
+      });
+    } catch {
+      // Stripe API error — fall through to KV data
+    }
+  }
+
+  // No subscription or Stripe not configured — return KV data
   return c.json({
     stripeCustomerId: userData?.stripeCustomerId ?? null,
     stripeSubscriptionId: userData?.stripeSubscriptionId ?? null,
