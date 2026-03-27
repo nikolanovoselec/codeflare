@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session, SessionMode, UserPreferences, LlmKeys, DeployKeys, TabConfig } from '../../types';
+import type { Env, Session, SessionMode, UserPreferences, LlmKeys, DeployKeys, TabConfig, ContainerConfigPayload } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
 import { resolveSessionMode } from '../../lib/session-mode';
@@ -31,24 +31,7 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
  * Build the JSON body for /_internal/setBucketName requests.
  * Extracted to avoid duplication between initial set and post-destroy re-set.
  */
-function buildSetBucketNameBody(params: {
-  bucketName: string;
-  sessionId: string;
-  userEmail: string;
-  scopedCreds: { accessKeyId: string; secretAccessKey: string };
-  r2Config: { accountId: string; endpoint: string };
-  tabConfig: TabConfig[];
-  workspaceSyncEnabled: boolean;
-  fastStartEnabled: boolean;
-  openaiApiKey?: string;
-  geminiApiKey?: string;
-  githubToken?: string;
-  cloudflareApiToken?: string;
-  cloudflareAccountId?: string;
-  encryptionKey?: string;
-  sessionMode: string;
-  sleepAfter?: string;
-}): string {
+function buildSetBucketNameBody(params: ContainerConfigPayload): string {
   return JSON.stringify({
     bucketName: params.bucketName,
     sessionId: params.sessionId,
@@ -60,11 +43,11 @@ function buildSetBucketNameBody(params: {
     tabConfig: params.tabConfig,
     workspaceSyncEnabled: params.workspaceSyncEnabled,
     fastStartEnabled: params.fastStartEnabled,
-    ...(params.openaiApiKey && { openaiApiKey: params.openaiApiKey }),
-    ...(params.geminiApiKey && { geminiApiKey: params.geminiApiKey }),
-    githubToken: params.githubToken ?? null,
-    cloudflareApiToken: params.cloudflareApiToken ?? null,
-    cloudflareAccountId: params.cloudflareAccountId ?? null,
+    ...(params.llmKeys?.openaiApiKey && { openaiApiKey: params.llmKeys.openaiApiKey }),
+    ...(params.llmKeys?.geminiApiKey && { geminiApiKey: params.llmKeys.geminiApiKey }),
+    githubToken: params.deployKeys?.githubToken ?? null,
+    cloudflareApiToken: params.deployKeys?.cloudflareApiToken ?? null,
+    cloudflareAccountId: params.deployKeys?.cloudflareAccountId ?? null,
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter ?? '30m',
@@ -250,49 +233,16 @@ export async function ensureBucketAndSeed(params: {
  *
  * @throws ContainerError if setBucketName fails on a needed update
  */
-export async function configureContainerDO(params: {
+export async function configureContainerDO(params: ContainerConfigPayload & {
   container: { fetch: (req: Request) => Promise<Response> };
-  bucketName: string;
-  sessionId: string;
-  userEmail: string;
   containerId: string;
-  scopedCreds: { accessKeyId: string; secretAccessKey: string };
-  r2Config: { accountId: string; endpoint: string };
-  tabConfig: TabConfig[];
-  workspaceSyncEnabled: boolean;
-  fastStartEnabled: boolean;
-  openaiApiKey?: string;
-  geminiApiKey?: string;
-  githubToken?: string;
-  cloudflareApiToken?: string;
-  cloudflareAccountId?: string;
-  encryptionKey?: string;
-  sessionMode: string;
-  sleepAfter?: string;
   logger: Logger;
 }): Promise<{ needsBucketUpdate: boolean; setBucketBody: string }> {
   const { container, bucketName, containerId, logger } = params;
 
   const storedBucketName = await getStoredBucketName(container, logger, containerId);
 
-  const setBucketBody = buildSetBucketNameBody({
-    bucketName: params.bucketName,
-    sessionId: params.sessionId,
-    userEmail: params.userEmail,
-    scopedCreds: params.scopedCreds,
-    r2Config: params.r2Config,
-    tabConfig: params.tabConfig,
-    workspaceSyncEnabled: params.workspaceSyncEnabled,
-    fastStartEnabled: params.fastStartEnabled,
-    openaiApiKey: params.openaiApiKey,
-    geminiApiKey: params.geminiApiKey,
-    githubToken: params.githubToken,
-    cloudflareApiToken: params.cloudflareApiToken,
-    cloudflareAccountId: params.cloudflareAccountId,
-    encryptionKey: params.encryptionKey,
-    sessionMode: params.sessionMode,
-    sleepAfter: params.sleepAfter,
-  });
+  const setBucketBody = buildSetBucketNameBody(params);
 
   const needsBucketUpdate = storedBucketName !== bucketName;
 
@@ -493,23 +443,20 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     // Step 4: Configure the container DO
     const { needsBucketUpdate, setBucketBody } = await configureContainerDO({
       container,
+      containerId,
       bucketName,
       sessionId,
       userEmail: user.email,
-      containerId,
       scopedCreds,
       r2Config,
       tabConfig,
       workspaceSyncEnabled,
       fastStartEnabled,
-      openaiApiKey: llmKeys?.openaiApiKey,
-      geminiApiKey: llmKeys?.geminiApiKey,
-      githubToken: deployKeys?.githubToken,
-      cloudflareApiToken: deployKeys?.cloudflareApiToken,
-      cloudflareAccountId: deployKeys?.cloudflareAccountId,
-      encryptionKey: c.env.ENCRYPTION_KEY,
       sessionMode,
       sleepAfter,
+      encryptionKey: c.env.ENCRYPTION_KEY,
+      llmKeys,
+      deployKeys,
       logger: reqLogger,
     });
 

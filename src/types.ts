@@ -252,6 +252,25 @@ export interface DeployKeys {
   cloudflareAccountId?: string;
 }
 
+/**
+ * Grouped parameters for container DO initialization (buildSetBucketNameBody + configureContainerDO).
+ */
+export interface ContainerConfigPayload {
+  bucketName: string;
+  sessionId: string;
+  userEmail: string;
+  scopedCreds: { accessKeyId: string; secretAccessKey: string };
+  r2Config: { accountId: string; endpoint: string };
+  tabConfig: TabConfig[];
+  workspaceSyncEnabled: boolean;
+  fastStartEnabled: boolean;
+  sessionMode: string;
+  sleepAfter?: string;
+  encryptionKey?: string;
+  llmKeys?: LlmKeys;
+  deployKeys?: DeployKeys;
+}
+
 export interface StorageObject {
   key: string;
   size: number;

@@ -310,8 +310,7 @@ describe('Container lifecycle extracted helpers', () => {
 
       const paramsWithLlm = {
         ...baseParams,
-        openaiApiKey: 'sk-test123',
-        geminiApiKey: 'AIzaSy-test456',
+        llmKeys: { openaiApiKey: 'sk-test123', geminiApiKey: 'AIzaSy-test456' },
       };
 
       await configureContainerDO(paramsWithLlm);
