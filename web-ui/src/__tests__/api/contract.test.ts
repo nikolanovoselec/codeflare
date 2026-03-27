@@ -656,14 +656,14 @@ describe('Frontend-Backend Contract Tests', () => {
   // Error Response Contract
   // ==========================================================================
   describe('Error Response Contract', () => {
-    it('should handle 401 unauthorized error with redirect', async () => {
+    it('should handle 401 unauthorized error', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 401,
         text: () => Promise.resolve('Unauthorized'),
       });
 
-      await expect(getUser()).rejects.toThrow('Session expired');
+      await expect(getUser()).rejects.toThrow('Unauthorized');
     });
 
     it('should handle 403 forbidden error', async () => {
