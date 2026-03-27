@@ -135,17 +135,18 @@
   font-size: 0.8125rem; color: #71717a;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.02em;
-  position: relative;
 }
 .subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; margin-top: 0.15rem; }
 
 .subscribe-mode-you {
+  display: block;
   font-size: 0.65rem; font-weight: 500;
   color: #22c55e;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  position: absolute; right: 0; top: 0;
+  text-align: right;
+  margin-top: 0.25rem;
   animation: lifelinePulse 2s ease-in-out infinite;
 }
 

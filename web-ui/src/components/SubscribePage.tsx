@@ -684,17 +684,17 @@ const SubscribePage: Component = () => {
                   {/* Standard features (always visible) */}
                   <ul class="subscribe-mode-card-features">
                     <For each={STANDARD_MODE_FEATURES}>
-                      {(f, i) => (
+                      {(f) => (
                         <li class="subscribe-mode-card-feature">
                           <Icon path={f.icon} size={16} />
                           <span>{typeof f.text === 'function' ? f.text() : f.text}</span>
-                          <Show when={isActive() && currentMode() === 'default' && i() === STANDARD_MODE_FEATURES.length - 1}>
-                            <span class="subscribe-mode-you">This is you</span>
-                          </Show>
                         </li>
                       )}
                     </For>
                   </ul>
+                  <Show when={isActive() && currentMode() === 'default'}>
+                    <span class="subscribe-mode-you">This is you</span>
+                  </Show>
 
                   {/* Pro features (animated expand/collapse) */}
                   <div class={`subscribe-pro-expand ${globalMode() === 'advanced' ? 'subscribe-pro-expand--open' : ''}`}>
@@ -707,13 +707,13 @@ const SubscribePage: Component = () => {
                             <li class="subscribe-mode-card-feature">
                               <Icon path={f.icon} size={16} />
                               <span>{scrambledProFeatures[i()]()}</span>
-                              <Show when={isActive() && currentMode() === 'advanced' && i() === PRO_MODE_FEATURES.length - 1}>
-                                <span class="subscribe-mode-you">This is you</span>
-                              </Show>
                             </li>
                           )}
                         </For>
                       </ul>
+                      <Show when={isActive() && currentMode() === 'advanced'}>
+                        <span class="subscribe-mode-you">This is you</span>
+                      </Show>
                     </div>
                   </div>
                 </div>
