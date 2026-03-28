@@ -537,22 +537,25 @@ async function refreshSessionStatuses(): Promise<void> {
         }));
       }
 
-      // Guard: don't overwrite user-initiated "stopping" with stale KV
+      // Guard 1: Manual stop — don't overwrite "stopping" with stale KV "running"
       if (session.status === 'stopping') continue;
-      // Guard: don't clobber init progress UI with stale KV
-      if (session.status === 'initializing') continue;
 
-      // KV is source of truth for session status (polled every 5s).
-      // 4503 from Container DO handles immediate stop detection;
-      // KV handles cross-colo propagation for idle timeouts.
+      // Guard 2: Startup — block ALL KV transitions while session is initializing.
+      // isSessionInitializing tracks the full startup flow (SSE stream), not just
+      // the 'initializing' status. KV may still show 'stopped' during container start.
+      if (session.status === 'initializing' || isSessionInitializing(session.id)) continue;
+
+      // Guard 3: Active session — only 4503 (from Container DO) and manual
+      // stopSession() can stop the active session. KV may have stale 'stopped'
+      // from cross-colo propagation or list cache lag.
+      if (remote.status === 'stopped' && session.id === state.activeSessionId) continue;
+
+      // KV is source of truth for non-active, non-starting sessions.
       if (remote.status === 'running' && session.status !== 'running') {
         updateSessionStatus(session.id, 'running');
       } else if (remote.status === 'stopped' && session.status !== 'stopped') {
         updateSessionStatus(session.id, 'stopped');
         terminalStore.disposeSession(session.id);
-        if (session.id === state.activeSessionId) {
-          setState('activeSessionId', null);
-        }
       }
     }
   } catch (err) {
