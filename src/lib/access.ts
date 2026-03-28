@@ -57,6 +57,23 @@ export function getCookieValue(cookieHeader: string | null, key: string): string
 /**
  * Extract user identity from the request.
  *
+ * **Return value**: Returns `{ email, authenticated }` — the minimal identity
+ * established by the auth provider (CF Access JWT, SaaS OIDC session, or
+ * service token). The only exception is service-token auth, which also sets
+ * `role: 'admin'` because the caller proved possession of the worker secret.
+ *
+ * For OIDC/SaaS and CF Access paths, the returned object does **not** include
+ * `role`, `accessTier`, `subscriptionTier`, or billing fields. Those are
+ * populated later by {@link authenticateRequest}, which calls
+ * {@link resolveOrProvisionUser} (SaaS) or {@link resolveUserFromKV} (non-SaaS)
+ * to hydrate the full {@link AccessUser} profile from KV.
+ *
+ * This partial return is intentional — it separates identity verification
+ * (proving who the caller is) from authorization (determining what the caller
+ * can do). Callers that only need to know "is there a valid session?" can use
+ * this function directly; callers that need role/tier information must go
+ * through `authenticateRequest`.
+ *
  * Authentication methods (checked in order):
  *
  * 1. Service token (X-Service-Auth header) — for API/CLI/E2E clients.

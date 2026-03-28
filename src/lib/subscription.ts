@@ -4,6 +4,34 @@
  * 8 tiers: blocked, pending, free, trial, standard, advanced, max, unlimited.
  * Replaces the old 4-value AccessTier system. Backward compatible — old
  * accessTier values map directly to matching subscription tiers.
+ *
+ * ## Key functions — when to use which
+ *
+ * - **{@link getEffectiveTier}** — canonical tier resolution. Combines
+ *   `subscriptionTier`, `accessTier`, and billing state (status + period end)
+ *   into a single effective tier string. This is the function to use whenever
+ *   you need to know "what tier is this user *actually* on right now?" It
+ *   handles cancellation downgrades, past-due grace periods, and missed-webhook
+ *   safety nets. All quota/enforcement logic should resolve through this.
+ *
+ * - **{@link isActiveTier}** — lightweight boolean check. Returns `true` when
+ *   a tier value is one of the active set (free, trial, standard, advanced,
+ *   max, unlimited). Uses the hardcoded `ACTIVE_TIERS` set — does NOT consult
+ *   KV tier config or the `canLogin` flag. Use this for fast-path guards where
+ *   you only need to know "is this tier non-blocked/non-pending?" without
+ *   incurring a KV read. For authoritative login checks that respect admin
+ *   `canLogin` overrides, resolve tier config via {@link getTierConfig} and
+ *   inspect the `canLogin` property directly.
+ *
+ * - **{@link getUserTier}** — resolves a tier ID against a
+ *   `SubscriptionTierConfig[]` array (from KV or defaults) and returns the
+ *   full config object (quota, maxSessions, sessionModes, etc.). Use this
+ *   when you need the config properties, not just the tier ID string.
+ *
+ * - **{@link getTierConfig}** — reads the admin-configurable tier table from
+ *   KV (1-minute cache) or falls back to {@link getDefaultTiers}. Pass the
+ *   result to `getUserTier`, `getMaxSessionsForTier`, or
+ *   `getAllowedSessionModes`.
  */
 import type { SubscriptionTier, SubscriptionTierConfig, SessionMode } from '../types';
 import { BILLING_STATUS } from '../types';
