@@ -495,7 +495,7 @@ start_sync_daemon() {
             echo "[sync-daemon] Log rotated (exceeded 512KB)" | tee -a /tmp/sync.log
         fi
 
-        # Cleanup old session transcripts before sync (deletions propagate to R2)
+        # Cleanup old session transcripts before sync (sequential — no race with bisync)
         cleanup_old_transcripts
 
         echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /tmp/sync.log
