@@ -30,6 +30,7 @@ import type { LogLevel } from './lib/logger';
 import { authenticateRequest } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { verifySessionJWT, shouldRefreshJWT, signSessionJWT } from './lib/session-jwt';
+import { warnIfNoEncryptionKey } from './lib/kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboarding';
 import { isActiveUser } from './lib/access-tier';
 import authApiRoutes from './routes/auth';
@@ -73,11 +74,13 @@ const logger = createLogger('index');
 // ============================================================================
 app.use('*', async (c, next) => {
   // CF-001: Hard enforcement — STRESS_TEST_MODE must never bypass rate limits in SaaS production.
-  // STRESS_TEST_MODE is only for integration/staging environments without SAAS_MODE.
   if (c.env.SAAS_MODE === 'active' && c.env.STRESS_TEST_MODE === 'active') {
     logger.error('BLOCKED: STRESS_TEST_MODE active in SaaS production', { path: c.req.path });
     return c.json({ error: 'Misconfiguration: stress test mode cannot be active in SaaS production' }, 503);
   }
+
+  // CF-017: Warn on first request if credentials will be stored as plaintext
+  warnIfNoEncryptionKey(c.env.ENCRYPTION_KEY);
 
   const clientId = c.req.header('X-Request-ID');
   const requestId = (clientId && REQUEST_ID_PATTERN.test(clientId))

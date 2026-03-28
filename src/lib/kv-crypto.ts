@@ -10,9 +10,21 @@
  */
 
 import { Buffer } from 'node:buffer';
+import { createLogger } from './logger';
+
+const cryptoLogger = createLogger('kv-crypto');
 
 /** Module-level cache for imported CryptoKey */
 let cachedKey: CryptoKey | null = null;
+let encryptionKeyWarningLogged = false;
+
+/** CF-017: Log CRITICAL warning when ENCRYPTION_KEY is absent. Call on first request. */
+export function warnIfNoEncryptionKey(encryptionKey: string | undefined): void {
+  if (!encryptionKeyWarningLogged && !encryptionKey) {
+    cryptoLogger.error('CRITICAL: ENCRYPTION_KEY not set — user credentials stored as plaintext in KV');
+    encryptionKeyWarningLogged = true;
+  }
+}
 let cachedKeySource: string | null = null;
 
 /** Ciphertext version prefix */
