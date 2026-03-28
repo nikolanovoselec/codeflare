@@ -41,15 +41,9 @@ app.post('/', async (c) => {
   }
   const { keys = [], prefixes = [] } = parsed.data;
 
-  // Validate all keys first
-  for (const key of keys) {
-    validateKey(key);
-  }
-
-  // Validate all prefixes
-  for (const prefix of prefixes) {
-    validateKey(prefix, 'prefix');
-  }
+  // Validate and decode all keys/prefixes
+  const validatedKeys = keys.map(key => validateKey(key));
+  const validatedPrefixes = prefixes.map(prefix => validateKey(prefix, 'prefix'));
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
@@ -60,9 +54,9 @@ app.post('/', async (c) => {
   const errors: { key: string; error: string }[] = [];
 
   // Handle key-based deletes
-  if (keys.length === 1) {
+  if (validatedKeys.length === 1) {
     // Single delete
-    const key = keys[0];
+    const key = validatedKeys[0];
     const url = getR2Url(endpoint, bucketName, key);
     try {
       const response = await r2Client.fetch(url, { method: 'DELETE' });
@@ -74,9 +68,9 @@ app.post('/', async (c) => {
     } catch (err) {
       errors.push({ key, error: err instanceof Error ? err.message : 'Unknown error' });
     }
-  } else if (keys.length > 1) {
+  } else if (validatedKeys.length > 1) {
     // Batch delete via POST /{bucket}?delete
-    const objectsXml = keys
+    const objectsXml = validatedKeys
       .map(key => `<Object><Key>${escapeXml(key)}</Key></Object>`)
       .join('');
     const xmlBody = `<?xml version="1.0" encoding="UTF-8"?><Delete><Quiet>false</Quiet>${objectsXml}</Delete>`;
@@ -130,7 +124,7 @@ app.post('/', async (c) => {
   }
 
   // Handle prefix-based deletes (server-side list+delete)
-  for (const prefix of prefixes) {
+  for (const prefix of validatedPrefixes) {
     try {
       const count = await emptyR2Bucket(r2Client, endpoint, bucketName, prefix);
       deletedPrefixes.push({ prefix, count });

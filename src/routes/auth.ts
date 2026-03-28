@@ -337,7 +337,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
     }
   } catch { /* non-fatal */ }
 
-  const onboardingComplete = updated.onboardingComplete === true;
+  const onboardingComplete = existingRaw?.onboardingComplete === true;
   logger.info('User subscribed', { email: user.email, tier: parsed.data.tier });
 
   // Non-fatal: send subscription confirmation + admin notification emails

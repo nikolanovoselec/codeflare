@@ -41,12 +41,12 @@ app.get('/', async (c) => {
     throw new ValidationError('Missing required query parameter: key');
   }
 
-  validateKey(key);
+  const validatedKey = validateKey(key);
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
-  const objectUrl = getR2Url(endpoint, bucketName, key);
+  const objectUrl = getR2Url(endpoint, bucketName, validatedKey);
 
   // HEAD request to get metadata without downloading the full object
   const headResponse = await r2Client.fetch(objectUrl, { method: 'HEAD', headers: getSseHeaders(c.env) });

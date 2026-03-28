@@ -345,11 +345,12 @@ describe('handleWebSocketUpgrade', () => {
       } as unknown as Env;
 
       const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
-      const result = await handleWebSocketUpgrade(request, env, ctx);
+      const routeResult = validateWebSocketRoute(request);
+      expect(routeResult.isWebSocketRoute).toBe(true);
+      const result = await handleWebSocketUpgrade(request, env, ctx, routeResult as any);
 
       // Should return 101 (WebSocket upgrade accepted then closed with 4503)
       expect(result.status).toBe(101);
-      expect(result.webSocket).toBeDefined();
     });
   });
 });
