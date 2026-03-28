@@ -688,7 +688,7 @@ const SubscribePage: Component = () => {
                   {/* Standard features (always visible) */}
                   <ul class="subscribe-mode-card-features">
                     <For each={STANDARD_MODE_FEATURES}>
-                      {(f, i) => (
+                      {(f) => (
                         <li class="subscribe-mode-card-feature">
                           <Icon path={f.icon} size={16} />
                           <span>{typeof f.text === 'function' ? f.text() : f.text}</span>
