@@ -499,7 +499,7 @@ const SubscribePage: Component = () => {
   function ctaLabel(): string {
     const tier = selectedTier();
     if (!tier) return 'Select';
-    if (isContactTier()) return contactSent() ? "We'll get in touch" : 'Get in Touch';
+    if (isContactTier()) return contactSent() ? "We'll be in touch" : "Let's talk";
     if (subscribing() === tier.id) return isActive() ? 'Switching...' : 'Subscribing...';
     if (isModeChange()) return globalMode() === 'advanced' ? 'Upgrade to Pro' : 'Switch to Standard';
     if (isActive() && tier.id === currentTierId()) return 'Current Plan';
@@ -817,7 +817,7 @@ const SubscribePage: Component = () => {
                             void fetch('/api/auth/contact-team', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
-                              body: JSON.stringify({ plan: selectedTier()?.displayName ?? 'Team' }),
+                              body: JSON.stringify({ plan: selectedTier()?.displayName ?? 'Custom' }),
                             }).catch(() => {});
                             return;
                           }

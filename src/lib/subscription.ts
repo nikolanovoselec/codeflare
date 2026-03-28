@@ -124,7 +124,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
     },
     {
       id: 'unlimited',
-      displayName: 'Team',
+      displayName: 'Custom',
       monthlySeconds: null,      // no limit
       maxSessions: 5,
       sessionModes: ['default', 'advanced'],
@@ -134,7 +134,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 0,
-      description: 'No limits. No counting hours.',
+      description: 'Tailored to your needs.',
     },
   ];
 }

@@ -431,7 +431,7 @@ app.post('/contact-team', requireIdentity, contactTeamRateLimiter, async (c) => 
       userEmail: user.email,
       requestedAt: new Date().toISOString(),
       remoteIp: c.req.header('CF-Connecting-IP') || null,
-      plan: plan || 'Team',
+      plan: plan || 'Custom',
       adminEmails,
       env: c.env,
     });
