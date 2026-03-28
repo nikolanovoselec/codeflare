@@ -22,6 +22,31 @@ const logger = createLogger('timekeeper');
 const FLUSH_INTERVAL_MS = 300_000; // 5 minutes
 const RETRY_INTERVAL_MS = 30_000;  // 30 seconds on failure
 
+// Module-level cache for user:{email} records (same pattern as getTierConfig).
+// Quota decisions may use stale user data for up to 60s after billing changes.
+// Matches the accepted staleness window of getTierConfig() (CF-007).
+const USER_RECORD_CACHE_TTL_MS = 60_000;
+const USER_RECORD_CACHE_MAX = 100;
+const userRecordCache = new Map<string, { data: string | null; cachedAt: number }>();
+
+async function getCachedUserRecord(email: string, kv: KVNamespace): Promise<string | null> {
+  const cached = userRecordCache.get(email);
+  if (cached && Date.now() - cached.cachedAt < USER_RECORD_CACHE_TTL_MS) {
+    return cached.data;
+  }
+  const data = await kv.get(`user:${email}`);
+  if (userRecordCache.size >= USER_RECORD_CACHE_MAX && !userRecordCache.has(email)) {
+    const oldest = userRecordCache.keys().next().value;
+    if (oldest) userRecordCache.delete(oldest);
+  }
+  userRecordCache.set(email, { data, cachedAt: Date.now() });
+  return data;
+}
+
+export function resetUserRecordCache(): void {
+  userRecordCache.clear();
+}
+
 interface PingBody {
   bucketName: string;
   sessionId: string;
@@ -177,7 +202,7 @@ export class Timekeeper {
       const [kvRecord, tiers, userRaw] = await Promise.all([
         this.env.KV.get<UsageRecord>(getTimekeeperKey(this.bucketName), 'json'),
         getTierConfig(this.env.KV),
-        this.env.KV.get(`user:${this.email}`),
+        getCachedUserRecord(this.email!, this.env.KV),
       ]);
 
       const userData = userRaw ? JSON.parse(userRaw) : {};

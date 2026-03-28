@@ -23,7 +23,7 @@ vi.mock('../../lib/logger', () => ({
   })),
 }));
 
-import { Timekeeper } from '../../timekeeper/index';
+import { Timekeeper, resetUserRecordCache } from '../../timekeeper/index';
 import { getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../../lib/kv-keys';
 
 // Dynamic dates so tests never go stale
@@ -53,6 +53,7 @@ function pingRequest(body: Record<string, unknown>): Request {
 describe('Timekeeper DO', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetUserRecordCache();
     mockStorage.get.mockResolvedValue(undefined);
     mockStorage.put.mockResolvedValue(undefined);
     mockStorage.getAlarm.mockResolvedValue(null);
@@ -491,6 +492,78 @@ describe('Timekeeper DO', () => {
       }));
       const body = await res.json() as { quotaExceeded: boolean };
       expect(body.quotaExceeded).toBe(true);
+    });
+  });
+
+  describe('User record cache', () => {
+    it('caches user record across consecutive pings', async () => {
+      const userRecord = JSON.stringify({ subscriptionTier: 'standard', billingStatus: 'active' });
+      mockKV.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('user:')) return userRecord;
+        return null;
+      });
+
+      const tk = createTimekeeper();
+      // First ping — reads user record from KV
+      await tk.fetch(pingRequest({ bucketName: 'cf-alice', sessionId: 's1', totalSeconds: 60, email: 'alice@example.com' }));
+      const userReadsAfterFirst = mockKV.get.mock.calls.filter((c: string[]) => c[0].startsWith('user:')).length;
+      expect(userReadsAfterFirst).toBe(1);
+
+      // Second ping — should use cache, not KV
+      mockKV.get.mockClear();
+      mockKV.get.mockResolvedValue(null);
+      await tk.fetch(pingRequest({ bucketName: 'cf-alice', sessionId: 's1', totalSeconds: 120, email: 'alice@example.com' }));
+      const userReadsAfterSecond = mockKV.get.mock.calls.filter((c: string[]) => c[0].startsWith('user:')).length;
+      expect(userReadsAfterSecond).toBe(0);
+    });
+
+    it('re-reads after cache expiry', async () => {
+      vi.useFakeTimers();
+      const userRecord = JSON.stringify({ subscriptionTier: 'free', billingStatus: 'active' });
+      mockKV.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('user:')) return userRecord;
+        return null;
+      });
+
+      const tk = createTimekeeper();
+      await tk.fetch(pingRequest({ bucketName: 'cf-bob', sessionId: 's1', totalSeconds: 60, email: 'bob@example.com' }));
+
+      // Advance past 60s TTL
+      vi.advanceTimersByTime(61_000);
+      mockKV.get.mockClear();
+      mockKV.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('user:')) return userRecord;
+        return null;
+      });
+
+      await tk.fetch(pingRequest({ bucketName: 'cf-bob', sessionId: 's1', totalSeconds: 120, email: 'bob@example.com' }));
+      const userReads = mockKV.get.mock.calls.filter((c: string[]) => c[0].startsWith('user:')).length;
+      expect(userReads).toBe(1);
+
+      vi.useRealTimers();
+    });
+
+    it('resetUserRecordCache clears the cache', async () => {
+      const userRecord = JSON.stringify({ subscriptionTier: 'standard' });
+      mockKV.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('user:')) return userRecord;
+        return null;
+      });
+
+      const tk = createTimekeeper();
+      await tk.fetch(pingRequest({ bucketName: 'cf-claire', sessionId: 's1', totalSeconds: 60, email: 'claire@example.com' }));
+
+      // Reset cache
+      resetUserRecordCache();
+      mockKV.get.mockClear();
+      mockKV.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('user:')) return userRecord;
+        return null;
+      });
+
+      await tk.fetch(pingRequest({ bucketName: 'cf-claire', sessionId: 's1', totalSeconds: 120, email: 'claire@example.com' }));
+      const userReads = mockKV.get.mock.calls.filter((c: string[]) => c[0].startsWith('user:')).length;
+      expect(userReads).toBe(1);
     });
   });
 });
