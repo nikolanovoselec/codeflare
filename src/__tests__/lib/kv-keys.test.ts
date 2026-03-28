@@ -13,7 +13,6 @@ import {
   getUtcMonthString,
   getIsoWeekStart,
   SETUP_KEYS,
-  getMetricsKey,
   buildSessionMetadata,
   expandSessionMetadata,
   putSessionWithMetadata,
@@ -351,11 +350,6 @@ describe('putSessionWithMetadata', () => {
   });
 });
 
-describe('getMetricsKey', () => {
-  it('returns metrics:{bucketName}:{sessionId}', () => {
-    expect(getMetricsKey('cf-alice', 'abc123')).toBe('metrics:cf-alice:abc123');
-  });
-});
 
 describe('SETUP_KEYS', () => {
   it('contains 20 setup keys', () => {

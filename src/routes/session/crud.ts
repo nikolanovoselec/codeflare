@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, type Env, type Session } from '../../types';
-import { getSessionKey, getSessionPrefix, getMetricsKey, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { MAX_SESSION_NAME_LENGTH, MAX_TABS, SESSION_ID_PATTERN } from '../../lib/constants';
@@ -202,10 +202,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   }
 
   // Delete from KV only after container destruction attempt
-  await Promise.all([
-    c.env.KV.delete(key),
-    c.env.KV.delete(getMetricsKey(bucketName, sessionId)),
-  ]);
+  await c.env.KV.delete(key);
 
   return c.json({ success: true, deleted: true, id: sessionId });
 });

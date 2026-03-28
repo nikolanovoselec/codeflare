@@ -25,7 +25,7 @@ import type { Env, Session, TabConfig } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toError, toErrorMessage } from '../lib/error-types';
-import { getSessionKey, getMetricsKey, putSessionWithMetadata } from '../lib/kv-keys';
+import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
 import { isSaasModeActive } from '../lib/onboarding';
@@ -673,19 +673,24 @@ export class container extends Container<Env> {
           // Only write metrics while container is running — prevents overwriting
           // a "stopped" status that onStop() may have written concurrently.
           // Read-modify-write only touches .metrics, never .status.
-          // Write metrics to separate key (no read-modify-write on full session).
-          // 24h TTL auto-cleans after container stops.
-          const metricsKey = getMetricsKey(bucketName, sessionId);
-          await this.env.KV.put(metricsKey, JSON.stringify({
-            cpu: health.cpu,
-            mem: health.mem,
-            hdd: health.hdd,
-            syncStatus: health.syncStatus,
-            updatedAt: new Date().toISOString(),
-            lastActiveAt: this.lastSeenInputAt
-              ? new Date(this.lastSeenInputAt).toISOString()
-              : undefined,
-          }), { expirationTtl: 86400 });
+          const key = getSessionKey(bucketName, sessionId);
+          const session = await this.env.KV.get<Session>(key, 'json');
+          if (session) {
+            const updated = {
+              ...session,
+              metrics: {
+                cpu: health.cpu,
+                mem: health.mem,
+                hdd: health.hdd,
+                syncStatus: health.syncStatus,
+                updatedAt: new Date().toISOString(),
+              },
+              lastActiveAt: this.lastSeenInputAt
+                ? new Date(this.lastSeenInputAt).toISOString()
+                : session.lastActiveAt,
+            };
+            await putSessionWithMetadata(this.env.KV, key, updated);
+          }
         }
       }
     } catch (err) {

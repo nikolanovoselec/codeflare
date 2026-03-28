@@ -285,11 +285,10 @@ describe('Rate limit coverage', () => {
         });
       }
 
-      let deleteIdx = 0;
       await assertRateLimited(10, async () => {
         // Each request deletes a different session to avoid 404
-        const id = `session${String(deleteIdx).padStart(8, '0')}`;
-        deleteIdx++;
+        const idx = mockKV.delete.mock.calls.length;
+        const id = `session${String(idx).padStart(8, '0')}`;
         return app.request(`/sessions/${id}`, { method: 'DELETE' });
       });
     });
