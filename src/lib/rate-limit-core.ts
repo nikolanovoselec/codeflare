@@ -66,7 +66,7 @@ export async function checkRateLimit(params: {
   } catch (err) {
     // CF-003: Security-critical endpoints must deny when KV is unavailable
     if (failClosed) {
-      logger.error('Rate limit KV failed — denying request (failClosed)', { key, error: String(err) });
+      logger.error('Rate limit KV failed — denying request (failClosed)', err instanceof Error ? err : new Error(String(err)), { key });
       return { allowed: false, count: 0, retryAfterSec: 60 };
     }
 
