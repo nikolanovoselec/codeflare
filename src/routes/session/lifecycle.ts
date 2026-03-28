@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
-import { getSessionKey, getSessionPrefix, getMetricsKey, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, type SessionListMetadata } from '../../lib/kv-keys';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -86,37 +86,42 @@ app.get('/batch-status', async (c) => {
   const bucketName = c.get('bucketName');
   const prefix = getSessionPrefix(bucketName);
 
+  // Read session status/metrics from KV list metadata (zero individual KV.get calls).
+  // Keys written via putSessionWithMetadata() include compressed metadata.
+  // Fallback to KV.get for pre-migration keys without metadata.
   const keys = await listAllKvKeys(c.env.KV, prefix);
-  const sessionPromises = keys.map(key => c.env.KV.get<Session>(key.name, 'json'));
-  const sessionResults = await Promise.all(sessionPromises);
-  const sessions: Session[] = sessionResults.filter((s): s is Session => s !== null);
-
-  // Fetch metrics from separate keys in parallel (written by collectMetrics with 24h TTL)
-  const metricsPromises = sessions.map(s =>
-    c.env.KV.get(getMetricsKey(bucketName, s.id), 'json').catch(() => null)
-  );
-  const metricsResults = await Promise.all(metricsPromises);
 
   const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; metrics?: Session['metrics'] }> = {};
+  const fallbackKeys: Array<{ name: string }> = [];
 
-  for (let i = 0; i < sessions.length; i++) {
-    const session = sessions[i];
-    const metricsRecord = metricsResults[i] as Record<string, string> | null;
-    const isRunning = session.status === 'running';
+  for (const key of keys) {
+    const meta = key.metadata as SessionListMetadata | null;
+    if (meta && meta.s) {
+      // Fast path: read from list metadata (zero KV.get)
+      const sessionId = key.name.split(':').pop()!;
+      statuses[sessionId] = expandSessionMetadata(meta);
+    } else {
+      // Pre-migration key without metadata — queue for fallback KV.get
+      fallbackKeys.push(key);
+    }
+  }
 
-    // Prefer separate metrics key (fresher, written every 60s).
-    // Fall back to session-embedded metrics for pre-migration sessions.
-    const metrics = metricsRecord
-      ? { cpu: metricsRecord.cpu, mem: metricsRecord.mem, hdd: metricsRecord.hdd, syncStatus: metricsRecord.syncStatus, updatedAt: metricsRecord.updatedAt }
-      : session.metrics || undefined;
-
-    statuses[session.id] = {
-      status: isRunning ? 'running' : 'stopped',
-      ptyActive: isRunning,
-      lastActiveAt: metricsRecord?.lastActiveAt || session.lastActiveAt || null,
-      lastStartedAt: session.lastStartedAt || null,
-      metrics,
-    };
+  // Fallback: fetch full session for keys without metadata (graceful migration)
+  if (fallbackKeys.length > 0) {
+    const fallbackResults = await Promise.all(
+      fallbackKeys.map(key => c.env.KV.get<Session>(key.name, 'json'))
+    );
+    for (const session of fallbackResults) {
+      if (!session) continue;
+      const isRunning = session.status === 'running';
+      statuses[session.id] = {
+        status: isRunning ? 'running' : 'stopped',
+        ptyActive: isRunning,
+        lastActiveAt: session.lastActiveAt || null,
+        lastStartedAt: session.lastStartedAt || null,
+        metrics: session.metrics || undefined,
+      };
+    }
   }
 
   const user = c.get('user');
