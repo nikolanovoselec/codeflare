@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
-import { getSessionKey, getSessionPrefix, getMetricsKey, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, getMetricsKey, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata } from '../../lib/kv-keys';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -170,7 +170,7 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
 
   // Persist stopped status in KV so batch-status can skip container probes
   const updated = { ...session, status: 'stopped' as const, lastStatusCheck: Date.now() };
-  await c.env.KV.put(key, JSON.stringify(updated));
+  await putSessionWithMetadata(c.env.KV, key, updated);
 
   // Best-effort container destroy — container may already be stopped
   try {

@@ -18,7 +18,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session } from '../types';
-import { getSessionKey } from '../lib/kv-keys';
+import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS } from '../lib/constants';
 import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
@@ -235,7 +235,7 @@ export async function handleWebSocketUpgrade(
       const fresh = await env.KV.get<Session>(sessionKey, 'json');
       if (fresh) {
         const touched = { ...fresh, lastAccessedAt: new Date().toISOString() };
-        await env.KV.put(sessionKey, JSON.stringify(touched));
+        await putSessionWithMetadata(env.KV, sessionKey, touched);
       }
     })().catch(err => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
 

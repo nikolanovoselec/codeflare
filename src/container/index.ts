@@ -25,7 +25,7 @@ import type { Env, Session, TabConfig } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toError, toErrorMessage } from '../lib/error-types';
-import { getSessionKey, getMetricsKey } from '../lib/kv-keys';
+import { getSessionKey, getMetricsKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
 import { isSaasModeActive } from '../lib/onboarding';
@@ -771,7 +771,7 @@ export class container extends Container<Env> {
       session[field] = new Date().toISOString();
       // Preserve last-known metrics in KV even after container stops,
       // so the dashboard can display them for recently-stopped sessions.
-      await this.env.KV.put(key, JSON.stringify(session));
+      await putSessionWithMetadata(this.env.KV, key, session);
       this.logger.info('updateKvStatus: wrote to KV', { key, status, field });
     } catch (err) {
       this.logger.error('Failed to update KV status', toError(err));

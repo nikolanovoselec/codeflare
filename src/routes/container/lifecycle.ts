@@ -16,7 +16,7 @@ import { AppError, ContainerError, NotFoundError, RateLimitError, QuotaExceededE
 import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString } from '../../lib/kv-keys';
+import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
@@ -328,7 +328,7 @@ export async function startOrRestartContainer(params: {
   // Mark session as running in KV
   if (sessionData.status !== 'running') {
     const updated = { ...sessionData, status: 'running' as const };
-    await env.KV.put(sessionKey, JSON.stringify(updated));
+    await putSessionWithMetadata(env.KV, sessionKey, updated);
   }
 
   // If container is already running/healthy with correct bucket, return immediately
@@ -351,7 +351,7 @@ export async function startOrRestartContainer(params: {
           const freshSession = await env.KV.get<Session>(sessionKey, 'json');
           if (freshSession) {
             const rolledBack = { ...freshSession, status: 'stopped' as const };
-            await env.KV.put(sessionKey, JSON.stringify(rolledBack));
+            await putSessionWithMetadata(env.KV, sessionKey, rolledBack);
           }
         } catch (err) {
           logger.error('KV rollback to stopped failed', toError(err));

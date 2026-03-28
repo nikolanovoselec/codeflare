@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
 import { AgentTypeSchema, type Env, type Session } from '../../types';
-import { getSessionKey, getSessionPrefix, getMetricsKey, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, getMetricsKey, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { MAX_SESSION_NAME_LENGTH, MAX_TABS, SESSION_ID_PATTERN } from '../../lib/constants';
@@ -112,7 +112,7 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
 
   // Store session in KV
   const key = getSessionKey(bucketName, sessionId);
-  await c.env.KV.put(key, JSON.stringify(session));
+  await putSessionWithMetadata(c.env.KV, key, session);
 
   // Omit userId from API response
   return c.json({ session: toApiSession(session) }, 201);
@@ -165,7 +165,7 @@ app.patch('/:id', async (c) => {
   };
 
   // Save updated session
-  await c.env.KV.put(key, JSON.stringify(updated));
+  await putSessionWithMetadata(c.env.KV, key, updated);
 
   // Omit userId from API response
   return c.json({ session: toApiSession(updated) });
@@ -225,7 +225,7 @@ app.post('/:id/touch', async (c) => {
   const session = await getSessionOrThrow(c.env.KV, key);
 
   const updated = { ...session, lastAccessedAt: new Date().toISOString() };
-  await c.env.KV.put(key, JSON.stringify(updated));
+  await putSessionWithMetadata(c.env.KV, key, updated);
 
   return c.json({ session: toApiSession(updated) });
 });
