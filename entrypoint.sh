@@ -239,6 +239,16 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .claude/stats-cache.json"    # regenerated usage stats
     --filter "- .claude.json.backup.*"       # auto-generated backups, accumulate endlessly
 
+    # Claude Code — subagent transcripts (results captured in main transcript, never re-read)
+    --filter "- .claude/projects/**/subagents/**"
+
+    # Claude Code — ephemeral session state (regenerated per session)
+    --filter "- .claude/usage-data/**"       # insights reports (regenerated on /insights)
+    --filter "- .claude/backups/**"          # settings backups (settings.json itself is synced)
+    --filter "- .claude/tasks/**"            # task state (ephemeral per session)
+    --filter "- .claude/sessions/**"         # session metadata
+    --filter "- .claude/history.jsonl"       # command history (nice-to-have, not critical)
+
     # Codex — ephemeral session data and caches
     --filter "- .codex/log/**"               # TUI session logs
     --filter "- .codex/models_cache.json"    # regenerated model list
@@ -430,6 +440,46 @@ bisync_with_r2() {
 }
 
 # ============================================================================
+# Cleanup old Claude Code session transcripts — keep only the 5 most recent
+# ============================================================================
+cleanup_old_transcripts() {
+    local PROJECTS_DIR="$USER_HOME/.claude/projects"
+    local KEEP_COUNT=5
+
+    # Find all session transcript JSONL files across all project dirs
+    local ALL_TRANSCRIPTS
+    ALL_TRANSCRIPTS=$(find "$PROJECTS_DIR" -maxdepth 2 -name "*.jsonl" -not -path "*/subagents/*" 2>/dev/null | sort -t/ -k6)
+    local COUNT
+    COUNT=$(echo "$ALL_TRANSCRIPTS" | grep -c . 2>/dev/null || echo 0)
+
+    if [ "$COUNT" -le "$KEEP_COUNT" ]; then
+        return 0
+    fi
+
+    # Sort by modification time (newest last), delete all but the newest KEEP_COUNT
+    local TO_DELETE
+    TO_DELETE=$(echo "$ALL_TRANSCRIPTS" | xargs ls -t 2>/dev/null | tail -n +$((KEEP_COUNT + 1)))
+
+    local DELETED=0
+    for transcript in $TO_DELETE; do
+        local SESSION_DIR="${transcript%.jsonl}"
+        # Delete the transcript file
+        rm -f "$transcript"
+        # Delete the session's subagents directory if it exists
+        if [ -d "$SESSION_DIR/subagents" ]; then
+            rm -rf "$SESSION_DIR/subagents"
+        fi
+        # Delete the session directory if empty
+        rmdir "$SESSION_DIR" 2>/dev/null
+        DELETED=$((DELETED + 1))
+    done
+
+    if [ "$DELETED" -gt 0 ]; then
+        echo "[sync-daemon] Cleaned up $DELETED old session transcript(s), kept newest $KEEP_COUNT" | tee -a /tmp/sync.log
+    fi
+}
+
+# ============================================================================
 # Background sync daemon - bisync every 60 seconds
 # ============================================================================
 start_sync_daemon() {
@@ -444,6 +494,9 @@ start_sync_daemon() {
             tail -c 262144 /tmp/sync.log > /tmp/sync.log.tmp && mv /tmp/sync.log.tmp /tmp/sync.log
             echo "[sync-daemon] Log rotated (exceeded 512KB)" | tee -a /tmp/sync.log
         fi
+
+        # Cleanup old session transcripts before sync (deletions propagate to R2)
+        cleanup_old_transcripts
 
         echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /tmp/sync.log
 
