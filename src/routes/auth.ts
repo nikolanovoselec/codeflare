@@ -44,7 +44,13 @@ app.get('/onboarding-config', requireIdentity, async (c) => {
 // GET /api/auth/tiers — subscribable tier config for the subscribe page.
 app.get('/tiers', requireIdentity, async (c) => {
   const allTiers = await getTierConfig(c.env.KV);
-  const subscribable = allTiers.filter((t) => SUBSCRIBABLE_TIER_IDS.has(t.id as string));
+  const subscribable = allTiers.filter((t) => {
+    if (!SUBSCRIBABLE_TIER_IDS.has(t.id as string)) return false;
+    // Free (priceMonthly === 0) and Custom/unlimited always show.
+    // Paid tiers only show when stripePriceId is configured in admin.
+    if (t.priceMonthly === 0 || t.id === 'unlimited') return true;
+    return !!t.stripePriceId;
+  });
 
   // Enrich with Stripe prices when configured
   if (isStripeConfigured(c.env) && c.env.STRIPE_SECRET_KEY) {
