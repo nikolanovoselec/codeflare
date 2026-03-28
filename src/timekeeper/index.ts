@@ -230,10 +230,13 @@ export class Timekeeper {
 
       if (isTrialing && trialQuotaSeconds > 0 && totalMonthlySeconds >= trialQuotaSeconds) {
         quotaExceeded = true;
-        // End Stripe trial → triggers first charge
-        if (this.env.STRIPE_SECRET_KEY && userData.stripeSubscriptionId) {
+        // End Stripe trial → triggers first charge. Guard against repeated calls
+        // (this fires every 60s per container — only call Stripe once).
+        const trialEnded = await this.ctx.storage.get<boolean>('trialEnded');
+        if (!trialEnded && this.env.STRIPE_SECRET_KEY && userData.stripeSubscriptionId) {
           try {
             await endTrialNow(userData.stripeSubscriptionId, this.env.STRIPE_SECRET_KEY);
+            await this.ctx.storage.put('trialEnded', true);
             logger.info('Trial ended early — quota consumed', {
               email: this.email, seconds: totalMonthlySeconds, quota: trialQuotaSeconds,
             });

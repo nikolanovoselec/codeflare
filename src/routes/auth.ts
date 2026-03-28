@@ -255,6 +255,10 @@ const SubscribeSchema = z.object({
 // POST /api/auth/subscribe — self-service tier selection for pending users
 app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const user = c.get('user');
+  const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+  if (effectiveTier === 'blocked') {
+    throw new ForbiddenError('Account is blocked');
+  }
 
   const raw = await parseJsonBody(c);
 
