@@ -16,7 +16,7 @@ import { AppError, ContainerError, NotFoundError, RateLimitError, QuotaExceededE
 import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
-import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata } from '../../lib/kv-keys';
+import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata, type SessionListMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
@@ -118,18 +118,23 @@ export async function validateSessionAndCheckLimits(params: {
       } catch { /* fall back to role-based */ }
     }
 
-    // Session limit: tier-based in SaaS mode, role-based otherwise
+    // Session limit: tier-based in SaaS mode, role-based otherwise.
+    // Uses list metadata to count running sessions (zero individual KV.get calls).
     const effectiveMaxSessions = resolvedTier?.maxSessions ?? maxSessions;
     const sessionKeys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
-    const sessionSettled = await Promise.allSettled(
-      sessionKeys.map(key => env.KV.get<Session>(key.name, 'json'))
-    );
-    const sessionResults = sessionSettled
-      .filter((r): r is PromiseFulfilledResult<Session | null> => r.status === 'fulfilled')
-      .map(r => r.value);
-    const runningCount = sessionResults.filter(
-      (s): s is Session => s !== null && s.status === 'running' && s.id !== sessionId
-    ).length;
+    let runningCount = 0;
+    for (const key of sessionKeys) {
+      const meta = key.metadata as SessionListMetadata | null;
+      if (meta && meta.s) {
+        // Fast path: read status from list metadata
+        const keySessionId = key.name.split(':').pop();
+        if (meta.s === 'r' && keySessionId !== sessionId) runningCount++;
+      } else {
+        // Fallback: pre-migration key without metadata
+        const s = await env.KV.get<Session>(key.name, 'json');
+        if (s && s.status === 'running' && s.id !== sessionId) runningCount++;
+      }
+    }
 
     if (runningCount >= effectiveMaxSessions) {
       throw new RateLimitError(
