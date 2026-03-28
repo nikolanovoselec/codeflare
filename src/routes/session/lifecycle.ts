@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { DurableObjectStub } from '@cloudflare/workers-types';
 import type { Env, Session } from '../../types';
-import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString } from '../../lib/kv-keys';
+import { getSessionKey, getSessionPrefix, getMetricsKey, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString } from '../../lib/kv-keys';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -91,16 +91,31 @@ app.get('/batch-status', async (c) => {
   const sessionResults = await Promise.all(sessionPromises);
   const sessions: Session[] = sessionResults.filter((s): s is Session => s !== null);
 
+  // Fetch metrics from separate keys in parallel (written by collectMetrics with 24h TTL)
+  const metricsPromises = sessions.map(s =>
+    c.env.KV.get(getMetricsKey(bucketName, s.id), 'json').catch(() => null)
+  );
+  const metricsResults = await Promise.all(metricsPromises);
+
   const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; metrics?: Session['metrics'] }> = {};
 
-  for (const session of sessions) {
+  for (let i = 0; i < sessions.length; i++) {
+    const session = sessions[i];
+    const metricsRecord = metricsResults[i] as Record<string, string> | null;
     const isRunning = session.status === 'running';
+
+    // Prefer separate metrics key (fresher, written every 60s).
+    // Fall back to session-embedded metrics for pre-migration sessions.
+    const metrics = metricsRecord
+      ? { cpu: metricsRecord.cpu, mem: metricsRecord.mem, hdd: metricsRecord.hdd, syncStatus: metricsRecord.syncStatus, updatedAt: metricsRecord.updatedAt }
+      : session.metrics || undefined;
+
     statuses[session.id] = {
       status: isRunning ? 'running' : 'stopped',
       ptyActive: isRunning,
-      lastActiveAt: session.lastActiveAt || null,
+      lastActiveAt: metricsRecord?.lastActiveAt || session.lastActiveAt || null,
       lastStartedAt: session.lastStartedAt || null,
-      metrics: session.metrics || undefined,
+      metrics,
     };
   }
 

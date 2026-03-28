@@ -7,7 +7,7 @@
  */
 import type { Env, Session } from '../types';
 import { getBucketName } from './access';
-import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, SETUP_KEYS } from './kv-keys';
+import { getSessionPrefix, getMetricsKey, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, SETUP_KEYS } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -59,6 +59,10 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
       logger.warn('Failed to destroy container during user deletion', { sessionKey: key.name, error: String(err) });
     }
     await env.KV.delete(key.name);
+    // Also delete separate metrics key (24h TTL auto-cleans, but explicit is cleaner)
+    if (sessionData) {
+      await env.KV.delete(getMetricsKey(bucketName, sessionData.id)).catch(() => {});
+    }
     result.deletedSessions++;
   }
 

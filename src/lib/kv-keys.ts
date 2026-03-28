@@ -110,6 +110,14 @@ export function getTimekeeperKey(bucketName: string): string {
 }
 
 /**
+ * Get KV key for session metrics (separate from session value for write efficiency).
+ * Written by collectMetrics every 60s with 24h TTL auto-cleanup.
+ */
+export function getMetricsKey(bucketName: string, sessionId: string): string {
+  return `metrics:${bucketName}:${sessionId}`;
+}
+
+/**
  * Get UTC date string in YYYY-MM-DD format
  */
 export function getUtcDateString(date: Date): string {

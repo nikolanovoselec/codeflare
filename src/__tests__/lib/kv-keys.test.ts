@@ -13,6 +13,7 @@ import {
   getUtcMonthString,
   getIsoWeekStart,
   SETUP_KEYS,
+  getMetricsKey,
 } from '../../lib/kv-keys';
 import { NotFoundError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -277,6 +278,12 @@ describe('getIsoWeekStart', () => {
     // 2026-01-05 is a Monday
     const date = new Date('2026-01-05T12:00:00Z');
     expect(getIsoWeekStart(date)).toBe('2026-01-05');
+  });
+});
+
+describe('getMetricsKey', () => {
+  it('returns metrics:{bucketName}:{sessionId}', () => {
+    expect(getMetricsKey('cf-alice', 'abc123')).toBe('metrics:cf-alice:abc123');
   });
 });
 
