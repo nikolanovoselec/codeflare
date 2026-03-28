@@ -672,12 +672,11 @@ describe('Fuzz: ReDoS resistance', () => {
 // ---------------------------------------------------------------------------
 describe('Fuzz: validateKey encoding tricks', () => {
   it('URL-encoded traversal (%2e%2e) does not bypass validation (JS string is literal)', () => {
-    // URL encoding: %2e = '.', but JS strings don't auto-decode percent-encoding.
-    // The key '%2e%2e' is NOT '..' so validateKey should accept it (no real traversal).
-    // This documents that validateKey operates on raw string bytes, not decoded URLs.
+    // CF-012: validateKey now decodes URI components before path traversal check.
+    // %2e%2e decodes to '..' which IS rejected (prevents encoded traversal attacks).
     const key = 'workspace/%2e%2e/secret';
-    expect(() => validateKey(key)).not.toThrow();
-    // Double-check: actual '..' IS rejected
+    expect(() => validateKey(key)).toThrow();
+    // Direct '..' also rejected
     expect(() => validateKey('workspace/../secret')).toThrow();
   });
 
