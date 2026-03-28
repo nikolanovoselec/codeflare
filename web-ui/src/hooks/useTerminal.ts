@@ -77,16 +77,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const termBrightBlack = rootStyle.getPropertyValue('--color-terminal-theme-bright-black').trim() || '#627088';
 
     term = new Terminal({
-      cursorBlink: true,
-      cursorStyle: 'bar',
+      cursorBlink: false,
+      cursorStyle: 'block',
       fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, 'Courier New', 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Sans Symbols 2', 'Segoe UI Symbol', 'Apple Symbols', monospace",
       fontSize: 14,
       lineHeight: 1.2,
       theme: {
         background: termBg,
         foreground: '#e4e4f0',
-        cursor: '#e4e4f0',
-        cursorAccent: '#1a2332',
+        cursor: 'transparent',
+        cursorAccent: 'transparent',
         selectionBackground: '#d9770644',
         selectionForeground: '#e4e4f0',
         black: termBlack,
@@ -292,7 +292,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     const applyCursorVisibility = () => {
       if (!term) return;
-      if (isAlternateBuffer || isCursorHidden) {
+      // Always keep cursor visible — CLI apps (Copilot, Claude Code, Codex)
+      // in alternate buffer mode need xterm's cursor layer. Hiding it caused
+      // invisible cursors in newer CLI versions that rely on it.
+      if (isCursorHidden) {
         term.options.theme = { ...term.options.theme, cursor: 'transparent', cursorAccent: 'transparent' };
       } else {
         term.options.theme = { ...term.options.theme, cursor: origCursorColor, cursorAccent: termBg };
