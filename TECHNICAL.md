@@ -265,6 +265,22 @@ sequenceDiagram
 
 **KV Eventual Consistency:** ~60s propagation delay for new sessions. Metrics may not appear at edge immediately after first `collectMetrics` write. The frontend handles this gracefully -- `SessionStatCard` shows last-known metrics for recently-stopped sessions.
 
+#### KV Optimization (1500-User Scale)
+
+Three optimizations reduce KV operations from ~910K/sec to ~350/sec at 1500 concurrent users:
+
+**1. List Metadata for batch-status:** `putSessionWithMetadata()` in `kv-keys.ts` writes compressed `SessionListMetadata` (status, timestamps, metrics — ~195 bytes) alongside the session value via `kv.put(key, value, { metadata })`. `GET /api/sessions/batch-status` reads from `kv.list()` metadata instead of N individual `kv.get()` calls. Graceful fallback to `kv.get()` for pre-migration keys without metadata. Compressed field names: `s` (status: 'r'|'s'), `la` (lastActiveAt), `sa` (lastStartedAt), `m.c/e/h/y/u` (metrics). All 9 session write sites use `putSessionWithMetadata`. `validateSessionAndCheckLimits` also reads running count from metadata.
+
+**2. Separate Metrics Key:** `collectMetrics` writes to `metrics:{bucketName}:{sessionId}` with 24h TTL instead of read-modify-write on the full session record. Eliminates 1500 session KV reads/min at scale. `getMetricsKey()` helper in `kv-keys.ts`. Session delete and user cleanup also delete metrics keys.
+
+**3. User Record Cache:** Module-level `Map<string, { data, cachedAt }>` in Timekeeper with 60s TTL and 100-entry cap for `user:{email}` reads in `handlePing()`. Matches `getTierConfig()` cache pattern. Reduces 1500 uncached KV reads/min to ~25. `resetUserRecordCache()` exported for test cleanup.
+
+| Metric | Before | After | Reduction |
+|--------|--------|-------|-----------|
+| batch-status KV reads/sec | ~901,500 | ~300 | 99.97% |
+| Timekeeper user reads/min | 1,500 | ~25 | 98.3% |
+| collectMetrics session reads/min | 1,500 | 0 | 100% |
+
 **Auto-Reconnect:** Infinite retries with 1-second delay (`WS_RETRY_DELAY_MS = 1000`) for retryable close codes (1001, 1006, 1011, 1012, 1013). No dead-container inference from retry failure — only the server-authoritative close code 4503 stops retrying. Reconnection triggers session buffer replay via SerializeAddon state restore. AbortController-based cancellation prevents parallel retry loops.
 
 **No Application-Level WS Pings:** Removed. Cloudflare's runtime handles protocol-level WebSocket keepalive for DO/Container connections automatically.
