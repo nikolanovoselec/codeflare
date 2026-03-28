@@ -16,6 +16,10 @@ vi.mock('../../components/SessionStatCard', () => ({
   )
 }));
 
+vi.mock('../../components/ScrambleText', () => ({
+  default: (props: any) => <span class={props.class}>{props.text}</span>
+}));
+
 vi.mock('../../components/StorageBrowser', () => ({
   default: () => <div data-testid="storage-browser" />
 }));

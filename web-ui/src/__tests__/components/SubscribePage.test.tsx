@@ -294,7 +294,7 @@ describe('SubscribePage', () => {
       });
     });
 
-    it('shows "This is you" for active users', async () => {
+    it('shows green border on current tier for active users', async () => {
       mockedGetAuthStatus.mockResolvedValue({
         email: 'active@example.com',
         accessTier: 'standard',
@@ -307,15 +307,16 @@ describe('SubscribePage', () => {
       await openTierView();
 
       await waitFor(() => {
-        const rail = screen.getByTestId('lifeline-rail');
-        expect(rail.textContent).toMatch(/This is you/);
+        const standardStop = screen.getByTestId('lifeline-stop-standard');
+        const icon = standardStop.querySelector('.subscribe-lifeline-icon');
+        expect(icon?.classList.contains('subscribe-lifeline-icon--current')).toBe(true);
       });
     });
 
-    it('does NOT show "This is you" for pending users', async () => {
+    it('does NOT show green border for pending users', async () => {
       await openTierView();
-      const rail = screen.getByTestId('lifeline-rail');
-      expect(rail.textContent).not.toMatch(/This is you/);
+      const icons = document.querySelectorAll('.subscribe-lifeline-icon--current');
+      expect(icons.length).toBe(0);
     });
 
     it('CTA shows "Get Started" for free tier', async () => {
