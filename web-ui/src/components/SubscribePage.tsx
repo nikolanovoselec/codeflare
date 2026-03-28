@@ -17,7 +17,6 @@ import {
   mdiStarOutline,
   mdiFlash,
   mdiAccountGroupOutline,
-  mdiMenuUp,
   mdiConsole,
   mdiFileDocumentOutline,
   mdiRobotOutline,
@@ -70,13 +69,14 @@ interface TierInfo {
 type SubscribePhase = 'home' | 'tiers';
 
 
-/** Per-tier feature bullets for detail panel (qualitative only — sessions/hours/trial shown dynamically) */
+/** Per-tier feature bullets. Use '{sessions}' as placeholder — replaced at render
+ *  time with the actual maxSessions value from tier config (admin-configurable). */
 const TIER_FEATURES: Record<string, string[]> = {
   free: ['All agents, ready instantly', 'Persistent cloud storage', 'GitHub & Cloudflare deploy'],
   standard: ['Everything in Free', 'Unlocks Pro mode', 'Configurable idle timeout', 'Priority support'],
-  advanced: ['Everything in Starter', 'Run 2 sessions at once', 'Work across parallel branches', 'Priority support'],
-  max: ['Everything in Advanced', 'Run 3 sessions at once', '4x the compute of Starter', 'OpenClaw Integration'],
-  unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run 5 sessions at once', 'OpenClaw Integration', 'Dedicated support'],
+  advanced: ['Everything in Starter', 'Run {sessions} sessions at once', 'Work across parallel branches', 'Priority support'],
+  max: ['Everything in Advanced', 'Run {sessions} sessions at once', '4x the compute of Starter', 'OpenClaw Integration'],
+  unlimited: ['Everything in Max', 'Unlimited compute hours', 'Run {sessions} sessions at once', 'OpenClaw Integration', 'Dedicated support'],
 };
 
 /** Features that show a "COMING SOON" badge */
@@ -94,15 +94,18 @@ const FEATURE_ICONS: Record<string, string> = {
   'Unlocks Pro mode': mdiStarOutline,
   'Configurable idle timeout': mdiTimerOutline,
   'Priority support': mdiShieldCheckOutline,
-  'Run 2 sessions at once': mdiMonitorMultiple,
-  'Run 3 sessions at once': mdiMonitorMultiple,
-  'Run 5 sessions at once': mdiMonitorMultiple,
   'Work across parallel branches': mdiCallSplit,
   '4x the compute of Starter': mdiLightningBolt,
   'OpenClaw Integration': mdiPuzzleOutline,
   'Unlimited compute hours': mdiInfinity,
   'Dedicated support': mdiShieldAccountOutline,
 };
+
+/** Resolve icon for a feature string — handles dynamic "Run N sessions" */
+function getFeatureIcon(feature: string): string {
+  if (/^Run \d+ sessions? at once$/.test(feature)) return mdiMonitorMultiple;
+  return FEATURE_ICONS[feature] ?? mdiCheck;
+}
 
 /** Lifeline stop icons */
 const TIER_ICONS: Record<string, string> = {
@@ -467,11 +470,13 @@ const SubscribePage: Component = () => {
     return getTrialBadge(t) ?? '';
   });
   // Max 5 feature bullets per tier — create 5 scramble slots
+  // Replace {sessions} placeholder with actual maxSessions from tier config
   const scrambledFeatures = Array.from({ length: 5 }, (_, idx) =>
     useScrambleText(() => {
       const t = selectedTier();
       if (!t) return '';
-      return (TIER_FEATURES[t.id] ?? [])[idx] ?? '';
+      const raw = (TIER_FEATURES[t.id] ?? [])[idx] ?? '';
+      return raw.replace('{sessions}', String(t.maxSessions));
     }),
   );
 
@@ -652,7 +657,10 @@ const SubscribePage: Component = () => {
                     <button
                       type="button"
                       class="subscribe-mode-toggle-btn"
-                      classList={{ 'subscribe-mode-toggle-btn--active': globalMode() === 'default' }}
+                      classList={{
+                        'subscribe-mode-toggle-btn--active': globalMode() === 'default',
+                        'subscribe-mode-toggle-btn--current': isActive() && currentMode() === 'default',
+                      }}
                       data-testid="mode-card-standard"
                       onClick={() => setGlobalMode('default')}
                     >
@@ -663,6 +671,7 @@ const SubscribePage: Component = () => {
                       class="subscribe-mode-toggle-btn"
                       classList={{
                         'subscribe-mode-toggle-btn--active': globalMode() === 'advanced',
+                        'subscribe-mode-toggle-btn--current': isActive() && currentMode() === 'advanced',
                         'subscribe-mode-toggle-btn--disabled': !selectedTierSupportsPro(),
                       }}
                       data-testid="mode-card-pro"
@@ -683,9 +692,6 @@ const SubscribePage: Component = () => {
                         <li class="subscribe-mode-card-feature">
                           <Icon path={f.icon} size={16} />
                           <span>{typeof f.text === 'function' ? f.text() : f.text}</span>
-                          <Show when={isActive() && currentMode() === 'default' && i() === STANDARD_MODE_FEATURES.length - 1}>
-                            <span class="subscribe-mode-you">This is you</span>
-                          </Show>
                         </li>
                       )}
                     </For>
@@ -702,9 +708,6 @@ const SubscribePage: Component = () => {
                             <li class="subscribe-mode-card-feature">
                               <Icon path={f.icon} size={16} />
                               <span>{scrambledProFeatures[i()]()}</span>
-                              <Show when={isActive() && currentMode() === 'advanced' && i() === PRO_MODE_FEATURES.length - 1}>
-                                <span class="subscribe-mode-you">This is you</span>
-                              </Show>
                             </li>
                           )}
                         </For>
@@ -733,16 +736,10 @@ const SubscribePage: Component = () => {
                                 onClick={() => setSelectedTierId(tierId)}
                                 data-testid={`lifeline-stop-${tierId}`}
                               >
-                                <span class="subscribe-lifeline-icon">
+                                <span class={`subscribe-lifeline-icon ${isActive() && currentTierId() === tierId ? 'subscribe-lifeline-icon--current' : ''}`}>
                                   <Icon path={TIER_ICONS[tierId] ?? mdiStarOutline} size={20} />
                                 </span>
                                 <span class="subscribe-lifeline-label">{td().displayName}</span>
-                                <Show when={isActive() && currentTierId() === tierId}>
-                                  <div class="subscribe-lifeline-you">
-                                    <Icon path={mdiMenuUp} size={20} />
-                                    <span>This is you</span>
-                                  </div>
-                                </Show>
                               </button>
                             )}
                           </Show>
@@ -789,7 +786,7 @@ const SubscribePage: Component = () => {
                           {(scrambled) => (
                             <Show when={scrambled()}>
                               <li class="subscribe-tier-feature-item">
-                                <Icon path={FEATURE_ICONS[scrambled()] ?? mdiCheck} size={14} />
+                                <Icon path={getFeatureIcon(scrambled())} size={14} />
                                 <span>
                                   {scrambled()}
                                   {COMING_SOON_FEATURES.has(scrambled()) && (

@@ -431,7 +431,7 @@ flowchart TD
 
 **Shared config schema (CF-006):** `SetBucketNameBodySchema` in `container-config-schema.ts` — Zod schema for setBucketName payload with `.passthrough()` for flexibility. Deploy credential fields use conditional spread (not explicit `null`).
 
-**ScrambleText consolidation (CF-016):** `ScrambleText.tsx` rewritten as 15-line wrapper around `useScrambleText` hook (canonical `requestAnimationFrame` implementation). Single source of truth for scramble animation.
+**ScrambleText consolidation (CF-016):** `ScrambleText.tsx` rewritten as 15-line wrapper around `useScrambleText` hook (canonical `requestAnimationFrame` implementation). Single source of truth for scramble animation. Hook accepts `animateOnMount` option to trigger scramble on first render (used by standalone ScrambleText component on login/subscribe pages).
 
 ---
 
@@ -1101,12 +1101,17 @@ All users land on `/app/subscribe` with an identical two-phase layout. The only 
 | Blocked | "Blocked" | Red (`#ef4444`) | Blocked message, no tier button |
 
 **Per-tier feature bullets** (`TIER_FEATURES` in `SubscribePage.tsx`):
-- Free (`free`): Standard mode only, R2 cloud sync, Community support
-- Starter/Advanced (`standard`/`advanced`): Standard + Pro modes, R2 cloud sync, Configurable idle timeout, Priority support
-- Max (`max`): Standard + Pro modes, R2 cloud sync, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Priority support
-- Custom (`unlimited`): Standard + Pro modes, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Dedicated support, Custom SLA
+- Free (`free`): All agents, persistent cloud storage, GitHub & Cloudflare deploy
+- Starter (`standard`): Everything in Free, unlocks Pro mode, configurable idle timeout, priority support
+- Advanced (`advanced`): Everything in Starter, run {sessions} sessions at once, parallel branches, priority support
+- Max (`max`): Everything in Advanced, run {sessions} sessions at once, 4x compute, OpenClaw Integration (COMING SOON)
+- Custom (`unlimited`): Everything in Max, unlimited compute hours, run {sessions} sessions at once, OpenClaw Integration (COMING SOON), dedicated support
+
+The `{sessions}` placeholder is replaced at render time with `selectedTier().maxSessions` from admin config. Icon lookup uses `getFeatureIcon()` which pattern-matches `Run \d+ sessions at once` for the dynamic text.
 
 Features in the `COMING_SOON_FEATURES` set render with an inline accent-colored uppercase badge.
+
+**Current subscription indicator:** Active subscribers see a green border on their subscribed tier's lifeline icon (`subscribe-lifeline-icon--current`) and mode toggle button (`subscribe-mode-toggle-btn--current`). No text labels.
 
 **Content width:** Phase 1 uses narrow layout (`login-content`), Phase 2 uses wide layout (`subscribe-content`, max-width 680px). Mobile: mode card compacts, lifeline labels shrink, 44px minimum tap targets.
 

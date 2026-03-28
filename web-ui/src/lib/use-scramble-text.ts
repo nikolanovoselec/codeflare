@@ -6,9 +6,10 @@ const CHARS_PER_FRAME = 1;
 export function useScrambleText(
   text: Accessor<string>,
   enabled: Accessor<boolean> = () => true,
+  opts?: { animateOnMount?: boolean },
 ): Accessor<string> {
-  const [display, setDisplay] = createSignal(text());
-  let isFirst = true;
+  const [display, setDisplay] = createSignal(opts?.animateOnMount ? '' : text());
+  let isFirst = !opts?.animateOnMount;
 
   const prefersReducedMotion =
     typeof window !== 'undefined' &&
