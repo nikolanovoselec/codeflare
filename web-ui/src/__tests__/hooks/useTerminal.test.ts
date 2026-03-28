@@ -686,8 +686,8 @@ describe('useTerminal hook', () => {
       // Terminal constructor should have been called with expected options
       expect(Terminal).toHaveBeenCalledWith(
         expect.objectContaining({
-          cursorBlink: false,
-          cursorStyle: 'block',
+          cursorBlink: true,
+          cursorStyle: 'bar',
           fontSize: 14,
           lineHeight: 1.2,
           allowProposedApi: true,

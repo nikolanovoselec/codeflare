@@ -77,16 +77,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const termBrightBlack = rootStyle.getPropertyValue('--color-terminal-theme-bright-black').trim() || '#627088';
 
     term = new Terminal({
-      cursorBlink: false,
-      cursorStyle: 'block',
+      cursorBlink: true,
+      cursorStyle: 'bar',
       fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, 'Courier New', 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Sans Symbols 2', 'Segoe UI Symbol', 'Apple Symbols', monospace",
       fontSize: 14,
       lineHeight: 1.2,
       theme: {
         background: termBg,
         foreground: '#e4e4f0',
-        cursor: 'transparent',
-        cursorAccent: 'transparent',
+        cursor: '#e4e4f0',
+        cursorAccent: '#1a2332',
         selectionBackground: '#d9770644',
         selectionForeground: '#e4e4f0',
         black: termBlack,
