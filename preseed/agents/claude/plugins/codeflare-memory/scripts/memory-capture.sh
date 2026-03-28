@@ -28,6 +28,8 @@ else
     # transcript so we don't fire on the entire history delta.
     last_count=$CURRENT_COUNT
     last_line=$(wc -l < "$TRANSCRIPT")
+    # Persist baseline so subsequent invocations can calculate delta
+    printf '%s\n%s\n' "$last_count" "$last_line" > "$COUNTER_FILE"
 fi
 
 DELTA=$((CURRENT_COUNT - last_count))
