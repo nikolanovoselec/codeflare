@@ -413,6 +413,28 @@ flowchart TD
 
 ---
 
+### Code Structure (Pre-Launch Refactoring)
+
+**Container DO extraction (CF-004):** `src/container/index.ts` split from 887 → 475 lines:
+- `container-env.ts` (338 lines): env var construction, bucket name application, credential injection, prefs-on-restart
+- `container-metrics.ts` (268 lines): collectMetrics, idle detection, Timekeeper ping, KV status updates (immutable spread, not mutation)
+- `index.ts` (475 lines): thin facade owning DO lifecycle (constructor, fetch, onStart, onStop, alarm). Sub-modules receive state via explicit interface parameters, not class inheritance.
+
+**Session store extraction (CF-013):** `web-ui/src/stores/session.ts` split from 768 → 582 lines:
+- `session-polling.ts` (196 lines): refreshSessionStatuses, miss counters, start/stop polling. Uses dependency injection via `registerPollingDeps()`.
+- `session-usage.ts` (73 lines): UsageState, warning levels, localStorage cache. Self-contained, no circular deps.
+- `session.ts` (582 lines): facade re-exports all members. Public API unchanged.
+
+**Type safety fixes (CF-007):** `countPaidSlots` typed (no more `any[]`). Admin PATCH user uses `updateUserRecord` (not raw `KV.put`). `maxUsers` added to frontend `GetUsersResponseSchema` (no more double cast).
+
+**Validation consolidation (CF-009):** 4 inline `SESSION_ID_PATTERN.test()` in `crud.ts` replaced with `validateSessionId()` from `request-helpers.ts`. Errors flow through global handler with consistent JSON shape.
+
+**Shared config schema (CF-006):** `SetBucketNameBodySchema` in `container-config-schema.ts` — Zod schema for setBucketName payload with `.passthrough()` for flexibility. Deploy credential fields use conditional spread (not explicit `null`).
+
+**ScrambleText consolidation (CF-016):** `ScrambleText.tsx` rewritten as 15-line wrapper around `useScrambleText` hook (canonical `requestAnimationFrame` implementation). Single source of truth for scramble animation.
+
+---
+
 ## Data Flow
 
 ### Session Creation to Terminal Connection
@@ -956,6 +978,15 @@ Webhooks are signals that trigger a fetch of the latest state from the Stripe AP
 **Stripe gate:** When `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects paid tiers with "Paid subscriptions require checkout." Only `free` tier is allowed through the direct subscribe endpoint. This ensures payment is collected before tier activation.
 
 **Price resolution:** `getStripePriceId(tier, mode, tiers)` and `resolveTierFromPriceId(priceId, tiers)` both require tier config (KV-sourced). No dev fallback — prices must be configured in tier config or via Stripe Price metadata.
+
+**Tier visibility:** `GET /api/auth/tiers` only returns tiers where `stripePriceId` is configured (or `priceMonthly === 0` for free, or `id === 'unlimited'` for Custom/contact tier). Paid tiers without price IDs are hidden from the subscribe page — prevents broken checkout buttons on first deploy before admin configures Stripe.
+
+**Trial enforcement:**
+- `trialUsed` set to `true` in `syncSubscriptionState` when `snapshot.status` transitions away from `'trialing'`. Prevents unlimited free trials via subscribe→cancel→resubscribe.
+- `endTrialNow` in Timekeeper DO guarded by `trialEnded` flag in DO storage — called once, not every 60s ping. Prevents O(sessions) Stripe API calls per minute when quota exceeded.
+- `lastSyncedAt` timestamp guard uses `>` (not `>=`) so same-second webhook events are not silently discarded.
+
+**Atomic writes:** `subscribe` and `request-access` handlers use `updateUserRecord()` (atomic read-merge-write) instead of raw `KV.put` with manual spread. Prevents concurrent webhook writes from losing billing fields.
 
 **Billing enforcement (`getEffectiveTier()` in `src/lib/subscription.ts`):**
 Uses `BILLING_STATUS` constants from `types.ts` for type-safe comparisons (not raw strings). `BillingStatus` union type: `'active' | 'trialing' | 'past_due' | 'canceled'`. `StripeSubscriptionSnapshot.status` remains `string` since Stripe may return statuses outside this enum (e.g., `'incomplete'`). The `parseUserRecord` Zod schema uses `.catch(undefined)` to gracefully handle unexpected values from KV.
@@ -1537,6 +1568,28 @@ Two types of R2 credentials serve different purposes:
 ### Graceful Shutdown
 
 `STOPSIGNAL SIGINT` in the Dockerfile. The `entrypoint.sh` trap handler catches SIGINT/SIGTERM, kills the sync daemon via PID file at `/tmp/sync-daemon.pid` (PID file is the sole mechanism — no in-memory PID variable fallback), runs a final `rclone bisync` (with `--ignore-checksum --max-delete 100`) to R2, and kills the terminal server. The bisync-initialized flag is touched on the timeout path as well (was previously missing, which caused shutdown to skip final bisync when initial sync timed out). This ensures no data loss on container stop.
+
+### Security Hardening (Pre-Launch Review)
+
+Fixes from 6 rounds of automated code review before 1500-user launch:
+
+**Auth bypass prevention (CF-005):** `authConfigFetched` boolean sentinel in `access.ts` prevents KV transient errors from permanently degrading a post-setup deployment to the pre-setup header-trust model. Once KV auth config has been successfully fetched with real data (auth domain + aud), the pre-setup fallback that trusts `cf-access-authenticated-user-email` headers is permanently disabled for the isolate's lifetime. `resetAuthConfigCache()` clears the sentinel.
+
+**STRESS_TEST_MODE enforcement (CF-001):** Global middleware in `src/index.ts` returns 503 when both `SAAS_MODE=active` and `STRESS_TEST_MODE=active`. Previously only logged once per isolate. STRESS_TEST_MODE is only for integration/staging without SAAS_MODE.
+
+**Rate limiter fail-closed (CF-003/011):** `checkRateLimit` in `rate-limit-core.ts` accepts a `failClosed: boolean` parameter. When `true`, KV failure denies the request (503) instead of failing open via in-memory fallback. Applied to security-critical endpoints (Turnstile CAPTCHA verification, access-request). General resource-protection endpoints retain fail-open per AD6.
+
+**Encryption key warning (CF-017):** `warnIfNoEncryptionKey()` in `kv-crypto.ts` emits a CRITICAL structured log on first request when `ENCRYPTION_KEY` is absent. User credentials (LLM API keys, GitHub tokens, Cloudflare tokens) are stored as plaintext KV when the key is missing.
+
+**Path traversal prevention (CF-012):** `validateKey()` in `storage/validation.ts` decodes URI-encoded sequences via `decodeURIComponent` before the `..` traversal check. Catches `%2E%2E` and double-encoded `%252E%252E` attacks. Malformed URI encoding throws `ValidationError`. Returns the decoded key so callers use the correct value for R2 operations.
+
+**Blocked user subscribe guard:** `POST /api/auth/subscribe` checks `getEffectiveTier` at handler top and throws `ForbiddenError` for blocked users. Previously, blocked users with a valid OIDC session could self-upgrade to free tier.
+
+**SaaS service-token guard:** `cf-access-client-id` header in `getUserFromRequest` is only trusted when `!isSaasModeActive()`. In SaaS mode there is no CF Access edge to validate this header, making it attacker-controlled.
+
+**Session mode billing enforcement:** `resolveSessionMode` result is clamped against the billing-resolved effective tier at both container start (`lifecycle.ts`) and preferences save (`preferences.ts`). A canceled user with stale `sessionMode: 'advanced'` preference gets `'default'` because the free tier only allows `['default']`. Both paths use `getEffectiveTier` (not raw JWT `subscriptionTier`).
+
+**Concurrent cache dedup (CF-002):** Auth config fetch in `access.ts` wrapped in `pendingAuthConfigFetch` Promise sentinel (mirrors `pendingJWKSFetch` pattern from `jwt.ts`). Two concurrent cold-start requests reuse the in-flight fetch instead of issuing redundant KV reads. Sentinel cleared on TTL expiry and `resetAuthConfigCache()`.
 
 ### Security Headers
 
