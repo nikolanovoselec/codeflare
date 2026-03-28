@@ -137,6 +137,7 @@
   letter-spacing: 0.02em;
 }
 .subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; margin-top: 0.15rem; }
+.subscribe-mode-card-feature > span:first-of-type { flex: 1; min-width: 0; }
 
 .subscribe-mode-you {
   font-size: 0.65rem; font-weight: 500;
