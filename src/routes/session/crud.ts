@@ -9,11 +9,11 @@ import { AgentTypeSchema, type Env, type Session } from '../../types';
 import { getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { MAX_SESSION_NAME_LENGTH, MAX_TABS, SESSION_ID_PATTERN } from '../../lib/constants';
+import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
 import { getContainerId } from '../../lib/container-helpers';
 import { createLogger } from '../../lib/logger';
 import { ValidationError } from '../../lib/error-types';
-import { parseJsonBody, firstZodError } from '../../lib/request-helpers';
+import { parseJsonBody, firstZodError, validateSessionId } from '../../lib/request-helpers';
 import { toApiSession } from '../../lib/session-helpers';
 import { TabConfigSchema } from '../../lib/schemas';
 
@@ -125,9 +125,7 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
 app.get('/:id', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
-  if (!SESSION_ID_PATTERN.test(sessionId)) {
-    return c.json({ error: 'Invalid session ID format' }, 400);
-  }
+  validateSessionId(sessionId);
   const key = getSessionKey(bucketName, sessionId);
 
   const session = await getSessionOrThrow(c.env.KV, key);
@@ -143,9 +141,7 @@ app.get('/:id', async (c) => {
 app.patch('/:id', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
-  if (!SESSION_ID_PATTERN.test(sessionId)) {
-    return c.json({ error: 'Invalid session ID format' }, 400);
-  }
+  validateSessionId(sessionId);
   const key = getSessionKey(bucketName, sessionId);
 
   const session = await getSessionOrThrow(c.env.KV, key);
@@ -179,9 +175,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
   const reqLogger = logger.child({ requestId: c.get('requestId') });
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
-  if (!SESSION_ID_PATTERN.test(sessionId)) {
-    return c.json({ error: 'Invalid session ID format' }, 400);
-  }
+  validateSessionId(sessionId);
   const key = getSessionKey(bucketName, sessionId);
 
   // Check if session exists
@@ -214,9 +208,7 @@ app.delete('/:id', sessionDeleteRateLimiter, async (c) => {
 app.post('/:id/touch', async (c) => {
   const bucketName = c.get('bucketName');
   const sessionId = c.req.param('id');
-  if (!SESSION_ID_PATTERN.test(sessionId)) {
-    return c.json({ error: 'Invalid session ID format' }, 400);
-  }
+  validateSessionId(sessionId);
   const key = getSessionKey(bucketName, sessionId);
 
   const session = await getSessionOrThrow(c.env.KV, key);
