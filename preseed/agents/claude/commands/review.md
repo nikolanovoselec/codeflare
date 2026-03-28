@@ -26,9 +26,9 @@ $ARGUMENTS can include:
 
 Create a timestamped output directory to avoid overwriting previous runs:
 ```bash
-REVIEW_DIR=~/workspace/tmp/review/$(date +%Y%m%d-%H%M%S)
+REVIEW_DIR=/home/user/Temporary/Review/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$REVIEW_DIR"
-ln -sfn "$REVIEW_DIR" ~/workspace/tmp/review/latest
+ln -sfn "$REVIEW_DIR" /home/user/Temporary/Review/latest
 ```
 
 Use `$REVIEW_DIR` for ALL output files in every subsequent phase. Print the path so the user can reference it.
@@ -475,4 +475,4 @@ After Phase 8 Task agent completes:
 - Phase 5 is opt-in via `--verify-high` flag
 - After Phase 4 and Phase 5: check if Active totals are 0 — if so, STOP and report clean review
 - Each phase MUST complete fully before proceeding to the next — no phase is optional except Phase 5
-- Findings directory persists at `$REVIEW_DIR` for later reference; `~/workspace/tmp/review/latest` always points to the most recent run
+- Findings directory persists at `$REVIEW_DIR` for later reference; `/home/user/Temporary/Review/latest` always points to the most recent run
