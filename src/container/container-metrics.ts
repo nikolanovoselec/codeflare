@@ -33,8 +33,8 @@ export interface MetricsState {
 /** Callbacks provided by the Container class for SDK operations. */
 export interface MetricsCallbacks {
   renewActivityTimeout: () => void;
-  stop: (signal: string) => Promise<void>;
-  schedule: (delaySec: number, method: string) => Promise<void>;
+  stop: (signal: number | string) => Promise<void>;
+  schedule: (delaySec: number, method: string) => Promise<unknown>;
   parseSleepAfterMs: () => number;
   sleepAfter: string;
 }
@@ -59,7 +59,7 @@ export function parseSleepAfterMs(s: string): number {
  * Optionally sets session.status (e.g. 'stopped' on hibernation).
  */
 export async function updateKvStatus(
-  ctx: DurableObjectState<Env>,
+  ctx: DurableObjectState,
   env: Env,
   bucketNameOverride: string | null,
   status: 'running' | 'stopped' | null,
@@ -103,7 +103,7 @@ export async function updateKvStatus(
  */
 export async function collectMetrics(
   state: MetricsState,
-  ctx: DurableObjectState<Env>,
+  ctx: DurableObjectState,
   env: Env,
   callbacks: MetricsCallbacks,
 ): Promise<void> {

@@ -372,8 +372,8 @@ export class container extends Container<Env> {
   async collectMetrics(): Promise<void> {
     const callbacks: MetricsCallbacks = {
       renewActivityTimeout: () => this.renewActivityTimeout(),
-      stop: (signal: string) => this.stop(signal),
-      schedule: (delaySec: number, method: string) => this.schedule(delaySec, method),
+      stop: (signal: number | string) => this.stop(signal as number),
+      schedule: (delaySec: number, method: string) => this.schedule(delaySec, method) as Promise<unknown>,
       parseSleepAfterMs: () => this.parseSleepAfterMs(),
       sleepAfter: this.sleepAfter,
     };
