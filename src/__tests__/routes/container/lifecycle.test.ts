@@ -99,6 +99,9 @@ vi.mock('../../../lib/kv-keys', () => ({
   getDeployKeysKey: vi.fn((bucket: string) => `deploy-keys:${bucket}`),
   listAllKvKeys: vi.fn(async () => []),
   getSessionPrefix: vi.fn((bucket: string) => `session:${bucket}:`),
+  putSessionWithMetadata: vi.fn(async (kv: unknown, key: string, session: unknown) => {
+    await (kv as { put: (k: string, v: string) => Promise<void> }).put(key, JSON.stringify(session));
+  }),
 }));
 
 // Mock container-helpers

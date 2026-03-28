@@ -80,6 +80,9 @@ vi.mock('../../lib/kv-keys', () => ({
   getPreferencesKey: vi.fn((bucket: string) => `preferences:${bucket}`),
   listAllKvKeys: mockListAllKvKeys,
   getSessionPrefix: vi.fn((bucket: string) => `session:${bucket}:`),
+  putSessionWithMetadata: vi.fn(async (kv: unknown, key: string, session: unknown) => {
+    await (kv as { put: (k: string, v: string) => Promise<void> }).put(key, JSON.stringify(session));
+  }),
 }));
 
 vi.mock('../../lib/container-helpers', () => ({
