@@ -260,7 +260,7 @@
 
 .subscribe-lifeline {
   position: relative; width: 100%; max-width: 540px;
-  margin: 1.5rem auto 1rem; padding-bottom: 0;
+  margin: 1.5rem auto; padding-bottom: 0;
   animation: fadeSlideIn 0.5s ease-out 0.2s both;
 }
 
