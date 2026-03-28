@@ -287,7 +287,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     // Cursor visibility tracking
     const origCursorColor = '#d97706';
-    let isAlternateBuffer = false;
     let isCursorHidden = false;
 
     const applyCursorVisibility = () => {
@@ -302,8 +301,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
     };
 
-    bufferChangeDisposable = t.buffer.onBufferChange((buf) => {
-      isAlternateBuffer = buf.type === 'alternate';
+    bufferChangeDisposable = t.buffer.onBufferChange(() => {
       applyCursorVisibility();
     });
 
