@@ -13,7 +13,7 @@ import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../.
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, NotFoundError, RateLimitError, QuotaExceededError, toError, toErrorMessage } from '../../lib/error-types';
-import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
+import { getTierConfig, getUserTier, getEffectiveTier, getAllowedSessionModes } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata, type SessionListMetadata } from '../../lib/kv-keys';
@@ -417,9 +417,16 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
-    const sessionMode = resolveSessionMode(preferences);
+    const rawSessionMode = resolveSessionMode(preferences);
     // Free tier: locked to 5m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    // Clamp session mode against effective tier — canceled users can't use advanced
+    const tiers = await getTierConfig(c.env.KV);
+    const sessionMode = (
+      isSaasModeActive(c.env.SAAS_MODE) &&
+      rawSessionMode === 'advanced' &&
+      !getAllowedSessionModes(effectiveTier, tiers).includes('advanced')
+    ) ? 'default' : rawSessionMode;
     const sleepAfter = effectiveTier === 'free' ? '5m' : (preferences.sleepAfter || '30m');
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
