@@ -39,7 +39,7 @@ export interface ContainerEnvState {
 }
 
 /** Fields sent in the setBucketName body that may need updating on restart. */
-export interface RestartPrefsInput {
+interface RestartPrefsInput {
   sessionId?: string;
   userEmail?: string;
   workspaceSyncEnabled?: boolean;

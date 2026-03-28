@@ -26,4 +26,3 @@ export const SetBucketNameBodySchema = z.object({
   sleepAfter: z.string(),
 });
 
-export type SetBucketNameBody = z.infer<typeof SetBucketNameBodySchema>;
