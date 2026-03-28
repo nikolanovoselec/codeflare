@@ -13,6 +13,7 @@ import { isSaasModeActive } from '../lib/onboarding';
 import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { sendTierChangeNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
+import { updateUserRecord } from '../lib/user-record';
 import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
 
 const logger = createLogger('users');
@@ -148,8 +149,7 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   const legacyAccessTier = LEGACY_TIERS.has(newTier) ? newTier : 'advanced';
   const PRO_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
   const subscribedMode = PRO_TIERS.has(newTier) ? 'advanced' : 'default';
-  const updated = { ...existing, subscriptionTier: newTier, accessTier: legacyAccessTier, subscribedMode };
-  await c.env.KV.put(`user:${email}`, JSON.stringify(updated));
+  await updateUserRecord(c.env.KV, email, { subscriptionTier: newTier, accessTier: legacyAccessTier, subscribedMode });
 
   // Auto-set sessionMode to 'advanced' for tiers that support it.
   if (newTier === 'advanced' || newTier === 'max' || newTier === 'unlimited') {

@@ -201,6 +201,7 @@ export const UserEntrySchema = z.object({
 
 export const GetUsersResponseSchema = z.object({
   users: z.array(UserEntrySchema),
+  maxUsers: z.number().optional(),
 });
 
 // Storage API schemas

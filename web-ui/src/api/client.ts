@@ -219,7 +219,7 @@ export type UserEntry = z.infer<typeof UserEntrySchema>;
 
 export async function getUsers(): Promise<{ users: UserEntry[]; maxUsers: number }> {
   const data = await fetchApi('/users', {}, GetUsersResponseSchema);
-  return { users: data.users, maxUsers: (data as Record<string, unknown>).maxUsers as number ?? 0 };
+  return { users: data.users, maxUsers: data.maxUsers ?? 0 };
 }
 
 export async function updateMaxUsers(maxUsers: number): Promise<{ success: boolean; maxUsers: number }> {
