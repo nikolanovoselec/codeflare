@@ -14,15 +14,25 @@ export function validateKey(key: string, label = 'key'): string {
   if (sanitized.length > MAX_KEY_LENGTH) {
     throw new ValidationError(`${label} must be at most ${MAX_KEY_LENGTH} characters`);
   }
-  if (sanitized.includes('..')) {
+  // CF-012: Decode URI-encoded sequences before path traversal check
+  // to catch %2E%2E and double-encoded (%252E%252E) attacks.
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(sanitized);
+  } catch {
+    throw new ValidationError(`Invalid ${label}: malformed URI encoding`);
+  }
+  if (decoded.includes('..')) {
     throw new ValidationError(`Invalid ${label}: path traversal not allowed`);
   }
   if (sanitized.startsWith('/')) {
     throw new ValidationError(`Invalid ${label}: must not start with /`);
   }
-  for (const protected_ of PROTECTED_PATHS) {
-    if (sanitized.startsWith(protected_) || sanitized.includes(`/${protected_}`)) {
-      throw new ValidationError(`Cannot access protected path: ${protected_}`);
+  if (PROTECTED_PATHS.length > 0) {
+    for (const protected_ of PROTECTED_PATHS) {
+      if (decoded.startsWith(protected_) || decoded.includes(`/${protected_}`)) {
+        throw new ValidationError(`Cannot access protected path: ${protected_}`);
+      }
     }
   }
   return sanitized;
