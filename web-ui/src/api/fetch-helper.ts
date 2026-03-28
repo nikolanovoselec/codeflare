@@ -70,11 +70,13 @@ export async function baseFetch<T>(
     // Auto-redirect to login on 401 (expired session cookie).
     // Only redirect from authenticated pages (/app/*, /admin/*).
     // Login page (/, /login) and public pages handle 401 in their own error flow.
+    // Return a never-resolving promise to prevent error propagation to the UI
+    // (avoids flash of "unauthorized" error before redirect completes).
     if (response.status === 401) {
       const path = window.location.pathname;
       if (path.startsWith('/app/') || path.startsWith('/admin/')) {
         window.location.href = '/';
-        throw new ApiError('Session expired — redirecting to login', 401, 'Unauthorized');
+        return new Promise<never>(() => {});
       }
     }
 
