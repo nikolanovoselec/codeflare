@@ -61,6 +61,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     p7zip-full \
     bat \
     unzip \
+    # Sandbox for OpenAI Codex
+    bubblewrap \
     # GPG for GitHub CLI repo key
     gpg \
     && rm -rf /var/lib/apt/lists/* \
