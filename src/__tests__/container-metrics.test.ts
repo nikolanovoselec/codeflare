@@ -162,19 +162,18 @@ describe('Container Metrics', () => {
 
       await containerInstance.collectMetrics();
 
-      // Verify KV was written with metrics
+      // Verify metrics written to separate metrics key (not session key)
       expect(mockKV.put).toHaveBeenCalled();
       const putCall = mockKV.put.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('metrics:')
       );
       expect(putCall).toBeDefined();
-      const stored = JSON.parse(putCall![1] as string) as Session;
-      expect(stored.metrics).toBeDefined();
-      expect(stored.metrics!.cpu).toBe('45%');
-      expect(stored.metrics!.mem).toBe('1024MB');
-      expect(stored.metrics!.hdd).toBe('2.5GB');
-      expect(stored.metrics!.syncStatus).toBe('success');
-      expect(stored.metrics!.updatedAt).toBeDefined();
+      const stored = JSON.parse(putCall![1] as string) as Record<string, string>;
+      expect(stored.cpu).toBe('45%');
+      expect(stored.mem).toBe('1024MB');
+      expect(stored.hdd).toBe('2.5GB');
+      expect(stored.syncStatus).toBe('success');
+      expect(stored.updatedAt).toBeDefined();
     });
 
     it('should re-arm schedule if container is still running', async () => {
