@@ -465,16 +465,7 @@ cleanup_old_transcripts() {
     local DELETED=0
     for transcript in $TO_DELETE; do
         [ -f "$transcript" ] || continue
-        local SESSION_DIR="${transcript%.jsonl}"
         rm -f "$transcript"
-        if [ -d "$SESSION_DIR/subagents" ]; then
-            rm -rf "$SESSION_DIR/subagents"
-        fi
-        # Delete tool-results directory if it exists
-        if [ -d "$SESSION_DIR/tool-results" ]; then
-            rm -rf "$SESSION_DIR/tool-results"
-        fi
-        rmdir "$SESSION_DIR" 2>/dev/null || true
         DELETED=$((DELETED + 1))
     done
 
