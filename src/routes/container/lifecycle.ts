@@ -417,16 +417,18 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') || {};
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
-    const rawSessionMode = resolveSessionMode(preferences);
+    let sessionMode = resolveSessionMode(preferences);
     // Free tier: locked to 5m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
-    // Clamp session mode against effective tier — canceled users can't use advanced
-    const tiers = await getTierConfig(c.env.KV);
-    const sessionMode = (
-      isSaasModeActive(c.env.SAAS_MODE) &&
-      rawSessionMode === 'advanced' &&
-      !getAllowedSessionModes(effectiveTier, tiers).includes('advanced')
-    ) ? 'default' : rawSessionMode;
+    // Clamp session mode against effective tier — canceled users can't use advanced (SaaS only)
+    if (isSaasModeActive(c.env.SAAS_MODE) && sessionMode === 'advanced') {
+      try {
+        const tiers = await getTierConfig(c.env.KV);
+        if (!getAllowedSessionModes(effectiveTier, tiers).includes('advanced')) {
+          sessionMode = 'default';
+        }
+      } catch { /* non-SaaS or KV unavailable — allow the stored mode */ }
+    }
     const sleepAfter = effectiveTier === 'free' ? '5m' : (preferences.sleepAfter || '30m');
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
