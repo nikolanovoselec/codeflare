@@ -18,13 +18,16 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 CURRENT_COUNT=$(jq -r '.type' "$TRANSCRIPT" 2>/dev/null | grep -c '^user$') || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
-last_count=0
-last_line=1
 if [[ -f "$COUNTER_FILE" ]]; then
     last_count=$(head -1 "$COUNTER_FILE" 2>/dev/null) || last_count=0
     last_line=$(tail -1 "$COUNTER_FILE" 2>/dev/null) || last_line=1
     [[ "$last_count" =~ ^[0-9]+$ ]] || last_count=0
     [[ "$last_line" =~ ^[0-9]+$ ]] || last_line=1
+else
+    # First run after container recycle or /resume: baseline from current
+    # transcript so we don't fire on the entire history delta.
+    last_count=$CURRENT_COUNT
+    last_line=$(wc -l < "$TRANSCRIPT")
 fi
 
 DELTA=$((CURRENT_COUNT - last_count))
