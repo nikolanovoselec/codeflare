@@ -274,6 +274,11 @@ export async function syncSubscriptionState(
   if (snapshot.billingPeriodEnd !== null) {
     patch.billingPeriodEnd = snapshot.billingPeriodEnd;
   }
+  // HIGH-1: Mark trial as used when status transitions away from trialing.
+  // Prevents unlimited free trials via subscribe→cancel→resubscribe.
+  if (snapshot.status !== 'trialing') {
+    patch.trialUsed = true;
+  }
 
   // 5. Write via updateUserRecord (preserves existing fields)
   await updateUserRecord(env.KV, email, patch);

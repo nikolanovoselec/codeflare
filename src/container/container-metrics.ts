@@ -79,13 +79,12 @@ export async function updateKvStatus(
       logger.info('updateKvStatus: session not found in KV', { key, status, field });
       return;
     }
-    if (status !== null) {
-      session.status = status;
-    }
-    session[field] = new Date().toISOString();
-    // Preserve last-known metrics in KV even after container stops,
-    // so the dashboard can display them for recently-stopped sessions.
-    await putSessionWithMetadata(env.KV, key, session);
+    const updated = {
+      ...session,
+      ...(status !== null ? { status } : {}),
+      [field]: new Date().toISOString(),
+    };
+    await putSessionWithMetadata(env.KV, key, updated);
     logger.info('updateKvStatus: wrote to KV', { key, status, field });
   } catch (err) {
     logger.error('Failed to update KV status', toError(err));

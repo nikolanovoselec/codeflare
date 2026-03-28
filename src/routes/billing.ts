@@ -155,8 +155,8 @@ app.get('/status', requireIdentity, async (c) => {
         checkoutSessionId: userData?.checkoutSessionId ?? null,
         billingStatus: snapshot.status,
       });
-    } catch {
-      // Stripe API error — fall through to KV data
+    } catch (err) {
+      logger.warn('Stripe API error in billing status — falling back to KV', err instanceof Error ? err : new Error(String(err)));
     }
   }
 
