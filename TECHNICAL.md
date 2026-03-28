@@ -60,6 +60,34 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 - [SECURITY.md](SECURITY.md) - Security policy and headers
 - [STRESS_TEST.md](STRESS_TEST.md) - Load testing guide
 
+## CF-NNN Code Index
+
+| Code | Description | Source Location |
+|------|-------------|-----------------|
+| CF-001 | Turnstile token enforcement; rate-limit bypass prevention | src/routes/auth.ts, src/routes/stripe-webhook.ts, src/index.ts |
+| CF-002 | Promise dedup for concurrent cold-start KV reads | src/lib/access.ts |
+| CF-003 | Deny requests when KV unavailable (security-critical) | src/middleware/rate-limit.ts, src/lib/rate-limit-core.ts |
+| CF-004 | Reset tiers to free on subscription.deleted | src/routes/stripe-webhook.ts, src/routes/usage.ts |
+| CF-005 | Default undefined tiers to pending (block access) | src/lib/access.ts, src/lib/subscription.ts |
+| CF-006 | Explicit null check; use getEffectiveTier | src/routes/billing.ts, src/routes/terminal.ts |
+| CF-007 | Fetch tiers before priceId lookup; staleness window | src/routes/billing.ts, src/lib/subscription.ts, src/timekeeper/index.ts |
+| CF-008 | Atomic read-merge-write for user KV records | src/lib/user-record.ts |
+| CF-009 | Default both undefined tiers to pending | src/lib/subscription.ts |
+| CF-010 | Rate-limit webhook; parseUserRecord validation | src/routes/stripe-webhook.ts, src/lib/access.ts |
+| CF-011 | Prefer metadata.email over customer_email; typed user records | src/routes/stripe-webhook.ts, src/lib/user-record.ts |
+| CF-012 | Decode URI-encoded sequences before path-traversal check | src/routes/storage/validation.ts |
+| CF-015 | Catch missed subscription.deleted via billing period expiry | src/lib/subscription.ts |
+| CF-017 | Warn on plaintext credential storage when ENCRYPTION_KEY absent | src/index.ts, src/lib/kv-crypto.ts, src/lib/access.ts |
+| CF-020 | Timekeeper delta clamping / alarm retry; admin inquiry email; mobile input dispatch | src/lib/email.ts, web-ui/src/lib/terminal-mobile-input.ts |
+| CF-021 | Trial always in usage hours (trialDays fallback removed) | web-ui/src/components/SubscribePage.tsx |
+| CF-022 | KV rollback on container start failure; separate try/catch for KV reads | src/lib/cors-cache.ts |
+| CF-023 | Check existing subscription before overwriting | src/routes/stripe-webhook.ts |
+| CF-024 | Missing webhook handler coverage | src/routes/billing.ts |
+| CF-027 | Prices from Stripe via admin-configured stripePriceId | src/lib/subscription.ts |
+| CF-029 | Cache invalidation for storage deletes | src/routes/storage/ |
+| CF-030 | Idempotency key to prevent duplicate checkout sessions | src/lib/stripe.ts |
+| CF-032 | Log warning on unresolved customer (was silently dropped) | src/routes/stripe-webhook.ts |
+
 ---
 
 ## Architecture Overview
