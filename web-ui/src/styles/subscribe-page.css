@@ -142,13 +142,14 @@
 /* Green border on mode toggle for user's current subscribed mode */
 .subscribe-mode-toggle-btn--current {
   border: 1.5px solid #22c55e !important;
+  border-radius: 7px;
 }
 
-/* Green border on lifeline icon for user's current subscribed tier */
-.subscribe-lifeline-icon--current {
-  border: 2px solid #22c55e;
-  border-radius: 50%;
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.3);
+/* Green border on lifeline icon for user's current subscribed tier —
+   must override .subscribe-lifeline-stop--selected specificity */
+.subscribe-lifeline-icon.subscribe-lifeline-icon--current {
+  border: 2px solid #22c55e !important;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.3) !important;
 }
 
 .subscribe-mode-separator {
