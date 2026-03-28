@@ -224,10 +224,12 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     }
   }
 
-  // Service token authentication (fallback)
+  // Service token authentication (fallback — non-SaaS only)
   // When CF Access validates a service token, it passes through cf-access-client-id header.
-  // Only used if no JWT was available (JWT takes precedence).
-  const serviceTokenClientId = request.headers.get('cf-access-client-id');
+  // In SaaS mode there is no CF Access edge, so this header is attacker-controlled.
+  const serviceTokenClientId = !isSaasModeActive(env?.SAAS_MODE)
+    ? request.headers.get('cf-access-client-id')
+    : null;
 
   if (serviceTokenClientId) {
     // Service token was validated by CF Access

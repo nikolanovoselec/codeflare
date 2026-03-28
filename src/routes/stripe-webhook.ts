@@ -245,7 +245,7 @@ export async function syncSubscriptionState(
   // 3. Timestamp guard: skip if KV's lastSyncedAt >= now
   const existing = parseUserRecord(await env.KV.get(`user:${email}`, 'json'));
   const now = new Date().toISOString();
-  if (existing?.lastSyncedAt && existing.lastSyncedAt >= now) {
+  if (existing?.lastSyncedAt && existing.lastSyncedAt > now) {
     logger.info('syncSubscriptionState: skipped (KV lastSyncedAt is newer)', {
       email, kvLastSynced: existing.lastSyncedAt,
     });
