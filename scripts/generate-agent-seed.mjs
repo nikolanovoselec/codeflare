@@ -145,7 +145,13 @@ function adaptAgentFrontmatter(content, agentId) {
       if (toolsMatch) {
         const tools = JSON.parse(toolsMatch[1]);
         const remapped = remapTools(tools, agentId);
-        newLines.push(`tools: ${JSON.stringify(remapped)}`);
+        // OpenCode expects tools as a record {name: true}, not an array
+        if (agentId === 'opencode') {
+          const record = Object.fromEntries(remapped.map((t) => [t, true]));
+          newLines.push(`tools: ${JSON.stringify(record)}`);
+        } else {
+          newLines.push(`tools: ${JSON.stringify(remapped)}`);
+        }
       } else {
         newLines.push(line);
       }
