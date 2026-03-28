@@ -2,7 +2,7 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-**Last Updated:** 2026-03-21
+**Last Updated:** 2026-03-28
 
 ---
 
@@ -639,7 +639,7 @@ All modes always exclude: `.bashrc`, `.bash_profile`, `.npm/**`, `.bun/**`, `.ca
 
 ### Session Transcript Cleanup
 
-`cleanup_old_transcripts()` runs before each periodic bisync (sequential in the same loop iteration — no concurrent access). Keeps the 5 most recent session transcripts (`.claude/projects/**/*.jsonl` sorted by mtime), deletes older ones and their `subagents/` directories. Deletions propagate to R2 via bisync automatically. Subagent transcripts are also excluded from bisync entirely (`--filter "- .claude/projects/**/subagents/**"`) since results are captured in the main transcript.
+`cleanup_old_transcripts()` runs before each periodic bisync (sequential in the same loop iteration — no concurrent access). Keeps the 5 most recent session transcripts (`.claude/projects/**/*.jsonl` sorted by mtime), deletes older `.jsonl` files only — session directories are left intact so Claude Code can still resolve project paths. Deletions propagate to R2 via bisync automatically. Subagent transcripts are also excluded from bisync entirely (`--filter "- .claude/projects/**/subagents/**"`) since results are captured in the main transcript. Both `cleanup_old_transcripts()` and `cleanup_old_memory_files()` are wrapped in subshells with `|| true` to prevent `set -euo pipefail` from killing the bisync daemon when cleanup encounters benign non-zero exits (e.g., empty `find` results, `xargs` with no input).
 
 ### Conflict Resolution
 
@@ -666,7 +666,7 @@ Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persist
 2. `entrypoint.sh` runs `merge_memory_files()`: consolidates all session files into `session-{SESSION_ID}.jsonl`, deduplicating entities (by name) and relations (by JSON equality)
 3. `server-memory` MCP server reads/writes `session-{SESSION_ID}.jsonl` during the session
 4. rclone bisync syncs changes back to R2 every 60s and on shutdown
-5. `cleanup_old_memory_files()` removes old session files (keeps 3 newest) after bisync baseline is established
+5. `cleanup_old_memory_files()` removes old session files (keeps 5 newest) after bisync baseline is established
 
 **Why per-session JSONL:** Multiple concurrent sessions from the same user write to the same R2 bucket. A shared file would cause last-write-wins data loss. Per-session JSONL files eliminate write conflicts — each session owns its own file, and merge-on-boot consolidates them.
 
@@ -1087,7 +1087,7 @@ All users land on `/app/subscribe` with an identical two-phase layout. The only 
 **Phase 2 — Plan view** (after clicking "See subscription plans"):
 - Replaces Phase 1 content entirely (same logo/title/subtitle remain)
 - **Mode card**: merged card with Standard/Pro toggle at top. Standard features always visible; Pro features animate in via CSS `grid-template-rows: 0fr → 1fr` transition with `useScrambleText` decrypt animation on all Pro text. Pro toggle disabled for tiers that only support Standard (e.g. Free). Toggling Standard/Pro does not change scroll position
-- **Lifeline rail**: horizontal rail with 5 plan stops (Free → Starter → Advanced → Max → Team — mapping to tier IDs `free`, `standard`, `advanced`, `max`, `unlimited`), each with MDI icon. Straight horizontal dashed line using `var(--color-accent)` (theme-responsive via `color-mix()` for opacity variants). Default: `advanced` for pending users, `currentTierId` for active users. Selected stop has wider horizontal padding (0.75rem) for breathing room. "This is you" marker (green, pulsing, arrow-above-text column layout) at active user's current plan. Dashed track positioned at `top: 18px` (half of 36px icon, 16px on mobile for 32px icons)
+- **Lifeline rail**: horizontal rail with 5 plan stops (Free → Starter → Advanced → Max → Custom — mapping to tier IDs `free`, `standard`, `advanced`, `max`, `unlimited`), each with MDI icon. Straight horizontal dashed line using `var(--color-accent)` (theme-responsive via `color-mix()` for opacity variants). Default: `advanced` for pending users, `currentTierId` for active users. Selected stop has wider horizontal padding (0.75rem) for breathing room. "This is you" marker (green, pulsing, arrow-above-text column layout) at active user's current plan. Dashed track positioned at `top: 18px` (half of 36px icon, 16px on mobile for 32px icons)
 - **Detail panel**: single panel showing selected tier's name, price (large, switches between `priceMonthly` and `advancedPriceMonthly` based on Standard/Pro toggle), tagline, hours/month, sessions, feature checklist, trial badge, CTA button. Tier name, price, and specs use `useScrambleText` for decrypt animation on selection change
 - **Action buttons**: "Get Started" (free) / "Start Trial" (paid with `trialQuotaHours > 0`) / "Switch Plan" (active, different tier) / "Current Plan" (active, same tier, disabled)
 - Turnstile CAPTCHA (pending users only — rendered via explicit `turnstile.render()` since widget mounts after script auto-scan)
@@ -1104,7 +1104,7 @@ All users land on `/app/subscribe` with an identical two-phase layout. The only 
 - Free (`free`): Standard mode only, R2 cloud sync, Community support
 - Starter/Advanced (`standard`/`advanced`): Standard + Pro modes, R2 cloud sync, Configurable idle timeout, Priority support
 - Max (`max`): Standard + Pro modes, R2 cloud sync, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Priority support
-- Team (`unlimited`): Standard + Pro modes, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Dedicated support, Custom SLA
+- Custom (`unlimited`): Standard + Pro modes, Configurable idle timeout, OpenClaw Integration (COMING SOON badge), Dedicated support, Custom SLA
 
 Features in the `COMING_SOON_FEATURES` set render with an inline accent-colored uppercase badge.
 
@@ -3014,11 +3014,11 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 - **Decision:** Mount `/public/stripe` before `/public` in `src/index.ts`. More-specific routes must precede catch-all routes in Hono.
 - **Consequences:** Route ordering in `index.ts` is load-bearing. Future `/public/*` sub-routes must be mounted before the catch-all.
 
-#### AD: Team Tier Uses Contact Flow (Not Self-Service Checkout)
-- **Status:** Accepted
-- **Context:** The Team (unlimited) tier is enterprise-grade — unlimited compute, 5 sessions, custom SLA. Self-service checkout is not appropriate.
-- **Decision:** The subscribe page shows "Get in Touch" for the Team tier. Clicking it sends an email to admins via Resend (`POST /api/auth/contact-team`, rate-limited 1/hour) and changes the button to "We'll get in touch" (disabled). No Stripe checkout for Team tier.
-- **Consequences:** Team tier onboarding is manual. Admins receive the inquiry email and configure the user's subscription directly.
+#### AD: Custom Tier Uses Contact Flow (Not Self-Service Checkout)
+- **Status:** Accepted (updated — renamed from "Team" to "Custom")
+- **Context:** The Custom (unlimited) tier is enterprise-grade — unlimited compute, 5 sessions, custom SLA. Self-service checkout is not appropriate. The tier was renamed from "Team" to "Custom" — `getTierConfig()` auto-migrates legacy `displayName: 'Team'` to `'Custom'` on read.
+- **Decision:** The subscribe page shows "Let's talk" for the Custom tier. Clicking it sends an email to admins via Resend (`POST /api/auth/contact-team`, rate-limited 1/hour) and changes the button to "We'll get in touch" (disabled). No Stripe checkout for Custom tier.
+- **Consequences:** Custom tier onboarding is manual. Admins receive the inquiry email and configure the user's subscription directly.
 
 #### AD: Unauthenticated First setBucketName Call and Non-Atomic R2 Token Lifecycle (CF-010)
 - **Status:** Accepted
