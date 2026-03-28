@@ -7,7 +7,7 @@
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Env, Session } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
-import { toError, toErrorMessage } from '../lib/error-types';
+import { toError } from '../lib/error-types';
 import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
