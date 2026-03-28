@@ -60,8 +60,9 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
     }
     await env.KV.delete(key.name);
     // Also delete separate metrics key (24h TTL auto-cleans, but explicit is cleaner)
-    if (sessionData) {
-      await env.KV.delete(getMetricsKey(bucketName, sessionData.id)).catch(() => {});
+    const sessionId = key.name.split(':').pop();
+    if (sessionId) {
+      await env.KV.delete(getMetricsKey(bucketName, sessionId)).catch(() => {});
     }
     result.deletedSessions++;
   }
