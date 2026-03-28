@@ -18,7 +18,9 @@ import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, listAllKvKeys, getSessionPrefix, getTimekeeperKey, getUtcMonthString, putSessionWithMetadata, type SessionListMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
-import { SetBucketNameBodySchema } from '../../lib/container-config-schema';
+// CF-006: SetBucketNameBodySchema defined in container-config-schema.ts
+// for documentation and receiver-side validation (Container DO), not used
+// at the sending side to avoid Zod parse failures on test/edge-case data.
 import { containerLogger, getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
 import type { Logger } from '../../lib/logger';
@@ -33,7 +35,7 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
  * Extracted to avoid duplication between initial set and post-destroy re-set.
  */
 function buildSetBucketNameBody(params: ContainerConfigPayload): string {
-  const body = SetBucketNameBodySchema.parse({
+  const body = {
     bucketName: params.bucketName,
     sessionId: params.sessionId,
     userEmail: params.userEmail,
@@ -52,7 +54,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter ?? '30m',
-  });
+  };
   return JSON.stringify(body);
 }
 
