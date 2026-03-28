@@ -5,6 +5,91 @@ import type { Session } from '../types';
 import { NotFoundError } from './error-types';
 
 /**
+ * Compressed metadata embedded in KV list keys for session status.
+ * batch-status reads this instead of N individual KV.get calls.
+ * Must fit within Cloudflare KV's 1024-byte metadata limit (~195 bytes worst case).
+ */
+export interface SessionListMetadata {
+  /** status: 'r' = running, 's' = stopped */
+  s?: 'r' | 's';
+  /** lastActiveAt ISO string */
+  la?: string;
+  /** lastStartedAt ISO string */
+  sa?: string;
+  /** metrics */
+  m?: {
+    /** cpu */
+    c?: string;
+    /** mem */
+    e?: string;
+    /** hdd */
+    h?: string;
+    /** syncStatus */
+    y?: string;
+    /** updatedAt */
+    u?: string;
+  };
+}
+
+/** Build compressed list metadata from a Session object. */
+export function buildSessionMetadata(session: Session): SessionListMetadata {
+  const meta: SessionListMetadata = {
+    s: session.status === 'running' ? 'r' : 's',
+    la: session.lastActiveAt,
+    sa: session.lastStartedAt,
+  };
+  if (session.metrics) {
+    meta.m = {
+      ...(session.metrics.cpu && { c: session.metrics.cpu }),
+      ...(session.metrics.mem && { e: session.metrics.mem }),
+      ...(session.metrics.hdd && { h: session.metrics.hdd }),
+      ...(session.metrics.syncStatus && { y: session.metrics.syncStatus }),
+      ...(session.metrics.updatedAt && { u: session.metrics.updatedAt }),
+    };
+  }
+  return meta;
+}
+
+/** Expand compressed metadata to the shape batch-status returns. */
+export function expandSessionMetadata(meta: SessionListMetadata): {
+  status: string;
+  ptyActive: boolean;
+  lastActiveAt: string | null;
+  lastStartedAt: string | null;
+  metrics?: Session['metrics'];
+} {
+  const isRunning = meta.s === 'r';
+  return {
+    status: isRunning ? 'running' : 'stopped',
+    ptyActive: isRunning,
+    lastActiveAt: meta.la || null,
+    lastStartedAt: meta.sa || null,
+    ...(meta.m && {
+      metrics: {
+        ...(meta.m.c && { cpu: meta.m.c }),
+        ...(meta.m.e && { mem: meta.m.e }),
+        ...(meta.m.h && { hdd: meta.m.h }),
+        ...(meta.m.y && { syncStatus: meta.m.y }),
+        ...(meta.m.u && { updatedAt: meta.m.u }),
+      },
+    }),
+  };
+}
+
+/**
+ * Write a session to KV with synchronized list metadata.
+ * All session KV.put calls MUST use this to keep metadata in sync.
+ */
+export async function putSessionWithMetadata(
+  kv: KVNamespace,
+  key: string,
+  session: Session,
+): Promise<void> {
+  const metadata = buildSessionMetadata(session);
+  await kv.put(key, JSON.stringify(session), { metadata });
+}
+
+/**
  * Extract the email address from a KV key like "user:alice@example.com"
  */
 export function emailFromKvKey(keyName: string): string {
