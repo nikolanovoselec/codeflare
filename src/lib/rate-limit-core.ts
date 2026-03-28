@@ -35,8 +35,11 @@ export async function checkRateLimit(params: {
   limit: number;
   windowMs: number;
   ttlSeconds: number;
+  /** CF-003: When true, deny requests if KV is unavailable instead of fail-open.
+   *  Use for security-critical endpoints (Turnstile, access-request). */
+  failClosed?: boolean;
 }): Promise<RateLimitResult> {
-  const { kv, key, limit, windowMs, ttlSeconds } = params;
+  const { kv, key, limit, windowMs, ttlSeconds, failClosed = false } = params;
   const now = Date.now();
 
   try {
@@ -61,7 +64,13 @@ export async function checkRateLimit(params: {
 
     return { allowed: true, count, retryAfterSec: 0 };
   } catch (err) {
-    // KV failed -- fall back to in-memory
+    // CF-003: Security-critical endpoints must deny when KV is unavailable
+    if (failClosed) {
+      logger.error('Rate limit KV failed — denying request (failClosed)', { key, error: String(err) });
+      return { allowed: false, count: 0, retryAfterSec: 60 };
+    }
+
+    // KV failed -- fall back to in-memory (fail-open for general resource protection)
     logger.warn('Rate limit KV operation failed, using in-memory fallback', { key, error: String(err) });
 
     const entry = inMemoryFallback.get(key);

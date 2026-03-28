@@ -21,6 +21,8 @@ export interface RateLimitConfig {
   maxRequests: number;
   /** Key prefix for KV storage (default: 'ratelimit') */
   keyPrefix?: string;
+  /** CF-003: When true, deny requests if KV is unavailable. Use for security-critical endpoints. */
+  failClosed?: boolean;
 }
 
 /**
@@ -78,6 +80,7 @@ export function createRateLimiter(config: RateLimitConfig): MiddlewareHandler<{ 
       limit: config.maxRequests,
       windowMs: config.windowMs,
       ttlSeconds,
+      failClosed: config.failClosed,
     });
 
     if (!result.allowed) {

@@ -156,6 +156,7 @@ const requestAccessRateLimiter = createRateLimiter({
   windowMs: 3_600_000,
   maxRequests: 3,
   keyPrefix: 'request-access',
+  failClosed: true,
 });
 
 const RequestAccessSchema = z.object({
