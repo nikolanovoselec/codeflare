@@ -11,6 +11,7 @@ import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendSubscriptionEmail, sendSubscriptionAdminNotification, sendAccessRequestNotification } from '../lib/email';
 import { getBucketName } from '../lib/access';
+import { updateUserRecord } from '../lib/user-record';
 import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
 import { isStripeConfigured, getStripePrices } from '../lib/stripe';
@@ -218,8 +219,7 @@ app.post('/request-access', requireIdentity, requestAccessRateLimiter, async (c)
   }
 
   const requestedAt = new Date().toISOString();
-  const updated = { ...existingRaw, requestedAt };
-  await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
+  await updateUserRecord(c.env.KV, user.email, { requestedAt });
 
   // Send admin notification email (non-fatal, using shared sendEmail helper)
   try {
@@ -319,16 +319,13 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
   const now = new Date();
   // Mark trial as used on first subscription so plan switches don't grant new trials
   const trialUsed = existingRaw?.trialUsed === true || isAlreadySubscribed;
-  const updated: Record<string, unknown> = {
-    ...existingRaw,
+  await updateUserRecord(c.env.KV, user.email, {
     subscriptionTier: parsed.data.tier,
     accessTier: parsed.data.tier, // backward compat
-    subscribedMode: parsed.data.mode, // what mode the user paid for (gates Settings Pro toggle)
+    subscribedMode: parsed.data.mode,
     subscribedAt: now.toISOString(),
     trialUsed,
-  };
-
-  await c.env.KV.put(`user:${user.email}`, JSON.stringify(updated));
+  });
 
   // Save session mode preference when subscribing/switching (non-fatal)
   try {

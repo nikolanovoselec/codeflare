@@ -103,6 +103,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     cachedAuthDomain = undefined;
     cachedAccessAud = undefined;
     cachedAccessAudList = undefined;
+    pendingAuthConfigFetch = null; // HIGH-4: ensure stale promise doesn't block re-fetch
   }
   // CF-002: Deduplicate concurrent cold-start KV reads via Promise sentinel.
   // Pattern mirrors pendingJWKSFetch in jwt.ts.

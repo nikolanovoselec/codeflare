@@ -35,5 +35,5 @@ export function validateKey(key: string, label = 'key'): string {
       }
     }
   }
-  return sanitized;
+  return decoded;
 }

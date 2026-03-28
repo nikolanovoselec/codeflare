@@ -33,6 +33,7 @@ import { verifySessionJWT, shouldRefreshJWT, signSessionJWT } from './lib/sessio
 import { warnIfNoEncryptionKey } from './lib/kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './lib/onboarding';
 import { isActiveUser } from './lib/access-tier';
+import { getEffectiveTier } from './lib/subscription';
 import authApiRoutes from './routes/auth';
 import authRedirectRoutes from './routes/auth-redirects';
 import githubAuthRoutes from './routes/github-auth';
@@ -326,7 +327,9 @@ export default {
       if (saasActive) {
         try {
           const { user } = await authenticateRequest(request, env);
-          if (isActiveUser(user.subscriptionTier ?? user.accessTier)) {
+          // HIGH-1: Use billing-aware tier resolution, not raw tier field
+          const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+          if (isActiveUser(effectiveTier)) {
             return redirectWithHeaders('/app/');
           }
           // Authenticated but pending/blocked — redirect to subscribe page
