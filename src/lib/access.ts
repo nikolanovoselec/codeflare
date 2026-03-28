@@ -111,7 +111,11 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       cachedAccessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
     }
     authConfigCachedAt = Date.now();
-    authConfigFetched = true;
+    // CF-005: Only mark as "fetched with real config" when auth is actually configured.
+    // KV returning null (no config yet / pre-setup) should NOT disable the pre-setup fallback.
+    if (cachedAuthDomain && (cachedAccessAud || (cachedAccessAudList && cachedAccessAudList.length > 0))) {
+      authConfigFetched = true;
+    }
   }
 
   const accessAudList = cachedAccessAudList && cachedAccessAudList.length > 0
@@ -190,9 +194,10 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
   }
 
   // Pre-setup fallback: trust email header (allows setup wizard to work).
-  // CF-005: Only activate if KV config has never been fetched. Once fetched (even if
-  // result was null/empty), we know we're post-setup and must NOT trust spoofed headers.
-  if (!authConfigFetched) {
+  // CF-005: Only activate when auth is genuinely not configured (no domain + aud in KV).
+  // Once auth HAS been configured and fetched, this path is permanently disabled for
+  // the isolate's lifetime. Prevents KV transient errors from degrading to header trust.
+  if (!authConfigured && !authConfigFetched) {
     const email = request.headers.get('cf-access-authenticated-user-email');
     if (email) {
       logger.warn('Pre-setup auth fallback activated — trusting header', { email: normalizeEmail(email), path: request.url });
