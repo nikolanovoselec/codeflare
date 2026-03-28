@@ -448,29 +448,33 @@ cleanup_old_transcripts() {
 
     # Find all session transcript JSONL files across all project dirs
     local ALL_TRANSCRIPTS
-    ALL_TRANSCRIPTS=$(find "$PROJECTS_DIR" -maxdepth 2 -name "*.jsonl" -not -path "*/subagents/*" 2>/dev/null | sort -t/ -k6)
+    ALL_TRANSCRIPTS=$(find "$PROJECTS_DIR" -maxdepth 2 -name "*.jsonl" -not -path "*/subagents/*" 2>/dev/null | sort -t/ -k6) || true
     local COUNT
-    COUNT=$(echo "$ALL_TRANSCRIPTS" | grep -c . 2>/dev/null || echo 0)
+    COUNT=$(echo "$ALL_TRANSCRIPTS" | grep -c . 2>/dev/null) || COUNT=0
 
     if [ "$COUNT" -le "$KEEP_COUNT" ]; then
         return 0
     fi
 
-    # Sort by modification time (newest last), delete all but the newest KEEP_COUNT
+    # Sort by modification time (newest first), delete all but the newest KEEP_COUNT
     local TO_DELETE
-    TO_DELETE=$(echo "$ALL_TRANSCRIPTS" | xargs ls -t 2>/dev/null | tail -n +$((KEEP_COUNT + 1)))
+    TO_DELETE=$(echo "$ALL_TRANSCRIPTS" | xargs ls -t 2>/dev/null | tail -n +$((KEEP_COUNT + 1))) || true
+
+    [ -z "$TO_DELETE" ] && return 0
 
     local DELETED=0
     for transcript in $TO_DELETE; do
+        [ -f "$transcript" ] || continue
         local SESSION_DIR="${transcript%.jsonl}"
-        # Delete the transcript file
         rm -f "$transcript"
-        # Delete the session's subagents directory if it exists
         if [ -d "$SESSION_DIR/subagents" ]; then
             rm -rf "$SESSION_DIR/subagents"
         fi
-        # Delete the session directory if empty
-        rmdir "$SESSION_DIR" 2>/dev/null
+        # Delete tool-results directory if it exists
+        if [ -d "$SESSION_DIR/tool-results" ]; then
+            rm -rf "$SESSION_DIR/tool-results"
+        fi
+        rmdir "$SESSION_DIR" 2>/dev/null || true
         DELETED=$((DELETED + 1))
     done
 
@@ -495,8 +499,9 @@ start_sync_daemon() {
             echo "[sync-daemon] Log rotated (exceeded 512KB)" | tee -a /tmp/sync.log
         fi
 
-        # Cleanup old session transcripts before sync (sequential — no race with bisync)
-        cleanup_old_transcripts
+        # Cleanup old session transcripts before sync (sequential — no race with bisync).
+        # Run in subshell to prevent set -e from killing the daemon on cleanup failure.
+        (cleanup_old_transcripts) || true
 
         echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Running periodic bisync..." | tee -a /tmp/sync.log
 
@@ -838,7 +843,7 @@ merge_memory_files() {
 
 cleanup_old_memory_files() {
     local MEMORY_DIR="$USER_HOME/.memory"
-    local KEEP=3
+    local KEEP=5
     local count=0
 
     # Keep the 3 newest session files (by mtime), delete the rest.
@@ -1041,10 +1046,9 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
     (
         echo "[entrypoint] Establishing bisync baseline in background..."
         if establish_bisync_baseline; then
-            # Cleanup old memory files AFTER baseline — bisync will propagate deletions to R2
-            if [ -n "${SESSION_ID:-}" ] && [ "${SESSION_MODE:-default}" = "advanced" ]; then
-                cleanup_old_memory_files
-            fi
+            # Cleanup old memory files AFTER baseline — bisync will propagate deletions to R2.
+            # Run in subshell to prevent set -e from killing the daemon on cleanup failure.
+            (cleanup_old_memory_files) || true
             echo "[entrypoint] Bisync baseline established, starting daemon..."
             start_sync_daemon
         else
