@@ -2939,6 +2939,12 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 - **Decision:** The subscribe page shows "Get in Touch" for the Team tier. Clicking it sends an email to admins via Resend (`POST /api/auth/contact-team`, rate-limited 1/hour) and changes the button to "We'll get in touch" (disabled). No Stripe checkout for Team tier.
 - **Consequences:** Team tier onboarding is manual. Admins receive the inquiry email and configure the user's subscription directly.
 
+#### AD: Unauthenticated First setBucketName Call and Non-Atomic R2 Token Lifecycle (CF-010)
+- **Status:** Accepted
+- **Context:** The first `/_internal/setBucketName` request from the Worker to the Container DO is unauthenticated. The container auth token is a random UUID generated once per DO lifecycle and injected into the container environment after `setBucketName` is called — meaning that first call cannot yet present the token. Additionally, `getOrCreateScopedR2Token()` can leave an orphaned Cloudflare API token if the KV write that caches the token ID fails after token creation.
+- **Decision:** Accept the unauthenticated first call. Worker-only access is the effective security boundary: the `/_internal/setBucketName` endpoint is only reachable via the Worker's internal fetch path (Durable Object binding), not from external callers. No external actor can reach this endpoint. For orphaned R2 tokens, log the Cloudflare API token ID immediately after creation (before the KV write) so any token that escapes can be found and revoked manually via the Cloudflare dashboard. A periodic sweeper that cross-references CF API tokens against KV records is deferred as a future improvement.
+- **Consequences:** The bootstrap first-call gap is not expected to affect production security under normal operating conditions — the DO proxy is the network boundary. Orphaned tokens from failed KV writes are operationally recoverable via the logged token ID. Operators should monitor for log entries containing the R2 token ID at creation time and treat any uncorrelated token as a candidate for manual revocation.
+
 ## Module-Level Caches (CF-014)
 
 All module-level caches in the codebase. Workers isolates do not share memory, so each cache is per-isolate.

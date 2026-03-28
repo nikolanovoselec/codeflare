@@ -16,6 +16,9 @@ let cachedAuthDomain: string | null | undefined = undefined;
 let cachedAccessAud: string | null | undefined = undefined;
 let cachedAccessAudList: string[] | null | undefined = undefined;
 let authConfigCachedAt = 0;
+// CF-005: Tracks whether KV auth config has been fetched at least once.
+// Prevents pre-setup trust path from activating on KV error in post-setup deployments.
+let authConfigFetched = false;
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -34,6 +37,7 @@ export function resetAuthConfigCache(): void {
   cachedAccessAud = undefined;
   cachedAccessAudList = undefined;
   authConfigCachedAt = 0;
+  authConfigFetched = false;
 }
 
 export function getCookieValue(cookieHeader: string | null, key: string): string | null {
@@ -107,6 +111,7 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       cachedAccessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
     }
     authConfigCachedAt = Date.now();
+    authConfigFetched = true;
   }
 
   const accessAudList = cachedAccessAudList && cachedAccessAudList.length > 0
@@ -184,11 +189,15 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     return { email: '', authenticated: false };
   }
 
-  // Pre-setup fallback: trust email header (allows setup wizard to work)
-  const email = request.headers.get('cf-access-authenticated-user-email');
-
-  if (email) {
-    return { email: normalizeEmail(email), authenticated: true };
+  // Pre-setup fallback: trust email header (allows setup wizard to work).
+  // CF-005: Only activate if KV config has never been fetched. Once fetched (even if
+  // result was null/empty), we know we're post-setup and must NOT trust spoofed headers.
+  if (!authConfigFetched) {
+    const email = request.headers.get('cf-access-authenticated-user-email');
+    if (email) {
+      logger.warn('Pre-setup auth fallback activated — trusting header', { email: normalizeEmail(email), path: request.url });
+      return { email: normalizeEmail(email), authenticated: true };
+    }
   }
 
   // Service token authentication (fallback)
