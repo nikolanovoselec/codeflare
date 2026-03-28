@@ -17,8 +17,9 @@ let cachedAccessAud: string | null | undefined = undefined;
 let cachedAccessAudList: string[] | null | undefined = undefined;
 let authConfigCachedAt = 0;
 // CF-005: Tracks whether KV auth config has been fetched at least once.
-// Prevents pre-setup trust path from activating on KV error in post-setup deployments.
 let authConfigFetched = false;
+// CF-002: Promise dedup — prevents concurrent cold requests from issuing redundant KV reads.
+let pendingAuthConfigFetch: Promise<void> | null = null;
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -38,6 +39,7 @@ export function resetAuthConfigCache(): void {
   cachedAccessAudList = undefined;
   authConfigCachedAt = 0;
   authConfigFetched = false;
+  pendingAuthConfigFetch = null;
 }
 
 export function getCookieValue(cookieHeader: string | null, key: string): string | null {
@@ -85,37 +87,36 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
     cachedAccessAud = undefined;
     cachedAccessAudList = undefined;
   }
-  if (env?.KV) {
-    if (cachedAuthDomain === undefined) {
-      cachedAuthDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
-    }
-    if (cachedAccessAudList === undefined) {
-      const audListRaw = await env.KV.get(SETUP_KEYS.ACCESS_AUD_LIST);
-      if (audListRaw) {
-        try {
-          const parsed = JSON.parse(audListRaw);
-          if (Array.isArray(parsed) && parsed.every((value) => typeof value === 'string')) {
-            cachedAccessAudList = parsed;
-          } else {
+  // CF-002: Deduplicate concurrent cold-start KV reads via Promise sentinel.
+  // Pattern mirrors pendingJWKSFetch in jwt.ts.
+  if (env?.KV && cachedAuthDomain === undefined) {
+    if (!pendingAuthConfigFetch) {
+      pendingAuthConfigFetch = (async () => {
+        cachedAuthDomain = await env.KV.get(SETUP_KEYS.AUTH_DOMAIN);
+        const audListRaw = await env.KV.get(SETUP_KEYS.ACCESS_AUD_LIST);
+        if (audListRaw) {
+          try {
+            const parsed = JSON.parse(audListRaw);
+            if (Array.isArray(parsed) && parsed.every((value: unknown) => typeof value === 'string')) {
+              cachedAccessAudList = parsed;
+            } else {
+              cachedAccessAudList = null;
+            }
+          } catch {
+            logger.warn('Failed to parse access_aud_list', { raw: audListRaw });
             cachedAccessAudList = null;
           }
-        } catch {
-          logger.warn('Failed to parse access_aud_list', { raw: audListRaw });
+        } else {
           cachedAccessAudList = null;
         }
-      } else {
-        cachedAccessAudList = null;
-      }
+        cachedAccessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
+        authConfigCachedAt = Date.now();
+        if (cachedAuthDomain && (cachedAccessAud || (cachedAccessAudList && cachedAccessAudList.length > 0))) {
+          authConfigFetched = true;
+        }
+      })().finally(() => { pendingAuthConfigFetch = null; });
     }
-    if (cachedAccessAud === undefined) {
-      cachedAccessAud = await env.KV.get(SETUP_KEYS.ACCESS_AUD);
-    }
-    authConfigCachedAt = Date.now();
-    // CF-005: Only mark as "fetched with real config" when auth is actually configured.
-    // KV returning null (no config yet / pre-setup) should NOT disable the pre-setup fallback.
-    if (cachedAuthDomain && (cachedAccessAud || (cachedAccessAudList && cachedAccessAudList.length > 0))) {
-      authConfigFetched = true;
-    }
+    await pendingAuthConfigFetch;
   }
 
   const accessAudList = cachedAccessAudList && cachedAccessAudList.length > 0

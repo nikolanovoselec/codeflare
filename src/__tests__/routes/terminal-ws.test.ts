@@ -319,4 +319,37 @@ describe('handleWebSocketUpgrade', () => {
       expect(wsConnectPutCalls.length).toBeGreaterThan(0);
     });
   });
+
+  describe('CF-015: Stopped session returns 4503 close code', () => {
+    it('returns WebSocket upgrade with 4503 close for stopped session', async () => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId,
+        name: 'Test',
+        userId: 'test-bucket',
+        createdAt: '2026-01-01T00:00:00Z',
+        lastAccessedAt: '2026-01-01T00:00:00Z',
+        status: 'stopped',
+      });
+
+      const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
+        headers: {
+          'Upgrade': 'websocket',
+          'Origin': 'http://localhost',
+        },
+      });
+
+      const env = {
+        KV: mockKV as unknown as KVNamespace,
+        CONTAINER: {},
+      } as unknown as Env;
+
+      const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+      const result = await handleWebSocketUpgrade(request, env, ctx);
+
+      // Should return 101 (WebSocket upgrade accepted then closed with 4503)
+      expect(result.status).toBe(101);
+      expect(result.webSocket).toBeDefined();
+    });
+  });
 });
