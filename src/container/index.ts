@@ -21,66 +21,31 @@
  */
 import { Container } from '@cloudflare/containers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
-import type { Env, Session, TabConfig } from '../types';
+import type { Env, TabConfig } from '../types';
 import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toError, toErrorMessage } from '../lib/error-types';
-import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { createLogger } from '../lib/logger';
 import type { ActivityState } from '../lib/activity-policy';
-import { isSaasModeActive } from '../lib/onboarding';
+import {
+  validateBucketNameInput,
+  buildEnvVars,
+  applyBucketName,
+  applyPrefsOnRestart,
+  type ContainerEnvState,
+  type SetBucketNameCreds,
+} from './container-env';
+import {
+  collectMetrics as doCollectMetrics,
+  updateKvStatus,
+  parseSleepAfterMs,
+  type MetricsState,
+  type MetricsCallbacks,
+} from './container-metrics';
+
+export { validateBucketNameInput };
 
 const SESSION_ID_KEY = '_sessionId';
-
-/**
- * Validate setBucketName input fields.
- * Returns an error message string if validation fails, or null if valid.
- */
-export function validateBucketNameInput(input: {
-  bucketName: unknown;
-  r2AccessKeyId?: unknown;
-  r2SecretAccessKey?: unknown;
-  r2AccountId?: unknown;
-  r2Endpoint?: unknown;
-  workspaceSyncEnabled?: unknown;
-  fastStartEnabled?: unknown;
-  sessionMode?: unknown;
-}): string | null {
-  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode } = input;
-
-  if (typeof bucketName !== 'string' || bucketName.trim() === '') {
-    return 'bucketName must be a non-empty string';
-  }
-  if (r2AccessKeyId !== undefined && (typeof r2AccessKeyId !== 'string' || r2AccessKeyId.trim() === '')) {
-    return 'r2AccessKeyId must be a non-empty string when provided';
-  }
-  if (r2SecretAccessKey !== undefined && (typeof r2SecretAccessKey !== 'string' || r2SecretAccessKey.trim() === '')) {
-    return 'r2SecretAccessKey must be a non-empty string when provided';
-  }
-  if (workspaceSyncEnabled !== undefined && typeof workspaceSyncEnabled !== 'boolean') {
-    return 'workspaceSyncEnabled must be a boolean when provided';
-  }
-  if (fastStartEnabled !== undefined && typeof fastStartEnabled !== 'boolean') {
-    return 'fastStartEnabled must be a boolean when provided';
-  }
-  if (sessionMode !== undefined && typeof sessionMode !== 'string') {
-    return 'sessionMode must be a string when provided';
-  }
-  if (r2AccountId !== undefined && (typeof r2AccountId !== 'string' || r2AccountId.trim() === '')) {
-    return 'r2AccountId must be a non-empty string when provided';
-  }
-  if (r2Endpoint !== undefined) {
-    if (typeof r2Endpoint !== 'string' || r2Endpoint.trim() === '') {
-      return 'r2Endpoint must be a non-empty string when provided';
-    }
-    try {
-      new URL(r2Endpoint);
-    } catch {
-      return 'r2Endpoint must be a valid URL';
-    }
-  }
-  return null;
-}
 
 /**
  * container - Container Durable Object for user workspaces
@@ -175,157 +140,39 @@ export class container extends Container<Env> {
     });
   }
 
-  /**
-   * Set the bucket name for this container (called by worker on first access)
-   */
-  async setBucketName(name: string, r2Creds?: {
-    r2AccessKeyId?: string;
-    r2SecretAccessKey?: string;
-    r2AccountId?: string;
-    r2Endpoint?: string;
-    workspaceSyncEnabled?: boolean;
-    fastStartEnabled?: boolean;
-    tabConfig?: TabConfig[];
-    openaiApiKey?: string;
-    geminiApiKey?: string;
-    githubToken?: string;
-    cloudflareApiToken?: string;
-    cloudflareAccountId?: string;
-    encryptionKey?: string;
-    sessionMode?: string;
-  }): Promise<void> {
-    this._bucketName = name;
-    await this.ctx.storage.put('bucketName', name);
-    if (typeof r2Creds?.workspaceSyncEnabled === 'boolean') {
-      this._workspaceSyncEnabled = r2Creds.workspaceSyncEnabled;
-      await this.ctx.storage.put('workspaceSyncEnabled', r2Creds.workspaceSyncEnabled);
-    }
-    if (typeof r2Creds?.fastStartEnabled === 'boolean') {
-      this._fastStartEnabled = r2Creds.fastStartEnabled;
-      await this.ctx.storage.put('fastStartEnabled', r2Creds.fastStartEnabled);
-    }
+  /** Env-related state for sub-module functions. */
+  private get envState(): ContainerEnvState { return this as unknown as ContainerEnvState; }
 
-    // Store tab config if provided
-    if (r2Creds?.tabConfig) {
-      this._tabConfig = r2Creds.tabConfig;
-      await this.ctx.storage.put('tabConfig', r2Creds.tabConfig);
-    }
+  /** Metrics-related state for sub-module functions. */
+  private get metricsState(): MetricsState { return this as unknown as MetricsState; }
 
-    // Store LLM API keys in instance memory only (not persisted to DO storage; injected per container start)
-    if (r2Creds?.openaiApiKey) this._openaiApiKey = r2Creds.openaiApiKey;
-    if (r2Creds?.geminiApiKey) this._geminiApiKey = r2Creds.geminiApiKey;
-
-    // Store deploy credentials in instance memory only (not persisted to DO storage; injected per container start)
-    if (r2Creds?.githubToken) this._githubToken = r2Creds.githubToken;
-    if (r2Creds?.cloudflareApiToken) this._cloudflareApiToken = r2Creds.cloudflareApiToken;
-    if (r2Creds?.cloudflareAccountId) this._cloudflareAccountId = r2Creds.cloudflareAccountId;
-
-    // Store encryption key in instance memory
-    if (r2Creds?.encryptionKey) this._encryptionKey = r2Creds.encryptionKey;
-
-    // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
-    if (r2Creds?.sessionMode) this._sessionMode = r2Creds.sessionMode;
-
-    // Use Worker-provided R2 credentials (most reliable — Worker definitely has secrets)
-    if (r2Creds?.r2AccessKeyId) this._r2AccessKeyId = r2Creds.r2AccessKeyId;
-    if (r2Creds?.r2SecretAccessKey) this._r2SecretAccessKey = r2Creds.r2SecretAccessKey;
-    if (r2Creds?.r2AccountId) this._r2AccountId = r2Creds.r2AccountId;
-    if (r2Creds?.r2Endpoint) this._r2Endpoint = r2Creds.r2Endpoint;
-
-    // Fall back to getR2Config only if Worker didn't provide account ID
-    if (!this._r2AccountId) {
-      try {
-        const r2Config = await getR2Config(this.env);
-        this._r2AccountId = r2Config.accountId;
-        this._r2Endpoint = r2Config.endpoint;
-      } catch (err) {
-        this.logger.warn('R2 config not available in setBucketName', {
-          error: toErrorMessage(err),
-        });
-      }
-    }
-
+  /** Set the bucket name for this container (called by worker on first access). */
+  async setBucketName(name: string, r2Creds?: SetBucketNameCreds): Promise<void> {
+    await applyBucketName(this.envState, name, this.env, this.ctx.storage, r2Creds);
     this.updateEnvVars();
-    this.logger.info('Stored bucket name', { bucketName: name });
   }
 
-  /**
-   * Get the bucket name
-   */
+  /** Get the bucket name. */
   getBucketName(): string | null {
     return this._bucketName;
   }
 
   /** Parse sleepAfter string ('5m', '30m', '1h', '2h') to milliseconds. */
   private parseSleepAfterMs(): number {
-    const s = this.sleepAfter;
-    if (s.endsWith('h')) return parseInt(s, 10) * 3_600_000;
-    if (s.endsWith('m')) return parseInt(s, 10) * 60_000;
-    return 300_000; // fallback 5 minutes
+    return parseSleepAfterMs(this.sleepAfter);
   }
 
-  /**
-   * Update envVars with current bucket name
-   * Called after setBucketName to ensure envVars has correct value
-   */
+  /** Update envVars with current bucket name and credentials. */
   private updateEnvVars(): void {
-    const bucketName = this._bucketName || 'unknown-bucket';
-    const accessKeyId = this._r2AccessKeyId || this.env.R2_ACCESS_KEY_ID || '';
-    const secretAccessKey = this._r2SecretAccessKey || this.env.R2_SECRET_ACCESS_KEY || '';
-    const accountId = this._r2AccountId || this.env.R2_ACCOUNT_ID || '';
-    const endpoint = this._r2Endpoint || this.env.R2_ENDPOINT || '';
-
     // Generate auth token for container communication (once per DO lifecycle)
     if (!this._containerAuthToken) {
       this._containerAuthToken = crypto.randomUUID();
     }
 
-    this.logger.info('R2 credentials configured', {
-      bucketName,
-      hasAccessKey: !!accessKeyId,
-      hasSecretKey: !!secretAccessKey,
-      hasAccountId: !!accountId,
-      hasEndpoint: !!endpoint,
-      workspaceSyncEnabled: this._workspaceSyncEnabled,
-    });
-
-    this.envVars = {
-      // R2 credentials - AWS naming convention for rclone S3 provider compatibility
-      AWS_ACCESS_KEY_ID: accessKeyId,
-      AWS_SECRET_ACCESS_KEY: secretAccessKey,
-      // R2 configuration
-      R2_ACCESS_KEY_ID: accessKeyId,
-      R2_SECRET_ACCESS_KEY: secretAccessKey,
-      R2_ACCOUNT_ID: accountId,
-      R2_BUCKET_NAME: bucketName,  // User's personal bucket
-      R2_ENDPOINT: endpoint,
-      WORKSPACE_SYNC_ENABLED: this._workspaceSyncEnabled ? 'true' : 'false',
-      FAST_CLI_START: this._fastStartEnabled ? 'true' : 'false',
-      SYNC_MODE: this._workspaceSyncEnabled ? 'full' : 'none',
-      // Terminal server port
-      TERMINAL_PORT: String(TERMINAL_SERVER_PORT),
-      // Auth token for container HTTP requests
-      CONTAINER_AUTH_TOKEN: this._containerAuthToken ?? '',
-      SESSION_ID: this._sessionId || '',
-      // Tab configuration (JSON string for the terminal server to parse)
-      ...(this._tabConfig && { TAB_CONFIG: JSON.stringify(this._tabConfig) }),
-      // LLM API keys (injected for consult-llm-mcp MCP server)
-      ...(this._openaiApiKey && { OPENAI_API_KEY: this._openaiApiKey }),
-      ...(this._geminiApiKey && { GEMINI_API_KEY: this._geminiApiKey }),
-      // Encryption key for rclone SSE-C
-      ...(this._encryptionKey && { ENCRYPTION_KEY: this._encryptionKey }),
-      // Deploy credentials (GitHub + Cloudflare for push & deploy)
-      ...(this._githubToken && { GH_TOKEN: this._githubToken }),
-      ...(this._cloudflareApiToken && { CLOUDFLARE_API_TOKEN: this._cloudflareApiToken }),
-      ...(this._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: this._cloudflareAccountId }),
-      // Session mode (controls memory persistence in entrypoint.sh)
-      SESSION_MODE: this._sessionMode,
-    };
+    this.envVars = buildEnvVars(this.envState, this.env);
   }
 
-  /**
-   * Override fetch to handle internal routes via map-based dispatch
-   */
+  /** Override fetch to handle internal routes via map-based dispatch. */
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const routeKey = `${request.method}:${url.pathname}`;
@@ -367,9 +214,7 @@ export class container extends Container<Env> {
     return super.fetch(request);
   }
 
-  /**
-   * Handle POST /_internal/setBucketName
-   */
+  /** Handle POST /_internal/setBucketName. */
   private async handleSetBucketName(request: Request): Promise<Response> {
     try {
       const { bucketName, sessionId, userEmail, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, sleepAfter: sleepAfterPref } =
@@ -398,64 +243,13 @@ export class container extends Container<Env> {
       // But always store sessionId so collectMetrics/onStop can find the KV entry
       // (sessionId may be missing if the DO was created before SESSION_ID_KEY existed).
       if (this._bucketName) {
-        if (sessionId) {
-          await this.ctx.storage.put(SESSION_ID_KEY, sessionId);
-          this._sessionId = sessionId;
-        }
-
         // Update user preferences on restart even though bucket is already set.
         // Without this, preference changes made between sessions are lost.
-        let prefsChanged = false;
-
-        if (typeof workspaceSyncEnabled === 'boolean' && workspaceSyncEnabled !== this._workspaceSyncEnabled) {
-          this._workspaceSyncEnabled = workspaceSyncEnabled;
-          await this.ctx.storage.put('workspaceSyncEnabled', workspaceSyncEnabled);
-          prefsChanged = true;
-          this.logger.info('Updated workspaceSyncEnabled on restart', { workspaceSyncEnabled });
-        }
-
-        if (typeof fastStartEnabled === 'boolean' && fastStartEnabled !== this._fastStartEnabled) {
-          this._fastStartEnabled = fastStartEnabled;
-          await this.ctx.storage.put('fastStartEnabled', fastStartEnabled);
-          prefsChanged = true;
-          this.logger.info('Updated fastStartEnabled on restart', { fastStartEnabled });
-        }
-
-        if (tabConfig) {
-          this._tabConfig = tabConfig;
-          await this.ctx.storage.put('tabConfig', tabConfig);
-          prefsChanged = true;
-        }
-
-        // Always update LLM keys, deploy keys, and session mode on restart (read fresh each start)
-        if (openaiApiKey !== undefined) {
-          this._openaiApiKey = openaiApiKey || null;
-          prefsChanged = true;
-        }
-        if (geminiApiKey !== undefined) {
-          this._geminiApiKey = geminiApiKey || null;
-          prefsChanged = true;
-        }
-        if (githubToken !== undefined) {
-          this._githubToken = githubToken || null;
-          prefsChanged = true;
-        }
-        if (cloudflareApiToken !== undefined) {
-          this._cloudflareApiToken = cloudflareApiToken || null;
-          prefsChanged = true;
-        }
-        if (cloudflareAccountId !== undefined) {
-          this._cloudflareAccountId = cloudflareAccountId || null;
-          prefsChanged = true;
-        }
-        if (encryptionKey !== undefined) {
-          this._encryptionKey = encryptionKey || null;
-          prefsChanged = true;
-        }
-        if (sessionMode) {
-          this._sessionMode = sessionMode;
-          prefsChanged = true;
-        }
+        const prefsChanged = await applyPrefsOnRestart(this.envState, this.ctx.storage, {
+          sessionId, userEmail, workspaceSyncEnabled, fastStartEnabled, tabConfig,
+          openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
+          encryptionKey, sessionMode,
+        });
 
         // Update sleepAfter on restart
         if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
@@ -463,14 +257,7 @@ export class container extends Container<Env> {
           this.renewActivityTimeout();
         }
 
-        // Update userEmail on restart (critical for Timekeeper pings)
-        if (userEmail && userEmail !== this._userEmail) {
-          this._userEmail = userEmail;
-          await this.ctx.storage.put('userEmail', userEmail);
-          this.logger.info('Updated userEmail on restart', { userEmail });
-        }
-
-        if (prefsChanged || sessionId) {
+        if (prefsChanged) {
           this.updateEnvVars();
         }
 
@@ -541,11 +328,7 @@ export class container extends Container<Env> {
     }
   }
 
-  /**
-   * Handle PUT /_internal/setSessionId
-   * Stores the sessionId in DO storage so collectMetrics/onStop can find the KV entry.
-   * Idempotent — safe to call on every start.
-   */
+  /** Handle PUT /_internal/setSessionId (idempotent). */
   private async handleSetSessionId(request: Request): Promise<Response> {
     try {
       const { sessionId } = await request.json() as { sessionId?: string };
@@ -565,25 +348,21 @@ export class container extends Container<Env> {
     }
   }
 
-  /**
-   * Handle GET /_internal/getBucketName
-   */
+  /** Handle GET /_internal/getBucketName. */
   private handleGetBucketName(): Response {
     return new Response(JSON.stringify({ bucketName: this._bucketName }), {
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  /**
-   * Called when the container starts successfully.
-   */
+  /** Called when the container starts successfully. */
   override async onStart(): Promise<void> {
     this.containerStartedAt = Date.now();
     this.updateEnvVars();
-    await this.updateKvStatus('running', 'lastStartedAt');
+    await updateKvStatus(this.ctx, this.env, this._bucketName, 'running', 'lastStartedAt');
     // Also set lastActiveAt to start time so the frontend timer icon
     // has a reference timestamp even before any user input occurs.
-    await this.updateKvStatus(null, 'lastActiveAt');
+    await updateKvStatus(this.ctx, this.env, this._bucketName, null, 'lastActiveAt');
     this.logger.info('Container started');
     // Clear any stale schedule rows from previous runs before arming fresh
     try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
@@ -591,201 +370,17 @@ export class container extends Container<Env> {
   }
 
   async collectMetrics(): Promise<void> {
-    // Don't collect or re-arm if container process is dead.
-    // onStart() will restart the schedule loop on next container start.
-    if (!this.ctx.container?.running) {
-      this.logger.info('collectMetrics: container not running, skipping');
-      return;
-    }
-
-    // Keep-alive: renew sleepAfter only when new user input is detected.
-    // User-input-based idle detection. super.fetch() resets the SDK's sleepAfter
-    // timer on every proxied request (including WebSocket reconnects), so we cannot
-    // rely on onActivityExpired() alone. Instead, collectMetrics() tracks real user
-    // input and explicitly stops the container when idle exceeds sleepAfter duration.
-    try {
-      const activityPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
-      const activityRes = await activityPort.fetch('http://localhost/activity');
-      if (!activityRes.ok) {
-        this.logger.warn('collectMetrics: /activity returned non-OK, NOT renewing', { status: activityRes.status });
-      } else {
-        const activity = await activityRes.json() as ActivityState;
-
-        const hasNewInput = activity.lastInputAt !== null
-          && activity.lastInputAt !== this.lastSeenInputAt;
-
-        if (hasNewInput) {
-          this.renewActivityTimeout();
-        }
-        this.lastSeenInputAt = activity.lastInputAt;
-
-        // Explicit idle-stop: check if idle duration exceeds sleepAfter.
-        // super.fetch() resets the SDK timer on every HTTP request (including
-        // WS reconnects), so onActivityExpired() may not fire for short timeouts.
-        // Use containerStartedAt as fallback when user never typed (lastInputAt null).
-        const referenceTime = activity.lastInputAt ?? this.containerStartedAt;
-        const idleMs = Date.now() - referenceTime;
-        const sleepMs = this.parseSleepAfterMs();
-        if (idleMs > sleepMs) {
-          this.logger.info('collectMetrics: idle exceeded sleepAfter, stopping', {
-            idleMs, sleepMs, referenceTime, lastInputAt: activity.lastInputAt,
-          });
-          // Write KV status before stop — DO state can be lost during shutdown
-          await this.updateKvStatus('stopped', 'lastActiveAt');
-          await this.stop('SIGTERM');
-          return;
-        }
-
-        this.logger.info('collectMetrics: activity check', {
-          renewed: hasNewInput,
-          lastInputAt: activity.lastInputAt,
-          lastSeenInputAt: this.lastSeenInputAt,
-          connectedClients: activity.connectedClients,
-          hasActiveConnections: activity.hasActiveConnections,
-          idleMs, sleepMs, sleepAfter: this.sleepAfter,
-        });
-      }
-    } catch (err) {
-      this.logger.warn('collectMetrics: activity check failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    try {
-      const tcpPort = this.ctx.container.getTcpPort(8080);
-      const res = await tcpPort.fetch('http://localhost/health');
-
-      if (!res.ok) {
-        // Health endpoint returned non-200 (e.g. container still booting).
-        // Don't parse — just log and re-arm below.
-        this.logger.info('collectMetrics: health non-OK', { status: res.status });
-      } else {
-        const health = await res.json() as { cpu?: string; mem?: string; hdd?: string; syncStatus?: string };
-
-        const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
-        // Fallback: if _bucketName isn't set on the instance, try loading from storage
-        const bucketName = this._bucketName || await this.ctx.storage.get<string>('bucketName') || null;
-
-        if (!sessionId || !bucketName) {
-          this.logger.info('collectMetrics: missing identifiers, not re-arming (zombie DO)', { sessionId: !!sessionId, bucketName: !!bucketName });
-          return; // Don't re-arm schedule — zombie DO, let it die
-        } else if (this.ctx.container?.running) {
-          // Only write metrics while container is running — prevents overwriting
-          // a "stopped" status that onStop() may have written concurrently.
-          // Read-modify-write only touches .metrics, never .status.
-          const key = getSessionKey(bucketName, sessionId);
-          const session = await this.env.KV.get<Session>(key, 'json');
-          if (session) {
-            const updated = {
-              ...session,
-              metrics: {
-                cpu: health.cpu,
-                mem: health.mem,
-                hdd: health.hdd,
-                syncStatus: health.syncStatus,
-                updatedAt: new Date().toISOString(),
-              },
-              lastActiveAt: this.lastSeenInputAt
-                ? new Date(this.lastSeenInputAt).toISOString()
-                : session.lastActiveAt,
-            };
-            await putSessionWithMetadata(this.env.KV, key, updated);
-          }
-        }
-      }
-    } catch (err) {
-      this.logger.warn('collectMetrics: fetch/write failed', { error: err instanceof Error ? err.message : String(err) });
-    }
-
-    // Timekeeper usage ping (SaaS mode only)
-    if (isSaasModeActive(this.env.SAAS_MODE)
-        && this._bucketName
-        && this._userEmail
-        && this.env.TIMEKEEPER) {
-      try {
-        this._usageSeconds += 60;
-        await this.ctx.storage.put('usageSeconds', this._usageSeconds);
-
-        const tkId = this.env.TIMEKEEPER.idFromName(this._bucketName);
-        const tk = this.env.TIMEKEEPER.get(tkId);
-        const pingRes = await tk.fetch(new Request('http://timekeeper/ping', {
-          method: 'POST',
-          body: JSON.stringify({
-            bucketName: this._bucketName,
-            sessionId: this._sessionId,
-            totalSeconds: this._usageSeconds,
-            email: this._userEmail!,
-          }),
-          headers: { 'Content-Type': 'application/json' },
-        }));
-
-        if (pingRes.ok) {
-          const { quotaExceeded } = await pingRes.json() as { quotaExceeded: boolean };
-          if (quotaExceeded) {
-            this.logger.warn('Quota exceeded — stopping container', { bucketName: this._bucketName });
-            await this.stop('SIGTERM');
-            return; // Don't re-arm after stop
-          }
-        }
-      } catch (err) {
-        // Non-fatal: log and continue — Timekeeper will catch up on next ping
-        this.logger.warn('Timekeeper ping failed', { error: err instanceof Error ? err.message : String(err) });
-      }
-    } else {
-      this.logger.info('Timekeeper ping skipped', {
-        saasMode: isSaasModeActive(this.env.SAAS_MODE),
-        bucketName: !!this._bucketName,
-        userEmail: !!this._userEmail,
-        timekeeper: !!this.env.TIMEKEEPER,
-      });
-    }
-
-    // Re-arm only if still running. schedule() is one-shot — if we don't
-    // re-arm, onStart() will restart the loop on next container start.
-    if (this.ctx.container?.running) {
-      try {
-        await this.schedule(60, 'collectMetrics');
-      } catch {
-        // DO is shutting down or destroyed
-      }
-    }
+    const callbacks: MetricsCallbacks = {
+      renewActivityTimeout: () => this.renewActivityTimeout(),
+      stop: (signal: string) => this.stop(signal),
+      schedule: (delaySec: number, method: string) => this.schedule(delaySec, method),
+      parseSleepAfterMs: () => this.parseSleepAfterMs(),
+      sleepAfter: this.sleepAfter,
+    };
+    await doCollectMetrics(this.metricsState, this.ctx, this.env, callbacks);
   }
 
-  /**
-   * Update a timestamp field on the KV session record (best-effort).
-   * Optionally sets session.status (e.g. 'stopped' on hibernation).
-   */
-  private async updateKvStatus(status: 'running' | 'stopped' | null, field: 'lastStartedAt' | 'lastActiveAt'): Promise<void> {
-    try {
-      const sessionId = await this.ctx.storage.get<string>(SESSION_ID_KEY);
-      // Fallback: if _bucketName isn't set on the instance, try loading from storage
-      const bucketName = this._bucketName || await this.ctx.storage.get<string>('bucketName') || null;
-      if (!sessionId || !bucketName) {
-        this.logger.info('updateKvStatus: missing identifiers', { status, field, sessionId: !!sessionId, bucketName: !!bucketName });
-        return;
-      }
-      const key = getSessionKey(bucketName, sessionId);
-      const session = await this.env.KV.get<Session>(key, 'json');
-      if (!session) {
-        this.logger.info('updateKvStatus: session not found in KV', { key, status, field });
-        return;
-      }
-      if (status !== null) {
-        session.status = status;
-      }
-      session[field] = new Date().toISOString();
-      // Preserve last-known metrics in KV even after container stops,
-      // so the dashboard can display them for recently-stopped sessions.
-      await putSessionWithMetadata(this.env.KV, key, session);
-      this.logger.info('updateKvStatus: wrote to KV', { key, status, field });
-    } catch (err) {
-      this.logger.error('Failed to update KV status', toError(err));
-    }
-  }
-
-  /**
-   * Override destroy to clean up operational storage before SDK teardown.
-   */
+  /** Override destroy to clean up operational storage before SDK teardown. */
   override async destroy(): Promise<void> {
     this.logger.info('Destroying container, clearing operational storage');
     try {
@@ -816,10 +411,7 @@ export class container extends Container<Env> {
     return super.destroy();
   }
 
-  /**
-   * Called when sleepAfter expires. Check for new user input one last time —
-   * if detected since the last poll, renew. Otherwise stop.
-   */
+  /** Called when sleepAfter expires — check for new user input one last time. */
   override async onActivityExpired(): Promise<void> {
     if (!this.ctx.container?.running) {
       this.logger.info('onActivityExpired: container not running, allowing sleep');
@@ -866,20 +458,16 @@ export class container extends Container<Env> {
     await this.stop('SIGTERM');
   }
 
-  /**
-   * Called when the container stops
-   */
+  /** Called when the container stops. */
   override async onStop(): Promise<void> {
     // Kill the collectMetrics alarm loop — without this, the schedule
     // continues firing on a dead container indefinitely (zombie alarms).
     try { this.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
     this.logger.info('Container stopped');
-    await this.updateKvStatus('stopped', 'lastActiveAt');
+    await updateKvStatus(this.ctx, this.env, this._bucketName, 'stopped', 'lastActiveAt');
   }
 
-  /**
-   * Called when the container encounters an error
-   */
+  /** Called when the container encounters an error. */
   override onError(error: unknown): void {
     this.logger.error('Container error', error instanceof Error ? error : new Error(toErrorMessage(error)));
   }
