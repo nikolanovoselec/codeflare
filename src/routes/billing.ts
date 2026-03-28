@@ -156,7 +156,7 @@ app.get('/status', requireIdentity, async (c) => {
         billingStatus: snapshot.status,
       });
     } catch (err) {
-      logger.warn('Stripe API error in billing status — falling back to KV', err instanceof Error ? err : new Error(String(err)));
+      logger.warn('Stripe API error in billing status — falling back to KV', { error: String(err) });
     }
   }
 
