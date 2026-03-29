@@ -591,7 +591,7 @@ flowchart TD
 
 Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. R2 has no native per-bucket quota — enforcement is in application code.
 
-**Tier defaults:** Free: 250 MB, Trial/Starter: 500 MB, Advanced: 1 GB, Max: 2 GB, Custom: null (unlimited). Editable in admin Subscription Management panel.
+**Tier defaults:** Configurable per tier in admin Subscription Management panel (Storage Quota field, in MB). Custom tier defaults to unlimited.
 
 **Enforcement:** Session creation (`POST /api/sessions` in `crud.ts`) checks `storage-stats:{bucketName}` KV cache against the user's tier quota. If `totalSizeBytes > maxStorageBytes`, the request is rejected with a clear error message. Users must delete files from their storage browser to free space before starting new sessions.
 
