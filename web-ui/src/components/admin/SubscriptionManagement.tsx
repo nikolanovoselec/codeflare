@@ -133,7 +133,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
         </div>
 
         {/* Selected tier editor — use direct accessors to avoid Show re-mount on edit */}
-        <Show when={selectedTierId()}>
+        <Show when={selectedTier()}>
           <div class="sub-mgmt-editor">
             <div class="sub-mgmt-form">
               <label class="sub-mgmt-field">
