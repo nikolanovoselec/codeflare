@@ -141,7 +141,7 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
           <div class="setting-row setting-row--clickable" onClick={(e) => {
             if (!(e.target as HTMLElement).closest('.toggle')) props.updateSetting('samsungAddressBarTop', !props.samsungAddressBarTop());
           }}>
-            <label for="settings-samsung-bar-top">Address bar at top</label>
+            <label for="settings-samsung-bar-top">Alternative layout</label>
             <button
               type="button"
               id="settings-samsung-bar-top"
@@ -156,7 +156,7 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
           </div>
           <div class="setting-row setting-row--column-gap">
             <span class="settings-hint">
-              Enable if your Samsung Internet address bar is at the top. Fixes keyboard button positioning.
+              Enable if floating buttons appear in the wrong position. Adjusts layout for alternative browser configurations.
             </span>
           </div>
         </section>
