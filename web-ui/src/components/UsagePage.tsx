@@ -1,5 +1,5 @@
 import { Component, createSignal, onMount, onCleanup, Show } from 'solid-js';
-import { getUsage, getPreferences } from '../api/client';
+import { getUsage } from '../api/client';
 import { formatDuration } from '../lib/format';
 import ScrambleText from './ScrambleText';
 import '../styles/usage-page.css';
@@ -17,11 +17,11 @@ const UsagePage: Component = () => {
 
   async function fetchUsage() {
     try {
-      const [data, prefs] = await Promise.all([getUsage(), getPreferences()]);
+      const data = await getUsage();
       setDailySeconds(data.dailySeconds);
       setMonthlySeconds(data.monthlySeconds);
       setQuotaSeconds(data.monthlyQuotaSeconds);
-      const mode = prefs.sessionMode === 'advanced' ? 'Pro' : 'Standard';
+      const mode = data.mode === 'advanced' ? 'Pro' : 'Standard';
       setTierName(`${data.tier} ${mode}`);
       setError(null);
     } catch (err) {

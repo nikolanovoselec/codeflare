@@ -395,6 +395,7 @@ const UsageResponseSchema = z.object({
   monthlySeconds: z.number(),
   monthlyQuotaSeconds: z.number().nullable(),
   tier: z.string(),
+  mode: z.enum(['default', 'advanced']).optional(),
 });
 
 export async function getUsage(): Promise<z.infer<typeof UsageResponseSchema>> {
