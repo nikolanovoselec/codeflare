@@ -26,6 +26,7 @@ interface TierConfig {
   trialQuotaHours?: number;
   trialDays?: number; // backward compat
   description: string;
+  maxStorageBytes?: number | null;
   advancedPriceMonthly?: number | null;
   stripePriceId?: string | null;
   stripeAdvancedPriceId?: string | null;
@@ -98,6 +99,17 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
     return isNaN(n) ? 0 : Math.round(n * 3600);
   };
 
+  const mbFromBytes = (bytes: number | null | undefined): string => {
+    if (bytes === null || bytes === undefined) return 'unlimited';
+    return String(Math.round(bytes / 1048576));
+  };
+
+  const bytesFromMB = (mb: string): number | null => {
+    if (mb === '' || mb === 'unlimited') return null;
+    const n = parseFloat(mb);
+    return isNaN(n) ? 0 : Math.round(n * 1048576);
+  };
+
   const hasAdvancedMode = () => {
     const t = selectedTier();
     return t && t.sessionModes.includes('advanced');
@@ -156,6 +168,17 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
                   max="100"
                   value={selectedTier()!.maxSessions}
                   onChange={(e) => updateField('maxSessions', parseInt(e.currentTarget.value) || 0)}
+                />
+              </label>
+
+              <label class="sub-mgmt-field">
+                <span class="sub-mgmt-label">Storage Quota (MB)</span>
+                <input
+                  type="text"
+                  class="sub-mgmt-input"
+                  value={mbFromBytes(selectedTier()!.maxStorageBytes)}
+                  disabled={selectedTierId() === 'unlimited'}
+                  onChange={(e) => updateField('maxStorageBytes', bytesFromMB(e.currentTarget.value))}
                 />
               </label>
 

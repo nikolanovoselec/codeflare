@@ -10,6 +10,7 @@ interface StorageStats {
   totalFolders: number;
   totalSizeBytes: number;
   bucketName?: string;
+  maxStorageBytes?: number | null;
 }
 
 interface StatCardsProps {
@@ -68,7 +69,10 @@ const StatCards: Component<StatCardsProps> = (props) => {
                   <Icon path={mdiHarddisk} size={12} />
                   Storage
                 </span>
-                <span class="stat-card__metric-value">{formatSize(stats().totalSizeBytes)}</span>
+                <span class="stat-card__metric-value">
+                  {formatSize(stats().totalSizeBytes)}
+                  {stats().maxStorageBytes ? ` / ${formatSize(stats().maxStorageBytes!)}` : ''}
+                </span>
               </div>
             </div>
           </div>

@@ -25,6 +25,7 @@ interface StorageStats {
   totalFolders: number;
   totalSizeBytes: number;
   bucketName?: string;
+  maxStorageBytes?: number | null;
 }
 
 interface PreviewFile {
