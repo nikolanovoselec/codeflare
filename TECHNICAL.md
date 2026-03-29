@@ -587,6 +587,18 @@ flowchart TD
 
 ## Storage and Sync
 
+### Storage Quota
+
+Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. R2 has no native per-bucket quota — enforcement is in application code.
+
+**Tier defaults:** Free: 250 MB, Trial/Starter: 500 MB, Advanced: 1 GB, Max: 2 GB, Custom: null (unlimited). Editable in admin Subscription Management panel.
+
+**Enforcement:** Session creation (`POST /api/sessions` in `crud.ts`) checks `storage-stats:{bucketName}` KV cache against the user's tier quota. If `totalSizeBytes > maxStorageBytes`, the request is rejected with a clear error message. Users must delete files from their storage browser to free space before starting new sessions.
+
+**Stats endpoint:** `GET /api/storage/stats` returns `maxStorageBytes` alongside usage stats. Frontend displays "X MB / Y MB" in the storage card. Subscribe page plan cards show storage quota in the specs line.
+
+**What is NOT enforced:** Individual file uploads, rclone sync writes, and preseed writes are not blocked by quota. The quota is checked only at session start. Users can temporarily exceed their quota during an active session via rclone sync or file uploads. The overage is caught on the next session start attempt.
+
 ### Why rclone bisync (Not s3fs)
 
 s3fs FUSE: every file op = network call (~340ms PUT, ~50ms HEAD), fragile on network hiccups, "Socket not connected" errors.
