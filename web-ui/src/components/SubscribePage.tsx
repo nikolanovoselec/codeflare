@@ -551,7 +551,7 @@ const SubscribePage: Component = () => {
           <div class="subscribe-loading">
             {checkoutPolling() ? (
               <>
-                <p>Activating your subscription — this may take a minute...</p>
+                <p><ScrambleText text="Activating your subscription — this may take a minute..." /></p>
                 <Show when={showReportButton()}>
                   <a
                     href={`mailto:hello@graymatter.ch?subject=${encodeURIComponent('Subscription problem')}&body=${encodeURIComponent(`Hi,\n\nI completed a Stripe checkout but my subscription hasn't activated yet.\n\nEmail: ${userEmail()}\nDate: ${new Date().toISOString()}\n\nPlease help.\n`)}`}

@@ -23,7 +23,7 @@ const SECTION_LABELS: Record<SubscriptionTier, string> = {
   pending: 'Pending',
   free: 'Free',
   trial: 'Trial',
-  standard: 'Standard',
+  standard: 'Starter',
   advanced: 'Advanced',
   max: 'Max',
   unlimited: 'Unlimited',
@@ -344,7 +344,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                                   <option value="pending">Pending</option>
                                   <option value="free">Free</option>
                                   <option value="trial">Trial</option>
-                                  <option value="standard">Standard</option>
+                                  <option value="standard">Starter</option>
                                   <option value="advanced">Advanced</option>
                                   <option value="max">Max</option>
                                   <option value="unlimited">Unlimited</option>

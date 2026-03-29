@@ -58,6 +58,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // refreshSessionStatuses() updates in-place and won't trigger viewState flips.
   onMount(() => {
     sessionStore.startSessionListPolling();
+    storageStore.fetchStats();
   });
 
   // Auto-refresh sessions + storage when tab returns from background
