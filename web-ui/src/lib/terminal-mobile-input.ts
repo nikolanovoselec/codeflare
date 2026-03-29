@@ -32,7 +32,9 @@ export function isStickyCtrlActive(): boolean { return _ctrlStickyActive; }
 // Voice / autocorrect mode toggle (dual-input strategy)
 // ---------------------------------------------------------------------------
 
+const VOICE_MODE_KEY = 'codeflare:voiceMode';
 let _voiceModeActive = false;
+try { _voiceModeActive = localStorage.getItem(VOICE_MODE_KEY) === '1'; } catch { /* SSR/private */ }
 let _activeInput: HTMLInputElement | null = null;
 let _passwordInput: HTMLInputElement | null = null;
 let _textInput: HTMLInputElement | null = null;
@@ -47,6 +49,7 @@ export function isSwitchingInput(): boolean { return _switchingInput; }
  *  Cross-iframe focus() from outside the iframe is unreliable on mobile. */
 export function toggleVoiceMode(): boolean {
   _voiceModeActive = !_voiceModeActive;
+  try { localStorage.setItem(VOICE_MODE_KEY, _voiceModeActive ? '1' : '0'); } catch { /* */ }
   const target = _voiceModeActive ? _textInput : _passwordInput;
   if (target && _activeInput && target !== _activeInput) {
     _switchingInput = true;
@@ -270,12 +273,12 @@ export function setupMobileInput(
     const txtInput = iframeDoc.getElementById('txt') as HTMLInputElement | null;
     if (!pwInput || !txtInput) return;
 
-    // Initialize dual-input state
+    // Initialize dual-input state — respect persisted voice mode preference
     _passwordInput = pwInput;
     _textInput = txtInput;
-    _activeInput = pwInput;
+    _activeInput = _voiceModeActive ? txtInput : pwInput;
     _voiceModeTerminal = terminal;
-    iframeInputRef = pwInput;
+    iframeInputRef = _activeInput;
 
     // Focus guard: start both readOnly to prevent keyboard on session reconnect
     pwInput.readOnly = true;
@@ -284,7 +287,7 @@ export function setupMobileInput(
       pwInput.readOnly = false;
       txtInput.readOnly = false;
     });
-    setIframeInput(terminal, pwInput);
+    setIframeInput(terminal, _activeInput);
 
     // Shared state for event handlers
     let composing = false;
@@ -453,10 +456,9 @@ export function setupMobileInput(
   window.addEventListener('focus', onWindowFocus);
   window.addEventListener('pagehide', onPageHide);
 
-  // Return cleanup function
+  // Return cleanup function (voice mode persists via localStorage)
   return () => {
     wasInputFocused = false;
-    resetVoiceMode();
     _passwordInput = null;
     _textInput = null;
     _activeInput = null;
