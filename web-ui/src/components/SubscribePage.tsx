@@ -136,7 +136,7 @@ const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
   { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
   { icon: mdiBookOpenPageVariantOutline, text: 'Advanced commands & workflows' },
   { icon: mdiClockFast, text: 'Auto-prunes context over time' },
-  { icon: mdiCallSplit, text: 'Cross-verify with GPT, Gemini & more' },
+  { icon: mdiCallSplit, text: 'Built-in second opinion from other LLMs' },
   { icon: mdiRocketLaunchOutline, text: 'Never start from scratch again' },
 ];
 
