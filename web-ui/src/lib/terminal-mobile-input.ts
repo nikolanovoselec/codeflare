@@ -127,13 +127,15 @@ export function setupMobileInput(
   iframe.className = 'terminal-input-iframe';
   iframe.setAttribute('tabindex', '-1');
   iframe.setAttribute('aria-hidden', 'true');
-  // srcdoc: minimal HTML with a password input. Same-origin, no network request.
+  // srcdoc: minimal HTML with a text input. Uses type="text" (not password)
+  // to preserve voice input / speech-to-text on Android. Autocorrect is
+  // suppressed via attributes instead. Same-origin, no network request.
   iframe.srcdoc = `<!DOCTYPE html>
 <html><head><style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
   input {
     position: absolute; top: 0; left: 0;
-    width: 1px; height: 1px;
+    width: 16px; height: 16px; opacity: 0;
     font-size: 16px;
     border: none; outline: none; background: transparent;
     color: transparent; caret-color: transparent;
@@ -141,9 +143,10 @@ export function setupMobileInput(
     -webkit-tap-highlight-color: transparent;
   }
 </style></head><body>
-<input id="ti" type="password" autocomplete="off" autocorrect="off"
+<input id="ti" type="text" autocomplete="off" autocorrect="off"
   autocapitalize="off" spellcheck="false" inputmode="text" enterkeyhint="enter"
-  aria-label="Terminal input">
+  aria-autocomplete="none" aria-label="Terminal input"
+  data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
 </body></html>`;
   // Insert iframe into document.body for maximum compositor isolation.
   document.body.appendChild(iframe);
@@ -238,6 +241,14 @@ export function setupMobileInput(
     input.addEventListener('compositionstart', () => { composing = true; });
     input.addEventListener('compositionend', () => {
       composing = false;
+      // Flush composed text (voice dictation, swipe typing) now that
+      // the IME has committed its result.
+      if (!terminal) return;
+      const val = input.value;
+      if (val) {
+        terminal.input(val, false);
+        input.value = '';
+      }
     });
 
     input.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -285,13 +296,15 @@ export function setupMobileInput(
     });
 
     // 'input' event fires for character input (including IME results).
+    // During composition (voice dictation, swipe typing), don't flush —
+    // wait for compositionend to send the committed text.
     input.addEventListener('input', () => {
       if (sentViaKeydown) {
         sentViaKeydown = false;
-        input.value = '';
+        if (!composing) input.value = '';
         return;
       }
-      if (!terminal) return;
+      if (!terminal || composing) return;
       const val = input.value;
       if (val) {
         // Sticky CTRL not consumed by keydown (key was 'Unidentified') — apply here
