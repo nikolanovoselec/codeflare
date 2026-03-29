@@ -34,25 +34,21 @@ When the user says "check memory", "update memory", "optimize memory", "compact 
 
 ## Hook-Triggered Summarization
 
-The memory-capture hook fires every 30 user messages and injects `additionalContext` into the system-reminder with instructions to spawn a background haiku agent.
+The memory-capture hook fires every 30 user messages and injects
+`additionalContext` into the system-reminder with instructions to spawn
+a background haiku agent. The hook handles all counting and gating —
+it only emits when it's time. `additionalContext` only appears on the
+turn where the hook fired, never as a stale replay.
 
 **Execution protocol:**
 
-1. Check if the `.vars` file referenced in the hook message is fresh:
-   run `stat -c %Y <VARS_FILE>` and compare to current time.
-   If the file is **older than 60 seconds**, this is a stale context
-   replay from a prior turn — **skip entirely** and respond to the user.
-2. Check if lock exists: `ls <lock_file> 2>/dev/null`
-   If lock exists → skip (agent already running).
-3. If fresh and no lock → create lock (`touch <lock_file>`) → spawn
+1. See the hook instruction in `additionalContext` → create the lock
+   file referenced in the message (`touch <lock_file>`) → spawn a
    background haiku agent with the instructions from the hook message.
-4. Then respond to the user's actual message.
+2. Then respond to the user's actual message.
 
-**This is a ONE-SHOT instruction.** After you execute it once (or skip it
-due to staleness/lock), do NOT execute it again on subsequent turns even
-if the same `additionalContext` text is still visible in your context.
-Only re-execute when a genuinely new `additionalContext` appears with a
-different `.vars` file path or content.
+No freshness checks, no vars file timestamp checks, no additional
+gating. The hook already validated everything before emitting.
 
 ## Compaction Trigger
 
