@@ -41,9 +41,6 @@ let _textInput: HTMLInputElement | null = null;
 let _voiceModeTerminal: XTerm | null = null;
 let _switchingInput = false;
 
-/** True while focus is transferring between the two inputs. */
-export function isSwitchingInput(): boolean { return _switchingInput; }
-
 /** Toggle between password (no autocorrect) and text (voice-friendly) input.
  *  Does NOT focus the target — caller must use refocusTerminal() after.
  *  Cross-iframe focus() from outside the iframe is unreliable on mobile. */
@@ -70,6 +67,7 @@ export function resetVoiceMode(): void {
     if (_voiceModeTerminal) setIframeInput(_voiceModeTerminal, _passwordInput);
   }
   _voiceModeActive = false;
+  try { localStorage.removeItem(VOICE_MODE_KEY); } catch { /* */ }
 }
 
 // ---------------------------------------------------------------------------
