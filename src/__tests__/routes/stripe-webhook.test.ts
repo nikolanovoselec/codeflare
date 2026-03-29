@@ -25,27 +25,15 @@ vi.mock('../../lib/stripe', () => ({
   fetchSubscription: vi.fn(async () => null),
 }));
 
-// Mock r2-seed for auto-recreate on downgrade
-const mockReconcileAgentConfigs = vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] }));
-vi.mock('../../lib/r2-seed', () => ({
-  reconcileAgentConfigs: mockReconcileAgentConfigs,
+// Mock r2-seed, r2-config, email, access-policy for auto-recreate + admin notification
+const { mockReconcileAgentConfigs, mockSendAdminNotification } = vi.hoisted(() => ({
+  mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
+  mockSendAdminNotification: vi.fn(async () => true),
 }));
-
-// Mock r2-config
-vi.mock('../../lib/r2-config', () => ({
-  getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })),
-}));
-
-// Mock email
-const mockSendAdminNotification = vi.fn(async () => true);
-vi.mock('../../lib/email', () => ({
-  sendSubscriptionAdminNotification: mockSendAdminNotification,
-}));
-
-// Mock access-policy
-vi.mock('../../lib/access-policy', () => ({
-  getAdminEmails: vi.fn(async () => ['admin@example.com']),
-}));
+vi.mock('../../lib/r2-seed', () => ({ reconcileAgentConfigs: mockReconcileAgentConfigs }));
+vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
+vi.mock('../../lib/email', () => ({ sendSubscriptionAdminNotification: mockSendAdminNotification }));
+vi.mock('../../lib/access-policy', () => ({ getAdminEmails: vi.fn(async () => ['admin@example.com']) }));
 
 import {
   verifyWebhookSignature,

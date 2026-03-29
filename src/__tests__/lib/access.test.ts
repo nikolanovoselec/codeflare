@@ -13,7 +13,9 @@ vi.mock('../../lib/logger', () => ({
   })),
 }));
 
-const mockSendWelcomeEmail = vi.fn(async () => true);
+const { mockSendWelcomeEmail } = vi.hoisted(() => ({
+  mockSendWelcomeEmail: vi.fn(async () => true),
+}));
 vi.mock('../../lib/email', () => ({
   sendWelcomeEmail: mockSendWelcomeEmail,
 }));
