@@ -197,7 +197,14 @@ export async function getTierConfig(kv: KVNamespace): Promise<SubscriptionTierCo
     return cachedTierConfig;
   }
   const stored = await kv.get<SubscriptionTierConfig[]>(getTiersConfigKey(), 'json');
-  const tiers = stored ?? getDefaultTiers();
+  const defaults = getDefaultTiers();
+  // Merge stored tiers with defaults to backfill new fields (e.g., maxStorageBytes)
+  const tiers = stored
+    ? stored.map((t) => {
+        const def = defaults.find((d) => d.id === t.id);
+        return def ? { ...def, ...t } : t;
+      })
+    : defaults;
   // Migrate legacy "Team" displayName to "Custom" (renamed, no admin UI to change)
   for (const t of tiers) {
     if (t.id === 'unlimited' && t.displayName === 'Team') {

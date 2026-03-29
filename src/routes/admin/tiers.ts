@@ -24,6 +24,7 @@ const TierConfigSchema = z.object({
   isDefault: z.boolean(),
   priceMonthly: z.number().min(0).nullable(),
   trialQuotaHours: z.number().min(0),
+  maxStorageBytes: z.number().min(0).nullable().optional(),
   description: z.string().max(200),
   advancedPriceMonthly: z.number().min(0).nullable().optional(),
   stripePriceId: z.string().nullable().optional(),
