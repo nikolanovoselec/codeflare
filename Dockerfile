@@ -122,6 +122,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g github:nikolanovoselec/claude-unleashed#999d553c6c395acff8210a252e5a2f39ec10344c && \
+    # Remove CLAUDE_CODE_BUBBLEWRAP from preload — it causes Claude Code to
+    # enter a degraded sandbox mode with no visible cursor.
+    sed -i "/CLAUDE_CODE_BUBBLEWRAP/d" /usr/local/lib/node_modules/claude-unleashed/lib/preload.js && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
     rm -rf /root/.npm
