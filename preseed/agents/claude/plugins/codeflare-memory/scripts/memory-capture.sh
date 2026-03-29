@@ -59,6 +59,11 @@ jq -n \
   '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,lock_file:$lock_file}' \
   > "$VARS_FILE"
 
+# Update counter NOW so subsequent hook invocations see delta < 30.
+# The agent reads line range from .vars (already captured above), not
+# from the counter file, so this doesn't affect its read window.
+printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
+
 # UserPromptSubmit: exit 0 with additionalContext (no blocking)
 CONTEXT="Spawn a background haiku Task agent. Create ${LOCK_FILE} before spawning. Agent must read ${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and ${VARS_FILE}, then execute."
 

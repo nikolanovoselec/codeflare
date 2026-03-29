@@ -3429,7 +3429,8 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the
 3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If no counter file exists (first run after container recycle or `/resume`), the hook baselines from the current transcript count and **writes the counter file immediately** — this establishes the baseline so subsequent invocations can calculate the delta. If the delta is < 30, exits silently.
 4. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits. Stale locks (>2 minutes) are removed automatically.
 5. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the context string short.
-6. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. Exits with code 0 — no blocking, no loop guard needed.
+6. **Counter update**: Writes `CURRENT_COUNT` and `TOTAL_LINES` to the counter file **before emitting**. This prevents re-triggering: subsequent hook invocations see delta < 30 and exit silently. The haiku agent reads its line range from the `.vars` file (captured in step 5), not from the counter, so this doesn't affect its read window.
+7. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. Exits with code 0 — no blocking, no loop guard needed.
 
 ### Stale Context Prevention
 
