@@ -71,7 +71,9 @@ const StatCards: Component<StatCardsProps> = (props) => {
                 </span>
                 <span class="stat-card__metric-value">
                   {formatSize(stats().totalSizeBytes)}
-                  {stats().maxStorageBytes ? ` / ${formatSize(stats().maxStorageBytes!)}` : ''}
+                  {stats().maxStorageBytes != null && stats().maxStorageBytes > 0
+                    ? ` / ${formatSize(stats().maxStorageBytes)}`
+                    : ''}
                 </span>
               </div>
             </div>

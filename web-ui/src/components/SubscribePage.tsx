@@ -63,6 +63,7 @@ interface TierInfo {
   trialQuotaHours?: number;
   trialDays?: number;
   sessionModes: string[];
+  maxStorageBytes?: number | null;
   stripePrice?: StripePrice;
   stripeAdvancedPrice?: StripePrice;
 }

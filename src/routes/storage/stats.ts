@@ -80,7 +80,7 @@ app.get('/', async (c) => {
     if (!response.ok) {
       // Bucket doesn't exist yet — return empty stats
       if (response.status === 404) {
-        return c.json({ ...EMPTY_STATS, bucketName });
+        return c.json({ ...EMPTY_STATS, bucketName, maxStorageBytes });
       }
       logger.error('R2 ListObjects failed', undefined, { status: response.status, bucketName });
       throw new ContainerError('storage-stats', `R2 ListObjects failed: ${response.status}`);
