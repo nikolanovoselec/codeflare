@@ -115,15 +115,15 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     term.loadAddon(fitAddon);
     registerMultiLineLinkProvider(term);
 
-    // Open terminal - on mobile, swap xterm's textarea for a text input to
-    // suppress autocorrect while preserving voice input (password type blocks
-    // speech-to-text on Android). Attributes handle autocorrect suppression.
+    // Open terminal - on mobile, swap xterm's textarea for a password input
+    // to suppress autocorrect at OS level. Voice input uses Web Speech API
+    // (speech-input.ts), completely decoupled from the keyboard input.
     if (isTouchDevice()) {
       const origCreateElement = document.createElement;
       document.createElement = function(tagName: string, options?: ElementCreationOptions) {
         if (tagName.toLowerCase() === 'textarea') {
           const input = origCreateElement.call(document, 'input', options);
-          input.setAttribute('type', 'text');
+          input.setAttribute('type', 'password');
           input.focus = () => {};
           return input;
         }

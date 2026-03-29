@@ -127,15 +127,15 @@ export function setupMobileInput(
   iframe.className = 'terminal-input-iframe';
   iframe.setAttribute('tabindex', '-1');
   iframe.setAttribute('aria-hidden', 'true');
-  // srcdoc: minimal HTML with a text input. Uses type="text" (not password)
-  // to preserve voice input / speech-to-text on Android. Autocorrect is
-  // suppressed via attributes instead. Same-origin, no network request.
+  // srcdoc: minimal HTML with a password input. Password type suppresses
+  // autocorrect at OS level. Voice input uses Web Speech API (speech-input.ts),
+  // completely decoupled from the keyboard. Same-origin, no network request.
   iframe.srcdoc = `<!DOCTYPE html>
 <html><head><style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
   input {
     position: absolute; top: 0; left: 0;
-    width: 16px; height: 16px; opacity: 0;
+    width: 1px; height: 1px;
     font-size: 16px;
     border: none; outline: none; background: transparent;
     color: transparent; caret-color: transparent;
@@ -143,10 +143,9 @@ export function setupMobileInput(
     -webkit-tap-highlight-color: transparent;
   }
 </style></head><body>
-<input id="ti" type="text" autocomplete="off" autocorrect="off"
+<input id="ti" type="password" autocomplete="off" autocorrect="off"
   autocapitalize="off" spellcheck="false" inputmode="text" enterkeyhint="enter"
-  aria-autocomplete="none" aria-label="Terminal input"
-  data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
+  aria-label="Terminal input">
 </body></html>`;
   // Insert iframe into document.body for maximum compositor isolation.
   document.body.appendChild(iframe);

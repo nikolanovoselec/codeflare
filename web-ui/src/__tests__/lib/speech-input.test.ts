@@ -128,30 +128,36 @@ describe('speech-input', () => {
       expect(callback).not.toHaveBeenCalled();
     });
 
-    it('onend resets listening state', () => {
-      mod.startListening(vi.fn());
+    it('onend resets listening state and calls onEnd callback', () => {
+      const onEnd = vi.fn();
+      mod.startListening(vi.fn(), onEnd);
       expect(mod.isListening()).toBe(true);
 
       mockRecognition.onend!();
       expect(mod.isListening()).toBe(false);
+      expect(onEnd).toHaveBeenCalled();
     });
 
-    it('onerror resets listening state', () => {
-      mod.startListening(vi.fn());
+    it('onerror resets listening state and calls onEnd callback', () => {
+      const onEnd = vi.fn();
+      mod.startListening(vi.fn(), onEnd);
       expect(mod.isListening()).toBe(true);
 
       mockRecognition.onerror!({ error: 'not-allowed' });
       expect(mod.isListening()).toBe(false);
+      expect(onEnd).toHaveBeenCalled();
     });
 
-    it('startListening returns false if recognition.start() throws', () => {
+    it('startListening returns false if recognition.start() throws', async () => {
       (globalThis as Record<string, unknown>).webkitSpeechRecognition = vi.fn(() => {
         const r = createMockRecognition();
         r.start = vi.fn(() => { throw new Error('already started'); });
         return r;
       });
-      // Re-import to pick up new mock
       vi.resetModules();
+      const freshMod = await import('../../lib/speech-input');
+      expect(freshMod.startListening(vi.fn())).toBe(false);
+      expect(freshMod.isListening()).toBe(false);
     });
 
     it('configures recognition with correct defaults', () => {

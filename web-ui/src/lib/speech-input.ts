@@ -28,7 +28,7 @@ export function isListening(): boolean {
  * Must be called from a user gesture (click/tap) for permission prompt.
  * Returns true if recognition started, false if unsupported or already listening.
  */
-export function startListening(onText: (text: string) => void): boolean {
+export function startListening(onText: (text: string) => void, onEnd?: () => void): boolean {
   if (!SR || listening) return false;
   onTextCallback = onText;
 
@@ -49,10 +49,12 @@ export function startListening(onText: (text: string) => void): boolean {
 
   recognition.onend = () => {
     listening = false;
+    onEnd?.();
   };
 
   recognition.onerror = () => {
     listening = false;
+    onEnd?.();
   };
 
   try {
@@ -72,4 +74,5 @@ export function stopListening(): void {
   }
   listening = false;
   onTextCallback = null;
+  recognition = null;
 }

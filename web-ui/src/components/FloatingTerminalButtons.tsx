@@ -157,7 +157,10 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
                   stopListening();
                   setVoiceActive(false);
                 } else {
-                  const started = startListening((text) => term.input(text, false));
+                  const started = startListening(
+                    (text) => term.input(text, false),
+                    () => setVoiceActive(false),
+                  );
                   setVoiceActive(started);
                 }
                 refocusTerminal();
