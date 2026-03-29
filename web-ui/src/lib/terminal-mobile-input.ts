@@ -47,9 +47,6 @@ export function toggleVoiceMode(): boolean {
   return _voiceModeActive;
 }
 
-/** Check if voice/autocorrect mode is active. */
-export function isVoiceModeActive(): boolean { return _voiceModeActive; }
-
 /** Reset voice mode to default (password) — called when keyboard closes. */
 export function resetVoiceMode(): void {
   if (_voiceModeActive && _voiceModeInput) {
