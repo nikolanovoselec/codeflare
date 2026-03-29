@@ -279,29 +279,31 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
       </div>
     </Show>
 
-    {/* Desktop mic button — bottom-right corner, visible when terminal is shown and speech supported */}
+    {/* Desktop mic button — bottom-right corner, same style as mobile buttons */}
     <Show when={!isTouchDevice() && props.showTerminal && isSpeechSupported()}>
-      <button
-        type="button"
-        class={`floating-mic-desktop ${voiceActive() ? 'floating-mic-desktop--active' : ''}`}
-        onClick={() => {
-          const term = getActiveTerm();
-          if (!term) return;
-          if (isListening()) {
-            stopListening();
-            setVoiceActive(false);
-          } else {
-            const started = startListening(
-              (text) => term.input(text, false),
-              () => setVoiceActive(false),
-            );
-            setVoiceActive(started);
-          }
-        }}
-        title="Voice Input"
-      >
-        <Icon path={mdiMicrophonePlus} size={18} />
-      </button>
+      <div class="floating-mic-desktop">
+        <button
+          type="button"
+          class={`floating-terminal-btn ${voiceActive() ? 'floating-terminal-btn--active' : ''}`}
+          onClick={() => {
+            const term = getActiveTerm();
+            if (!term) return;
+            if (isListening()) {
+              stopListening();
+              setVoiceActive(false);
+            } else {
+              const started = startListening(
+                (text) => term.input(text, false),
+                () => setVoiceActive(false),
+              );
+              setVoiceActive(started);
+            }
+          }}
+          title="Voice Input (Ctrl+Space)"
+        >
+          <Icon path={mdiMicrophonePlus} size={18} />
+        </button>
+      </div>
     </Show>
     </>
   );
