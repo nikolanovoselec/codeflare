@@ -13,6 +13,8 @@ import { MAX_SESSION_NAME_LENGTH, MAX_TABS } from '../../lib/constants';
 import { getContainerId } from '../../lib/container-helpers';
 import { createLogger } from '../../lib/logger';
 import { ValidationError } from '../../lib/error-types';
+import { getTierConfig, getUserTier, getEffectiveTier } from '../../lib/subscription';
+import { isSaasModeActive } from '../../lib/onboarding';
 import { parseJsonBody, firstZodError, validateSessionId } from '../../lib/request-helpers';
 import { toApiSession } from '../../lib/session-helpers';
 import { TabConfigSchema } from '../../lib/schemas';
@@ -92,6 +94,24 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
   const parsed = CreateSessionBody.safeParse(raw);
   if (!parsed.success) {
     throw new ValidationError(firstZodError(parsed.error));
+  }
+
+  // Storage quota check — block session start if over quota
+  if (isSaasModeActive(c.env.SAAS_MODE)) {
+    const user = c.get('user');
+    const tiers = await getTierConfig(c.env.KV);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    const tier = getUserTier(effectiveTier, tiers);
+    if (tier.maxStorageBytes !== null && tier.maxStorageBytes !== undefined) {
+      const statsCached = await c.env.KV.get(`storage-stats:${bucketName}`, 'json') as { totalSizeBytes: number } | null;
+      if (statsCached && statsCached.totalSizeBytes > tier.maxStorageBytes) {
+        const usedMB = Math.round(statsCached.totalSizeBytes / 1048576);
+        const limitMB = Math.round(tier.maxStorageBytes / 1048576);
+        throw new ValidationError(
+          `Storage quota exceeded (${usedMB} MB / ${limitMB} MB). Delete files from your storage to free up space, then try again.`
+        );
+      }
+    }
   }
 
   let sessionName = parsed.data.name?.trim() || 'Terminal';

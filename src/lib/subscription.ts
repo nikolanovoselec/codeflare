@@ -64,6 +64,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 0,
+      maxStorageBytes: 0,
       description: '',
     },
     {
@@ -78,6 +79,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 0,
+      maxStorageBytes: 0,
       description: '',
     },
     {
@@ -92,6 +94,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: 0,
       advancedPriceMonthly: null,
       trialQuotaHours: 0,
+      maxStorageBytes: 262144000, // 250 MB
       description: 'Zero commitment, zero setup',
     },
     {
@@ -106,6 +109,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 0,
+      maxStorageBytes: 524288000, // 500 MB (same as Starter)
       description: '',
     },
     {
@@ -120,6 +124,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,         // CF-027: prices come from Stripe via admin-configured stripePriceId
       advancedPriceMonthly: null,
       trialQuotaHours: 40,
+      maxStorageBytes: 524288000, // 500 MB
       description: 'Ship side projects on your phone',
     },
     {
@@ -134,6 +139,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 80,
+      maxStorageBytes: 1073741824, // 1 GB
       description: 'For when weekends aren\'t enough',
     },
     {
@@ -148,6 +154,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 160,
+      maxStorageBytes: 2147483648, // 2 GB
       description: 'For daily users pushing AI hard',
     },
     {
@@ -162,6 +169,7 @@ export function getDefaultTiers(): SubscriptionTierConfig[] {
       priceMonthly: null,
       advancedPriceMonthly: null,
       trialQuotaHours: 0,
+      maxStorageBytes: null,        // admin-managed, no limit
       description: 'Tailored to your needs.',
     },
   ];

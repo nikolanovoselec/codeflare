@@ -181,6 +181,7 @@ export interface SubscriptionTierConfig {
   isDefault: boolean;
   priceMonthly: number | null; // cents, null = not purchasable
   trialQuotaHours: number; // hours of free usage before billing, 0 = no trial
+  maxStorageBytes: number | null; // null = unlimited
   description: string;
   advancedPriceMonthly?: number | null; // cents, higher price for advanced mode
   stripePriceId?: string | null; // Stripe price ID for standard mode
