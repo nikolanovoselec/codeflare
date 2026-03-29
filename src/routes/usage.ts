@@ -32,7 +32,7 @@ app.get('/', async (c) => {
           dailySeconds: live.dailySeconds,
           monthlySeconds: live.monthlySeconds,
           monthlyQuotaSeconds: tier.monthlySeconds,
-          tier: tier.id,
+          tier: tier.displayName || tier.id,
         });
       }
     } catch {
@@ -55,7 +55,7 @@ app.get('/', async (c) => {
     dailySeconds,
     monthlySeconds,
     monthlyQuotaSeconds: tier.monthlySeconds,
-    tier: tier.id,
+    tier: tier.displayName || tier.id,
   });
 });
 
