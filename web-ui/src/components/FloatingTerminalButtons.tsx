@@ -10,7 +10,7 @@ import { markScrollIntent } from '../lib/terminal-scroll-intent';
 import { loadSettings } from '../lib/settings';
 import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
 import { getIframeInput } from '../lib/xterm-internals';
-import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
+import { isSpeechSupported, isListening, startListening, stopListening, getMicPermissionState } from '../lib/speech-input';
 import '../styles/floating-terminal-buttons.css';
 
 interface FloatingTerminalButtonsProps {
@@ -70,6 +70,15 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const pasteFromClipboard = async () => {
     const term = getActiveTerm();
     if (!term) return;
+    // On first use, browser shows clipboard permission prompt. On mobile it
+    // appears behind the keyboard. Dismiss keyboard so user sees it.
+    try {
+      const perm = await navigator.permissions.query({ name: 'clipboard-read' as PermissionName });
+      if (perm.state === 'prompt') {
+        const iframeInput = getIframeInput(term);
+        if (iframeInput) iframeInput.blur();
+      }
+    } catch { /* permissions API may not support clipboard-read query */ }
     try {
       const text = await navigator.clipboard.readText();
       if (text) term.paste(text);
@@ -151,20 +160,27 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
               class={`floating-terminal-btn ${voiceActive() ? 'floating-terminal-btn--active' : ''}`}
               tabIndex={-1}
               onPointerDown={preventFocusSteal}
-              onClick={() => {
+              onClick={async () => {
                 const term = getActiveTerm();
                 if (!term) return;
                 if (isListening()) {
                   stopListening();
                   setVoiceActive(false);
-                } else {
-                  const started = startListening(
-                    (text) => term.input(text, false),
-                    () => setVoiceActive(false),
-                  );
-                  setVoiceActive(started);
+                  refocusTerminal();
+                  return;
                 }
-                refocusTerminal();
+                // On first use, browser shows a permission prompt. On mobile it
+                // appears behind the keyboard. Dismiss keyboard so user sees it.
+                const permState = await getMicPermissionState();
+                if (permState === 'prompt') {
+                  const iframeInput = getIframeInput(term);
+                  if (iframeInput) iframeInput.blur();
+                }
+                const started = startListening(
+                  (text) => term.input(text, false),
+                  () => setVoiceActive(false),
+                );
+                setVoiceActive(started);
               }}
               title="Voice Input"
             >

@@ -51,6 +51,19 @@ export function isListening(): boolean {
 }
 
 /**
+ * Check if microphone permission needs prompting (first use).
+ * Returns 'granted', 'denied', 'prompt', or 'unknown'.
+ */
+export async function getMicPermissionState(): Promise<string> {
+  try {
+    const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+    return result.state;
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
  * Start speech recognition. Final transcribed text is passed to `onText`.
  * Must be called from a user gesture (click/tap) for permission prompt.
  * Returns true if recognition started, false if unsupported or already listening.
