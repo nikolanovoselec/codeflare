@@ -48,6 +48,17 @@ vi.mock('../../stores/session', () => ({
   },
 }));
 
+const speechMock = vi.hoisted(() => ({
+  supported: true as boolean,
+}));
+
+vi.mock('../../lib/speech-input', () => ({
+  isSpeechSupported: vi.fn(() => speechMock.supported),
+  isListening: vi.fn(() => false),
+  startListening: vi.fn(() => true),
+  stopListening: vi.fn(),
+}));
+
 describe('FloatingTerminalButtons', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -131,8 +142,8 @@ describe('FloatingTerminalButtons', () => {
       render(() => <FloatingTerminalButtons showTerminal={true} />);
 
       const rows = document.querySelectorAll('.floating-btn-row');
-      // 6 always-visible buttons (paste, tab, esc, ctrl, page-up, scroll-to-bottom) — copy URL is conditional
-      expect(rows.length).toBe(6);
+      // 7 always-visible buttons when speech supported (paste, voice, tab, esc, ctrl, page-up, scroll-to-bottom) — copy URL is conditional
+      expect(rows.length).toBe(7);
 
       rows.forEach((row) => {
         expect(row.querySelector('.floating-btn-label')).toBeInTheDocument();

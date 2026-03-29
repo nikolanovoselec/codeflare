@@ -1,0 +1,77 @@
+/**
+ * Web Speech API voice input for mobile terminal.
+ *
+ * Completely decoupled from the keyboard/iframe input system.
+ * Recognized text goes directly to terminal.input() via callback.
+ * Password input stays untouched — no autocorrect changes needed.
+ */
+
+type SpeechRecognitionType = typeof window extends { SpeechRecognition: infer T } ? T : unknown;
+
+const SR: (new () => SpeechRecognition) | undefined =
+  (typeof window !== 'undefined' && ((window as Record<string, unknown>).SpeechRecognition || (window as Record<string, unknown>).webkitSpeechRecognition)) as (new () => SpeechRecognition) | undefined;
+
+let recognition: SpeechRecognition | null = null;
+let listening = false;
+let onTextCallback: ((text: string) => void) | null = null;
+
+/** True if the browser supports the Web Speech API. */
+export function isSpeechSupported(): boolean {
+  return !!SR;
+}
+
+/** True while speech recognition is actively listening. */
+export function isListening(): boolean {
+  return listening;
+}
+
+/**
+ * Start speech recognition. Final transcribed text is passed to `onText`.
+ * Must be called from a user gesture (click/tap) for permission prompt.
+ * Returns true if recognition started, false if unsupported or already listening.
+ */
+export function startListening(onText: (text: string) => void): boolean {
+  if (!SR || listening) return false;
+  onTextCallback = onText;
+
+  recognition = new SR();
+  recognition.lang = 'en-US';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onresult = (event: SpeechRecognitionEvent) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        const text = event.results[i][0].transcript.trim();
+        if (text && onTextCallback) onTextCallback(text);
+      }
+    }
+  };
+
+  recognition.onend = () => {
+    listening = false;
+  };
+
+  recognition.onerror = () => {
+    listening = false;
+  };
+
+  try {
+    recognition.start();
+    listening = true;
+    return true;
+  } catch {
+    listening = false;
+    return false;
+  }
+}
+
+/** Stop speech recognition. Safe to call when not listening. */
+export function stopListening(): void {
+  if (recognition && listening) {
+    recognition.stop();
+  }
+  listening = false;
+  onTextCallback = null;
+}

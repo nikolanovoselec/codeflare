@@ -1,5 +1,5 @@
 import { Component, Show, createSignal, createEffect, onCleanup } from 'solid-js';
-import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp, mdiSecurity, mdiCodeBrackets } from '@mdi/js';
+import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp, mdiSecurity, mdiCodeBrackets, mdiMicrophonePlus } from '@mdi/js';
 import Icon from './Icon';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/mobile';
 import { sendTerminalKey } from '../lib/touch-gestures';
@@ -10,6 +10,7 @@ import { markScrollIntent } from '../lib/terminal-scroll-intent';
 import { loadSettings } from '../lib/settings';
 import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
 import { getIframeInput } from '../lib/xterm-internals';
+import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
 import '../styles/floating-terminal-buttons.css';
 
 interface FloatingTerminalButtonsProps {
@@ -20,6 +21,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const [labelsVisible, setLabelsVisible] = createSignal(false);
   const [showLabels, setShowLabels] = createSignal(loadSettings().showButtonLabels !== false);
   const [ctrlActive, setCtrlActive] = createSignal(false);
+  const [voiceActive, setVoiceActive] = createSignal(false);
 
   // Show labels for 3 seconds each time the floating buttons appear
   createEffect(() => {
@@ -140,6 +142,32 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             <Icon path={mdiContentPaste} size={18} />
           </button>
         </div>
+        <Show when={isSpeechSupported()}>
+          <div class="floating-btn-row">
+            <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>VOICE INPUT</span>
+            <button
+              type="button"
+              class={`floating-terminal-btn ${voiceActive() ? 'floating-terminal-btn--active' : ''}`}
+              tabIndex={-1}
+              onPointerDown={preventFocusSteal}
+              onClick={() => {
+                const term = getActiveTerm();
+                if (!term) return;
+                if (isListening()) {
+                  stopListening();
+                  setVoiceActive(false);
+                } else {
+                  const started = startListening((text) => term.input(text, false));
+                  setVoiceActive(started);
+                }
+                refocusTerminal();
+              }}
+              title="Voice Input"
+            >
+              <Icon path={mdiMicrophonePlus} size={18} />
+            </button>
+          </div>
+        </Show>
         <div class="floating-btn-row">
           <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>TAB</span>
           <button
