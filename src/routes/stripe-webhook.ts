@@ -165,21 +165,10 @@ async function handleCheckoutCompleted(
   // Sync full subscription state from Stripe API (tier, billing, period)
   await syncSubscriptionState(customerId, subscriptionId, env);
 
-  // Send the first invoice email to customer. Checkout creates invoices with
-  // auto_advance:false (by design — Checkout handles the payment itself), so
-  // Stripe won't email it automatically. We trigger it manually here.
-  const invoiceId = session.invoice as string | undefined;
-  if (invoiceId && env.STRIPE_SECRET_KEY) {
-    try {
-      await fetch(`https://api.stripe.com/v1/invoices/${invoiceId}/send`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${env.STRIPE_SECRET_KEY}` },
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      // Non-fatal — invoice is still accessible via hosted_invoice_url
-    }
-  }
+  // Note: Stripe handles customer receipt emails via Dashboard > Customer emails
+  // settings ("Successful payments" toggle). We don't send invoices programmatically
+  // because subscriptions use collection_method=charge_automatically, and
+  // POST /v1/invoices/{id}/send only works for collection_method=send_invoice.
 
   // Send admin notification for new subscriber (best-effort)
   try {
