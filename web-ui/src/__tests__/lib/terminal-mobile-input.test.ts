@@ -182,3 +182,46 @@ describe('resolveKeyAction', () => {
     });
   });
 });
+
+describe('Voice mode toggle', () => {
+  let toggleVoiceMode: typeof import('../../lib/terminal-mobile-input').toggleVoiceMode;
+  let isVoiceModeActive: typeof import('../../lib/terminal-mobile-input').isVoiceModeActive;
+  let resetVoiceMode: typeof import('../../lib/terminal-mobile-input').resetVoiceMode;
+
+  beforeEach(async () => {
+    // Dynamic import to get fresh module state per test
+    const mod = await import('../../lib/terminal-mobile-input');
+    toggleVoiceMode = mod.toggleVoiceMode;
+    isVoiceModeActive = mod.isVoiceModeActive;
+    resetVoiceMode = mod.resetVoiceMode;
+    // Ensure clean state
+    resetVoiceMode();
+  });
+
+  it('starts inactive', () => {
+    expect(isVoiceModeActive()).toBe(false);
+  });
+
+  it('toggleVoiceMode returns true on first call', () => {
+    expect(toggleVoiceMode()).toBe(true);
+    expect(isVoiceModeActive()).toBe(true);
+  });
+
+  it('toggleVoiceMode returns false on second call', () => {
+    toggleVoiceMode();
+    expect(toggleVoiceMode()).toBe(false);
+    expect(isVoiceModeActive()).toBe(false);
+  });
+
+  it('resetVoiceMode sets state to inactive', () => {
+    toggleVoiceMode(); // activate
+    expect(isVoiceModeActive()).toBe(true);
+    resetVoiceMode();
+    expect(isVoiceModeActive()).toBe(false);
+  });
+
+  it('resetVoiceMode is a no-op when already inactive', () => {
+    resetVoiceMode();
+    expect(isVoiceModeActive()).toBe(false);
+  });
+});
