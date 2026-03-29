@@ -24,29 +24,19 @@ if [[ -f "$COUNTER_FILE" ]]; then
     [[ "$last_count" =~ ^[0-9]+$ ]] || last_count=0
     [[ "$last_line" =~ ^[0-9]+$ ]] || last_line=1
 else
-    # First run after container recycle or /resume: baseline from current
-    # transcript so we don't fire on the entire history delta.
+    # First run: baseline from current transcript so we don't fire on the entire history.
     last_count=$CURRENT_COUNT
     last_line=$(wc -l < "$TRANSCRIPT")
-    # Persist baseline so subsequent invocations can calculate delta
     printf '%s\n%s\n' "$last_count" "$last_line" > "$COUNTER_FILE"
 fi
 
 DELTA=$((CURRENT_COUNT - last_count))
 [[ $DELTA -lt 30 ]] && exit 0
 
-LOCK_FILE="$COUNTER_DIR/${SESSION_ID}.lock"
-if [[ -f "$LOCK_FILE" ]]; then
-    # Stale lock guard: if lock is older than 2 minutes, agent likely crashed — remove and proceed
-    LOCK_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0) ))
-    [[ $LOCK_AGE -lt 120 ]] && exit 0
-    rm -f "$LOCK_FILE"
-fi
-
 TODAY=$(date +%Y-%m-%d)
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
 
-# Write variables to file so the reason string stays short
+# Write variables to file so the additionalContext string stays short
 VARS_FILE="$COUNTER_DIR/${SESSION_ID}.vars"
 jq -n \
   --arg transcript "$TRANSCRIPT" \
@@ -55,17 +45,15 @@ jq -n \
   --arg current_count "$CURRENT_COUNT" \
   --arg total_lines "$TOTAL_LINES" \
   --arg counter_file "$COUNTER_FILE" \
-  --arg lock_file "$LOCK_FILE" \
-  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,lock_file:$lock_file}' \
+  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file}' \
   > "$VARS_FILE"
 
-# Update counter NOW so subsequent hook invocations see delta < 30.
-# The agent reads line range from .vars (already captured above), not
-# from the counter file, so this doesn't affect its read window.
+# Update counter so subsequent hook invocations see delta < 30.
+# Agent reads line range from .vars, not from the counter file.
 printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
 
 # UserPromptSubmit: exit 0 with additionalContext (no blocking)
-CONTEXT="Spawn a background haiku Task agent. Create ${LOCK_FILE} before spawning. Agent must read ${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and ${VARS_FILE}, then execute."
+CONTEXT="Spawn a background haiku agent. Agent must read ${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and ${VARS_FILE}, then execute."
 
 jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
 exit 0

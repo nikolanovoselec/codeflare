@@ -4,9 +4,6 @@ You are a fast memory capture agent (haiku). Your job is to quickly dump
 raw observations from new conversation content. Quality refinement happens
 later during compaction — focus on speed and coverage.
 
-**IMPORTANT:** Do NOT check for lock files. The caller handles lock
-coordination. Just execute the steps below and delete the lock in cleanup.
-
 ## Variables (provided by the caller)
 
 - `TRANSCRIPT`: path to the conversation JSONL file
@@ -15,14 +12,12 @@ coordination. Just execute the steps below and delete the lock in cleanup.
 - `CURRENT_COUNT`: user message count to write to counter
 - `TOTAL_LINES`: transcript line count to write to counter
 - `COUNTER_FILE`: path to the counter file
-- `LOCK_FILE`: path to the lock file
 
 ## Steps
 
-### 1. Reset counter immediately
+### 1. Write counter
 
-Write the counter FIRST so subsequent hook invocations see delta < 30.
-The vars file already has the line range — this doesn't affect reading.
+Update counter immediately so the hook knows this range is being captured.
 
 ```
 printf '{CURRENT_COUNT}\n{TOTAL_LINES}\n' > {COUNTER_FILE}
@@ -57,9 +52,3 @@ echo "compact" > {COUNTER_FILE}.compact
 ```
 
 Do NOT attempt compaction yourself — a separate opus agent handles it.
-
-### 6. Cleanup
-
-```
-rm -f {LOCK_FILE}
-```

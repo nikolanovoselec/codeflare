@@ -42,13 +42,13 @@ turn where the hook fired, never as a stale replay.
 
 **Execution protocol:**
 
-1. See the hook instruction in `additionalContext` → create the lock
-   file referenced in the message (`touch <lock_file>`) → spawn a
-   background haiku agent with the instructions from the hook message.
+1. See the hook instruction in `additionalContext` → spawn a background
+   haiku agent with the instructions from the hook message.
 2. Then respond to the user's actual message.
 
-No freshness checks, no vars file timestamp checks, no additional
-gating. The hook already validated everything before emitting.
+No freshness checks, no lock files, no additional gating. The hook
+already validated everything before emitting. The agent writes the
+counter as its first step.
 
 ## Compaction Trigger
 
