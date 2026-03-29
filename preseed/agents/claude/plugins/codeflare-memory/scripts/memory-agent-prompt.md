@@ -19,26 +19,35 @@ coordination. Just execute the steps below and delete the lock in cleanup.
 
 ## Steps
 
-### 1. Read new content
+### 1. Reset counter immediately
+
+Write the counter FIRST so subsequent hook invocations see delta < 30.
+The vars file already has the line range — this doesn't affect reading.
+
+```
+printf '{CURRENT_COUNT}\n{TOTAL_LINES}\n' > {COUNTER_FILE}
+```
+
+### 2. Read new content
 
 Read `TRANSCRIPT` from line `LAST_LINE` using the Read tool with `offset`
 and `limit: 500`. If the file has more lines, continue reading in 500-line
 chunks until `TOTAL_LINES`.
 
-### 2. Capture observations
+### 3. Capture observations
 
 Extract 3-5 observations from the new content. One fact per observation.
 Prefer: decisions made, features implemented, bugs found, user preferences
 expressed. Skip: CI pass/fail, deploy events, routine git operations,
 tool output, conversation scaffolding.
 
-### 3. Save to MCP memory
+### 4. Save to MCP memory
 
 Search for entity `chat-{TODAY}`. If it exists, use `add_observations`
 with only NEW observations. If not, use `create_entities` with entityType
 `chat-summary`.
 
-### 4. Check if compaction needed
+### 5. Check if compaction needed
 
 Call `read_graph` and count total observations across ALL entities.
 If total exceeds **150**, signal compaction by creating a marker file:
@@ -48,12 +57,6 @@ echo "compact" > {COUNTER_FILE}.compact
 ```
 
 Do NOT attempt compaction yourself — a separate opus agent handles it.
-
-### 5. Write counter
-
-```
-printf '{CURRENT_COUNT}\n{TOTAL_LINES}\n' > {COUNTER_FILE}
-```
 
 ### 6. Cleanup
 
