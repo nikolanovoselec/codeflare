@@ -946,7 +946,7 @@ Webhooks are signals that trigger a fetch of the latest state from the Stripe AP
 6. Stripe sends `checkout.session.completed` webhook → handler maps email→customer, writes checkout fields, then calls `syncSubscriptionState()`
 
 **Webhook events handled (3 events):**
-- `checkout.session.completed` — maps email→customer in KV, writes `subscribedAt`/`checkoutSessionId`, then calls `syncSubscriptionState()`
+- `checkout.session.completed` — maps email→customer in KV, writes `subscribedAt`/`checkoutSessionId`, calls `syncSubscriptionState()`, then sends admin notification email (best-effort)
 - `customer.subscription.updated` — delegates entirely to `syncSubscriptionState()` (handles plan changes, renewals, payment status changes via Customer Portal)
 - `customer.subscription.deleted` — writes `billingStatus: 'canceled'`, resets tiers to `free` directly (subscription is gone from Stripe, can't fetch)
 
@@ -956,6 +956,13 @@ Webhooks are signals that trigger a fetch of the latest state from the Stripe AP
 3. Timestamp guard: skips write if KV's `lastSyncedAt` >= now (prevents stale webhook from overwriting newer state)
 4. Builds KV patch from snapshot — only sets tier/mode if price metadata is present (preserves existing values when null)
 5. Writes via `updateUserRecord()` (preserves existing KV fields like `addedBy`, `onboardingComplete`)
+6. **Auto-recreate on downgrade:** If `subscribedMode` changed from `advanced` to `default`, calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to remove Pro assets and seed Standard configs. Also updates `sessionMode` in user preferences. Non-fatal (try/catch) — if R2 fails, user can manually recreate via Settings.
+
+**Admin checkout notification:** After `syncSubscriptionState` completes in `handleCheckoutCompleted`, sends `sendSubscriptionAdminNotification` to admin emails with the user's tier and mode. Best-effort (fire-and-forget).
+
+**Welcome email dedup:** JIT-provisioned users in SaaS mode receive a welcome email on first login. A `welcome-sent:{email}` KV flag with 24h TTL prevents duplicate sends from concurrent first-login requests (HTTP + WebSocket auth race). The flag doesn't fully close the race window (KV is eventually consistent) but narrows it from guaranteed duplicates to milliseconds.
+
+**Stripe receipts:** User-facing payment receipts are handled by Stripe's native "Email receipts" setting (Stripe Dashboard > Settings > Emails). No code needed — works for all subscription invoices.
 
 **Price metadata:** Tier and mode are stored as metadata on Stripe Price objects (`price.metadata.tier`, `price.metadata.mode`). This eliminates reverse price-to-tier lookups and the hardcoded dev price map. Prices must have metadata set in the Stripe Dashboard before deploy.
 
