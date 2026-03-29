@@ -251,6 +251,7 @@ export const StorageStatsResponseSchema = z.object({
   totalFolders: z.number(),
   totalSizeBytes: z.number(),
   bucketName: z.string().optional(),
+  maxStorageBytes: z.number().nullable().optional(),
 });
 
 export const RecreateGettingStartedDocsResponseSchema = z.object({
