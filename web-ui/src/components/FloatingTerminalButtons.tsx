@@ -3,7 +3,7 @@ import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExp
 import Icon from './Icon';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/mobile';
 import { sendTerminalKey } from '../lib/touch-gestures';
-import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive, toggleVoiceMode, resetVoiceMode } from '../lib/terminal-mobile-input';
+import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive, toggleVoiceMode, resetVoiceMode, isSwitchingInput } from '../lib/terminal-mobile-input';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { markScrollIntent } from '../lib/terminal-scroll-intent';
@@ -34,8 +34,9 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     } else {
       setLabelsVisible(false);
     }
-    // Reset voice mode when keyboard closes
-    if (!visible && voiceActive()) {
+    // Reset voice mode when keyboard closes — but not during input switching
+    // (Samsung fires stale geometrychange making isVirtualKeyboardOpen() briefly false)
+    if (!visible && voiceActive() && !isSwitchingInput()) {
       resetVoiceMode();
       setVoiceActive(false);
     }

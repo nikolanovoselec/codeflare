@@ -37,15 +37,24 @@ let _activeInput: HTMLInputElement | null = null;
 let _passwordInput: HTMLInputElement | null = null;
 let _textInput: HTMLInputElement | null = null;
 let _voiceModeTerminal: XTerm | null = null;
+let _switchingInput = false;
+
+/** True while focus is transferring between the two inputs. */
+export function isSwitchingInput(): boolean { return _switchingInput; }
 
 /** Toggle between password (no autocorrect) and text (voice-friendly) input. */
 export function toggleVoiceMode(): boolean {
   _voiceModeActive = !_voiceModeActive;
   const target = _voiceModeActive ? _textInput : _passwordInput;
   if (target && _activeInput && target !== _activeInput) {
+    // Set switching flag to suppress blur handlers during focus transfer.
+    // Samsung fires stale geometrychange events during same-iframe focus
+    // switches, causing isVirtualKeyboardOpen() to briefly return false.
+    _switchingInput = true;
     _activeInput = target;
     if (_voiceModeTerminal) setIframeInput(_voiceModeTerminal, target);
     target.focus({ preventScroll: true });
+    setTimeout(() => { _switchingInput = false; }, 250);
   }
   return _voiceModeActive;
 }
@@ -411,25 +420,30 @@ export function setupMobileInput(
         });
 
         input.addEventListener('blur', () => {
-          if (input !== _activeInput) return;
+          if (input !== _activeInput || _switchingInput) return;
           if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
           blurTimeoutId = setTimeout(() => {
             blurTimeoutId = null;
+            // Don't disable if the other terminal input is now focused
+            const ae = iframe.contentDocument?.activeElement;
+            if (ae === pwInput || ae === txtInput) return;
             disableVirtualKeyboardOverlay();
             if (typeof coreRef._handleTextAreaBlur === 'function') {
               coreRef._handleTextAreaBlur();
             }
             callbacks.refreshCursorLine();
-          }, 100);
+          }, 150);
         });
       }
     } else {
       for (const input of [pwInput, txtInput]) {
         input.addEventListener('blur', () => {
-          if (input !== _activeInput) return;
+          if (input !== _activeInput || _switchingInput) return;
           if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
           blurTimeoutId = setTimeout(() => {
             blurTimeoutId = null;
+            const ae = iframe.contentDocument?.activeElement;
+            if (ae === pwInput || ae === txtInput) return;
             disableVirtualKeyboardOverlay();
           }, 100);
         });
