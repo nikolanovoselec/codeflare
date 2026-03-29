@@ -5,6 +5,14 @@ Memory persists across sessions — anything you save will be available next tim
 
 Chat history is summarized automatically by the memory-capture UserPromptSubmit hook — do not summarize manually.
 
+## Session Start (mandatory)
+
+At the beginning of every conversation, before doing any work, call
+`search_nodes` with a broad query (e.g., project name, "codeflare",
+"recent") to load prior context from previous sessions. This is not
+optional — it ensures continuity across sessions and prevents re-asking
+questions that were already answered.
+
 ## When to save (use create_entities / add_observations):
 - Project facts: tech stack, architecture, database versions
 - User preferences: coding style, tool choices, workflow patterns
