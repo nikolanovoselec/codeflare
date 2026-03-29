@@ -26,14 +26,16 @@ vi.mock('../../lib/stripe', () => ({
 }));
 
 // Mock r2-seed, r2-config, email, access-policy for auto-recreate + admin notification
-const { mockReconcileAgentConfigs, mockSendAdminNotification } = vi.hoisted(() => ({
+const { mockReconcileAgentConfigs, mockSendAdminNotification, mockSendSubscriptionEmail } = vi.hoisted(() => ({
   mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
   mockSendAdminNotification: vi.fn(async () => true),
+  mockSendSubscriptionEmail: vi.fn(async () => true),
 }));
 vi.mock('../../lib/r2-seed', () => ({ reconcileAgentConfigs: mockReconcileAgentConfigs }));
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
-vi.mock('../../lib/email', () => ({ sendSubscriptionAdminNotification: mockSendAdminNotification }));
+vi.mock('../../lib/email', () => ({ sendSubscriptionAdminNotification: mockSendAdminNotification, sendSubscriptionEmail: mockSendSubscriptionEmail }));
 vi.mock('../../lib/access-policy', () => ({ getAdminEmails: vi.fn(async () => ['admin@example.com']) }));
+vi.mock('../../lib/kv-keys', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../lib/kv-keys')>()), getBaseUrl: vi.fn(async () => 'https://test.codeflare.ch') }));
 
 import {
   verifyWebhookSignature,
