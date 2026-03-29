@@ -12,14 +12,17 @@ later during compaction — focus on speed and coverage.
 - `CURRENT_COUNT`: user message count to write to counter
 - `TOTAL_LINES`: transcript line count to write to counter
 - `COUNTER_FILE`: path to the counter file
+- `VARS_FILE`: path to the vars file (delete after processing)
 
 ## Steps
 
-### 1. Write counter
+### 1. Delete vars file and write counter
 
-Update counter immediately so the hook knows this range is being captured.
+Delete the vars file IMMEDIATELY after reading it (before any other work)
+so the main agent won't spawn a duplicate. Then write the counter.
 
 ```
+rm -f {VARS_FILE}
 printf '{CURRENT_COUNT}\n{TOTAL_LINES}\n' > {COUNTER_FILE}
 ```
 
@@ -52,3 +55,4 @@ echo "compact" > {COUNTER_FILE}.compact
 ```
 
 Do NOT attempt compaction yourself — a separate opus agent handles it.
+

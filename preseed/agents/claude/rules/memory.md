@@ -37,18 +37,21 @@ When the user says "check memory", "update memory", "optimize memory", "compact 
 The memory-capture hook fires every 30 user messages and injects
 `additionalContext` into the system-reminder with instructions to spawn
 a background haiku agent. The hook handles all counting and gating —
-it only emits when it's time. `additionalContext` only appears on the
-turn where the hook fired, never as a stale replay.
+it only emits when it's time.
 
 **Execution protocol:**
 
-1. See the hook instruction in `additionalContext` → spawn a background
-   haiku agent with the instructions from the hook message.
-2. Then respond to the user's actual message.
+1. See the hook instruction in `additionalContext` → check if the
+   `.vars` file referenced in the message exists (`ls <vars_file>`).
+2. If the file EXISTS → spawn a background haiku agent with the
+   instructions from the hook message. The agent deletes the `.vars`
+   file as its first step, preventing duplicate spawns.
+3. If the file does NOT exist → do nothing. Capture was already done.
+4. Then respond to the user's actual message.
 
-No freshness checks, no lock files, no additional gating. The hook
-already validated everything before emitting. The agent writes the
-counter as its first step.
+The `.vars` file is the gate. The hook creates it when it's time to
+capture. The agent deletes it immediately after reading. No other
+checks needed.
 
 ## Compaction Trigger
 

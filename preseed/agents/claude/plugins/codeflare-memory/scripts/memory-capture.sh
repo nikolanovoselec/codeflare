@@ -45,7 +45,8 @@ jq -n \
   --arg current_count "$CURRENT_COUNT" \
   --arg total_lines "$TOTAL_LINES" \
   --arg counter_file "$COUNTER_FILE" \
-  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file}' \
+  --arg vars_file "$VARS_FILE" \
+  '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,vars_file:$vars_file}' \
   > "$VARS_FILE"
 
 # Update counter so subsequent hook invocations see delta < 30.
@@ -53,7 +54,7 @@ jq -n \
 printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
 
 # UserPromptSubmit: exit 0 with additionalContext (no blocking)
-CONTEXT="Spawn a background haiku agent. Agent must read ${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and ${VARS_FILE}, then execute."
+CONTEXT="Check if ${VARS_FILE} exists. If it does, spawn a background haiku agent to read ${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and ${VARS_FILE}, then execute. If the file does not exist, do nothing — capture was already completed."
 
 jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
 exit 0
