@@ -57,7 +57,7 @@ app.get('/', async (c) => {
     monthlySeconds,
     monthlyQuotaSeconds: tier.monthlySeconds,
     tier: tier.displayName || tier.id,
-    mode: user.subscribedMode ?? user.sessionMode ?? 'default',
+    mode: user.subscribedMode ?? 'default',
   });
 });
 

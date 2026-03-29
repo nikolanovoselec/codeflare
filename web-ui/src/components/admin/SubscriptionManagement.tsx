@@ -56,11 +56,16 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
   const editableTiers = () => allTiers().filter((t) => EDITABLE_TIERS.has(t.id));
   const selectedTier = createMemo(() => allTiers().find((t) => t.id === selectedTierId()) ?? null);
 
-  // Sync select DOM value after For re-renders options (prop:value alternative for TS compat)
+  // Sync select DOM value after For re-renders options. Both createEffect and
+  // queueMicrotask ensure the value is set AFTER SolidJS finishes rendering
+  // new <option> elements from <For>. Without this, editing an input field
+  // triggers setAllTiers → editableTiers() re-renders → select loses its value.
   let selectRef: HTMLSelectElement | undefined;
   createEffect(() => {
     const id = selectedTierId();
-    if (selectRef) selectRef.value = id;
+    // Also track allTiers so this runs when tier data changes (not just selection)
+    allTiers();
+    queueMicrotask(() => { if (selectRef) selectRef.value = id; });
   });
 
   const updateField = (field: string, value: unknown) => {
@@ -128,7 +133,7 @@ const SubscriptionManagement: Component<SubManagementProps> = (props) => {
         </div>
 
         {/* Selected tier editor — use direct accessors to avoid Show re-mount on edit */}
-        <Show when={selectedTier()}>
+        <Show when={selectedTierId()}>
           <div class="sub-mgmt-editor">
             <div class="sub-mgmt-form">
               <label class="sub-mgmt-field">
