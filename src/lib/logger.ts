@@ -147,6 +147,17 @@ export function createLogger(module: string, context?: Record<string, unknown>):
       }),
     };
 
+    // Mask email addresses in log data to avoid PII in production logs
+    if (entry.data) {
+      for (const key of Object.keys(entry.data)) {
+        const val = entry.data[key];
+        if (typeof val === 'string' && key.toLowerCase().includes('email') && val.includes('@')) {
+          const [local, domain] = val.split('@');
+          entry.data[key] = `${local.slice(0, 2)}***@${domain}`;
+        }
+      }
+    }
+
     const output = JSON.stringify(entry);
 
     switch (level) {

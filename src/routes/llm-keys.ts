@@ -12,8 +12,8 @@ import { getAndDecrypt, encryptAndStore, getOrImportKey } from '../lib/kv-crypto
 import { maskSecret, parseJsonBody, firstZodError } from '../lib/request-helpers';
 
 const UpdateLlmKeysBody = z.object({
-  openaiApiKey: z.string().max(256).nullable().optional(),
-  geminiApiKey: z.string().max(256).nullable().optional(),
+  openaiApiKey: z.string().min(1).max(256).nullable().optional(),
+  geminiApiKey: z.string().min(1).max(256).nullable().optional(),
 }).strict();
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
