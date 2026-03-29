@@ -13,7 +13,12 @@ vi.mock('../../lib/logger', () => ({
   })),
 }));
 
-import { resolveUserFromKV, getBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache } from '../../lib/access';
+const mockSendWelcomeEmail = vi.fn(async () => true);
+vi.mock('../../lib/email', () => ({
+  sendWelcomeEmail: (...args: unknown[]) => mockSendWelcomeEmail(...args),
+}));
+
+import { resolveUserFromKV, getBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache, resolveOrProvisionUser } from '../../lib/access';
 import { AuthError, ForbiddenError } from '../../lib/error-types';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
@@ -391,5 +396,29 @@ describe('access.ts', () => {
       );
     });
 
+  });
+
+  describe('resolveOrProvisionUser — welcome email dedup', () => {
+    beforeEach(() => {
+      mockSendWelcomeEmail.mockClear();
+    });
+
+    it('sends welcome email on first-time SaaS user and sets flag', async () => {
+      const env = { SAAS_MODE: 'active', KV: mockKV } as unknown as Env;
+      await resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'new@example.com', env);
+
+      expect(mockSendWelcomeEmail).toHaveBeenCalledTimes(1);
+      // Flag should be set in KV
+      const flag = mockKV._store.get('welcome-sent:new@example.com');
+      expect(flag).toBe('1');
+    });
+
+    it('does NOT send welcome email when flag already exists', async () => {
+      mockKV._store.set('welcome-sent:existing@example.com', '1');
+      const env = { SAAS_MODE: 'active', KV: mockKV } as unknown as Env;
+      await resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'existing@example.com', env);
+
+      expect(mockSendWelcomeEmail).not.toHaveBeenCalled();
+    });
   });
 });

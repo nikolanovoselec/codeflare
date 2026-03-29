@@ -343,10 +343,17 @@ export async function resolveOrProvisionUser(
       subscriptionTier: 'pending',
     }));
 
-    // Fire-and-forget welcome email (instanceUrl derived from custom domain if available)
-    const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
-    const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
-    void sendWelcomeEmail({ userEmail: normalizedEmail, instanceUrl, env });
+    // Fire-and-forget welcome email with dedup flag.
+    // Concurrent first-login requests can race past the check, but the flag
+    // narrows the window from "always doubles" to milliseconds of KV propagation.
+    const welcomeFlag = `welcome-sent:${normalizedEmail}`;
+    const alreadySent = await kv.get(welcomeFlag);
+    if (!alreadySent) {
+      await kv.put(welcomeFlag, '1', { expirationTtl: 86400 });
+      const customDomain = await kv.get(SETUP_KEYS.CUSTOM_DOMAIN);
+      const instanceUrl = customDomain ? `https://${customDomain}` : undefined;
+      void sendWelcomeEmail({ userEmail: normalizedEmail, instanceUrl, env });
+    }
 
     return { role: 'user', accessTier: 'pending', subscriptionTier: 'pending' };
   }

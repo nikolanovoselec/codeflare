@@ -25,6 +25,28 @@ vi.mock('../../lib/stripe', () => ({
   fetchSubscription: vi.fn(async () => null),
 }));
 
+// Mock r2-seed for auto-recreate on downgrade
+const mockReconcileAgentConfigs = vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] }));
+vi.mock('../../lib/r2-seed', () => ({
+  reconcileAgentConfigs: (...args: unknown[]) => mockReconcileAgentConfigs(...args),
+}));
+
+// Mock r2-config
+vi.mock('../../lib/r2-config', () => ({
+  getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })),
+}));
+
+// Mock email
+const mockSendAdminNotification = vi.fn(async () => true);
+vi.mock('../../lib/email', () => ({
+  sendSubscriptionAdminNotification: (...args: unknown[]) => mockSendAdminNotification(...args),
+}));
+
+// Mock access-policy
+vi.mock('../../lib/access-policy', () => ({
+  getAdminEmails: vi.fn(async () => ['admin@example.com']),
+}));
+
 import {
   verifyWebhookSignature,
   parseStripeEvent,
@@ -409,5 +431,112 @@ describe('unhandled event types', () => {
       const res = await postWebhook(createApp(), body);
       expect(res.status).toBe(200);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-recreate on downgrade (advanced → default)
+// ---------------------------------------------------------------------------
+describe('auto-recreate on downgrade', () => {
+  it('calls reconcileAgentConfigs when mode changes from advanced to default', async () => {
+    seedCustomer('cus_down_1', 'pro@example.com', { subscribedMode: 'advanced' });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_down_1', tier: 'standard', mode: 'default',
+    }));
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_down_1', customer: 'cus_down_1',
+    });
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+    expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+      expect.anything(), // env
+      expect.stringContaining('pro-example-com'), // bucketName
+      'https://r2.test',
+      'default',
+      { overwrite: true, cleanup: true },
+    );
+  });
+
+  it('does NOT call reconcileAgentConfigs when mode stays the same', async () => {
+    seedCustomer('cus_same_1', 'same@example.com', { subscribedMode: 'default' });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_same_1', tier: 'standard', mode: 'default',
+    }));
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_same_1', customer: 'cus_same_1',
+    });
+    await postWebhook(createApp(), body);
+    expect(mockReconcileAgentConfigs).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call reconcileAgentConfigs on upgrade (default → advanced)', async () => {
+    seedCustomer('cus_up_1', 'upgrade@example.com', { subscribedMode: 'default' });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_up_1', tier: 'advanced', mode: 'advanced',
+    }));
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_up_1', customer: 'cus_up_1',
+    });
+    await postWebhook(createApp(), body);
+    expect(mockReconcileAgentConfigs).not.toHaveBeenCalled();
+  });
+
+  it('reconcileAgentConfigs failure does not break the webhook', async () => {
+    seedCustomer('cus_fail_1', 'fail@example.com', { subscribedMode: 'advanced' });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_fail_1', tier: 'standard', mode: 'default',
+    }));
+    mockReconcileAgentConfigs.mockRejectedValueOnce(new Error('R2 timeout'));
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_fail_1', customer: 'cus_fail_1',
+    });
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Admin notification on checkout
+// ---------------------------------------------------------------------------
+describe('admin notification on checkout', () => {
+  it('sends admin email after checkout completes', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_notify_1', subscriptionId: 'sub_notify_1', tier: 'standard', mode: 'default',
+    }));
+
+    const body = buildEvent('checkout.session.completed', {
+      id: 'cs_notify_1',
+      customer: 'cus_notify_1',
+      subscription: 'sub_notify_1',
+      metadata: { email: 'newuser@example.com', tier: 'standard', mode: 'default' },
+    });
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+    expect(mockSendAdminNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: 'newuser@example.com',
+        adminEmails: ['admin@example.com'],
+      }),
+    );
+  });
+
+  it('admin notification failure does not break the webhook', async () => {
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_nfail_1', subscriptionId: 'sub_nfail_1',
+    }));
+    mockSendAdminNotification.mockRejectedValueOnce(new Error('Resend down'));
+
+    const body = buildEvent('checkout.session.completed', {
+      id: 'cs_nfail_1',
+      customer: 'cus_nfail_1',
+      subscription: 'sub_nfail_1',
+      metadata: { email: 'nfail@example.com' },
+    });
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
   });
 });

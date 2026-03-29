@@ -20,6 +20,14 @@ import {
   fetchSubscription,
 } from '../lib/stripe';
 import { updateUserRecord, parseUserRecord } from '../lib/user-record';
+import { reconcileAgentConfigs } from '../lib/r2-seed';
+import { getR2Config } from '../lib/r2-config';
+import { getBucketName } from '../lib/access';
+import { getPreferencesKey } from '../lib/kv-keys';
+import { getAdminEmails } from '../lib/access-policy';
+import { sendSubscriptionAdminNotification } from '../lib/email';
+import { getTierConfig, getUserTier, getEffectiveTier } from '../lib/subscription';
+import { resolveUserFromKV } from '../lib/access';
 
 const logger = createLogger('stripe-webhook');
 
@@ -157,6 +165,28 @@ async function handleCheckoutCompleted(
   // Sync full subscription state from Stripe API (tier, billing, period)
   await syncSubscriptionState(customerId, subscriptionId, env);
 
+  // Send admin notification for new subscriber (best-effort)
+  try {
+    const adminEmails = await getAdminEmails(env.KV);
+    if (adminEmails.length > 0) {
+      const updatedUser = await resolveUserFromKV(env.KV, email);
+      const tiers = await getTierConfig(env.KV);
+      const tier = getUserTier(
+        getEffectiveTier(updatedUser?.subscriptionTier, updatedUser?.accessTier, updatedUser?.billingStatus, updatedUser?.billingPeriodEnd),
+        tiers,
+      );
+      void sendSubscriptionAdminNotification({
+        userEmail: email,
+        tierName: tier.displayName || tier.id,
+        sessionMode: updatedUser?.subscribedMode ?? 'default',
+        adminEmails,
+        env,
+      });
+    }
+  } catch {
+    // Non-fatal — admin notification is best-effort
+  }
+
   logger.info('Checkout completed', { email, customerId, subscriptionId });
 }
 
@@ -282,6 +312,27 @@ export async function syncSubscriptionState(
 
   // 5. Write via updateUserRecord (preserves existing fields)
   await updateUserRecord(env.KV, email, patch);
+
+  // 6. Auto-recreate on downgrade: if mode changed from advanced → default,
+  // clean up Pro assets and update session preferences.
+  const previousMode = existing?.subscribedMode ?? 'default';
+  const newMode = (patch.subscribedMode as string) ?? previousMode;
+  if (previousMode === 'advanced' && newMode === 'default') {
+    try {
+      const bucketName = getBucketName(email);
+      const { endpoint } = await getR2Config(env);
+      await reconcileAgentConfigs(env, bucketName, endpoint, 'default', {
+        overwrite: true,
+        cleanup: true,
+      });
+      const prefsKey = getPreferencesKey(bucketName);
+      const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
+      await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: 'default' }));
+      logger.info('Auto-recreated agent configs on downgrade', { email, previousMode, newMode });
+    } catch (err) {
+      logger.warn('Auto-recreate on downgrade failed (non-fatal)', toError(err));
+    }
+  }
 
   logger.info('syncSubscriptionState: synced', {
     email, subscriptionId, tier: snapshot.tier, status: snapshot.status,
