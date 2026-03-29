@@ -16,10 +16,11 @@ later during compaction — focus on speed and coverage.
 
 ## Steps
 
-### 1. Delete vars file and write counter
+### 1. Read vars file, then delete it and write counter
 
-Delete the vars file IMMEDIATELY after reading it (before any other work)
-so the main agent won't spawn a duplicate. Then write the counter.
+Read the vars file with the Read tool to get all variable values.
+Then IMMEDIATELY delete it and write the counter — before any other
+work — so the main agent won't spawn a duplicate.
 
 ```
 rm -f {VARS_FILE}
