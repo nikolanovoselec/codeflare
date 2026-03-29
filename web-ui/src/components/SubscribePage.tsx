@@ -459,7 +459,11 @@ const SubscribePage: Component = () => {
     if (!t) return '';
     const hours = t.monthlySeconds !== null ? formatDuration(t.monthlySeconds!) : 'Unlimited';
     const sessions = `${t.maxSessions} parallel ${t.maxSessions === 1 ? 'session' : 'sessions'}`;
-    return `${hours} / month  ·  ${sessions}`;
+    const storageBytes = t.maxStorageBytes;
+    const storage = storageBytes != null
+      ? (storageBytes >= 1073741824 ? `${(storageBytes / 1073741824).toFixed(0)} GB` : `${Math.round(storageBytes / 1048576)} MB`)
+      : 'Unlimited';
+    return `${hours} / month  ·  ${sessions}  ·  ${storage} storage`;
   });
   const scrambledTagline = useScrambleText(() => selectedTier()?.description ?? '');
   const scrambledPrice = useScrambleText(() => {

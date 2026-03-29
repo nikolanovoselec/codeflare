@@ -419,6 +419,7 @@ const TierObjectSchema = z.object({
   trialDays: z.number().nullable().optional(),
   description: z.string().default(''),
   advancedPriceMonthly: z.number().nullable().optional(),
+  maxStorageBytes: z.number().nullable().optional(),
 }).passthrough(); // allow extra fields from KV without failing
 
 const TiersResponseSchema = z.object({
