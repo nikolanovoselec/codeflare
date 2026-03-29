@@ -197,6 +197,7 @@ export const UserEntrySchema = z.object({
   role: z.enum(['admin', 'user']).default('user'),
   accessTier: AccessTierSchema.optional(),
   subscriptionTier: SubscriptionTierSchema.optional(),
+  subscribedMode: z.enum(['default', 'advanced']).optional(),
 });
 
 export const GetUsersResponseSchema = z.object({

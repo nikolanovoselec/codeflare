@@ -109,10 +109,11 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
 
   const raw = await parseJsonBody(c);
 
-  // Accept both subscriptionTier (new) and accessTier (backward compat)
+  // Accept tier + optional mode override
   const patchSchema = z.object({
     subscriptionTier: SubscriptionTierSchema.optional(),
     accessTier: AccessTierSchema.optional(),
+    subscribedMode: z.enum(['default', 'advanced']).optional(),
   }).refine(
     (d) => d.subscriptionTier !== undefined || d.accessTier !== undefined,
     { message: 'Either subscriptionTier or accessTier is required' }
@@ -147,8 +148,8 @@ app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   // writing them raw would cause AccessTierSchema.safeParse to reject → fallback 'advanced'.
   const LEGACY_TIERS = new Set(['pending', 'standard', 'advanced', 'blocked']);
   const legacyAccessTier = LEGACY_TIERS.has(newTier) ? newTier : 'advanced';
-  const PRO_TIERS = new Set(['standard', 'advanced', 'max', 'unlimited']);
-  const subscribedMode = PRO_TIERS.has(newTier) ? 'advanced' : 'default';
+  // Use explicit mode if provided by admin, otherwise default to 'default'
+  const subscribedMode = parsed.data.subscribedMode ?? 'default';
   await updateUserRecord(c.env.KV, email, { subscriptionTier: newTier, accessTier: legacyAccessTier, subscribedMode });
 
   // Auto-set sessionMode to 'advanced' for tiers that support it.

@@ -381,11 +381,12 @@ const UpdateUserTierResponseSchema = z.object({
 
 export async function updateUserTier(
   email: string,
-  subscriptionTier: string
+  subscriptionTier: string,
+  subscribedMode?: 'default' | 'advanced',
 ): Promise<z.infer<typeof UpdateUserTierResponseSchema>> {
   return fetchApi(`/users/${encodeURIComponent(email)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ subscriptionTier }),
+    body: JSON.stringify({ subscriptionTier, ...(subscribedMode !== undefined && { subscribedMode }) }),
   }, UpdateUserTierResponseSchema);
 }
 

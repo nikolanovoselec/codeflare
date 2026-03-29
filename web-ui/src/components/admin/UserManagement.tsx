@@ -94,7 +94,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     return mutable as Record<SubscriptionTier, readonly ResolvedUser[]>;
   });
 
-  const handleTierChange = async (email: string, newTier: SubscriptionTier) => {
+  const handleTierChange = async (email: string, newTier: SubscriptionTier, mode?: 'default' | 'advanced') => {
     // Mark as updating
     setUpdatingEmails((prev) => {
       const next = new Set(prev);
@@ -103,12 +103,12 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     });
 
     try {
-      await updateUserTier(email, newTier);
+      await updateUserTier(email, newTier, mode);
       // Update local state immutably
       setUsers((prev) =>
         prev.map((u) =>
           u.email === email
-            ? { ...u, subscriptionTier: newTier, resolvedTier: newTier }
+            ? { ...u, subscriptionTier: newTier, resolvedTier: newTier, subscribedMode: mode ?? 'default' }
             : u
         )
       );
@@ -336,7 +336,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                                   onChange={(e) => {
                                     const newTier = e.currentTarget.value as SubscriptionTier;
                                     if (newTier !== user.resolvedTier) {
-                                      void handleTierChange(user.email, newTier);
+                                      void handleTierChange(user.email, newTier, user.subscribedMode ?? 'default');
                                     }
                                   }}
                                 >
@@ -348,6 +348,19 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                                   <option value="advanced">Advanced</option>
                                   <option value="max">Max</option>
                                   <option value="unlimited">Unlimited</option>
+                                </select>
+                                <select
+                                  class="user-mgmt-tier-select"
+                                  value={user.subscribedMode ?? 'default'}
+                                  onChange={(e) => {
+                                    const newMode = e.currentTarget.value as 'default' | 'advanced';
+                                    if (newMode !== (user.subscribedMode ?? 'default')) {
+                                      void handleTierChange(user.email, user.resolvedTier, newMode);
+                                    }
+                                  }}
+                                >
+                                  <option value="default">Standard</option>
+                                  <option value="advanced">Pro</option>
                                 </select>
                                 <button
                                   type="button"
