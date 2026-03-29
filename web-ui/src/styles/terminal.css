@@ -39,16 +39,8 @@
           animation: spin 1s linear infinite;
         }
 
-/* Hide xterm's cursor entirely. The server-side CLI (Claude Code, bash,
-           etc.) renders its own cursor via ANSI escape sequences. xterm's extra
-           cursor is a duplicate that gets out of sync (different position/color).
-           Theme also sets cursor/cursorAccent to transparent as a belt-and-suspenders. */
-        .xterm-cursor-block,
-        .xterm-cursor-outline,
-        .xterm-cursor-bar,
-        .xterm-cursor-underline {
-          display: none !important;
-        }
+/* xterm cursor is visible — CLI apps (Claude Code, Copilot, etc.) may
+           rely on the terminal's native cursor rather than rendering their own. */
 
         /* Hide the browser's native caret on xterm's hidden textarea.
            On desktop, caret-color:transparent is sufficient.
