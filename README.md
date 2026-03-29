@@ -21,6 +21,8 @@ Every session comes pre-loaded with your choice of AI coding agent:
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source coding agent |
 | Bash | For the purists |
 
+*Pro mode features (knowledge graph, curated skills, advanced workflows) are primarily designed for Claude Code. Other agents receive rules and agent definitions but may not support all Pro capabilities.*
+
 <details>
 <summary><strong>Why Claude Unleashed under the hood?</strong></summary>
 <a id="why-claude-unleashed"></a>
