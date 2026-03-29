@@ -25,7 +25,8 @@ import { getR2Config } from '../lib/r2-config';
 import { getBucketName } from '../lib/access';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { getAdminEmails } from '../lib/access-policy';
-import { sendSubscriptionAdminNotification } from '../lib/email';
+import { sendSubscriptionAdminNotification, sendSubscriptionEmail } from '../lib/email';
+import { getBaseUrl } from '../lib/kv-keys';
 import { getTierConfig, getUserTier, getEffectiveTier } from '../lib/subscription';
 import { resolveUserFromKV } from '../lib/access';
 
@@ -170,32 +171,49 @@ async function handleCheckoutCompleted(
   // because subscriptions use collection_method=charge_automatically, and
   // POST /v1/invoices/{id}/send only works for collection_method=send_invoice.
 
-  // Send admin notification for new subscriber (best-effort)
+  // Send user confirmation + admin notification (best-effort)
   try {
+    const updatedUser = await resolveUserFromKV(env.KV, email);
+    const tiers = await getTierConfig(env.KV);
+    const tier = getUserTier(
+      getEffectiveTier(updatedUser?.subscriptionTier, updatedUser?.accessTier, updatedUser?.billingStatus, updatedUser?.billingPeriodEnd),
+      tiers,
+    );
+    const monthlyHours = tier.monthlySeconds != null
+      ? String(Math.round(tier.monthlySeconds / 3600))
+      : 'Unlimited';
+    const subscribedAt = new Date().toISOString();
+    const instanceUrl = await getBaseUrl(env.KV, '');
+
+    // User confirmation email
+    void sendSubscriptionEmail({
+      userEmail: email,
+      tierName: tier.displayName || tier.id,
+      sessionMode: updatedUser?.subscribedMode ?? 'default',
+      monthlyHours,
+      maxSessions: tier.maxSessions,
+      trialHours: 0,
+      subscribedAt,
+      instanceUrl: instanceUrl || undefined,
+      env,
+    });
+
+    // Admin notification
     const adminEmails = await getAdminEmails(env.KV);
     if (adminEmails.length > 0) {
-      const updatedUser = await resolveUserFromKV(env.KV, email);
-      const tiers = await getTierConfig(env.KV);
-      const tier = getUserTier(
-        getEffectiveTier(updatedUser?.subscriptionTier, updatedUser?.accessTier, updatedUser?.billingStatus, updatedUser?.billingPeriodEnd),
-        tiers,
-      );
-      const monthlyHours = tier.monthlySeconds != null
-        ? String(Math.round(tier.monthlySeconds / 3600))
-        : 'Unlimited';
       void sendSubscriptionAdminNotification({
         userEmail: email,
         tierName: tier.displayName || tier.id,
         sessionMode: updatedUser?.subscribedMode ?? 'default',
         monthlyHours,
         maxSessions: tier.maxSessions,
-        subscribedAt: new Date().toISOString(),
+        subscribedAt,
         adminEmails,
         env,
       });
     }
   } catch {
-    // Non-fatal — admin notification is best-effort
+    // Non-fatal — emails are best-effort
   }
 
   logger.info('Checkout completed', { email, customerId, subscriptionId });
