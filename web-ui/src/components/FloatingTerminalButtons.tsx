@@ -97,6 +97,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   };
 
   return (
+    <>
     <Show when={isTouchDevice() && props.showTerminal && isVirtualKeyboardOpen()}>
       <div class="floating-terminal-buttons" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px + 10px)` }}>
         <Show when={terminalStore.authUrl}>
@@ -277,6 +278,32 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
         </div>
       </div>
     </Show>
+
+    {/* Desktop mic button — bottom-right corner, visible when terminal is shown and speech supported */}
+    <Show when={!isTouchDevice() && props.showTerminal && isSpeechSupported()}>
+      <button
+        type="button"
+        class={`floating-mic-desktop ${voiceActive() ? 'floating-mic-desktop--active' : ''}`}
+        onClick={() => {
+          const term = getActiveTerm();
+          if (!term) return;
+          if (isListening()) {
+            stopListening();
+            setVoiceActive(false);
+          } else {
+            const started = startListening(
+              (text) => term.input(text, false),
+              () => setVoiceActive(false),
+            );
+            setVoiceActive(started);
+          }
+        }}
+        title="Voice Input"
+      >
+        <Icon path={mdiMicrophonePlus} size={18} />
+      </button>
+    </Show>
+    </>
   );
 };
 

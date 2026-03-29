@@ -72,3 +72,34 @@
   opacity: 1;
 }
 
+/* Desktop mic button — fixed bottom-right corner */
+.floating-mic-desktop {
+  position: fixed;
+  bottom: var(--space-3);
+  right: var(--space-3);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  background: rgba(24, 24, 27, 0.85);
+  color: #a1a1aa;
+  cursor: pointer;
+  z-index: 50;
+  transition: all 150ms ease;
+}
+
+.floating-mic-desktop:hover {
+  background: rgba(24, 24, 27, 0.95);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fafafa;
+}
+
+.floating-mic-desktop--active {
+  background: rgba(217, 119, 6, 0.2);
+  border-color: #d97706;
+  color: #d97706;
+}
+

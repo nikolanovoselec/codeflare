@@ -8,6 +8,7 @@ import { logger } from '../lib/logger';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState, isSamsungBrowser } from '../lib/mobile';
 import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
+import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
 import { getIframeInput } from '../lib/xterm-internals';
@@ -175,6 +176,15 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         return true;
       }
       if (event.ctrlKey && event.key === 'v') {
+        return false;
+      }
+      // Ctrl+Space → toggle voice input via Web Speech API
+      if (event.ctrlKey && event.key === ' ' && isSpeechSupported()) {
+        if (isListening()) {
+          stopListening();
+        } else {
+          startListening((text) => term!.input(text, false));
+        }
         return false;
       }
       return true;
