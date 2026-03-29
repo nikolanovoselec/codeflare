@@ -32,27 +32,20 @@ export function isStickyCtrlActive(): boolean { return _ctrlStickyActive; }
 // Voice / autocorrect mode toggle (dual-input strategy)
 // ---------------------------------------------------------------------------
 
-const VOICE_MODE_KEY = 'codeflare:voiceMode';
 let _voiceModeActive = false;
-try { _voiceModeActive = localStorage.getItem(VOICE_MODE_KEY) === '1'; } catch { /* SSR/private */ }
 let _activeInput: HTMLInputElement | null = null;
 let _passwordInput: HTMLInputElement | null = null;
 let _textInput: HTMLInputElement | null = null;
 let _voiceModeTerminal: XTerm | null = null;
-let _switchingInput = false;
 
-/** Toggle between password (no autocorrect) and text (voice-friendly) input.
- *  Does NOT focus the target — caller must use refocusTerminal() after.
- *  Cross-iframe focus() from outside the iframe is unreliable on mobile. */
+/** Toggle between password (no autocorrect) and text (voice-friendly) input. */
 export function toggleVoiceMode(): boolean {
   _voiceModeActive = !_voiceModeActive;
-  try { localStorage.setItem(VOICE_MODE_KEY, _voiceModeActive ? '1' : '0'); } catch { /* */ }
   const target = _voiceModeActive ? _textInput : _passwordInput;
   if (target && _activeInput && target !== _activeInput) {
-    _switchingInput = true;
     _activeInput = target;
     if (_voiceModeTerminal) setIframeInput(_voiceModeTerminal, target);
-    setTimeout(() => { _switchingInput = false; }, 250);
+    target.focus({ preventScroll: true });
   }
   return _voiceModeActive;
 }
@@ -67,7 +60,6 @@ export function resetVoiceMode(): void {
     if (_voiceModeTerminal) setIframeInput(_voiceModeTerminal, _passwordInput);
   }
   _voiceModeActive = false;
-  try { localStorage.removeItem(VOICE_MODE_KEY); } catch { /* */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -271,12 +263,12 @@ export function setupMobileInput(
     const txtInput = iframeDoc.getElementById('txt') as HTMLInputElement | null;
     if (!pwInput || !txtInput) return;
 
-    // Initialize dual-input state — respect persisted voice mode preference
+    // Initialize dual-input state
     _passwordInput = pwInput;
     _textInput = txtInput;
-    _activeInput = _voiceModeActive ? txtInput : pwInput;
+    _activeInput = pwInput;
     _voiceModeTerminal = terminal;
-    iframeInputRef = _activeInput;
+    iframeInputRef = pwInput;
 
     // Focus guard: start both readOnly to prevent keyboard on session reconnect
     pwInput.readOnly = true;
@@ -285,7 +277,7 @@ export function setupMobileInput(
       pwInput.readOnly = false;
       txtInput.readOnly = false;
     });
-    setIframeInput(terminal, _activeInput);
+    setIframeInput(terminal, pwInput);
 
     // Shared state for event handlers
     let composing = false;
@@ -419,30 +411,25 @@ export function setupMobileInput(
         });
 
         input.addEventListener('blur', () => {
-          if (input !== _activeInput || _switchingInput) return;
+          if (input !== _activeInput) return;
           if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
           blurTimeoutId = setTimeout(() => {
             blurTimeoutId = null;
-            // Don't disable if the other terminal input is now focused
-            const ae = iframe.contentDocument?.activeElement;
-            if (ae === pwInput || ae === txtInput) return;
             disableVirtualKeyboardOverlay();
             if (typeof coreRef._handleTextAreaBlur === 'function') {
               coreRef._handleTextAreaBlur();
             }
             callbacks.refreshCursorLine();
-          }, 150);
+          }, 100);
         });
       }
     } else {
       for (const input of [pwInput, txtInput]) {
         input.addEventListener('blur', () => {
-          if (input !== _activeInput || _switchingInput) return;
+          if (input !== _activeInput) return;
           if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
           blurTimeoutId = setTimeout(() => {
             blurTimeoutId = null;
-            const ae = iframe.contentDocument?.activeElement;
-            if (ae === pwInput || ae === txtInput) return;
             disableVirtualKeyboardOverlay();
           }, 100);
         });
@@ -454,9 +441,10 @@ export function setupMobileInput(
   window.addEventListener('focus', onWindowFocus);
   window.addEventListener('pagehide', onPageHide);
 
-  // Return cleanup function (voice mode persists via localStorage)
+  // Return cleanup function
   return () => {
     wasInputFocused = false;
+    resetVoiceMode();
     _passwordInput = null;
     _textInput = null;
     _activeInput = null;

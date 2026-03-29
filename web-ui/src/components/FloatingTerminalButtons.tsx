@@ -3,7 +3,7 @@ import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExp
 import Icon from './Icon';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/mobile';
 import { sendTerminalKey } from '../lib/touch-gestures';
-import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive, toggleVoiceMode, isVoiceModeActive } from '../lib/terminal-mobile-input';
+import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive, toggleVoiceMode, resetVoiceMode } from '../lib/terminal-mobile-input';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { markScrollIntent } from '../lib/terminal-scroll-intent';
@@ -20,7 +20,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const [labelsVisible, setLabelsVisible] = createSignal(false);
   const [showLabels, setShowLabels] = createSignal(loadSettings().showButtonLabels !== false);
   const [ctrlActive, setCtrlActive] = createSignal(false);
-  const [voiceActive, setVoiceActive] = createSignal(isVoiceModeActive());
+  const [voiceActive, setVoiceActive] = createSignal(false);
 
   // Show labels for 3 seconds each time the floating buttons appear
   createEffect(() => {
@@ -34,7 +34,11 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     } else {
       setLabelsVisible(false);
     }
-    // Voice mode persists via localStorage — no auto-reset on keyboard close
+    // Reset voice mode when keyboard closes
+    if (!visible && voiceActive()) {
+      resetVoiceMode();
+      setVoiceActive(false);
+    }
   });
 
   const getActiveTerm = () => {
@@ -152,7 +156,6 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             onClick={() => {
               const active = toggleVoiceMode();
               setVoiceActive(active);
-              refocusTerminal();
             }}
             title="Autocorrect / Voice Input"
           >
