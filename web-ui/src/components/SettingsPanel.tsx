@@ -147,12 +147,12 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     (sessionStore.preferences.sessionMode as 'default' | 'advanced') ?? 'default'
   );
   const canUseAdvanced = () => {
-    // Tier must support advanced mode (admins always pass tier check)
-    const tier = liveAccessTier();
-    const tierSupportsAdvanced = isAdmin() || !tier || tier === 'advanced' || tier === 'max' || tier === 'unlimited';
-    // User must have subscribed to Pro via subscribe page (stored in user record, not preferences)
-    const subscribedToPro = liveSubscribedMode() === 'advanced';
-    return tierSupportsAdvanced && subscribedToPro;
+    // Admin always has access
+    if (isAdmin()) return true;
+    // User must have subscribed to Pro via subscribe page (stored in user record).
+    // subscribedMode is the source of truth from Stripe — if they paid for Pro,
+    // they can use it regardless of which tier (standard, advanced, max, unlimited).
+    return liveSubscribedMode() === 'advanced';
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;

@@ -60,10 +60,11 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
   if (parsed.data.sessionMode && isSaasModeActive(c.env.SAAS_MODE)) {
     const user = c.get('user');
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
-    const tiers = await getTierConfig(c.env.KV);
-    if (!canUseSessionModeWithConfig(effectiveTier, parsed.data.sessionMode, tiers)) {
-      throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your subscription tier`);
+    // subscribedMode is the source of truth from Stripe — if the user paid for
+    // Pro (subscribedMode: 'advanced'), allow it regardless of tier config.
+    const subscribedToPro = user.subscribedMode === 'advanced';
+    if (parsed.data.sessionMode === 'advanced' && !subscribedToPro && user.role !== 'admin') {
+      throw new ValidationError(`Session mode '${parsed.data.sessionMode}' not available for your subscription`);
     }
   }
 
