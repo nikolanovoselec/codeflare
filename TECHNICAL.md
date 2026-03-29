@@ -1013,6 +1013,7 @@ Enforcement points:
 - `requireActiveUser` middleware — tier gating uses effective tier
 - Container start paygate — quota and session limits use effective tier
 - `billingStatus` field on `AccessUser` — populated during authentication from KV
+- `subscribedMode` field on `AccessUser` — populated during authentication from KV. Used by `preferences.ts` Pro gate and `usage.ts` mode display. Source of truth for Pro access (set by Stripe webhook via `syncSubscriptionState` or by admin via `PATCH /api/users`). JIT-provisioned users default to `'default'`.
 
 Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pending`, `blocked`.
 

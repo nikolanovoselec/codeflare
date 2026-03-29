@@ -357,7 +357,7 @@ export async function resolveOrProvisionUser(
       void sendWelcomeEmail({ userEmail: normalizedEmail, instanceUrl, env });
     }
 
-    return { role: 'user', accessTier: 'pending', subscriptionTier: 'pending' };
+    return { role: 'user', accessTier: 'pending', subscriptionTier: 'pending', subscribedMode: 'default' };
   }
 
   throw new ForbiddenError('User not in allowlist');
