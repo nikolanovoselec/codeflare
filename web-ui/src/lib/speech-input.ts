@@ -6,8 +6,6 @@
  * Password input stays untouched — no autocorrect changes needed.
  */
 
-type SpeechRecognitionType = typeof window extends { SpeechRecognition: infer T } ? T : unknown;
-
 const SR: (new () => SpeechRecognition) | undefined =
   (typeof window !== 'undefined' && ((window as Record<string, unknown>).SpeechRecognition || (window as Record<string, unknown>).webkitSpeechRecognition)) as (new () => SpeechRecognition) | undefined;
 
