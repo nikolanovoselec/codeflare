@@ -1017,7 +1017,7 @@ Enforcement points:
 
 Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pending`, `blocked`.
 
-**Emails:** Renewal/payment emails are handled by Stripe native customer emails (configured in Stripe Dashboard). Custom transactional emails (welcome, subscription confirmation, admin notifications) are sent via Resend API.
+**Emails:** Stripe does NOT send emails in test/sandbox mode — only in live mode. Subscription invoices use `collection_method=charge_automatically` with `auto_advance=false` (Checkout handles payment), so `POST /v1/invoices/{id}/send` is invalid. Custom transactional emails via Resend API: welcome email (JIT provision, deduped via KV flag), subscription confirmation (checkout.session.completed webhook), admin new-subscriber notification (same webhook). Subscription email includes plan details and portal management link. Unified tagline across login, subscribe, usage pages, emails, and README: "An ephemeral IDE where AI coding agents reach their full potential."
 
 **Customer Portal (`POST /api/billing/portal`):**
 Creates a Stripe Billing Portal session for subscription management (cancel, update payment method, view invoices). Requires authenticated user with `stripeCustomerId` in KV. Returns `{ portalUrl }` for frontend redirect. Rate-limited 5/min.
