@@ -6,7 +6,29 @@
  * Password input stays untouched — no autocorrect changes needed.
  */
 
-type SpeechRecognitionCtor = new () => SpeechRecognition;
+// SpeechRecognition types — not in all TypeScript DOM lib versions.
+// Minimal interface covering only the API surface we use.
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly 0: { readonly transcript: string };
+}
+interface SpeechRecognitionResultEvent {
+  readonly resultIndex: number;
+  readonly results: ArrayLike<SpeechRecognitionResult>;
+}
+interface SpeechRecognitionInstance {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: SpeechRecognitionResultEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  start(): void;
+  stop(): void;
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionInstance;
 
 const SR: SpeechRecognitionCtor | undefined =
   typeof window !== 'undefined'
@@ -14,7 +36,7 @@ const SR: SpeechRecognitionCtor | undefined =
        (window as unknown as Record<string, unknown>).webkitSpeechRecognition) as SpeechRecognitionCtor | undefined
     : undefined;
 
-let recognition: SpeechRecognition | null = null;
+let recognition: SpeechRecognitionInstance | null = null;
 let listening = false;
 let onTextCallback: ((text: string) => void) | null = null;
 
@@ -43,7 +65,7 @@ export function startListening(onText: (text: string) => void, onEnd?: () => voi
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
-  recognition.onresult = (event: SpeechRecognitionEvent) => {
+  recognition.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       if (event.results[i].isFinal) {
         const text = event.results[i][0].transcript.trim();
