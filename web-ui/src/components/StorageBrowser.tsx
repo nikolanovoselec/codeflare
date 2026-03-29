@@ -34,6 +34,7 @@ const StorageBrowser: Component = () => {
 
       if (!hasActiveUploads && !hasSelections && !storageStore.loading) {
         void storageStore.refresh({ silent: true });
+        void storageStore.fetchStats();
       }
     }, 30_000);
 
