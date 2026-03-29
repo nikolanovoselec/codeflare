@@ -157,9 +157,9 @@
   margin: 0.75rem 0;
 }
 .subscribe-mode-pro-label {
-  margin: 0 0 0.5rem; font-size: 0.7rem; color: #3b82f6;
+  margin: 0 0 0.5rem; font-size: 0.8125rem; color: #3b82f6;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-weight: 500; letter-spacing: 0.03em;
+  font-weight: 500; letter-spacing: 0.02em;
 }
 .subscribe-mode-card-features--pro .subscribe-mode-card-feature svg { color: #8b5cf6; }
 

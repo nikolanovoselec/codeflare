@@ -699,6 +699,9 @@ const SubscribePage: Component = () => {
                       )}
                     </For>
                   </ul>
+                  <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", opacity: 0.6 }}>
+                    Voice input requires a compatible browser (Chrome, Samsung Internet, Edge). Not available on Firefox or Safari.
+                  </p>
 
                   {/* Pro features (animated expand/collapse) */}
                   <div class={`subscribe-pro-expand ${globalMode() === 'advanced' ? 'subscribe-pro-expand--open' : ''}`}>
