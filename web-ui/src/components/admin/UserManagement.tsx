@@ -26,7 +26,7 @@ const SECTION_LABELS: Record<SubscriptionTier, string> = {
   standard: 'Starter',
   advanced: 'Advanced',
   max: 'Max',
-  unlimited: 'Unlimited',
+  unlimited: 'Custom',
 };
 
 function resolveTier(user: UserEntry): SubscriptionTier {
@@ -347,7 +347,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                                   <option value="standard">Starter</option>
                                   <option value="advanced">Advanced</option>
                                   <option value="max">Max</option>
-                                  <option value="unlimited">Unlimited</option>
+                                  <option value="unlimited">Custom</option>
                                 </select>
                                 <select
                                   class="user-mgmt-tier-select"
