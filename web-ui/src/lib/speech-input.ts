@@ -6,10 +6,24 @@
  * Password input stays untouched — no autocorrect changes needed.
  */
 
-const SR: (new () => SpeechRecognition) | undefined =
-  (typeof window !== 'undefined' && ((window as Record<string, unknown>).SpeechRecognition || (window as Record<string, unknown>).webkitSpeechRecognition)) as (new () => SpeechRecognition) | undefined;
+/* eslint-disable @typescript-eslint/no-explicit-any */
+interface SpeechRecognitionCompat {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: any) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: any) => void) | null;
+  start(): void;
+  stop(): void;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
-let recognition: SpeechRecognition | null = null;
+const SR: (new () => SpeechRecognitionCompat) | undefined =
+  (typeof window !== 'undefined' && ((window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition)) as (new () => SpeechRecognitionCompat) | undefined;
+
+let recognition: SpeechRecognitionCompat | null = null;
 let listening = false;
 let onTextCallback: ((text: string) => void) | null = null;
 
@@ -38,7 +52,8 @@ export function startListening(onText: (text: string) => void, onEnd?: () => voi
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
-  recognition.onresult = (event: SpeechRecognitionEvent) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  recognition.onresult = (event: any) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       if (event.results[i].isFinal) {
         const text = event.results[i][0].transcript.trim();
