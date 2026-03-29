@@ -35,6 +35,7 @@ import {
   mdiMonitorMultiple,
   mdiTrendingUp,
   mdiClockFast,
+  mdiMicrophonePlus,
 } from '@mdi/js';
 import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession, createSwitchSession, getBillingStatus } from '../api/client';
 import { formatDuration } from '../lib/format';
@@ -126,6 +127,7 @@ const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string | (() => JSX.El
   { icon: mdiSync, text: 'Persistent storage with auto-sync' },
   { icon: mdiSourceBranch, text: () => <><span style={{ color: '#3b82f6' }}>GitHub</span> & <span style={{ color: '#f38020' }}>Cloudflare</span> built in</> },
   { icon: mdiLightningBolt, text: 'Specialized skills to build & deploy' },
+  { icon: mdiMicrophonePlus, text: 'Voice input & autocorrect on mobile' },
   { icon: mdiFileDocumentOutline, text: 'One click to start, zero to configure' },
 ];
 
