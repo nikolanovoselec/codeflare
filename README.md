@@ -3,7 +3,7 @@
 ![Login](docs/images/login.png)
 *One click to sign in. No account creation, no passwords — GitHub OAuth handles it.*
 
-You're not sure which AI coding agent is the best. Neither is anyone else. So Codeflare gives you all of them - at the same time. Six agents, six tabs, one browser. No guardrails, no permission prompts, no risk. Every session runs in an isolated container that deletes itself when you're done. Your files persist. Your bad decisions don't.
+An ephemeral IDE where AI coding agents reach their full potential. Fully autonomous, no boundaries, zero risk. Every session runs in an isolated container on Cloudflare's edge. Your files persist. Your bad decisions don't.
 
 It runs wherever you happen to find yourself - on the Cloudflare edge that spans the planet, accessible from anything with a browser. Your phone, your tablet, your partner's laptop while they're not looking. Because the best commits in history were made from places without desks.
 

@@ -141,7 +141,7 @@ export async function sendWelcomeEmail(opts: {
       '<h2>Welcome to Codeflare</h2>',
       `<p>Hi ${safeEmail},</p>`,
       '<p>Your account has been created. To get started, choose a subscription plan that fits your needs.</p>',
-      '<p>Codeflare gives you a browser-based cloud IDE with 5 AI coding agents, a full Linux terminal, file browser, and R2 cloud sync — ready to code on any device.</p>',
+      '<p>Codeflare is an ephemeral IDE where your AI coding agents reach their full potential — fully autonomous, no boundaries, zero risk. Persistent memory across sessions, advanced skills and workflows, voice input, and more. All from any device with a browser.</p>',
       subscribeLink,
     ].filter(Boolean).join('\n'),
     env: opts.env,
@@ -183,7 +183,7 @@ export async function sendSubscriptionEmail(opts: {
 
   lines.push(...buildSubscriptionDetailRows({ monthlyHours, maxSessions, price, trialHours, subscribedAt }));
 
-  lines.push('<p>You can manage your subscription — change plan, update payment method, or cancel — anytime from your profile in the app.</p>');
+  lines.push('<p>You can manage your subscription — change plan, update payment method, or cancel — anytime from your profile in Codeflare.</p>');
 
   if (instanceUrl) {
     lines.push(`<p><a href="${escapeXml(instanceUrl)}">Open Codeflare</a></p>`);

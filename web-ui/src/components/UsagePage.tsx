@@ -65,8 +65,8 @@ const UsagePage: Component = () => {
         </h1>
 
         <p class="login-subtitle">
-          Five coding agents in the palm of your hand.
-          Ready when you are, wherever you are.
+          An ephemeral IDE where AI coding agents reach their full potential.
+          Fully autonomous. No boundaries. Zero risk.
         </p>
 
         <Show when={!loading()} fallback={<div class="usage-loading">Loading usage data...</div>}>
