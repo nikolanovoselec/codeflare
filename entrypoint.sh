@@ -242,6 +242,9 @@ RCLONE_FILTERS_COMMON=(
     # Claude Code — subagent transcripts (results captured in main transcript, never re-read)
     --filter "- .claude/projects/**/subagents/**"
 
+    # Claude Code — tool result artifacts (ephemeral, never re-read, 26MB+ per long session)
+    --filter "- .claude/projects/**/tool-results/**"
+
     # Claude Code — ephemeral session state (regenerated per session)
     --filter "- .claude/usage-data/**"       # insights reports (regenerated on /insights)
     --filter "- .claude/backups/**"          # settings backups (settings.json itself is synced)
@@ -255,6 +258,7 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/.personality_migration" # one-time migration marker
     --filter "- .codex/shell_snapshots/**"   # session shell snapshots
     --filter "- .codex/tmp/**"               # temp lock files
+    --filter "- .codex/.tmp/**"              # plugin clones + sync temp files (17MB+, regenerated)
     --filter "- .codex/version.json"         # version check cache
 
     # Memory capture — exclude all counter files (ephemeral per-session)
@@ -270,6 +274,12 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .local/share/opencode/log/**"
     --filter "- .local/share/opencode/opencode.db-shm"
     --filter "- .local/share/opencode/opencode.db-wal"
+
+    # MCP server state — logs and thread history, ephemeral
+    --filter "- .local/state/**"
+
+    # Wrangler — deploy logs, regenerated
+    --filter "- .config/.wrangler/**"
 )
 
 # In default mode, exclude entire .memory/ directory (no persistent memory)
