@@ -4,14 +4,19 @@ import type { DeployKeysResponse } from '../../api/client';
 import ProviderRow from './ProviderRow';
 import { GitHubIcon, CloudflareIcon } from './BrandIcons';
 
-// GitHub fine-grained PAT template URL with broad scopes pre-filled.
+// GitHub fine-grained PAT template URL with permissions pre-filled.
+// Parameter names must match GitHub's internal permission keys (Aug 2025 format).
+// Docs: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
 const GITHUB_TOKEN_URL =
   'https://github.com/settings/personal-access-tokens/new?name=Codeflare&description=Push+%26+deploy+from+Codeflare&expires_in=90'
+  // Repository permissions
   + '&contents=write&administration=write&workflows=write&actions=write&actions_variables=write'
   + '&pull_requests=write&issues=write&deployments=write&environments=write&pages=write'
   + '&secrets=write&statuses=write&repository_hooks=write&merge_queues=write'
   + '&security_events=write&custom_properties=write&discussions=write'
-  + '&metadata=read&email_addresses=read';
+  + '&metadata=read'
+  // Account permissions
+  + '&emails=read&user_copilot_requests=read';
 
 // Cloudflare template URL with full Codeflare-level scopes pre-filled.
 const CLOUDFLARE_TOKEN_SCOPES = [
