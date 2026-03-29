@@ -52,6 +52,8 @@ import {
   refreshSessionStatuses,
   startSessionListPolling,
   stopSessionListPolling,
+  markSessionStarted,
+  clearSessionStartedGuard,
 } from './session-polling';
 
 // Re-export usage functions so existing consumers keep working
@@ -180,6 +182,8 @@ function updateSessionStatus(id: string, status: SessionStatus): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
     setState('sessions', index, 'status', status);
+    if (status === 'running') markSessionStarted(id);
+    if (status === 'stopped' || status === 'stopping') clearSessionStartedGuard(id);
   }
 }
 

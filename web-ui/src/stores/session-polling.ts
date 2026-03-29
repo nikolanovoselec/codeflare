@@ -70,6 +70,38 @@ export function registerPollingDeps(deps: {
 }
 
 // ============================================================================
+// Startup guard — protect recently-started sessions from stale KV 'stopped'
+// ============================================================================
+
+/** Timestamp when each session first reached 'running' status. */
+const sessionStartedAt = new Map<string, number>();
+
+/** How long to protect a session from stale KV 'stopped' after it starts running. */
+const STARTUP_GUARD_MS = 3 * 60 * 1000; // 3 minutes
+
+/** Record that a session started running (called from status update path). */
+export function markSessionStarted(sessionId: string): void {
+  if (!sessionStartedAt.has(sessionId)) {
+    sessionStartedAt.set(sessionId, Date.now());
+  }
+}
+
+/** Clear the startup guard for a session (called on dispose/manual stop). */
+export function clearSessionStartedGuard(sessionId: string): void {
+  sessionStartedAt.delete(sessionId);
+}
+
+/** Check if a session is within the startup protection window. */
+function isWithinStartupGuard(sessionId: string): boolean {
+  const startedAt = sessionStartedAt.get(sessionId);
+  if (!startedAt) return false;
+  if (Date.now() - startedAt < STARTUP_GUARD_MS) return true;
+  // Guard expired — clean up
+  sessionStartedAt.delete(sessionId);
+  return false;
+}
+
+// ============================================================================
 // Consecutive-miss tracking
 // ============================================================================
 
@@ -152,10 +184,11 @@ export async function refreshSessionStatuses(): Promise<void> {
       // the 'initializing' status. KV may still show 'stopped' during container start.
       if (session.status === 'initializing' || isSessionInitializingFn(session.id)) continue;
 
-      // Guard 3: Active session — only 4503 (from Container DO) and manual
-      // stopSession() can stop the active session. KV may have stale 'stopped'
-      // from cross-colo propagation or list cache lag.
-      if (remote.status === 'stopped' && session.id === getState().activeSessionId) continue;
+      // Guard 3: Recently-started session — protect from stale KV 'stopped'
+      // for 3 minutes after first reaching 'running'. Only 4503 (from Container
+      // DO) and manual stopSession() can stop a guarded session. This guard
+      // persists even if the user navigates to the dashboard.
+      if (remote.status === 'stopped' && isWithinStartupGuard(session.id)) continue;
 
       // KV is source of truth for non-active, non-starting sessions.
       if (remote.status === 'running' && session.status !== 'running') {
