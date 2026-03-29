@@ -285,7 +285,7 @@ export function getBucketName(email: string, workerName?: string): string {
 export async function resolveUserFromKV(
   kv: KVNamespace,
   email: string
-): Promise<{ addedBy: string; addedAt: string; role: UserRole; accessTier?: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: BillingStatus; billingPeriodEnd?: string } | null> {
+): Promise<{ addedBy: string; addedAt: string; role: UserRole; accessTier?: AccessTier; subscriptionTier?: SubscriptionTier; subscribedMode?: 'default' | 'advanced'; billingStatus?: BillingStatus; billingPeriodEnd?: string } | null> {
   const normalizedEmail = normalizeEmail(email);
   const raw = await kv.get(`user:${normalizedEmail}`, 'json');
   // CF-010/CF-017: Use parseUserRecord for validated, typed parsing
@@ -302,6 +302,7 @@ export async function resolveUserFromKV(
     role: record.role === 'admin' ? 'admin' : 'user',
     accessTier: rawTier && VALID_ACCESS_TIERS.has(rawTier) ? (rawTier as AccessTier) : undefined,
     subscriptionTier,
+    subscribedMode: record.subscribedMode === 'advanced' ? 'advanced' : 'default',
     billingStatus: record.billingStatus,
     billingPeriodEnd: record.billingPeriodEnd,
   };
@@ -317,7 +318,7 @@ export async function resolveOrProvisionUser(
   kv: KVNamespace,
   email: string,
   env: Env
-): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; billingStatus?: BillingStatus; billingPeriodEnd?: string }> {
+): Promise<{ role: UserRole; accessTier: AccessTier; subscriptionTier?: SubscriptionTier; subscribedMode?: 'default' | 'advanced'; billingStatus?: BillingStatus; billingPeriodEnd?: string }> {
   const normalizedEmail = normalizeEmail(email);
   const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
 
@@ -326,6 +327,7 @@ export async function resolveOrProvisionUser(
       role: kvEntry.role,
       accessTier: kvEntry.accessTier ?? 'advanced',
       subscriptionTier: kvEntry.subscriptionTier,
+      subscribedMode: kvEntry.subscribedMode,
       billingStatus: kvEntry.billingStatus,
       billingPeriodEnd: kvEntry.billingPeriodEnd,
     };
@@ -395,9 +397,9 @@ export async function authenticateRequest(
 
   // SaaS mode: use resolveOrProvisionUser for JIT provisioning + accessTier
   if (isSaasModeActive(env.SAAS_MODE)) {
-    const { role, accessTier, subscriptionTier, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
+    const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = await resolveOrProvisionUser(env.KV, normalizedEmail, env);
     const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
-    return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, billingStatus, billingPeriodEnd }, bucketName };
+    return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
   }
 
   // Non-SaaS mode: existing allowlist behavior
@@ -405,7 +407,7 @@ export async function authenticateRequest(
   if (!kvEntry) {
     throw new ForbiddenError('User not in allowlist');
   }
-  const { role, accessTier, subscriptionTier, billingStatus, billingPeriodEnd } = kvEntry;
+  const { role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd } = kvEntry;
   const bucketName = getBucketName(normalizedEmail, env.CLOUDFLARE_WORKER_NAME);
-  return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, billingStatus, billingPeriodEnd }, bucketName };
+  return { user: { ...rawUser, email: normalizedEmail, role, accessTier, subscriptionTier, subscribedMode, billingStatus, billingPeriodEnd }, bucketName };
 }

@@ -45,6 +45,9 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     return terminalStore.getTerminal(sessionId, terminalId);
   };
 
+  // Stop speech recognition on component unmount
+  onCleanup(() => { if (isListening()) stopListening(); });
+
   // Prevent button from stealing focus from xterm textarea (which would dismiss keyboard)
   const preventFocusSteal = (e: MouseEvent | PointerEvent) => e.preventDefault();
 

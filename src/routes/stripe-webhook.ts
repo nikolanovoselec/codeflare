@@ -174,6 +174,7 @@ async function handleCheckoutCompleted(
       await fetch(`https://api.stripe.com/v1/invoices/${invoiceId}/send`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${env.STRIPE_SECRET_KEY}` },
+        signal: AbortSignal.timeout(10_000),
       });
     } catch {
       // Non-fatal — invoice is still accessible via hosted_invoice_url

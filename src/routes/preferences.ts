@@ -10,9 +10,7 @@ import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError } from '../lib/error-types';
 import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
-import { canUseSessionModeWithConfig } from '../lib/access-tier';
 import { isSaasModeActive } from '../lib/onboarding';
-import { getTierConfig, getEffectiveTier } from '../lib/subscription';
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),

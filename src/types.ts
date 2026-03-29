@@ -106,6 +106,7 @@ export interface AccessUser {
   role?: UserRole;
   accessTier?: AccessTier;
   subscriptionTier?: SubscriptionTier;
+  subscribedMode?: 'default' | 'advanced';
   billingStatus?: BillingStatus;
   billingPeriodEnd?: string;
 }
