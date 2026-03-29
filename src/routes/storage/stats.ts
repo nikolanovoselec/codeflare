@@ -24,6 +24,7 @@ interface CachedStats {
   totalFiles: number;
   totalFolders: number;
   totalSizeBytes: number;
+  maxStorageBytes?: number | null;
   cachedAt: number;
 }
 
@@ -34,17 +35,7 @@ app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
   const cacheKey = `storage-stats:${bucketName}`;
 
-  // Resolve storage quota from tier config
-  let maxStorageBytes: number | null = null;
-  if (isSaasModeActive(c.env.SAAS_MODE)) {
-    const user = c.get('user');
-    const tiers = await getTierConfig(c.env.KV);
-    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
-    const tier = getUserTier(effectiveTier, tiers);
-    maxStorageBytes = tier.maxStorageBytes ?? null;
-  }
-
-  // Check KV cache first
+  // Check KV cache first — includes maxStorageBytes from last computation
   const cached = await c.env.KV.get(cacheKey, 'json') as CachedStats | null;
   if (cached && (Date.now() - cached.cachedAt) < CACHE_TTL_MS) {
     return c.json({
@@ -52,8 +43,18 @@ app.get('/', async (c) => {
       totalFolders: cached.totalFolders,
       totalSizeBytes: cached.totalSizeBytes,
       bucketName,
-      maxStorageBytes,
+      maxStorageBytes: cached.maxStorageBytes ?? null,
     });
+  }
+
+  // Resolve storage quota from tier config (only on cache miss)
+  let maxStorageBytes: number | null = null;
+  if (isSaasModeActive(c.env.SAAS_MODE)) {
+    const user = c.get('user');
+    const tiers = await getTierConfig(c.env.KV);
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    const tier = getUserTier(effectiveTier, tiers);
+    maxStorageBytes = tier.maxStorageBytes ?? null;
   }
 
   const r2Client = createR2Client(c.env);
@@ -114,6 +115,7 @@ app.get('/', async (c) => {
     totalFiles,
     totalFolders,
     totalSizeBytes,
+    maxStorageBytes,
     cachedAt: Date.now(),
   };
   await c.env.KV.put(cacheKey, JSON.stringify(statsToCache));
