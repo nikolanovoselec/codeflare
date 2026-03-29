@@ -191,10 +191,16 @@ async function handleCheckoutCompleted(
         getEffectiveTier(updatedUser?.subscriptionTier, updatedUser?.accessTier, updatedUser?.billingStatus, updatedUser?.billingPeriodEnd),
         tiers,
       );
+      const monthlyHours = tier.monthlySeconds != null
+        ? String(Math.round(tier.monthlySeconds / 3600))
+        : 'Unlimited';
       void sendSubscriptionAdminNotification({
         userEmail: email,
         tierName: tier.displayName || tier.id,
         sessionMode: updatedUser?.subscribedMode ?? 'default',
+        monthlyHours,
+        maxSessions: tier.maxSessions,
+        subscribedAt: new Date().toISOString(),
         adminEmails,
         env,
       });
