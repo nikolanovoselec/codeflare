@@ -19,8 +19,9 @@ later during compaction — focus on speed and coverage.
 ### 1. Read vars file, then delete it and write counter
 
 Read the vars file with the Read tool to get all variable values.
-Then IMMEDIATELY delete it and write the counter — before any other
-work — so the main agent won't spawn a duplicate.
+Then IMMEDIATELY delete it — this is the deduplication gate. The main
+agent checks this file before spawning; deleting it prevents a second
+spawn. Then write the counter as a safety reset.
 
 ```
 rm -f {VARS_FILE}
