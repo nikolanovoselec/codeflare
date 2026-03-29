@@ -15,7 +15,7 @@ vi.mock('../../lib/logger', () => ({
 
 const mockSendWelcomeEmail = vi.fn(async () => true);
 vi.mock('../../lib/email', () => ({
-  sendWelcomeEmail: (...args: unknown[]) => mockSendWelcomeEmail(...args),
+  sendWelcomeEmail: mockSendWelcomeEmail,
 }));
 
 import { resolveUserFromKV, getBucketName, authenticateRequest, getUserFromRequest, resetAuthConfigCache, resolveOrProvisionUser } from '../../lib/access';

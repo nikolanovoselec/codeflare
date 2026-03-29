@@ -28,7 +28,7 @@ vi.mock('../../lib/stripe', () => ({
 // Mock r2-seed for auto-recreate on downgrade
 const mockReconcileAgentConfigs = vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] }));
 vi.mock('../../lib/r2-seed', () => ({
-  reconcileAgentConfigs: (...args: unknown[]) => mockReconcileAgentConfigs(...args),
+  reconcileAgentConfigs: mockReconcileAgentConfigs,
 }));
 
 // Mock r2-config
@@ -39,7 +39,7 @@ vi.mock('../../lib/r2-config', () => ({
 // Mock email
 const mockSendAdminNotification = vi.fn(async () => true);
 vi.mock('../../lib/email', () => ({
-  sendSubscriptionAdminNotification: (...args: unknown[]) => mockSendAdminNotification(...args),
+  sendSubscriptionAdminNotification: mockSendAdminNotification,
 }));
 
 // Mock access-policy

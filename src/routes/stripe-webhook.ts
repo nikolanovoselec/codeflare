@@ -346,7 +346,7 @@ export async function syncSubscriptionState(
       await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: 'default' }));
       logger.info('Auto-recreated agent configs on downgrade', { email, previousMode, newMode });
     } catch (err) {
-      logger.warn('Auto-recreate on downgrade failed (non-fatal)', toError(err));
+      logger.warn('Auto-recreate on downgrade failed (non-fatal)', { error: String(err) });
     }
   }
 
