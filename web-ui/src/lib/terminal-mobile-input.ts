@@ -29,40 +29,6 @@ export function deactivateStickyCtrl(): void {
 export function isStickyCtrlActive(): boolean { return _ctrlStickyActive; }
 
 // ---------------------------------------------------------------------------
-// Voice / autocorrect mode toggle
-// ---------------------------------------------------------------------------
-
-let _voiceModeActive = false;
-let _voiceModeInput: HTMLInputElement | null = null;
-
-/** Toggle the iframe input between password (no autocorrect) and text (voice-friendly). */
-export function toggleVoiceMode(): boolean {
-  _voiceModeActive = !_voiceModeActive;
-  if (_voiceModeInput) {
-    const newType = _voiceModeActive ? 'text' : 'password';
-    _voiceModeInput.setAttribute('type', newType);
-    // Force the OS keyboard to reload by blurring, waiting for the type
-    // change to register, then refocusing. Some mobile browsers need a
-    // real delay (not just rAF) to pick up the input type change.
-    _voiceModeInput.blur();
-    setTimeout(() => {
-      if (_voiceModeInput) {
-        _voiceModeInput.focus({ preventScroll: true });
-      }
-    }, 100);
-  }
-  return _voiceModeActive;
-}
-
-/** Reset voice mode to default (password) — called when keyboard closes. */
-export function resetVoiceMode(): void {
-  if (_voiceModeActive && _voiceModeInput) {
-    _voiceModeInput.setAttribute('type', 'password');
-  }
-  _voiceModeActive = false;
-}
-
-// ---------------------------------------------------------------------------
 // Extracted key-mapping constants and pure dispatch logic (CF-020)
 // ---------------------------------------------------------------------------
 
@@ -161,16 +127,15 @@ export function setupMobileInput(
   iframe.className = 'terminal-input-iframe';
   iframe.setAttribute('tabindex', '-1');
   iframe.setAttribute('aria-hidden', 'true');
-  // srcdoc: minimal HTML with a password input. Password type suppresses
-  // autocorrect/autocomplete/autocapitalize at OS level. Voice input (speech-
-  // to-text) is toggled on demand by switching to type="text" via
-  // setVoiceInputMode(). Same-origin, no network request.
+  // srcdoc: minimal HTML with a text input. Uses type="text" (not password)
+  // to preserve voice input / speech-to-text on Android. Autocorrect is
+  // suppressed via attributes instead. Same-origin, no network request.
   iframe.srcdoc = `<!DOCTYPE html>
 <html><head><style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
   input {
     position: absolute; top: 0; left: 0;
-    width: 1px; height: 1px;
+    width: 16px; height: 16px; opacity: 0;
     font-size: 16px;
     border: none; outline: none; background: transparent;
     color: transparent; caret-color: transparent;
@@ -178,9 +143,10 @@ export function setupMobileInput(
     -webkit-tap-highlight-color: transparent;
   }
 </style></head><body>
-<input id="ti" type="password" autocomplete="off" autocorrect="off"
+<input id="ti" type="text" autocomplete="off" autocorrect="off"
   autocapitalize="off" spellcheck="false" inputmode="text" enterkeyhint="enter"
-  aria-label="Terminal input">
+  aria-autocomplete="none" aria-label="Terminal input"
+  data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
 </body></html>`;
   // Insert iframe into document.body for maximum compositor isolation.
   document.body.appendChild(iframe);
@@ -260,7 +226,6 @@ export function setupMobileInput(
     const input = iframeDoc.getElementById('ti') as HTMLInputElement | null;
     if (!input) return;
     iframeInputRef = input;
-    _voiceModeInput = input;
 
     // Focus guard: start readOnly to prevent keyboard on session reconnect
     input.readOnly = true;
@@ -431,8 +396,6 @@ export function setupMobileInput(
   // Return cleanup function
   return () => {
     wasInputFocused = false;
-    resetVoiceMode();
-    _voiceModeInput = null;
     if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); blurTimeoutId = null; }
     document.removeEventListener('visibilitychange', onVisibilityChange);
     window.removeEventListener('focus', onWindowFocus);
