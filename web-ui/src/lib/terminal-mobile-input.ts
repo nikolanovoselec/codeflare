@@ -39,10 +39,17 @@ let _voiceModeInput: HTMLInputElement | null = null;
 export function toggleVoiceMode(): boolean {
   _voiceModeActive = !_voiceModeActive;
   if (_voiceModeInput) {
-    _voiceModeInput.setAttribute('type', _voiceModeActive ? 'text' : 'password');
-    // Briefly blur and refocus to force the OS keyboard to reload with new type
+    const newType = _voiceModeActive ? 'text' : 'password';
+    _voiceModeInput.setAttribute('type', newType);
+    // Force the OS keyboard to reload by blurring, waiting for the type
+    // change to register, then refocusing. Some mobile browsers need a
+    // real delay (not just rAF) to pick up the input type change.
     _voiceModeInput.blur();
-    requestAnimationFrame(() => _voiceModeInput?.focus({ preventScroll: true }));
+    setTimeout(() => {
+      if (_voiceModeInput) {
+        _voiceModeInput.focus({ preventScroll: true });
+      }
+    }, 100);
   }
   return _voiceModeActive;
 }

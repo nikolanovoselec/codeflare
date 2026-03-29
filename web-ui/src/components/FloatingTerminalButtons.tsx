@@ -33,11 +33,11 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
       onCleanup(() => clearTimeout(timer));
     } else {
       setLabelsVisible(false);
-      // Reset voice mode when keyboard closes
-      if (!visible && voiceActive()) {
-        resetVoiceMode();
-        setVoiceActive(false);
-      }
+    }
+    // Reset voice mode only when keyboard actually closes (not on label fade)
+    if (!visible && voiceActive()) {
+      resetVoiceMode();
+      setVoiceActive(false);
     }
   });
 
