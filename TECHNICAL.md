@@ -3427,13 +3427,9 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the
 1. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
 2. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
 3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If no counter file exists (first run after container recycle or `/resume`), the hook baselines from the current transcript count and **writes the counter file immediately** — this establishes the baseline so subsequent invocations can calculate the delta. If the delta is < 30, exits silently.
-4. **Lock guard**: Checks for `~/.memory/counter/{session_id}.lock`. If a summary agent is already running, exits. Stale locks (>2 minutes) are removed automatically.
-5. **Vars file**: Writes all variables (transcript path, line offset, date, counts, file paths) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the context string short.
-6. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. Exits with code 0 — no blocking, no loop guard needed.
-
-### Stale Context Prevention
-
-The `additionalContext` string persists in the conversation context across turns. To prevent re-triggering on stale messages, the `rules/memory.md` execution protocol uses a **freshness check**: `stat -c %Y <VARS_FILE>` must show a timestamp within the last 60 seconds. If the `.vars` file is older, the instruction is from a prior turn and is skipped. The instruction is explicitly marked as ONE-SHOT — execute once, then ignore even if the text remains visible.
+4. **Vars file**: Writes all variables (transcript path, line offset, date, counts, counter file path) to `~/.memory/counter/{session_id}.vars` as JSON — keeps the context string short.
+5. **Counter update**: Writes current count and total lines to the counter file before emitting. This prevents re-triggering: subsequent hook invocations see delta < 30 and exit silently. The agent reads its line range from the vars file, not from the counter.
+6. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. `additionalContext` only appears on the turn where the hook fired — no stale replays. The main agent spawns the capture agent immediately with no additional checks.
 
 ### Prompt Files
 
@@ -3442,7 +3438,8 @@ Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/` (preseede
 **`memory-agent-prompt.md`** (haiku capture):
 - Reads transcript from line offset, extracts 3-5 observations
 - Saves to `chat-{TODAY}` entity (daily raw capture bucket)
-- Checks total observations — if >100, writes `.compact` marker file
+- Writes counter as first step (before reading transcript)
+- Checks total observations — if >150, writes `.compact` marker file
 - Does NOT attempt compaction itself
 
 **`memory-compact-prompt.md`** (opus compaction):
@@ -3457,9 +3454,9 @@ Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/` (preseede
 
 ```
 ~/.memory/counter/
-├── {session_id}        # Two lines: last_count, last_line_offset (synced to R2)
-├── {session_id}.lock   # Exists only while background agent is running (excluded from sync)
-└── {session_id}.vars   # Variables JSON for current hook invocation (excluded from sync)
+├── {session_id}        # Two lines: last_count, last_line_offset
+├── {session_id}.vars   # Variables JSON for current hook invocation
+└── {session_id}.compact # Marker file signaling compaction needed (created by capture agent)
 ```
 
 - All counter files are **excluded from sync** via `--filter "- .memory/counter/**"` — they are ephemeral per-session state (each session gets a new sessionID, old counters are orphans).
@@ -3593,10 +3590,8 @@ The generator produces adapted config files for 6 agents from CC's preseed as si
 ### Troubleshooting
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
-- **Stuck lock**: Delete `~/.memory/counter/{session_id}.lock` if the background agent crashed without cleanup. Stale locks older than 2 minutes are auto-removed by the hook.
-- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only). Check that the `.vars` file timestamp is fresh (<60 seconds) — stale context replays are intentionally skipped.
-- **Agent re-triggering every turn**: The `additionalContext` persists in conversation context across turns. The `rules/memory.md` freshness check (`stat -c %Y` on `.vars` file) prevents re-execution. If this keeps happening, verify the rule file is loaded and contains the ONE-SHOT instruction.
-- **Compaction not running**: Compaction triggers when haiku writes a `.compact` marker file (total observations >100). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
+- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only).
+- **Compaction not running**: Compaction triggers when haiku writes a `.compact` marker file (total observations >150). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
 - **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entry pointing to `block-attributed-commits.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint SESSION_MODE gating may have failed. Remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 
