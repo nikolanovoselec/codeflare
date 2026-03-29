@@ -42,18 +42,16 @@ let _switchingInput = false;
 /** True while focus is transferring between the two inputs. */
 export function isSwitchingInput(): boolean { return _switchingInput; }
 
-/** Toggle between password (no autocorrect) and text (voice-friendly) input. */
+/** Toggle between password (no autocorrect) and text (voice-friendly) input.
+ *  Does NOT focus the target — caller must use refocusTerminal() after.
+ *  Cross-iframe focus() from outside the iframe is unreliable on mobile. */
 export function toggleVoiceMode(): boolean {
   _voiceModeActive = !_voiceModeActive;
   const target = _voiceModeActive ? _textInput : _passwordInput;
   if (target && _activeInput && target !== _activeInput) {
-    // Set switching flag to suppress blur handlers during focus transfer.
-    // Samsung fires stale geometrychange events during same-iframe focus
-    // switches, causing isVirtualKeyboardOpen() to briefly return false.
     _switchingInput = true;
     _activeInput = target;
     if (_voiceModeTerminal) setIframeInput(_voiceModeTerminal, target);
-    target.focus({ preventScroll: true });
     setTimeout(() => { _switchingInput = false; }, 250);
   }
   return _voiceModeActive;

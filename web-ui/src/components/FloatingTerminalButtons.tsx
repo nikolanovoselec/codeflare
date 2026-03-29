@@ -157,6 +157,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             onClick={() => {
               const active = toggleVoiceMode();
               setVoiceActive(active);
+              refocusTerminal();
             }}
             title="Autocorrect / Voice Input"
           >
