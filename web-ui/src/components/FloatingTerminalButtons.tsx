@@ -1,9 +1,9 @@
 import { Component, Show, createSignal, createEffect, onCleanup } from 'solid-js';
-import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp, mdiSecurity, mdiCodeBrackets, mdiMicrophonePlus } from '@mdi/js';
+import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExpandDown, mdiArrowExpandUp, mdiSecurity, mdiCodeBrackets } from '@mdi/js';
 import Icon from './Icon';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/mobile';
 import { sendTerminalKey } from '../lib/touch-gestures';
-import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive, toggleVoiceMode, resetVoiceMode } from '../lib/terminal-mobile-input';
+import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive } from '../lib/terminal-mobile-input';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { markScrollIntent } from '../lib/terminal-scroll-intent';
@@ -20,7 +20,6 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const [labelsVisible, setLabelsVisible] = createSignal(false);
   const [showLabels, setShowLabels] = createSignal(loadSettings().showButtonLabels !== false);
   const [ctrlActive, setCtrlActive] = createSignal(false);
-  const [voiceActive, setVoiceActive] = createSignal(false);
 
   // Show labels for 3 seconds each time the floating buttons appear
   createEffect(() => {
@@ -33,11 +32,6 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
       onCleanup(() => clearTimeout(timer));
     } else {
       setLabelsVisible(false);
-    }
-    // Reset voice mode when keyboard closes
-    if (!visible && voiceActive()) {
-      resetVoiceMode();
-      setVoiceActive(false);
     }
   });
 
@@ -144,22 +138,6 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             title="Paste"
           >
             <Icon path={mdiContentPaste} size={18} />
-          </button>
-        </div>
-        <div class="floating-btn-row">
-          <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>AUTOCORRECT / VOICE</span>
-          <button
-            type="button"
-            class={`floating-terminal-btn ${voiceActive() ? 'floating-terminal-btn--active' : ''}`}
-            tabIndex={-1}
-            onPointerDown={preventFocusSteal}
-            onClick={() => {
-              const active = toggleVoiceMode();
-              setVoiceActive(active);
-            }}
-            title="Autocorrect / Voice Input"
-          >
-            <Icon path={mdiMicrophonePlus} size={18} />
           </button>
         </div>
         <div class="floating-btn-row">

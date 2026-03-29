@@ -29,40 +29,6 @@ export function deactivateStickyCtrl(): void {
 export function isStickyCtrlActive(): boolean { return _ctrlStickyActive; }
 
 // ---------------------------------------------------------------------------
-// Voice / autocorrect mode toggle (dual-input strategy)
-// ---------------------------------------------------------------------------
-
-let _voiceModeActive = false;
-let _activeInput: HTMLInputElement | null = null;
-let _passwordInput: HTMLInputElement | null = null;
-let _textInput: HTMLInputElement | null = null;
-let _voiceModeTerminal: XTerm | null = null;
-
-/** Toggle between password (no autocorrect) and text (voice-friendly) input. */
-export function toggleVoiceMode(): boolean {
-  _voiceModeActive = !_voiceModeActive;
-  const target = _voiceModeActive ? _textInput : _passwordInput;
-  if (target && _activeInput && target !== _activeInput) {
-    _activeInput = target;
-    if (_voiceModeTerminal) setIframeInput(_voiceModeTerminal, target);
-    target.focus({ preventScroll: true });
-  }
-  return _voiceModeActive;
-}
-
-/** Check if voice/autocorrect mode is active. */
-export function isVoiceModeActive(): boolean { return _voiceModeActive; }
-
-/** Reset voice mode to default (password). */
-export function resetVoiceMode(): void {
-  if (_voiceModeActive && _passwordInput) {
-    _activeInput = _passwordInput;
-    if (_voiceModeTerminal) setIframeInput(_voiceModeTerminal, _passwordInput);
-  }
-  _voiceModeActive = false;
-}
-
-// ---------------------------------------------------------------------------
 // Extracted key-mapping constants and pure dispatch logic (CF-020)
 // ---------------------------------------------------------------------------
 
@@ -161,15 +127,15 @@ export function setupMobileInput(
   iframe.className = 'terminal-input-iframe';
   iframe.setAttribute('tabindex', '-1');
   iframe.setAttribute('aria-hidden', 'true');
-  // srcdoc: dual-input compositor jail. Password input suppresses autocorrect
-  // (default). Text input enables voice/speech-to-text. Toggle switches focus
-  // between them — OS reconfigures IME per element. Same-origin, no network.
+  // srcdoc: minimal HTML with a text input. Uses type="text" (not password)
+  // to preserve voice input / speech-to-text on Android. Autocorrect is
+  // suppressed via attributes instead. Same-origin, no network request.
   iframe.srcdoc = `<!DOCTYPE html>
 <html><head><style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
   input {
     position: absolute; top: 0; left: 0;
-    width: 1px; height: 1px;
+    width: 16px; height: 16px; opacity: 0;
     font-size: 16px;
     border: none; outline: none; background: transparent;
     color: transparent; caret-color: transparent;
@@ -177,12 +143,10 @@ export function setupMobileInput(
     -webkit-tap-highlight-color: transparent;
   }
 </style></head><body>
-<input id="pw" type="password" autocomplete="off" autocorrect="off"
+<input id="ti" type="text" autocomplete="off" autocorrect="off"
   autocapitalize="off" spellcheck="false" inputmode="text" enterkeyhint="enter"
-  aria-label="Terminal input">
-<input id="txt" type="text" autocomplete="off" autocorrect="off"
-  autocapitalize="off" spellcheck="false" inputmode="text" enterkeyhint="enter"
-  aria-label="Terminal input">
+  aria-autocomplete="none" aria-label="Terminal input"
+  data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
 </body></html>`;
   // Insert iframe into document.body for maximum compositor isolation.
   document.body.appendChild(iframe);
@@ -259,112 +223,104 @@ export function setupMobileInput(
   iframe.addEventListener('load', () => {
     const iframeDoc = iframe.contentDocument;
     if (!iframeDoc) return;
-    const pwInput = iframeDoc.getElementById('pw') as HTMLInputElement | null;
-    const txtInput = iframeDoc.getElementById('txt') as HTMLInputElement | null;
-    if (!pwInput || !txtInput) return;
+    const input = iframeDoc.getElementById('ti') as HTMLInputElement | null;
+    if (!input) return;
+    iframeInputRef = input;
 
-    // Initialize dual-input state
-    _passwordInput = pwInput;
-    _textInput = txtInput;
-    _activeInput = pwInput;
-    _voiceModeTerminal = terminal;
-    iframeInputRef = pwInput;
-
-    // Focus guard: start both readOnly to prevent keyboard on session reconnect
-    pwInput.readOnly = true;
-    txtInput.readOnly = true;
+    // Focus guard: start readOnly to prevent keyboard on session reconnect
+    input.readOnly = true;
     setRemoveFocusGuard(terminal, () => {
-      pwInput.readOnly = false;
-      txtInput.readOnly = false;
+      if (input) input.readOnly = false;
     });
-    setIframeInput(terminal, pwInput);
+    setIframeInput(terminal, input);
 
-    // Shared state for event handlers
+    // Forward keyboard events to xterm via term.input()
     let composing = false;
     let sentViaKeydown = false;
 
-    // Bind event listeners to BOTH inputs. Guards on input-specific handlers
-    // ensure only the active input's events are processed.
-    for (const input of [pwInput, txtInput]) {
-      input.addEventListener('compositionstart', () => { composing = true; });
+    input.addEventListener('compositionstart', () => { composing = true; });
+    input.addEventListener('compositionend', () => {
+      composing = false;
+      // Flush composed text (voice dictation, swipe typing) now that
+      // the IME has committed its result.
+      if (!terminal) return;
+      const val = input.value;
+      if (val) {
+        terminal.input(val, false);
+        input.value = '';
+      }
+    });
 
-      input.addEventListener('compositionend', () => {
-        composing = false;
-        if (input !== _activeInput || !terminal) return;
-        const val = input.value;
-        if (val) {
-          terminal.input(val, false);
-          input.value = '';
-        }
-      });
+    input.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (composing) return;
+      if (!terminal) return;
+      sentViaKeydown = false;
 
-      input.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (input !== _activeInput || composing || !terminal) return;
-        sentViaKeydown = false;
+      // Sticky CTRL: if the floating button activated it, treat this keypress as Ctrl+key.
+      // On mobile virtual keyboards, keydown often fires with key='Unidentified' or 'Process'.
+      // In that case, don't consume sticky CTRL here — let the 'input' event handler use it.
+      const useCtrl = e.ctrlKey || _ctrlStickyActive;
+      const keyIdentified = e.key !== 'Unidentified' && e.key !== 'Process';
+      if (_ctrlStickyActive && keyIdentified) deactivateStickyCtrl();
 
-        const useCtrl = e.ctrlKey || _ctrlStickyActive;
-        const keyIdentified = e.key !== 'Unidentified' && e.key !== 'Process';
-        if (_ctrlStickyActive && keyIdentified) deactivateStickyCtrl();
+      const action = resolveKeyAction(
+        e.key,
+        useCtrl,
+        !!terminal.getSelection(),
+      );
 
-        const action = resolveKeyAction(
-          e.key,
-          useCtrl,
-          !!terminal.getSelection(),
-        );
-
-        switch (action.type) {
-          case 'sequence':
-            e.preventDefault();
-            sentViaKeydown = true;
-            terminal.input(action.sequence, false);
-            return;
-          case 'copy':
-            e.preventDefault();
-            sentViaKeydown = true;
-            navigator.clipboard.writeText(terminal.getSelection()!);
-            terminal.clearSelection();
-            return;
-          case 'paste':
-            e.preventDefault();
-            sentViaKeydown = true;
-            navigator.clipboard.readText().then((text) => {
-              if (text && terminal) terminal.paste(text);
-            }).catch((err) => {
-              logger.warn('Clipboard read failed:', err);
-            });
-            return;
-          case 'none':
-            break;
-        }
-      });
-
-      // 'input' event fires for character input (including IME results).
-      // During composition (voice dictation, swipe typing), don't flush —
-      // wait for compositionend to send the committed text.
-      input.addEventListener('input', () => {
-        if (input !== _activeInput) return;
-        if (sentViaKeydown) {
-          sentViaKeydown = false;
-          if (!composing) input.value = '';
+      switch (action.type) {
+        case 'sequence':
+          e.preventDefault();
+          sentViaKeydown = true;
+          terminal.input(action.sequence, false);
           return;
-        }
-        if (!terminal || composing) return;
-        const val = input.value;
-        if (val) {
-          if (_ctrlStickyActive && val.length === 1) {
-            deactivateStickyCtrl();
-            const code = val.toLowerCase().charCodeAt(0);
-            if (code >= 97 && code <= 122) {
-              terminal.input(String.fromCharCode(code - 96), false);
-              input.value = '';
-              return;
-            }
+        case 'copy':
+          e.preventDefault();
+          sentViaKeydown = true;
+          navigator.clipboard.writeText(terminal.getSelection()!);
+          terminal.clearSelection();
+          return;
+        case 'paste':
+          e.preventDefault();
+          sentViaKeydown = true;
+          navigator.clipboard.readText().then((text) => {
+            if (text && terminal) terminal.paste(text);
+          }).catch((err) => {
+            logger.warn('Clipboard read failed:', err);
+          });
+          return;
+        case 'none':
+          break;
+      }
+    });
+
+    // 'input' event fires for character input (including IME results).
+    // During composition (voice dictation, swipe typing), don't flush —
+    // wait for compositionend to send the committed text.
+    input.addEventListener('input', () => {
+      if (sentViaKeydown) {
+        sentViaKeydown = false;
+        if (!composing) input.value = '';
+        return;
+      }
+      if (!terminal || composing) return;
+      const val = input.value;
+      if (val) {
+        // Sticky CTRL not consumed by keydown (key was 'Unidentified') — apply here
+        if (_ctrlStickyActive && val.length === 1) {
+          deactivateStickyCtrl();
+          const code = val.toLowerCase().charCodeAt(0);
+          if (code >= 97 && code <= 122) {
+            terminal.input(String.fromCharCode(code - 96), false);
+            input.value = '';
+            return;
           }
-          terminal.input(val, false);
-          input.value = '';
         }
-      });
-    }
+        terminal.input(val, false);
+        input.value = '';
+      }
+    });
 
     // Wire up xterm's cursor rendering to the iframe input's focus state.
     const coreRef = getXtermCore(terminal);
@@ -376,9 +332,9 @@ export function setupMobileInput(
         ta.tabIndex = -1;
         ta.setAttribute('aria-hidden', 'true');
         ta.addEventListener('focus', (e: FocusEvent) => {
-          if (e.relatedTarget === _activeInput) return;
-          if (_activeInput && !_activeInput.readOnly) {
-            _activeInput.focus({ preventScroll: true });
+          if (e.relatedTarget === input) return;
+          if (input && !input.readOnly) {
+            input.focus({ preventScroll: true });
           }
         });
       }
@@ -391,49 +347,45 @@ export function setupMobileInput(
         });
       }
 
-      // Focus/blur handlers bound to both inputs — update active references
-      for (const input of [pwInput, txtInput]) {
-        input.addEventListener('focus', () => {
-          _activeInput = input;
-          iframeInputRef = input;
-          setIframeInput(terminal, input);
-          if (blurTimeoutId !== null) {
-            clearTimeout(blurTimeoutId);
-            blurTimeoutId = null;
-          }
-          if (coreRef.coreService && !coreRef.coreService.isCursorInitialized) {
-            coreRef.coreService.isCursorInitialized = true;
-          }
-          if (typeof coreRef._handleTextAreaFocus === 'function') {
-            coreRef._handleTextAreaFocus(new FocusEvent('focus'));
+      input.addEventListener('focus', () => {
+        // Cancel pending blur — the input was re-focused (e.g., tap on terminal)
+        if (blurTimeoutId !== null) {
+          clearTimeout(blurTimeoutId);
+          blurTimeoutId = null;
+        }
+        if (coreRef.coreService && !coreRef.coreService.isCursorInitialized) {
+          coreRef.coreService.isCursorInitialized = true;
+        }
+        if (typeof coreRef._handleTextAreaFocus === 'function') {
+          coreRef._handleTextAreaFocus(new FocusEvent('focus'));
+        }
+        callbacks.refreshCursorLine();
+      });
+
+      input.addEventListener('blur', () => {
+        // Cancel any previous pending blur (rapid blur→blur without focus between)
+        if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
+        // Debounce: wait 100ms before disabling overlaysContent. If the input
+        // is re-focused within this window (tap→blur→click→focus cycle), the
+        // timeout is cancelled and overlaysContent stays true — avoiding the
+        // Samsung geometrychange cascade that resets keyboard height signals.
+        blurTimeoutId = setTimeout(() => {
+          blurTimeoutId = null;
+          disableVirtualKeyboardOverlay();
+          if (typeof coreRef._handleTextAreaBlur === 'function') {
+            coreRef._handleTextAreaBlur();
           }
           callbacks.refreshCursorLine();
-        });
-
-        input.addEventListener('blur', () => {
-          if (input !== _activeInput) return;
-          if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
-          blurTimeoutId = setTimeout(() => {
-            blurTimeoutId = null;
-            disableVirtualKeyboardOverlay();
-            if (typeof coreRef._handleTextAreaBlur === 'function') {
-              coreRef._handleTextAreaBlur();
-            }
-            callbacks.refreshCursorLine();
-          }, 100);
-        });
-      }
+        }, 100);
+      });
     } else {
-      for (const input of [pwInput, txtInput]) {
-        input.addEventListener('blur', () => {
-          if (input !== _activeInput) return;
-          if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
-          blurTimeoutId = setTimeout(() => {
-            blurTimeoutId = null;
-            disableVirtualKeyboardOverlay();
-          }, 100);
-        });
-      }
+      input.addEventListener('blur', () => {
+        if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
+        blurTimeoutId = setTimeout(() => {
+          blurTimeoutId = null;
+          disableVirtualKeyboardOverlay();
+        }, 100);
+      });
     }
   });
 
@@ -444,11 +396,6 @@ export function setupMobileInput(
   // Return cleanup function
   return () => {
     wasInputFocused = false;
-    resetVoiceMode();
-    _passwordInput = null;
-    _textInput = null;
-    _activeInput = null;
-    _voiceModeTerminal = null;
     if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); blurTimeoutId = null; }
     document.removeEventListener('visibilitychange', onVisibilityChange);
     window.removeEventListener('focus', onWindowFocus);
