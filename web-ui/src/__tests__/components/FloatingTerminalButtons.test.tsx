@@ -177,6 +177,51 @@ describe('FloatingTerminalButtons', () => {
       const buttons = document.querySelector('.floating-terminal-buttons');
       expect(buttons).not.toBeInTheDocument();
     });
+
+    it('shows 6 mobile button rows when speech not supported', () => {
+      speechMock.supported = false;
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      const rows = document.querySelectorAll('.floating-btn-row');
+      expect(rows.length).toBe(6);
+    });
+  });
+
+  describe('Desktop Voice Button', () => {
+    beforeEach(() => {
+      mobileMock.isTouchDevice.mockReturnValue(false);
+      speechMock.supported = true;
+    });
+
+    it('renders desktop mic button when not touch device and speech supported', () => {
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      const mic = document.querySelector('.floating-mic-desktop');
+      expect(mic).toBeInTheDocument();
+      expect(mic!.querySelector('button')).toHaveAttribute('title', 'Voice Input (Ctrl+Space)');
+    });
+
+    it('hides desktop mic button when speech not supported', () => {
+      speechMock.supported = false;
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      const mic = document.querySelector('.floating-mic-desktop');
+      expect(mic).not.toBeInTheDocument();
+    });
+
+    it('hides desktop mic button when terminal not shown', () => {
+      render(() => <FloatingTerminalButtons showTerminal={false} />);
+
+      const mic = document.querySelector('.floating-mic-desktop');
+      expect(mic).not.toBeInTheDocument();
+    });
+
+    it('does not render mobile floating buttons on desktop', () => {
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      const mobileButtons = document.querySelector('.floating-terminal-buttons');
+      expect(mobileButtons).not.toBeInTheDocument();
+    });
   });
 
   describe('Clipboard Access Guard', () => {
