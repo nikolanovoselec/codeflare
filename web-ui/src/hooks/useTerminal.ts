@@ -115,15 +115,15 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     term.loadAddon(fitAddon);
     registerMultiLineLinkProvider(term);
 
-    // Open terminal - on mobile, swap xterm's textarea for a text input to
-    // suppress autocorrect while preserving voice input (password type blocks
-    // speech-to-text on Android). Attributes handle autocorrect suppression.
+    // Open terminal - on mobile, swap xterm's textarea for a password input
+    // to suppress autocorrect at OS level. Voice input is toggled on demand
+    // via the floating microphone button (switches to type="text").
     if (isTouchDevice()) {
       const origCreateElement = document.createElement;
       document.createElement = function(tagName: string, options?: ElementCreationOptions) {
         if (tagName.toLowerCase() === 'textarea') {
           const input = origCreateElement.call(document, 'input', options);
-          input.setAttribute('type', 'text');
+          input.setAttribute('type', 'password');
           input.focus = () => {};
           return input;
         }
@@ -138,8 +138,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       term.open(container);
     }
 
-    // Suppress autocorrect/autocapitalize/spellcheck on the input element.
-    // Uses attributes instead of type="password" to preserve voice input.
+    // Disable mobile IME composition
     const textarea = term.textarea;
     if (textarea) {
       textarea.setAttribute('autocomplete', 'off');
@@ -148,7 +147,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       textarea.setAttribute('spellcheck', 'false');
       textarea.setAttribute('inputmode', 'text');
       textarea.setAttribute('enterkeyhint', 'enter');
-      textarea.setAttribute('aria-autocomplete', 'none');
       textarea.style.setProperty('-webkit-user-modify', 'read-write-plaintext-only');
       textarea.setAttribute('data-gramm', 'false');
       textarea.setAttribute('data-gramm_editor', 'false');
