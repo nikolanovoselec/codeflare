@@ -20,9 +20,10 @@ For more information, see [GitHub's guide on privately reporting a security vuln
 
 ### Authentication
 
-Codeflare delegates authentication entirely to **Cloudflare Access**:
+Codeflare supports two authentication modes:
 
-- **User authentication:** CF Access validates identity via configured identity providers (Google, GitHub, etc.) and issues JWTs. The worker verifies JWTs against CF Access JWKS endpoints using RS256.
+- **Cloudflare Access (default/onboarding mode):** CF Access validates identity via configured identity providers (Google, GitHub, etc.) and issues JWTs. The worker verifies JWTs against CF Access JWKS endpoints using RS256.
+- **GitHub OIDC (SaaS mode):** When `OAUTH_CLIENT_ID` is configured, the Worker handles authentication directly via GitHub OAuth with HMAC-SHA256 session cookies (`codeflare_session`, HttpOnly, Secure, SameSite=Lax, 1-hour TTL). Only verified GitHub emails are accepted. Cookie auto-refreshes when < 15 minutes remain.
 - **Service tokens:** E2E tests and automated systems authenticate via `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers, or via `X-Service-Auth` header matching the `SERVICE_AUTH_SECRET` worker secret.
 - **Email normalization:** User emails are trimmed and lowercased before KV lookup to prevent casing-based bypass.
 - **Three-tier access control** enforced via middleware:
@@ -162,3 +163,8 @@ Users can connect their GitHub and Cloudflare accounts via Settings > Push & Dep
 ### Automated Penetration Testing
 
 A weekly CI workflow (`pentest.yml`) runs external black-box security tests against the production deployment, validating security headers, TLS, auth gates, info disclosure, injection resistance, and HTTP methods. Run manually via `Actions` > `Pentest` > `Run workflow`. See [PENTEST.md](PENTEST.md) for the complete report covering all 13 test categories.
+
+**Related Documentation:**
+- [TECHNICAL.md](TECHNICAL.md) - Full technical reference including Security Model, Rate Limiting, and Architecture Decisions
+- [STRESS_TEST.md](STRESS_TEST.md) - Load testing methodology and rate limit validation
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Development workflow and guidelines

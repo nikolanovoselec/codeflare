@@ -2,11 +2,14 @@
 
 Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2 persistence.
 
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-03-30
 
 ---
 
 ## Table of Contents
+
+### Reference
+- [CF-NNN Code Index](#cf-nnn-code-index)
 
 ### Core Architecture
 1. [Architecture Overview](#architecture-overview)
@@ -18,14 +21,12 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 5. [Storage and Sync](#storage-and-sync)
 6. [Memory Persistence](#memory-persistence)
 
-### Security & Operations
+### Security & Auth
 7. [Authentication](#authentication)
 8. [SaaS Mode Authentication](#saas-mode-authentication)
-9. [Security Model](#security-model)
-10. [Rate Limiting](#rate-limiting)
-
-### Billing & Payments
-11. [Stripe Payment Integration](#stripe-payment-integration)
+9. [Stripe Payment Integration](#stripe-payment-integration)
+10. [Security Model](#security-model)
+11. [Rate Limiting](#rate-limiting)
 
 ### APIs & Configuration
 12. [API Reference](#api-reference)
@@ -34,30 +35,33 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 14. [Configuration](#configuration)
 
 ### Deployment & Infrastructure
-14. [Container Image](#container-image)
-15. [Container Startup](#container-startup)
-16. [Claude Code Integration](#claude-code-integration)
-17. [CI/CD (GitHub Actions)](#cicd-github-actions)
+15. [Container Image](#container-image)
+16. [Container Startup](#container-startup)
+17. [Claude Code Integration](#claude-code-integration)
+18. [CI/CD (GitHub Actions)](#cicd-github-actions)
 
 ### Development & Testing
-18. [Testing](#testing)
-19. [Development](#development)
-20. [File Structure](#file-structure)
+19. [Testing](#testing)
+20. [Development](#development)
+21. [File Structure](#file-structure)
 
-### Operations & Debugging
-21. [Troubleshooting](#troubleshooting)
-22. [Debugging Guide](#debugging-guide)
+### Operations
+22. [Troubleshooting](#troubleshooting)
 23. [Cost Analysis](#cost-analysis)
+24. [Module-Level Caches](#module-level-caches-cf-014)
+25. [Technical Debt](#technical-debt)
 
 ### Design Documentation
-24. [Architecture Decisions](#architecture-decisions)
-25. [Lessons Learned](#lessons-learned)
-26. [Mobile Terminal Design](#mobile-terminal-design)
-27. [Automatic Memory Capture](#automatic-memory-capture)
+26. [Architecture Decisions](#architecture-decisions)
+27. [Lessons Learned](#lessons-learned)
+28. [Mobile Terminal Design](#mobile-terminal-design)
+29. [Automatic Memory Capture](#automatic-memory-capture)
 
 **Related Documentation:**
 - [README.md](README.md) - Product overview and setup
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Development workflow and guidelines
 - [SECURITY.md](SECURITY.md) - Security policy and headers
+- [PENTEST.md](PENTEST.md) - Security scan results
 - [STRESS_TEST.md](STRESS_TEST.md) - Load testing guide
 
 ## CF-NNN Code Index
@@ -76,8 +80,12 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 | CF-010 | Rate-limit webhook; parseUserRecord validation | src/routes/stripe-webhook.ts, src/lib/access.ts |
 | CF-011 | Prefer metadata.email over customer_email; typed user records | src/routes/stripe-webhook.ts, src/lib/user-record.ts |
 | CF-012 | Decode URI-encoded sequences before path-traversal check | src/routes/storage/validation.ts |
+| CF-013 | Session store extraction (facade pattern) | web-ui/src/stores/session.ts, session-polling.ts, session-usage.ts |
+| CF-014 | Module-level cache inventory | See [Module-Level Caches](#module-level-caches-cf-014) section |
 | CF-015 | Catch missed subscription.deleted via billing period expiry | src/lib/subscription.ts |
+| CF-016 | ScrambleText consolidation to hook-based pattern | web-ui/src/lib/use-scramble-text.ts, web-ui/src/components/ScrambleText.tsx |
 | CF-017 | Warn on plaintext credential storage when ENCRYPTION_KEY absent | src/index.ts, src/lib/kv-crypto.ts, src/lib/access.ts |
+| CF-018 | billingPeriodEnd enforcement; unlimited tier exemption | src/lib/subscription.ts |
 | CF-020 | Timekeeper delta clamping / alarm retry; admin inquiry email; mobile input dispatch | src/lib/email.ts, web-ui/src/lib/terminal-mobile-input.ts |
 | CF-021 | Trial always in usage hours (trialDays fallback removed) | web-ui/src/components/SubscribePage.tsx |
 | CF-022 | KV rollback on container start failure; separate try/catch for KV reads | src/lib/cors-cache.ts |
@@ -939,7 +947,9 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 - Non-SaaS users without a tier default to `unlimited` access
 - Legacy bridge in `src/lib/access-tier.ts` delegates to `subscription.ts`
 
-### Stripe Payment Integration
+---
+
+## Stripe Payment Integration
 
 When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanced, max) require Stripe Checkout before activation. Free tier remains direct (no payment). When the secret is absent, all tiers work via direct KV (dev/self-hosted mode).
 
@@ -1824,7 +1834,7 @@ Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSI
 
 **Frontend-first enforcement:** The dashboard disables the start button when `isAtSessionLimit()` returns true (running + initializing sessions >= maxSessions). A popup explains the limit and which sessions to stop.
 
-**Backend loose check:** `POST /api/container/start` counts KV sessions with `status === 'running'` under the user's prefix (excluding the current session to allow restarts). Returns 429 `RateLimitError` if at or over the limit. This is a secondary guard -- the frontend prevents most limit violations before they reach the backend.
+**Backend loose check:** `POST /api/container/start` counts KV sessions with `status === 'running'` under the user's prefix (excluding the current session to allow restarts). Returns 402 `QuotaExceededError` with the actual limit message if at or over the limit. This is a secondary guard -- the frontend prevents most limit violations before they reach the backend.
 
 **`GET /api/sessions/batch-status`** returns `maxSessions` alongside `statuses` so the frontend stays in sync with the server-side limit without hardcoding defaults.
 
@@ -2713,7 +2723,7 @@ npm run typecheck    # Type check backend
 npm test             # Backend unit tests
 npm run test:e2e     # E2E API tests
 npm run test:e2e:ui  # E2E UI tests (Puppeteer)
-npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see Section 16)
+npm run deploy       # DO NOT run locally -- deploys go through GitHub Actions (see CI/CD)
 cd web-ui && npm run dev   # Frontend dev server
 cd web-ui && npm run build # Frontend production build
 ```
@@ -2913,26 +2923,21 @@ sudo apt-get install -yqq --no-install-recommends \
 | Character doubling in terminal | Handler not disposed on reconnect | Dispose `inputDisposable` before creating new handler in `connect()` |
 | Container returns 503 on all authenticated endpoints | `CONTAINER_AUTH_TOKEN` not set | Security default-deny. Token is set automatically by the DO via `crypto.randomUUID()` on lifecycle start. If missing, verify DO `updateEnvVars()` runs before `startAndWaitForPorts()` |
 
----
+### Diagnostic Commands
 
-## Debugging Guide
-
-### Container Status
-
+**Check container status:**
 ```bash
 curl -H "CF-Access-Client-Id: <id>" -H "CF-Access-Client-Secret: <secret>" \
   https://codeflare.example.com/api/container/startup-status?sessionId=abc12345
 ```
 
-### Verify Secrets
-
+**Verify secrets:**
 ```bash
 wrangler secret list
 # Expected: CLOUDFLARE_API_TOKEN, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 ```
 
-### Monitor Logs
-
+**Monitor logs:**
 ```bash
 wrangler tail codeflare
 wrangler tail codeflare --status error
@@ -3002,62 +3007,16 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 | AD32 | ENCRYPTION_KEY is optional | <details><summary>Optional encryption eases onboarding; operators accept plaintext KV storage as trade-off</summary><br>When ENCRYPTION_KEY is absent, LLM API keys, GitHub tokens, and Cloudflare API tokens are stored as plaintext JSON in KV with no warning. This is an intentional deployment-complexity trade-off. New deployers can get a running instance without generating and managing an encryption key. The target audience is self-hosted single-user/small-team deployments where the operator and the user are the same person. A startup warning when ENCRYPTION_KEY is absent is a recommended future improvement. Operators who want encryption set ENCRYPTION_KEY.</details> |
 | AD33 | Pre-setup CSRF risk accepted | <details><summary>Bootstrap window is seconds to minutes; AD10 trade-off applies</summary><br>createConditionalSetupAuth() calls next() directly when setup is not complete, bypassing the X-Requested-With CSRF check. AD10 accepts the open pre-setup endpoint as a bootstrap necessity. The pre-setup CSRF risk is accepted under the same rationale: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact workers.dev URL during its unconfigured window. Adding Origin validation to the pre-setup path is a low-cost future hardening.</details> |
 | AD34 | WebSocket auth bypass of Hono middleware | <details><summary>workerd constraint — WS upgrades cannot use Hono middleware; parallel auth path is manually synchronized</summary><br>WebSocket upgrades must be intercepted before the Hono middleware chain (documented workaround for cloudflare/workerd#2319). This creates a parallel auth path replicating authentication, CORS, rate limiting, and subscription-tier gating. The duplication is explicit and documented. Any change to the Hono middleware auth chain must be manually mirrored in the WebSocket handler. SaaS tier gating tests for the parallel path are tracked as a fix item.</details> |
-| AD35 | splash-cursor-logic.ts old-style constructor with any types |
-| AD36 | WebSocket Origin check is optional for non-browser clients | <details><summary>JWT auth is the security gate, not Origin — CLI tools need originless connections</summary><br>The WebSocket upgrade handler in `terminal.ts` only requires the `Origin` header when `Sec-Fetch-Mode` is present (browser heuristic). CLI tools (websocat, wscat) omit `Sec-Fetch-Mode` and are intentionally allowed without Origin. The primary security gate is `authenticateRequest()` which validates JWT/session credentials — Origin check is defense-in-depth for CSRF protection on browser connections only. An attacker omitting `Sec-Fetch-Mode` still cannot connect without a valid JWT.</details> | <details><summary>Vendored creative/WebGL code — TypeScript coverage not worth the refactoring effort</summary><br>An old-style constructor function with this: any causes all downstream pointer/rendering functions to use any types. AD19 covers as any casts in this module. The constructor is adapted from a visual effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.</details> |
+| AD35 | splash-cursor-logic.ts old-style constructor with any types | <details><summary>Vendored creative/WebGL code — TypeScript coverage not worth the refactoring effort</summary><br>An old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types. AD19 covers `as any` casts in this module. The constructor is adapted from a visual effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.</details> |
+| AD36 | WebSocket Origin check is optional for non-browser clients | <details><summary>JWT auth is the security gate, not Origin — CLI tools need originless connections</summary><br>The WebSocket upgrade handler in `terminal.ts` only requires the `Origin` header when `Sec-Fetch-Mode` is present (browser heuristic). CLI tools (websocat, wscat) omit `Sec-Fetch-Mode` and are intentionally allowed without Origin. The primary security gate is `authenticateRequest()` which validates JWT/session credentials — Origin check is defense-in-depth for CSRF protection on browser connections only. An attacker omitting `Sec-Fetch-Mode` still cannot connect without a valid JWT.</details> |
+| AD37 | KV as billing read cache — Signal and Sync (CF-015) | <details><summary>Webhooks signal; `syncSubscriptionState()` fetches latest from Stripe API and writes complete snapshot to KV</summary><br>Previous design had 6 webhook handlers incrementally patching KV fields, causing race conditions, silent tier update failures, and wrong emails. "Signal and Sync" pattern: Stripe is source of truth, KV is read cache. `lastSyncedAt` timestamp guard prevents stale overwrites. Concurrent webhooks are idempotent (both fetch same latest state). Price metadata on Stripe Price objects carries tier/mode, eliminating reverse lookups. `getEffectiveTier()` provides read-time enforcement with safe defaults. `past_due` grace period keeps paid tier while `billingPeriodEnd` is in the future.</details> |
+| AD38 | GitHub OIDC replaces CF Access in SaaS mode | <details><summary>CF Access costs $3/user/month beyond 50 users — GitHub OIDC is free</summary><br>When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentication directly via GitHub OAuth with HMAC-SHA256 session cookies. CF Access is bypassed at runtime. OAuth state uses HttpOnly cookies (not KV) to avoid eventual consistency issues. Only verified GitHub emails are accepted. The `codeflare_session` cookie is HttpOnly, Secure, SameSite=Lax with 1-hour TTL. Middleware in `index.ts` auto-refreshes when < 15 minutes remain — active users stay logged in indefinitely. Expired cookie triggers frontend auto-redirect to `/` for re-authentication.</details> |
+| AD39 | Max users capacity cap counts paid slots only | <details><summary>`countPaidSlots()` excludes free/pending/blocked users from the cap</summary><br>The `setup:max_users` KV key limits subscribing users. Free tier users (4h/month, 1 session) use minimal resources and shouldn't block paid customers. `countPaidSlots()` counts admins + users with paid tiers (standard/advanced/max/custom) whose billing is active or trialing. Canceled users count until `billingPeriodEnd` expires. Unlimited free users allowed without hitting cap.</details> |
+| AD40 | Webhook route order (`/public/stripe` before `/public`) | <details><summary>Hono catch-all ordering is load-bearing</summary><br>Hono's `app.route('/public', publicRoutes)` catches all `/public/*` paths. The Stripe webhook at `/public/stripe/webhook` must be mounted first. Future `/public/*` sub-routes must also be mounted before the catch-all.</details> |
+| AD41 | Custom tier uses contact flow (not self-service checkout) | <details><summary>Enterprise tier — "Let's talk" button sends admin email via Resend</summary><br>The Custom tier (unlimited compute, 5 sessions, custom SLA) is enterprise-grade. Renamed from "Team" to "Custom" — `getTierConfig()` auto-migrates legacy `displayName: 'Team'` to `'Custom'` on read. `POST /api/auth/contact-team` (rate-limited 1/hour) sends inquiry email. Button changes to "We'll get in touch" (disabled) after click. No Stripe checkout for Custom tier.</details> |
+| AD42 | Unauthenticated first setBucketName call (CF-010) | <details><summary>Worker-only access is the effective security boundary — DO binding is not externally reachable</summary><br>The first `/_internal/setBucketName` request is unauthenticated because the container auth token (random UUID per DO lifecycle) is generated after this call. The endpoint is only reachable via the Worker's internal Durable Object binding, not from external callers. For orphaned R2 tokens from failed KV writes, token ID is logged at creation time for manual revocation via CF dashboard. A periodic sweeper is deferred as a future improvement.</details> |
 
-#### AD: Stress Test Rate-Limit Bypass is Integration-Only
-- **Status:** Accepted
-- **Context:** `STRESS_TEST_MODE=active` disables all rate limiting. Only set via GitHub Actions workflow for integration environment. AD26 documents the bypass mechanism.
-- **Decision:** No CI guard needed for production deployment. The bypass is controlled via GitHub Actions environment variables, which are scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable.
-- **Consequences:** Relies on GitHub Actions environment separation. A repo admin could theoretically set the variable for production, but this requires deliberate action, not accidental configuration.
-
-#### AD: Container Secrets Passed as Environment Variables
-- **Status:** Accepted
-- **Context:** Container DO injects R2 credentials, LLM API keys, and auth tokens as plaintext environment variables. Containers are single-tenant (one user per container) and users have full terminal access.
-- **Decision:** Accept plaintext env vars for container secrets. Users can already access all environment variables via their terminal session (`env` command). The secrets are: R2 credentials (bucket-scoped to user's own bucket), LLM API keys (user's own keys), and a container auth token (internal DO-to-container communication).
-- **Consequences:** Any process inside the container can read secrets via `/proc/self/environ`. Acceptable because: (1) containers are single-tenant, (2) users already have equivalent access via terminal, (3) R2 credentials are bucket-scoped, (4) LLM keys belong to the user.
-
-#### AD: Worker Name Derived from Host Header for .workers.dev Domains
-- **Status:** Accepted
-- **Context:** During setup, the worker name is derived from the Host header for `.workers.dev` subdomains. For custom domains, the `CLOUDFLARE_WORKER_NAME` env var is preferred.
-- **Decision:** Accept Host header parsing for `.workers.dev` domains during setup. The exposure window is: (1) only during first-time setup (minutes), (2) requires CF Access JWT authentication, (3) setup is idempotent. For custom domains, the env var set at deploy time takes precedence.
-- **Consequences:** A spoofed Host header on a `.workers.dev` domain during the setup window could theoretically direct configuration to a different worker name, but this requires authenticated access and the window is extremely narrow.
-
-#### AD: KV as Billing Read Cache — Signal and Sync (CF-015)
-- **Status:** Accepted (updated)
-- **Context:** All billing state is stored in Cloudflare KV (eventually consistent, ~60s propagation). The previous design had 6 webhook handlers incrementally patching KV fields, causing race conditions, silent tier update failures, and wrong emails. Plan changes via Customer Portal were not picked up reliably.
-- **Decision:** "Signal and Sync" pattern — webhooks are signals that trigger `syncSubscriptionState()`, which fetches the latest state from the Stripe API and writes a complete snapshot to KV. Stripe is the source of truth; KV is a read cache. `lastSyncedAt` timestamp guard prevents stale webhooks from overwriting newer state. Concurrent webhooks calling sync both fetch the same latest state → idempotent. Price metadata on Stripe Price objects carries tier/mode, eliminating reverse price-to-tier lookups.
-- **Consequences:** KV write propagation (~60s) doesn't affect correctness — sync overwrites complete state. `getEffectiveTier()` still provides read-time enforcement with safe defaults. The `past_due` grace period (keep paid tier while `billingPeriodEnd` is in the future) prevents premature downgrade during Stripe retry windows. Renewal/payment emails are offloaded to Stripe native customer emails.
-
-#### AD: GitHub OIDC Replaces CF Access in SaaS Mode
-- **Status:** Accepted
-- **Context:** Cloudflare Access costs $3/user/month beyond 50 users. At 1,400 users this is $4,050/month for auth alone. GitHub OIDC is free for unlimited users.
-- **Decision:** When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentication directly via GitHub OAuth with HMAC-SHA256 session cookies. CF Access is bypassed at runtime. OAuth state uses HttpOnly cookies (not KV) to avoid eventual consistency issues. Only verified GitHub emails are accepted. The `codeflare_session` cookie is HttpOnly, Secure, SameSite=Lax with 1-hour TTL.
-- **Consequences:** Users must create a GitHub OAuth App per environment. CF Access setup wizard still runs (creating the Access app) but auth is bypassed. The `codeflare_session` cookie has a 1-hour TTL. A middleware in `index.ts` auto-refreshes the cookie when < 15 minutes remain on any response — active users stay logged in indefinitely. When the cookie expires (user inactive > 1 hour), the frontend auto-redirects to `/` for re-authentication via `baseFetch` 401 handler.
-
-#### AD: Max Users Capacity Cap Counts Paid Slots Only
-- **Status:** Accepted
-- **Context:** The `setup:max_users` KV key limits how many users can subscribe. Free tier users (4h/month, 1 session) use minimal resources and shouldn't block paid customers from subscribing.
-- **Decision:** `countPaidSlots()` counts admins + users with paid tiers (standard/advanced/max/unlimited) whose billing is active or trialing. Canceled users count until `billingPeriodEnd` expires. Free, pending, and blocked users are excluded.
-- **Consequences:** A deployment can have unlimited free users without hitting the capacity cap. Canceled users retain their slot until their paid period ends.
-
-#### AD: Webhook Route Order (`/public/stripe` before `/public`)
-- **Status:** Accepted
-- **Context:** Hono's `app.route('/public', publicRoutes)` catches all `/public/*` paths. The Stripe webhook at `/public/stripe/webhook` was unreachable because it was mounted after the catch-all.
-- **Decision:** Mount `/public/stripe` before `/public` in `src/index.ts`. More-specific routes must precede catch-all routes in Hono.
-- **Consequences:** Route ordering in `index.ts` is load-bearing. Future `/public/*` sub-routes must be mounted before the catch-all.
-
-#### AD: Custom Tier Uses Contact Flow (Not Self-Service Checkout)
-- **Status:** Accepted (updated — renamed from "Team" to "Custom")
-- **Context:** The Custom (unlimited) tier is enterprise-grade — unlimited compute, 5 sessions, custom SLA. Self-service checkout is not appropriate. The tier was renamed from "Team" to "Custom" — `getTierConfig()` auto-migrates legacy `displayName: 'Team'` to `'Custom'` on read.
-- **Decision:** The subscribe page shows "Let's talk" for the Custom tier. Clicking it sends an email to admins via Resend (`POST /api/auth/contact-team`, rate-limited 1/hour) and changes the button to "We'll get in touch" (disabled). No Stripe checkout for Custom tier.
-- **Consequences:** Custom tier onboarding is manual. Admins receive the inquiry email and configure the user's subscription directly.
-
-#### AD: Unauthenticated First setBucketName Call and Non-Atomic R2 Token Lifecycle (CF-010)
-- **Status:** Accepted
-- **Context:** The first `/_internal/setBucketName` request from the Worker to the Container DO is unauthenticated. The container auth token is a random UUID generated once per DO lifecycle and injected into the container environment after `setBucketName` is called — meaning that first call cannot yet present the token. Additionally, `getOrCreateScopedR2Token()` can leave an orphaned Cloudflare API token if the KV write that caches the token ID fails after token creation.
-- **Decision:** Accept the unauthenticated first call. Worker-only access is the effective security boundary: the `/_internal/setBucketName` endpoint is only reachable via the Worker's internal fetch path (Durable Object binding), not from external callers. No external actor can reach this endpoint. For orphaned R2 tokens, log the Cloudflare API token ID immediately after creation (before the KV write) so any token that escapes can be found and revoked manually via the Cloudflare dashboard. A periodic sweeper that cross-references CF API tokens against KV records is deferred as a future improvement.
-- **Consequences:** The bootstrap first-call gap is not expected to affect production security under normal operating conditions — the DO proxy is the network boundary. Orphaned tokens from failed KV writes are operationally recoverable via the logged token ID. Operators should monitor for log entries containing the R2 token ID at creation time and treat any uncorrelated token as a candidate for manual revocation.
+---
 
 ## Module-Level Caches (CF-014)
 
@@ -3076,6 +3035,8 @@ All module-level caches in the codebase. Workers isolates do not share memory, s
 | `src/lib/session-jwt.ts` | `cachedKey` | Isolate lifetime | HMAC CryptoKey imported from `OAUTH_JWT_SECRET` | (none — re-imported if secret changes) |
 
 After admin config changes, different isolates may enforce different values for up to the cache TTL. This is an accepted trade-off for KV read performance.
+
+---
 
 ## Technical Debt
 
@@ -3116,7 +3077,9 @@ Architectural principles and design rationale.
 
 ## Mobile Terminal Design
 
-### Challenge 1: Cursor Visibility
+This section documents the mobile terminal implementation, covering platform-specific workarounds for keyboard handling, scroll stability, and touch input. Fixes are numbered chronologically for git traceability.
+
+### Cursor Visibility
 
 The xterm cursor is now visible (enabled as of Claude Code 1.0.12+ / Copilot 1.0.12+). Previously, the cursor was hidden via CSS `display: none` on `.xterm-cursor-block`, `.xterm-cursor-outline`, `.xterm-cursor-bar`, and `.xterm-cursor-underline`, and via transparent theme colors.
 
@@ -3130,7 +3093,7 @@ The xterm cursor is now visible (enabled as of Claude Code 1.0.12+ / Copilot 1.0
 
 **Historical note:** On mobile, previous versions disabled xterm's cursor to avoid "orange square" duplication where both the DOM cursor and CLI's ANSI cursor were visible. The iframe compositor jail code remains as a precaution for the genuine Android IME native caret problem (separate from xterm's DOM cursor).
 
-### Challenge 2: Samsung Internet Keyboard Gap
+### Samsung Internet Keyboard Gap
 
 Samsung Internet's bottom navigation bar inflates viewport height, causing the VirtualKeyboard API to report incorrect dimensions.
 
@@ -3416,8 +3379,8 @@ The memory system uses two phases with different models optimized for their task
 **Phase 1 — Capture (haiku, fast, every 30 messages):**
 Raw observation capture into daily `chat-{TODAY}` entities. Haiku's job is speed — dump 3-5 observations per window without worrying about graph structure. This is the "write-ahead log."
 
-**Phase 2 — Compact (opus, thorough, triggered at 100 observations):**
-When the capture agent detects the graph has grown past 100 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: 50-80 quality observations per active project.
+**Phase 2 — Compact (opus, thorough, triggered at 150 observations):**
+When the capture agent detects the graph has grown past 150 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: 50-80 quality observations per active project.
 
 ```
 UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: haiku capture     Phase 2: opus compact
@@ -3432,7 +3395,7 @@ UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: haiku 
                                     spawn haiku agent ──────────> read prompt + vars             |
                                          |                       read transcript                 |
                                     (continues normally)         save 3-5 obs to chat-{TODAY}    |
-                                         |                       if obs >100: write .compact     |
+                                         |                       if obs >150: write .compact     |
                                          |                       write counter, rm lock          |
                                     check .compact marker             |                          |
                                     if exists: spawn opus ────────────────────────────────> read full graph

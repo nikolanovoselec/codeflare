@@ -280,7 +280,7 @@ Create one OAuth App per environment (integration vs production) with the matchi
 
 ## Testing
 
-See `TECHNICAL.md` Section 18 for test suite details, counts, and configuration.
+See [TECHNICAL.md — Testing](TECHNICAL.md#testing) for test suite details, counts, and configuration.
 
 ```bash
 npm test                           # Backend tests
@@ -292,7 +292,7 @@ npm run test:e2e:ui-desktop        # E2E UI desktop (alias)
 npm run test:e2e:ui-mobile         # E2E UI mobile
 ```
 
-E2E tests require a deployed worker and CF Access service tokens. See `TECHNICAL.md` Section 18 for setup details.
+E2E tests require a deployed worker and CF Access service tokens. See [TECHNICAL.md — Testing](TECHNICAL.md#testing) for setup details.
 
 ## CI/CD
 
@@ -309,7 +309,7 @@ Eight GitHub Actions workflows:
 | `pentest.yml` | Weekly (Monday 5am UTC), manual | Automated external penetration testing |
 | `stress-test.yml` | Manual | k6 load testing against integration worker |
 
-See `TECHNICAL.md` Section 17 for full CI/CD documentation.
+See [TECHNICAL.md — CI/CD](TECHNICAL.md#cicd-github-actions) for full CI/CD documentation.
 
 ## Docs
 

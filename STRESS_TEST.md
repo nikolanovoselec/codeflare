@@ -2,6 +2,11 @@
 
 k6-based load testing against the integration worker. Four test suites run in parallel via the `stress-test.yml` GitHub Actions workflow.
 
+**Related Documentation:**
+- [TECHNICAL.md](TECHNICAL.md) - Full technical reference
+- [SECURITY.md](SECURITY.md) - Security architecture and rate limiting
+- [PENTEST.md](PENTEST.md) - Security scan results
+
 ## Prerequisites
 
 1. **Integration worker deployed** with `STRESS_TEST_MODE=active` (disables all rate limits — required because all VUs share one service identity)
