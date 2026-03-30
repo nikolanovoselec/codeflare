@@ -43,10 +43,15 @@ export function formatDuration(seconds: number): string {
   return `${hours}h ${minutes}m`;
 }
 
+function trimTrailingZero(value: number): string {
+  const s = value.toFixed(1);
+  return s.endsWith('.0') ? s.slice(0, -2) : s;
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes < 1024 * 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
+  if (bytes < 1024 * 1024) return `${trimTrailingZero(bytes / 1024)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${trimTrailingZero(bytes / (1024 * 1024))} MB`;
+  if (bytes < 1024 * 1024 * 1024 * 1024) return `${trimTrailingZero(bytes / (1024 * 1024 * 1024))} GB`;
+  return `${trimTrailingZero(bytes / (1024 * 1024 * 1024 * 1024))} TB`;
 }
