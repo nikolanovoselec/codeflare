@@ -9,7 +9,7 @@ Uses the **spec-driven-development** skill for formatting rules and quality chec
 | Command | Purpose |
 |---------|---------|
 | `/sdd` or `/sdd init` | Full guided spec creation (Steps 1-9) |
-| `/sdd elicit {domain}` | Deep-dive requirements for a single domain |
+| `/sdd edit {domain}` | Deep-dive requirements for a single domain |
 | `/sdd check` | Validate spec quality across all domain files |
 | `/sdd add {domain}` | Add a new domain to an existing spec |
 
@@ -72,7 +72,7 @@ Now that the product shape is clear, propose 3-7 design principles:
 
 Present and iterate until confirmed.
 
-#### Step 6: Requirements Elicitation
+#### Step 6: Requirements Editation
 
 For each domain, work through requirements one domain at a time:
 
@@ -90,7 +90,7 @@ For each domain, work through requirements one domain at a time:
 5. Mark all as `Status: Planned`
 6. Present the domain file and iterate
 
-If the conversation is getting long, stop after 3-4 domains and suggest the user continue with `/sdd elicit {domain}` for remaining domains.
+Work through all domains in sequence. The user can also use `/sdd edit {domain}` later to add depth to any domain incrementally.
 
 #### Step 7: Cross-Cutting Constraints
 
@@ -136,7 +136,7 @@ After approval:
 
 ```
 Spec complete. Next steps:
-1. /sdd elicit {domain} — deep-dive any domain that needs more requirements
+1. /sdd edit {domain} — deep-dive any domain that needs more requirements
 2. /sdd check — validate spec quality
 3. /plan {domain} — plan implementation for a specific domain
 4. Add new requirements to sdd/ as the product evolves
@@ -144,9 +144,9 @@ Spec complete. Next steps:
 
 ---
 
-### `/sdd elicit {domain}` — Single Domain Deep-Dive
+### `/sdd edit {domain}` — Single Domain Deep-Dive
 
-Focused requirements elicitation for one domain. Use when:
+Focused requirements editation for one domain. Use when:
 - The initial `/sdd init` was too broad for some domains
 - Adding depth to a domain after initial spec creation
 - The context window is limited and full spec creation would degrade quality
@@ -155,7 +155,7 @@ Focused requirements elicitation for one domain. Use when:
 2. Read `sdd/constraints.md` for applicable global constraints
 3. Read `sdd/glossary.md` for existing terms
 4. Read `sdd/{domain}.md` if it exists (build on existing requirements)
-5. Elicit requirements through conversation (same process as Step 6 above)
+5. Edit requirements through conversation (same process as Step 6 above)
 6. Write/update `sdd/{domain}.md`
 7. Update `sdd/glossary.md` with any new terms
 8. Add entry to `sdd/changes.md`
@@ -181,7 +181,7 @@ Report findings as a checklist. Suggest fixes for any issues found.
 
 1. Read existing `sdd/README.md` for context
 2. Ask the user what this domain covers
-3. Elicit requirements (same process as `/sdd elicit`)
+3. Edit requirements (same process as `/sdd edit`)
 4. Create `sdd/{domain}.md`
 5. Update `sdd/README.md` domain index
 6. Update `sdd/glossary.md` with new terms
@@ -191,7 +191,7 @@ Report findings as a checklist. Suggest fixes for any issues found.
 
 ## Arguments
 
-$ARGUMENTS: Sub-command and optional context (e.g., `/sdd`, `/sdd init a real-time collaboration tool`, `/sdd elicit authentication`, `/sdd check`, `/sdd add billing`)
+$ARGUMENTS: Sub-command and optional context (e.g., `/sdd`, `/sdd init a real-time collaboration tool`, `/sdd edit authentication`, `/sdd check`, `/sdd add billing`)
 
 ## Tips
 
@@ -201,5 +201,5 @@ $ARGUMENTS: Sub-command and optional context (e.g., `/sdd`, `/sdd init a real-ti
 - If the user already has code, suggest reverse-engineering the spec first, then using `/sdd` for new features.
 - Keep requirements at the "what" level. If the user describes implementation, redirect to intent.
 - A good spec for a medium product has 50-100 requirements across 8-12 domains.
-- For large products, use `/sdd init` for the skeleton then `/sdd elicit {domain}` per domain to manage context.
+- `/sdd edit {domain}` is useful for adding depth to a domain after initial creation, or for incremental spec growth over time.
 - When in doubt about a requirement, mark it as `Proposed` with an open question — don't guess.

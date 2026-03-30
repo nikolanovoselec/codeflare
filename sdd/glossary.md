@@ -1,0 +1,24 @@
+# Glossary
+
+Canonical definitions for domain concepts. Use these terms consistently across all spec files, implementation, and documentation.
+
+| Term | Definition |
+|------|-----------|
+| Session | A single working environment mapped to one container. Users can have multiple sessions. |
+| Container | An isolated Cloudflare Container running a terminal server, agent CLI, and rclone sync. One per session. |
+| Bucket | A per-user R2 storage bucket (`codeflare-{bucketName}`) holding all persistent files. |
+| Agent | An AI coding CLI tool (Claude Code, Codex, Gemini CLI, Copilot, OpenCode, or plain bash). |
+| Session Mode | Standard (default) or Pro (advanced). Controls which preseed configs are deployed. |
+| Preseed | Pre-configured rules, skills, agents, commands, and plugins deployed to a container on start. |
+| Tier | Subscription level (blocked, pending, free, trial, standard, advanced, max, unlimited/Custom). |
+| Durable Object (DO) | Cloudflare's stateful compute primitive. Container DO manages per-session state; Timekeeper DO tracks per-user usage. |
+| KV | Cloudflare Workers KV — globally distributed key-value store for session metadata, user records, and preferences. |
+| Worker | The Cloudflare Worker running the Hono router — handles all HTTP/WebSocket requests. |
+| Bisync | rclone's bidirectional sync mode — keeps container local files and R2 bucket in sync. |
+| sleepAfter | Configurable idle timeout (5m-2h) before a container is stopped. Input-based detection. |
+| PTY | Pseudo-terminal — the terminal server multiplexes up to 6 PTY sessions per container. |
+| Tiling | Multi-terminal layout modes: tabbed (default), 2-split, 3-split, 4-grid. |
+| CF Access | Cloudflare Access — external auth service used in default/onboarding modes. |
+| Direct GitHub OAuth | Worker-managed GitHub OAuth flow used in SaaS mode when OAUTH_CLIENT_ID is configured. Completely separate from CF Access. |
+| Timekeeper | Durable Object that tracks per-user compute usage for quota enforcement. |
+| Setup Wizard | First-time configuration flow that provisions domain, auth, R2 credentials, and Turnstile. |
