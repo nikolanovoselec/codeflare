@@ -113,3 +113,16 @@ CVE-2026-4105
 # openssh-client 9.2p1: GSSAPI information disclosure / DoS
 # Container uses SSH only for git clone over SSH (not GSSAPI); no fix in bookworm.
 CVE-2026-3497
+
+# picomatch 4.0.3: ReDoS via crafted extglob patterns (CVE-2026-33671)
+# Transitive dep of globally-installed npm CLIs. CLIs use hardcoded glob patterns,
+# not user-controlled input. Fix: 4.0.4 — waiting for upstream CLI updates.
+CVE-2026-33671
+
+# ncurses 6.4-4: buffer overflow in ncurses (CVE-2025-69720)
+# System library in Debian bookworm, no fix available. Terminal usage only.
+CVE-2025-69720
+
+# cpython 3.11: command-line option injection in webbrowser.open()
+# Container doesn't use webbrowser.open(); python3 is for ECC hooks only.
+CVE-2026-4519
