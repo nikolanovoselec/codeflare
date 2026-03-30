@@ -9,6 +9,7 @@ CVE-2026-33186
 # rclone/lazygit: jsonparser DoS via crafted JSON input.
 # These are CLI tools in sandboxed container, not processing untrusted JSON.
 GHSA-6g7g-w4f8-9c9x
+CVE-2026-32285
 
 # lazygit v0.60.0 built with Go 1.25.x — may still need Go 1.25.8+ for fix.
 # Risk: crypto/tls session resumption — lazygit doesn't expose TLS services.
