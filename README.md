@@ -94,7 +94,7 @@ flowchart LR
     zero cost"]
 ```
 
-Containers scale to zero when idle (no sessions = no bill). Storage persists. A per-user Timekeeper Durable Object tracks compute usage and enforces monthly quotas. Auth is handled by Cloudflare Access with a branded login page - one-click GitHub OAuth, automatic user provisioning, and admin approval workflow.
+Containers scale to zero when idle (no sessions = no bill). Storage persists. A per-user Timekeeper Durable Object tracks compute usage and enforces monthly quotas. Auth is handled by Cloudflare Access or GitHub OIDC (SaaS mode) — one-click login, automatic user provisioning, and admin approval workflow.
 
 ## Setup
 
@@ -267,7 +267,7 @@ Create one OAuth App per environment (integration vs production) with the matchi
 
 - Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
 - AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
-- Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`) with JWT verification.
+- All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by JWT verification — via Cloudflare Access (default mode) or GitHub OIDC session cookies (SaaS mode).
 - API tokens stay in GitHub and Cloudflare by default. If you connect GitHub and Cloudflare in Push & Deploy (optional), those tokens are injected into your container so the agent can push code and deploy for you. They're stored encrypted in KV, scoped per user, and never shared across sessions.
 - Security headers: HSTS, CSP, X-Frame-Options, Referrer-Policy on every response.
 - Rate limiting: KV-backed, per-user limits on session creation, container starts, and WebSocket connections. Returns 429 with `Retry-After` header when exceeded.

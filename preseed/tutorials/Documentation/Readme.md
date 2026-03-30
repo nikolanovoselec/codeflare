@@ -56,13 +56,13 @@ flowchart LR
 
 Each session maps to a single container. The Worker handles routing and auth. Durable Objects manage session lifecycle. Containers provide the compute. R2 provides storage that outlives every container you'll ever start.
 
-Containers scale to zero when idle (no sessions = no bill). Auth is handled by Cloudflare Access - no custom login pages, no token management, no OAuth dance.
+Containers scale to zero when idle (no sessions = no bill). Auth is handled automatically — via Cloudflare Access or GitHub OIDC depending on deployment mode.
 
 ## Security
 
 - Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
 - AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
-- Cloudflare Access gates all authenticated surfaces (`/app`, `/api`, `/setup`).
+- All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by JWT verification.
 - API tokens never enter the container. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
 - Optional Turnstile bot protection for public-facing onboarding flows.
 

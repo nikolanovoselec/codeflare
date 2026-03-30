@@ -137,7 +137,7 @@ Enabled at the repository level (Settings > Code security and analysis):
 ### WebSocket Security
 
 - **Route validation:** WebSocket upgrade requests are validated against allowed routes before Hono routing (workerd bug workaround).
-- **Auth on connect:** WebSocket connections go through the same CF Access auth middleware as HTTP requests.
+- **Auth on connect:** WebSocket connections go through the same authentication as HTTP requests (CF Access JWT or OIDC session cookie depending on mode).
 - **Container-scoped tokens:** WebSocket traffic proxied to containers includes the DO-scoped `Authorization: Bearer` token.
 
 ### Push & Deploy Credentials

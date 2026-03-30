@@ -124,7 +124,7 @@ graph TD
 
 **File:** `src/index.ts`
 
-Entry point and API gateway. Handles routing, WebSocket upgrade interception, authentication via Cloudflare Access, container lifecycle through Durable Objects, and CORS with configurable allowed origins.
+Entry point and API gateway. Handles routing, WebSocket upgrade interception, authentication (CF Access JWT or GitHub OIDC session cookies), container lifecycle through Durable Objects, and CORS with configurable allowed origins.
 
 **WebSocket must be intercepted BEFORE Hono routing** (required workaround for CF Workers):
 ```typescript
@@ -1585,9 +1585,11 @@ These issues were discovered and fixed during SaaS mode implementation:
 
 ## Security Model
 
-### CF Access Gate
+### Authentication Gate
 
-Cloudflare Access protects all authenticated surfaces (see Section [Authentication](#authentication) for Access application destination strategy).
+All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of two auth mechanisms depending on deployment mode:
+- **Default/onboarding mode:** Cloudflare Access JWT verification (see [Authentication](#authentication) for Access application destination strategy)
+- **SaaS mode (GitHub OIDC):** Worker-managed session cookies (`codeflare_session`, HMAC-SHA256). CF Access is bypassed at runtime when `OAUTH_CLIENT_ID` is configured.
 
 ### API Token Containment
 
