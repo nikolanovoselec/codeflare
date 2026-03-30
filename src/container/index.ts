@@ -122,6 +122,12 @@ export class container extends Container<Env> {
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
       this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;
 
+      // Restore user-configured idle timeout (survives DO resets)
+      const storedSleepAfter = await this.ctx.storage.get<string>('sleepAfter');
+      if (storedSleepAfter && /^(5m|15m|30m|1h|2h)$/.test(storedSleepAfter)) {
+        this.sleepAfter = storedSleepAfter;
+      }
+
       // Resolve R2 config via shared helper (env vars first, KV fallback)
       try {
         const r2Config = await getR2Config(this.env);
@@ -254,6 +260,7 @@ export class container extends Container<Env> {
         // Update sleepAfter on restart
         if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
           this.sleepAfter = sleepAfterPref;
+          await this.ctx.storage.put('sleepAfter', sleepAfterPref);
           this.renewActivityTimeout();
         }
 
@@ -312,6 +319,7 @@ export class container extends Container<Env> {
       // Apply user-configurable sleepAfter (validated values: 5m, 15m, 30m, 1h, 2h)
       if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
         this.sleepAfter = sleepAfterPref;
+        await this.ctx.storage.put('sleepAfter', sleepAfterPref);
         this.renewActivityTimeout();
         this.logger.info('sleepAfter set from user preference', { sleepAfter: sleepAfterPref });
       }
@@ -392,6 +400,7 @@ export class container extends Container<Env> {
       await this.ctx.storage.delete('workspaceSyncEnabled');
       await this.ctx.storage.delete('fastStartEnabled');
       await this.ctx.storage.delete('tabConfig');
+      await this.ctx.storage.delete('sleepAfter');
       this._bucketName = null;
       this._sessionId = null;
       this._r2AccessKeyId = null;

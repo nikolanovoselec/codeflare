@@ -619,8 +619,98 @@ describe('container DO class', () => {
   });
 
   describe('sleepAfter', () => {
-    it('sleepAfter is 5m', () => {
+    it('defaults to 5m when not in storage', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
+      expect(instance.sleepAfter).toBe('5m');
+    });
+
+    it('loads from DO storage on construction', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'sleepAfter') return '1h';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(instance.sleepAfter).toBe('1h');
+      });
+    });
+
+    it('rejects invalid values from storage and falls back to 5m', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'sleepAfter') return 'invalid';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalled();
+      });
+      expect(instance.sleepAfter).toBe('5m');
+    });
+
+    it('persists to DO storage on initial setBucketName', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'test-bucket', sleepAfter: '1h' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+      expect(mockStorage.put).toHaveBeenCalledWith('sleepAfter', '1h');
+      expect(instance.sleepAfter).toBe('1h');
+    });
+
+    it('persists to DO storage on restart (409 path)', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'existing-bucket';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'existing-bucket', sleepAfter: '2h' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(409);
+      expect(mockStorage.put).toHaveBeenCalledWith('sleepAfter', '2h');
+      expect(instance.sleepAfter).toBe('2h');
+    });
+
+    it('is cleaned up on destroy', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await instance.destroy();
+
+      expect(mockStorage.delete).toHaveBeenCalledWith('sleepAfter');
+    });
+
+    it('does not persist invalid values from setBucketName', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'test-bucket', sleepAfter: 'invalid' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      await instance.fetch(request);
+
+      const sleepAfterPuts = mockStorage.put.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'sleepAfter'
+      );
+      expect(sleepAfterPuts).toHaveLength(0);
       expect(instance.sleepAfter).toBe('5m');
     });
   });

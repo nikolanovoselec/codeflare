@@ -2510,14 +2510,17 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 **Class default:** `override sleepAfter = '5m'` in `container/index.ts` — this is the SDK fallback if no preference is sent via `setBucketName`. Set to match the minimum user-configurable value. In practice, the lifecycle route always passes the user's preference (defaulting to `'30m'`).
 
+**DO storage persistence:** `sleepAfter` is persisted to DO storage (`ctx.storage.put('sleepAfter', ...)`) on both initial set and restart paths. The constructor's `blockConcurrencyWhile` reloads it with regex validation, falling back to `'5m'` if absent or invalid. This ensures the user's configured idle timeout survives Cloudflare DO resets (infrastructure-level events that reinitialize the DO instance). Cleaned up in `destroy()` alongside other operational keys.
+
 **Data flow:**
 1. User selects auto-sleep duration in Settings > Session Defaults > Auto-sleep dropdown
 2. `PATCH /api/preferences` saves `{ sleepAfter: '30m' }` to KV (`user-prefs:{bucketName}`)
 3. On next session start, `POST /api/container/start` reads preferences from KV
 4. `configureContainerDO()` → `buildSetBucketNameBody()` includes `sleepAfter` in the JSON body
-5. Container DO receives it in `handleSetBucketName()`, validates against `/^(5m|15m|30m|1h|2h)$/`, and sets `this.sleepAfter = sleepAfterPref`
+5. Container DO receives it in `handleSetBucketName()`, validates against `/^(5m|15m|30m|1h|2h)$/`, sets `this.sleepAfter = sleepAfterPref`, and persists to DO storage
 6. SDK uses the new `sleepAfter` value for its idle detection alarm
-7. On restart (idempotent 409 path), `sleepAfter` is also updated from the latest preference
+7. On restart (idempotent 409 path), `sleepAfter` is also updated from the latest preference and persisted to DO storage
+8. On DO reset (cold start), constructor loads `sleepAfter` from DO storage before any `collectMetrics` alarm fires
 
 **Access control:**
 - **Admins** — always allowed to change their own `sleepAfter`
