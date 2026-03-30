@@ -111,7 +111,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   return (
     <>
     <Show when={isTouchDevice() && props.showTerminal && isVirtualKeyboardOpen()}>
-      <div class="floating-terminal-buttons" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px + 10px)` }}>
+      <div class="floating-terminal-buttons" style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px + 10px)`, "max-height": `calc(100vh - env(safe-area-inset-bottom, 0px) - ${getKeyboardHeight()}px - 60px)` }}>
         <Show when={terminalStore.authUrl}>
           <div class="floating-btn-row">
             <span class={`floating-btn-label ${labelsVisible() ? 'visible' : ''}`}>OPEN AUTH URL</span>
