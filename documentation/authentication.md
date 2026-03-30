@@ -8,61 +8,97 @@ Dual authentication (Cloudflare Access and GitHub OIDC), SaaS mode, subscription
 
 ## Authentication Modes
 
-### Dual Auth Mode
+Codeflare supports two fundamentally different authentication flows. Both can involve GitHub login, but they are completely separate mechanisms:
 
-`getUserFromRequest()` checks auth methods in order:
+| | CF Access (with GitHub as IdP) | Direct GitHub OAuth |
+|---|---|---|
+| **When** | Default, onboarding, or SaaS without `OAUTH_CLIENT_ID` | SaaS mode with `OAUTH_CLIENT_ID` configured |
+| **Auth layer** | Cloudflare Access (external service) | Worker handles auth directly |
+| **Login page** | CF Access branded login page | Codeflare login page (`/login`) |
+| **GitHub role** | One of several IdPs configured in CF Access dashboard | The sole auth provider, managed by the Worker |
+| **OAuth flow** | CF Access → GitHub → CF Access issues `CF_Authorization` JWT | Worker → GitHub → Worker issues `codeflare_session` JWT |
+| **JWT issuer** | Cloudflare (RS256, verified via JWKS) | Worker (HMAC-SHA256, verified via `OAUTH_JWT_SECRET`) |
+| **Cookie** | `CF_Authorization` (managed by CF Access) | `codeflare_session` (HttpOnly, Secure, SameSite=Lax, 1h) |
+| **Session lifetime** | Managed by CF Access policy | 1h TTL, auto-refreshed when < 15 min remaining |
+| **User management** | CF Access groups + email allowlists | Worker KV records, JIT provisioning |
+| **Setup wizard** | Creates CF Access app, groups, policies | No CF Access resources created |
+| **Cost** | Free for 50 users, $3/user/month after | Free for unlimited users |
+| **E2E auth** | `CF_ACCESS_CLIENT_SECRET` (sent as CF Access + service headers) | `OAUTH_E2E_TEST_SECRET` (sent as `X-Service-Auth` only) |
+| **Logout** | `/cdn-cgi/access/logout` (CF Access system endpoint) | `/auth/github/logout` (clears `codeflare_session` cookie) |
+
+The frontend always calls `/auth/logout` — the backend dispatches to the correct logout flow based on mode.
+
+### Auth Resolution Order
+
+`getUserFromRequest()` in `src/lib/access.ts` checks auth methods in this order:
 
 1. **Service token** (`X-Service-Auth` header) — E2E testing, all modes. Constant-time comparison against `SERVICE_AUTH_SECRET`.
-2. **GitHub OIDC** (`codeflare_session` cookie) — SaaS mode when `OAUTH_CLIENT_ID` is set. HMAC-SHA256 JWT signed by `OAUTH_JWT_SECRET`. Replaces CF Access entirely.
-3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) — default/onboarding mode, or SaaS without `OAUTH_CLIENT_ID`. Verified via JWKS.
-4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) — trusted only before setup completes.
+2. **Direct GitHub OAuth** (`codeflare_session` cookie) — only when `SAAS_MODE=active` AND `OAUTH_CLIENT_ID` is set. HMAC-SHA256 JWT verified against `OAUTH_JWT_SECRET`. When this branch is entered, CF Access is never checked.
+3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) — all other modes. RS256 JWT verified against CF Access JWKS endpoint.
+4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) — trusted only before setup completes (bootstrap problem — auth isn't configured yet).
 
-### GitHub OIDC (SaaS Mode)
+### Direct GitHub OAuth Flow
 
-When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured:
+When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured, the Worker handles the entire OAuth flow with no CF Access involvement:
 
 ```
-Login button → GET /auth/github/login
+User clicks "Sign in with GitHub" on /login
+  → GET /auth/github/login
   → Set oauth_state cookie (random UUID, 5-min TTL)
-  → 302 to github.com/login/oauth/authorize
-  → User authorizes → GitHub redirects to /auth/github/callback
-  → Validate state (cookie vs query param, not KV — avoids eventual consistency)
-  → Exchange code for access token → fetch verified email from GitHub API
-  → Sign HMAC-SHA256 JWT → Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, 1h)
-  → Redirect to /app/ or /app/subscribe based on user state
+  → 302 to github.com/login/oauth/authorize?client_id=...&scope=user:email
+  → User authorizes on GitHub
+  → GitHub redirects to /auth/github/callback?code=...&state=...
+  → Worker validates state (cookie vs query param, not KV — avoids eventual consistency)
+  → Worker exchanges code for access token via GitHub API
+  → Worker fetches verified email from /user + /user/emails
+  → Worker signs HMAC-SHA256 JWT with OAUTH_JWT_SECRET
+  → Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, Max-Age=3600)
+  → Redirect to /app/ (active user) or /app/subscribe (pending user)
 ```
 
-- GitHub access token used ephemerally during callback, then discarded
+- GitHub access token used ephemerally during callback, then discarded (not stored)
 - Only `primary: true, verified: true` emails accepted from GitHub API
-- OAuth error codes allowlisted (access_denied, redirect_uri_mismatch, application_suspended)
+- OAuth error codes allowlisted: `access_denied`, `redirect_uri_mismatch`, `application_suspended`
 - Callback rate-limited (10/min per IP)
-- Missing `OAUTH_JWT_SECRET` in SaaS mode throws `AuthError` (fail-loud, no silent fallthrough to CF Access)
+- Missing `OAUTH_JWT_SECRET` throws `AuthError` (fail-loud — never silently falls through to CF Access)
+- Cookie auto-refreshed by middleware in `index.ts` when < 15 min remaining on any response
 
-**Logout:** `/auth/logout` routes to `/auth/github/logout` (clears cookie) in SaaS mode, or CF Access logout in default mode. Frontend uses `/auth/logout` — never hardcodes CF Access URLs.
+### CF Access Flow
 
-### Cloudflare Access Integration (Default/Onboarding Mode)
+When `OAUTH_CLIENT_ID` is NOT set, Cloudflare Access handles authentication:
 
-**Browser/JWT:** `cf-access-authenticated-user-email` + `cf-access-jwt-assertion` headers.
-
-**Service Token:** `CF-Access-Client-Id` + `CF-Access-Client-Secret` headers. Mapped to email via `SERVICE_TOKEN_EMAIL`.
+```
+User visits protected URL (/app, /api/*, /setup)
+  → CF Access intercepts (302 to CF Access login page)
+  → User picks identity provider (GitHub, Google, etc.)
+  → IdP OAuth flow (managed entirely by CF Access)
+  → CF Access issues CF_Authorization cookie (RS256 JWT)
+  → Request reaches Worker with cf-access-jwt-assertion header
+  → Worker verifies JWT signature via JWKS (https://{authDomain}/cdn-cgi/access/certs)
+  → Worker extracts email, normalizes, resolves user from KV
+```
 
 **Email Normalization:** Trimmed + lowercased before KV lookup, role resolution, and bucket name derivation.
 
-### Access Application Destination Strategy
+**Service Token:** `CF-Access-Client-Id` + `CF-Access-Client-Secret` headers. Mapped to email via `SERVICE_TOKEN_EMAIL`.
 
-One Access application with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`. Including exact + wildcard variants removes ambiguity. Uses all 5 allowed entries. **Skipped when `OAUTH_CLIENT_ID` is set** — CF Access app is still created by the setup wizard but auth is bypassed at runtime by the OIDC branch.
+### CF Access Resources
 
-### Access Group Model
+These resources are created by the setup wizard only when GitHub OAuth is NOT configured:
 
-Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()` after user mutations — **skipped in SaaS mode** because the Access policy uses `login_method` includes (set by setup); syncing would overwrite them with email/group includes, breaking the policy. `GET /api/setup/prefill` reads existing membership for redeploy prefill (skipped in SaaS mode — returns empty arrays, admin enters everything manually). Admin-only deployments (0 regular users) are supported: the users group is skipped entirely and the Access policy references only the admin group.
+**Access Application:** One self-hosted app with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`. Including exact + wildcard variants removes ambiguity.
+
+**Access Groups:** Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()` after user mutations. `GET /api/setup/prefill` reads existing membership for redeploy prefill. Admin-only deployments (0 regular users) are supported: the users group is skipped and the policy references only the admin group.
+
+When `OAUTH_CLIENT_ID` IS set: no CF Access groups or policies are created. The Worker handles user management directly via KV records.
 
 ### E2E Testing Auth
 
-E2E tests authenticate via `X-Service-Auth` header. The secret comes from:
-- **CF Access mode:** `CF_ACCESS_CLIENT_SECRET` environment secret (also sent as CF Access headers)
-- **GitHub OIDC mode:** `OAUTH_E2E_TEST_SECRET` environment secret (no CF Access headers needed)
+E2E tests authenticate via `X-Service-Auth` header in all modes. The secret comes from:
+- **CF Access mode:** `CF_ACCESS_CLIENT_SECRET` environment secret (also sent as CF Access headers for the gateway)
+- **Direct GitHub OAuth mode:** `OAUTH_E2E_TEST_SECRET` environment secret (no CF Access headers needed)
 
-Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, service auth is disabled (safe — `env.SERVICE_AUTH_SECRET` is undefined, the check is skipped).
+Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, service auth is disabled.
 
 ### Root Redirect
 
