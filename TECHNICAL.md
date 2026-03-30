@@ -14,10 +14,10 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 ### Core Architecture
 1. [Architecture Overview](#architecture-overview)
 2. [System Components](#system-components)
-3. [Data Flow](#data-flow)
+3. [Backend Libraries](#backend-libraries)
+4. [Data Flow](#data-flow)
 
 ### Backend
-4. [Backend Libraries](#backend-libraries)
 5. [Storage and Sync](#storage-and-sync)
 6. [Memory Persistence](#memory-persistence)
 
@@ -48,11 +48,11 @@ Browser-based cloud IDE on Cloudflare Workers with per-session containers and R2
 ### Operations
 22. [Troubleshooting](#troubleshooting)
 23. [Cost Analysis](#cost-analysis)
-24. [Module-Level Caches](#module-level-caches-cf-014)
-25. [Technical Debt](#technical-debt)
 
 ### Design Documentation
-26. [Architecture Decisions](#architecture-decisions)
+24. [Architecture Decisions](#architecture-decisions)
+25. [Module-Level Caches](#module-level-caches-cf-014)
+26. [Technical Debt](#technical-debt)
 27. [Lessons Learned](#lessons-learned)
 28. [Mobile Terminal Design](#mobile-terminal-design)
 29. [Automatic Memory Capture](#automatic-memory-capture)
@@ -307,7 +307,7 @@ Three optimizations reduce KV operations from ~910K/sec to ~350/sec at 1500 conc
 
 **1. List Metadata for batch-status:** `putSessionWithMetadata()` in `kv-keys.ts` writes compressed `SessionListMetadata` (status, timestamps, metrics — ~195 bytes) alongside the session value via `kv.put(key, value, { metadata })`. `GET /api/sessions/batch-status` reads from `kv.list()` metadata instead of N individual `kv.get()` calls. Graceful fallback to `kv.get()` for pre-migration keys without metadata. Compressed field names: `s` (status: 'r'|'s'), `la` (lastActiveAt), `sa` (lastStartedAt), `m.c/e/h/y/u` (metrics). All 9 session write sites use `putSessionWithMetadata`. `validateSessionAndCheckLimits` also reads running count from metadata.
 
-**2. Separate Metrics Key:** `collectMetrics` writes to `metrics:{bucketName}:{sessionId}` with 24h TTL instead of read-modify-write on the full session record. Eliminates 1500 session KV reads/min at scale. `getMetricsKey()` helper in `kv-keys.ts`. Session delete and user cleanup also delete metrics keys.
+**2. Metrics via List Metadata:** `collectMetrics` writes metrics inline on the session record via `putSessionWithMetadata()`, which stores compressed `SessionListMetadata` (including metrics) as KV list metadata. `batch-status` reads these from `kv.list()` without individual `kv.get()` calls.
 
 **3. User Record Cache:** Module-level `Map<string, { data, cachedAt }>` in Timekeeper with 60s TTL and 100-entry cap for `user:{email}` reads in `handlePing()`. Matches `getTierConfig()` cache pattern. Reduces 1500 uncached KV reads/min to ~25. `resetUserRecordCache()` exported for test cleanup.
 
@@ -336,7 +336,7 @@ function connect() {
 
 **StoragePanel (R2 File Browser):** Files: `StoragePanel.tsx`, `StorageBrowser.tsx`, `stores/storage.ts`. Desktop: 400px slide-in drawer. Mobile: bottom-sheet. Mutual exclusion with SettingsPanel. Reads directly from R2 via Worker API (no container-side sync trigger). Container sync handled by 60s bisync daemon.
 
-**R2 Storage Stats Caching:** `GET /api/storage/stats` paginates all R2 objects and caches results in KV (`storage-stats:{bucketName}`, 60s TTL). `batch-status` piggybacks cached stats (no TTL check — relies on cache being fresh). Mutation endpoints (upload, delete, move, seed) invalidate the KV cache after successful operations. Dashboard calls `storageStore.fetchStats()` on mount, which hits `/api/storage/stats` and refreshes from R2 if the cache is stale or missing.
+**R2 Storage Stats Caching:** `GET /api/storage/stats` paginates all R2 objects and caches results in KV (`storage-stats:{bucketName}`, 60s TTL). `batch-status` piggybacks cached stats (no TTL check — relies on cache being fresh). Mutation endpoints (upload, delete, seed) invalidate the KV cache after successful operations. Dashboard calls `storageStore.fetchStats()` on mount, which hits `/api/storage/stats` and refreshes from R2 if the cache is stale or missing.
 
 **Logout:** The frontend navigates directly to `/cdn-cgi/access/logout?returnTo={origin}/` via `window.location.href` (CF Access system endpoint). A backend route at `/auth/logout` (in `auth-redirects.ts`) also exists and redirects to `https://{authDomain}/cdn-cgi/access/logout?returnTo=https://{customDomain}/`, but the frontend currently uses the direct CF Access path.
 
@@ -360,7 +360,7 @@ function connect() {
 
 #### Frontend Constants
 
-**File:** `web-ui/src/lib/constants.ts` -- 19 exported constants for polling intervals, timeouts, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
+**File:** `web-ui/src/lib/constants.ts` -- 20 exported constants for polling intervals, timeouts, WebSocket close codes, max terminals, display lengths, URL detection patterns, view transitions, context expiry, dashboard WS disconnect delay.
 
 ---
 
@@ -423,7 +423,7 @@ flowchart TD
 
 ### Code Structure (Pre-Launch Refactoring)
 
-**Container DO extraction (CF-004):** `src/container/index.ts` split from 887 → 475 lines:
+**Container DO extraction:** `src/container/index.ts` split from 887 → 475 lines:
 - `container-env.ts` (338 lines): env var construction, bucket name application, credential injection, prefs-on-restart
 - `container-metrics.ts` (268 lines): collectMetrics, idle detection, Timekeeper ping, KV status updates (immutable spread, not mutation)
 - `index.ts` (475 lines): thin facade owning DO lifecycle (constructor, fetch, onStart, onStop, alarm). Sub-modules receive state via explicit interface parameters, not class inheritance.
@@ -502,9 +502,9 @@ stateDiagram-v2
 
 **Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> `lastInputAt` unchanged since last poll (no new input) or unreachable endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule -> KV status = `'stopped'`
 
-**Fast container-stopped detection (frontend):** When a terminal WebSocket reconnect attempt fails (code 1006 — the browser's representation of a 503 from the Container DO's "not running" guard), the terminal store detects this as a dead container and notifies the session store via `handleContainerStopped(sessionId)`. This immediately sets the session status to `'stopped'`, disposes all terminal WS retry loops, and transitions the UI back to the dashboard. The `activeSessionId` is kept set for **3 minutes** (`CONTAINER_STOPPED_KEEPALIVE_MS = 180_000`) so that `shouldSkipStatusTransition` blocks stale KV "running" from overwriting the locally-set "stopped" status. After 3 minutes, `activeSessionId` is cleared and KV becomes the single source of truth. This provides instant detection (~1 second) compared to waiting for KV eventual consistency.
+**Fast container-stopped detection (frontend):** When the Container DO's "not running" guard returns close code `4503` (`WS_CONTAINER_STOPPED_CODE`), the terminal store stops retrying and marks the connection as disconnected. This is server-authoritative — the container is definitively not running. Non-4503 close codes (1006, 1001, 1011, etc.) trigger automatic reconnection with 1s delay.
 
-**Anti-flapping (KV stopped→running):** When KV batch-status polling detects a `stopped→running` transition for a non-active session, `refreshSessionStatuses()` updates the session status dot but does **not** call `initializeTerminalsForSession()`. This prevents a flapping cycle observed in production: stale KV "running" → `initializeTerminalsForSession` creates new WS connections → 503 from dead container → `handleContainerStopped` fires → session set to stopped → 3-min keepalive expires → next stale KV "running" read restarts the cycle. Without auto-terminal-init, the worst case is a brief dot color flicker (yellow → gray) that self-resolves as KV propagates. The user explicitly clicks the session card to reconnect. Terminal initialization only occurs during: (1) explicit session start by user, (2) `loadSessions()` on initial page load where KV is authoritative.
+**Anti-flapping (KV stopped→running):** When KV batch-status polling detects a `stopped→running` transition for a non-active session, `refreshSessionStatuses()` updates the session status dot but does **not** auto-initialize terminals. This prevents a flapping cycle: stale KV "running" → WS connections → 503 from dead container → disconnected → stale KV "running" restarts cycle. Newly started sessions have a 3-minute startup guard (`session-polling.ts`) during which only `4503` close code can transition them to stopped. The user explicitly clicks the session card to reconnect. Terminal initialization only occurs during: (1) explicit session start by user, (2) `loadSessions()` on initial page load where KV is authoritative.
 
 **Stop (user-initiated):** Worker sets KV status to `'stopped'` -> calls `container.destroy()` -> `destroy()` clears `SESSION_ID_KEY` + `bucketName` from DO storage to prevent deleted session resurrection -> `super.destroy()` -> `onStop()` bails (no identifiers, so no KV write)
 
@@ -899,7 +899,7 @@ SaaS mode uses a layered middleware stack on every request to protected routes. 
 
 ### Subscription Tiers
 
-Codeflare uses a multi-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes. Tier IDs: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`. Pricing and quota details are maintained separately (not in this repo).
+Codeflare uses a multi-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes. Tier IDs: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`. Pricing is configurable per deployment via the admin Subscription Management panel and Stripe integration.
 
 **Tier properties (in `SubscriptionTierConfig`):**
 - `id: SubscriptionTier | string` — unique tier identifier
@@ -914,6 +914,24 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 - `description: string` — short description (max 200 chars)
 - `order: number` — display order in admin UI
 - `isDefault: boolean` — fallback tier for undefined/missing users (currently `standard`)
+- `maxStorageBytes?: number | null` — persistent storage quota (null = unlimited)
+
+**Default tier configuration** (from `getDefaultTiers()` in `src/lib/subscription.ts`):
+
+| ID | Display Name | Hours/Month | Sessions | Modes | Storage |
+|----|-------------|-------------|----------|-------|---------|
+| `blocked` | Blocked | 0 | 0 | — | 0 |
+| `pending` | Pending | 0 | 0 | — | 0 |
+| `free` | Free | 4h | 1 | Standard | 250 MB |
+| `trial` | Trial | 5h | 2 | Standard | 500 MB |
+| `standard` | Starter | 40h | 1 | Standard, Pro | 500 MB |
+| `advanced` | Advanced | 80h | 2 | Standard, Pro | 1 GB |
+| `max` | Max | 160h | 3 | Standard, Pro | 2 GB |
+| `unlimited` | Custom | Unlimited | 5 | Standard, Pro | Unlimited |
+
+Prices, trial hours, and other operational parameters are configurable per deployment via the admin Subscription Management panel. Prices come from Stripe via admin-configured `stripePriceId` per tier (CF-027).
+
+**Graceful degradation:** When `STRIPE_SECRET_KEY` is not set, all tiers work via direct `POST /api/auth/subscribe` without payment. Useful for development, self-hosted, and non-SaaS deployments. Billing status fields remain null.
 
 **Self-service subscription flow:**
 1. New users (pending tier) land on `/app/subscribe` which displays 5 subscribable tiers: `free`, `standard`, `advanced`, `max`, `unlimited`
@@ -959,7 +977,7 @@ Webhooks are signals that trigger a fetch of the latest state from the Stripe AP
 - Library: `src/lib/stripe.ts` — checkout session creation, webhook signature verification, `fetchSubscription()` (Signal and Sync), Stripe API communication
 - Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (Stripe-verified), `POST /api/billing/switch` (portal deep-link for plan changes)
 - Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified), `syncSubscriptionState()`
-- Types: `BillingFields` interface in `src/types.ts`
+- Types: billing fields defined in `parseUserRecord` Zod schema in `src/lib/user-record.ts`
 
 **Checkout flow:**
 1. User selects paid tier on subscribe page → frontend calls `POST /api/billing/checkout` with `{ tier, mode }`
@@ -977,7 +995,7 @@ Webhooks are signals that trigger a fetch of the latest state from the Stripe AP
 **`syncSubscriptionState(customerId, subscriptionId, env)`:**
 1. Resolves email from customer ID (KV lookup with Stripe API fallback)
 2. Calls `fetchSubscription()` — fetches latest subscription state from `GET /v1/subscriptions/{id}?expand[]=items.data.price`
-3. Timestamp guard: skips write if KV's `lastSyncedAt` >= now (prevents stale webhook from overwriting newer state)
+3. Timestamp guard: skips write if KV's `lastSyncedAt` > now (prevents stale webhook from overwriting newer state)
 4. Builds KV patch from snapshot — only sets tier/mode if price metadata is present (preserves existing values when null)
 5. Writes via `updateUserRecord()` (preserves existing KV fields like `addedBy`, `onboardingComplete`)
 6. **Auto-recreate on downgrade:** If `subscribedMode` changed from `advanced` to `default`, calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to remove Pro assets and seed Standard configs. Also updates `sessionMode` in user preferences. Non-fatal (try/catch) — if R2 fails, user can manually recreate via Settings.
@@ -998,13 +1016,13 @@ Webhooks are signals that trigger a fetch of the latest state from the Stripe AP
 
 **Customer mapping:** `stripe-customer:{customerId}` → email stored in KV on checkout completion. Subsequent webhook events use this mapping to resolve the user.
 
-**KV fields added to user record (BillingFields):**
+**KV fields added to user record (billing):**
 - `stripeCustomerId` — Stripe customer ID
 - `stripeSubscriptionId` — Stripe subscription ID
 - `stripePriceId` — Active Stripe price ID
 - `billingPeriodEnd` — ISO timestamp of current billing period end
 - `checkoutSessionId` — Stripe checkout session ID
-- `billingStatus` — `active`, `past_due`, `canceled`, `trialing`, or `incomplete`
+- `billingStatus` — `active`, `trialing`, `past_due`, or `canceled` (matches `BillingStatus` type)
 - `lastSyncedAt` — ISO timestamp of last sync from Stripe API (timestamp guard for idempotency)
 - `cancelAtPeriodEnd` — whether the subscription will cancel at period end
 
@@ -1053,11 +1071,11 @@ Creates a portal session with `flow_data[type]=subscription_update_confirm` that
 Returns live billing state verified against Stripe API (source of truth). When a `stripeSubscriptionId` exists, calls `fetchSubscription()` to verify the subscription still exists. If gone, resets billing fields (`subscriptionTier`/`accessTier` → `pending`, `billingStatus` → `canceled`) and returns null fields. Identity fields (`addedBy`, `addedAt`, `role`) are never touched during cleanup. Falls back to KV data if Stripe is unavailable or not configured. The subscribe page calls this on load to determine whether to show "Subscribe" or "Switch Plan".
 
 **Trial model:**
-Every paid tier has a configurable `trialQuotaHours` (default 4h for all tiers). Trial is compute-based, not time-based.
+Every paid tier has a configurable `trialQuotaHours` (set via admin Subscription Management panel). Trial is compute-based, not time-based.
 
 Flow: (1) New user checks out → Stripe creates subscription with `trial_period_days: 30` (billing window). No charge yet. (2) Timekeeper enforces `trialQuotaHours` as the compute cap during trial. (3) When trial compute quota is consumed → `endTrialNow()` calls Stripe API to end trial immediately → first charge. (4) If payment succeeds → full monthly quota unlocks. If fails → `billingStatus: 'past_due'` → downgraded to free. (5) `trialUsed: true` set in KV → subsequent checkouts skip trial (immediate charge).
 
-Key: Stripe's `trial_period_days: 30` is just a maximum billing window. Our compute quota (4h) is the real limit. Stripe cannot enforce compute hours — we end the trial programmatically when the quota is hit.
+Key: Stripe's `trial_period_days: 30` is just a maximum billing window. The per-tier `trialQuotaHours` is the real limit. Stripe cannot enforce compute hours — we end the trial programmatically when the quota is hit.
 
 `endTrialNow(subscriptionId, secretKey)` in `src/lib/stripe.ts` calls `POST /v1/subscriptions/{id}` with `trial_end=now`.
 
@@ -1345,8 +1363,8 @@ The `/api/usage` endpoint queries the Timekeeper DO directly (`GET /usage` on th
 ### Config-Aware Authorization
 
 Two authorization modes exist for session modes:
-1. **Fast path** (`access-tier.ts:allowedSessionModes`) — hardcoded defaults matching `getDefaultTiers()`. Used when tier config is not available.
-2. **Config-aware** (`access-tier.ts:canUseSessionModeWithConfig`) — reads from tier config, respecting admin overrides via `tiers:config` KV. Used in preferences route for session mode changes.
+1. **Fast path** (`subscription.ts:getAllowedSessionModes`) — reads from tier config, respecting admin overrides via `tiers:config` KV.
+2. **Legacy bridge** (`access-tier.ts:isActiveUser`) — minimal backward-compat wrapper delegating to `subscription.ts`.
 
 The `canLogin` field in tier config is defined for future use (e.g., blocking authentication entirely at the CF Access level). Currently, `isActiveTier()` handles the authorization gate: pending/blocked are rejected by `requireActiveUser`, while all 6 active tiers pass through. The `sessionTotals` map in Timekeeper DO is capped at 30 entries with automatic eviction of the oldest to prevent unbounded growth.
 
@@ -1442,7 +1460,7 @@ if (user.saasMode && !user.onboardingComplete) {
 }
 ```
 
-The `onboardingComplete` flag is set in KV when the user calls `POST /api/auth/onboarding-complete` in `src/routes/auth.ts`. This allows the setup wizard or onboarding page to mark guided setup as finished, and the user won't be redirected again.
+The `onboardingComplete` flag is set in KV when the user calls `POST /api/user/onboarding-complete` in `src/routes/user-profile.ts`. This allows the setup wizard or onboarding page to mark guided setup as finished, and the user won't be redirected again.
 
 ### Self-Service Subscription Flow (Current)
 
@@ -1716,7 +1734,6 @@ When `ENCRYPTION_KEY` is set, all R2 object operations include SSE-C headers:
 | InitiateMultipartUpload | `upload.ts` | `getSseHeaders()` |
 | GetObject | `download.ts`, `preview.ts` | `getSseHeaders()` |
 | HeadObject | `preview.ts`, `r2-seed.ts` | `getSseHeaders()` |
-| CopyObject | `move.ts` | `getSseHeaders()` + `getSseCopyHeaders()` |
 | PutObject (seed) | `r2-seed.ts` | `getSseHeaders()` |
 
 SSE-C headers: `x-amz-server-side-encryption-customer-algorithm: AES256`, `x-amz-server-side-encryption-customer-key: <base64 key>`, `x-amz-server-side-encryption-customer-key-MD5: <base64 MD5 of raw key bytes>`. The MD5 is computed via `node:crypto createHash('md5')`.
@@ -1744,7 +1761,7 @@ flowchart TD
     WS -->|getSseHeaders| SSE["SSE-C Headers<br/>x-amz-server-side-encryption-*"]
     WS -->|setBucketName body| DO["Durable Object<br/>_encryptionKey"]
     CK -->|getAndDecrypt / encryptAndStore| KV["KV Encryption<br/>llm-keys, deploy-keys, r2token"]
-    SSE -->|fetch with headers| R2W["R2 Worker Calls<br/>upload, download, preview, move, seed"]
+    SSE -->|fetch with headers| R2W["R2 Worker Calls<br/>upload, download, preview, seed"]
     DO -->|container env var| CE["Container ENV<br/>ENCRYPTION_KEY"]
     CE -->|entrypoint.sh| RC["rclone.conf<br/>sse_customer_key_base64"]
     RC -->|bisync| R2C["R2 Container Sync<br/>restore, periodic, shutdown"]
@@ -1846,7 +1863,7 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 
 ### Protected R2 Paths
 
-**`PROTECTED_PATHS` is now empty** (`[]` in `src/lib/constants.ts`). Previously, paths like `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json` were blocked from the web storage API. The protection was removed — all R2 paths are now accessible via browse, upload, delete, and move. The `validateKey()` function in `src/routes/storage/validation.ts` still checks the array but it's a no-op with an empty list.
+**`PROTECTED_PATHS` is now empty** (`[]` in `src/lib/constants.ts`). Previously, paths like `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json` were blocked from the web storage API. The protection was removed — all R2 paths are now accessible via browse, upload, and delete. The `validateKey()` function in `src/routes/storage/validation.ts` still checks the array but it's a no-op with an empty list.
 
 ---
 
@@ -2527,7 +2544,7 @@ The "Claude Code" agent in Codeflare uses [claude-unleashed](https://github.com/
 
 **Updater:** claude-unleashed's updater checks npm for latest `@anthropic-ai/claude-code` - disabled at runtime via `CLAUDE_UNLEASHED_NO_UPDATE=1` to avoid ~25-30s startup delay from `npm view` + `npm install` on every container start. Updates happen at Docker build time instead (via `.cache-bust` layer invalidation). Upstream CLI's internal auto-updater is disabled via `DISABLE_INSTALLATION_CHECKS=1`.
 
-### Environment Variables
+### Container Environment Variables
 
 **Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `CLAUDE_UNLEASHED_SKIP_CONSENT=1`, `CLAUDE_UNLEASHED_CHANNEL=stable`, `CLAUDE_UNLEASHED_NO_UPDATE=1`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
 
@@ -2825,7 +2842,7 @@ codeflare/
 │   │                         #   decodeXmlEntities() — decodes &amp; &lt; etc. from R2 S3 API responses
 │   │                         #   FIX-39 audit trail in file header tracks all interpolation sites
 │   ├── container/index.ts    # Container DO class
-│   └── __tests__/            # Backend unit tests (88 files)
+│   └── __tests__/            # Backend unit tests (96 files)
 ├── e2e/                      # E2E tests: 12 API files (~55 tests) + 10 UI files (~75 tests, Puppeteer)
 ├── host/                        # TypeScript (migrated from JS)
 │   ├── src/
@@ -2836,7 +2853,7 @@ codeflare/
 │   │   ├── activity-tracker.ts # WS connection + user input tracking for idle detection (input-change based)
 │   │   ├── prewarm-config.ts # PTY pre-warm configuration (first-output readiness)
 │   │   └── types.ts          # Shared TypeScript types
-│   ├── __tests__/            # Host unit tests (12 files: prewarm, activity tracker, WS input, server prewarm integration, entrypoint sync filter, server security, host fixes, fuzz, memory merge/cleanup)
+│   ├── __tests__/            # Host unit tests (15 files: prewarm, activity tracker, WS input, session manager, container memory, metrics, server prewarm, server security, host fixes, fuzz, entrypoint sync/ECC/hooks, memory capture hook)
 │   ├── tsconfig.json         # TypeScript configuration
 │   ├── knip.json             # Dead code detection config for host package
 │   └── package.json
@@ -3057,7 +3074,7 @@ All module-level caches in the codebase. Workers isolates do not share memory, s
 | `src/lib/access.ts` | `cachedAuthDomain`, `cachedAccessAud`, `cachedAccessAudList` | 5 min | CF Access auth domain and audience config | `resetAuthConfigCache()` |
 | `src/lib/subscription.ts` | `cachedTierConfig` | 60s | Tier configuration from `tiers:config` KV key | `resetTierConfigCache()` |
 | `src/lib/cors-cache.ts` | `cachedKvOrigins` | 5 min | CORS origins from `setup:custom_domain` + `setup:allowed_origins` | `resetCorsOriginsCache()` |
-| `src/lib/jwt.ts` | JWKS key cache | 1 hour | Cloudflare Access JWKS public keys | `resetJwksCache()` |
+| `src/lib/jwt.ts` | JWKS key cache | 30s freshness threshold | Cloudflare Access JWKS public keys (re-fetched on kid miss after 30s) | `resetJWKSCache()` |
 | `src/lib/stripe.ts` | `priceCache` | 1 hour | Stripe price amount/currency per price ID | (none — TTL-only) |
 | `src/lib/kv-crypto.ts` | imported CryptoKey | Isolate lifetime | AES-256 key from `ENCRYPTION_KEY` env var | (none — persists for isolate lifetime) |
 | `src/lib/rate-limit-core.ts` | `failedKvOps` | Isolate lifetime | Counter for consecutive KV failures (circuit breaker) | (none) |
