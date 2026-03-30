@@ -708,7 +708,7 @@ const SubscribePage: Component = () => {
                     Voice input requires a compatible browser like Chrome or Samsung Internet.
                   </p>
                   <p style={{ "margin-top": "0.5rem", opacity: 0.6, "font-size": "0.8125rem", color: "#71717a", "font-family": "'JetBrains Mono', 'Fira Code', monospace", "letter-spacing": "0.02em", "line-height": "1.5" }}>
-                    Codeflare supercharges your coding agent with the environment, tooling, and skills it needs. The coding agent subscription is <span style={{ color: '#22c55e', "font-weight": "700" }}>NOT INCLUDED</span> and is yours to bring.
+                    Coding agent subscription is <span style={{ color: '#22c55e', "font-weight": "700" }}>NOT INCLUDED</span>, bring your own.
                   </p>
 
                   {/* Pro features (animated expand/collapse) */}
