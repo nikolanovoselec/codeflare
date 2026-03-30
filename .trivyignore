@@ -126,3 +126,11 @@ CVE-2025-69720
 # cpython 3.11: command-line option injection in webbrowser.open()
 # Container doesn't use webbrowser.open(); python3 is for ECC hooks only.
 CVE-2026-4519
+
+# libnghttp2-14: DoS via malformed HTTP/2 frames after session termination
+# System library in Debian bookworm, no fix available. Container doesn't expose HTTP/2 services.
+CVE-2026-27135
+
+# systemd (libsystemd0, libudev1): arbitrary code execution via spurious IPC
+# Container doesn't use systemd IPC; no fix available in bookworm.
+CVE-2026-29111
