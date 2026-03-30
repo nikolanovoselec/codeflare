@@ -425,7 +425,7 @@ flowchart TD
 
 **Container DO extraction:** `src/container/index.ts` split from 887 → 475 lines:
 - `container-env.ts` (338 lines): env var construction, bucket name application, credential injection, prefs-on-restart
-- `container-metrics.ts` (268 lines): collectMetrics, idle detection, Timekeeper ping, KV status updates (immutable spread, not mutation)
+- `container-metrics.ts` (267 lines): collectMetrics, idle detection, Timekeeper ping, KV status updates (immutable spread, not mutation)
 - `index.ts` (475 lines): thin facade owning DO lifecycle (constructor, fetch, onStart, onStop, alarm). Sub-modules receive state via explicit interface parameters, not class inheritance.
 
 **Session store extraction (CF-013):** `web-ui/src/stores/session.ts` split from 768 → 582 lines:
@@ -692,7 +692,7 @@ Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persist
 
 **Why per-session JSONL:** Multiple concurrent sessions from the same user write to the same R2 bucket. A shared file would cause last-write-wins data loss. Per-session JSONL files eliminate write conflicts — each session owns its own file, and merge-on-boot consolidates them.
 
-**Two-phase merge/cleanup:** The merge runs after R2 sync but before bisync baseline establishment. Old files are kept so `--resync` doesn't resurrect them. Cleanup (local-only deletion, KEEP=3) runs after bisync baseline succeeds, so periodic bisync propagates the deletions to R2. Direct R2 deletion is unsafe for concurrent sessions — another session's bisync would propagate the deletion locally, destroying the active memory file. The rclone config uses `disable_checksum = true` to skip `X-Amz-Meta-Md5chksum` metadata on multipart uploads, and `--s3-upload-cutoff 0` forces all uploads through the multipart path to prevent `BadDigest` errors — single-part PutObject pre-computes `Content-MD5` in a separate read pass, so files modified between hash and upload (TOCTOU race) cause R2 to reject with HTTP 400.
+**Two-phase merge/cleanup:** The merge runs after R2 sync but before bisync baseline establishment. Old files are kept so `--resync` doesn't resurrect them. Cleanup (local-only deletion, KEEP=5) runs after bisync baseline succeeds, so periodic bisync propagates the deletions to R2. Direct R2 deletion is unsafe for concurrent sessions — another session's bisync would propagate the deletion locally, destroying the active memory file. The rclone config uses `disable_checksum = true` to skip `X-Amz-Meta-Md5chksum` metadata on multipart uploads, and `--s3-upload-cutoff 0` forces all uploads through the multipart path to prevent `BadDigest` errors — single-part PutObject pre-computes `Content-MD5` in a separate read pass, so files modified between hash and upload (TOCTOU race) cause R2 to reject with HTTP 400.
 
 ### LLM Consultation (consult-llm-mcp)
 
@@ -2655,7 +2655,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 ### Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
-**Count:** 88 test files.
+**Count:** 96 test files.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise.
@@ -2682,9 +2682,9 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 | Suite | File | Tests | What it covers |
 |-------|------|-------|----------------|
-| Backend | `src/__tests__/fuzz/input-validation.fuzz.test.ts` | 120 | XML injection/parsing, getBucketName, validateKey (path traversal, null bytes, encoding tricks), KV namespacing, ReDoS, circuit breaker state machine, error types, logger, content-type helpers |
+| Backend | `src/__tests__/fuzz/input-validation.fuzz.test.ts` | 123 | XML injection/parsing, getBucketName, validateKey (path traversal, null bytes, encoding tricks), KV namespacing, ReDoS, circuit breaker state machine, error types, logger, content-type helpers |
 | Frontend | `web-ui/src/__tests__/fuzz/frontend-fuzz.test.ts` | 13 | md5 (custom impl), isActionableUrl (ReDoS resistance), cleanupMapByPrefix (Map iteration+deletion) |
-| Host | `host/__tests__/fuzz-host.test.js` | 15 | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
+| Host | `host/__tests__/fuzz-host.test.js` | 10 | getPrewarmConfig (untrusted tab config), createActivityTracker (idle shutdown state machine) |
 
 **Test selection criteria:** Every test must exercise real production code (no replicas) on an untrusted input boundary (user input, API responses, WebSocket data, env vars). Tests that verify framework guarantees (Zod safeParse), language features (class inheritance), or trivial formatters are excluded.
 
@@ -2833,15 +2833,17 @@ codeflare/
 │   │                         # circuit-breaker, circuit-breakers (per-container CB via
 │   │                         #   getContainerXxxCB(containerId) — no more global singletons),
 │   │                         # constants, container-helpers,
-│   │                         # cors-cache, email, error-types, jwt, kv-crypto, kv-keys,
-│   │                         # logger, onboarding, r2-admin, r2-client, r2-config, r2-seed,
-│   │                         # r2-sse, rate-limit-core, schemas, session-helpers, session-mode,
-│   │                         # subscription, tutorial-seed.generated,
-│   │                         # turnstile, type-guards, user-cleanup, xml-utils
+│   │                         # container-config-schema, cors-cache, email, error-types,
+│   │                         # jwt, kv-crypto, kv-keys, logger, onboarding,
+│   │                         # r2-admin, r2-client, r2-config, r2-seed, r2-sse,
+│   │                         # rate-limit-core, request-helpers, schemas,
+│   │                         # session-helpers, session-jwt, session-mode,
+│   │                         # stripe, subscription, tutorial-seed.generated,
+│   │                         # turnstile, type-guards, user-cleanup, user-record, xml-utils
 │   │                         #   escapeXml() — sanitizes user input for XML/HTML interpolation
 │   │                         #   decodeXmlEntities() — decodes &amp; &lt; etc. from R2 S3 API responses
 │   │                         #   FIX-39 audit trail in file header tracks all interpolation sites
-│   ├── container/index.ts    # Container DO class
+│   ├── container/            # index.ts (Container DO), container-env.ts (env var construction), container-metrics.ts (metrics/idle/Timekeeper)
 │   └── __tests__/            # Backend unit tests (96 files)
 ├── e2e/                      # E2E tests: 12 API files (~55 tests) + 10 UI files (~75 tests, Puppeteer)
 ├── host/                        # TypeScript (migrated from JS)
@@ -3035,7 +3037,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 | AD13 | Per-user scoped R2 tokens | <details><summary>Each container gets an R2 token scoped to its user's bucket only</summary><br>Replaces previous shared credential model. Token lifecycle:<br>1. **Creation**: `getOrCreateScopedR2Token()` creates token with Object Read+Write policy restricted to user's bucket<br>2. **Caching**: Token data cached in KV as `r2token:{email}` (encrypted via AES-256-GCM) - survives container restarts<br>3. **Verification**: `verifyTokenExists()` validates cached tokens via `GET /tokens/{id}` before use. Only 404 invalidates; transient errors assume valid (prevents API blips from causing rclone 401s)<br>4. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config<br>5. **Revocation**: `deleteScopedR2Token()` on user deletion<br><br>**Trade-off**: Requires `API Tokens: Edit` permission on deploy token (broader than ideal). Accepted because manual R2 credential management per user is operationally impractical.</details> |
 | AD14 | Never auto-`--resync` on bisync failure | <details><summary><code>--resilient</code> + <code>--recover</code> for self-healing instead</summary><br>`--resync` makes both sides identical by copying the newer version of every file, then creates a fresh baseline. This permanently loses pending deletions - if side A deleted a file and bisync fails before propagating, `--resync` resurrects it from side B.<br><br>**Instead**: `--resilient` (continue past non-critical errors) + `--recover` (reconstruct corrupted listings) + `--max-delete 100` (allow bulk deletions). Daemon retries in 60s on failure.<br><br>**Manual `--resync`** is safe in `establish_bisync_baseline()` on container startup because one-way restore runs first.</details> |
 | AD15 | TabConfigSchema allows arbitrary command strings | <details><summary><code>z.string().max(200)</code> — no additional security risk</summary><br>Users already have full root shell access inside their own ephemeral container. Restricting tab commands provides no additional security benefit since the container is their sandbox.</details> |
-| AD16 | entrypoint.sh ~1010 lines complexity | <details><summary>Battle-tested, rewrite risk > benefit</summary><br>Handles Alpine→Debian migration, PTY pre-warm, rclone sync orchestration, tab autostart, and graceful shutdown. Accumulated complexity reflects real-world edge cases discovered over months of production use. A rewrite risks reintroducing solved bugs for marginal readability gains.</details> |
+| AD16 | entrypoint.sh ~1090 lines complexity | <details><summary>Battle-tested, rewrite risk > benefit</summary><br>Handles Alpine→Debian migration, PTY pre-warm, rclone sync orchestration, tab autostart, and graceful shutdown. Accumulated complexity reflects real-world edge cases discovered over months of production use. A rewrite risks reintroducing solved bugs for marginal readability gains.</details> |
 | AD17 | collectMetrics density | <details><summary>Extends AD6 scope — alarm() context needs atomicity</summary><br>`collectMetrics` performs activity checking, health probing, and KV status updates in a single alarm callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The alarm() context provides natural atomicity across these tightly coupled operations.</details> |
 | AD18 | WebGL `any` types in webgl-utils.ts | <details><summary>No standard TS definitions for WebGL extensions</summary><br>Extensions like `OES_texture_half_float`, `WEBGL_lose_context`, etc. have no official TypeScript definitions. The `any` casts are isolated to this single utility file and the WebGL API surface is stable. Adding custom type definitions would be maintenance burden with no runtime benefit.</details> |
 | AD19 | splash-cursor-logic.ts `as any` casts | <details><summary>Creative-coding adapted code with no upstream TS types</summary><br>Pointer tracking objects and WebGL shader uniforms in this creative-coding module have no typed definitions upstream. The code is adapted from a visual effect library. Type assertions are confined to this isolated module.</details> |
@@ -3094,7 +3096,7 @@ Known issues deferred for future remediation. These are tracked here to avoid re
 | TD1 | Module-level mutable caches | Six modules (`access.ts`, `cors-cache.ts`, `jwt.ts`, `circuit-breakers.ts`, `rate-limit-core.ts`, `cache-reset.ts`) maintain module-level mutable caches that are inconsistently resettable. Post-setup, isolates that cached null auth config continue to trust the spoofable email header for up to 5 minutes. | Security window post-setup; unbounded rate-limit fallback Map; circuit breakers not included in cache reset | Add centralized cache inventory in `cache-reset.ts`. Include circuit breaker Maps in `resetSetupCache()`. Reduce pre-setup null-state TTL to 30s. Add max-size cap to rate-limit fallback Map. |
 | TD2 | ScrambleText duplication | Two parallel implementations (`ScrambleText.tsx` and `use-scramble-text.ts`) with overlapping animation logic. Neither has test coverage for animation phases, timer lifecycle, `prefers-reduced-motion`, or cleanup. | Bug fixes in one implementation will not be applied to the other | Consolidate into the hook-based pattern. Add tests for first-mount display, reduced-motion bypass, and timer cleanup on unmount. |
 | TD3 | Circuit breaker Maps unbounded + test-only exports | Per-container circuit breaker Maps have no maximum size cap. `resetContainerBreakers` and `CONTAINER_BREAKER_TTL_MS` are exported solely for test isolation, widening the public API surface unnecessarily. | Memory exhaustion under adversarial session ID stream | Add max-size guard in `getOrCreateBreaker()`. Remove `export` from test-only symbols; use `vi.resetModules()` instead. |
-| TD4 | Container DO class (815 lines, multiple responsibilities) | `src/container/index.ts` handles R2 credentials, bucket lifecycle, metrics, activity keepalive, container start/stop, internal HTTP routing, and operational storage cleanup in a single 815-line class. Exceeds the project's 800-line maximum. Identified as the highest-risk file in the codebase. | Individual behaviors difficult to test in isolation; violates file-size limit | Extract metrics/KV status logic into a helper module. Extract activity/keepalive into a pure function (see CF-007). Replace Map-based internal router with a Hono sub-app. |
+| TD4 | Container DO class (475 lines after extraction) | `src/container/index.ts` was split: `container-env.ts` (338 lines) and `container-metrics.ts` (267 lines) extracted. Core class now 475 lines — under the 800-line limit. Still handles bucket lifecycle, container start/stop, internal HTTP routing, and operational storage cleanup. | Extraction completed; remaining class is within limits | Further extraction deferred — current size is manageable. |
 | TD5 | Untyped internal Worker-to-DO API | The `setBucketName` internal HTTP API accepts a 16-field request body with inline type assertions (`as { bucketName: string; ... }`). No shared type definitions; no compile-time protection against shape drift between Worker and DO. | Silent breakage if DO or Worker changes expected body shape | Define shared types in `src/container/api-types.ts`. Group 16 fields into logical sub-objects (`r2Creds`, `llmKeys`, `deployKeys`, `preferences`). |
 | TD6 | Unbounded parallel KV fan-out in session listing | Session listing uses `Promise.all` to fetch every session record in parallel. Session-limit checks list and fetch all sessions just to count running ones — O(n) on page load and container start. No concurrency limit. | Performance degradation under high session counts | Maintain running count in a separate KV key for limit checks. Add concurrency limiter (batches of 20) to listing fan-out. Use KV metadata for status to avoid full record fetches. |
 
@@ -3549,12 +3551,12 @@ All preseed content is deployed via the manifest pipeline:
 
 1. Source files in `preseed/agents/claude/` organized by type: `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
 2. `preseed/agents/claude/manifest.json` maps each file to modes (`default`, `advanced`, or both)
-3. `scripts/generate-agent-seed.mjs` reads manifest + files (manifest-driven, ignores non-manifest files like `plugins/cache/`), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array (124 documents across all agents)
+3. `scripts/generate-agent-seed.mjs` reads manifest + files (manifest-driven, ignores non-manifest files like `plugins/cache/`), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array (121 documents across all agents)
 4. On first bucket creation: `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
-**Manifest structure (60 total entries)**:
+**Manifest structure (56 total entries)**:
 - `rules/` (28): core (4 default+advanced: ci-monitoring, cloudflare-environment, no-local-builds, deploy-credentials; + 1 advanced-only: memory), common (3), typescript (5), python (5), golang (5), swift (5)
 - `agents/` (7): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, plan, review (advanced only)
@@ -3563,7 +3565,7 @@ All preseed content is deployed via the manifest pipeline:
 
 ### Multi-Agent Preseed
 
-The generator produces adapted config files for 6 agents from CC's preseed as single source of truth. No duplicate preseed files exist on disk.
+The generator produces adapted config files for all supported agents from CC's preseed as single source of truth. No duplicate preseed files exist on disk.
 
 **Supported agents and their config locations:**
 
@@ -3601,7 +3603,7 @@ The generator produces adapted config files for 6 agents from CC's preseed as si
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1) concatenates applicable rules into a single instructions file, (2) remaps tool names in agent definition frontmatter, (3) removes `model` field from frontmatter, (4) replaces `~/.claude/` path references with agent-specific config paths, (5) uses correct file extensions (e.g., `.agent.md` for Copilot agents).
 
-**Per-mode counts**: Default mode seeds 24 files, advanced mode seeds 119 files. Total array size is 124 (includes variant-per-mode duplicates for instructions files).
+**Per-mode counts**: Default mode seeds 25 files, advanced mode seeds 117 files. Total array size is 121 (includes variant-per-mode duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the generated array — once for default mode (3 rules) and once for advanced mode (all rules including memory, ECC), with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this correctly by excluding keys that have a variant in the target mode.
 
