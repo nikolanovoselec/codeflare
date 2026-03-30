@@ -1,6 +1,6 @@
 # <img src="docs/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
-<p align="center"><img src="docs/images/title.png" alt="Codeflare" width="100%"><br><img src="docs/images/features.png" alt="Features" width="100%"></p>
+![Codeflare](docs/images/login-hero.png)
 
 An ephemeral IDE where AI coding agents reach their full potential. Fully autonomous, no boundaries, zero risk. Every session runs in an isolated container on Cloudflare's edge. Your files persist. Your bad decisions don't.
 
