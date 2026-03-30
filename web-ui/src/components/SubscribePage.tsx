@@ -358,8 +358,8 @@ const SubscribePage: Component = () => {
       const tierData = tiers().find(t => t.id === tierId);
       const isPaid = tierData && (
         mode === 'advanced'
-          ? (tierData.advancedPriceMonthly ?? tierData.priceMonthly ?? 0) > 0
-          : (tierData.priceMonthly ?? 0) > 0
+          ? !!(tierData.stripeAdvancedPrice || tierData.stripePrice) || (tierData.advancedPriceMonthly ?? tierData.priceMonthly ?? 0) > 0
+          : !!tierData.stripePrice || (tierData.priceMonthly ?? 0) > 0
       );
 
       if (isPaid && isActive()) {
