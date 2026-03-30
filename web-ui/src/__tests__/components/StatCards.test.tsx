@@ -44,7 +44,7 @@ describe('StatCards Component', () => {
       ));
 
       const sizeMetric = screen.getByTestId('stat-card-size');
-      expect(sizeMetric).toHaveTextContent('5.0 MB');
+      expect(sizeMetric).toHaveTextContent('5 MB');
       expect(sizeMetric).toHaveTextContent('Storage');
     });
   });
@@ -65,7 +65,7 @@ describe('StatCards Component', () => {
       ));
 
       const sizeMetric = screen.getByTestId('stat-card-size');
-      expect(sizeMetric).toHaveTextContent('2.0 KB');
+      expect(sizeMetric).toHaveTextContent('2 KB');
     });
 
     it('should format megabytes', () => {
@@ -74,7 +74,7 @@ describe('StatCards Component', () => {
       ));
 
       const sizeMetric = screen.getByTestId('stat-card-size');
-      expect(sizeMetric).toHaveTextContent('10.0 MB');
+      expect(sizeMetric).toHaveTextContent('10 MB');
     });
 
     it('should format gigabytes', () => {
@@ -83,7 +83,7 @@ describe('StatCards Component', () => {
       ));
 
       const sizeMetric = screen.getByTestId('stat-card-size');
-      expect(sizeMetric).toHaveTextContent('2.0 GB');
+      expect(sizeMetric).toHaveTextContent('2 GB');
     });
 
     it('should handle 0 bytes', () => {

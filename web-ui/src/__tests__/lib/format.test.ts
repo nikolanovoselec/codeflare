@@ -123,7 +123,7 @@ describe('formatSize', () => {
   // --- KB band: 1024 - 1048575 ---
 
   it('returns KB at 1024 bytes', () => {
-    expect(formatSize(1024)).toBe('1.0 KB');
+    expect(formatSize(1024)).toBe('1 KB');
   });
 
   it('returns KB for 1536 bytes (1.5 KB)', () => {
@@ -131,13 +131,13 @@ describe('formatSize', () => {
   });
 
   it('returns KB at boundary (1023.9 KB)', () => {
-    expect(formatSize(1024 * 1024 - 1)).toBe('1024.0 KB');
+    expect(formatSize(1024 * 1024 - 1)).toBe('1024 KB');
   });
 
   // --- MB band: 1MB - 1023MB ---
 
   it('returns MB at 1 MB', () => {
-    expect(formatSize(1024 * 1024)).toBe('1.0 MB');
+    expect(formatSize(1024 * 1024)).toBe('1 MB');
   });
 
   it('returns MB for 5.5 MB', () => {
@@ -145,13 +145,13 @@ describe('formatSize', () => {
   });
 
   it('returns MB at boundary (1023.9 MB)', () => {
-    expect(formatSize(1024 * 1024 * 1024 - 1)).toBe('1024.0 MB');
+    expect(formatSize(1024 * 1024 * 1024 - 1)).toBe('1024 MB');
   });
 
   // --- GB band: >= 1GB ---
 
   it('returns GB at 1 GB', () => {
-    expect(formatSize(1024 * 1024 * 1024)).toBe('1.0 GB');
+    expect(formatSize(1024 * 1024 * 1024)).toBe('1 GB');
   });
 
   it('returns GB for 2.5 GB', () => {
@@ -159,14 +159,14 @@ describe('formatSize', () => {
   });
 
   it('returns GB for 100 GB', () => {
-    expect(formatSize(100 * 1024 * 1024 * 1024)).toBe('100.0 GB');
+    expect(formatSize(100 * 1024 * 1024 * 1024)).toBe('100 GB');
   });
 
   // --- TB band: >= 1TB ---
 
   it('returns TB at 1 TB', () => {
     const oneTB = 1024 * 1024 * 1024 * 1024;
-    expect(formatSize(oneTB)).toBe('1.0 TB');
+    expect(formatSize(oneTB)).toBe('1 TB');
   });
 
   it('returns TB for 2.5 TB', () => {
