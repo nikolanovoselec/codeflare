@@ -139,7 +139,7 @@ export async function validateSessionAndCheckLimits(params: {
     }
 
     if (runningCount >= effectiveMaxSessions) {
-      throw new RateLimitError(
+      throw new QuotaExceededError(
         `Session limit reached (${runningCount}/${effectiveMaxSessions}). Stop an existing session to start a new one.`
       );
     }
