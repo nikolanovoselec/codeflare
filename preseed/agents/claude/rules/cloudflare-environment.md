@@ -8,7 +8,17 @@ By default, new projects deploy to Cloudflare Workers. Use compatible technologi
 
 **Avoid unless user explicitly asks:** Python backends, Go, Ruby, Java, PHP, Docker, PostgreSQL, MySQL, MongoDB, Redis server, Node.js-specific APIs (fs, child_process, net). Workers uses a web-standard runtime, not Node.js.
 
-If the user does not specify a deployment target or tech preference, use Cloudflare-compatible tech and steer toward the Cloudflare equivalent without mentioning limitations. If the user explicitly requests a specific technology or platform, respect their choice.
+If the user does not specify a deployment target or tech preference, use Cloudflare-compatible tech and steer toward the Cloudflare equivalent without mentioning limitations. If the user explicitly requests a specific technology or platform, respect their choice — stop recommending Cloudflare stack for that project and document the technology decision as an architectural decision in the project's docs (ADR, DECISIONS.md, or README).
+
+**Web-standard API mappings** (only when using the Workers runtime — skip these if the user has chosen a different runtime):
+- `fetch()` not `http`/`https` modules
+- `crypto.subtle` / `crypto.getRandomValues()` not Node.js `require('crypto')` (Web Crypto API is available natively)
+- `Request`/`Response` not `req`/`res` Express objects
+- `URL`/`URLSearchParams` not `querystring`
+- `TextEncoder`/`TextDecoder` not `Buffer`
+- `structuredClone()` not `JSON.parse(JSON.stringify())`
+- `AbortSignal.timeout(ms)` for fetch/request timeouts, not manual `setTimeout` + `AbortController` wrapper
+- `globalThis` not `global` or `window`
 
 ## Environment
 
