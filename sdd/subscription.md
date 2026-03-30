@@ -1,0 +1,323 @@
+# Subscription Domain Specification
+
+Tiers, billing, usage tracking, and quotas.
+
+---
+
+## REQ-SUB-001: Eight-Tier Subscription System
+
+**Intent:** The platform must support a graduated set of subscription tiers that control access levels, compute quotas, session limits, and available features.
+
+**Acceptance Criteria:**
+1. Exactly 8 tier IDs exist: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`.
+2. Each tier defines all of: `monthlySeconds`, `maxSessions`, `sessionModes`, `canLogin`, `priceMonthly`, `trialQuotaHours`, `maxStorageBytes`, `displayName`, `description`, `order`, `isDefault`.
+3. `getDefaultTiers()` returns the complete 8-tier array as the hardcoded fallback.
+4. Tier IDs are stable identifiers; display names may differ (e.g., `standard` displays as "Starter").
+
+**Constraints:**
+- One tier must have `isDefault: true` (currently `standard`) as fallback for undefined/missing users.
+- The `blocked` tier must have `canLogin: false`; `pending` must have `canLogin: true` (to access the subscribe page).
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-002: Tier Property Definitions
+
+**Intent:** Each tier must define a complete set of properties that drive quota enforcement, session limits, mode gating, and pricing.
+
+**Acceptance Criteria:**
+
+| Tier | Hours/Month | Max Sessions | Modes | Storage | canLogin |
+|------|-------------|-------------|-------|---------|----------|
+| blocked | 0 | 0 | none | 0 | false |
+| pending | 0 | 0 | none | 0 | true |
+| free | 4 | 1 | Standard | 250 MB | true |
+| trial | 5 | 2 | Standard | 500 MB | true |
+| standard | 40 | 1 | Standard, Pro | 500 MB | true |
+| advanced | 80 | 2 | Standard, Pro | 1 GB | true |
+| max | 160 | 3 | Standard, Pro | 2 GB | true |
+| unlimited | null (unlimited) | 5 | Standard, Pro | null (unlimited) | true |
+
+1. `monthlySeconds` of `null` means unlimited compute.
+2. `maxStorageBytes` of `null` means unlimited storage.
+3. `sessionModes` is an array of `'default'` and/or `'advanced'` values.
+
+**Constraints:**
+- These are default values; admins can override all operational parameters via the management panel.
+- Prices are not hardcoded; they come from Stripe via admin-configured `stripePriceId` per tier.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-003: Free Tier Requires No Payment
+
+**Intent:** Users must be able to use the platform at the free tier without providing payment information.
+
+**Acceptance Criteria:**
+1. `POST /api/auth/subscribe` with `tier: 'free'` activates the tier directly via KV write, no Stripe interaction.
+2. The free tier has `priceMonthly: 0`.
+3. When `STRIPE_SECRET_KEY` is set, the free tier still bypasses Stripe Checkout.
+4. Free-tier users have `billingStatus` fields that remain null/absent.
+
+**Constraints:**
+- Free-tier auto-sleep is locked to 5 minutes; the dropdown is disabled in the frontend.
+- Free tier is limited to 1 concurrent session.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
+
+**Intent:** Paid tiers (standard, advanced, max) must collect payment via Stripe before activating the subscription.
+
+**Acceptance Criteria:**
+1. When `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects paid tiers with "Paid subscriptions require checkout." Only `free` is allowed through direct subscribe.
+2. `POST /api/billing/checkout` creates a Stripe Checkout Session with `customer_email` and tier/mode metadata, returning a Stripe-hosted checkout URL.
+3. After payment, Stripe sends a `checkout.session.completed` webhook that writes checkout fields and calls `syncSubscriptionState()`.
+4. The frontend polls `GET /api/auth/status` every 2s (max 30s) after checkout redirect, waiting for the webhook to activate the subscription.
+5. Three webhook events are handled: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
+6. Webhook endpoint at `/public/stripe/webhook` is unauthenticated but verified via HMAC-SHA256 signature with 5-minute timestamp tolerance.
+7. Event deduplication via KV key `stripe:event:{eventId}` with 72-hour TTL.
+
+**Constraints:**
+- Price metadata (tier, mode) must be set on Stripe Price objects before deploy.
+- Tiers without a configured `stripePriceId` are hidden from the subscribe page.
+- Customer mapping (`stripe-customer:{customerId}` -> email) is stored in KV on checkout completion.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
+
+**Intent:** Trial periods must be capped by actual compute usage, not calendar days, so that inactive users do not burn through their trial.
+
+**Acceptance Criteria:**
+1. Each paid tier has a configurable `trialQuotaHours` (set via admin panel).
+2. Stripe subscriptions are created with `trial_period_days: 30` as a maximum billing window.
+3. Timekeeper enforces `trialQuotaHours` as the compute cap during trial (when `billingStatus === 'trialing'`).
+4. When trial compute quota is consumed, Timekeeper calls `endTrialNow()` which posts to Stripe API (`trial_end=now`), triggering the first charge.
+5. If payment succeeds, the full `monthlySeconds` quota unlocks; if it fails, `billingStatus` becomes `past_due` and the user is downgraded to free.
+6. `trialUsed: true` is set in KV when the subscription transitions away from `'trialing'`, preventing unlimited free trials via subscribe-cancel-resubscribe.
+
+**Constraints:**
+- `endTrialNow` in Timekeeper is guarded by a `trialEnded` flag in DO storage, preventing it from being called every 60s ping (which would cause O(sessions) Stripe API calls per minute).
+- `lastSyncedAt` timestamp guard uses `>` (not `>=`) so same-second webhook events are not silently discarded.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-006: Real-Time Usage Tracking via Timekeeper DO
+
+**Intent:** Compute usage must be tracked accurately in real time so that quota enforcement and billing decisions use current data.
+
+**Acceptance Criteria:**
+1. One Timekeeper Durable Object exists per user.
+2. Container DOs ping Timekeeper with monotonic `totalSeconds` per session every 60 seconds (when `SAAS_MODE=active`).
+3. Timekeeper computes deltas per session, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes.
+4. `GET /usage` on Timekeeper returns real-time usage (KV flushed + pending).
+5. KV record at `timekeeper:{bucketName}` tracks: daily, weekly, monthly, yearly, and all-time counters with automatic rollovers.
+6. The alarm handler retries on KV write failure with 30-second backoff.
+7. `pendingSeconds` is reset only after successful KV write.
+
+**Constraints:**
+- Usage tracking always runs regardless of `STRESS_TEST_MODE` (stress test only bypasses rate limits and session limits).
+- Multiple concurrent sessions from the same user all ping the same Timekeeper DO.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-007: Quota Enforcement at Session Start (402)
+
+**Intent:** Users who have consumed their monthly compute quota must be prevented from starting new sessions.
+
+**Acceptance Criteria:**
+1. `POST /api/container/start` calls `validateSessionAndCheckLimits()` which reads monthly usage from `timekeeper:{bucketName}` KV.
+2. Usage is compared against `tier.monthlySeconds` (skipped when `null`/unlimited).
+3. When quota is exceeded, a `QuotaExceededError` is thrown (HTTP 402, code `QUOTA_EXCEEDED`).
+4. The frontend detects `code === 'QUOTA_EXCEEDED'` via `ApiError.code` and shows an upgrade CTA.
+5. Enforcement is skipped for non-SaaS mode and stress test mode.
+6. Enforcement fails open on KV errors (user is not blocked if KV is unavailable).
+
+**Constraints:**
+- Quota check uses the effective tier from `getEffectiveTier()`, which accounts for billing status downgrades.
+- The 402 status code must be used (not 403) to distinguish quota exhaustion from access denial.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-008: Mid-Session Quota Enforcement (Graceful Stop)
+
+**Intent:** Sessions that exceed quota while running must be stopped gracefully, not left running indefinitely.
+
+**Acceptance Criteria:**
+1. When Timekeeper's ping handler returns `quotaExceeded: true`, the Container DO calls `stop('SIGTERM')` for graceful shutdown.
+2. The SIGTERM signal allows the container to perform final sync before exit.
+3. The `quotaExceeded` flag is returned alongside `totalMonthlySeconds` in the ping response.
+
+**Constraints:**
+- Mid-session eviction must allow the final bisync to complete (graceful, not immediate kill).
+- The check happens on each 60-second ping, not continuously.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-009: Admin-Configurable Tiers via Management Panel
+
+**Intent:** Administrators must be able to customize tier properties (quotas, prices, sessions, storage) without code changes.
+
+**Acceptance Criteria:**
+1. `PUT /api/admin/tiers` accepts a tier configuration array and writes it to `tiers:config` KV key.
+2. The admin Subscription Management panel has editable fields for all tier properties including storage quota (MB), monthly hours, max sessions, trial hours, and Stripe price IDs.
+3. `getTierConfig()` reads from KV first, falling back to `getDefaultTiers()` if unavailable.
+4. Admin-saved values always take priority over defaults via `{ ...default, ...stored }` merge.
+5. The Zod schema for `PUT /api/admin/tiers` includes `maxStorageBytes` so it persists on save.
+6. The `requireAdmin` middleware protects tier management endpoints.
+
+**Constraints:**
+- Changes require admin role (checked after `requireActiveUser`).
+- New fields added to defaults backfill automatically for deployments with pre-existing KV data.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-010: Tier Config Cached with 60-Second TTL
+
+**Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while still reflecting admin changes within a bounded delay.
+
+**Acceptance Criteria:**
+1. `getTierConfig()` uses a module-level cache with 60-second TTL.
+2. Within the TTL window, cached tier config is returned without KV read.
+3. After TTL expiry, the next call reads from KV and refreshes the cache.
+4. `resetTierConfigCache()` allows tests to force cache invalidation.
+5. Admin changes take effect within 60 seconds across all isolates.
+
+**Constraints:**
+- Each Cloudflare Worker isolate maintains its own cache; there is no cross-isolate invalidation.
+- The 60-second TTL is per-isolate, not globally synchronized.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-011: Graceful Degradation Without Stripe
+
+**Intent:** The platform must function without Stripe for development, self-hosted, and non-SaaS deployments.
+
+**Acceptance Criteria:**
+1. When `STRIPE_SECRET_KEY` is not set, all tiers work via direct `POST /api/auth/subscribe` without payment.
+2. Billing status fields remain null in user records.
+3. `getEffectiveTier()` does not downgrade paid tiers when billing fields are absent and Stripe is not configured.
+4. The subscribe page functions normally, showing tiers without payment buttons.
+
+**Constraints:**
+- Non-SaaS users without a tier default to `unlimited` access for backward compatibility.
+- Legacy `accessTier` field is maintained in KV; code reads `subscriptionTier` first, falls back to `accessTier`.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-012: Billing Status Enforcement (Effective Tier)
+
+**Intent:** A user's effective tier must reflect their current billing state, automatically downgrading when payment lapses.
+
+**Acceptance Criteria:**
+1. `getEffectiveTier()` is the canonical tier resolution function combining `subscriptionTier`, `accessTier`, and billing state.
+2. `billingStatus === 'canceled'` results in immediate downgrade to `free` (no grace period).
+3. `billingStatus === 'past_due'` with a future `billingPeriodEnd` keeps the paid tier (grace period).
+4. `billingStatus === 'past_due'` with an expired or missing `billingPeriodEnd` downgrades to `free`.
+5. `billingPeriodEnd` expired with `billingStatus === 'active'` downgrades to `free` (catches missed webhooks).
+6. The stored `subscriptionTier` is preserved in KV so resubscription restores the correct plan.
+7. Enforcement is read-time (computed on access), not write-time (not mutated in KV).
+
+**Constraints:**
+- Exempt tiers: `free` (no billing), `unlimited` (enterprise/admin-managed), `pending`, `blocked`.
+- Uses `BILLING_STATUS` constants from `types.ts` for type-safe comparisons, not raw strings.
+- `BillingStatus` union type: `'active' | 'trialing' | 'past_due' | 'canceled'`.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-013: Concurrent Session Limits
+
+**Intent:** Each tier must enforce a maximum number of simultaneously running sessions to control resource consumption.
+
+**Acceptance Criteria:**
+1. `getMaxSessionsForTier(tierValue, tiers)` returns the `maxSessions` value for the user's tier.
+2. Session creation is rejected when running + initializing sessions >= `maxSessions`.
+3. The frontend disables the start button when `isAtSessionLimit()` returns true and shows a popup explaining the limit.
+4. `batch-status` returns `maxSessions` so the frontend can enforce limits client-side.
+
+**Constraints:**
+- Session limit check uses the effective tier, not the stored tier.
+- `STRESS_TEST_MODE` bypasses session limits.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-014: Session Mode Gating by Tier
+
+**Intent:** Only tiers that include Pro (advanced) mode in their `sessionModes` array may create Pro sessions.
+
+**Acceptance Criteria:**
+1. `getAllowedSessionModes(tierValue, tiers)` returns the list of modes allowed for the user's tier.
+2. Free and trial tiers only allow `['default']` (Standard mode).
+3. Standard, advanced, max, and unlimited tiers allow `['default', 'advanced']` (Standard and Pro modes).
+4. Session creation or mode change requests for an unsupported mode are rejected.
+
+**Constraints:**
+- `subscribedMode` in the user record is the source of truth for Pro access (set by Stripe webhook or admin).
+- JIT-provisioned users default to `'default'` mode.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-015: Stripe Webhook Signal-and-Sync Pattern
+
+**Intent:** KV billing state must always reflect the latest Stripe state to prevent race conditions from incremental patching.
+
+**Acceptance Criteria:**
+1. Webhooks are treated as signals that trigger a fresh fetch from the Stripe API, not as the data source.
+2. `syncSubscriptionState()` fetches the latest subscription via `GET /v1/subscriptions/{id}` (expanded with price items).
+3. A `lastSyncedAt` timestamp guard prevents stale webhooks from overwriting newer state.
+4. KV patches are built from the fetched snapshot; only tier/mode is set when price metadata is present (preserves existing values when null).
+5. Writes use `updateUserRecord()` (atomic read-merge-write) to prevent concurrent webhook writes from losing fields.
+6. On mode downgrade (advanced to default), `reconcileAgentConfigs(overwrite: true, cleanup: true)` is called to seed Standard configs.
+
+**Constraints:**
+- `lastSyncedAt` guard uses `>` (not `>=`) to avoid discarding same-second events.
+- Auto-recreate on downgrade is non-fatal (try/catch); failure does not block the webhook.
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-016: Customer Portal and Plan Switching
+
+**Intent:** Active subscribers must be able to manage their subscription (cancel, switch plans, update payment) via Stripe's billing portal.
+
+**Acceptance Criteria:**
+1. `POST /api/billing/portal` creates a Stripe Billing Portal session and returns `{ portalUrl }`.
+2. `POST /api/billing/switch` creates a portal session with `flow_data[type]=subscription_update_confirm` deep-linking to the Stripe confirmation page with the new price pre-selected.
+3. Plan switching requires `subscriptionItemId` from `fetchSubscription()`.
+4. If the subscription no longer exists on Stripe, stale KV fields are cleaned up and an error is returned so the frontend redirects to checkout.
+5. Plan changes trigger `customer.subscription.updated` webhook which `syncSubscriptionState()` picks up.
+6. Portal endpoint requires authenticated user with `stripeCustomerId` in KV and is rate-limited (5/min).
+
+**Constraints:**
+- Users compare plans on the Codeflare subscribe page (rich UI) and only see Stripe for payment confirmation.
+- `billingStatus` verification endpoint (`GET /api/billing/status`) verifies against Stripe API as source of truth, falling back to KV when Stripe is unavailable.
+
+**Status:** Implemented
