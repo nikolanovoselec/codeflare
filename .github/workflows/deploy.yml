@@ -125,6 +125,8 @@ jobs:
       - name: Apply container resource tier
         run: |
           TIER="${{ vars.RESSOURCE_TIER || 'default' }}"
+          # MAX_INSTANCES can be overridden per environment via GitHub Actions variable
+          MAX_INSTANCES_OVERRIDE="${{ vars.MAX_INSTANCES }}"
 
           case "$TIER" in
             low)
@@ -150,6 +152,11 @@ jobs:
               exit 1
               ;;
           esac
+
+          # Override max_instances if MAX_INSTANCES variable is set
+          if [ -n "$MAX_INSTANCES_OVERRIDE" ]; then
+            MAX_INSTANCES="$MAX_INSTANCES_OVERRIDE"
+          fi
 
           awk -v block="$INSTANCE_BLOCK" -v max_instances="$MAX_INSTANCES" '
             BEGIN {
