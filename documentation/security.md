@@ -297,8 +297,10 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 ---
 
 ## Related Documentation
-- [Authentication](authentication.md) - Auth modes, SaaS, billing
-- [API Reference](api-reference.md) - Endpoint details
+- [Authentication — Auth Modes](authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Authentication — Subscription Tiers](authentication.md#subscription-system) - Tier-based access control
+- [API Reference — Common Headers](api-reference.md#common-response-headers) - Security headers on responses
 - [PENTEST.md](PENTEST.md) - Penetration testing results
 - [STRESS_TEST.md](STRESS_TEST.md) - Load testing and rate limit validation
-- [Troubleshooting](troubleshooting.md) - Common failure modes
+- [Troubleshooting](troubleshooting.md#common-failure-modes) - Common failure modes
+- [Decisions](decisions/README.md#ad7-pre-setup-public-endpoints) - Security-related architecture decisions

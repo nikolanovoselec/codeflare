@@ -425,7 +425,8 @@ The first `/_internal/setBucketName` request is unauthenticated because the cont
 
 ## Related Documentation
 
-- [Architecture](../architecture.md) - System components and data flow
-- [Security](../security.md) - Security model
-- [Authentication](../authentication.md) - Auth modes and billing
-- [Mobile](../mobile.md) - Mobile terminal design decisions
+- [Architecture — System Components](../architecture.md#system-components) - Component overview
+- [Architecture — Design Rationale](../architecture.md#design-rationale) - Architectural principles
+- [Security — Authentication Gate](../security.md#authentication-gate) - Security model
+- [Authentication — Auth Modes](../authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Mobile — Scroll Stability](../mobile.md#scroll-stability) - Mobile terminal design decisions

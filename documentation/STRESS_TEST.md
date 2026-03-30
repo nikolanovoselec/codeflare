@@ -2,11 +2,7 @@
 
 k6-based load testing against the integration worker. Four test suites run in parallel via the `stress-test.yml` GitHub Actions workflow.
 
-**Related Documentation:**
-- [Security Reference](security.md#rate-limiting) - Rate limiting details
-- [Security Policy](../SECURITY.md) - Vulnerability reporting
-- [PENTEST.md](PENTEST.md) - Security scan results
-- [Configuration](configuration.md#worker-environment) - Environment variables
+**Audience:** Operators
 
 ## Prerequisites
 
@@ -354,3 +350,13 @@ The Timekeeper DO is a per-user Durable Object that receives pings every 60 seco
 ### Container start quota check
 
 The `validateSessionAndCheckLimits` function in `src/routes/container/lifecycle.ts` performs a KV read of the Timekeeper usage record at session start time. Under the existing session lifecycle stress test, this adds one extra KV read per container start cycle. With `STRESS_TEST_MODE=active`, usage quota enforcement is bypassed (same as rate limits), so stress tests can run without quota interference.
+
+---
+
+## Related Documentation
+
+- [Security Reference — Rate Limiting](security.md#rate-limiting) - Rate limits per endpoint
+- [Security Policy](../SECURITY.md) - Vulnerability reporting
+- [PENTEST.md](PENTEST.md) - Security scan results
+- [Configuration — Worker Environment](configuration.md#worker-environment) - Environment variables
+- [CI/CD — E2E Infrastructure](ci-cd.md#e2e-infrastructure) - E2E test setup
