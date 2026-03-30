@@ -11,12 +11,18 @@ Types: feat, fix, refactor, docs, test, chore, perf, ci
 
 Note: Attribution disabled globally via ~/.claude/settings.json.
 
-## Pre-Push: Code Review
+## Pre-Push: Code Review + Doc Review
 
-Before every `git push`, run a **code-reviewer** agent in the background
-over the changes being pushed. Push immediately — do not wait for the
-review to complete. When the review returns, fix any HIGH or CRITICAL
-findings in a follow-up commit.
+Before every `git push`, run both agents in the background (parallel).
+Push immediately — do not wait for reviews to complete. When they
+return, fix any HIGH or CRITICAL findings in a follow-up commit.
+
+1. **code-reviewer** agent — reviews code quality, security, correctness
+2. **doc-updater** agent — checks if code changes require documentation
+   updates in `documentation/`. Flags when API routes, env vars,
+   auth flows, configuration, or architecture change without a
+   corresponding doc update. See `documentation/README.md` for the
+   structure and `doc-updater` agent definition for what goes where.
 
 ## Post-Push: CI Monitoring
 
