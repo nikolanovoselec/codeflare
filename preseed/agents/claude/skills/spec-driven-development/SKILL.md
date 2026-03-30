@@ -90,16 +90,31 @@ Constraints have IDs so requirements can reference them:
 - Priorities: P0 (must have), P1 (important), P2 (valuable), P3 (nice to have)
 - A requirement is Implemented only when acceptance criteria are verified and constraints satisfied
 
+## The Spec Lives Forever
+
+The spec is the single source of truth for the entire product. It is never thrown away, never "completed." Every new idea gets added to the existing spec — new requirements in existing domains or new domains entirely. The spec grows with the product.
+
 ## Workflow
 
 ```
 User idea (prose)
-  ↓ /sdd — agent structures into spec
-Spec (sdd/)
-  ↓ /plan — agent plans implementation
+  ↓ /sdd or /sdd edit {domain} — add to spec
+Spec updated (new/modified requirements marked Planned)
+  ↓ /plan — plan ONLY the new/changed requirements
+Implementation plan (targets only what's new)
+  ↓ TDD: write tests first, then implement
 Code + Tests
-  ↓ doc-updater — agent updates docs
-Documentation
+  ↓ doc-updater — update documentation
+Documentation updated
+  ↓ mark requirements as Implemented in spec
+Spec updated (Status: Implemented)
 ```
 
-New features always start with a spec update, then planning, then implementation.
+### Critical Rules
+
+1. **New ideas always go into the spec first.** Never implement without a spec entry.
+2. **Planning targets only new/changed requirements.** When transitioning from spec to `/plan`, the plan covers ONLY requirements with `Status: Planned` or `Status: Proposed` — not the entire spec. The existing Implemented requirements are the foundation the new work builds on.
+3. **Test-driven development is mandatory.** Every plan must include tests written BEFORE implementation. Tests are derived from acceptance criteria in the spec.
+4. **Documentation updates are mandatory.** Every implementation must update the relevant documentation in `documentation/`. The doc-updater agent enforces this.
+5. **Status flows one way:** Proposed → Planned → Implemented. Moving backward requires an explicit spec change with a changelog entry.
+6. **The spec is never deleted.** When a feature is removed, the requirement is marked `Deprecated` with a reason — not deleted. History matters.

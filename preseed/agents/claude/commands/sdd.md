@@ -118,11 +118,25 @@ Report pass/fail per check with specific issues.
 
 ---
 
+## Transitioning to Implementation
+
+When the user is ready to implement, they use `/plan`. The agent MUST:
+
+1. **Read the spec first.** Load `sdd/README.md` and the relevant domain file(s).
+2. **Plan ONLY new work.** Filter for `Status: Planned` or `Status: Proposed` requirements. Never re-plan Implemented requirements — they're the existing foundation.
+3. **Enforce TDD.** The plan must include writing tests BEFORE implementation. Tests are derived directly from acceptance criteria in the spec.
+4. **Require documentation updates.** Every plan must include a step to update `documentation/` for any user-visible changes.
+5. **After implementation:** mark requirements as `Status: Implemented` in the spec, add a changelog entry to `sdd/changes.md`.
+
+The spec is never "done." It grows with the product. Every new idea starts here.
+
+---
+
 ## Arguments
 
 $ARGUMENTS: Sub-command and context. Examples:
 - `/sdd` — start from scratch
 - `/sdd init a marketplace for handmade crafts`
-- `/sdd edit authentication`
-- `/sdd check`
-- `/sdd add notifications`
+- `/sdd edit authentication` — add/modify requirements in existing domain
+- `/sdd check` — validate spec quality
+- `/sdd add notifications` — add a new domain
