@@ -114,7 +114,7 @@ graph TD
     P2 -->|"rclone bisync (every 60s)"| R2
 ```
 
-**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by CF Access). The workers.dev URL should then be gated behind one-click Access in the Cloudflare dashboard.
+**Workers.dev URL:** `https://<CLOUDFLARE_WORKER_NAME>.<ACCOUNT_SUBDOMAIN>.workers.dev` - used only for initial setup. After the setup wizard configures a custom domain, all traffic should go through the custom domain (protected by the configured auth mechanism — CF Access or GitHub OIDC). In CF Access mode, the workers.dev URL should be gated behind one-click Access in the Cloudflare dashboard.
 
 ---
 
@@ -338,9 +338,9 @@ function connect() {
 
 **R2 Storage Stats Caching:** `GET /api/storage/stats` paginates all R2 objects and caches results in KV (`storage-stats:{bucketName}`, 60s TTL). `batch-status` piggybacks cached stats (no TTL check — relies on cache being fresh). Mutation endpoints (upload, delete, seed) invalidate the KV cache after successful operations. Dashboard calls `storageStore.fetchStats()` on mount, which hits `/api/storage/stats` and refreshes from R2 if the cache is stale or missing.
 
-**Logout:** The frontend navigates directly to `/cdn-cgi/access/logout?returnTo={origin}/` via `window.location.href` (CF Access system endpoint). A backend route at `/auth/logout` (in `auth-redirects.ts`) also exists and redirects to `https://{authDomain}/cdn-cgi/access/logout?returnTo=https://{customDomain}/`, but the frontend currently uses the direct CF Access path.
+**Logout:** The frontend navigates to `/auth/logout` via `window.location.href`. The backend route (in `auth-redirects.ts`) dispatches based on mode: SaaS OIDC redirects to `/auth/github/logout` (clears `codeflare_session` cookie), CF Access mode redirects to `https://{authDomain}/cdn-cgi/access/logout?returnTo=https://{customDomain}/`.
 
-**Header User Dropdown:** Clicking the avatar/username in both Header (terminal view) and Dashboard opens a dropdown with three items: Profile (`/app/subscribe`), Guided Setup (`/app/onboarding`), and Logout. Profile and Guided Setup use plain `<a href>` tags with no `onClick` handlers — SolidJS Router's top-level DOM listener intercepts clicks for client-side navigation (no full page reload, no white flash on dark backgrounds). This is critical for mobile: previous attempts using `<button>` + `window.location.href` or `onClick` handlers failed due to touch event race conditions with Portal DOM removal. Logout uses `window.location.href` to navigate to `/cdn-cgi/access/logout` (CF Access system endpoint). Dashboard dropdown uses `Portal` with the dropdown nested inside the overlay as a child (not a sibling) — `stopPropagation` on the dropdown div prevents touch events from reaching the overlay's `onClick`. Desktop: positioned below avatar via `getBoundingClientRect()`. Mobile: bottom sheet.
+**Header User Dropdown:** Clicking the avatar/username in both Header (terminal view) and Dashboard opens a dropdown with three items: Profile (`/app/subscribe`), Guided Setup (`/app/onboarding`), and Logout. Profile and Guided Setup use plain `<a href>` tags with no `onClick` handlers — SolidJS Router's top-level DOM listener intercepts clicks for client-side navigation (no full page reload, no white flash on dark backgrounds). This is critical for mobile: previous attempts using `<button>` + `window.location.href` or `onClick` handlers failed due to touch event race conditions with Portal DOM removal. Logout uses `window.location.href` to navigate to `/auth/logout` (dispatches to OIDC or CF Access logout depending on mode). Dashboard dropdown uses `Portal` with the dropdown nested inside the overlay as a child (not a sibling) — `stopPropagation` on the dropdown div prevents touch events from reaching the overlay's `onClick`. Desktop: positioned below avatar via `getBoundingClientRect()`. Mobile: bottom sheet.
 
 **Onboarding Page (`/app/onboarding`):** Guided setup page for new users. Three sections: (1) Connect GitHub — saves PAT via `updateDeployKeys`, (2) Connect Cloudflare — saves API token, (3) Coding Agents — informational cards linking to signup pages for 6 supported agents. Reuses `ProviderRow` and `BrandIcons` from settings. "Skip and Continue to Codeflare" button always visible. Uses standalone `.onboarding-page` container (`position: fixed; inset: 0; overflow-y: auto`) instead of `.login-page` — same pattern as `.setup-wizard` — because `.login-page` has `overflow: hidden` that blocks scrolling. **First-time redirect:** In SaaS mode, `AppContent` checks `onboardingComplete` from `/api/user` — if `false`, redirects to `/app/onboarding`. The Skip/Continue buttons call `POST /api/user/onboarding-complete` which sets `onboardingComplete: true` in the user's KV entry. Subsequent visits go directly to the dashboard. Users can always revisit via the header dropdown ("Guided Setup").
 
@@ -1493,17 +1493,17 @@ When an admin changes a user's tier to `advanced`, `max`, or `unlimited`, the ba
 
 ### Logout Flow
 
-`GET /auth/logout` in `src/routes/auth-redirects.ts`:
+`GET /auth/logout` in `src/routes/auth-redirects.ts` dispatches by mode:
 
-1. Retrieves `setup:auth_domain` from KV (set during setup)
+**SaaS OIDC mode** (`SAAS_MODE=active` + `OAUTH_CLIENT_ID`): Redirects to `/auth/github/logout`, which clears the `codeflare_session` cookie and redirects to `/`.
+
+**CF Access mode** (all other modes):
+1. Retrieves `setup:auth_domain` from KV
 2. Computes `returnTo` URL (custom domain root or fallback)
-3. Redirects to CF Access logout endpoint:
-   ```
-   https://{auth_domain}/cdn-cgi/access/logout?returnTo={encodeURIComponent(returnTo)}
-   ```
-4. CF Access clears the `CF_Authorization` cookie and redirects back to returnTo
+3. Redirects to `https://{auth_domain}/cdn-cgi/access/logout?returnTo={returnTo}`
+4. CF Access clears the `CF_Authorization` cookie and redirects back
 
-The frontend calls this via `window.location.href = '/cdn-cgi/access/logout?returnTo=...'` directly (see `web-ui/src/components/Header.tsx` logout button in the user dropdown), which also works because `/cdn-cgi/access/logout` is a CF Access system endpoint.
+The frontend triggers logout via `window.location.href = '/auth/logout'` (see Header.tsx and Dashboard.tsx user dropdown).
 
 ### Frontend Components
 
@@ -2063,6 +2063,7 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 
 **Source:** `src/routes/setup/access.ts`
 
+**When GitHub OIDC is NOT configured** (default, onboarding, SaaS without `OAUTH_CLIENT_ID`):
 1. Upserts two Cloudflare Access groups scoped to the worker name:
    - `{workerName}-admins` -- contains admin emails.
    - `{workerName}-users` -- contains non-admin allowed emails (created only when there are non-admin users).
@@ -2071,11 +2072,8 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 4. Upserts an "Allow users" policy referencing both groups.
 5. Stores Access configuration in KV (audience tag, group IDs, auth domain).
 
-**SaaS-specific behavior:**
-- The Access app is configured with `allowed_idps` restricted to GitHub IdP only (if available).
-- The policy uses `login_method` includes (any GitHub-authenticated user passes CF Access) instead of group includes.
-- The user group is skipped entirely — Worker enforces per-user subscription tier authorization (8 tiers).
-- Admin users created via allowedUsers have `subscriptionTier: 'unlimited'` set automatically.
+**When GitHub OIDC IS configured** (`SAAS_MODE=active` + `OAUTH_CLIENT_ID`):
+CF Access groups and policies are not created — the Worker handles authentication directly via GitHub OAuth session cookies. Admin users created via allowedUsers are assigned the Custom tier automatically.
 
 **Step 6 -- `configure_turnstile` (conditional)**
 
@@ -2229,7 +2227,7 @@ When `setup:complete` is not set in KV, all setup endpoints are publicly accessi
 
 Once `setup:complete` is `"true"`, the conditional auth middleware requires:
 
-1. A valid Cloudflare Access JWT (verified by `authMiddleware`).
+1. Valid authentication (CF Access JWT or OIDC session cookie, verified by `authMiddleware`).
 2. The authenticated user must have the `admin` role (enforced by `requireAdmin`).
 
 This applies to `POST /api/setup/configure`, `GET /api/setup/detect-token`, and `GET /api/setup/prefill`. The `GET /api/setup/status` endpoint is always public.

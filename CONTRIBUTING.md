@@ -59,7 +59,7 @@ cd web-ui && npm test
 # Host unit tests (Node.js test runner)
 cd host && npm test
 
-# E2E API tests (requires a deployed worker + CF Access service tokens)
+# E2E API tests (requires a deployed worker + auth credentials)
 npm run test:e2e:api
 
 # E2E UI tests (requires a deployed worker + Puppeteer)

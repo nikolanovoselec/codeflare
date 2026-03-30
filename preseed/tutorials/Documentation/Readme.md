@@ -101,7 +101,7 @@ Fork the repo, set your Cloudflare credentials as GitHub secrets, go to `Actions
 After deployment, visit your Worker URL and the setup wizard handles:
 
 1. DNS configuration (CNAME for your custom domain)
-2. Cloudflare Access setup (auth and user allowlist)
+2. Authentication setup (Cloudflare Access or GitHub OAuth depending on mode)
 3. R2 credential derivation (automatic, no manual token creation)
 
 That's it. No Kubernetes. No Terraform. No existential crisis.

@@ -125,7 +125,7 @@ Future deploys are automatic on every push to `main`.
 Find your worker URL: [dash.cloudflare.com](https://dash.cloudflare.com/) > `Compute` > `Workers & Pages` > your worker name (default: `codeflare`). If you didn't set `CLOUDFLARE_WORKER_NAME`, your URL is `codeflare.<your-user>.workers.dev`. Open it - the onboarding wizard takes over and walks you through:
 - Verifying your token and account access
 - Configuring a custom domain and allowed users
-- Creating Cloudflare Access policies (handles auth so you don't have to)
+- Setting up authentication (Cloudflare Access for all modes; SaaS mode can use GitHub OAuth instead)
 
 That's it. You're live. No Kubernetes. No Terraform. No existential crisis. You'll need an active subscription to at least one of the supported coding agents - log in directly from the terminal.
 
@@ -230,7 +230,7 @@ E2E tests authenticate via the `X-Service-Auth` header. Set **one** of the two s
 |---|---|---|
 | **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | Turnstile keys (no CF Access — GitHub OAuth handles auth) |
 | **SaaS + CF Access** | `SAAS_MODE=active`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | CF Access, Turnstile keys |
 
 ---
@@ -292,7 +292,7 @@ npm run test:e2e:ui-desktop        # E2E UI desktop (alias)
 npm run test:e2e:ui-mobile         # E2E UI mobile
 ```
 
-E2E tests require a deployed worker and CF Access service tokens. See [TECHNICAL.md — Testing](TECHNICAL.md#testing) for setup details.
+E2E tests require a deployed worker and service credentials (CF Access service tokens, or `OAUTH_E2E_TEST_SECRET` when SaaS mode uses GitHub OAuth). See [TECHNICAL.md — Testing](TECHNICAL.md#testing) for setup details.
 
 ## CI/CD
 

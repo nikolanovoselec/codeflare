@@ -132,7 +132,7 @@ Enabled at the repository level (Settings > Code security and analysis):
 - **Static origins:** Configured via `ALLOWED_ORIGINS` worker variable (comma-separated patterns).
 - **Dynamic origins:** Additional origins loaded from KV (`cors-cache.ts`), refreshed on cache miss.
 - **Pattern matching:** Dot-prefixed patterns enable suffix matching (e.g., `.workers.dev`). Non-prefixed patterns require exact match.
-- **`.workers.dev` wildcard:** The app allows any `*.workers.dev` origin by design. This is required because the initial setup flow runs on a `*.workers.dev` URL before a custom domain is configured, and the setup wizard persists `.workers.dev` to KV as an allowed origin. `matchesPattern()` enforces domain boundaries so `evil-workers.dev` does not match. The CF Access JWT cookie defaults to `SameSite=Lax`, which blocks cross-origin credentialed `fetch()` requests. This is an accepted design tradeoff documented in Architecture Decisions (AD11).
+- **`.workers.dev` wildcard:** The app allows any `*.workers.dev` origin by design. This is required because the initial setup flow runs on a `*.workers.dev` URL before a custom domain is configured, and the setup wizard persists `.workers.dev` to KV as an allowed origin. `matchesPattern()` enforces domain boundaries so `evil-workers.dev` does not match. Auth cookies default to `SameSite=Lax` (both CF Access `CF_Authorization` and GitHub OIDC `codeflare_session`), which blocks cross-origin credentialed `fetch()` requests. This is an accepted design tradeoff documented in Architecture Decisions (AD11).
 
 ### WebSocket Security
 
