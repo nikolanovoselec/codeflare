@@ -871,7 +871,7 @@ flowchart TD
     R3 --> S["User selects tier +<br/>completes Turnstile CAPTCHA"]
     S --> T["POST /api/auth/subscribe<br/>{ tier, turnstileToken }"]
     T --> U["Verify Turnstile token"]
-    U --> V["Write subscriptionTier +<br/>accessTier + subscribedAt +<br/>subscribedMode + trialBillingTriggered +<br/>trialUsed to KV"]
+    U --> V["Write subscriptionTier +<br/>accessTier + subscribedAt +<br/>subscribedMode + trialUsed to KV"]
     V --> W{"First time?"}
     W -->|yes| X["Redirect to /app/onboarding"]
     X --> P
@@ -923,7 +923,7 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
    - Validates Turnstile token
    - Resolves tier config via `getTierConfig(kv)`
    - Sets `subscriptionTier`, `accessTier`, `subscribedAt` timestamp, `subscribedMode`
-   - Sets `trialBillingTriggered: false`, `trialUsed: false` (booleans) for all subscriptions
+   - Sets `trialUsed: false` for all subscriptions
    - Returns `{ success, tier, trialQuotaHours, trialUsed, onboardingComplete }`
 5. Frontend redirects: first-time → `/app/onboarding`, returning → `/app/`
 
@@ -1171,7 +1171,6 @@ Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscr
   - `accessTier`: backward-compat legacy tier value
   - `subscribedAt`: ISO timestamp of subscription
   - `subscribedMode`: `'default'` or `'advanced'` (the mode the user selected on the subscribe page)
-  - `trialBillingTriggered`: `false` (boolean, always set — reserved for future billing integration)
   - `trialUsed`: `false` (boolean, tracks whether trial quota has been consumed)
 - Response: `{ success: boolean, tier: string, trialQuotaHours: 0, trialUsed: boolean, onboardingComplete: boolean }` (trialQuotaHours is always 0 — reserved for future billing)
 - Sends subscription confirmation email via `waitUntil` (non-blocking, non-fatal) using `sendSubscriptionEmail()` from `src/lib/email.ts`
@@ -1459,7 +1458,7 @@ When a pending user lands on `/app/subscribe`:
    - Verifies Turnstile token for new subscriptions (active users switching plans skip Turnstile)
    - Validates tier is subscribable: free/standard/advanced/max/unlimited
    - Resolves tier config via `getTierConfig()` to extract `trialQuotaHours`
-   - Writes to KV at `user:{email}`: `subscriptionTier`, `accessTier` (backward compat), `subscribedAt`, `subscribedMode`, `trialBillingTriggered: false`, `trialUsed: false`
+   - Writes to KV at `user:{email}`: `subscriptionTier`, `accessTier` (backward compat), `subscribedAt`, `subscribedMode`, `trialUsed: false`
    - Returns `{ success, tier, trialQuotaHours, trialUsed, onboardingComplete }`
 
 5. **Redirect:** Frontend redirects to `/app/onboarding` (first-time) or `/app/` (returning user).
@@ -1775,7 +1774,6 @@ When the limit is exceeded: HTTP 429 with `{ code: "RATE_LIMIT_ERROR", message: 
 |----------|--------|-------|-----------|
 | `/api/storage/upload/*` | POST | 60/min | `storage-upload` |
 | `/api/storage/delete` | POST | 20/min | `storage-delete` |
-| `/api/storage/move` | POST | 20/min | `storage-move` |
 | `/api/storage/seed/*` | POST | 3/min | `storage-seed` |
 | `/api/storage/download` | GET | 120/min | `storage-download` |
 | `/api/storage/preview` | GET | 120/min | `storage-preview` |
@@ -1919,12 +1917,12 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/auth/providers` | List configured IdPs (public, no auth) |
-| GET | `/api/auth/status` | Auth status (tier, email, turnstile key, currency, hasSubscribed) |
+| GET | `/api/auth/status` | Auth status (tier, email, role, turnstile key, session/billing state) |
 | GET | `/api/auth/tiers` | Subscribable tier configs (requires identity) |
 | GET | `/api/auth/onboarding-config` | Onboarding page config (turnstile key) |
 | POST | `/api/auth/subscribe` | Self-service tier selection (rate-limited 3/min) |
 | POST | `/api/auth/request-access` | Request access with Turnstile (rate-limited 3/hr) |
-| POST | `/api/auth/onboarding-complete` | Mark onboarding as done |
+| POST | `/api/auth/contact-team` | Enterprise tier inquiry email (rate-limited 1/hr) |
 
 ### Usage
 
@@ -1938,6 +1936,34 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 |--------|----------|-------------|
 | GET | `/api/admin/tiers` | Get current tier config (admin only) |
 | PUT | `/api/admin/tiers` | Update tier config (admin only, 8-tier array) |
+| PUT | `/api/users/max-users` | Set max users capacity cap (admin only) |
+
+### Billing
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/billing/checkout` | Create Stripe Checkout Session for paid tier (rate-limited 5/min) |
+| GET | `/api/billing/status` | Live billing state from Stripe (subscription, period, status) |
+| POST | `/api/billing/portal` | Create Stripe Customer Portal session (rate-limited 5/min) |
+| POST | `/api/billing/switch` | Deep-link portal for plan change confirmation (rate-limited 5/min) |
+| POST | `/public/stripe/webhook` | Stripe webhook handler (unauthenticated, HMAC-verified, rate-limited 100/min) |
+
+### Deploy Keys
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/deploy-keys` | Get encrypted deploy credentials (masked) |
+| PUT | `/api/deploy-keys` | Save/update deploy credentials (GitHub PAT, CF API token) |
+| DELETE | `/api/deploy-keys` | Erase all deploy credentials |
+
+### Public (Unauthenticated)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/public/auth/providers` | Auth providers (outside CF Access gate) |
+| GET | `/public/onboarding-config` | Turnstile site key + onboarding status |
+| GET | `/public/tiers` | Public tier config (no session mode info) |
+| POST | `/public/waitlist` | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
 
 ### Setup
 
@@ -2236,7 +2262,6 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | POST | `/api/storage/upload` | Upload file |
 | GET | `/api/storage/download` | Download file |
 | POST | `/api/storage/delete` | Delete objects by key and/or prefix (server-side bulk delete) |
-| POST | `/api/storage/move` | Move/rename object |
 | GET | `/api/storage/preview` | Preview file content (text files inline, others return metadata only) |
 | GET | `/api/storage/stats` | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
 | POST | `/api/storage/seed/getting-started` | Seed tutorial docs |
@@ -2762,7 +2787,6 @@ codeflare/
 │   │   │   ├── browse.ts     # List objects
 │   │   │   ├── delete.ts     # Delete objects
 │   │   │   ├── download.ts   # Download files
-│   │   │   ├── move.ts       # Move/rename
 │   │   │   ├── preview.ts    # Preview content
 │   │   │   ├── seed.ts       # Seed tutorial docs
 │   │   │   ├── stats.ts      # File/folder counts
@@ -2772,7 +2796,13 @@ codeflare/
 │   │   │   └── tiers.ts      # Admin tier management (GET/PUT /api/admin/tiers)
 │   │   ├── public/
 │   │   │   └── index.ts      # Onboarding endpoints + public tiers
-│   │   ├── auth.ts           # Auth routes (status, subscribe, request-access, onboarding-complete)
+│   │   ├── auth.ts           # Auth routes (status, subscribe, request-access, contact-team)
+│   │   ├── auth-redirects.ts # Login/logout redirects (CF Access)
+│   │   ├── github-auth.ts    # GitHub OAuth flow (SaaS mode)
+│   │   ├── billing.ts        # Stripe billing (checkout, portal, switch, status)
+│   │   ├── stripe-webhook.ts # Stripe webhook handler (HMAC-verified)
+│   │   ├── deploy-keys.ts    # Deploy credential CRUD (GitHub PAT, CF API token)
+│   │   ├── llm-keys.ts       # LLM API key CRUD (OpenAI, Gemini)
 │   │   ├── usage.ts          # Usage API (real-time via Timekeeper DO, KV fallback)
 │   │   ├── presets.ts        # Preset CRUD
 │   │   ├── preferences.ts    # User preferences
