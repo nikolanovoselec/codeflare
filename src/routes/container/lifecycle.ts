@@ -12,7 +12,7 @@ import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, ContainerError, NotFoundError, RateLimitError, QuotaExceededError, toError, toErrorMessage } from '../../lib/error-types';
+import { AppError, ContainerError, NotFoundError, QuotaExceededError, toError, toErrorMessage } from '../../lib/error-types';
 import { getTierConfig, getUserTier, getEffectiveTier, getAllowedSessionModes } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
@@ -88,7 +88,7 @@ async function setupR2Credentials(
  * Returns the session data if valid.
  *
  * @throws NotFoundError if session doesn't exist
- * @throws RateLimitError if session limit exceeded
+ * @throws QuotaExceededError if session limit exceeded
  */
 export async function validateSessionAndCheckLimits(params: {
   env: Env;
