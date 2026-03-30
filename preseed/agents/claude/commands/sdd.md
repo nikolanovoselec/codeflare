@@ -1,205 +1,128 @@
 # Spec-Driven Development
 
-Create a product specification from scratch through structured discovery. The output is an `sdd/` folder that serves as the single source of truth for all future development.
-
-Uses the **spec-driven-development** skill for formatting rules and quality checks.
+Turn a rough product idea into a structured specification. The user describes what they want — you do the heavy lifting.
 
 ## Sub-Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/sdd` or `/sdd init` | Full guided spec creation (Steps 1-9) |
-| `/sdd edit {domain}` | Deep-dive requirements for a single domain |
-| `/sdd check` | Validate spec quality across all domain files |
+| `/sdd` or `/sdd init` | Create a new spec from a product idea |
+| `/sdd edit {domain}` | Add or modify requirements in a domain |
+| `/sdd check` | Validate spec quality |
 | `/sdd add {domain}` | Add a new domain to an existing spec |
 
-## Instructions
+## Core Principle
 
-**HARD GATE: No implementation during spec creation. This is a requirements exercise.**
+**You propose, the user confirms.** Never ask an open-ended question without suggesting an answer. Draft everything — vision, domains, requirements, constraints — and present it for the user to accept, reject, or tweak.
 
----
-
-### `/sdd init` — Full Spec Creation
-
-#### Step 1: Product Vision
-
-Ask the user to describe their product idea in plain language. Clarify:
-
-1. **"What problem does this solve?"** — Not what it does, but why it should exist
-2. **"Who is this for?"** — Target audience
-3. **"What does success look like?"** — How do you know it's working?
-
-Synthesize into a one-paragraph product vision. Present back and wait for confirmation.
-
-#### Step 2: Actors
-
-Identify who interacts with the product:
-
-1. Ask: **"Who are the different types of users or systems that interact with this?"**
-2. For each actor, capture: name, description, what they need
-3. Include non-human actors if relevant (external APIs, background systems)
-
-Present the actors table. Iterate until confirmed.
-
-#### Step 3: User Journey
-
-Map the core workflows:
-
-1. Ask: **"Walk me through what a user does, step by step, from first visit to daily use."**
-2. Ask: **"What's the critical workflow — the one thing that must work perfectly?"**
-3. Ask: **"What happens when something goes wrong?"**
-
-Listen for nouns and verbs. This is the raw material for domain discovery.
-
-#### Step 4: Domain Discovery
-
-From the journey, extract feature domains:
-
-1. Group related nouns+verbs into 5-12 domains
-2. Name each domain with a clear, one-line description
-3. Identify obvious dependencies between domains
-4. Present the domain list as a table
-
-Iterate until the user confirms the domain decomposition.
-
-#### Step 5: Principles
-
-Now that the product shape is clear, propose 3-7 design principles:
-
-- Non-negotiable values that guide every future decision
-- Derived from what you've learned about the product, not generic platitudes
-- Each principle should be actionable (helps make a real decision)
-
-Present and iterate until confirmed.
-
-#### Step 6: Requirements Editing
-
-For each domain, work through requirements one domain at a time:
-
-1. Ask: **"For {domain}, what must be true for it to work?"**
-2. Probe for edge cases: **"What happens when {failure case}?"**
-3. Probe for actors: **"Does this work differently for admins vs regular users?"**
-4. Convert answers into numbered requirements (REQ-{DOMAIN}-{NNN}) with:
-   - Intent (why)
-   - Applies To (which actor)
-   - Acceptance criteria (testable, binary pass/fail)
-   - Constraints (guardrails + references to global constraints)
-   - Priority (P0-P3)
-   - Dependencies (if any)
-   - Verification method
-5. Mark all as `Status: Planned`
-6. Present the domain file and iterate
-
-Work through all domains in sequence. The user can also use `/sdd edit {domain}` later to add depth to any domain incrementally.
-
-#### Step 7: Cross-Cutting Constraints
-
-Now consolidate constraints across all domains:
-
-1. **Technology stack** — based on deployment target and requirements discovered
-2. **Security constraints** (CON-SEC-*) — auth, encryption, input validation
-3. **Performance constraints** (CON-PERF-*) — latency budgets, throughput
-4. **Reliability constraints** (CON-REL-*) — recovery, data durability
-5. **Boundaries** — what the product does NOT do (explicit exclusions)
-
-Give each constraint an ID (CON-{CATEGORY}-{NNN}) so domain requirements can reference them.
-
-#### Step 8: Validation
-
-Before writing files, run a quality check:
-
-- [ ] Every requirement has a clear actor
-- [ ] Every acceptance criterion is binary (pass/fail)
-- [ ] Priorities are assigned
-- [ ] Dependencies between requirements are explicit
-- [ ] Cross-cutting constraints are referenced (not duplicated)
-- [ ] Out-of-scope is documented per domain and globally
-- [ ] Unclear terms are defined in the glossary
-- [ ] No duplicate requirements across domains
-- [ ] Edge cases and failure modes are covered for P0 requirements
-
-Present any gaps found and iterate.
-
-#### Step 9: Write the Spec
-
-Create the `sdd/` folder:
-
-1. `sdd/README.md` — vision, principles, actors, domain index, out of scope, agent rules
-2. `sdd/glossary.md` — canonical terms from all domains
-3. `sdd/constraints.md` — technology stack, security/performance/reliability constraints, boundaries
-4. `sdd/changes.md` — initial entry with creation date
-5. `sdd/{domain}.md` — one file per domain with all requirements
-
-Present the complete spec structure and wait for final approval.
-
-After approval:
-
-```
-Spec complete. Next steps:
-1. /sdd edit {domain} — deep-dive any domain that needs more requirements
-2. /sdd check — validate spec quality
-3. /plan {domain} — plan implementation for a specific domain
-4. Add new requirements to sdd/ as the product evolves
-```
+**HARD GATE: No implementation during spec creation.**
 
 ---
 
-### `/sdd edit {domain}` — Single Domain Deep-Dive
+## `/sdd init` — Create a New Spec
 
-Focused requirements editing for one domain. Use when:
-- The initial `/sdd init` was too broad for some domains
-- Adding depth to a domain after initial spec creation
-- The context window is limited and full spec creation would degrade quality
+### What the user gives you
 
-1. Read `sdd/README.md` for vision, principles, and actors
-2. Read `sdd/constraints.md` for applicable global constraints
-3. Read `sdd/glossary.md` for existing terms
-4. Read `sdd/{domain}.md` if it exists (build on existing requirements)
-5. Edit requirements through conversation (same process as Step 6 above)
-6. Write/update `sdd/{domain}.md`
-7. Update `sdd/glossary.md` with any new terms
-8. Add entry to `sdd/changes.md`
+A rough idea. Could be one sentence ("I want a task manager for teams") or a paragraph. Could be vague ("something like Notion but simpler") or specific. Take whatever you get.
+
+### What you do
+
+**1. Draft the vision.** From the user's description, write a one-paragraph product vision. Include who it's for and what problem it solves. Present it:
+
+> "Here's what I think you're describing: [vision]. Is that right, or should I adjust?"
+
+**2. Propose actors.** From the vision, identify who interacts with the product (users, admins, external systems). Present a table:
+
+> "I see these actors: [table]. Anyone missing?"
+
+**3. Map the user journey.** Ask ONE question:
+
+> "Walk me through what happens from the moment someone first opens this until they're using it daily."
+
+From the answer, extract nouns and verbs. If the user is brief, propose a journey yourself and ask if it's right.
+
+**4. Propose domains.** Group the journey into 5-12 feature domains. Present as a table with descriptions and priorities:
+
+> "I'd break this into these domains: [table]. Want to add, remove, or rename any?"
+
+**5. Propose principles.** Based on everything so far, draft 3-7 design principles. These should be specific to this product, not generic. Present them:
+
+> "These principles would guide every decision: [list]. Anything to change?"
+
+**6. Draft requirements.** For each domain, draft 5-15 requirements with full format (Intent, Applies To, Acceptance Criteria, Constraints, Priority, Dependencies, Verification, Status: Planned). Present one domain at a time:
+
+> "Here's what I think {domain} needs: [requirements]. What's missing? What's wrong?"
+
+For each requirement, actively propose edge cases and failure modes:
+
+> "What should happen if [failure case]? I'd suggest [proposed behavior]."
+
+**7. Draft constraints.** Propose the technology stack (based on what you know about the user's deployment target), security/performance/reliability guardrails, and boundaries. Give each constraint a CON-* ID:
+
+> "Here are the guardrails I'd set: [constraints]. Anything too strict or too loose?"
+
+**8. Write the spec.** Create `sdd/` with all files. Add glossary terms, changelog entry, and out-of-scope sections.
+
+Present the final structure and wait for approval.
+
+### Tips for the agent
+
+- **Infer aggressively.** If the user says "a blog," you know it needs posts, authors, comments, tags, admin panel, RSS feed. Propose all of it — let them cut what they don't want.
+- **Propose, don't interrogate.** Bad: "What authentication do you need?" Good: "I'd use email/password with optional OAuth. Sound right?"
+- **Name the actors early.** Every requirement should say who it applies to.
+- **P0 first.** Draft the core workflow as P0, admin/config as P1, polish as P2, stretch as P3.
+- **Failure modes matter.** For every P0 requirement, ask yourself "what happens when this fails?" and include a criterion for it.
+- **One question at a time.** Never dump multiple questions. Present a proposal and ask one thing.
 
 ---
 
-### `/sdd check` — Validate Spec Quality
+## `/sdd edit {domain}` — Edit a Domain
 
-Read all files in `sdd/` and verify:
+Add or modify requirements in an existing domain:
 
-1. **Completeness** — every domain in README index has a corresponding file
-2. **Quality** — every requirement has ID, intent, actor, acceptance criteria, priority
-3. **Consistency** — terms match glossary, constraint IDs exist in constraints.md
-4. **Dependencies** — referenced requirements (REQ-*-*) exist in their domain files
-5. **Coverage** — P0 requirements have failure-mode criteria, not just happy path
-6. **No duplication** — same requirement doesn't appear in multiple domains
-
-Report findings as a checklist. Suggest fixes for any issues found.
+1. Read `sdd/README.md`, `sdd/constraints.md`, `sdd/glossary.md` for context
+2. Read `sdd/{domain}.md` for existing requirements
+3. Ask the user what they want to add or change
+4. Draft new/modified requirements and present for confirmation
+5. Write the updated domain file
+6. Update glossary and changelog
 
 ---
 
-### `/sdd add {domain}` — Add New Domain
+## `/sdd check` — Validate Spec
 
-1. Read existing `sdd/README.md` for context
+Read all `sdd/` files and verify:
+
+1. Every domain in README index has a file
+2. Every requirement has all fields (ID, Intent, Applies To, AC, Constraints, Priority, Dependencies, Verification, Status)
+3. All acceptance criteria are binary pass/fail
+4. Constraint IDs (CON-*) exist in constraints.md
+5. Cross-requirement references (REQ-*-*) resolve
+6. P0 requirements cover failure modes
+7. Each domain has Key Concepts, Out of Scope, Domain Dependencies
+8. README has Actors table
+9. Glossary covers key terms used across domains
+10. No duplicate requirements across domains
+
+Report pass/fail per check with specific issues.
+
+---
+
+## `/sdd add {domain}` — Add New Domain
+
+1. Read existing spec for context
 2. Ask the user what this domain covers
-3. Edit requirements (same process as `/sdd edit`)
+3. Draft requirements (same process as init step 6)
 4. Create `sdd/{domain}.md`
-5. Update `sdd/README.md` domain index
-6. Update `sdd/glossary.md` with new terms
-7. Add entry to `sdd/changes.md`
+5. Update README index, glossary, changelog
 
 ---
 
 ## Arguments
 
-$ARGUMENTS: Sub-command and optional context (e.g., `/sdd`, `/sdd init a real-time collaboration tool`, `/sdd edit authentication`, `/sdd check`, `/sdd add billing`)
-
-## Tips
-
-- Ask questions ONE AT A TIME. Never dump a wall of questions.
-- Use AskUserQuestion with predefined options where possible.
-- Start broad (vision, actors, journey) and narrow down (domains, requirements).
-- If the user already has code, suggest reverse-engineering the spec first, then using `/sdd` for new features.
-- Keep requirements at the "what" level. If the user describes implementation, redirect to intent.
-- A good spec for a medium product has 50-100 requirements across 8-12 domains.
-- `/sdd edit {domain}` is useful for adding depth to a domain after initial creation, or for incremental spec growth over time.
-- When in doubt about a requirement, mark it as `Proposed` with an open question — don't guess.
+$ARGUMENTS: Sub-command and context. Examples:
+- `/sdd` — start from scratch
+- `/sdd init a marketplace for handmade crafts`
+- `/sdd edit authentication`
+- `/sdd check`
+- `/sdd add notifications`
