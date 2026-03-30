@@ -72,7 +72,7 @@ Now that the product shape is clear, propose 3-7 design principles:
 
 Present and iterate until confirmed.
 
-#### Step 6: Requirements Editation
+#### Step 6: Requirements Editing
 
 For each domain, work through requirements one domain at a time:
 
@@ -146,7 +146,7 @@ Spec complete. Next steps:
 
 ### `/sdd edit {domain}` — Single Domain Deep-Dive
 
-Focused requirements editation for one domain. Use when:
+Focused requirements editing for one domain. Use when:
 - The initial `/sdd init` was too broad for some domains
 - Adding depth to a domain after initial spec creation
 - The context window is limited and full spec creation would degrade quality
