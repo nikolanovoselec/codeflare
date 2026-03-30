@@ -21,8 +21,13 @@ questions that were already answered.
 
 ## When to search (use search_nodes):
 - Starting a session — search for recent chat history and project knowledge
+- Before implementing any feature — check if it was discussed or attempted before
 - Before architectural decisions — check for prior decisions
-- When context seems relevant to a previous session
+- When the user references a previous session ("we talked about", "remember when", "last time")
+- When encountering a bug — check if it was seen and solved before
+- After every `/resume` — load context for the resumed session
+- When starting work on a subsystem (billing, terminal, storage, memory) — search for that subsystem's history
+- When the user asks about project architecture, decisions, or history
 
 ## Best practices:
 - One fact per observation (atomic)
