@@ -123,29 +123,22 @@ jobs:
           grep 'name = "CONTAINER"' wrangler.toml || { echo "FATAL: DO binding name corrupted!"; exit 1; }
 
       - name: Apply container resource tier
+        env:
+          TIER: ${{ vars.RESSOURCE_TIER || 'default' }}
+          MAX_INSTANCES_OVERRIDE: ${{ vars.MAX_INSTANCES }}
         run: |
-          TIER="${{ vars.RESSOURCE_TIER || 'default' }}"
-          # MAX_INSTANCES can be overridden per environment via GitHub Actions variable
-          MAX_INSTANCES_OVERRIDE="${{ vars.MAX_INSTANCES }}"
+          MAX_INSTANCES=10
 
           case "$TIER" in
             low)
               # 0.25 vCPU / 1 GiB RAM / 4 GB disk (Cloudflare basic preset)
               INSTANCE_BLOCK='instance_type = "basic"'
-              MAX_INSTANCES=10
               ;;
             high)
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 2\nmemory_mib = 6144\ndisk_mb = 8000'
-              MAX_INSTANCES=10
               ;;
-            saas)
-              # Same instance spec as default, max concurrent instances for SaaS deployment
+            saas|default)
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'
-              MAX_INSTANCES=1400
-              ;;
-            default)
-              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'
-              MAX_INSTANCES=10
               ;;
             *)
               echo "::error::Invalid RESSOURCE_TIER=\"$TIER\". Allowed values: low, high, saas. Leave unset for default."
@@ -155,6 +148,10 @@ jobs:
 
           # Override max_instances if MAX_INSTANCES variable is set
           if [ -n "$MAX_INSTANCES_OVERRIDE" ]; then
+            if ! echo "$MAX_INSTANCES_OVERRIDE" | grep -qE '^[1-9][0-9]*$'; then
+              echo "::error::MAX_INSTANCES must be a positive integer, got: $MAX_INSTANCES_OVERRIDE"
+              exit 1
+            fi
             MAX_INSTANCES="$MAX_INSTANCES_OVERRIDE"
           fi
 

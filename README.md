@@ -176,8 +176,8 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | Variable | Where | Default | What it does |
 |---|---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | Worker name, R2 bucket prefix, and CF Access group prefix. Set to a unique name when running multiple instances on the same account |
-| `RESSOURCE_TIER` | var | unset | Container instance **size**. When unset: 1 vCPU, 3 GiB RAM, 6 GB disk. Set to `low` for 0.25 vCPU, 1 GiB, 4 GB. Set to `high` for 2 vCPU, 6 GiB, 8 GB. Set to `saas` for 1 vCPU, 3 GiB, 6 GB. Each tier includes a default `max_instances` (10, 10, 10, 1400) which can be overridden by `MAX_INSTANCES` |
-| `MAX_INSTANCES` | var | unset | Override container `max_instances` regardless of `RESSOURCE_TIER`. When set, takes precedence over the tier's default. Use to configure different concurrency per environment (e.g., 10 for staging, 1400 for production) |
+| `RESSOURCE_TIER` | var | unset | Container instance **size** only. `low`: 0.25 vCPU, 1 GiB, 4 GB. `default`/`saas`: 1 vCPU, 3 GiB, 6 GB. `high`: 2 vCPU, 6 GiB, 8 GB. Independent of `SAAS_MODE` and `MAX_INSTANCES` — combine freely (e.g., `RESSOURCE_TIER=high` + `SAAS_MODE=active` + `MAX_INSTANCES=500`) |
+| `MAX_INSTANCES` | var | unset | Max concurrent container instances (default: 10). Set per environment (e.g., 10 for staging, 1400 for production). Must be a positive integer. Independent of `RESSOURCE_TIER` |
 | `MAX_SESSIONS_USER` | var | `3` | Max concurrent running sessions per regular user. Set to any number (e.g., `5`). Ignored in SaaS mode — tier config controls session limits instead |
 | `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent running sessions per admin. Set to any number. Ignored in SaaS mode — tier config controls session limits instead |
 | `ENCRYPTION_KEY` | secret | unset | AES-256 key for encrypting API keys in KV and files in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded. Generate: `openssl rand -base64 32`. When unset, credentials are stored as plaintext |
@@ -197,7 +197,7 @@ Set `ONBOARDING_LANDING_PAGE` to `active` to show a public waitlist landing page
 
 #### SaaS mode
 
-Set `SAAS_MODE` to `active` for the full SaaS experience: custom GitHub login page, guided onboarding, subscription tiers, Stripe billing, and per-user usage tracking. Use with `RESSOURCE_TIER=saas` (or set `MAX_INSTANCES` to your desired concurrency). Turnstile keys are auto-created by the setup wizard.
+Set `SAAS_MODE` to `active` for the full SaaS experience: custom GitHub login page, guided onboarding, subscription tiers, Stripe billing, and per-user usage tracking. Set `MAX_INSTANCES` to your desired concurrency (e.g., 1400). Turnstile keys are auto-created by the setup wizard.
 
 | Variable | Where | When needed | What it does |
 |---|---|---|---|
@@ -231,8 +231,8 @@ E2E tests authenticate via the `X-Service-Auth` header. Set **one** of the two s
 |---|---|---|
 | **Default** | Nothing beyond step 2 | CF Access app, groups, policies |
 | **Onboarding** | `ONBOARDING_LANDING_PAGE=active`, optionally `RESEND_API_KEY` | CF Access, Turnstile keys |
-| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
-| **SaaS + CF Access** | `SAAS_MODE=active`, `RESSOURCE_TIER=saas`, optionally `RESEND_API_KEY` + `STRIPE_*` | CF Access, Turnstile keys |
+| **SaaS + GitHub OIDC** | `SAAS_MODE=active`, `OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET` + `OAUTH_JWT_SECRET`, E2E: `OAUTH_E2E_TEST_SECRET`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | Turnstile keys, CF Access (auth bypassed at runtime by OIDC) |
+| **SaaS + CF Access** | `SAAS_MODE=active`, optionally `RESEND_API_KEY` + `STRIPE_*` + `MAX_INSTANCES` | CF Access, Turnstile keys |
 
 ---
 
