@@ -390,9 +390,9 @@ describe('Container Lifecycle Routes', () => {
         method: 'POST',
       });
 
-      expect(res.status).toBe(429);
+      expect(res.status).toBe(402);
       const body = await res.json() as { code: string; error: string };
-      expect(body.code).toBe('RATE_LIMIT_ERROR');
+      expect(body.code).toBe('QUOTA_EXCEEDED');
     });
 
     it('allows start when under the limit', async () => {
@@ -570,8 +570,8 @@ describe('Container Lifecycle Routes', () => {
         method: 'POST',
       });
 
-      // Should use default limit of 3, so 3 running = 429
-      expect(res.status).toBe(429);
+      // Should use default limit of 3, so 3 running = 402
+      expect(res.status).toBe(402);
     });
 
     it('bypasses session limit when STRESS_TEST_MODE is active', async () => {
