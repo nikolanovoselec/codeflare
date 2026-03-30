@@ -1,12 +1,12 @@
-# <img src="docs/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
+# <img src="documentation/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
-![Codeflare](docs/images/login-hero.png)
+![Codeflare](documentation/images/login-hero.png)
 
 An ephemeral IDE where AI coding agents reach their full potential. Fully autonomous, no boundaries, zero risk. Every session runs in an isolated container on Cloudflare's edge. Your files persist. Your bad decisions don't.
 
 It runs wherever you happen to find yourself - on the Cloudflare edge that spans the planet, accessible from anything with a browser. Your phone, your tablet, your partner's laptop while they're not looking. Because the best commits in history were made from places without desks.
 
-![Codeflare on a foldable tablet](docs/images/mobile-foldable.jpg)
+![Codeflare on a foldable tablet](documentation/images/mobile-foldable.jpg)
 *Ideas don't care where you are. Any screen with a browser, zero setup. No installs, no configuration, no asking for permission. Open the link and start building.*
 
 Every session comes pre-loaded with your choice of AI coding agent:
@@ -32,7 +32,7 @@ Cloudflare Containers run as root. Claude Code refuses to run with `--dangerousl
 
 Codeflare is an ephemeral cloud IDE that runs entirely in your browser. Every session spins up an isolated container on Cloudflare, pre-loads your AI agent of choice, and tears itself down when you're done. Your files persist in R2 storage. The containers don't. Nothing touches your local machine.
 
-![Codeflare on a phone](docs/images/mobile-phone.jpg)
+![Codeflare on a phone](documentation/images/mobile-phone.jpg)
 *Swipe up/down with the keyboard open to navigate like arrow keys. Swipe left/right to scroll terminal text horizontally.*
 
 It's strongly optimized for mobile - because the best ideas hit while rewatching your favorite show for the 15th time, and your PC is just too far away.
@@ -48,14 +48,14 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 - **Specialized skills for build, push, and deploy** - pre-loaded agent skills know how to create Cloudflare Workers projects, configure `wrangler.toml`, push to GitHub, set up CI workflows, and deploy to production. Tell the agent what you want. It builds, pushes, and deploys.
 - **Guided onboarding** - new users get walked through connecting GitHub, Cloudflare, and choosing a coding agent. No prior Cloudflare knowledge required.
 
-![Guided Setup](docs/images/guided-setup.png)
+![Guided Setup](documentation/images/guided-setup.png)
 *Connect your accounts and pick a coding agent. No prior Cloudflare or GitHub knowledge required.*
 
 - **Go from idea to live on Cloudflare in minutes** - describe what you want, the agent builds it, pushes to GitHub, deploys to Cloudflare Workers. You get a live URL. The whole loop happens in one terminal session on your phone or anywhere else.
 
 ## What you get
 
-![Dashboard](docs/images/dashboard.png)
+![Dashboard](documentation/images/dashboard.png)
 *Manage sessions, browse persistent storage, and monitor live resource usage - all from one view.*
 
 - Browser-native terminal with 6 tabs per session and tiling mode - view 2-4 terminals side by side. Once you tile, you don't go back.
@@ -72,7 +72,7 @@ Codeflare is built for Cloudflare. Not adapted, not ported - built on it, for it
 
 ## Architecture
 
-![Codeflare IDE](docs/images/hero-ide-fullscreen.png)
+![Codeflare IDE](documentation/images/hero-ide-fullscreen.png)
 *Six terminal tabs, split tiling, and your favorite dev tools - running in a disposable container you didn't have to configure.*
 
 ```mermaid
@@ -273,14 +273,14 @@ Create one OAuth App per environment (integration vs production) with the matchi
 - Rate limiting: KV-backed, per-user limits on session creation, container starts, and WebSocket connections. Returns 429 with `Retry-After` header when exceeded.
 - Input validation: Zod schemas, 64 KiB body limit.
 - Supply chain: CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, Trivy container scanning.
-- Automated penetration testing: weekly CI workflow validates auth gate, security headers, TLS configuration, injection resistance, and information disclosure. See [PENTEST.md](PENTEST.md) for the latest report.
+- Automated penetration testing: weekly CI workflow validates auth gate, security headers, TLS configuration, injection resistance, and information disclosure. See [PENTEST.md](documentation/PENTEST.md) for the latest report.
 - GitHub security: secret scanning, push protection, private vulnerability reporting, dependency graph.
-- Optional encryption at rest (set `ENCRYPTION_KEY`): KV credentials (API keys, deploy tokens, scoped R2 tokens) are encrypted with AES-256-GCM before storage using per-value random IVs, authenticated with AAD binding to the KV key name, decrypted on read, and masked in all API responses. R2 workspace files are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys) on all upload, download, copy, and seed operations. Rclone bisync inside containers uses the same key for transparent encrypt/decrypt. Existing plaintext KV entries are transparently migrated to encrypted format on first read (fire-and-forget write-back, no downtime). See [TECHNICAL.md](TECHNICAL.md) "Credential Encryption at Rest" for implementation details, migration guide, and key pipeline.
+- Optional encryption at rest (set `ENCRYPTION_KEY`): KV credentials (API keys, deploy tokens, scoped R2 tokens) are encrypted with AES-256-GCM before storage using per-value random IVs, authenticated with AAD binding to the KV key name, decrypted on read, and masked in all API responses. R2 workspace files are encrypted via SSE-C (S3 Server-Side Encryption with Customer-Provided Keys) on all upload, download, copy, and seed operations. Rclone bisync inside containers uses the same key for transparent encrypt/decrypt. Existing plaintext KV entries are transparently migrated to encrypted format on first read (fire-and-forget write-back, no downtime). See [Security — Credential Encryption at Rest](documentation/security.md#credential-encryption-at-rest) for implementation details, migration guide, and key pipeline.
 - For vulnerability reporting, see [SECURITY.md](SECURITY.md).
 
 ## Testing
 
-See [TECHNICAL.md — Testing](TECHNICAL.md#testing) for test suite details, counts, and configuration.
+See [CI/CD & Testing](documentation/ci-cd.md#testing) for test suite details, counts, and configuration.
 
 ```bash
 npm test                           # Backend tests
@@ -292,7 +292,7 @@ npm run test:e2e:ui-desktop        # E2E UI desktop (alias)
 npm run test:e2e:ui-mobile         # E2E UI mobile
 ```
 
-E2E tests require a deployed worker and service credentials (CF Access service tokens, or `OAUTH_E2E_TEST_SECRET` when SaaS mode uses GitHub OAuth). See [TECHNICAL.md — Testing](TECHNICAL.md#testing) for setup details.
+E2E tests require a deployed worker and service credentials (CF Access service tokens, or `OAUTH_E2E_TEST_SECRET` when SaaS mode uses GitHub OAuth). See [CI/CD & Testing](documentation/ci-cd.md#e2e-service-token-setup) for setup details.
 
 ## CI/CD
 
@@ -309,11 +309,11 @@ Eight GitHub Actions workflows:
 | `pentest.yml` | Weekly (Monday 5am UTC), manual | Automated external penetration testing |
 | `stress-test.yml` | Manual | k6 load testing against integration worker |
 
-See [TECHNICAL.md — CI/CD](TECHNICAL.md#cicd-github-actions) for full CI/CD documentation.
+See [CI/CD & Testing](documentation/ci-cd.md) for full CI/CD documentation.
 
 ## Docs
 
-- `TECHNICAL.md` - deep dive into architecture, container lifecycle, and sync model
+- `documentation/` - [architecture](documentation/architecture.md), [API reference](documentation/api-reference.md), [security](documentation/security.md), [configuration](documentation/configuration.md), and [more](documentation/README.md)
 - `preseed/tutorials/Getting Started.md` - what you can do and why you should want to. Tabs, tiling, file persistence, and three paths forward depending on how much hand-holding you need.
 - `preseed/tutorials/Examples/` - spec-driven project examples from Hello World to full blog platform. Hand one to your agent and go do something more interesting.
 

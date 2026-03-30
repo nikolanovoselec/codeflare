@@ -36,7 +36,7 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 | `scripts/` | Build and maintenance utilities | Node.js |
 | `.github/workflows/` | CI/CD pipelines | GitHub Actions |
 
-For a full architecture overview, see [TECHNICAL.md](TECHNICAL.md).
+For a full architecture overview, see [documentation/architecture.md](documentation/architecture.md).
 
 ## Development
 
@@ -75,7 +75,7 @@ If you add or modify API endpoints that should be rate-limited, run:
 npm test -- src/__tests__/routes/rate-limits.test.ts
 ```
 
-See `src/middleware/rate-limit.ts` for the rate limiting implementation and [STRESS_TEST.md](STRESS_TEST.md) for load testing details.
+See `src/middleware/rate-limit.ts` for the rate limiting implementation and [STRESS_TEST.md](documentation/STRESS_TEST.md) for load testing details.
 
 ### Subscription and Usage Tests
 
@@ -119,7 +119,7 @@ Use descriptive branch names with a prefix:
 - `fix/` -- bug fixes
 - `refactor/` -- code restructuring
 - `test/` -- test additions or fixes
-- `docs/` -- documentation changes
+- `documentation/` -- documentation changes
 
 Example: `fix/websocket-reconnect-race-condition`
 
@@ -143,13 +143,13 @@ Example: `fix/websocket-reconnect-race-condition`
 
 If you discover a security vulnerability, **do not open a public issue**. Report it via [GitHub's private vulnerability reporting](https://github.com/nikolanovoselec/codeflare/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
 
-An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [PENTEST.md](PENTEST.md) for a full breakdown of what gets tested.
+An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [PENTEST.md](documentation/PENTEST.md) for a full breakdown of what gets tested.
 
 ## Questions
 
 Open an issue for questions about the codebase, architecture, or contribution process.
 
 **Related Documentation:**
-- [TECHNICAL.md](TECHNICAL.md) - Full technical reference
+- [Documentation](documentation/README.md) - Full technical reference
 - [README.md](README.md) - Product overview and setup
-- [STRESS_TEST.md](STRESS_TEST.md) - Load testing guide
+- [STRESS_TEST.md](documentation/STRESS_TEST.md) - Load testing guide

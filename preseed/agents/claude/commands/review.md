@@ -6,7 +6,7 @@ Run a full codebase review from 6 specialized perspectives using parallel agents
 
 ## Context Preservation
 
-**CRITICAL:** The main session agent is primarily an orchestrator. All source-code analysis and all reading of files `01-07` and `TECHNICAL.md` MUST be delegated to Task agents.
+**CRITICAL:** The main session agent is primarily an orchestrator. All source-code analysis and all reading of files `01-07` and `documentation/decisions/README.md` MUST be delegated to Task agents.
 
 The main agent may read only:
 - After Phase 4: summary via `head -n 20` (Bash tool)
@@ -14,7 +14,7 @@ The main agent may read only:
 - Phase 6: the `## Active Findings` section of `08-active-findings.md` for triage
 - Phase 9: the `## Fix` section of `09-triage-results.md` to enter plan mode
 
-The main agent must never read source files, `01-07`, or `TECHNICAL.md` directly.
+The main agent must never read source files, `01-07`, or `documentation/decisions/README.md` directly.
 
 ## Arguments
 
@@ -174,9 +174,9 @@ Task agent prompt:
 You are filtering codebase review findings against documented architecture decisions.
 
 1. Read [REVIEW_DIR]/07-cross-reference.md — canonical findings are the primary source of truth.
-2. Search TECHNICAL.md in the project root for architecture decisions. If TECHNICAL.md does not exist or contains no architecture decision entries, write [REVIEW_DIR]/08-active-findings.md with ALL canonical findings marked active (zero AD-guarded) and stop.
-3. You may read CLAUDE.md files for implementation context, but ONLY TECHNICAL.md has authority to justify AD-guarding. Do not AD-guard a finding based solely on CLAUDE.md.
-4. For each canonical finding, check if an architecture decision in TECHNICAL.md explicitly justifies the flagged pattern.
+2. Search documentation/decisions/README.md in the project root for architecture decisions. If documentation/decisions/README.md does not exist or contains no architecture decision entries, write [REVIEW_DIR]/08-active-findings.md with ALL canonical findings marked active (zero AD-guarded) and stop.
+3. You may read CLAUDE.md files for implementation context, but ONLY documentation/decisions/README.md has authority to justify AD-guarding. Do not AD-guard a finding based solely on CLAUDE.md.
+4. For each canonical finding, check if an architecture decision in documentation/decisions/README.md explicitly justifies the flagged pattern.
 
 AD-Guard Rules (strict):
 A finding may ONLY be marked AD-GUARDED if ALL of these are true:
@@ -187,7 +187,7 @@ A finding may ONLY be marked AD-GUARDED if ALL of these are true:
 - HIGH findings may only be AD-guarded if they are architectural tradeoffs, not bugs or security issues
 
 Each AD-guarded finding must record:
-- The exact AD title/heading from TECHNICAL.md
+- The exact AD title/heading from documentation/decisions/README.md
 - The relevant quote from the AD
 
 5. Write the filtered active findings list to [REVIEW_DIR]/08-active-findings.md.
@@ -210,12 +210,12 @@ LOW:              X          X            X          X
 
 Agents: security, architecture, code-quality, dead-code, test-gaps, documentation
 Cross-reference: X canonical, X cross-domain, X false-positives removed, X emergent patterns
-AD refs checked: TECHNICAL.md (X decisions)
+AD refs checked: documentation/decisions/README.md (X decisions)
 Review mode: static analysis only
 
 ## AD-Guarded Findings (removed from active list)
 ### CF-NNN: Title — AD-GUARDED
-- **AD ref:** "AD title" from TECHNICAL.md
+- **AD ref:** "AD title" from documentation/decisions/README.md
 - **Quote:** "relevant AD text"
 
 ## Active Findings
@@ -296,14 +296,14 @@ For each finding or batch of related findings, use `AskUserQuestion` with these 
 
 **For CRITICAL findings and security/correctness defects:**
 - **Fix** — include in the implementation plan (Phase 9)
-- **Technical debt** — add to the Technical Debt section of TECHNICAL.md for future resolution
+- **Technical debt** — add to the GitHub issue with `technical-debt` label for future resolution
 - **Defer** — needs more investigation before deciding; carry forward to next review
 - **Ignore** — requires explicit reason
 
 **For all other findings:**
 - **Fix** — include in the implementation plan (Phase 9)
-- **Record as AD** — record as an architecture decision in TECHNICAL.md that justifies this pattern going forward (only valid for intentional tradeoffs, not bugs or security issues)
-- **Technical debt** — add to the Technical Debt section of TECHNICAL.md for future resolution
+- **Record as AD** — record as an architecture decision in documentation/decisions/README.md that justifies this pattern going forward (only valid for intentional tradeoffs, not bugs or security issues)
+- **Technical debt** — add to the GitHub issue with `technical-debt` label for future resolution
 - **Defer** — needs more investigation before deciding; carry forward to next review
 - **Ignore** — dismiss as false positive or acceptable
 
@@ -419,34 +419,29 @@ Format:
 [...repeat for each Ignored finding]
 ```
 
-## Phase 8: Update TECHNICAL.md (Task agent)
+## Phase 8: Update Architecture Decisions + Create Tech Debt Issues (Task agent)
 
-Launch a single Task agent (`code-reviewer` type) to update TECHNICAL.md with AD and Tech Debt entries.
+Launch a single Task agent (`code-reviewer` type) to update documentation/decisions/README.md with AD entries and create GitHub issues for tech debt.
 
 Task agent prompt:
 
 ```
-You are updating TECHNICAL.md with architecture decisions and technical debt entries from a codebase review.
+You are updating architecture decisions and creating GitHub issues from a codebase review.
 
 1. Read [REVIEW_DIR]/09-triage-results.md — specifically the "Record as AD" and "Technical Debt" sections.
-   If both sections are empty (0 findings each), write "No TECHNICAL.md updates needed" and stop.
+   If both sections are empty (0 findings each), write "No updates needed" and stop.
 
-2. Read TECHNICAL.md in the project root. If it does not exist, create it using the Write tool with this template:
-   # Technical Documentation
-   ## Architecture Decisions
-   ## Technical Debt
-
-3. For each "Record as AD" entry:
+2. For each "Record as AD" entry:
+   - Read documentation/decisions/README.md
    - Search existing Architecture Decisions for an equivalent entry by title or pattern
    - If found, update the existing entry using the Edit tool
-   - If not found, insert the new AD entry under the ## Architecture Decisions heading using the Edit tool
+   - If not found, append a new AD subsection at the end of the Decisions section with the next available AD number
 
-4. For each "Technical Debt" entry:
-   - Search existing Technical Debt for an equivalent entry by title or area
-   - If found, update the existing entry using the Edit tool
-   - If not found, insert the new TD entry under the ## Technical Debt heading using the Edit tool
+3. For each "Technical Debt" entry:
+   - Create a GitHub issue using: gh issue create --label "technical-debt" --title "TD: [title]" --body "[description + remediation]"
+   - Do NOT write tech debt to any documentation file
 
-IMPORTANT: Read the full file first to locate exact heading positions. Use the Edit tool to insert content under the correct headings. Do NOT simply append to the end of the file.
+IMPORTANT: Read documentation/decisions/README.md fully before editing. Use the Edit tool for AD insertions.
 ```
 
 ## Phase 9: Enter Plan Mode (main agent)
@@ -464,7 +459,7 @@ After Phase 8 Task agent completes:
      - File paths and line numbers
      - Proposed changes (from agent suggestions and LLM proposals if available)
      - Severity and category
-5. Note: AD and Tech Debt entries were already written to TECHNICAL.md in Phase 8
+5. Note: AD entries were written to documentation/decisions/README.md and Tech Debt items were created as GitHub issues in Phase 8
 
 ## Important Notes
 

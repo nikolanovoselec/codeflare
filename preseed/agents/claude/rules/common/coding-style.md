@@ -48,7 +48,7 @@ When you change any of the following, update the relevant project documentation 
 - CI/CD workflows
 - Architecture or data flow
 
-Look for README, docs/, TECHNICAL.md, ADR files, or similar. If the project has no docs, suggest creating them for significant changes.
+Look for README, documentation/, ADR files, or similar. If the project has no docs, suggest creating them for significant changes.
 
 ## Code Quality Checklist
 

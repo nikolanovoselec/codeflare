@@ -46,7 +46,7 @@
            On desktop, caret-color:transparent is sufficient.
            On mobile (Android), the OS IME compositor ignores CSS — the iframe
            compositor jail handles that case (see mobile section below).
-           See TECHNICAL.md "Mobile Terminal Bug Fixes" for full attempt history. */
+           See documentation/mobile.md for full implementation details. */
         .xterm .xterm-helper-textarea {
           caret-color: transparent !important;
           color: transparent !important;
