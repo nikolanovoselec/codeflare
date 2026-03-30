@@ -75,7 +75,7 @@ If you add or modify API endpoints that should be rate-limited, run:
 npm test -- src/__tests__/routes/rate-limits.test.ts
 ```
 
-See `src/middleware/rate-limit.ts` for the rate limiting implementation and `STRESS_TEST.md` for load testing details.
+See `src/middleware/rate-limit.ts` for the rate limiting implementation and [STRESS_TEST.md](STRESS_TEST.md) for load testing details.
 
 ### Subscription and Usage Tests
 
