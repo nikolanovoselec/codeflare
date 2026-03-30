@@ -176,7 +176,8 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | Variable | Where | Default | What it does |
 |---|---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | Worker name, R2 bucket prefix, and CF Access group prefix. Set to a unique name when running multiple instances on the same account |
-| `RESSOURCE_TIER` | var | unset | Container resources and max concurrent instances. When unset: 1 vCPU, 3 GiB RAM, 6 GB disk, 10 instances. Set to `low` for 0.25 vCPU, 1 GiB, 10 instances. Set to `high` for 2 vCPU, 6 GiB, 10 instances. Set to **`saas`** for 1 vCPU, 3 GiB, 1400 instances |
+| `RESSOURCE_TIER` | var | unset | Container instance **size**. When unset: 1 vCPU, 3 GiB RAM, 6 GB disk. Set to `low` for 0.25 vCPU, 1 GiB, 4 GB. Set to `high` for 2 vCPU, 6 GiB, 8 GB. Set to `saas` for 1 vCPU, 3 GiB, 6 GB. Each tier includes a default `max_instances` (10, 10, 10, 1400) which can be overridden by `MAX_INSTANCES` |
+| `MAX_INSTANCES` | var | unset | Override container `max_instances` regardless of `RESSOURCE_TIER`. When set, takes precedence over the tier's default. Use to configure different concurrency per environment (e.g., 10 for staging, 1400 for production) |
 | `MAX_SESSIONS_USER` | var | `3` | Max concurrent running sessions per regular user. Set to any number (e.g., `5`). Ignored in SaaS mode — tier config controls session limits instead |
 | `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent running sessions per admin. Set to any number. Ignored in SaaS mode — tier config controls session limits instead |
 | `ENCRYPTION_KEY` | secret | unset | AES-256 key for encrypting API keys in KV and files in R2 (SSE-C). Must be exactly 32 bytes of random data, base64-encoded. Generate: `openssl rand -base64 32`. When unset, credentials are stored as plaintext |
@@ -196,7 +197,7 @@ Set `ONBOARDING_LANDING_PAGE` to `active` to show a public waitlist landing page
 
 #### SaaS mode
 
-Set `SAAS_MODE` to `active` for the full SaaS experience: custom GitHub login page, guided onboarding, subscription tiers, Stripe billing, and per-user usage tracking. Use with `RESSOURCE_TIER=saas` for 1400 concurrent container instances. Turnstile keys are auto-created by the setup wizard.
+Set `SAAS_MODE` to `active` for the full SaaS experience: custom GitHub login page, guided onboarding, subscription tiers, Stripe billing, and per-user usage tracking. Use with `RESSOURCE_TIER=saas` (or set `MAX_INSTANCES` to your desired concurrency). Turnstile keys are auto-created by the setup wizard.
 
 | Variable | Where | When needed | What it does |
 |---|---|---|---|
