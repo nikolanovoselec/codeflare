@@ -106,4 +106,4 @@ wrangler tail codeflare --status error
 - [Configuration](configuration.md#secrets) - Secret management
 - [Container](container.md#container-startup) - Container startup sequence
 - [Storage & Sync](storage-and-sync.md#r2-sync-issues) - Sync troubleshooting detail
-- [Authentication](authentication.md#authentication-gate) - Auth flow
+- [Authentication](security.md#authentication-gate) - Auth flow

@@ -315,6 +315,9 @@ None. Authentication is foundational; other domains depend on it.
 2. "Sign in with GitHub" button is displayed.
 3. Available auth providers are listed.
 
+**Constraints:**
+- None
+
 **Priority:** P0
 **Dependencies:** REQ-AUTH-002
 **Verification:** Integration test
@@ -332,6 +335,9 @@ None. Authentication is foundational; other domains depend on it.
 1. When API calls return 401, an amber re-auth banner appears in the UI.
 2. Clicking the banner refreshes auth.
 3. Session polling stops on expiry to prevent noise.
+
+**Constraints:**
+- None
 
 **Priority:** P1
 **Dependencies:** REQ-AUTH-008
@@ -351,6 +357,9 @@ None. Authentication is foundational; other domains depend on it.
 2. First-time users are auto-redirected to onboarding.
 3. `onboardingComplete` flag prevents re-redirect.
 
+**Constraints:**
+- None
+
 **Priority:** P1
 **Dependencies:** REQ-AUTH-007
 **Verification:** Integration test
@@ -368,6 +377,9 @@ None. Authentication is foundational; other domains depend on it.
 1. Clicking avatar/username in header opens dropdown with Profile, Guided Setup, Logout.
 2. Mobile renders as bottom sheet.
 3. Desktop positioned below avatar.
+
+**Constraints:**
+- None
 
 **Priority:** P2
 **Dependencies:** None
@@ -387,6 +399,9 @@ None. Authentication is foundational; other domains depend on it.
 2. Falls back to outline icon when no Gravatar exists.
 3. MD5 hash of email used for lookup.
 
+**Constraints:**
+- None
+
 **Priority:** P2
 **Dependencies:** None
 **Verification:** Manual check
@@ -404,6 +419,9 @@ None. Authentication is foundational; other domains depend on it.
 1. `/admin/users` shows all users grouped by tier.
 2. Admin can search, approve pending users, change tiers, delete users (triggers full cleanup: KV + R2 + sessions + scoped tokens).
 3. User count vs capacity displayed.
+
+**Constraints:**
+- None
 
 **Priority:** P1
 **Dependencies:** REQ-AUTH-005

@@ -11,7 +11,7 @@ Security architecture, encryption at rest, rate limiting, and hardening measures
 ## Authentication Gate
 
 All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of two auth mechanisms depending on deployment mode:
-- **Default/onboarding mode:** Cloudflare Access JWT verification (see [Authentication](authentication.md#dual-auth-mode) for Access application destination strategy)
+- **Default/onboarding mode:** Cloudflare Access JWT verification (see [Authentication](authentication.md#authentication-modes) for Access application destination strategy)
 - **SaaS mode (GitHub OIDC):** Worker-managed session cookies (`codeflare_session`, HMAC-SHA256). CF Access is bypassed at runtime when `OAUTH_CLIENT_ID` is configured.
 
 ## API Token Containment

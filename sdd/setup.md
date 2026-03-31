@@ -245,6 +245,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 5. Free tier activates immediately.
 6. Paid tiers redirect to Stripe Checkout.
 
+**Constraints:**
+- None
+
 **Priority:** P1
 **Dependencies:** REQ-SUB-001
 **Verification:** Integration test
