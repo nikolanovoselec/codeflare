@@ -154,7 +154,7 @@ app.get('/callback', callbackRateLimiter, async (c) => {
 
   // Determine redirect based on user state
   const userRecord = parseUserRecord(await c.env.KV.get(`user:${email.toLowerCase().trim()}`, 'json'));
-  const isActive = isActiveTier(userRecord?.subscriptionTier);
+  const isActive = userRecord ? isActiveTier(userRecord.subscriptionTier) : false;
   const redirectTo = isActive ? `${base}/app/` : `${base}/app/subscribe`;
 
   c.header('Set-Cookie', `codeflare_session=${jwt}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`);

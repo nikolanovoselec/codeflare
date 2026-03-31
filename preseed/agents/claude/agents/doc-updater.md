@@ -2,7 +2,7 @@
 name: doc-updater
 description: Documentation specialist. Use PROACTIVELY for updating documentation when code changes affect architecture, APIs, configuration, or security. Maintains the documentation/ folder structure.
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
-model: haiku
+model: sonnet
 ---
 
 # Documentation Specialist
