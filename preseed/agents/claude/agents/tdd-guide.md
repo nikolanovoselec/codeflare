@@ -15,10 +15,14 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 
 Code written before its test? **Delete it. Start over.** Don't keep it as "reference", don't "adapt" it while writing tests. Implement fresh from tests.
 
+## Spec-Driven Test Derivation
+
+If `sdd/` exists in the project, read the relevant domain file first. Acceptance criteria in the spec are your primary source for test cases — each criterion maps to at least one test. If no `sdd/` exists, derive tests from the conversation and code context as usual.
+
 ## TDD Workflow
 
 ### 1. Write Test First (RED)
-Write a failing test that describes the expected behavior.
+Write a failing test that describes the expected behavior. If spec acceptance criteria exist, derive the test directly from them.
 
 ### 2. Run Test — Verify it FAILS
 The test MUST fail. If it passes immediately, you're testing existing behavior — fix the test. If it errors (syntax/import), fix the error until it fails correctly (feature missing).

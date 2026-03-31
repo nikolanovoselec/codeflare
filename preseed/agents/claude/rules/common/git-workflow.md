@@ -42,6 +42,7 @@ Never report CI as passing unless you have confirmed it.
 When creating PRs:
 1. Analyze full commit history (not just latest commit)
 2. Use `git diff [base-branch]...HEAD` to see all changes
-3. Draft comprehensive PR summary
+3. If `sdd/` exists, reference implemented REQ-* IDs in the PR summary
+4. Draft comprehensive PR summary
 4. Include test plan with TODOs
 5. Push with `-u` flag if new branch

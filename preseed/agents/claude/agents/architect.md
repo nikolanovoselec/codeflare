@@ -18,14 +18,19 @@ You are a senior software architect specializing in scalable, maintainable syste
 
 ## Architecture Review Process
 
+### 0. Check for Specification and Existing Decisions
+- If `sdd/` exists, read `sdd/README.md` and relevant domain files first — the spec is the source of truth for requirements
+- If `documentation/decisions/README.md` exists, read it for existing architecture decisions — avoid re-deciding settled trade-offs
+- If neither exists, proceed with requirements from conversation (projects without SDD are fully supported)
+
 ### 1. Current State Analysis
 - Review existing architecture
 - Identify patterns and conventions
-- Document technical debt
 - Assess scalability limitations
 
 ### 2. Requirements Gathering
-- Functional requirements
+- If `sdd/` exists: requirements come from spec acceptance criteria and constraints
+- If no spec: gather from conversation
 - Non-functional requirements (performance, security, scalability)
 - Integration points
 - Data flow requirements
@@ -105,41 +110,11 @@ For each design decision, document:
 
 ## Architecture Decision Records (ADRs)
 
-For significant architectural decisions, create ADRs:
+For significant architectural decisions, check for an existing ADR location first:
+- If `documentation/decisions/README.md` exists, add new ADs there using the project's format (### ADN: Title with Decision and rationale paragraphs)
+- If no existing ADR location, create one or use inline documentation
 
-```markdown
-# ADR-001: Use Redis for Semantic Search Vector Storage
-
-## Context
-Need to store and query 1536-dimensional embeddings for semantic market search.
-
-## Decision
-Use Redis Stack with vector search capability.
-
-## Consequences
-
-### Positive
-- Fast vector similarity search (<10ms)
-- Built-in KNN algorithm
-- Simple deployment
-- Good performance up to 100K vectors
-
-### Negative
-- In-memory storage (expensive for large datasets)
-- Single point of failure without clustering
-- Limited to cosine similarity
-
-### Alternatives Considered
-- **PostgreSQL pgvector**: Slower, but persistent storage
-- **Pinecone**: Managed service, higher cost
-- **Weaviate**: More features, more complex setup
-
-## Status
-Accepted
-
-## Date
-YYYY-MM-DD
-```
+New ADs should include: the decision, the context (why), alternatives considered, and consequences accepted.
 
 ## System Design Checklist
 

@@ -210,6 +210,13 @@ Verdict: WARNING — 2 HIGH issues should be resolved before merge.
 - **Warning**: HIGH issues only (can merge with caution)
 - **Block**: CRITICAL issues found — must fix before merge
 
+## Spec and Decision Awareness
+
+When reviewing, check for project context:
+- If `sdd/` exists, verify changes align with spec requirements (new features should have corresponding REQ-* entries)
+- If `documentation/decisions/README.md` exists, check it before flagging architectural patterns — they may be intentional trade-offs documented as ADs
+- If neither exists, review based on code quality alone (projects without SDD are fully supported)
+
 ## Project-Specific Guidelines
 
 When available, also check project-specific conventions from `CLAUDE.md` or project rules:
