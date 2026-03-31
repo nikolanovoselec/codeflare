@@ -278,3 +278,26 @@ None. Authentication is foundational; other domains depend on it.
 **Dependencies:** REQ-AUTH-001, REQ-AUTH-010
 **Verification:** Automated test
 **Status:** Implemented
+
+---
+
+## REQ-AUTH-012: Welcome email on first login
+
+**Intent:** New users in SaaS mode receive a welcome email on first login, providing a professional onboarding touchpoint and confirming their account was created.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. When a user is JIT-provisioned on first login, a welcome email is sent via Resend
+2. Email is fire-and-forget — delivery failure does not block login
+3. Email is sent only once per user (dedup via KV flag)
+4. When RESEND_API_KEY is not configured, the email is silently skipped
+
+**Constraints:**
+- Must comply with CON-REL-001 (non-blocking)
+- Email content must not expose internal system details
+
+**Priority:** P2
+**Dependencies:** REQ-AUTH-007
+**Verification:** Integration test
+**Status:** Implemented

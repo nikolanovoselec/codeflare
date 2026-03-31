@@ -423,5 +423,28 @@ Tiers, billing, usage tracking, and quotas.
 **Priority:** P1
 **Dependencies:** REQ-SUB-004, REQ-SUB-012
 **Verification:** Integration test
+**Status:** Implemented
 
+---
+
+## REQ-SUB-017: Enterprise tier contact flow
+
+**Intent:** The Custom (enterprise) tier is not self-service. Users interested in enterprise-grade access can send an inquiry to admins without leaving the subscribe page.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. The subscribe page shows "Let's talk" for the Custom tier instead of a checkout button
+2. Clicking sends an inquiry email to admins via `POST /api/auth/contact-team`
+3. After clicking, the button changes to "We'll get in touch" (disabled) to prevent duplicates
+4. Rate-limited to 1 request per hour per user
+5. When RESEND_API_KEY is not configured, the endpoint returns success but no email is sent
+
+**Constraints:**
+- Must comply with CON-SEC-004 (rate limiting)
+- Email content includes the user's email and selected tier
+
+**Priority:** P2
+**Dependencies:** REQ-SUB-001
+**Verification:** Integration test
 **Status:** Implemented
