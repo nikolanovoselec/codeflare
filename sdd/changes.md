@@ -4,6 +4,12 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-03-31
 - Updated REQ-AUTH-002 AC3: post-login redirect uses subscription tier check (isActiveTier) instead of subscribedAt timestamp — subscribed users skip /app/subscribe
+- Added spec-reviewer agent (opus) for continuous spec maintenance
+- Added git-push-review-reminder PreToolUse hook
+- Added Pro mode features: spec-driven development workflow, continuous improvement
+- Updated agent counts and document totals across spec and documentation
+- Fixed post-login redirect: isActiveTier replaces subscribedAt check
+- Changed code-reviewer model to opus, doc-updater model to sonnet
 
 ## 2026-03-30
 - Added REQ-AUTH-012: Welcome email on first login
