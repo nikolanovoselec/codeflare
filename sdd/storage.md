@@ -252,7 +252,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. Cleanup is strictly scoped to keys from `AGENTS_SEEDED_CONFIGS`; user-created files are never deleted.
 4. Variant-per-mode keys (instruction files with different content per mode) are excluded from deletion by `getPreseedKeysNotInMode()`.
 5. Partial delete failures produce warnings but do not fail the overall operation.
-6. Default mode seeds 25 files; advanced mode seeds 117 files.
+6. Default mode seeds 25 files; advanced mode seeds 127 files.
 
 **Constraints:**
 - Mode takes effect only on explicit "Recreate AI agent skills & rules" or new bucket creation; existing users keep current files until they recreate.
