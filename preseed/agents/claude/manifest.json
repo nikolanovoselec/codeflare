@@ -9,6 +9,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/git-push-review-reminder.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"

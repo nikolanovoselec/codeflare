@@ -979,7 +979,7 @@ fi
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
     echo "[entrypoint] Advanced mode: configuring settings.json with hooks"
 else
     SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'

@@ -27,6 +27,14 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
     ]
   },
   {
+    "key": ".claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh",
+    "contentType": "application/x-shellscript; charset=utf-8",
+    "content": "#!/usr/bin/env bash\n# PreToolUse hook — reminds agent to run review agents before/after git push\nset -e\n\nINPUT=$(cat)\nTOOL_NAME=$(echo \"$INPUT\" | jq -r '.tool_name // empty' 2>/dev/null) || true\n\n# Only check Bash tool\n[[ \"$TOOL_NAME\" != \"Bash\" ]] && exit 0\n\n# Extract command\nCOMMAND=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty' 2>/dev/null) || true\n\n# Only trigger on git push commands\nif [[ ! \"$COMMAND\" =~ git.*push ]]; then\n  exit 0\nfi\n\n# Build reminder based on what exists\nREMINDER=\"IMPORTANT: git-workflow rule requires running review agents in parallel with this push. Launch these background agents NOW (in this same response, alongside the push):\"\nREMINDER=\"$REMINDER 1) code-reviewer agent on the changes being pushed.\"\nREMINDER=\"$REMINDER 2) doc-updater agent to check if documentation/ needs updates.\"\n\n# Check if sdd/ exists for conditional 3rd agent\nif [ -d \"sdd\" ] || [ -d \"$HOME/workspace/*/sdd\" ] 2>/dev/null; then\n  REMINDER=\"$REMINDER 3) spec-reviewer agent to update sdd/ if code changes affect requirements.\"\nfi\n\nREMINDER=\"$REMINDER Also start CI monitoring in background after push completes.\"\n\njq -n --arg ctx \"$REMINDER\" '{hookSpecificOutput:{hookEventName:\"PreToolUse\",additionalContext:$ctx}}'\nexit 0\n",
+    "modes": [
+      "advanced"
+    ]
+  },
+  {
     "key": ".claude/plugins/codeflare-memory/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
     "content": "{\n  \"name\": \"codeflare-memory\",\n  \"description\": \"Automatic conversation memory capture via MCP\",\n  \"version\": \"1.0.0\"\n}\n",
