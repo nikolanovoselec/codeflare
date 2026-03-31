@@ -23,10 +23,13 @@ return, fix any HIGH or CRITICAL findings in a follow-up commit.
    auth flows, configuration, or architecture change without a
    corresponding doc update. See `documentation/README.md` for the
    structure and `doc-updater` agent definition for what goes where.
-3. **spec-reviewer** (conditional) — only if `sdd/` exists. Checks if
-   code changes implement, modify, or conflict with spec requirements.
-   Flags new features without corresponding REQ-* entries, and
-   implemented behavior that contradicts acceptance criteria.
+3. **spec-reviewer** (conditional) — only if `sdd/` exists. Responsible
+   for keeping the spec valid as the single source of truth. When code
+   changes introduce new features, modify behavior, or change APIs
+   without a corresponding spec update, this agent updates `sdd/` to
+   match: adds new REQ-* entries for unspec'd features, updates
+   acceptance criteria for changed behavior, marks deprecated
+   requirements, and adds changelog entries to `sdd/changes.md`.
 
 ## Post-Push: CI Monitoring
 
