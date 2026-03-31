@@ -280,11 +280,11 @@ describe('cleanupUserData', () => {
     const kvCallOrder: string[] = [];
     const origGet = mockKV.get.bind(mockKV);
     const origDelete = mockKV.delete.bind(mockKV);
-    mockKV.get = vi.fn((...args: unknown[]) => {
+    mockKV.get = vi.fn<(key: string, type?: string) => Promise<unknown>>((...args) => {
       kvCallOrder.push(`get:${args[0]}`);
       return origGet(...args);
     });
-    mockKV.delete = vi.fn((...args: unknown[]) => {
+    mockKV.delete = vi.fn<(key: string) => Promise<void>>((...args) => {
       kvCallOrder.push(`delete:${args[0]}`);
       return origDelete(...args);
     });
@@ -328,7 +328,7 @@ describe('cleanupUserData', () => {
 
     // Make KV.delete throw specifically for the r2token key
     const origDelete = mockKV.delete.bind(mockKV);
-    mockKV.delete = vi.fn(async (key: string) => {
+    mockKV.delete = vi.fn<(key: string) => Promise<void>>(async (key: string) => {
       if (key === `r2token:${email}`) {
         throw new Error('KV delete failed');
       }

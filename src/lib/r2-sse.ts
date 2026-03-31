@@ -19,9 +19,10 @@ function computeKeyMd5(base64Key: string): string {
   if (rawKey.byteLength !== 32) {
     throw new Error(`ENCRYPTION_KEY must decode to exactly 32 bytes for SSE-C, got ${rawKey.byteLength}`);
   }
-  cachedMd5B64 = createHash('md5').update(rawKey).digest('base64');
+  const md5 = createHash('md5').update(rawKey).digest('base64');
+  cachedMd5B64 = md5;
   cachedMd5Source = base64Key;
-  return cachedMd5B64;
+  return md5;
 }
 
 /**

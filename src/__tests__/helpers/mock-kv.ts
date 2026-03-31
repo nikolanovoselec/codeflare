@@ -5,18 +5,23 @@
  * metadata support for kv.put({ metadata }) and kv.list() metadata return,
  * and convenience helpers (_store, _set, _clear).
  */
-import { vi } from 'vitest';
+import { vi, type Mock } from 'vitest';
 
 interface StoreEntry {
   value: string;
   metadata?: unknown;
 }
 
+type MockGet = Mock<(key: string, type?: string) => Promise<unknown>>;
+type MockPut = Mock<(key: string, value: string, opts?: { expirationTtl?: number; metadata?: unknown }) => Promise<void>>;
+type MockDelete = Mock<(key: string) => Promise<void>>;
+type MockList = Mock<(opts?: { prefix?: string; cursor?: string }) => Promise<{ keys: Array<{ name: string; metadata: unknown }>; list_complete: boolean }>>;
+
 export interface MockKV {
-  get: ReturnType<typeof vi.fn>;
-  put: ReturnType<typeof vi.fn>;
-  delete: ReturnType<typeof vi.fn>;
-  list: ReturnType<typeof vi.fn>;
+  get: MockGet;
+  put: MockPut;
+  delete: MockDelete;
+  list: MockList;
   /** Direct access — accepts raw strings for backward compat with 110+ test callsites */
   _store: Map<string, string>;
   /** Convenience: JSON-stringify and store a value (optional metadata) */
@@ -88,7 +93,7 @@ export function createMockKV(): MockKV {
   });
 
   return {
-    get: vi.fn(async (key: string, type?: string) => {
+    get: vi.fn(async (key: string, type?: string): Promise<unknown> => {
       const entry = entries.get(key);
       if (!entry) return null;
       if (type === 'json') {
@@ -96,13 +101,13 @@ export function createMockKV(): MockKV {
       }
       return entry.value;
     }),
-    put: vi.fn(async (key: string, value: string, opts?: { expirationTtl?: number; metadata?: unknown }) => {
+    put: vi.fn(async (key: string, value: string, opts?: { expirationTtl?: number; metadata?: unknown }): Promise<void> => {
       entries.set(key, { value, metadata: opts?.metadata });
     }),
-    delete: vi.fn(async (key: string) => {
+    delete: vi.fn(async (key: string): Promise<void> => {
       entries.delete(key);
     }),
-    list: vi.fn(async (opts?: { prefix?: string; cursor?: string }) => {
+    list: vi.fn(async (opts?: { prefix?: string; cursor?: string }): Promise<{ keys: Array<{ name: string; metadata: unknown }>; list_complete: boolean }> => {
       const prefix = opts?.prefix ?? '';
       const keys = Array.from(entries.entries())
         .filter(([k]) => k.startsWith(prefix))

@@ -5,12 +5,12 @@ import { createMockKV } from '../helpers/mock-kv';
 // ---------------------------------------------------------------------------
 // Hoisted mocks
 // ---------------------------------------------------------------------------
-const mockCreateBucketIfNotExists = vi.hoisted(() => vi.fn());
-const mockGetOrCreateScopedR2Token = vi.hoisted(() => vi.fn());
-const mockSeedGettingStartedDocs = vi.hoisted(() => vi.fn());
-const mockGetR2Config = vi.hoisted(() => vi.fn());
-const mockGetContainer = vi.hoisted(() => vi.fn());
-const mockGetStoredBucketName = vi.hoisted(() => vi.fn());
+const mockCreateBucketIfNotExists = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
+const mockGetOrCreateScopedR2Token = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
+const mockSeedGettingStartedDocs = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
+const mockGetR2Config = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
+const mockGetContainer = vi.hoisted(() => vi.fn<(...args: unknown[]) => unknown>());
+const mockGetStoredBucketName = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
 
 vi.mock('@cloudflare/containers', () => ({
   getContainer: mockGetContainer,
@@ -21,7 +21,7 @@ vi.mock('../../lib/r2-admin', () => ({
   getOrCreateScopedR2Token: mockGetOrCreateScopedR2Token,
 }));
 
-const mockReconcileAgentConfigs = vi.hoisted(() => vi.fn());
+const mockReconcileAgentConfigs = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
 vi.mock('../../lib/r2-seed', () => ({
   seedGettingStartedDocs: mockSeedGettingStartedDocs,
   reconcileAgentConfigs: mockReconcileAgentConfigs,
@@ -74,7 +74,7 @@ vi.mock('../../lib/agent-config', () => ({
   getDefaultTabConfig: vi.fn(() => [{ command: 'claude-code', label: 'Claude' }]),
 }));
 
-const mockListAllKvKeys = vi.hoisted(() => vi.fn());
+const mockListAllKvKeys = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
 vi.mock('../../lib/kv-keys', () => ({
   getSessionKey: vi.fn((bucket: string, sessionId: string) => `session:${bucket}:${sessionId}`),
   getPreferencesKey: vi.fn((bucket: string) => `preferences:${bucket}`),
@@ -470,7 +470,7 @@ describe('Container lifecycle extracted helpers', () => {
       // Make KV.put fail during rollback (after the initial read succeeds)
       const originalPut = mockKV.put;
       let putCallCount = 0;
-      mockKV.put = vi.fn(async (key: string, value: string, opts?: any) => {
+      mockKV.put = vi.fn<(key: string, value: string, opts?: { expirationTtl?: number; metadata?: unknown }) => Promise<void>>(async (key: string, value: string, opts?: any) => {
         putCallCount++;
         // First put is the session status change to 'running', let it through
         // Second put would be the rollback to 'stopped', make it fail
