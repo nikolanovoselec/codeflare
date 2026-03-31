@@ -102,7 +102,7 @@ describe('LLM Keys routes', () => {
       expect(body.openaiApiKey).toBe('****7890');
 
       // Verify stored in KV
-      const stored = await mockKV.get('llm-keys:test-bucket', 'json');
+      const stored = await mockKV.get('llm-keys:test-bucket', 'json') as Record<string, unknown>;
       expect(stored.openaiApiKey).toBe('sk-test1234567890');
     });
 

@@ -160,14 +160,14 @@ describe('listAllKvKeys', () => {
       callCount++;
       if (callCount === 1) {
         return {
-          keys: [{ name: 'key:1' }, { name: 'key:2' }],
-          list_complete: false,
+          keys: [{ name: 'key:1', metadata: null }, { name: 'key:2', metadata: null }],
+          list_complete: false as boolean,
           cursor: 'next-cursor',
         };
       }
       return {
-        keys: [{ name: 'key:3' }],
-        list_complete: true,
+        keys: [{ name: 'key:3', metadata: null }],
+        list_complete: true as boolean,
       };
     });
 
@@ -182,8 +182,8 @@ describe('listAllKvKeys', () => {
     mockKV.list.mockImplementation(async () => {
       callCount++;
       return {
-        keys: [{ name: `key:${callCount}` }],
-        list_complete: false,
+        keys: [{ name: `key:${callCount}`, metadata: null }],
+        list_complete: false as boolean,
         cursor: `cursor-${callCount}`,
       };
     });

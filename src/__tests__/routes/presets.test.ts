@@ -231,7 +231,7 @@ describe('Presets Routes', () => {
 
       // Verify KV was updated without p1
       const putCall = mockKV.put.mock.calls.find(
-        (call: string[]) => call[0] === 'presets:codeflare-test-user',
+        (call: unknown[]) => call[0] === 'presets:codeflare-test-user',
       );
       expect(putCall).toBeDefined();
       const stored = JSON.parse(putCall![1]);
