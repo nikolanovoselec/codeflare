@@ -287,5 +287,15 @@
       "default",
       "advanced"
     ]
+  },
+  "skills/spec-driven-development/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/sdd.md": {
+    "modes": [
+      "advanced"
+    ]
   }
 }
