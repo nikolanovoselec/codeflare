@@ -263,6 +263,10 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 4. Apply preset to new session populates tab config.
 5. Delete preset removes it.
 
+**Constraints:**
+- None
+
 **Priority:** P2
 **Dependencies:** REQ-TERM-001
 **Verification:** Integration test
+**Status:** Implemented

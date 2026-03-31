@@ -328,9 +328,12 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. Hidden for stopped sessions.
 5. Computed from sleepAfterMs - (now - lastActiveAt).
 
+**Constraints:**
+- None
 **Priority:** P2
 **Dependencies:** REQ-SESSION-004
 **Verification:** Manual check
+**Status:** Implemented
 
 ---
 
@@ -346,6 +349,10 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 3. Admins and paying users can change.
 4. Value saved to KV preferences and applied on next session start.
 
+**Constraints:**
+- None
+
 **Priority:** P1
 **Dependencies:** REQ-SESSION-004
 **Verification:** Integration test
+**Status:** Implemented

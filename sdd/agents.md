@@ -420,9 +420,14 @@ Multi-agent support, preseed system, and session modes.
 5. Interactive triage with fix/AD/defer/ignore options.
 
 **Applies To:** User
+
+**Constraints:**
+- None
+
 **Priority:** P1
 **Dependencies:** None
 **Verification:** Manual check
+**Status:** Implemented
 
 ---
 
@@ -430,15 +435,20 @@ Multi-agent support, preseed system, and session modes.
 
 **Intent:** Users control whether their LLM API keys power the multi-model consultation feature.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
 1. Toggle in Settings controls whether OpenAI/Gemini keys are passed to the consult-llm MCP server.
 2. Default: off.
 3. When off, consult-llm is not configured in the agent's MCP settings.
 
-**Applies To:** User
+**Constraints:**
+- None
+
 **Priority:** P2
 **Dependencies:** REQ-AGENT-009
 **Verification:** Integration test
+**Status:** Implemented
 
 ---
 
@@ -446,14 +456,19 @@ Multi-agent support, preseed system, and session modes.
 
 **Intent:** Codex agent runs in a bubblewrap sandbox for additional isolation within the container.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
 1. bubblewrap (bwrap) is installed in the container image.
 2. Codex uses it for sandboxed execution.
 
-**Applies To:** User
+**Constraints:**
+- None
+
 **Priority:** P1
 **Dependencies:** REQ-AGENT-001
 **Verification:** Automated test
+**Status:** Implemented
 
 ---
 
@@ -461,16 +476,21 @@ Multi-agent support, preseed system, and session modes.
 
 **Intent:** Users connect GitHub and Cloudflare accounts through a visual interface without CLI commands.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
 1. Settings panel has Deploy Keys section with provider rows for GitHub and Cloudflare.
 2. Tokens validated against provider APIs before saving.
 3. Stored encrypted in KV.
 4. Injected as container env vars (GH_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID).
 
-**Applies To:** User
+**Constraints:**
+- Must comply with CON-SEC-003
+
 **Priority:** P1
 **Dependencies:** REQ-AGENT-010
 **Verification:** Integration test
+**Status:** Implemented
 
 ---
 
@@ -478,16 +498,21 @@ Multi-agent support, preseed system, and session modes.
 
 **Intent:** Professional, intuitive settings panel for managing all user preferences and credentials.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
 1. Settings panel uses accordion groups (appearance, session, deploy, LLM, admin).
 2. Provider rows with SVG brand icons and inline expansion.
 3. Appearance section with accent color picker.
 4. Session section with agent type, sleep timeout, session mode dropdowns.
 
-**Applies To:** User
+**Constraints:**
+- None
+
 **Priority:** P2
 **Dependencies:** None
 **Verification:** Manual check
+**Status:** Implemented
 
 ---
 
@@ -495,13 +520,18 @@ Multi-agent support, preseed system, and session modes.
 
 **Intent:** Users can store their OpenAI and Gemini API keys through a visual interface.
 
+**Applies To:** User
+
 **Acceptance Criteria:**
 1. Settings panel has LLM Keys section with masked password inputs for OpenAI and Gemini.
 2. Keys validated before saving.
 3. Delete button clears all keys.
 4. Keys displayed as masked (never shown in full after save).
 
-**Applies To:** User
+**Constraints:**
+- Must comply with CON-SEC-003
+
 **Priority:** P1
 **Dependencies:** REQ-AGENT-009
 **Verification:** Integration test
+**Status:** Implemented
