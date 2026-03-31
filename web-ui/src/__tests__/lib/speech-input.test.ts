@@ -13,20 +13,8 @@ let mockRecognition: {
   maxAlternatives: number;
 };
 
-function createMockRecognition() {
-  mockRecognition = {
-    start: vi.fn(),
-    stop: vi.fn(),
-    onresult: null,
-    onend: null,
-    onerror: null,
-    lang: '',
-    continuous: false,
-    interimResults: false,
-    maxAlternatives: 1,
-  };
-  return mockRecognition;
-}
+// Mock recognition class for vitest 4 (vi.fn() can't be used as constructor)
+
 
 describe('speech-input', () => {
   let mod: typeof import('../../lib/speech-input');
