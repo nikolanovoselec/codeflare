@@ -4,9 +4,27 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Domain owner:** Frontend (SolidJS + xterm.js), mobile.ts, touch-gestures.ts, terminal-mobile-input.ts
 
+### Key Concepts
+
+- **VirtualKeyboard API** -- The browser API (`navigator.virtualKeyboard`) used to detect keyboard geometry changes and control `overlaysContent` behavior.
+- **Touch Gesture** -- Swipe-based input on touchscreens, translated to arrow keys (horizontal) or terminal scroll (vertical).
+- **Scroll Stability** -- The set of mechanisms (viewport overflow hidden, scroll-drop detection, programmatic suppression) that prevent the terminal from jumping during output bursts or keyboard transitions.
+
+### Out of Scope
+
+- Native mobile app (Codeflare runs entirely in the mobile browser)
+- Offline mobile support (requires active WebSocket connection to container)
+
+### Domain Dependencies
+
+- **Terminal** (xterm.js integration) -- Mobile features extend the terminal rendering and input layer.
+- **Session Lifecycle** (container connection) -- Mobile terminals require a running container, same as desktop.
+
 ---
 
 ## REQ-MOB-001: Terminal fully usable on mobile devices
+
+**Applies To:** User
 
 **Intent:** The terminal must be fully functional on phones and tablets, providing a usable coding experience without requiring a desktop browser.
 
@@ -22,11 +40,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - Mobile-specific code paths are gated behind touch detection (`pointer: coarse` media query or VirtualKeyboard API availability).
 - No polling or timers for state verification; all fixes are event-driven on top of the stable `df1dcfc` baseline.
 
+**Priority:** P0
+**Dependencies:** REQ-TERM-002
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-002: Virtual keyboard opens reliably on tap
+
+**Applies To:** User
 
 **Intent:** Tapping the terminal must reliably open the device's virtual keyboard, and the terminal must resize correctly to accommodate it.
 
@@ -43,11 +66,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - `overlaysContent` must be toggled only on actual state changes (false-to-true or true-to-false); redundant no-op calls must NOT restamp the ignore window timestamp.
 - The 50ms stale-event ignore window must apply only to genuine toggles.
 
+**Priority:** P0
+**Dependencies:** REQ-MOB-001
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-003: Samsung Internet keyboard quirks handled
+
+**Applies To:** User
 
 **Intent:** Samsung Internet's non-standard VirtualKeyboard API behavior must be compensated for so the terminal functions correctly on Samsung devices.
 
@@ -66,11 +94,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - The 50ms dashboard bounce delay gives SolidJS time to process null state and run cleanup effects before re-initialization.
 - Samsung-specific input resume does NOT auto-focus (prevents stale `geometrychange` events); keyboard stays closed for user tap.
 
+**Priority:** P1
+**Dependencies:** REQ-MOB-002
+**Verification:** Manual check
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-004: Scroll position stable during output and keyboard transitions
+
+**Applies To:** User
 
 **Intent:** The terminal viewport must not jump or flicker during burst output, keyboard open/close transitions, or browser background/foreground cycling.
 
@@ -90,11 +123,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - Recent user intent (wheel/pointerdown/keydown) is checked before forcing bottom-following users to the bottom.
 - Scrollback is limited to 400 lines (frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`).
 
+**Priority:** P0
+**Dependencies:** REQ-TERM-008
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-005: Swipe gestures send arrow keys or scroll
+
+**Applies To:** User
 
 **Intent:** Horizontal swipe gestures simulate arrow key presses for command-line navigation, while vertical swipes scroll the terminal buffer when the keyboard is closed.
 
@@ -111,11 +149,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - xterm 6.0.0's `SmoothScrollableElement` uses JS-based scrolling that does not support native touch; `.xterm-viewport` no longer has scrollable content.
 - Touch scroll must use `terminal.scrollLines()` for direct buffer scrolling.
 
+**Priority:** P1
+**Dependencies:** REQ-MOB-001, REQ-TERM-002
+**Verification:** Manual check
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-006: Sticky Ctrl button for mobile
+
+**Applies To:** User
 
 **Intent:** Mobile users can send Ctrl-modified key sequences (Ctrl+C, Ctrl+D, etc.) without a physical keyboard by using a persistent on-screen Ctrl button.
 
@@ -130,11 +173,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - The button must be positioned to avoid overlapping with the virtual keyboard or terminal content.
 - The button is part of the floating button UI layer alongside other mobile controls.
 
+**Priority:** P0
+**Dependencies:** REQ-MOB-001, REQ-MOB-002
+**Verification:** Manual check
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-007: Voice input via Web Speech API
+
+**Applies To:** User
 
 **Intent:** Users can dictate text into the terminal using the device microphone, providing an alternative input method on mobile (and desktop).
 
@@ -153,11 +201,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - Reliability over features: one utterance per activation, no interim results.
 - Permission prompt handling is critical on mobile where the prompt appears behind the virtual keyboard.
 
+**Priority:** P2
+**Dependencies:** REQ-MOB-001
+**Verification:** Manual check
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-008: Cursor visible for all supported agents
+
+**Applies To:** User
 
 **Intent:** The terminal cursor must be visible and correctly rendered for all supported CLI agents (Claude Code, Copilot, etc.) without duplication or visual artifacts.
 
@@ -172,11 +225,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Constraints:**
 - Cursor visibility depends on CLI agent version (Copilot 1.0.12+, Claude Code) using xterm's native cursor layer rather than rendering their own via ANSI escape sequences.
 
+**Priority:** P1
+**Dependencies:** REQ-TERM-002
+**Verification:** Manual check
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-009: Visibility return recovers keyboard state
+
+**Applies To:** System
 
 **Intent:** When the browser is backgrounded and returned to, keyboard state signals must be reset so the terminal functions correctly without manual intervention.
 
@@ -192,11 +250,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - `resetKeyboardStateIfStale()` is not used for visibility return because `boundingRect.height` is stale at that point.
 - Chrome and Samsung paths are separate; Samsung requires full session deactivation/reactivation.
 
+**Priority:** P1
+**Dependencies:** REQ-MOB-002, REQ-MOB-003
+**Verification:** Manual check
 **Status:** Implemented
 
 ---
 
 ## REQ-MOB-010: FitAddon fit calls are coordinated
+
+**Applies To:** System
 
 **Intent:** Multiple code paths that trigger `fitAddon.fit()` must not conflict with each other or cause visual artifacts.
 
@@ -212,4 +275,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 - Using the timer ID (not a boolean flag) for `kbDebounceTimer` prevents a race condition where cleanup does not properly clear the gate.
 - The write callback's `scrollToBottom()` is the single source of truth for bottom-anchoring during keyboard-open output.
 
+**Priority:** P1
+**Dependencies:** REQ-MOB-002, REQ-TERM-008
+**Verification:** Automated test
 **Status:** Implemented

@@ -4,9 +4,28 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 **Domain owner:** Frontend (SolidJS + xterm.js) + Container (terminal server)
 
+### Key Concepts
+
+- **PTY** -- Pseudo-terminal; the OS-level device that bridges a shell process to terminal I/O over the WebSocket.
+- **WebSocket** -- The bidirectional transport carrying raw terminal data and JSON control messages between browser and container.
+- **Terminal Tab** -- A single terminal instance within a session, identified by a compound key (`sessionId:terminalId`), each backed by its own PTY.
+- **Tiling Layout** -- An arrangement mode (tabbed, 2-split, 3-split, 4-grid) that displays multiple terminals simultaneously.
+
+### Out of Scope
+
+- Terminal recording and playback (session replay)
+- Collaborative terminal sharing (multi-user viewing or input on the same PTY)
+
+### Domain Dependencies
+
+- **Session Lifecycle** (container must be running) -- Terminal connections require an active, running container.
+- **Authentication** (WebSocket auth) -- WebSocket upgrade requests are authenticated via the Worker middleware and container auth token.
+
 ---
 
 ## REQ-TERM-001: Up to 6 terminal tabs per session
+
+**Applies To:** User
 
 **Intent:** Each session supports multiple concurrent terminal instances (up to 6) so users can run an agent in one tab and auxiliary commands in others.
 
@@ -22,11 +41,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - Frontend and backend must agree on the compound key format (`sessionId:terminalId` vs `sessionId-terminalId`).
 - Terminal IDs are scoped within a session; they are not globally unique.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-002
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-TERM-002: WebSocket connection to container PTY
+
+**Applies To:** System
 
 **Intent:** Each terminal tab connects to its PTY process inside the container via a WebSocket, carrying raw terminal data bidirectionally.
 
@@ -43,11 +67,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - WebSocket must be intercepted BEFORE Hono routing due to a Cloudflare Workers limitation (`workerd/issues/2319`).
 - All proxied HTTP requests from the DO to the container include a `CONTAINER_AUTH_TOKEN` Bearer header; auth-exempt paths (`/health`, `/activity`) are whitelisted.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-002, REQ-AUTH-005
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-TERM-003: Automatic WebSocket reconnection on transient failures
+
+**Applies To:** System
 
 **Intent:** Transient network failures (connection drops, server restarts) trigger automatic reconnection so the user does not need to manually refresh.
 
@@ -63,11 +92,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - Retry loops are cancelled when a session is disposed (e.g., session stopped, user navigated away).
 - Dashboard navigation schedules a 60-second WebSocket disconnect grace period; returning cancels the timer and reconnects.
 
+**Priority:** P1
+**Dependencies:** REQ-TERM-002
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-TERM-004: Close code 4503 is authoritative (no retry)
+
+**Applies To:** System
 
 **Intent:** The custom WebSocket close code 4503 is a server-authoritative signal that the container is not running. The client must stop retrying and display a "Session stopped" message.
 
@@ -82,11 +116,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - 4503 is in the WebSocket private-use range (4000-4999), safe for application-specific semantics.
 - During the 3-minute startup guard for newly started sessions, only 4503 can transition a session to stopped (anti-flapping).
 
+**Priority:** P0
+**Dependencies:** REQ-TERM-002, REQ-SESSION-012
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-TERM-005: Tab 1 auto-starts the configured agent
+
+**Applies To:** System
 
 **Intent:** The first terminal tab in a session automatically launches the user's selected AI agent so they can start coding immediately without manual setup.
 
@@ -103,11 +142,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - PTY spawns `bash -l` (login shell) so `.bashrc` agent autostart logic runs.
 - Auto-start flags include `--silent` and `--no-consent` for non-interactive boot.
 
+**Priority:** P0
+**Dependencies:** REQ-TERM-002, REQ-SESSION-003
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-TERM-006: User-created tabs start with plain bash
+
+**Applies To:** User
 
 **Intent:** Tabs created by the user (clicking "+") start a plain bash shell without auto-launching an agent, giving the user a general-purpose terminal.
 
@@ -122,11 +166,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - The `manual` flag is a frontend-initiated signal; the backend trusts it for tab behavior but not for security decisions.
 - Manual tabs still have access to all installed CLI tools (agents can be started manually by the user).
 
+**Priority:** P0
+**Dependencies:** REQ-TERM-001
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-TERM-007: Tiling layouts (2-split, 3-split, 4-grid)
+
+**Applies To:** User
 
 **Intent:** Users can arrange terminal tabs in tiled layouts for simultaneous visibility of multiple terminals, in addition to the default tabbed view.
 
@@ -143,11 +192,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - Tiling state is managed in `web-ui/src/stores/tiling.ts` and accesses session store state via lazy registration to avoid circular imports.
 - Layout changes trigger terminal resize events via `triggerLayoutResize()` so xterm.js reflows content.
 
+**Priority:** P2
+**Dependencies:** REQ-TERM-001
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-TERM-008: Write batching at 30fps
+
+**Applies To:** System
 
 **Intent:** Rapid WebSocket messages are coalesced into batched `terminal.write()` calls at 30fps to reduce rendering overhead without perceptible latency increase.
 
@@ -163,11 +217,16 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - Write buffers use the compound key `sessionId:terminalId`.
 - Programmatic scroll suppression (`scrollSuppressionCounts`) prevents post-write scroll corrections from triggering false scroll-reset detection.
 
+**Priority:** P1
+**Dependencies:** REQ-TERM-002
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-TERM-009: Process name detection via control messages
+
+**Applies To:** System
 
 **Intent:** The terminal server detects the foreground process running in each PTY and sends the process name to the frontend for display in tab labels and session cards.
 
@@ -184,4 +243,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - Control messages that fail JSON parsing are treated as raw terminal data (written to xterm.js).
 - Unknown `type` values in control messages are silently ignored (forward compatibility).
 
+**Priority:** P1
+**Dependencies:** REQ-TERM-002
+**Verification:** Automated test
 **Status:** Implemented

@@ -4,6 +4,26 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Domain owner:** Worker (src/routes/setup/), Cloudflare API integration
 
+### Key Concepts
+
+| Concept | Definition |
+|---------|-----------|
+| Setup Wizard | A multi-step `POST /api/setup/configure` endpoint that provisions all Cloudflare resources (R2 credentials, DNS, Access apps, Turnstile) from a single API call |
+| Deployment Mode | One of three runtime configurations: Default (CF Access auth), Onboarding (CF Access + public waitlist), or SaaS (GitHub OAuth + self-serve subscriptions) |
+| NDJSON Streaming | The progress reporting format used by the setup endpoint -- each line is a self-contained JSON object with step name and status, ending with a `done: true` completion object |
+
+### Out of Scope
+
+- **Multi-region deployment** -- Codeflare deploys to a single Cloudflare Worker. No multi-region failover, geo-routing, or region-aware configuration in the setup wizard.
+- **Automated scaling configuration** -- Container instance limits and resource tiers are set via GitHub Actions variables, not through the setup wizard. No auto-scaling policies.
+
+### Domain Dependencies
+
+| Domain | Dependency |
+|--------|-----------|
+| Authentication | Setup wizard creates CF Access applications, groups, and policies; configures GitHub OAuth client in SaaS mode |
+| Security | Turnstile CAPTCHA widget provisioned during setup for onboarding and SaaS landing pages; rate limiting on setup endpoints |
+
 ---
 
 ## REQ-SETUP-001: First-time setup requires zero pre-configuration
@@ -20,6 +40,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Constraints:**
 - The pre-setup public window is intentionally open (AD10) to solve the bootstrap problem: authentication cannot be required before it is configured.
 - Rate limiting (5/min on `setup-configure`) and short exposure window mitigate the open endpoint risk.
+
+**Applies To:** Admin
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -48,6 +73,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 - Each Cloudflare API call is wrapped in `withSetupRetry()` (exponential backoff, 3 total attempts, 1s base delay).
 - `CircuitBreakerOpenError` is not retried.
 
+**Applies To:** Admin
+**Priority:** P0
+**Dependencies:** REQ-SETUP-001
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -66,6 +96,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Constraints:**
 - `STRESS_TEST_MODE` must not be active alongside `SAAS_MODE` (global middleware returns 503).
 - SaaS mode without `OAUTH_CLIENT_ID` falls back to CF Access authentication.
+
+**Applies To:** Admin
+**Priority:** P0
+**Dependencies:** REQ-AUTH-001
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -86,6 +121,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 - A KV-based lock (`setup:configuring`) prevents concurrent configure runs. Lock is checked on entry, overridden if stale (>60s), and deleted in `finally`. KV TTL of 300s acts as safety net.
 - The lock check returns an immediate error (no step progress) if another configure run is active and less than 60s old.
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-SETUP-002
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -104,6 +144,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Constraints:**
 - Admin role is resolved from KV user records, not from CF Access group membership.
 - In SaaS mode, admin status is enforced by the Worker, not by CF Access.
+
+**Applies To:** Admin
+**Priority:** P1
+**Dependencies:** REQ-SETUP-001, REQ-AUTH-005
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -128,6 +173,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 - The stream is not retryable mid-progress; on failure the client must re-submit the full request.
 - The `steps` array in the completion object provides cumulative status of all attempted steps.
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-SETUP-002
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -149,6 +199,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 - DNS changes require the domain's zone to be managed by Cloudflare.
 - The CNAME record is Cloudflare-proxied (orange cloud), so the origin IP is hidden.
 
+**Applies To:** Admin
+**Priority:** P1
+**Dependencies:** REQ-SETUP-002
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -166,5 +221,10 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Constraints:**
 - Prefill reads from Cloudflare API and KV; it does not modify any state.
 - Detection endpoint is a read-only token validation.
+
+**Applies To:** Admin
+**Priority:** P1
+**Dependencies:** REQ-SETUP-005
+**Verification:** Automated test
 
 **Status:** Implemented

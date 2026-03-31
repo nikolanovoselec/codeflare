@@ -2,6 +2,30 @@
 
 Tiers, billing, usage tracking, and quotas.
 
+### Key Concepts
+
+| Concept | Definition |
+|---------|-----------|
+| Tier | One of 8 subscription levels (`blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`) that define compute quotas, session limits, storage caps, and feature access |
+| BillingStatus | Stripe-sourced state (`active`, `trialing`, `past_due`, `canceled`) that modifies a user's effective tier at read time |
+| Effective Tier | The canonical tier after applying billing status rules via `getEffectiveTier()` -- may differ from the stored `subscriptionTier` when payment lapses |
+| Timekeeper | A per-user Durable Object that accumulates real-time compute usage from session pings, flushes to KV, and enforces quota limits |
+| Trial | A compute-based (not time-based) evaluation period capped by `trialQuotaHours`; Stripe `trial_period_days` sets only the maximum billing window |
+| Stripe Checkout | External payment flow where users are redirected to a Stripe-hosted page; webhook events signal completion back to the Worker |
+
+### Out of Scope
+
+- **Per-feature billing** -- All features within a tier are available to all users on that tier. No add-on purchases or feature flags gated by separate payments.
+- **Usage-based overage billing** -- Users who exceed quota are stopped, not charged extra. No metered billing or pay-per-minute beyond the tier allowance.
+- **Multi-currency pricing** -- Prices are set in a single currency via Stripe. No currency conversion, localized pricing, or regional price differentiation.
+
+### Domain Dependencies
+
+| Domain | Dependency |
+|--------|-----------|
+| Authentication | User identity (email, role) from auth middleware; `requireActiveUser` enforces tier-based access |
+| Security | Rate limiting on billing endpoints; encryption of billing-related KV data when `ENCRYPTION_KEY` is set |
+
 ---
 
 ## REQ-SUB-001: Eight-Tier Subscription System
@@ -17,6 +41,11 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 - One tier must have `isDefault: true` (currently `standard`) as fallback for undefined/missing users.
 - The `blocked` tier must have `canLogin: false`; `pending` must have `canLogin: true` (to access the subscribe page).
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -47,6 +76,11 @@ Tiers, billing, usage tracking, and quotas.
 - These are default values; admins can override all operational parameters via the management panel.
 - Prices are not hardcoded; they come from Stripe via admin-configured `stripePriceId` per tier.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-SUB-001
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -64,6 +98,11 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 - Free-tier auto-sleep is locked to 5 minutes; the dropdown is disabled in the frontend.
 - Free tier is limited to 1 concurrent session.
+
+**Applies To:** User
+**Priority:** P0
+**Dependencies:** REQ-SUB-001
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -87,6 +126,11 @@ Tiers, billing, usage tracking, and quotas.
 - Tiers without a configured `stripePriceId` are hidden from the subscribe page.
 - Customer mapping (`stripe-customer:{customerId}` -> email) is stored in KV on checkout completion.
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-SUB-001, REQ-SUB-003
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -106,6 +150,11 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 - `endTrialNow` in Timekeeper is guarded by a `trialEnded` flag in DO storage, preventing it from being called every 60s ping (which would cause O(sessions) Stripe API calls per minute).
 - `lastSyncedAt` timestamp guard uses `>` (not `>=`) so same-second webhook events are not silently discarded.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-SUB-004, REQ-SUB-006
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -128,6 +177,11 @@ Tiers, billing, usage tracking, and quotas.
 - Usage tracking always runs regardless of `STRESS_TEST_MODE` (stress test only bypasses rate limits and session limits).
 - Multiple concurrent sessions from the same user all ping the same Timekeeper DO.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -148,6 +202,11 @@ Tiers, billing, usage tracking, and quotas.
 - Quota check uses the effective tier from `getEffectiveTier()`, which accounts for billing status downgrades.
 - The 402 status code must be used (not 403) to distinguish quota exhaustion from access denial.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-SUB-006, REQ-SUB-012
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -164,6 +223,11 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 - Mid-session eviction must allow the final bisync to complete (graceful, not immediate kill).
 - The check happens on each 60-second ping, not continuously.
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-SUB-006, REQ-SUB-007
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -185,6 +249,11 @@ Tiers, billing, usage tracking, and quotas.
 - Changes require admin role (checked after `requireActiveUser`).
 - New fields added to defaults backfill automatically for deployments with pre-existing KV data.
 
+**Applies To:** Admin
+**Priority:** P1
+**Dependencies:** REQ-SUB-001, REQ-AUTH-005
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -204,6 +273,11 @@ Tiers, billing, usage tracking, and quotas.
 - Each Cloudflare Worker isolate maintains its own cache; there is no cross-isolate invalidation.
 - The 60-second TTL is per-isolate, not globally synchronized.
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-SUB-009
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -221,6 +295,11 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 - Non-SaaS users without a tier default to `unlimited` access for backward compatibility.
 - Legacy `accessTier` field is maintained in KV; code reads `subscriptionTier` first, falls back to `accessTier`.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-SUB-001
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -244,6 +323,11 @@ Tiers, billing, usage tracking, and quotas.
 - Uses `BILLING_STATUS` constants from `types.ts` for type-safe comparisons, not raw strings.
 - `BillingStatus` union type: `'active' | 'trialing' | 'past_due' | 'canceled'`.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-SUB-001, REQ-SUB-004
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -262,6 +346,11 @@ Tiers, billing, usage tracking, and quotas.
 - Session limit check uses the effective tier, not the stored tier.
 - `STRESS_TEST_MODE` bypasses session limits.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-SUB-001, REQ-SUB-012
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -279,6 +368,11 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 - `subscribedMode` in the user record is the source of truth for Pro access (set by Stripe webhook or admin).
 - JIT-provisioned users default to `'default'` mode.
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-SUB-001, REQ-AGENT-004
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -300,6 +394,11 @@ Tiers, billing, usage tracking, and quotas.
 - `lastSyncedAt` guard uses `>` (not `>=`) to avoid discarding same-second events.
 - Auto-recreate on downgrade is non-fatal (try/catch); failure does not block the webhook.
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-SUB-004, REQ-SUB-012
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -319,5 +418,10 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 - Users compare plans on the Codeflare subscribe page (rich UI) and only see Stripe for payment confirmation.
 - `billingStatus` verification endpoint (`GET /api/billing/status`) verifies against Stripe API as source of truth, falling back to KV when Stripe is unavailable.
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-SUB-004, REQ-SUB-012
+**Verification:** Integration test
 
 **Status:** Implemented

@@ -4,9 +4,30 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Domain owner:** Backend (Worker + Container DO)
 
+### Key Concepts
+
+- **Session** -- A named, user-owned workspace backed by a unique KV record and a single container.
+- **Container** -- A Cloudflare Durable Object instance providing an isolated runtime (PTY, filesystem, network) for one session.
+- **sleepAfter** -- The configurable idle timeout after which a container is automatically stopped.
+- **Durable Object** -- Cloudflare's stateful compute primitive used to host each container; provides storage, alarms, and WebSocket hibernation.
+
+### Out of Scope
+
+- Multi-user sessions (each session belongs to exactly one user)
+- Container customization (base image, resource limits)
+- Custom Docker images (all containers use the standard Codeflare image)
+
+### Domain Dependencies
+
+- **Storage** (R2 bucket mount) -- Sessions mount the user's R2 bucket for persistent file storage.
+- **Authentication** (user identity) -- Session creation and access require a resolved user identity.
+- **Subscription** (session limits) -- Concurrent session counts are enforced per subscription tier.
+
 ---
 
 ## REQ-SESSION-001: Session creation with name and agent type
+
+**Applies To:** User
 
 **Intent:** A user can create a named session associated with a specific AI agent, producing a unique session record stored in KV.
 
@@ -21,11 +42,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - Session name is sanitized to prevent injection.
 - Storage quota is checked before creation in SaaS mode; over-quota users receive a `ValidationError`.
 
+**Priority:** P0
+**Dependencies:** REQ-AUTH-005 (requireActiveUser middleware)
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-002: One container per session (isolation)
+
+**Applies To:** System
 
 **Intent:** Each session maps to exactly one Durable Object container instance, providing full process-level isolation between sessions.
 
@@ -39,11 +65,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - Container ID derivation must never produce collisions for distinct (bucketName, sessionId) pairs.
 - Container ID is never a fallback or default; validation rejects malformed inputs before DO interaction.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-001
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-003: R2 bucket mounted and synced on start
+
+**Applies To:** System
 
 **Intent:** When a container starts, the user's persistent R2 storage is mounted and bidirectionally synced so the workspace contains all previously persisted files.
 
@@ -58,11 +89,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - The master `CLOUDFLARE_API_TOKEN` never enters the container; only per-user scoped R2 credentials are injected.
 - R2 tokens are cached in KV (optionally encrypted with AES-256-GCM) and verified before reuse.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-002
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-004: Idle containers sleep after configurable timeout
+
+**Applies To:** System
 
 **Intent:** Containers that receive no user input for a configurable duration are automatically stopped to conserve resources and reduce cost.
 
@@ -79,11 +115,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - `sleepAfter` is persisted to DO storage so it survives Cloudflare DO resets.
 - Backend enforcement in `lifecycle.ts`: free-tier override cannot be bypassed via API.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-005
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-005: Input-based idle detection
+
+**Applies To:** System
 
 **Intent:** Idle detection is based on actual user input (keystrokes, control keys, mouse clicks), not on WebSocket connection activity or heartbeat pings.
 
@@ -99,11 +140,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - If no input is ever received (`lastInputAt` is null), idle time is measured from `containerStartedAt`.
 - A container with an open terminal but no typing stops after `sleepAfter` from start time.
 
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-006: User can stop, restart, and delete sessions
+
+**Applies To:** User
 
 **Intent:** Users have explicit control over session lifecycle: stop a running session, restart a stopped session, or permanently delete a session.
 
@@ -117,11 +163,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - `destroy()` clearing identifiers before `super.destroy()` is critical to prevent the asynchronous `onStop()` from writing a stale session back to KV.
 - Final bisync on shutdown uses `--ignore-checksum --max-delete 100` for safety.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-001, REQ-SESSION-002
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-007: Running session count limited per tier
+
+**Applies To:** System
 
 **Intent:** The number of concurrently running sessions is capped per subscription tier to enforce fair usage and plan differentiation.
 
@@ -136,11 +187,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - Tier limits are configurable per deployment via admin Subscription Management panel.
 - `getMaxSessions(role, env)` respects explicit `0` values (uses `NaN` check, not `||` fallback).
 
+**Priority:** P1
+**Dependencies:** REQ-SESSION-001
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-008: Container restart preserves R2 bucket
+
+**Applies To:** System
 
 **Intent:** Restarting a session reconnects to the same R2 bucket, preserving all user files without data loss.
 
@@ -154,11 +210,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Constraints:**
 - Different-bucket restart (user email change) triggers full `destroy()` + re-`setBucketName` cycle.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-003, REQ-SESSION-006
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-009: Container destroy wipes session state
+
+**Applies To:** System
 
 **Intent:** Destroying a container clears all transient session state from the Durable Object, leaving only the persistent KV record and R2 bucket.
 
@@ -173,11 +234,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Constraints:**
 - DO storage and memory must be cleared BEFORE `super.destroy()` to prevent `onStop()` race conditions.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-006
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-010: Session status observable from dashboard
+
+**Applies To:** User
 
 **Intent:** The dashboard displays the current status of each session (running, stopped, initializing, stopping, error) with near-real-time updates.
 
@@ -195,11 +261,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - Dashboard status is pure KV read; no Durable Object is contacted, preserving container hibernation.
 - Newly started sessions have a 3-minute startup guard during which only close code 4503 can transition them to stopped (anti-flapping).
 
+**Priority:** P1
+**Dependencies:** REQ-SESSION-001
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-011: Graceful shutdown with final sync
+
+**Applies To:** System
 
 **Intent:** When a container stops (idle timeout or user-initiated), a final bidirectional sync to R2 runs before process termination, ensuring no data loss.
 
@@ -214,11 +285,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - PID file is the sole mechanism for killing the sync daemon (no in-memory PID variable fallback).
 - The `--max-delete 100` flag prevents catastrophic mass deletion during final sync.
 
+**Priority:** P0
+**Dependencies:** REQ-SESSION-003, REQ-SESSION-004
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-SESSION-012: Wake-loop prevention
+
+**Applies To:** System
 
 **Intent:** A browser's automatic WebSocket reconnect must not wake a hibernated container in an infinite stop/start cycle.
 
@@ -232,4 +308,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - Fresh `connect()` calls are only made when the user explicitly starts the session again.
 - Anti-flapping guard prevents stale KV "running" status from auto-initializing terminals for non-active sessions.
 
+**Priority:** P1
+**Dependencies:** REQ-SESSION-004, REQ-SESSION-006
+**Verification:** Automated test
 **Status:** Implemented

@@ -4,6 +4,24 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Domain owner:** GitHub Actions workflows, deploy.yml, test.yml, e2e.yml, pentest.yml, fuzz.yml, stress-test.yml
 
+### Key Concepts
+
+- **Deploy Pipeline** -- The `deploy.yml` workflow that runs on push to `main`: install, build, test, typecheck, Docker build, scan, push, deploy, set secrets. The single path from code to production.
+- **CI/CD** -- Continuous integration via `test.yml` (PR checks), `codeql.yml` (static analysis), `scorecard.yml` (supply chain), and `fuzz.yml` (property-based testing). Continuous deployment via `deploy.yml`.
+- **E2E Testing** -- End-to-end test suite (`e2e.yml`) that runs against a deployed worker, covering API, desktop UI, and mobile UI flows. Authenticates via service token, not browser OAuth.
+- **Container Tier** -- Resource allocation profiles (`low`, `default`, `saas`, `high`) that control CPU, memory, and disk per container. Selected via the `RESSOURCE_TIER` GitHub Actions variable and applied by patching `wrangler.toml` at deploy time.
+
+### Out of Scope
+
+- Multi-cloud deployment (Codeflare deploys exclusively to Cloudflare Workers and Containers)
+- Custom CI runners (workflows use GitHub-hosted runners with optional self-hosted runner label via `RUNNER` variable)
+- Monitoring and alerting dashboards (operational visibility is through GitHub Actions logs and Cloudflare dashboard)
+
+### Domain Dependencies
+
+- **Security** -- CVE scanning (REQ-OPS-002) depends on Trivy integration; pentest (REQ-OPS-005) validates security requirements
+- **Session Lifecycle** -- Container specs (REQ-OPS-007) define the resource constraints that session containers run under
+
 ---
 
 ## REQ-OPS-001: Deploy triggered by push to main
@@ -24,6 +42,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 - Two GitHub environments: `production` (auto on push to main) and `integration` (manual dispatch only).
 - `RUNNER` variable controls the GitHub Actions runner label (supports self-hosted runners).
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Automated test (deploy.yml pipeline success on push to main)
 
 **Status:** Implemented
 
@@ -48,6 +71,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - `MAX_INSTANCES` must be a positive integer, passed via env to avoid shell injection.
 - `RESSOURCE_TIER` is a GitHub Actions variable, not a secret.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-OPS-001, REQ-SEC-011
+**Verification:** Automated test (deploy.yml Trivy scan + container push steps)
+
 **Status:** Implemented
 
 ---
@@ -67,6 +95,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 - Tests, builds, linting, and typechecking must NOT run locally in the development container (1 vCPU limitation). All quality checks run in GitHub Actions.
 - `RUNNER` variable controls the runner label across all workflows.
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Automated test (test.yml runs on every PR to main)
 
 **Status:** Implemented
 
@@ -89,6 +122,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 - E2E tests authenticate via `X-Service-Auth` header (service token), not browser-based auth flows.
 - UI tests require Chrome installation via `npx puppeteer browsers install chrome` + system shared libraries.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-OPS-001, REQ-SEC-012
+**Verification:** Integration test (e2e.yml workflow dispatch against deployed worker)
 
 **Status:** Implemented
 
@@ -114,6 +152,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Pentest requires `PENTEST_TARGET` variable set in the `production` GitHub environment.
 - Pentest uses only `curl` and `openssl` (no heavy scanning tools) to minimize CI resource usage.
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-SEC-008, REQ-SEC-009, REQ-SEC-010
+**Verification:** Automated test (pentest.yml and fuzz.yml scheduled runs)
+
 **Status:** Implemented
 
 ---
@@ -135,6 +178,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - CPU is billed on active usage only. Memory and disk are billed on provisioned resources during active time.
 - R2 storage: first 10 GB free, $0.015/GB/month after.
 - Cost scales per active session, not per user. Each session = one container; a session has up to 6 terminal tabs sharing a single container.
+
+**Applies To:** Admin
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Manual check (cost monitoring via Cloudflare dashboard)
 
 **Status:** Implemented
 
@@ -160,6 +208,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - `MAX_INSTANCES` is passed via env to avoid shell injection.
 - Session limits are passed to the Worker via `--var` (omitted if unset, so backend defaults apply).
 
+**Applies To:** Admin
+**Priority:** P1
+**Dependencies:** REQ-OPS-001
+**Verification:** Automated test (deploy.yml verifies wrangler.toml patching)
+
 **Status:** Implemented
 
 ---
@@ -179,6 +232,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 - Stress testing is for integration environments only.
 - Rate limit bypass skips all KV rate-limit reads/writes for zero overhead.
+
+**Applies To:** System
+**Priority:** P2
+**Dependencies:** REQ-SEC-007, REQ-OPS-001
+**Verification:** Integration test (stress-test.yml manual dispatch against integration)
 
 **Status:** Implemented
 
@@ -200,6 +258,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Supply chain monitoring is continuous (push-triggered + weekly), not on-demand.
 - Secret scanning push protection prevents secrets from being committed.
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-OPS-003
+**Verification:** Automated test (scorecard.yml and dependency-review in test.yml)
+
 **Status:** Implemented
 
 ---
@@ -219,5 +282,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Constraints:**
 - No in-memory PID variable fallback for the sync daemon; PID file is the sole mechanism.
 - `--max-delete 100` prevents accidental mass deletion during shutdown sync.
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-STOR-001
+**Verification:** Integration test (E2E verifies data persists across session restart)
 
 **Status:** Implemented

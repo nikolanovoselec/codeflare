@@ -22,3 +22,15 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Direct GitHub OAuth | Worker-managed GitHub OAuth flow used in SaaS mode when OAUTH_CLIENT_ID is configured. Completely separate from CF Access. |
 | Timekeeper | Durable Object that tracks per-user compute usage for quota enforcement. |
 | Setup Wizard | First-time configuration flow that provisions domain, auth, R2 credentials, and Turnstile. |
+| SSE-C | Server-Side Encryption with Customer-Provided Keys — R2 file encryption using ENCRYPTION_KEY |
+| NDJSON | Newline-Delimited JSON — streaming response format used by the setup wizard |
+| Circuit Breaker | Resilience pattern that stops calling a failing service after consecutive failures |
+| SaaS Mode | Deployment mode (SAAS_MODE=active) enabling subscriptions, JIT provisioning, and usage tracking |
+| Onboarding Mode | Deployment mode with public waitlist landing page (ONBOARDING_LANDING_PAGE=active) |
+| Effective Tier | The billing-resolved subscription tier after applying grace periods and expiry rules |
+| Fast Start | Container optimization that disables agent CLI auto-updaters to reduce startup time |
+| Bisync Baseline | Initial rclone --resync state that establishes bidirectional sync tracking |
+| Pre-warm | Pre-spawning tab 1 PTY during container startup before the terminal server is ready |
+| Reconcile | Process of syncing preseed configs to match the current session mode (overwrite + cleanup) |
+| BillingStatus | Subscription state: active, trialing, past_due, or canceled |
+| Anti-flapping | 3-minute startup guard preventing stale KV data from toggling session status |

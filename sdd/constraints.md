@@ -28,41 +28,32 @@ Architectural and technology decisions that apply across all domains.
 
 ## Non-Functional Requirements
 
-### Performance
-
-| Metric | Value | Source |
-|--------|-------|--------|
-| Frontend polling interval | 5s (`SESSION_LIST_POLL_INTERVAL_MS`) | `web-ui/src/lib/constants.ts` |
-| Backend metrics push interval | 60s (`collectMetrics` schedule) | Container DO alarm loop |
-| KV eventual consistency delay | ~60s for new sessions | Cloudflare KV propagation |
-| R2 bisync interval | 60s daemon + final sync on shutdown | `entrypoint.sh` |
-| Initial R2 sync timeout | 120s (`SYNC_TIMEOUT`) | `entrypoint.sh` |
-| Bisync baseline establishment timeout | 600s (10 min) | `entrypoint.sh` |
-| WebSocket retry delay | 1s (`WS_RETRY_DELAY_MS`) | `web-ui/src/stores/terminal.ts` |
-| Dashboard WS disconnect grace period | 60s (`DASHBOARD_WS_DISCONNECT_DELAY_MS`) | `web-ui/src/lib/constants.ts` |
-| Container fetch timeout | 5s (`CONTAINER_FETCH_TIMEOUT`) | `src/lib/constants.ts` |
-| CORS cache TTL | 5 min | `src/lib/cors-cache.ts` |
-| Auth config cache TTL | 5 min | `src/lib/access.ts` |
-| Tier config cache TTL | 60s | `src/lib/subscription.ts` |
-| JWKS freshness threshold | 30s (re-fetched on kid miss) | `src/lib/jwt.ts` |
-| Stripe price cache TTL | 1 hour | `src/lib/stripe.ts` |
-| Timekeeper user record cache TTL | 60s (100-entry cap) | `src/timekeeper/index.ts` |
-| V8 compile cache | Pre-warmed at Docker build time for all Node.js CLIs | `Dockerfile` |
-| Node compile cache dir | `/root/.cache/node-compile-cache` | `Dockerfile` ENV |
-| Context expiry threshold | 30 min (`CONTEXT_EXPIRY_MS`) | Frontend stale session detection |
-| Bucket name settle delay | 100ms | `src/lib/constants.ts` |
-
 ### Security
+
+### CON-SEC-001: All non-public endpoints require authentication
+All `/app`, `/api`, `/setup` surfaces protected by JWT verification (CF Access RS256 or GitHub OIDC HMAC-SHA256). Container auth uses a random UUID per DO lifecycle, passed as `CONTAINER_AUTH_TOKEN`, validated on all non-exempt paths.
+**Applies To:** All endpoints
+
+### CON-SEC-002: API tokens never enter containers
+`CLOUDFLARE_API_TOKEN` never enters containers; containers receive per-user scoped R2 tokens only.
+**Applies To:** System (container provisioning)
+
+### CON-SEC-003: Credentials encrypted at rest when ENCRYPTION_KEY configured
+Optional AES-256-GCM for KV credentials (per-value random IVs, AAD binding to key name); R2 SSE-C for workspace files.
+**Applies To:** System (storage layer)
+
+### CON-SEC-004: Rate limiting on all mutation endpoints
+KV-backed, per-user (bucketName or IP fallback). WebSocket: 30 connections per 60s window. Security-critical endpoints fail-closed on KV error. 64 KiB body limit on all `/api/*` routes (storage routes exempt for file uploads).
+**Applies To:** All endpoints
+
+### CON-SEC-005: Security headers on every response
+HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy on every response.
+**Applies To:** All responses
+
+#### Additional Security Controls
 
 | Control | Implementation |
 |---------|----------------|
-| Auth gate | All `/app`, `/api`, `/setup` surfaces protected by JWT verification (CF Access RS256 or GitHub OIDC HMAC-SHA256) |
-| Encryption at rest | Optional AES-256-GCM for KV credentials (per-value random IVs, AAD binding to key name); R2 SSE-C for workspace files |
-| API token containment | `CLOUDFLARE_API_TOKEN` never enters containers; containers receive per-user scoped R2 tokens only |
-| Container auth | Random UUID per DO lifecycle, passed as `CONTAINER_AUTH_TOKEN`, validated on all non-exempt paths |
-| Security headers | HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy on every response |
-| Rate limiting | KV-backed, per-user (bucketName or IP fallback). WebSocket: 30 connections per 60s window. Security-critical endpoints fail-closed on KV error |
-| Body limit | 64 KiB on all `/api/*` routes (storage routes exempt for file uploads) |
 | Input validation | Zod schemas on all API payloads; 64 KiB body limit |
 | Session ID validation | `/^[a-z0-9]{8,24}$/` enforced before any DO interaction |
 | Path traversal prevention | `decodeURIComponent` before `..` check; catches `%2E%2E` and double-encoded variants |
@@ -71,15 +62,51 @@ Architectural and technology decisions that apply across all domains.
 | Secret scanning | GitHub secret scanning with push protection enabled |
 | Credential masking | `maskSecret()` shows only last 4 chars in all API responses |
 
+### Performance
+
+### CON-PERF-001: Dashboard polling interval 5 seconds
+Frontend polls session list every 5s (`SESSION_LIST_POLL_INTERVAL_MS`). Backend metrics push every 60s via Container DO alarm loop.
+**Applies To:** User (dashboard), System (metrics)
+
+### CON-PERF-002: Bisync interval 60 seconds
+R2 bisync runs every 60s via daemon plus a final sync on shutdown. Initial sync timeout 120s (`SYNC_TIMEOUT`). Baseline establishment timeout 600s (10 min).
+**Applies To:** System (sync daemon)
+
+### CON-PERF-003: Tier config cache TTL 60 seconds
+Tier configuration cached for 60s in `src/lib/subscription.ts`. Other cache TTLs: CORS 5 min, auth config 5 min, JWKS 30s freshness, Stripe prices 1 hour, Timekeeper user records 60s (100-entry cap).
+**Applies To:** System (Worker caches)
+
+#### Additional Performance Metrics
+
+| Metric | Value | Source |
+|--------|-------|--------|
+| KV eventual consistency delay | ~60s for new sessions | Cloudflare KV propagation |
+| WebSocket retry delay | 1s (`WS_RETRY_DELAY_MS`) | `web-ui/src/stores/terminal.ts` |
+| Dashboard WS disconnect grace period | 60s (`DASHBOARD_WS_DISCONNECT_DELAY_MS`) | `web-ui/src/lib/constants.ts` |
+| Container fetch timeout | 5s (`CONTAINER_FETCH_TIMEOUT`) | `src/lib/constants.ts` |
+| V8 compile cache | Pre-warmed at Docker build time for all Node.js CLIs | `Dockerfile` |
+| Node compile cache dir | `/root/.cache/node-compile-cache` | `Dockerfile` ENV |
+| Context expiry threshold | 30 min (`CONTEXT_EXPIRY_MS`) | Frontend stale session detection |
+| Bucket name settle delay | 100ms | `src/lib/constants.ts` |
+
 ### Reliability
+
+### CON-REL-001: Graceful shutdown with final sync before exit
+`STOPSIGNAL SIGINT`; entrypoint trap kills sync daemon via PID file, runs final bisync, kills terminal server.
+**Applies To:** System (container lifecycle)
+
+### CON-REL-002: Self-healing bisync recovery on corruption
+`--resilient` + `--recover` for self-healing; consecutive failure counter (3 failures = resync fallback). `nuke_corrupted_r2_files` detects and removes files blocking bisync (encryption mismatch, size mismatch, corrupted transfer).
+**Applies To:** System (sync daemon)
+
+### CON-REL-003: Circuit breaker on external service calls
+Three states (CLOSED/OPEN/HALF_OPEN) wrapping `container.fetch()` calls to prevent cascading failures. `withSetupRetry()` wraps all CF API calls (3 total attempts, exponential backoff 1s/2s).
+**Applies To:** System (Worker, setup wizard)
+
+#### Additional Reliability Mechanisms
 
 | Mechanism | Implementation |
 |-----------|----------------|
-| Graceful shutdown | `STOPSIGNAL SIGINT`; entrypoint trap kills sync daemon via PID file, runs final bisync, kills terminal server |
-| Bisync recovery | `--resilient` + `--recover` for self-healing; consecutive failure counter (3 failures = resync fallback) |
-| Self-healing sync | `nuke_corrupted_r2_files` detects and removes files blocking bisync (encryption mismatch, size mismatch, corrupted transfer) |
-| Circuit breaker | Three states (CLOSED/OPEN/HALF_OPEN) wrapping `container.fetch()` calls to prevent cascading failures |
-| Setup wizard resilience | `withSetupRetry()` wraps all CF API calls (3 total attempts, exponential backoff 1s/2s) |
 | Zombie DO detection | `collectMetrics` returns early without re-arming when identifiers are missing (post-`destroy()`) |
 | WebSocket wake-loop prevention | Three-layer guard: DO fetch gate (503 when not running), terminal route guard (KV status check), frontend disposal on running-to-stopped transition |
 | Anti-flapping | 3-minute startup guard; only close code 4503 can transition new sessions to stopped; KV polling does not auto-initialize terminals for non-active sessions |
@@ -89,11 +116,14 @@ Architectural and technology decisions that apply across all domains.
 
 ### Cost
 
+### CON-COST-001: Idle containers hibernate (zero cost when not running)
+Containers stop after configurable `sleepAfter` (5m, 15m, 30m, 1h, 2h) with no terminal input. Default 30m for paying users, 5m for free tier. Timer resets only on actual user input (keypresses, not WebSocket reconnects or background polls). No running containers = no compute bill.
+**Applies To:** System (container lifecycle), Admin (cost management)
+
+#### Additional Cost Mechanisms
+
 | Mechanism | Implementation |
 |-----------|----------------|
-| Hibernate on idle | Containers stop after configurable `sleepAfter` (5m, 15m, 30m, 1h, 2h) with no terminal input. Default 30m for paying users, 5m for free tier |
-| Input-aware idle detection | Timer resets only on actual user input (keypresses, not WebSocket reconnects or background polls). `containsUserInput()` whitelist approach |
-| Scale to zero | No running containers = no compute bill. R2 storage persists at storage-tier pricing |
 | Timekeeper DO | Per-user usage tracking: accumulates seconds per session, flushes to KV every 5 min, enforces monthly quotas |
 | Stateless dashboard | Pure KV reads for status polling; never touches DOs, preserving hibernation |
 | KV read optimization | Batch-status via list metadata, module-level caches with TTLs, reduces KV operations from ~910K/sec to ~350/sec at 1500 users |

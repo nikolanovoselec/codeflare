@@ -4,6 +4,26 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 
 **Domain owner:** MCP memory server, entrypoint.sh, memory-capture.sh, preseed pipeline
 
+### Key Concepts
+
+- **MCP Memory** -- The Model Context Protocol memory server (`server-memory`) that provides a knowledge graph API. Reads and writes `session-{SESSION_ID}.jsonl` files containing entities, observations, and relations.
+- **Knowledge Graph** -- The in-memory graph structure (entities with observations, plus inter-entity relations) that persists as JSONL. Each entity has a name, type, and list of observations. Relations connect entities with labeled edges.
+- **Capture** -- Phase 1 of the two-phase memory system. A lightweight haiku agent extracts 3-5 observations from the recent conversation transcript and appends them to `chat-{TODAY}` entities. Triggered every 30 user messages via a `UserPromptSubmit` hook.
+- **Compaction** -- Phase 2 of the two-phase memory system. An opus agent restructures the knowledge graph when it exceeds 150 observations, distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `user-preferences`). Targets 50-80 observations per active project.
+- **Session Mode** -- Controls whether memory features are active. Advanced (Pro) mode enables R2 sync of memory files, capture hooks, and compaction. Default (Standard) mode provides in-session-only memory with no persistence.
+
+### Out of Scope
+
+- Cross-user memory sharing (each user's knowledge graph is isolated to their R2 bucket)
+- Memory search UI (memory is accessed exclusively through the MCP server API, not a web interface)
+- Memory export (no bulk export or migration tools for knowledge graph data)
+
+### Domain Dependencies
+
+- **Storage** -- R2 sync of memory files (REQ-MEM-004) depends on rclone bisync infrastructure from the Storage domain
+- **Agents** -- Preseed delivery (REQ-MEM-008) depends on the manifest pipeline and `reconcileAgentConfigs()` from the Agents domain
+- **Subscription** -- Mode gating (REQ-MEM-006) depends on effective tier resolution and `sessionModes` from the Subscription domain
+
 ---
 
 ## REQ-MEM-001: Conversation context automatically captured to MCP memory
@@ -22,6 +42,11 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 **Constraints:**
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-MEM-006
+**Verification:** Integration test (E2E verifies observations appear in knowledge graph after 30 messages)
 
 **Status:** Implemented
 
@@ -42,6 +67,11 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 **Constraints:**
 - Counter files are excluded from R2 sync (`--filter "- .memory/counter/**"`) since they are ephemeral per-session state.
 - Each new session gets a new session ID, so old counter files are orphans.
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-MEM-001
+**Verification:** Automated test (unit test for counter delta logic in memory-capture.sh)
 
 **Status:** Implemented
 
@@ -68,6 +98,11 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - Compaction marker is the sole coordination mechanism between phases.
 - The main agent checks for the compaction marker only once per turn (no polling).
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-MEM-001, REQ-MEM-007
+**Verification:** Integration test (verify graph restructuring after 150+ observations accumulate)
+
 **Status:** Implemented
 
 ---
@@ -89,6 +124,11 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - `--s3-upload-cutoff 0` forces all uploads through the multipart path to prevent `BadDigest` TOCTOU race errors.
 - Counter files are excluded from sync; only JSONL memory files are synced.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-STOR-001, REQ-MEM-006
+**Verification:** Integration test (E2E verifies memory persists across session restart)
+
 **Status:** Implemented
 
 ---
@@ -108,6 +148,11 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 **Constraints:**
 - Session IDs are unique per session, so file names are inherently conflict-free.
 - Local-only deletion + bisync propagation is the safe cleanup strategy for concurrent sessions.
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-MEM-004
+**Verification:** Integration test (verify concurrent sessions do not lose memory data)
 
 **Status:** Implemented
 
@@ -133,6 +178,11 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - Existing users are unaffected by mode changes until they explicitly recreate.
 - `resolveSessionMode` result is clamped against the billing-resolved effective tier (a canceled user with stale `advanced` preference gets `default`).
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-SUB-014
+**Verification:** Integration test (E2E verifies memory files absent in default mode, present in advanced)
+
 **Status:** Implemented
 
 ---
@@ -155,6 +205,11 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - Compaction is per-project, not global; the graph grows over time as projects accumulate.
 - Counter storage: `~/.memory/counter/{session_id}` (counter), `{session_id}.vars` (hook variables), `{session_id}.compact` (compaction marker).
 
+**Applies To:** System
+**Priority:** P2
+**Dependencies:** REQ-MEM-003
+**Verification:** Integration test (verify marker file creation at 150+ observations and opus agent invocation)
+
 **Status:** Implemented
 
 ---
@@ -175,5 +230,10 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 **Constraints:**
 - Plugin files update when the pipeline is redeployed and users click "Recreate AI agent skills & rules."
 - The generator is manifest-driven and ignores non-manifest files like `plugins/cache/`.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-AGENT-003
+**Verification:** Automated test (generate-agent-seed.mjs output includes memory plugin files)
 
 **Status:** Implemented

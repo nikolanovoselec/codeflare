@@ -18,21 +18,31 @@ Codeflare is an ephemeral cloud IDE that runs AI coding agents in isolated conta
 
 7. **Stateless dashboard, stateful containers** -- Dashboard status endpoints are pure KV reads with zero Durable Object contact, preserving container hibernation. The DO owns session lifecycle; the Worker owns routing and auth; KV owns state visibility.
 
+## Actors
+
+| Actor | Description |
+|-------|-------------|
+| User | A developer using Codeflare to run AI coding agents in browser-based sessions |
+| Admin | An operator who deployed Codeflare and manages users, tiers, and configuration |
+| System | The Codeflare Worker, Durable Objects, and background processes (sync daemon, Timekeeper, alarms) |
+| Stripe | External payment processor for subscription billing |
+| GitHub | External OAuth provider for SaaS mode authentication |
+
 ## Domains
 
-| Domain | Description | Status |
-|--------|-------------|--------|
-| [Session Lifecycle](session-lifecycle.md) | Container creation, idle detection, auto-sleep, restart | Active |
-| [Authentication](authentication.md) | Dual auth (CF Access + GitHub OIDC), user provisioning | Active |
-| [Terminal](terminal.md) | PTY, WebSocket, multi-tab, tiling, keyboard | Active |
-| [Mobile](mobile.md) | Touch input, virtual keyboard, scroll stability | Active |
-| [Storage](storage.md) | R2 persistence, rclone bisync, quotas | Active |
-| [Subscription](subscription.md) | Tiers, billing, usage tracking, quotas | Active |
-| [Agents](agents.md) | Multi-agent support, preseed, session modes | Active |
-| [Setup](setup.md) | Onboarding wizard, deployment modes, DNS | Active |
-| [Security](security.md) | Auth enforcement, encryption, rate limiting, headers | Active |
-| [Operations](operations.md) | CI/CD, testing, deployment, cost | Active |
-| [Memory](memory.md) | Knowledge graph persistence, automatic capture | Active |
+| Domain | Description | Priority | Status |
+|--------|-------------|----------|--------|
+| [Session Lifecycle](session-lifecycle.md) | Container creation, idle detection, auto-sleep, restart | P0 | Active |
+| [Authentication](authentication.md) | Dual auth (CF Access + GitHub OIDC), user provisioning | P0 | Active |
+| [Terminal](terminal.md) | PTY, WebSocket, multi-tab, tiling, keyboard | P0 | Active |
+| [Mobile](mobile.md) | Touch input, virtual keyboard, scroll stability | P2 | Active |
+| [Storage](storage.md) | R2 persistence, rclone bisync, quotas | P0 | Active |
+| [Subscription](subscription.md) | Tiers, billing, usage tracking, quotas | P1 | Active |
+| [Agents](agents.md) | Multi-agent support, preseed, session modes | P1 | Active |
+| [Setup](setup.md) | Onboarding wizard, deployment modes, DNS | P1 | Active |
+| [Security](security.md) | Auth enforcement, encryption, rate limiting, headers | P0 | Active |
+| [Operations](operations.md) | CI/CD, testing, deployment, cost | P1 | Active |
+| [Memory](memory.md) | Knowledge graph persistence, automatic capture | P2 | Active |
 
 ## Out of Scope
 

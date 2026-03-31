@@ -2,6 +2,29 @@
 
 Multi-agent support, preseed system, and session modes.
 
+### Key Concepts
+
+| Concept | Definition |
+|---------|-----------|
+| Agent | One of six supported AI coding tools (`claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
+| Preseed | A set of configuration files (rules, skills, agents, commands, plugins) generated from a single Claude Code source of truth and deployed to each user's R2 bucket |
+| Session Mode | Either Standard (`default`, 25 preseed files) or Pro (`advanced`, 117 preseed files) controlling the scope of agent enhancements seeded to a user's storage |
+| Manifest | The declarative `manifest.json` file that maps each preseed source file to its applicable modes and drives the code generation pipeline |
+
+### Out of Scope
+
+- **Custom agent creation by users** -- Users cannot define their own agent types or register third-party CLI tools as agents. The six supported agents are hardcoded.
+- **Agent marketplace** -- No mechanism for browsing, installing, or sharing community-contributed agent configurations or plugins.
+- **Runtime agent switching** -- Agent type is immutable after session creation. Switching requires creating a new session.
+
+### Domain Dependencies
+
+| Domain | Dependency |
+|--------|-----------|
+| Session Lifecycle | Container start triggers agent CLI auto-start in tab 1; session creation accepts `agentType` selection |
+| Storage | R2 bucket stores preseed files; initial sync restores agent configs to the container filesystem |
+| Subscription | Session mode gating (`REQ-SUB-014`) controls whether a user can select Pro mode |
+
 ---
 
 ## REQ-AGENT-001: Support Multiple AI Coding Agents
@@ -17,6 +40,11 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - Agent CLI versions are installed via `@latest` at build time; versions may drift between deploys.
 - Major version jumps between deploys have caused regressions; monitoring is required after deploys.
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -36,6 +64,11 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - Agent type is immutable after session creation (a new session is required to switch agents).
 - The `bash` agent type provides a plain terminal without an AI agent.
+
+**Applies To:** User
+**Priority:** P0
+**Dependencies:** REQ-AGENT-001
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -58,6 +91,11 @@ Multi-agent support, preseed system, and session modes.
 - Each agent has a different auto-update disable mechanism (env var or config file).
 - The autostart command must complete after the initial R2 sync but before bisync baseline to avoid hash mismatches.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-AGENT-001, REQ-AGENT-002, REQ-STOR-004
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -77,6 +115,11 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - Only tiers with `'advanced'` in their `sessionModes` array can use Pro mode (see REQ-SUB-014).
 - When a user is promoted to `advanced` tier, `sessionMode: 'advanced'` is written to preferences if not already set.
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-SUB-014
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -109,6 +152,11 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-AGENT-004, REQ-AGENT-006
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -128,6 +176,11 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - The generator must be re-run when preseed source files or the manifest change.
 - Generated TypeScript file must not be manually edited.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** None
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -159,6 +212,11 @@ Multi-agent support, preseed system, and session modes.
 | Copilot | 2 | 0 | 7 | 9 |
 | OpenCode | 2 | 12 | 7 | 21 |
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-AGENT-006
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -178,6 +236,11 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - All file modifications must complete after initial sync but before bisync baseline to avoid hash mismatches.
 - Plugin enablement is permanent because Claude Code silently skips missing plugins.
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-AGENT-006, REQ-STOR-004
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -202,6 +265,11 @@ Multi-agent support, preseed system, and session modes.
 - The ciphertext format is `v1:` + base64 for forward compatibility.
 - Transparent upgrade: plaintext values are auto-encrypted on read when `ENCRYPTION_KEY` is present.
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-SEC-004
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -225,6 +293,11 @@ Multi-agent support, preseed system, and session modes.
 - Cloudflare token template pre-fills 13 scopes.
 - Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`; auth fails silently if the token lacks Copilot scope.
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-SEC-004
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -247,6 +320,11 @@ Multi-agent support, preseed system, and session modes.
 - Cleanup uses explicit key lists, not bucket listing or prefix scans.
 - Partial delete failures produce warnings but do not fail the overall operation.
 - Container must perform a bisync cycle to pull the updated R2 files into the local filesystem.
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-AGENT-006, REQ-STOR-010
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -272,6 +350,11 @@ Multi-agent support, preseed system, and session modes.
 - Gemini settings file is synced via rclone, so jq merge must preserve user customizations.
 - Codex `~/.codex/` directory is excluded from sync, so `version.json` is safe to recreate on every start.
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-AGENT-003
+**Verification:** Manual check
+
 **Status:** Implemented
 
 ---
@@ -289,6 +372,11 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - The shim must not block or hang; it must exit immediately with a non-zero code.
 - All CLI tools that attempt browser-based OAuth (Claude Code, OpenCode, Gemini) must be covered.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-AGENT-001
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -310,5 +398,10 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - The manifest must be updated when adding, removing, or re-categorizing preseed files.
 - The generated TypeScript file is a build artifact, not manually maintained.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-AGENT-006
+**Verification:** Automated test
 
 **Status:** Implemented

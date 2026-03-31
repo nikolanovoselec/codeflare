@@ -2,6 +2,29 @@
 
 R2 persistence, rclone bisync, quotas, and file browser.
 
+### Key Concepts
+
+| Concept | Definition |
+|---------|-----------|
+| R2 Bucket | Per-user Cloudflare R2 storage bucket, named deterministically from user email, providing isolated durable file storage |
+| Bisync | Bidirectional rclone sync that reconciles local filesystem and R2 every 60 seconds, using newest-file-wins conflict resolution |
+| Sync Mode | User-configurable scope of what gets synced: `none` (configs only), `full` (entire workspace), or `metadata` (agent configs per repo) |
+| Storage Quota | Per-tier limit on total R2 usage (`maxStorageBytes`), enforced at session start, cached in KV with 60-second TTL |
+
+### Out of Scope
+
+- **Version history** -- R2 stores current file state only. No file versioning, rollback to previous revisions, or change tracking within storage.
+- **File collaboration** -- Storage is single-user. No shared buckets, shared folders, or multi-user access to the same R2 prefix.
+- **Real-time file sync** -- Bisync runs on a 60-second interval. Sub-second or event-driven sync between browser and container is not supported.
+
+### Domain Dependencies
+
+| Domain | Dependency |
+|--------|-----------|
+| Session Lifecycle | Container start triggers initial R2 sync and mounts the user's bucket; container stop triggers final sync |
+| Subscription | Tier config provides `maxStorageBytes` for quota enforcement at session start |
+| Security | SSE-C encryption of R2 objects when `ENCRYPTION_KEY` is configured; scoped R2 tokens per user |
+
 ---
 
 ## REQ-STOR-001: Dedicated Per-User R2 Bucket
@@ -16,6 +39,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 - Bucket naming must comply with S3/R2 naming rules (lowercase, no special characters beyond hyphens).
 - `createBucketIfNotExists` must be idempotent (no error on duplicate).
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -33,6 +61,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 - R2 is the durable store; the local filesystem is ephemeral.
 - Persistence depends on at least one successful sync completing before container shutdown.
+
+**Applies To:** User
+**Priority:** P0
+**Dependencies:** REQ-STOR-001
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -54,6 +87,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - `--check-sync=false` must be set to prevent post-sync listing validation failures when R2 changes during sync.
 - `--min-size 1B` must exclude 0-byte files (R2 SSE-C fails on empty objects).
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-STOR-001, REQ-STOR-004
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -73,6 +111,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Container must not serve terminal connections until the initial sync either succeeds or times out.
 - The bisync-initialized flag (`/tmp/.bisync-initialized`) must be set even on the timeout path to prevent the shutdown trap from skipping the final sync.
 
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-STOR-001
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -89,6 +132,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 - The shutdown handler must complete within the container runtime's grace period.
 - Final bisync uses the same flags as periodic bisync (`--ignore-checksum`, `--max-delete 100`, `--check-sync=false`).
+
+**Applies To:** System
+**Priority:** P0
+**Dependencies:** REQ-STOR-003
+**Verification:** Integration test
 
 **Status:** Implemented
 
@@ -109,6 +157,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Quota is checked only at session start; individual file uploads, rclone sync writes, and preseed writes are not blocked mid-session.
 - Users can temporarily exceed quota during an active session; overage is caught on the next session start attempt.
 - Stats are cached in KV with 60-second TTL; the quota value is embedded in the cache so cache hits skip tier config resolution.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-SUB-001, REQ-STOR-014
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -133,6 +186,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Each endpoint has its own rate limit (browse: 30/min, upload: 60/min, download: 120/min, preview: 120/min).
 - The file browser and settings panel are mutually exclusive in the UI.
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-STOR-001
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -152,6 +210,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Each part must include SSE-C headers when encryption is enabled.
 - The upload endpoints are exempt from the 64 KiB body size limit applied to other API routes.
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-STOR-007
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -169,6 +232,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 - Seeding must be idempotent when called with `overwrite: false` (skip files that already exist).
 - Tutorial source content is maintained in `tutorials/` directory.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-STOR-001
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -191,6 +259,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as single source of truth.
 - `getConfigsForMode()` must validate no duplicate keys within a single mode.
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-AGENT-006, REQ-STOR-001
+**Verification:** Automated test
+
 **Status:** Implemented
 
 ---
@@ -209,6 +282,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - All rclone commands must use `--filter` flags (not `--include`/`--exclude`).
 - The Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`; `metadata` requires setting `SYNC_MODE` directly.
 
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-STOR-003
+**Verification:** Manual check
+
 **Status:** Implemented
 
 ---
@@ -226,6 +304,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 - Cleanup functions are wrapped in subshells with `|| true` to prevent `set -euo pipefail` from killing the bisync daemon on benign non-zero exits.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-STOR-003
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -246,6 +329,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Losing one problematic file is acceptable; losing all sync is not.
 - Files are deleted from R2 using both encrypted and unencrypted configs.
 
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-STOR-003, REQ-STOR-004
+**Verification:** Integration test
+
 **Status:** Implemented
 
 ---
@@ -263,5 +351,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 - Stats rate limited at its own rate (separate from browse/upload/download).
 - Cache miss triggers full R2 pagination, which may be slow for large buckets.
+
+**Applies To:** System
+**Priority:** P1
+**Dependencies:** REQ-STOR-001, REQ-STOR-006
+**Verification:** Automated test
 
 **Status:** Implemented

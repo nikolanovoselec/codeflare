@@ -4,9 +4,29 @@ Authentication modes, user provisioning, session management, and middleware auth
 
 **Domain owner:** Backend (Worker)
 
+### Key Concepts
+
+- **CF Access** -- Cloudflare Access, an identity-aware proxy that handles authentication via external IdPs and issues RS256 JWTs.
+- **Direct GitHub OAuth** -- Codeflare-managed OAuth flow used in SaaS mode, issuing HMAC-SHA256 JWTs as session cookies.
+- **Session Cookie** -- The `codeflare_session` HttpOnly cookie that carries the signed JWT in Direct GitHub OAuth mode.
+- **JWT** -- JSON Web Token used by both auth modes; RS256 (CF Access) or HMAC-SHA256 (Direct GitHub OAuth).
+- **Service Token** -- A shared secret header (`X-Service-Auth`) used by E2E tests to bypass browser-based authentication.
+
+### Out of Scope
+
+- Enterprise SSO (SAML, Okta, Azure AD) beyond what CF Access natively supports
+- Fine-grained RBAC (only admin/user roles are supported)
+- Multi-factor authentication (delegated to the IdP or CF Access policy)
+
+### Domain Dependencies
+
+None. Authentication is foundational; other domains depend on it.
+
 ---
 
 ## REQ-AUTH-001: Two authentication modes
+
+**Applies To:** System
 
 **Intent:** Codeflare supports two mutually exclusive authentication mechanisms: Cloudflare Access (CF Access) and Direct GitHub OAuth, selected by deployment configuration.
 
@@ -20,11 +40,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - Missing `OAUTH_JWT_SECRET` in SaaS mode throws `AuthError` (fail-loud; never silently falls through to CF Access).
 - `cf-access-client-id` header is only trusted when `!isSaasModeActive()` to prevent header spoofing in SaaS mode.
 
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-002: SaaS mode uses Direct GitHub OAuth
+
+**Applies To:** User
 
 **Intent:** When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured, Codeflare presents a branded login page and handles GitHub OAuth directly, with no Cloudflare Access involvement.
 
@@ -41,11 +66,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - OAuth error codes are allowlisted: `access_denied`, `redirect_uri_mismatch`, `application_suspended`.
 - No CF Access resources (apps, groups, policies) are created when `OAUTH_CLIENT_ID` is set.
 
+**Priority:** P0
+**Dependencies:** REQ-AUTH-001
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-003: CF Access mode for all other deployments
+
+**Applies To:** User
 
 **Intent:** When `OAUTH_CLIENT_ID` is not set, Cloudflare Access provides the authentication layer, supporting multiple identity providers (GitHub, Google, etc.) managed through the CF Access dashboard.
 
@@ -61,11 +91,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - Concurrent cold-start JWKS fetches are deduplicated via `pendingJWKSFetch` Promise sentinel.
 - Admin-only deployments (0 regular users) are supported: the users group is skipped.
 
+**Priority:** P0
+**Dependencies:** REQ-AUTH-001
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-004: Service token authentication for E2E testing
+
+**Applies To:** System
 
 **Intent:** Automated E2E tests can authenticate without a browser-based OAuth flow by presenting a service token header.
 
@@ -80,11 +115,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - Service token auth is the highest priority in the resolution order (checked before cookies or JWTs).
 - Constant-time comparison prevents timing attacks on the secret.
 
+**Priority:** P0
+**Dependencies:** REQ-AUTH-011
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-005: Three-tier authorization middleware
+
+**Applies To:** System
 
 **Intent:** Protected routes use a layered middleware stack that enforces identity verification, active subscription status, and admin role checks independently.
 
@@ -98,11 +138,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - In non-SaaS mode, `requireActiveUser` does not enforce tier checking (backward compatibility with pre-subscription deployments).
 - `isActiveTier(undefined)` returns `true` for backward compatibility with users who have no tier field.
 
+**Priority:** P0
+**Dependencies:** REQ-AUTH-001
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-006: User email normalized
+
+**Applies To:** System
 
 **Intent:** User email addresses are normalized before any lookup, comparison, or storage operation to prevent case-sensitive duplicates and whitespace-related mismatches.
 
@@ -114,11 +159,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 **Constraints:**
 - Normalization must be applied consistently across all code paths that handle email (Worker auth, setup wizard, user management API).
 
+**Priority:** P0
+**Dependencies:** None
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-007: JIT user provisioning in SaaS mode
+
+**Applies To:** System
 
 **Intent:** In SaaS mode, users who authenticate via GitHub OAuth for the first time are automatically provisioned in KV with a `pending` subscription tier, eliminating manual allowlisting.
 
@@ -133,11 +183,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - Non-SaaS mode does not perform JIT provisioning; users must be allowlisted via the setup wizard or admin API.
 - Blocked users with valid OIDC sessions cannot self-upgrade to free tier (subscribe handler checks `getEffectiveTier` at top).
 
+**Priority:** P1
+**Dependencies:** REQ-AUTH-002, REQ-AUTH-005
+**Verification:** Integration test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-008: Session cookie auto-refresh
+
+**Applies To:** System
 
 **Intent:** The `codeflare_session` cookie (Direct GitHub OAuth mode) is automatically refreshed before expiry to prevent session interruption during active use.
 
@@ -151,11 +206,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - Only applies in Direct GitHub OAuth mode (`codeflare_session` cookie).
 - CF Access mode sessions are managed by CF Access's own policy and are not refreshed by the Worker.
 
+**Priority:** P1
+**Dependencies:** REQ-AUTH-002
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-009: Logout dispatches by mode
+
+**Applies To:** User
 
 **Intent:** Logout correctly terminates the session regardless of the active authentication mode, with a single frontend endpoint that dispatches to the appropriate backend flow.
 
@@ -169,11 +229,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - Logout redirect responses include HSTS headers via `redirectWithHeaders()`.
 - After logout in SaaS mode, the user lands on the `/login` page. After logout in CF Access mode, the user lands on the CF Access login page.
 
+**Priority:** P0
+**Dependencies:** REQ-AUTH-001
+**Verification:** Manual check
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-010: Auth bypass prevention
+
+**Applies To:** System
 
 **Intent:** A transient KV failure must not permanently degrade a configured deployment to the pre-setup header-trust model, which would allow unauthenticated access.
 
@@ -187,11 +252,16 @@ Authentication modes, user provisioning, session management, and middleware auth
 - This is a per-isolate sentinel; new isolates must fetch auth config at least once before the fallback is disabled.
 - Concurrent cold-start auth config fetches are deduplicated via `pendingAuthConfigFetch` Promise sentinel.
 
+**Priority:** P0
+**Dependencies:** REQ-AUTH-003
+**Verification:** Automated test
 **Status:** Implemented
 
 ---
 
 ## REQ-AUTH-011: Auth resolution order
+
+**Applies To:** System
 
 **Intent:** Authentication methods are checked in a strict priority order to prevent ambiguity and ensure the most specific credential takes precedence.
 
@@ -204,4 +274,7 @@ Authentication modes, user provisioning, session management, and middleware auth
 - Pre-setup fallback is disabled permanently once `authConfigFetched` sentinel is set (REQ-AUTH-010).
 - The resolution order is the same for all routes; individual routes choose which middleware layer (identity, active user, admin) they require.
 
+**Priority:** P0
+**Dependencies:** REQ-AUTH-001, REQ-AUTH-010
+**Verification:** Automated test
 **Status:** Implemented
