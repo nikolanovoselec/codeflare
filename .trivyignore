@@ -49,6 +49,10 @@ CVE-2026-25210
 # Container runs trusted code only; no user-controlled allocation sizes.
 CVE-2026-0861
 
+# glibc 2.36-9+deb12u13: DoS via iconv() function
+# No fix in bookworm (fix_deferred). Container doesn't process untrusted charset conversions.
+CVE-2026-4046
+
 # git 2.39.5: arbitrary code execution + arbitrary file writes
 # Container git is used by AI agents in sandboxed workspace. Users control their own repos.
 CVE-2025-48384
