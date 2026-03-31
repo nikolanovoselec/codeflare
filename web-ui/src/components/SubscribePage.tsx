@@ -36,7 +36,6 @@ import {
   mdiTrendingUp,
   mdiClockFast,
   mdiMicrophonePlus,
-  mdiFileTreeOutline,
   mdiAutorenew,
 } from '@mdi/js';
 import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession, createSwitchSession, getBillingStatus } from '../api/client';
@@ -138,13 +137,12 @@ const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string | (() => JSX.El
 const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
   { icon: mdiHeadCogOutline, text: 'Agent builds a knowledge graph' },
   { icon: mdiTrendingUp, text: 'Gets smarter every session' },
+  { icon: mdiClockFast, text: 'Auto-prunes context over time' },
   { icon: mdiWrenchOutline, text: 'Curated skills, rules & agents' },
   { icon: mdiBookOpenPageVariantOutline, text: 'Advanced commands & workflows' },
-  { icon: mdiClockFast, text: 'Auto-prunes context over time' },
+  { icon: mdiAutorenew, text: 'Continuous skillset improvement' },
   { icon: mdiCallSplit, text: 'Built-in second opinion from other LLMs' },
   { icon: mdiRocketLaunchOutline, text: 'Never start from scratch again' },
-  { icon: mdiFileTreeOutline, text: 'Advanced spec-driven development workflow' },
-  { icon: mdiAutorenew, text: 'Continuous skillset and workflow improvement' },
 ];
 
 const SubscribePage: Component = () => {
