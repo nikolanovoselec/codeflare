@@ -2,17 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
-## 2026-03-31
+## 2026-03-30
 - Added REQ-AUTH-012: Welcome email on first login
 - Added REQ-SUB-017: Enterprise tier contact flow
-- Spec compliance pass: added Applies To, Priority, Dependencies, Verification to all requirements
-- Added Key Concepts, Out of Scope, Domain Dependencies to all domain files
-- Added Actors table, expanded glossary, added CON-* constraint IDs
-
-## 2026-03-30
 - Added REQ-SESSION-004 constraint: sleepAfter persisted to DO storage (bug fix)
 - Updated REQ-AUTH-001, REQ-AUTH-002, REQ-AUTH-003: clarified CF Access vs Direct GitHub OAuth as distinct flows
-- Updated REQ-SEC-001: both auth cookies documented (CF_Authorization + codeflare_session)
 
 ## 2026-03-27
 - Added subscription domain (REQ-SUB-001 through REQ-SUB-016): 8-tier system, Stripe Checkout, usage tracking, Timekeeper DO, trial model, quota enforcement
