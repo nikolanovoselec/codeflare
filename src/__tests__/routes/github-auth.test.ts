@@ -204,6 +204,37 @@ describe('GitHub OAuth Routes', () => {
       expect(res.headers.get('Location')).not.toContain('/subscribe');
     });
 
+    it('redirects to /app/ for free tier user (no subscribedAt)', async () => {
+      mockGitHubSuccess();
+      mockKV._set('user:alice@example.com', {
+        subscriptionTier: 'free',
+      });
+
+      const app = createApp();
+      const res = await app.request('/callback?code=test-code&state=test-state', {
+        headers: { Cookie: 'oauth_state=test-state' },
+      });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toContain('/app/');
+      expect(res.headers.get('Location')).not.toContain('/subscribe');
+    });
+
+    it('redirects to /app/subscribe for pending user', async () => {
+      mockGitHubSuccess();
+      mockKV._set('user:alice@example.com', {
+        subscriptionTier: 'pending',
+      });
+
+      const app = createApp();
+      const res = await app.request('/callback?code=test-code&state=test-state', {
+        headers: { Cookie: 'oauth_state=test-state' },
+      });
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toContain('/app/subscribe');
+    });
+
     it('returns 502 when GitHub token exchange fails', async () => {
       globalThis.fetch = vi.fn(async () =>
         new Response('Server Error', { status: 500 }),

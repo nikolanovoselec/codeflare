@@ -12,6 +12,7 @@ import { toError } from '../lib/error-types';
 import { parseUserRecord } from '../lib/user-record';
 import { getCookieValue } from '../lib/access';
 import { getBaseUrl } from '../lib/kv-keys';
+import { isActiveTier } from '../lib/subscription';
 import { createRateLimiter } from '../middleware/rate-limit';
 
 const logger = createLogger('github-auth');
@@ -153,7 +154,7 @@ app.get('/callback', callbackRateLimiter, async (c) => {
 
   // Determine redirect based on user state
   const userRecord = parseUserRecord(await c.env.KV.get(`user:${email.toLowerCase().trim()}`, 'json'));
-  const isActive = userRecord?.subscribedAt;
+  const isActive = isActiveTier(userRecord?.subscriptionTier);
   const redirectTo = isActive ? `${base}/app/` : `${base}/app/subscribe`;
 
   c.header('Set-Cookie', `codeflare_session=${jwt}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`);

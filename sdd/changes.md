@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-03-31
+- Updated REQ-AUTH-002 AC3: post-login redirect uses subscription tier check (isActiveTier) instead of subscribedAt timestamp — subscribed users skip /app/subscribe
+
 ## 2026-03-30
 - Added REQ-AUTH-012: Welcome email on first login
 - Added REQ-SUB-017: Enterprise tier contact flow

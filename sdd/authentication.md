@@ -56,7 +56,7 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 1. Visiting `/` in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button.
 2. `GET /auth/github/login` sets an `oauth_state` cookie (random UUID, 5-min TTL) and redirects to `github.com/login/oauth/authorize` with `client_id` and `scope=user:email`.
-3. `GET /auth/github/callback` validates state (cookie vs query param), exchanges the code for an access token via GitHub API, fetches the user's verified primary email, signs an HMAC-SHA256 JWT, and sets a `codeflare_session` cookie (HttpOnly, Secure, SameSite=Lax, Max-Age=3600).
+3. `GET /auth/github/callback` validates state (cookie vs query param), exchanges the code for an access token via GitHub API, fetches the user's verified primary email, signs an HMAC-SHA256 JWT, and sets a `codeflare_session` cookie (HttpOnly, Secure, SameSite=Lax, Max-Age=3600). Redirects to `/app/` for users with an active subscription tier, or `/app/subscribe` for pending/blocked users.
 4. OAuth state validation uses cookies (not KV) to avoid eventual consistency issues.
 5. Only `primary: true, verified: true` emails from the GitHub API are accepted.
 6. The GitHub access token is used ephemerally during the callback and then discarded (not stored).
