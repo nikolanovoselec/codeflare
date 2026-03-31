@@ -9,12 +9,15 @@ import {
 
 const mockSign = vi.hoisted(() => vi.fn());
 
-// Mock aws4fetch
+// Mock aws4fetch — vitest 4 requires class-based mock for `new` operator
 vi.mock('aws4fetch', () => ({
-  AwsClient: vi.fn().mockImplementation((opts: Record<string, string>) => ({
-    _options: opts,
-    sign: mockSign,
-  })),
+  AwsClient: class {
+    _options: Record<string, string>;
+    sign = mockSign;
+    constructor(opts: Record<string, string>) {
+      this._options = opts;
+    }
+  },
 }));
 
 describe('createR2Client', () => {
