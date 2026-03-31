@@ -34,3 +34,13 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Reconcile | Process of syncing preseed configs to match the current session mode (overwrite + cleanup) |
 | BillingStatus | Subscription state: active, trialing, past_due, or canceled |
 | Anti-flapping | 3-minute startup guard preventing stale KV data from toggling session status |
+| Rate Limiting | Per-user request throttling (KV-backed sliding window with in-memory fallback) |
+| Webhook | HTTP callback from Stripe to the Worker for billing event processing |
+| JWT | JSON Web Token — used for both CF Access (RS256) and GitHub OIDC (HMAC-SHA256) auth |
+| HSTS | HTTP Strict-Transport-Security header enforcing HTTPS connections |
+| CSP | Content-Security-Policy header restricting resource loading origins |
+| Trivy | Container image vulnerability scanner run during CI deploy pipeline |
+| Service Token | Secret-based auth for E2E tests and automation via X-Service-Auth header |
+| Sync Daemon | Background process in entrypoint.sh running rclone bisync every 60 seconds |
+| Entrypoint | entrypoint.sh — container initialization script handling sync, config, and terminal server startup |
+| Scoped R2 Token | Per-user R2 API token restricted to that user's bucket only |
