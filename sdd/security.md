@@ -43,7 +43,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Pre-setup endpoints (`/api/setup/configure` before first completion) are intentionally public to solve the bootstrap problem (AD10).
 - Service token auth (`X-Service-Auth` header) is checked first in all modes for E2E testing.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-AUTH-001, REQ-AUTH-010
 **Verification:** Automated test (pentest.yml auth-gate job)
@@ -65,7 +65,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Constraints:**
 - The Worker/DO acts as a security boundary between the API token and container-executed user code.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SEC-003
 **Verification:** Automated test (pentest.yml info-disclosure job)
@@ -91,7 +91,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Token verification runs on every `getOrCreateScopedR2Token()` cache hit, not just on creation.
 - Verification failures due to transient errors do not delete the cached token.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SEC-004
 **Verification:** Integration test (E2E session start verifies container receives scoped credentials)
@@ -118,7 +118,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Key is generated via `openssl rand -base64 32` and stored as a GitHub Actions secret.
 - Key pipeline: GitHub Secret -> `wrangler secret put` -> Worker env -> CryptoKey import.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test (unit tests for kv-crypto.ts encrypt/decrypt round-trip)
@@ -144,7 +144,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Enabling SSE-C on an existing deployment requires re-uploading all existing unencrypted R2 objects with SSE-C headers.
 - New deployments that set `ENCRYPTION_KEY` from the start require no migration.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-STOR-001
 **Verification:** Integration test (E2E storage operations verify encrypted round-trip)
@@ -170,7 +170,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Migration is lazy (on-read), not batch. Complete migration happens gradually as values are accessed.
 - No downtime or manual intervention required.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SEC-004
 **Verification:** Automated test (unit tests for plaintext-to-encrypted migration path)
@@ -198,7 +198,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - KV key prefixes must not collide with application cache keys (use `rl-` prefix where collision exists).
 - `STRESS_TEST_MODE` must not be active alongside `SAAS_MODE` (global middleware returns 503).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test (unit tests for rate limiter + pentest.yml injection job)
@@ -226,7 +226,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Headers are applied in `src/index.ts` global middleware.
 - Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test (pentest.yml security-headers job)
@@ -251,7 +251,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Validation errors return structured error responses with `code: "VALIDATION_ERROR"` (400).
 - Schema duplication between backend (`src/lib/schemas.ts`) and frontend (`web-ui/src/lib/schemas.ts`) is intentional due to separate build pipelines.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test (fuzz.yml property-based tests + pentest.yml injection job)
@@ -275,7 +275,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Constraints:**
 - `PROTECTED_PATHS` is currently empty (all R2 paths accessible via the web storage API). The `validateKey()` function still checks the array but it is a no-op.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test (pentest.yml injection job)
@@ -298,7 +298,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Trivy scanning is part of the CI/CD pipeline, not a runtime check.
 - Exceptions in `.trivyignore` must be reviewed periodically.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-OPS-001
 **Verification:** Automated test (deploy.yml Trivy scan step)
@@ -321,7 +321,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - The token is unique per DO lifecycle, not per session or per request.
 - Token is never exposed to the client.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Integration test (E2E verifies container rejects requests without valid token)
@@ -362,7 +362,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Constraints:**
 - This guard applies only to the CF Access client ID header, not to the `X-Service-Auth` header which has its own validation.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-AUTH-001
 **Verification:** Automated test (pentest.yml auth-gate job)
@@ -385,7 +385,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Tier enforcement is in the Worker, not in the container.
 - Effective tier resolution accounts for both subscription status and billing state.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SUB-012
 **Verification:** Integration test (E2E verifies blocked user receives 403 on subscribe)
@@ -407,7 +407,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Constraints:**
 - Deduplication is per-isolate, not cross-isolate.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-AUTH-010
 **Verification:** Automated test (unit test for concurrent fetch deduplication)

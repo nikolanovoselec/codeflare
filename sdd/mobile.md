@@ -234,7 +234,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ## REQ-MOB-009: Visibility return recovers keyboard state
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** When the browser is backgrounded and returned to, keyboard state signals must be reset so the terminal functions correctly without manual intervention.
 
@@ -259,7 +259,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ## REQ-MOB-010: FitAddon fit calls are coordinated
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Multiple code paths that trigger `fitAddon.fit()` must not conflict with each other or cause visual artifacts.
 

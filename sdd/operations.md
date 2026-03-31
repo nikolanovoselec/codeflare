@@ -43,7 +43,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Two GitHub environments: `production` (auto on push to main) and `integration` (manual dispatch only).
 - `RUNNER` variable controls the GitHub Actions runner label (supports self-hosted runners).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test (deploy.yml pipeline success on push to main)
@@ -71,7 +71,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - `MAX_INSTANCES` must be a positive integer, passed via env to avoid shell injection.
 - `RESSOURCE_TIER` is a GitHub Actions variable, not a secret.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-OPS-001, REQ-SEC-011
 **Verification:** Automated test (deploy.yml Trivy scan + container push steps)
@@ -96,7 +96,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Tests, builds, linting, and typechecking must NOT run locally in the development container (1 vCPU limitation). All quality checks run in GitHub Actions.
 - `RUNNER` variable controls the runner label across all workflows.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test (test.yml runs on every PR to main)
@@ -123,7 +123,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - E2E tests authenticate via `X-Service-Auth` header (service token), not browser-based auth flows.
 - UI tests require Chrome installation via `npx puppeteer browsers install chrome` + system shared libraries.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-OPS-001, REQ-SEC-012
 **Verification:** Integration test (e2e.yml workflow dispatch against deployed worker)
@@ -152,7 +152,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Pentest requires `PENTEST_TARGET` variable set in the `production` GitHub environment.
 - Pentest uses only `curl` and `openssl` (no heavy scanning tools) to minimize CI resource usage.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-SEC-008, REQ-SEC-009, REQ-SEC-010
 **Verification:** Automated test (pentest.yml and fuzz.yml scheduled runs)
@@ -233,7 +233,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Stress testing is for integration environments only.
 - Rate limit bypass skips all KV rate-limit reads/writes for zero overhead.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P2
 **Dependencies:** REQ-SEC-007, REQ-OPS-001
 **Verification:** Integration test (stress-test.yml manual dispatch against integration)
@@ -258,7 +258,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Supply chain monitoring is continuous (push-triggered + weekly), not on-demand.
 - Secret scanning push protection prevents secrets from being committed.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-OPS-003
 **Verification:** Automated test (scorecard.yml and dependency-review in test.yml)
@@ -283,7 +283,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - No in-memory PID variable fallback for the sync daemon; PID file is the sole mechanism.
 - `--max-delete 100` prevents accidental mass deletion during shutdown sync.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-STOR-001
 **Verification:** Integration test (E2E verifies data persists across session restart)

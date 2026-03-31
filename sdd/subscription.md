@@ -42,7 +42,7 @@ Tiers, billing, usage tracking, and quotas.
 - One tier must have `isDefault: true` (currently `standard`) as fallback for undefined/missing users.
 - The `blocked` tier must have `canLogin: false`; `pending` must have `canLogin: true` (to access the subscribe page).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test
@@ -76,7 +76,7 @@ Tiers, billing, usage tracking, and quotas.
 - These are default values; admins can override all operational parameters via the management panel.
 - Prices are not hardcoded; they come from Stripe via admin-configured `stripePriceId` per tier.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SUB-001
 **Verification:** Automated test
@@ -151,7 +151,7 @@ Tiers, billing, usage tracking, and quotas.
 - `endTrialNow` in Timekeeper is guarded by a `trialEnded` flag in DO storage, preventing it from being called every 60s ping (which would cause O(sessions) Stripe API calls per minute).
 - `lastSyncedAt` timestamp guard uses `>` (not `>=`) so same-second webhook events are not silently discarded.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-SUB-004, REQ-SUB-006
 **Verification:** Integration test
@@ -177,7 +177,7 @@ Tiers, billing, usage tracking, and quotas.
 - Usage tracking always runs regardless of `STRESS_TEST_MODE` (stress test only bypasses rate limits and session limits).
 - Multiple concurrent sessions from the same user all ping the same Timekeeper DO.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test
@@ -202,7 +202,7 @@ Tiers, billing, usage tracking, and quotas.
 - Quota check uses the effective tier from `getEffectiveTier()`, which accounts for billing status downgrades.
 - The 402 status code must be used (not 403) to distinguish quota exhaustion from access denial.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SUB-006, REQ-SUB-012
 **Verification:** Automated test
@@ -224,7 +224,7 @@ Tiers, billing, usage tracking, and quotas.
 - Mid-session eviction must allow the final bisync to complete (graceful, not immediate kill).
 - The check happens on each 60-second ping, not continuously.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SUB-006, REQ-SUB-007
 **Verification:** Integration test
@@ -273,7 +273,7 @@ Tiers, billing, usage tracking, and quotas.
 - Each Cloudflare Worker isolate maintains its own cache; there is no cross-isolate invalidation.
 - The 60-second TTL is per-isolate, not globally synchronized.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-SUB-009
 **Verification:** Automated test
@@ -296,7 +296,7 @@ Tiers, billing, usage tracking, and quotas.
 - Non-SaaS users without a tier default to `unlimited` access for backward compatibility.
 - Legacy `accessTier` field is maintained in KV; code reads `subscriptionTier` first, falls back to `accessTier`.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-SUB-001
 **Verification:** Automated test
@@ -323,7 +323,7 @@ Tiers, billing, usage tracking, and quotas.
 - Uses `BILLING_STATUS` constants from `types.ts` for type-safe comparisons, not raw strings.
 - `BillingStatus` union type: `'active' | 'trialing' | 'past_due' | 'canceled'`.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SUB-001, REQ-SUB-004
 **Verification:** Automated test
@@ -346,7 +346,7 @@ Tiers, billing, usage tracking, and quotas.
 - Session limit check uses the effective tier, not the stored tier.
 - `STRESS_TEST_MODE` bypasses session limits.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SUB-001, REQ-SUB-012
 **Verification:** Automated test
@@ -369,7 +369,7 @@ Tiers, billing, usage tracking, and quotas.
 - `subscribedMode` in the user record is the source of truth for Pro access (set by Stripe webhook or admin).
 - JIT-provisioned users default to `'default'` mode.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-SUB-001, REQ-AGENT-004
 **Verification:** Automated test
@@ -394,7 +394,7 @@ Tiers, billing, usage tracking, and quotas.
 - `lastSyncedAt` guard uses `>` (not `>=`) to avoid discarding same-second events.
 - Auto-recreate on downgrade is non-fatal (try/catch); failure does not block the webhook.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-SUB-004, REQ-SUB-012
 **Verification:** Integration test

@@ -43,7 +43,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-MEM-006
 **Verification:** Integration test (E2E verifies observations appear in knowledge graph after 30 messages)
@@ -68,7 +68,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - Counter files are excluded from R2 sync (`--filter "- .memory/counter/**"`) since they are ephemeral per-session state.
 - Each new session gets a new session ID, so old counter files are orphans.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-MEM-001
 **Verification:** Automated test (unit test for counter delta logic in memory-capture.sh)
@@ -98,7 +98,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - Compaction marker is the sole coordination mechanism between phases.
 - The main agent checks for the compaction marker only once per turn (no polling).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-MEM-001, REQ-MEM-007
 **Verification:** Integration test (verify graph restructuring after 150+ observations accumulate)
@@ -124,7 +124,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - `--s3-upload-cutoff 0` forces all uploads through the multipart path to prevent `BadDigest` TOCTOU race errors.
 - Counter files are excluded from sync; only JSONL memory files are synced.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-STOR-001, REQ-MEM-006
 **Verification:** Integration test (E2E verifies memory persists across session restart)
@@ -149,7 +149,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - Session IDs are unique per session, so file names are inherently conflict-free.
 - Local-only deletion + bisync propagation is the safe cleanup strategy for concurrent sessions.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-MEM-004
 **Verification:** Integration test (verify concurrent sessions do not lose memory data)
@@ -205,7 +205,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - Compaction is per-project, not global; the graph grows over time as projects accumulate.
 - Counter storage: `~/.memory/counter/{session_id}` (counter), `{session_id}.vars` (hook variables), `{session_id}.compact` (compaction marker).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P2
 **Dependencies:** REQ-MEM-003
 **Verification:** Integration test (verify marker file creation at 150+ observations and opus agent invocation)
@@ -231,7 +231,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - Plugin files update when the pipeline is redeployed and users click "Recreate AI agent skills & rules."
 - The generator is manifest-driven and ignores non-manifest files like `plugins/cache/`.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-AGENT-003
 **Verification:** Automated test (generate-agent-seed.mjs output includes memory plugin files)

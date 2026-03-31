@@ -51,7 +51,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-002: One container per session (isolation)
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Each session maps to exactly one Durable Object container instance, providing full process-level isolation between sessions.
 
@@ -74,7 +74,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-003: R2 bucket mounted and synced on start
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** When a container starts, the user's persistent R2 storage is mounted and bidirectionally synced so the workspace contains all previously persisted files.
 
@@ -98,7 +98,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-004: Idle containers sleep after configurable timeout
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Containers that receive no user input for a configurable duration are automatically stopped to conserve resources and reduce cost.
 
@@ -124,7 +124,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-005: Input-based idle detection
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Idle detection is based on actual user input (keystrokes, control keys, mouse clicks), not on WebSocket connection activity or heartbeat pings.
 
@@ -172,7 +172,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-007: Running session count limited per tier
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** The number of concurrently running sessions is capped per subscription tier to enforce fair usage and plan differentiation.
 
@@ -196,7 +196,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-008: Container restart preserves R2 bucket
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Restarting a session reconnects to the same R2 bucket, preserving all user files without data loss.
 
@@ -219,7 +219,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-009: Container destroy wipes session state
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Destroying a container clears all transient session state from the Durable Object, leaving only the persistent KV record and R2 bucket.
 
@@ -270,7 +270,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-011: Graceful shutdown with final sync
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** When a container stops (idle timeout or user-initiated), a final bidirectional sync to R2 runs before process termination, ensuring no data loss.
 
@@ -294,7 +294,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ## REQ-SESSION-012: Wake-loop prevention
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** A browser's automatic WebSocket reconnect must not wake a hibernated container in an infinite stop/start cycle.
 

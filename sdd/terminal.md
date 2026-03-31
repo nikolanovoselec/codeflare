@@ -50,7 +50,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ## REQ-TERM-002: WebSocket connection to container PTY
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Each terminal tab connects to its PTY process inside the container via a WebSocket, carrying raw terminal data bidirectionally.
 
@@ -76,7 +76,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ## REQ-TERM-003: Automatic WebSocket reconnection on transient failures
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Transient network failures (connection drops, server restarts) trigger automatic reconnection so the user does not need to manually refresh.
 
@@ -101,7 +101,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ## REQ-TERM-004: Close code 4503 is authoritative (no retry)
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** The custom WebSocket close code 4503 is a server-authoritative signal that the container is not running. The client must stop retrying and display a "Session stopped" message.
 
@@ -125,7 +125,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ## REQ-TERM-005: Tab 1 auto-starts the configured agent
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** The first terminal tab in a session automatically launches the user's selected AI agent so they can start coding immediately without manual setup.
 
@@ -201,7 +201,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ## REQ-TERM-008: Write batching at 30fps
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Rapid WebSocket messages are coalesced into batched `terminal.write()` calls at 30fps to reduce rendering overhead without perceptible latency increase.
 
@@ -226,7 +226,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ## REQ-TERM-009: Process name detection via control messages
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** The terminal server detects the foreground process running in each PTY and sends the process name to the frontend for display in tab labels and session cards.
 

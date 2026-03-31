@@ -121,7 +121,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 - A KV-based lock (`setup:configuring`) prevents concurrent configure runs. Lock is checked on entry, overridden if stale (>60s), and deleted in `finally`. KV TTL of 300s acts as safety net.
 - The lock check returns an immediate error (no step progress) if another configure run is active and less than 60s old.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-SETUP-002
 **Verification:** Integration test
@@ -173,7 +173,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 - The stream is not retryable mid-progress; on failure the client must re-submit the full request.
 - The `steps` array in the completion object provides cumulative status of all attempted steps.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-SETUP-002
 **Verification:** Automated test

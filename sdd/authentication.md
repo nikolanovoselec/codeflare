@@ -26,7 +26,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ## REQ-AUTH-001: Two authentication modes
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Codeflare supports two mutually exclusive authentication mechanisms: Cloudflare Access (CF Access) and Direct GitHub OAuth, selected by deployment configuration.
 
@@ -100,7 +100,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ## REQ-AUTH-004: Service token authentication for E2E testing
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Automated E2E tests can authenticate without a browser-based OAuth flow by presenting a service token header.
 
@@ -124,7 +124,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ## REQ-AUTH-005: Three-tier authorization middleware
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Protected routes use a layered middleware stack that enforces identity verification, active subscription status, and admin role checks independently.
 
@@ -147,7 +147,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ## REQ-AUTH-006: User email normalized
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** User email addresses are normalized before any lookup, comparison, or storage operation to prevent case-sensitive duplicates and whitespace-related mismatches.
 
@@ -168,7 +168,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ## REQ-AUTH-007: JIT user provisioning in SaaS mode
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** In SaaS mode, users who authenticate via GitHub OAuth for the first time are automatically provisioned in KV with a `pending` subscription tier, eliminating manual allowlisting.
 
@@ -192,7 +192,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ## REQ-AUTH-008: Session cookie auto-refresh
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** The `codeflare_session` cookie (Direct GitHub OAuth mode) is automatically refreshed before expiry to prevent session interruption during active use.
 
@@ -238,7 +238,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ## REQ-AUTH-010: Auth bypass prevention
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** A transient KV failure must not permanently degrade a configured deployment to the pre-setup header-trust model, which would allow unauthenticated access.
 
@@ -261,7 +261,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ## REQ-AUTH-011: Auth resolution order
 
-**Applies To:** System
+**Applies To:** User
 
 **Intent:** Authentication methods are checked in a strict priority order to prevent ambiguity and ensure the most specific credential takes precedence.
 

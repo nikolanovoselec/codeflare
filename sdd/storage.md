@@ -40,7 +40,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Bucket naming must comply with S3/R2 naming rules (lowercase, no special characters beyond hyphens).
 - `createBucketIfNotExists` must be idempotent (no error on duplicate).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test
@@ -87,7 +87,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - `--check-sync=false` must be set to prevent post-sync listing validation failures when R2 changes during sync.
 - `--min-size 1B` must exclude 0-byte files (R2 SSE-C fails on empty objects).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-STOR-001, REQ-STOR-004
 **Verification:** Integration test
@@ -111,7 +111,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Container must not serve terminal connections until the initial sync either succeeds or times out.
 - The bisync-initialized flag (`/tmp/.bisync-initialized`) must be set even on the timeout path to prevent the shutdown trap from skipping the final sync.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-STOR-001
 **Verification:** Integration test
@@ -133,7 +133,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - The shutdown handler must complete within the container runtime's grace period.
 - Final bisync uses the same flags as periodic bisync (`--ignore-checksum`, `--max-delete 100`, `--check-sync=false`).
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-STOR-003
 **Verification:** Integration test
@@ -158,7 +158,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Users can temporarily exceed quota during an active session; overage is caught on the next session start attempt.
 - Stats are cached in KV with 60-second TTL; the quota value is embedded in the cache so cache hits skip tier config resolution.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-SUB-001, REQ-STOR-014
 **Verification:** Automated test
@@ -233,7 +233,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Seeding must be idempotent when called with `overwrite: false` (skip files that already exist).
 - Tutorial source content is maintained in `tutorials/` directory.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-STOR-001
 **Verification:** Automated test
@@ -259,7 +259,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as single source of truth.
 - `getConfigsForMode()` must validate no duplicate keys within a single mode.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-AGENT-006, REQ-STOR-001
 **Verification:** Automated test
@@ -305,7 +305,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 - Cleanup functions are wrapped in subshells with `|| true` to prevent `set -euo pipefail` from killing the bisync daemon on benign non-zero exits.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-STOR-003
 **Verification:** Automated test
@@ -329,7 +329,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Losing one problematic file is acceptable; losing all sync is not.
 - Files are deleted from R2 using both encrypted and unencrypted configs.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-STOR-003, REQ-STOR-004
 **Verification:** Integration test
@@ -352,7 +352,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - Stats rate limited at its own rate (separate from browse/upload/download).
 - Cache miss triggers full R2 pagination, which may be slow for large buckets.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-STOR-001, REQ-STOR-006
 **Verification:** Automated test

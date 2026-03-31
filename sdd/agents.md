@@ -41,7 +41,7 @@ Multi-agent support, preseed system, and session modes.
 - Agent CLI versions are installed via `@latest` at build time; versions may drift between deploys.
 - Major version jumps between deploys have caused regressions; monitoring is required after deploys.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** None
 **Verification:** Automated test
@@ -91,7 +91,7 @@ Multi-agent support, preseed system, and session modes.
 - Each agent has a different auto-update disable mechanism (env var or config file).
 - The autostart command must complete after the initial R2 sync but before bisync baseline to avoid hash mismatches.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-AGENT-001, REQ-AGENT-002, REQ-STOR-004
 **Verification:** Integration test
@@ -177,7 +177,7 @@ Multi-agent support, preseed system, and session modes.
 - The generator must be re-run when preseed source files or the manifest change.
 - Generated TypeScript file must not be manually edited.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** None
 **Verification:** Automated test
@@ -212,7 +212,7 @@ Multi-agent support, preseed system, and session modes.
 | Copilot | 2 | 0 | 7 | 9 |
 | OpenCode | 2 | 12 | 7 | 21 |
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-AGENT-006
 **Verification:** Automated test
@@ -237,7 +237,7 @@ Multi-agent support, preseed system, and session modes.
 - All file modifications must complete after initial sync but before bisync baseline to avoid hash mismatches.
 - Plugin enablement is permanent because Claude Code silently skips missing plugins.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-AGENT-006, REQ-STOR-004
 **Verification:** Integration test
@@ -373,7 +373,7 @@ Multi-agent support, preseed system, and session modes.
 - The shim must not block or hang; it must exit immediately with a non-zero code.
 - All CLI tools that attempt browser-based OAuth (Claude Code, OpenCode, Gemini) must be covered.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-AGENT-001
 **Verification:** Manual check
@@ -399,7 +399,7 @@ Multi-agent support, preseed system, and session modes.
 - The manifest must be updated when adding, removing, or re-categorizing preseed files.
 - The generated TypeScript file is a build artifact, not manually maintained.
 
-**Applies To:** System
+**Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-AGENT-006
 **Verification:** Automated test
