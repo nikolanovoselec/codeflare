@@ -10,6 +10,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 - Updated agent counts and document totals across spec and documentation
 - Fixed post-login redirect: isActiveTier replaces subscribedAt check
 - Changed code-reviewer model to opus, doc-updater model to sonnet
+- Fixed stale Session Mode Key Concept in agents.md: advanced mode seeds 127 files, not 117
 
 ## 2026-03-30
 - Added REQ-AUTH-012: Welcome email on first login

@@ -8,7 +8,7 @@ Multi-agent support, preseed system, and session modes.
 |---------|-----------|
 | Agent | One of six supported AI coding tools (`claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
 | Preseed | A set of configuration files (rules, skills, agents, commands, plugins) generated from a single Claude Code source of truth and deployed to each user's R2 bucket |
-| Session Mode | Either Standard (`default`, 25 preseed files) or Pro (`advanced`, 117 preseed files) controlling the scope of agent enhancements seeded to a user's storage |
+| Session Mode | Either Standard (`default`, 25 preseed files) or Pro (`advanced`, 127 preseed files) controlling the scope of agent enhancements seeded to a user's storage |
 | Manifest | The declarative `manifest.json` file that maps each preseed source file to its applicable modes and drives the code generation pipeline |
 
 ### Out of Scope
