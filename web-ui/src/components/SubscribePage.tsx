@@ -706,10 +706,10 @@ const SubscribePage: Component = () => {
                       )}
                     </For>
                   </ul>
-                  <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)" }}>
+                  <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
                     Voice input requires a compatible browser like Chrome or Samsung Internet.
                   </p>
-                  <p class="subscribe-mode-card-feature" style={{ "margin-top": "0.5rem", color: "rgba(113, 113, 122, 0.6)" }}>
+                  <p class="subscribe-mode-card-feature" style={{ "margin-top": "0.5rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
                     Coding agent subscription is <span style={{ color: '#22c55e', "font-weight": "700" }}>NOT INCLUDED</span>, bring your own.
                   </p>
 
@@ -728,7 +728,7 @@ const SubscribePage: Component = () => {
                           )}
                         </For>
                       </ul>
-                      <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)" }}>
+                      <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
                         Pro features are designed for Claude Code. Other agents receive rules and agent definitions but may not support all capabilities.
                       </p>
                     </div>
