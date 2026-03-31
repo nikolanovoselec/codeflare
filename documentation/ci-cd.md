@@ -104,7 +104,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 ### Backend Tests
 
-**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` - tests run in real Workers runtime (not Node.js).
+**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js).
 **Count:** 96 test files.
 **Run:** `npm test`
 **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
@@ -144,9 +144,9 @@ Six parallel jobs, each running lightweight external probes against the producti
 - `prewarm-config.ts` crash on non-string tab command (`host/src/prewarm-config.ts`)
 - `toError`/`toErrorMessage` crash on objects with throwing `toString()` (`src/lib/error-types.ts`)
 
-### Vitest Version Split
+### Vitest Configuration
 
-Both root and `web-ui/` use Vitest v3.x. Vitest 4.x is incompatible with `@cloudflare/vitest-pool-workers` (the constraint comes from the Workers runtime integration). Each has independent `node_modules` and separate configs. Do not attempt to upgrade to v4 - the version constraint is real.
+Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and separate configs. Root uses the `cloudflareTest()` plugin from `@cloudflare/vitest-pool-workers` v0.13+ (replaces the old `defineWorkersConfig()` pattern). Web-UI uses jsdom with `vite-plugin-solid`.
 
 ### E2E API Tests
 
