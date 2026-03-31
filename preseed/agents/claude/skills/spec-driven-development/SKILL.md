@@ -1,6 +1,6 @@
 ---
 name: spec-driven-development
-description: Specification-driven development. Use when the user wants to create a product specification, define requirements, or establish a single source of truth for product development. Triggers on "spec", "specification", "requirements", "define the product", "what should it do", "write a spec", "SDD", "spec-driven".
+description: Specification-driven development reference. This skill defines the structure and rules for product specifications. It is NOT auto-triggered — it is only used when explicitly invoked via the /sdd command.
 version: 3.0.0
 ---
 
