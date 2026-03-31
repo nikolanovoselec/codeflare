@@ -60,7 +60,19 @@ describe('speech-input', () => {
 
   describe('when webkitSpeechRecognition is available', () => {
     beforeEach(async () => {
-      (globalThis as Record<string, unknown>).webkitSpeechRecognition = vi.fn(createMockRecognition);
+      (globalThis as Record<string, unknown>).webkitSpeechRecognition = class {
+        continuous = false;
+        interimResults = false;
+        maxAlternatives = 1;
+        lang = '';
+        onresult: ((e: unknown) => void) | null = null;
+        onerror: ((e: unknown) => void) | null = null;
+        onend: (() => void) | null = null;
+        start = vi.fn();
+        stop = vi.fn();
+        abort = vi.fn();
+        constructor() { mockRecognition = this as any; }
+      };
       mod = await import('../../lib/speech-input');
     });
 
@@ -149,11 +161,18 @@ describe('speech-input', () => {
     });
 
     it('startListening returns false if recognition.start() throws', async () => {
-      (globalThis as Record<string, unknown>).webkitSpeechRecognition = vi.fn(() => {
-        const r = createMockRecognition();
-        r.start = vi.fn(() => { throw new Error('already started'); });
-        return r;
-      });
+      (globalThis as Record<string, unknown>).webkitSpeechRecognition = class {
+        continuous = false;
+        interimResults = false;
+        maxAlternatives = 1;
+        lang = '';
+        onresult: ((e: unknown) => void) | null = null;
+        onerror: ((e: unknown) => void) | null = null;
+        onend: (() => void) | null = null;
+        start = vi.fn(() => { throw new Error('already started'); });
+        stop = vi.fn();
+        abort = vi.fn();
+      };
       vi.resetModules();
       const freshMod = await import('../../lib/speech-input');
       expect(freshMod.startListening(vi.fn())).toBe(false);
