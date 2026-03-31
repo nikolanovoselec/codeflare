@@ -36,6 +36,8 @@ import {
   mdiTrendingUp,
   mdiClockFast,
   mdiMicrophonePlus,
+  mdiFileTreeOutline,
+  mdiAutorenew,
 } from '@mdi/js';
 import { getAuthStatus, getPublicTiers, subscribe, createCheckoutSession, createPortalSession, createSwitchSession, getBillingStatus } from '../api/client';
 import { formatDuration } from '../lib/format';
@@ -141,6 +143,8 @@ const PRO_MODE_FEATURES: Array<{ icon: string; text: string }> = [
   { icon: mdiClockFast, text: 'Auto-prunes context over time' },
   { icon: mdiCallSplit, text: 'Built-in second opinion from other LLMs' },
   { icon: mdiRocketLaunchOutline, text: 'Never start from scratch again' },
+  { icon: mdiFileTreeOutline, text: 'Advanced spec-driven development workflow' },
+  { icon: mdiAutorenew, text: 'Continuous skillset and workflow improvement' },
 ];
 
 const SubscribePage: Component = () => {
