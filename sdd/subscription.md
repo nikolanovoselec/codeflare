@@ -448,3 +448,45 @@ Tiers, billing, usage tracking, and quotas.
 **Dependencies:** REQ-SUB-001
 **Verification:** Integration test
 **Status:** Implemented
+
+---
+
+## REQ-SUB-018: Usage dashboard page
+
+**Intent:** Users can see their compute usage and understand how close they are to their quota.
+
+**Acceptance Criteria:**
+1. `/app/usage` page shows progress ring for monthly usage, stat cards (today, this month, tier quota).
+2. Polls `GET /api/usage` for real-time data from Timekeeper DO with KV fallback.
+3. Warning banners at 80%, 95%, 100% thresholds in Layout.
+
+**Constraints:**
+- None
+
+**Applies To:** User
+**Priority:** P2
+**Dependencies:** REQ-SUB-006
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+## REQ-SUB-019: Session limit popup in frontend
+
+**Intent:** Users understand why they can't start more sessions and which ones to stop.
+
+**Acceptance Criteria:**
+1. When running + initializing sessions >= `maxSessions`, the "New Session" button is disabled.
+2. A popup explains the tier limit and lists running sessions with stop buttons.
+3. `maxSessions` synced from `batch-status` endpoint.
+
+**Constraints:**
+- None
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-SUB-013
+**Verification:** Integration test
+
+**Status:** Implemented

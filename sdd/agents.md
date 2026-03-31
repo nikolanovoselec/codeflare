@@ -405,3 +405,103 @@ Multi-agent support, preseed system, and session modes.
 **Verification:** Automated test
 
 **Status:** Implemented
+
+---
+
+## REQ-AGENT-015: /review command for multi-perspective codebase review
+
+**Intent:** Comprehensive code review using specialized AI agents catches issues a single reviewer would miss.
+
+**Acceptance Criteria:**
+1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation).
+2. Results cross-referenced and deduplicated.
+3. Findings filtered against architecture decisions.
+4. Optional LLM verification of HIGH/CRITICAL findings.
+5. Interactive triage with fix/AD/defer/ignore options.
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** None
+**Verification:** Manual check
+
+---
+
+## REQ-AGENT-016: consult-llm preference toggle
+
+**Intent:** Users control whether their LLM API keys power the multi-model consultation feature.
+
+**Acceptance Criteria:**
+1. Toggle in Settings controls whether OpenAI/Gemini keys are passed to the consult-llm MCP server.
+2. Default: off.
+3. When off, consult-llm is not configured in the agent's MCP settings.
+
+**Applies To:** User
+**Priority:** P2
+**Dependencies:** REQ-AGENT-009
+**Verification:** Integration test
+
+---
+
+## REQ-AGENT-017: Bubblewrap sandbox for Codex
+
+**Intent:** Codex agent runs in a bubblewrap sandbox for additional isolation within the container.
+
+**Acceptance Criteria:**
+1. bubblewrap (bwrap) is installed in the container image.
+2. Codex uses it for sandboxed execution.
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-AGENT-001
+**Verification:** Automated test
+
+---
+
+## REQ-AGENT-018: Push & Deploy credential management UI
+
+**Intent:** Users connect GitHub and Cloudflare accounts through a visual interface without CLI commands.
+
+**Acceptance Criteria:**
+1. Settings panel has Deploy Keys section with provider rows for GitHub and Cloudflare.
+2. Tokens validated against provider APIs before saving.
+3. Stored encrypted in KV.
+4. Injected as container env vars (GH_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID).
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-AGENT-010
+**Verification:** Integration test
+
+---
+
+## REQ-AGENT-019: Branded settings UI
+
+**Intent:** Professional, intuitive settings panel for managing all user preferences and credentials.
+
+**Acceptance Criteria:**
+1. Settings panel uses accordion groups (appearance, session, deploy, LLM, admin).
+2. Provider rows with SVG brand icons and inline expansion.
+3. Appearance section with accent color picker.
+4. Session section with agent type, sleep timeout, session mode dropdowns.
+
+**Applies To:** User
+**Priority:** P2
+**Dependencies:** None
+**Verification:** Manual check
+
+---
+
+## REQ-AGENT-020: LLM API key management UI
+
+**Intent:** Users can store their OpenAI and Gemini API keys through a visual interface.
+
+**Acceptance Criteria:**
+1. Settings panel has LLM Keys section with masked password inputs for OpenAI and Gemini.
+2. Keys validated before saving.
+3. Delete button clears all keys.
+4. Keys displayed as masked (never shown in full after save).
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-AGENT-009
+**Verification:** Integration test

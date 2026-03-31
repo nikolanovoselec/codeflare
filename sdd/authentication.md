@@ -301,3 +301,111 @@ None. Authentication is foundational; other domains depend on it.
 **Dependencies:** REQ-AUTH-007
 **Verification:** Integration test
 **Status:** Implemented
+
+---
+
+## REQ-AUTH-013: Custom branded login page
+
+**Intent:** SaaS mode provides a branded login experience instead of the raw CF Access login page.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. Login page at `/login` shows Codeflare branding with animated logo.
+2. "Sign in with GitHub" button is displayed.
+3. Available auth providers are listed.
+
+**Priority:** P0
+**Dependencies:** REQ-AUTH-002
+**Verification:** Integration test
+**Status:** Implemented
+
+---
+
+## REQ-AUTH-014: Auth expiry detection mid-session
+
+**Intent:** Users are warned when their auth session expires during active use instead of silently failing.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. When API calls return 401, an amber re-auth banner appears in the UI.
+2. Clicking the banner refreshes auth.
+3. Session polling stops on expiry to prevent noise.
+
+**Priority:** P1
+**Dependencies:** REQ-AUTH-008
+**Verification:** Integration test
+**Status:** Implemented
+
+---
+
+## REQ-AUTH-015: Guided onboarding flow
+
+**Intent:** First-time users are walked through connecting their accounts step by step.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. `/app/onboarding` shows steps for GitHub PAT, CF API token, and agent subscription.
+2. First-time users are auto-redirected to onboarding.
+3. `onboardingComplete` flag prevents re-redirect.
+
+**Priority:** P1
+**Dependencies:** REQ-AUTH-007
+**Verification:** Integration test
+**Status:** Implemented
+
+---
+
+## REQ-AUTH-016: Header user dropdown
+
+**Intent:** Quick access to account actions from any page.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. Clicking avatar/username in header opens dropdown with Profile, Guided Setup, Logout.
+2. Mobile renders as bottom sheet.
+3. Desktop positioned below avatar.
+
+**Priority:** P2
+**Dependencies:** None
+**Verification:** Manual check
+**Status:** Implemented
+
+---
+
+## REQ-AUTH-017: Gravatar integration
+
+**Intent:** Visual user identification via avatar.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. User avatar from Gravatar displayed in header and dashboard.
+2. Falls back to outline icon when no Gravatar exists.
+3. MD5 hash of email used for lookup.
+
+**Priority:** P2
+**Dependencies:** None
+**Verification:** Manual check
+**Status:** Implemented
+
+---
+
+## REQ-AUTH-018: User management admin panel
+
+**Intent:** Admins can manage users, approve access, and configure tiers without CLI tools.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+1. `/admin/users` shows all users grouped by tier.
+2. Admin can search, approve pending users, change tiers, delete users (triggers full cleanup: KV + R2 + sessions + scoped tokens).
+3. User count vs capacity displayed.
+
+**Priority:** P1
+**Dependencies:** REQ-AUTH-005
+**Verification:** Integration test
+**Status:** Implemented

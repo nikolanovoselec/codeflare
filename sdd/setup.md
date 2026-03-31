@@ -228,3 +228,24 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Verification:** Automated test
 
 **Status:** Implemented
+
+---
+
+## REQ-SETUP-009: Subscribe page with tier selection
+
+**Intent:** Users can choose their subscription tier with a clear comparison of features and pricing.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. `/app/subscribe` shows available tiers with features, hours, sessions, storage, and pricing.
+2. Three-phase wizard (home, plan selection, checkout).
+3. Turnstile CAPTCHA on new subscriptions.
+4. Mode toggle (Standard/Pro).
+5. Free tier activates immediately.
+6. Paid tiers redirect to Stripe Checkout.
+
+**Priority:** P1
+**Dependencies:** REQ-SUB-001
+**Verification:** Integration test
+**Status:** Implemented

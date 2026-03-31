@@ -312,3 +312,40 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Dependencies:** REQ-SESSION-004, REQ-SESSION-006
 **Verification:** Automated test
 **Status:** Implemented
+
+---
+
+## REQ-SESSION-013: Sleep timer countdown UI
+
+**Applies To:** User
+
+**Intent:** Users see how much idle time remains before their session hibernates.
+
+**Acceptance Criteria:**
+1. Clock icon on session cards and header toolbar shows countdown.
+2. Visible when < 10 min remaining.
+3. Orange pulse at < 10 min, red at < 5 min.
+4. Hidden for stopped sessions.
+5. Computed from sleepAfterMs - (now - lastActiveAt).
+
+**Priority:** P2
+**Dependencies:** REQ-SESSION-004
+**Verification:** Manual check
+
+---
+
+## REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
+
+**Applies To:** User
+
+**Intent:** Users choose how long their sessions stay alive when idle.
+
+**Acceptance Criteria:**
+1. Settings dropdown with 5 options (5m, 15m, 30m, 1h, 2h).
+2. Free tier locked to 5m with upgrade hint.
+3. Admins and paying users can change.
+4. Value saved to KV preferences and applied on next session start.
+
+**Priority:** P1
+**Dependencies:** REQ-SESSION-004
+**Verification:** Integration test

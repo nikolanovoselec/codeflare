@@ -247,3 +247,22 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 **Dependencies:** REQ-TERM-002
 **Verification:** Automated test
 **Status:** Implemented
+
+---
+
+## REQ-TERM-010: Session presets (saved tab configurations)
+
+**Applies To:** User
+
+**Intent:** Users save and reuse their preferred tab layouts across sessions.
+
+**Acceptance Criteria:**
+1. Users can save current tab configuration as a preset (name + tabs).
+2. Max 3 presets per user.
+3. Presets stored via /api/presets CRUD.
+4. Apply preset to new session populates tab config.
+5. Delete preset removes it.
+
+**Priority:** P2
+**Dependencies:** REQ-TERM-001
+**Verification:** Integration test

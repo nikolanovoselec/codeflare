@@ -413,3 +413,25 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Verification:** Automated test (unit test for concurrent fetch deduplication)
 
 **Status:** Implemented
+
+---
+
+## REQ-SEC-017: R2 bucket nuke workflow for encryption migration
+
+**Intent:** When enabling R2 SSE-C encryption, existing unencrypted files must be purged because they become unreadable with SSE-C enabled.
+
+**Acceptance Criteria:**
+1. Manual `workflow_dispatch` GitHub Action deletes all objects in all R2 buckets for an environment.
+2. Requires explicit confirmation.
+3. Must be run BEFORE enabling `ENCRYPTION_KEY` for SSE-C.
+4. Documented as a one-time migration step.
+
+**Constraints:**
+- None
+
+**Applies To:** Admin
+**Priority:** P1
+**Dependencies:** REQ-SEC-005
+**Verification:** Manual check
+
+**Status:** Implemented

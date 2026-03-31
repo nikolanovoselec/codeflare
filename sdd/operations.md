@@ -289,3 +289,46 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Verification:** Integration test (E2E verifies data persists across session restart)
 
 **Status:** Implemented
+
+---
+
+## REQ-OPS-011: Container base image is Debian bookworm-slim
+
+**Intent:** Reliable CLI agent execution requires a glibc-based Linux distribution (Alpine/musl caused crashes for some agents).
+
+**Acceptance Criteria:**
+1. Dockerfile uses `node:24-bookworm-slim` as base image.
+2. All agent CLIs (Claude Code, Codex, Gemini CLI, Copilot, OpenCode) start without crashes.
+3. System packages include essential tools (git, gh, ripgrep, fd, neovim, tmux, fzf, yazi, lazygit).
+
+**Constraints:**
+- None
+
+**Applies To:** Admin
+**Priority:** P1
+**Dependencies:** None
+**Verification:** Integration test
+
+**Status:** Implemented
+
+---
+
+## REQ-OPS-012: Per-environment container concurrency limit
+
+**Intent:** Operators can control how many containers run concurrently per environment independently of resource tier.
+
+**Acceptance Criteria:**
+1. `MAX_INSTANCES` GitHub Actions variable overrides the default 10 max instances.
+2. Independent of `RESSOURCE_TIER`.
+3. Must be a positive integer.
+4. Applied during deploy via `wrangler.toml` patching.
+
+**Constraints:**
+- None
+
+**Applies To:** Admin
+**Priority:** P1
+**Dependencies:** REQ-OPS-001
+**Verification:** Integration test
+
+**Status:** Implemented
