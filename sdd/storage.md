@@ -105,7 +105,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. The sync completes or times out within 120 seconds (`SYNC_TIMEOUT`).
 3. All file modifications (`.claude.json`, `.gemini/settings.json`, `.codex/version.json`, tab autostart) complete after the initial sync but before bisync baseline, to avoid hash mismatches.
 4. A bisync baseline (`--resync`) is established after file modifications complete.
-5. If the initial baseline fails, the self-healing mechanism (`nuke_corrupted_r2_files`) runs and retries.
+5. If the initial baseline fails due to a vanishing file (file listed but deleted before copy), the system parses the error output, adds the file to a session-scoped recovery filter (`/tmp/rclone-recovery-filters.txt`), and retries (max 3 attempts). Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
+6. Known ephemeral files (`.claude/mcp-*.json`) are statically excluded from all sync operations.
 
 **Constraints:**
 - Container must not serve terminal connections until the initial sync either succeeds or times out.
