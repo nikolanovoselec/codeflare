@@ -29,6 +29,7 @@ Terminal server not starting (sync blocking). Check: `GET /api/container/startup
 ### R2 Sync Issues
 
 - **Bisync empty listing**: Initial `establish_bisync_baseline()` uses `--resync` to create the baseline, handles this case. The periodic daemon never uses `--resync` (see [AD14](decisions/README.md#ad14-never-auto---resync-on-bisync-failure)).
+- **`lstat: no such file or directory` bisync failure**: A transient file was listed by rclone then deleted before the copy completed. Automatically recovered: the system parses the error, adds the file to `/tmp/rclone-recovery-filters.txt`, clears bisync locks, and retries (max 3 attempts). Check `/tmp/sync.log` for `[sync-recovery] Excluded vanished file:` entries. If the failure persists beyond 3 attempts, it escalates to the normal consecutive-failure path. See [Vanishing-file recovery](storage-and-sync.md#vanishing-file-recovery) and [AD43](decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
 - **Transfers 0 files**: Filter order indeterminacy from mixed `--include`/`--exclude`. Use `--filter` flags instead.
 - **Slow sync**: Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 - **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.

@@ -330,12 +330,13 @@ recover_vanished_files() {
     while IFS= read -r line; do
         [ -z "$line" ] && continue
         local file_path
-        file_path=$(echo "$line" | grep -oP '(?<=lstat /home/user/)\S+(?=: no such file)')
+        file_path=$(echo "$line" | grep -oP '(?<=lstat /home/user/)\S+(?=: no such file)' || true)
         [ -z "$file_path" ] && continue
 
-        # Only auto-exclude non-workspace files (workspace files are user code — just retry)
+        # Workspace files are user code — don't exclude, but still flag as recoverable (triggers retry)
         if [[ "$file_path" == workspace/* ]]; then
-            echo "[sync-recovery] Skipping workspace file: $file_path (transient, will retry)" | tee -a /tmp/sync.log
+            echo "[sync-recovery] Workspace file vanished: $file_path (will retry without excluding)" | tee -a /tmp/sync.log
+            recovered=1
             continue
         fi
 
@@ -506,7 +507,8 @@ bisync_with_r2() {
     cat "$SYNC_OUTPUT" >> /tmp/sync.log
     cat "$SYNC_OUTPUT"
 
-    rm -f "$SYNC_OUTPUT"
+    # Note: SYNC_OUTPUT (/tmp/last-bisync-output.txt) is NOT deleted here.
+    # The daemon reads it for vanishing-file recovery. It's overwritten each invocation.
 
     # Auto-clean conflict artifacts after successful bisync
     if [ $RESULT -eq 0 ]; then

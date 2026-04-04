@@ -43,4 +43,5 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Service Token | Secret-based auth for E2E tests and automation via X-Service-Auth header |
 | Sync Daemon | Background process in entrypoint.sh running rclone bisync every 60 seconds |
 | Entrypoint | entrypoint.sh — container initialization script handling sync, config, and terminal server startup |
+| Recovery Filter | Session-scoped rclone filter file (`/tmp/rclone-recovery-filters.txt`) that dynamically excludes transient files which vanish between listing and copy, preventing bisync fatal errors |
 | Scoped R2 Token | Per-user R2 API token restricted to that user's bucket only |

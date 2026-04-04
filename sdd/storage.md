@@ -79,7 +79,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. After bisync baseline is established, a periodic rclone bisync runs every 60 seconds.
 2. Conflict resolution uses newest-file-wins (`--conflict-resolve newer`).
 3. The daemon retries on transient failure and continues the 60-second cycle.
-4. After 3 consecutive failures (each with 3 internal retries), the daemon falls back to a `--resync` baseline to re-establish clean state.
+4. On bisync failure, the daemon attempts vanishing-file recovery (parse error output, exclude transient files, clear locks, retry) before counting the failure.
+5. After 3 consecutive unrecoverable failures (each with 3 internal retries), the daemon falls back to a `--resync` baseline to re-establish clean state.
 
 **Constraints:**
 - All bisync commands must use `--ignore-checksum` to prevent false hash-mismatch aborts from files changing mid-transfer.
@@ -335,7 +336,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** REQ-STOR-003, REQ-STOR-004
 **Verification:** Integration test
 
-**Status:** Implemented
+**Status:** Deprecated -- The `nuke_corrupted_r2_files` function was never implemented. Self-healing for transient file errors is now handled by the vanishing-file recovery mechanism (REQ-STOR-004 AC5, REQ-STOR-003 AC4). Corruption from encryption mismatches is handled by `--resilient` + `--recover` flags and the resync fallback in the daemon.
 
 ---
 

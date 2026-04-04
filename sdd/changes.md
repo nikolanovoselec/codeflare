@@ -2,6 +2,13 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-04
+- Updated REQ-STOR-004 AC5-AC6: vanishing-file recovery with session-scoped recovery filter (max 3 attempts, workspace files not auto-excluded) and static MCP auth cache exclusion
+- Updated REQ-STOR-003 AC4-AC5: daemon now attempts vanishing-file recovery before counting a failure; renumbered consecutive-failure fallback to AC5
+- Deprecated REQ-STOR-013: `nuke_corrupted_r2_files` was never implemented; self-healing is handled by vanishing-file recovery (REQ-STOR-004 AC5, REQ-STOR-003 AC4) and rclone `--resilient` + `--recover` flags
+- Updated CON-REL-002: replaced `nuke_corrupted_r2_files` reference with vanishing-file recovery mechanism description
+- Added glossary term: Recovery Filter
+
 ## 2026-03-31
 - Updated REQ-AUTH-002 AC3: post-login redirect uses subscription tier check (isActiveTier) instead of subscribedAt timestamp — subscribed users skip /app/subscribe
 - Added spec-reviewer agent (opus) for continuous spec maintenance

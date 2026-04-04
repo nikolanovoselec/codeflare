@@ -96,7 +96,7 @@ Tier configuration cached for 60s in `src/lib/subscription.ts`. Other cache TTLs
 **Applies To:** System (container lifecycle)
 
 ### CON-REL-002: Self-healing bisync recovery on corruption
-`--resilient` + `--recover` for self-healing; consecutive failure counter (3 failures = resync fallback). `nuke_corrupted_r2_files` detects and removes files blocking bisync (encryption mismatch, size mismatch, corrupted transfer).
+`--resilient` + `--recover` for self-healing; consecutive failure counter (3 failures = resync fallback). Vanishing-file recovery parses rclone error output, dynamically excludes transient files via session-scoped recovery filter, clears bisync locks, and retries before counting a failure. Known ephemeral files (MCP auth cache) are statically excluded to prevent the race condition entirely.
 **Applies To:** System (sync daemon)
 
 ### CON-REL-003: Circuit breaker on external service calls

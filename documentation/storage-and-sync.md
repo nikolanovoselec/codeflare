@@ -90,7 +90,9 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 **Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/.bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the shutdown trap to skip the final bisync — losing any files created during the session.
 
-**Vanishing-file recovery:** When bisync/resync fails because a transient file was listed but deleted before rclone could copy it (error: `failed to open source object: lstat ... no such file or directory`), the system automatically:
+### Vanishing-file recovery
+
+When bisync/resync fails because a transient file was listed but deleted before rclone could copy it (error: `failed to open source object: lstat ... no such file or directory`), the system automatically:
 1. Parses the rclone error output for the failing file path
 2. Adds it to a session-scoped recovery filter at `/tmp/rclone-recovery-filters.txt`
 3. Clears stale bisync locks
