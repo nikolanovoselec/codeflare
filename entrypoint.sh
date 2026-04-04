@@ -1131,10 +1131,13 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
             # Run in subshell to prevent set -e from killing the daemon on cleanup failure.
             (cleanup_old_memory_files) || true
             echo "[entrypoint] Bisync baseline established, starting daemon..."
-            start_sync_daemon
         else
-            echo "[entrypoint] Bisync baseline failed, daemon not started"
+            echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a /tmp/sync.log
         fi
+        # Always start daemon — even if baseline failed.
+        # The daemon has its own retry + resync fallback + vanishing-file recovery.
+        # A dead daemon means zero sync for the entire session.
+        start_sync_daemon
     ) &
     BISYNC_INIT_PID=$!
     echo "[entrypoint] Bisync init running in background (PID $BISYNC_INIT_PID)"
