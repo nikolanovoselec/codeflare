@@ -102,6 +102,8 @@ Only non-workspace files are auto-excluded. If the vanishing file is under `work
 
 The recovery filter file starts empty on every container start and is never synced to R2. All rclone bisync/resync invocations include `--filter-from /tmp/rclone-recovery-filters.txt` in addition to the static filters.
 
+**Daemon always starts:** The bisync daemon starts unconditionally after the baseline attempt — even if all baseline recovery attempts fail. A dead daemon means zero sync for the entire session. The daemon has its own recovery loop (vanishing-file recovery on each cycle + consecutive failure → resync fallback after 3 failures). This ensures sync can recover mid-session even if startup sync was disrupted.
+
 ---
 
 ## Related Documentation

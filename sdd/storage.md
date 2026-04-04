@@ -108,6 +108,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. A bisync baseline (`--resync`) is established after file modifications complete.
 5. If the initial baseline fails due to a vanishing file (file listed but deleted before copy), the system parses the error output, adds the file to a session-scoped recovery filter (`/tmp/rclone-recovery-filters.txt`), and retries (max 3 attempts). Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
 6. Known ephemeral files (`.claude/mcp-*.json`) are statically excluded from all sync operations.
+7. The bisync daemon starts unconditionally after baseline — even if all baseline attempts fail. A dead daemon means zero sync for the entire session; the daemon has its own recovery (vanishing-file recovery + consecutive failure → resync fallback).
 
 **Constraints:**
 - Container must not serve terminal connections until the initial sync either succeeds or times out.
