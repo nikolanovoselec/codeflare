@@ -64,7 +64,7 @@ UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: haiku 
 The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0` protocol to inject a short instruction into the main agent's context.
 
 1. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
-2. **Message counting**: `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'` counts user messages in the JSONL transcript.
+2. **Message counting**: `grep -c '"type":"user"' "$TRANSCRIPT"` counts user messages in the JSONL transcript. A plain `grep` is used instead of `jq` because `jq` silently fails on sidechain/agent JSONL entries (nested JSON), undercounting by ~40%.
 3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If no counter file exists (first run after container recycle or `/resume`), the hook baselines from the current transcript count and **writes the counter file immediately** -- this establishes the baseline so subsequent invocations can calculate the delta. If the delta is < 30, exits silently.
 4. **Vars file**: Writes all variables (transcript path, line offset, date, counts, counter file path) to `~/.memory/counter/{session_id}.vars` as JSON -- keeps the context string short.
 5. **Counter update**: Writes current count and total lines to the counter file before emitting. This prevents re-triggering: subsequent hook invocations see delta < 30 and exit silently. The agent reads its line range from the vars file, not from the counter.
