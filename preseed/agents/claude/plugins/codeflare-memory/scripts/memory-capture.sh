@@ -15,7 +15,7 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 [[ -z "$TRANSCRIPT" || -z "$SESSION_ID" || ! -f "$TRANSCRIPT" ]] && exit 0
 
-CURRENT_COUNT=$(jq -r '.type' "$TRANSCRIPT" 2>/dev/null | grep -c '^user$') || CURRENT_COUNT=0
+CURRENT_COUNT=$(grep -c '"type":"user"' "$TRANSCRIPT") || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
 if [[ -f "$COUNTER_FILE" ]]; then
