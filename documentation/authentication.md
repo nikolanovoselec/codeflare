@@ -542,7 +542,7 @@ Standalone admin page at `/admin/subscriptions` (routes to `web-ui/src/component
 - Color-coded: yellow (80%), orange (95%), red (100%)
 - 80% and 95% banners include a dismiss button (×) — dismiss state is session-scoped (resets on page reload)
 - 100% banner is not dismissible (blocks session creation)
-- Uses `getUsageWarningLevel()` and `dismissedWarning` signal from session store
+- Uses `getUsageWarningLevel()` from session store; `dismissedWarning` is a component-local `createSignal` in `Layout.tsx`
 - "New Session" button disabled when quota is exceeded (`isAtUsageQuota()`)
 
 ### Migration Strategy
