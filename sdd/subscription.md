@@ -459,6 +459,8 @@ Tiers, billing, usage tracking, and quotas.
 1. `/app/usage` page shows progress ring for monthly usage, stat cards (today, this month, tier quota).
 2. Polls `GET /api/usage` for real-time data from Timekeeper DO with KV fallback.
 3. Warning banners at 80%, 95%, 100% thresholds in Layout.
+4. The 80% and 95% banners include a dismiss button (×) that hides the banner for the current session. Dismiss state is session-scoped (resets on page reload so the warning reappears if still relevant).
+5. The 100% (quota exceeded) banner is not dismissible since it blocks session creation.
 
 **Constraints:**
 - None

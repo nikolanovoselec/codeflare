@@ -540,7 +540,9 @@ Standalone admin page at `/admin/subscriptions` (routes to `web-ui/src/component
 **Warning banners** (Layout.tsx):
 - Displayed at usage thresholds: 80%, 95%, 100% of monthly quota
 - Color-coded: yellow (80%), orange (95%), red (100%)
-- Uses `getUsageWarningLevel()` from session store
+- 80% and 95% banners include a dismiss button (×) — dismiss state is session-scoped (resets on page reload)
+- 100% banner is not dismissible (blocks session creation)
+- Uses `getUsageWarningLevel()` and `dismissedWarning` signal from session store
 - "New Session" button disabled when quota is exceeded (`isAtUsageQuota()`)
 
 ### Migration Strategy

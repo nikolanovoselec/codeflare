@@ -85,6 +85,29 @@ html, body {
   background: rgba(245, 158, 11, 0.4);
 }
 
+.layout-banner-dismiss {
+  flex-shrink: 0;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+}
+
+.layout-banner-dismiss:hover {
+  opacity: 1;
+  background: transparent;
+}
+
 /* Bug 4 fix: layout-init-overlay removed - now handled per-terminal */
 
 .layout-terminal-container {

@@ -37,6 +37,7 @@ interface LayoutProps {
  */
 const Layout: Component<LayoutProps> = (props) => {
   const usageWarning = () => getUsageWarningLevel();
+  const [dismissedWarning, setDismissedWarning] = createSignal<string | null>(null);
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
@@ -285,14 +286,16 @@ const Layout: Component<LayoutProps> = (props) => {
       </Show>
 
       {/* Usage quota warning banners */}
-      <Show when={usageWarning() === '80'}>
+      <Show when={usageWarning() === '80' && dismissedWarning() !== '80'}>
         <div class="layout-auth-banner layout-usage-warning" data-testid="usage-warning-80">
           <span>You've used 80% of your monthly compute quota. <a href="/app/subscribe">Upgrade plan</a></span>
+          <button type="button" class="layout-banner-dismiss" aria-label="Dismiss" onClick={() => setDismissedWarning('80')}>&times;</button>
         </div>
       </Show>
-      <Show when={usageWarning() === '95'}>
+      <Show when={usageWarning() === '95' && dismissedWarning() !== '95'}>
         <div class="layout-auth-banner layout-usage-critical" data-testid="usage-warning-95">
           <span>You've used 95% of your monthly compute quota. <a href="/app/subscribe">Upgrade now</a></span>
+          <button type="button" class="layout-banner-dismiss" aria-label="Dismiss" onClick={() => setDismissedWarning('95')}>&times;</button>
         </div>
       </Show>
       <Show when={usageWarning() === '100'}>

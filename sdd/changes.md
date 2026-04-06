@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-06
+- Updated REQ-SUB-018 AC4-AC5: usage warning banners (80%, 95%) are dismissible with × button; 100% banner remains non-dismissible
+
 ## 2026-04-04
 - Updated REQ-STOR-004 AC5-AC6: vanishing-file recovery with session-scoped recovery filter (max 3 attempts, workspace files not auto-excluded) and static MCP auth cache exclusion
 - Updated REQ-STOR-003 AC4-AC5: daemon now attempts vanishing-file recovery before counting a failure; renumbered consecutive-failure fallback to AC5
