@@ -85,7 +85,7 @@ html, body {
   background: rgba(245, 158, 11, 0.4);
 }
 
-.layout-banner-dismiss {
+.layout-auth-banner .layout-banner-dismiss {
   flex-shrink: 0;
   padding: 0;
   width: 24px;
@@ -95,6 +95,7 @@ html, body {
   justify-content: center;
   background: transparent;
   border: none;
+  border-radius: 0;
   color: inherit;
   font-size: var(--text-lg);
   line-height: 1;
@@ -103,7 +104,7 @@ html, body {
   transition: opacity var(--transition-fast);
 }
 
-.layout-banner-dismiss:hover {
+.layout-auth-banner .layout-banner-dismiss:hover {
   opacity: 1;
   background: transparent;
 }
