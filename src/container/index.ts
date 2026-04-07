@@ -22,11 +22,9 @@
 import { Container } from '@cloudflare/containers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { Env, TabConfig } from '../types';
-import { TERMINAL_SERVER_PORT } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toError, toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
-import type { ActivityState } from '../lib/activity-policy';
 import {
   validateBucketNameInput,
   buildEnvVars,
@@ -63,11 +61,24 @@ export class container extends Container<Env> {
   // Terminal server handles all endpoints: WebSocket, health check, metrics
   defaultPort = 8080;
 
-  // Default idle timeout before the container goes to sleep.
-  // collectMetrics() renews via renewActivityTimeout() when new user input is detected.
-  // The fetch() override uses super.fetch() (SDK handles readiness/networking).
-  // collectMetrics() handles real idle detection independently.
-  override sleepAfter = '5m';
+  // SDK's sleepAfter timer is effectively disabled — we pin it to 24h so the
+  // SDK never fires onActivityExpired in practice. The real idle detector is
+  // collectMetrics(), which polls the in-container /activity endpoint every 60s
+  // and explicitly calls stop('SIGTERM') when idleMs > idleTimeoutPref.
+  //
+  // Why: @cloudflare/containers v0.2.x refreshes the SDK timer on every
+  // WebSocket message in both directions (client↔container). That means the
+  // SDK timer tracks "any activity", whereas we want "user-input activity" —
+  // a container running `tail -f` or `yes` should still sleep when the user
+  // walks away. collectMetrics reads lastInputAt from the in-container
+  // terminal server, which tracks PTY input only, giving us the correct
+  // semantics independent of the SDK.
+  override sleepAfter = '24h';
+
+  // User-configured idle timeout (5m/15m/30m/1h/2h). Enforced by collectMetrics,
+  // NOT by the SDK. Stored in DO storage under the 'sleepAfter' key for
+  // backwards compat with existing sessions created before this refactor.
+  idleTimeoutPref: string = '5m';
 
   // Environment variables - set via property assignment in updateEnvVars()
   private _bucketName: string | null = null;
@@ -122,10 +133,11 @@ export class container extends Container<Env> {
       this._usageSeconds = await this.ctx.storage.get<number>('usageSeconds') || 0;
       this._userEmail = await this.ctx.storage.get<string>('userEmail') || null;
 
-      // Restore user-configured idle timeout (survives DO resets)
-      const storedSleepAfter = await this.ctx.storage.get<string>('sleepAfter');
-      if (storedSleepAfter && /^(5m|15m|30m|1h|2h)$/.test(storedSleepAfter)) {
-        this.sleepAfter = storedSleepAfter;
+      // Restore user-configured idle timeout (survives DO resets).
+      // Storage key remains 'sleepAfter' for backwards compat with existing sessions.
+      const storedIdleTimeout = await this.ctx.storage.get<string>('sleepAfter');
+      if (storedIdleTimeout && /^(5m|15m|30m|1h|2h)$/.test(storedIdleTimeout)) {
+        this.idleTimeoutPref = storedIdleTimeout;
       }
 
       // Resolve R2 config via shared helper (env vars first, KV fallback)
@@ -163,9 +175,9 @@ export class container extends Container<Env> {
     return this._bucketName;
   }
 
-  /** Parse sleepAfter string ('5m', '30m', '1h', '2h') to milliseconds. */
+  /** Parse the user-configured idle timeout to milliseconds (used by collectMetrics). */
   private parseSleepAfterMs(): number {
-    return parseSleepAfterMs(this.sleepAfter);
+    return parseSleepAfterMs(this.idleTimeoutPref);
   }
 
   /** Update envVars with current bucket name and credentials. */
@@ -205,11 +217,9 @@ export class container extends Container<Env> {
     }
 
     // Use super.fetch() for reliable container proxying (handles startup
-    // readiness, WebSocket upgrades, and container networking).
-    // Note: super.fetch() calls renewActivityTimeout() internally, resetting
-    // the SDK sleepAfter timer on every request. This means the SDK timer
-    // alone cannot enforce idle sleep. Instead, collectMetrics() tracks real
-    // user input and calls this.stop('SIGTERM') explicitly when idle.
+    // readiness, WebSocket upgrades, and container networking). The SDK's
+    // sleepAfter timer is pinned to 24h (see class field comment) and plays
+    // no role in idle detection — collectMetrics() owns that decision.
     if (this._containerAuthToken) {
       const authedRequest = new Request(request, {
         headers: new Headers(request.headers),
@@ -257,11 +267,11 @@ export class container extends Container<Env> {
           encryptionKey, sessionMode,
         });
 
-        // Update sleepAfter on restart
+        // Update idle timeout on restart. Storage key is 'sleepAfter' for
+        // backwards compat; the SDK's sleepAfter property is pinned to 24h.
         if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
-          this.sleepAfter = sleepAfterPref;
+          this.idleTimeoutPref = sleepAfterPref;
           await this.ctx.storage.put('sleepAfter', sleepAfterPref);
-          this.renewActivityTimeout();
         }
 
         if (prefsChanged) {
@@ -316,12 +326,12 @@ export class container extends Container<Env> {
         sessionMode,
       });
 
-      // Apply user-configurable sleepAfter (validated values: 5m, 15m, 30m, 1h, 2h)
+      // Apply user-configurable idle timeout (validated values: 5m, 15m, 30m, 1h, 2h).
+      // Storage key is 'sleepAfter' for backwards compat with existing sessions.
       if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
-        this.sleepAfter = sleepAfterPref;
+        this.idleTimeoutPref = sleepAfterPref;
         await this.ctx.storage.put('sleepAfter', sleepAfterPref);
-        this.renewActivityTimeout();
-        this.logger.info('sleepAfter set from user preference', { sleepAfter: sleepAfterPref });
+        this.logger.info('idle timeout set from user preference', { idleTimeout: sleepAfterPref });
       }
 
       return new Response(JSON.stringify({ success: true, bucketName }), {
@@ -379,11 +389,10 @@ export class container extends Container<Env> {
 
   async collectMetrics(): Promise<void> {
     const callbacks: MetricsCallbacks = {
-      renewActivityTimeout: () => this.renewActivityTimeout(),
       stop: (signal: number | string) => this.stop(signal as number),
       schedule: (delaySec: number, method: string) => this.schedule(delaySec, method) as Promise<unknown>,
       parseSleepAfterMs: () => this.parseSleepAfterMs(),
-      sleepAfter: this.sleepAfter,
+      idleTimeoutPref: this.idleTimeoutPref,
     };
     await doCollectMetrics(this.metricsState, this.ctx, this.env, callbacks);
   }
@@ -420,52 +429,11 @@ export class container extends Container<Env> {
     return super.destroy();
   }
 
-  /** Called when sleepAfter expires — check for new user input one last time. */
-  override async onActivityExpired(): Promise<void> {
-    if (!this.ctx.container?.running) {
-      this.logger.info('onActivityExpired: container not running, allowing sleep');
-      await this.stop('SIGTERM');
-      return;
-    }
-
-    try {
-      const tcpPort = this.ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
-      const res = await tcpPort.fetch('http://localhost/activity');
-      if (!res.ok) {
-        this.logger.warn('onActivityExpired: /activity returned non-OK, stopping', { status: res.status });
-        await this.stop('SIGTERM');
-        return;
-      }
-      const activity = await res.json() as ActivityState;
-
-      // Check for new input one last time before stopping.
-      // If user typed since the last collectMetrics poll, renew.
-      const hasNewInput = activity.lastInputAt !== null
-        && activity.lastInputAt !== this.lastSeenInputAt;
-
-      if (hasNewInput) {
-        this.lastSeenInputAt = activity.lastInputAt;
-        this.logger.info('onActivityExpired: new input detected, renewing', {
-          lastInputAt: activity.lastInputAt,
-          connectedClients: activity.connectedClients,
-        });
-        this.renewActivityTimeout();
-        return;
-      }
-
-      this.logger.info('onActivityExpired: no new input, stopping container', {
-        lastInputAt: activity.lastInputAt,
-        lastSeenInputAt: this.lastSeenInputAt,
-        connectedClients: activity.connectedClients,
-      });
-    } catch (err) {
-      this.logger.warn('onActivityExpired: failed to check activity, stopping', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    await this.stop('SIGTERM');
-  }
+  // Note: we intentionally do NOT override onActivityExpired() anymore. With
+  // sleepAfter pinned to 24h the SDK's timer effectively never fires, and
+  // collectMetrics() owns all idle-stop decisions. If an idle container does
+  // reach the 24h ceiling, the SDK's default onActivityExpired will stop it,
+  // which is the correct fallback.
 
   /** Called when the container stops. */
   override async onStop(): Promise<void> {

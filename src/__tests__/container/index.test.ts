@@ -4,14 +4,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * Container DO class tests.
  *
  * The container class (src/container/index.ts) extends Cloudflare's Container<Env>
- * base class. The SDK handles idle detection via sleepAfter (3m). The DO manages
- * lifecycle timestamps via KV updates in onStart/onStop.
+ * base class. Idle detection is owned by collectMetrics (polls /activity every 60s
+ * and explicitly calls stop('SIGTERM') when idleMs > idleTimeoutPref). The SDK's
+ * sleepAfter field is pinned to '24h' and plays no role in idle decisions.
  *
  * What we CAN test in isolation:
  * - Constructor initialization (bucketName loading, envVars population)
  * - Internal route dispatch table structure
  * - onStart/onStop lifecycle (KV timestamp updates)
  * - destroy() cleanup
+ * - idleTimeoutPref persistence and loading
  *
  * What we CANNOT test without full Container runtime:
  * - setBucketName persistence (calls ctx.storage.put)
@@ -136,9 +138,14 @@ describe('container DO class', () => {
       expect(instance.defaultPort).toBe(8080);
     });
 
-    it('initializes with sleepAfter 5m', () => {
+    it('initializes with sleepAfter pinned to 24h (SDK timer disabled)', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.sleepAfter).toBe('5m');
+      expect(instance.sleepAfter).toBe('24h');
+    });
+
+    it('initializes with idleTimeoutPref 5m (user-facing default)', () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      expect(instance.idleTimeoutPref).toBe('5m');
     });
 
     it('calls blockConcurrencyWhile in constructor', () => {
@@ -618,13 +625,18 @@ describe('container DO class', () => {
     });
   });
 
-  describe('sleepAfter', () => {
+  describe('idleTimeoutPref', () => {
+    // The setBucketName wire protocol still uses the field name 'sleepAfter'
+    // (backwards compat) and the DO storage key is still 'sleepAfter' — but
+    // the in-memory field is now idleTimeoutPref, because SDK.sleepAfter is
+    // pinned to 24h and plays no role in idle detection.
+
     it('defaults to 5m when not in storage', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.sleepAfter).toBe('5m');
+      expect(instance.idleTimeoutPref).toBe('5m');
     });
 
-    it('loads from DO storage on construction', async () => {
+    it('loads from DO storage on construction (storage key: sleepAfter)', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'sleepAfter') return '1h';
         return null;
@@ -632,7 +644,7 @@ describe('container DO class', () => {
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => {
-        expect(instance.sleepAfter).toBe('1h');
+        expect(instance.idleTimeoutPref).toBe('1h');
       });
     });
 
@@ -646,7 +658,7 @@ describe('container DO class', () => {
       await vi.waitFor(() => {
         expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalled();
       });
-      expect(instance.sleepAfter).toBe('5m');
+      expect(instance.idleTimeoutPref).toBe('5m');
     });
 
     it('persists to DO storage on initial setBucketName', async () => {
@@ -661,7 +673,7 @@ describe('container DO class', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
       expect(mockStorage.put).toHaveBeenCalledWith('sleepAfter', '1h');
-      expect(instance.sleepAfter).toBe('1h');
+      expect(instance.idleTimeoutPref).toBe('1h');
     });
 
     it('persists to DO storage on restart (409 path)', async () => {
@@ -681,10 +693,10 @@ describe('container DO class', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(409);
       expect(mockStorage.put).toHaveBeenCalledWith('sleepAfter', '2h');
-      expect(instance.sleepAfter).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('2h');
     });
 
-    it('is cleaned up on destroy', async () => {
+    it('is cleaned up on destroy (storage key: sleepAfter)', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
         return null;
@@ -711,7 +723,21 @@ describe('container DO class', () => {
         (c: unknown[]) => c[0] === 'sleepAfter'
       );
       expect(sleepAfterPuts).toHaveLength(0);
-      expect(instance.sleepAfter).toBe('5m');
+      expect(instance.idleTimeoutPref).toBe('5m');
+    });
+
+    it('SDK.sleepAfter stays pinned to 24h regardless of user preference', async () => {
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      const request = new Request('http://container/_internal/setBucketName', {
+        method: 'POST',
+        body: JSON.stringify({ bucketName: 'test-bucket', sleepAfter: '2h' }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      await instance.fetch(request);
+      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.idleTimeoutPref).toBe('2h');
     });
   });
 
@@ -816,153 +842,10 @@ describe('container DO class', () => {
     });
   });
 
-  describe('onActivityExpired', () => {
-    it('calls stop("SIGTERM") when /activity returns non-OK', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
+  // Note: the onActivityExpired() override was removed when sleepAfter was
+  // pinned to '24h'. collectMetrics() owns all idle-stop decisions now.
 
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      // Container is running, but /activity returns 500
-      mockContainerRuntime.running = true;
-      mockTcpPortFetch.mockResolvedValue(new Response('error', { status: 500 }));
-
-      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-
-      await instance.onActivityExpired();
-
-      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
-      expect(renewSpy).not.toHaveBeenCalled();
-    });
-
-    it('calls stop("SIGTERM") when /activity fetch throws', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      // Container is running, but fetch throws
-      mockContainerRuntime.running = true;
-      mockTcpPortFetch.mockRejectedValue(new Error('Connection refused'));
-
-      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-
-      await instance.onActivityExpired();
-
-      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
-      expect(renewSpy).not.toHaveBeenCalled();
-    });
-
-    it('renews when lastInputAt changes (new input since last poll)', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      // Container is running, /activity returns lastInputAt that differs from lastSeenInputAt (null)
-      mockContainerRuntime.running = true;
-      mockTcpPortFetch.mockResolvedValue(
-        new Response(JSON.stringify({ hasActiveConnections: true, connectedClients: 2, lastInputAt: Date.now() }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
-
-      await instance.onActivityExpired();
-
-      expect(renewSpy).toHaveBeenCalled();
-      expect(stopSpy).not.toHaveBeenCalled();
-    });
-
-    it('calls stop("SIGTERM") when lastInputAt === lastSeenInputAt (no new input)', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      // Simulate a previous poll that set lastSeenInputAt
-      const inputTimestamp = Date.now() - 60_000;
-      (instance as any).lastSeenInputAt = inputTimestamp;
-
-      // Container is running, /activity returns the SAME lastInputAt
-      mockContainerRuntime.running = true;
-      mockTcpPortFetch.mockResolvedValue(
-        new Response(JSON.stringify({ hasActiveConnections: true, connectedClients: 1, lastInputAt: inputTimestamp }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-
-      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-
-      await instance.onActivityExpired();
-
-      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
-      expect(renewSpy).not.toHaveBeenCalled();
-    });
-
-    it('calls stop("SIGTERM") when lastInputAt is null (no input ever)', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      // Container is running, /activity returns null lastInputAt
-      mockContainerRuntime.running = true;
-      mockTcpPortFetch.mockResolvedValue(
-        new Response(JSON.stringify({ hasActiveConnections: true, connectedClients: 0, lastInputAt: null }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-
-      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-
-      await instance.onActivityExpired();
-
-      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
-      expect(renewSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('collectMetrics input-change-based renewal', () => {
+  describe('collectMetrics idle-stop behavior', () => {
     // Helper to create a running container instance with KV mocks
     async function createRunningInstance() {
       const mockKvPut = vi.fn().mockResolvedValue(undefined);
@@ -997,11 +880,11 @@ describe('container DO class', () => {
       return instance;
     }
 
-    it('renews when lastInputAt changes between polls (new input detected)', async () => {
+    it('does NOT stop when lastInputAt is fresh (within idleTimeoutPref)', async () => {
       const instance = await createRunningInstance();
       const now = Date.now();
 
-      // First poll: lastInputAt = now - 60s (new input, lastSeenInputAt was null)
+      // /activity returns a recent lastInputAt (60s old, well under 5m default)
       mockTcpPortFetch
         .mockResolvedValueOnce(new Response(JSON.stringify({
           hasActiveConnections: true,
@@ -1012,106 +895,75 @@ describe('container DO class', () => {
           status: 200, headers: { 'Content-Type': 'application/json' },
         }));
 
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
 
       await instance.collectMetrics();
 
-      expect(renewSpy).toHaveBeenCalled();
+      expect(stopSpy).not.toHaveBeenCalled();
     });
 
-    it('does NOT renew when lastInputAt stays the same between polls', async () => {
-      const instance = await createRunningInstance();
-      const now = Date.now();
-      const inputTimestamp = now - 60_000;
-
-      // First poll: sets lastSeenInputAt
-      mockTcpPortFetch
-        .mockResolvedValueOnce(new Response(JSON.stringify({
-          hasActiveConnections: true,
-          connectedClients: 1,
-          lastInputAt: inputTimestamp,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
-        }));
-
-      await instance.collectMetrics();
-
-      // Second poll: same lastInputAt — no new input
-      mockTcpPortFetch
-        .mockResolvedValueOnce(new Response(JSON.stringify({
-          hasActiveConnections: true,
-          connectedClients: 1,
-          lastInputAt: inputTimestamp,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
-        }));
-
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-
-      await instance.collectMetrics();
-
-      expect(renewSpy).not.toHaveBeenCalled();
-    });
-
-    it('does NOT renew when lastInputAt is null', async () => {
-      const instance = await createRunningInstance();
-
-      // /activity returns null lastInputAt (no input ever)
-      mockTcpPortFetch
-        .mockResolvedValueOnce(new Response(JSON.stringify({
-          hasActiveConnections: true,
-          connectedClients: 1,
-          lastInputAt: null,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
-        }));
-
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-
-      await instance.collectMetrics();
-
-      expect(renewSpy).not.toHaveBeenCalled();
-    });
-
-    it('renews when lastInputAt changes after a previous null', async () => {
+    it('stops with SIGTERM when lastInputAt exceeds idleTimeoutPref', async () => {
       const instance = await createRunningInstance();
       const now = Date.now();
 
-      // First poll: null lastInputAt
-      mockTcpPortFetch
-        .mockResolvedValueOnce(new Response(JSON.stringify({
-          hasActiveConnections: true,
-          connectedClients: 1,
-          lastInputAt: null,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
-        }));
+      // /activity returns lastInputAt 10 minutes old (exceeds 5m default)
+      mockTcpPortFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+        hasActiveConnections: true,
+        connectedClients: 1,
+        lastInputAt: now - 600_000,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
 
       await instance.collectMetrics();
 
-      // Second poll: lastInputAt now has a value (user started typing)
-      mockTcpPortFetch
-        .mockResolvedValueOnce(new Response(JSON.stringify({
-          hasActiveConnections: true,
-          connectedClients: 1,
-          lastInputAt: now - 5_000,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
-        }));
-
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-
-      await instance.collectMetrics();
-
-      expect(renewSpy).toHaveBeenCalled();
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
     });
 
-    it('does NOT renew on non-OK /activity response', async () => {
+    it('stops with SIGTERM when lastInputAt is null and containerStartedAt is old', async () => {
+      const instance = await createRunningInstance();
+
+      // Manually age the container's started-at so the fallback reference
+      // time pushes idleMs past the 5m default threshold.
+      (instance as any).containerStartedAt = Date.now() - 600_000;
+
+      mockTcpPortFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+        hasActiveConnections: true,
+        connectedClients: 0,
+        lastInputAt: null,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+
+      await instance.collectMetrics();
+
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+    });
+
+    it('honors user-configured idleTimeoutPref (2h) before stopping', async () => {
+      const instance = await createRunningInstance();
+      (instance as any).idleTimeoutPref = '2h';
+      const now = Date.now();
+
+      // lastInputAt 10m old — would stop at 5m default, but 2h pref keeps it alive
+      mockTcpPortFetch
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          hasActiveConnections: true,
+          connectedClients: 1,
+          lastInputAt: now - 600_000,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ cpu: '5%', mem: '100M' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+
+      await instance.collectMetrics();
+
+      expect(stopSpy).not.toHaveBeenCalled();
+    });
+
+    it('does NOT stop on non-OK /activity response (fail-open)', async () => {
       const instance = await createRunningInstance();
 
       // /activity returns 500
@@ -1121,85 +973,10 @@ describe('container DO class', () => {
           status: 200, headers: { 'Content-Type': 'application/json' },
         }));
 
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
 
       await instance.collectMetrics();
 
-      expect(renewSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('onActivityExpired input-change detection', () => {
-    it('stops when lastInputAt has not changed since last seen', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      mockContainerRuntime.running = true;
-      const now = Date.now();
-      const inputTimestamp = now - 60_000;
-
-      // Simulate a previous poll that set lastSeenInputAt
-      (instance as any).lastSeenInputAt = inputTimestamp;
-
-      // /activity returns same lastInputAt — no new input
-      mockTcpPortFetch.mockResolvedValue(
-        new Response(JSON.stringify({
-          hasActiveConnections: true,
-          connectedClients: 1,
-          lastInputAt: inputTimestamp,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-      );
-
-      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-
-      await instance.onActivityExpired();
-
-      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
-      expect(renewSpy).not.toHaveBeenCalled();
-    });
-
-    it('renews when lastInputAt has changed since last seen', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
-
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
-      });
-
-      mockContainerRuntime.running = true;
-      const now = Date.now();
-
-      // Simulate a previous poll that set lastSeenInputAt to an old value
-      (instance as any).lastSeenInputAt = now - 120_000;
-
-      // /activity returns a DIFFERENT (newer) lastInputAt — new input detected
-      mockTcpPortFetch.mockResolvedValue(
-        new Response(JSON.stringify({
-          hasActiveConnections: true,
-          connectedClients: 1,
-          lastInputAt: now - 5_000,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-      );
-
-      const renewSpy = vi.spyOn(instance, 'renewActivityTimeout' as any);
-      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
-
-      await instance.onActivityExpired();
-
-      expect(renewSpy).toHaveBeenCalled();
       expect(stopSpy).not.toHaveBeenCalled();
     });
   });
@@ -1225,7 +1002,8 @@ describe('container DO class', () => {
 
       // Properties set by the class
       expect(instance.defaultPort).toBe(8080);
-      expect(instance.sleepAfter).toBe('5m');
+      expect(instance.sleepAfter).toBe('24h');
+      expect(instance.idleTimeoutPref).toBe('5m');
     });
   });
 });

@@ -30,13 +30,13 @@ export interface MetricsState {
   lastSeenInputAt: number | null;
 }
 
-/** Callbacks provided by the Container class for SDK operations. */
+/** Callbacks provided by the Container class for idle detection + scheduling. */
 export interface MetricsCallbacks {
-  renewActivityTimeout: () => void;
   stop: (signal: number | string) => Promise<void>;
   schedule: (delaySec: number, method: string) => Promise<unknown>;
   parseSleepAfterMs: () => number;
-  sleepAfter: string;
+  /** User-configured idle timeout ('5m'|'15m'|'30m'|'1h'|'2h'). Log-only. */
+  idleTimeoutPref: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,36 +113,31 @@ export async function collectMetrics(
     return;
   }
 
-  // Keep-alive: renew sleepAfter only when new user input is detected.
-  // User-input-based idle detection. super.fetch() resets the SDK's sleepAfter
-  // timer on every proxied request (including WebSocket reconnects), so we cannot
-  // rely on onActivityExpired() alone. Instead, collectMetrics() tracks real user
-  // input and explicitly stops the container when idle exceeds sleepAfter duration.
+  // User-input-based idle detection. The SDK's sleepAfter timer is pinned to
+  // 24h and refreshes on every WebSocket message (in both directions) in
+  // @cloudflare/containers v0.2.x, so it would keep a container alive as
+  // long as any bytes flow — including background output from `tail -f` or
+  // `yes`. collectMetrics polls the in-container /activity endpoint for
+  // lastInputAt (PTY input only) and explicitly stops the container when
+  // idle exceeds the user-configured threshold.
   try {
     const activityPort = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
     const activityRes = await activityPort.fetch('http://localhost/activity');
     if (!activityRes.ok) {
-      logger.warn('collectMetrics: /activity returned non-OK, NOT renewing', { status: activityRes.status });
+      logger.warn('collectMetrics: /activity returned non-OK', { status: activityRes.status });
     } else {
       const activity = await activityRes.json() as ActivityState;
 
-      const hasNewInput = activity.lastInputAt !== null
-        && activity.lastInputAt !== state.lastSeenInputAt;
-
-      if (hasNewInput) {
-        callbacks.renewActivityTimeout();
-      }
       state.lastSeenInputAt = activity.lastInputAt;
 
-      // Explicit idle-stop: check if idle duration exceeds sleepAfter.
-      // super.fetch() resets the SDK timer on every HTTP request (including
-      // WS reconnects), so onActivityExpired() may not fire for short timeouts.
-      // Use containerStartedAt as fallback when user never typed (lastInputAt null).
+      // Explicit idle-stop: stop the container when idle exceeds the
+      // user-configured threshold. Fall back to containerStartedAt when
+      // the user has never typed (lastInputAt null).
       const referenceTime = activity.lastInputAt ?? state.containerStartedAt;
       const idleMs = Date.now() - referenceTime;
       const sleepMs = callbacks.parseSleepAfterMs();
       if (idleMs > sleepMs) {
-        logger.info('collectMetrics: idle exceeded sleepAfter, stopping', {
+        logger.info('collectMetrics: idle exceeded threshold, stopping', {
           idleMs, sleepMs, referenceTime, lastInputAt: activity.lastInputAt,
         });
         // Write KV status before stop — DO state can be lost during shutdown
@@ -152,12 +147,11 @@ export async function collectMetrics(
       }
 
       logger.info('collectMetrics: activity check', {
-        renewed: hasNewInput,
         lastInputAt: activity.lastInputAt,
         lastSeenInputAt: state.lastSeenInputAt,
         connectedClients: activity.connectedClients,
         hasActiveConnections: activity.hasActiveConnections,
-        idleMs, sleepMs, sleepAfter: callbacks.sleepAfter,
+        idleMs, sleepMs, idleTimeoutPref: callbacks.idleTimeoutPref,
       });
     }
   } catch (err) {
