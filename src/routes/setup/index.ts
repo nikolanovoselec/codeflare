@@ -8,7 +8,7 @@ import { listAllKvKeys, emailFromKvKey, getPreferencesKey, SETUP_KEYS } from '..
 import { getBucketName } from '../../lib/access';
 import { cleanupUserData } from '../../lib/user-cleanup';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
-import { setupRateLimiter, logger, getWorkerNameFromHostname } from './shared';
+import { setupRateLimiter, logger, getWorkerNameFromHostname, addStep } from './shared';
 import type { SetupStep } from './shared';
 import { handleGetAccount } from './account';
 import { handleDeriveR2Credentials } from './credentials';
@@ -229,9 +229,22 @@ app.post('/configure', async (c) => {
       await runStep('configure_custom_domain', () =>
         handleConfigureCustomDomain(token, accountId, customDomain, c.req.url, steps, workerName)
       );
-      await runStep('create_access_app', () =>
-        handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE))
-      );
+      // Issue #140: Skip CF Access provisioning when GitHub OIDC is configured.
+      // In SaaS + OIDC mode, the Worker handles authentication directly via the
+      // github-auth routes and the requireIdentity middleware. Creating a CF Access
+      // application on the same domain causes CF Access to intercept all requests
+      // before the Worker runs, breaking the OIDC login flow.
+      const useGithubOidc = isSaasModeActive(c.env.SAAS_MODE) && !!c.env.OAUTH_CLIENT_ID;
+      if (!useGithubOidc) {
+        await runStep('create_access_app', () =>
+          handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE))
+        );
+      } else {
+        // OIDC mode: emit a synthetic completed step so the setup wizard UI
+        // doesn't stall waiting for create_access_app progress.
+        const stepIdx = addStep(steps, 'create_access_app');
+        steps[stepIdx] = { step: 'create_access_app', status: 'success' };
+      }
 
       const onboardingLandingActive = isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE);
       const saasMode = isSaasModeActive(c.env.SAAS_MODE);
