@@ -48,7 +48,7 @@ Ask the user which trade-offs matter most:
 
 After hearing the user's priorities, recommend ONE approach with reasoning.
 
-If the user agrees → hand off to `/plan` for implementation planning.
+If the user agrees → hand off to Plan Mode for implementation planning.
 If the user wants changes → revise and present again.
 
 ## Arguments
