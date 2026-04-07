@@ -167,7 +167,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 2. In default mode, merge and cleanup are skipped.
 3. In default mode, MCP memory still works in-session but does not survive container recreation.
 4. The memory plugin, memory rule (`rules/memory.md`), and hook scripts are preseeded only in advanced mode.
-5. Default mode seeds 25 files; advanced mode seeds 127 files. The memory-related files account for part of the difference.
+5. Default mode seeds 25 files; advanced mode seeds 180 files. The memory-related files account for part of the difference.
 6. `entrypoint.sh` merges hook registrations (PreToolUse and UserPromptSubmit) into `settings.json` only in advanced mode. Default mode gets only `skipDangerousModePermissionPrompt`.
 7. `sessionMode` is stored as `'default' | 'advanced'` in `UserPreferences` (KV). Undefined defaults to `'default'` via `resolveSessionMode()`.
 8. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation.

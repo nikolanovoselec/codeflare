@@ -8,7 +8,7 @@ Multi-agent support, preseed system, and session modes.
 |---------|-----------|
 | Agent | One of six supported AI coding tools (`claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
 | Preseed | A set of configuration files (rules, skills, agents, commands, plugins) generated from a single Claude Code source of truth and deployed to each user's R2 bucket |
-| Session Mode | Either Standard (`default`, 25 preseed files) or Pro (`advanced`, 127 preseed files) controlling the scope of agent enhancements seeded to a user's storage |
+| Session Mode | Either Standard (`default`, 25 preseed files) or Pro (`advanced`, 180 preseed files) controlling the scope of agent enhancements seeded to a user's storage |
 | Manifest | The declarative `manifest.json` file that maps each preseed source file to its applicable modes and drives the code generation pipeline |
 
 ### Out of Scope
@@ -146,7 +146,7 @@ Multi-agent support, preseed system, and session modes.
 | Known marketplaces plugin config | Yes | Yes |
 
 1. Default mode seeds 25 files to R2.
-2. Advanced mode seeds 127 files to R2.
+2. Advanced mode seeds 180 files to R2.
 3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
 4. Pro mode registers hooks in `settings.json` (PreToolUse for commit attribution blocking, PreToolUse for git-push review reminders, UserPromptSubmit for memory capture); Standard mode merges only `skipDangerousModePermissionPrompt`.
 
@@ -172,7 +172,7 @@ Multi-agent support, preseed system, and session modes.
 3. `scripts/generate-agent-seed.mjs` reads the manifest and source files, generating `src/lib/agent-seed.generated.ts` with an `AGENTS_SEEDED_CONFIGS` array.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
-6. Total generated output is 131 documents across all 5 agents.
+6. Total generated output is 184 documents across all 5 agents.
 
 **Constraints:**
 - The generator must be re-run when preseed source files or the manifest change.
@@ -205,13 +205,13 @@ Multi-agent support, preseed system, and session modes.
 - Hooks, commands, and plugins are excluded from non-CC agents (they are CC-specific features).
 - `rules/memory.md` and `consult-llm` skill are excluded from non-CC agents (they depend on CC-specific MCP).
 
-| Agent | Instructions | Skills | Agents | Total Documents |
-|-------|-------------|--------|--------|-----------------|
-| Claude Code | 0 (individual rules) | 14 | 8 | 60 |
-| Codex | 2 (default+advanced) | 13 | 0 | 15 |
-| Gemini | 2 | 13 | 8 | 23 |
-| Copilot | 2 | 0 | 8 | 10 |
-| OpenCode | 2 | 13 | 8 | 23 |
+| Agent | Total Documents |
+|-------|-----------------|
+| Claude Code | 74 |
+| Codex | 28 |
+| Gemini | 36 |
+| Copilot | 10 |
+| OpenCode | 36 |
 
 **Applies To:** User
 **Priority:** P1
@@ -389,7 +389,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 1. `preseed/agents/claude/manifest.json` is the single declaration of all preseed files and their mode assignments.
-2. The manifest contains 60 total entries across: rules (24), agents (8), commands (6), skills (14), plugins (8).
+2. The manifest contains 74 total entries across: rules (25, including spec-discipline), agents (8), commands (6), skills (27, including 13 SDD scaffolding templates), plugins (8).
 3. Each entry specifies `"modes"` as an array of `"default"`, `"advanced"`, or both.
 4. The generator script (`scripts/generate-agent-seed.mjs`) is manifest-driven and ignores files not in the manifest.
 5. The generated output (`src/lib/agent-seed.generated.ts`) contains the `AGENTS_SEEDED_CONFIGS` array used at runtime.
@@ -535,4 +535,31 @@ Multi-agent support, preseed system, and session modes.
 **Priority:** P1
 **Dependencies:** REQ-AGENT-009
 **Verification:** Integration test
+**Status:** Implemented
+
+## REQ-AGENT-021: Spec-Driven Development Workflow (Pro)
+
+**Intent:** Pro users need a workflow that keeps a product specification in lockstep with their codebase without manual maintenance, so the spec remains a trustworthy single source of truth even when development happens at high velocity.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. Pro mode preseeds a `spec-driven-development` skill, a `/sdd` slash command, a `spec-discipline` rule loaded into every agent's instructions, and `spec-reviewer` and `doc-updater` agents.
+2. `/sdd init` scaffolds a new `sdd/` folder from templates regardless of the host project's language or stack; in import mode it derives a spec from existing source code.
+3. Three autonomy modes are selectable via `sdd/config.yml`: `interactive`, `auto`, `unleashed`.
+4. After every push that touches a project containing `sdd/`, `spec-reviewer` runs first and `doc-updater` runs second (sequential, not parallel).
+5. The `auto_demote` setting downgrades requirements marked `Implemented` without test references to `Partial`; opt-in by default, forced `true` in `unleashed` mode.
+6. `/sdd clean` provides a rescue path for rotted specs; in `unleashed` mode it creates a new branch and opens a PR with full audit log as the safety net.
+7. The workflow operates on any project structure — it does not assume Codeflare-specific files, domains, or conventions.
+8. A 2-round commit-cycle limit prevents micro-fix spirals; the `[sdd-clean]` commit tag bypasses round detection so the rescue command does not crash itself.
+9. Conservative JUDGMENT auto-resolution in `unleashed` mode never overwrites spec intent: doc-vs-spec conflicts mark both sides as `Partial`, oversized REQs shrink in place, fake-Deprecated REQs move to "Out of Scope" sections.
+
+**Constraints:**
+- The spec-discipline rule is inlined into all 5 agents' instructions because Codex and Copilot lack first-class agent definitions or skill loaders.
+- Status transitions follow strict semantics: `Proposed → Planned → Partial → Implemented → Deprecated`. Deprecated requires `Replaced By` or `Removed In`. Never-built REQs move to "Out of Scope" rather than being deleted.
+- Spec changes are recorded in `sdd/changes.md` with ≤2 sentences per entry, user-facing only.
+
+**Priority:** P1
+**Dependencies:** REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007
+**Verification:** Manual check
 **Status:** Implemented

@@ -132,9 +132,27 @@ Once `sdd/` exists in a project, the workflow runs automatically without explici
 
 If `sdd/` doesn't exist, `spec-reviewer` exits silently. `doc-updater` runs in `docs-only` mode (project-agnostic doc maintenance, no spec coordination).
 
-## /sdd init — bootstrapping a new project
+## /sdd init — bootstrapping a project (greenfield OR existing codebase)
 
-When the user runs `/sdd init [idea]`, the agent:
+`/sdd init` handles two scenarios:
+
+1. **Greenfield**: empty project, no existing code. Agent bootstraps from prose.
+2. **Existing codebase**: project already has source code. Agent enters **import mode** — analyzes the existing code, derives a spec from observed behavior, presents it for user confirmation, and writes the scaffolding.
+
+The agent detects the scenario automatically by counting source files in the project. >5 source files → existing codebase → import mode. ≤5 → greenfield.
+
+In **import mode**, the agent:
+- Reads README.md, package.json (or equivalent), top-level configs to understand intent
+- Analyzes directory structure to identify domains
+- Reads representative source files to derive REQs
+- Tentatively marks all derived REQs as `Status: Implemented`
+- Searches existing test files for feature/route names; demotes REQs without test coverage to `Partial` with `Notes:` explaining what's missing
+- Presents derived spec for user confirmation, one domain at a time
+- Writes scaffolding (sdd/, documentation/, root README) WITHOUT touching existing code, existing README, or existing documentation/ files
+
+Import mode is **always interactive** even in `auto` or `unleashed` config — inferring intent from code is genuinely judgment-required and the user must validate the result.
+
+In **greenfield mode**, the agent:
 
 1. **Drafts the vision** from the user's prose, presents for confirmation
 2. **Proposes actors** (typically User, Admin — never "System")

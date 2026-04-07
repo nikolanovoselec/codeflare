@@ -117,6 +117,8 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 | Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes |
 | Commands (6: /brainstorm, /debug, /deploy, /plan, /review, /sdd) | No | Yes |
 | Cherry-picked skills (8: api-design, backend-patterns, etc.) | No | Yes |
+| `spec-discipline` rule (universal SDD enforcement, all 5 agents) | No | Yes |
+| SDD template scaffolding (13 files for `/sdd init`) | No | Yes |
 | Known marketplaces plugin config | Yes | Yes |
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in `UserPreferences` (KV). Undefined = `'default'`.
@@ -139,9 +141,9 @@ ECC-derived rules, agents, commands, and skills are preseeded directly to the ag
 
 **Commands (6)**: `brainstorm`, `debug`, `deploy`, `plan`, `review`, `sdd`. Preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't support slash commands).
 
-**Skills (14 files, 12 unique skills)**: `cloudflare-stack`, `ship` (+ 2 reference files), `consult-llm`, `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`, `spec-driven-development`. Preseeded to `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for agents that support skills). `consult-llm` is CC-only (depends on MCP tool).
+**Skills (27 entries)**: `cloudflare-stack`, `ship` (+ 2 reference files), `consult-llm`, `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`, `spec-driven-development` (+ 13 reference templates for `/sdd init` scaffolding). Preseeded to `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for agents that support skills). `consult-llm` is CC-only (depends on MCP tool).
 
-**Rules (28 files, 4 in both modes + 24 advanced-only)**: Core environment rules (`ci-monitoring`, `cloudflare-environment`, `no-local-builds`, `deploy-credentials`) in both modes. `memory` rule is advanced-only (depends on MCP memory server). ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs (3 + 5*4 = 23 files, advanced only). Common rules cover security, coding style, and git workflow. Language-specific rules provide conventions for TypeScript, Python, Go, and Swift.
+**Rules (25 files, 4 in both modes + 21 advanced-only)**: Core environment rules (`ci-monitoring`, `cloudflare-environment`, `no-local-builds`, `deploy-credentials`) in both modes. `memory` and `spec-discipline` rules are advanced-only (memory depends on MCP memory server; spec-discipline is the universal SDD enforcement layer inlined into all 5 agents' instructions). ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs (3 + 5*4 = 23 files, advanced only). Common rules cover security, coding style, and git workflow. Language-specific rules provide conventions for TypeScript, Python, Go, and Swift.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds the official Anthropic plugin marketplace URL for user discovery.
 
@@ -153,16 +155,16 @@ All preseed content is deployed via the manifest pipeline:
 
 1. Source files in `preseed/agents/claude/` organized by type: `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
 2. `preseed/agents/claude/manifest.json` maps each file to modes (`default`, `advanced`, or both)
-3. `scripts/generate-agent-seed.mjs` reads manifest + files (manifest-driven, ignores non-manifest files like `plugins/cache/`), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array (131 documents across all agents)
+3. `scripts/generate-agent-seed.mjs` reads manifest + files (manifest-driven, ignores non-manifest files like `plugins/cache/`), generates `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` array (184 documents across all agents)
 4. On first bucket creation: `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
-**Manifest structure (60 total entries)**:
-- `rules/` (24): core (4 default+advanced: ci-monitoring, cloudflare-environment, no-local-builds, deploy-credentials; + 1 advanced-only: memory), common (3), typescript (4), python (4), golang (4), swift (4)
+**Manifest structure (74 total entries)**:
+- `rules/` (25): core (4 default+advanced: ci-monitoring, cloudflare-environment, no-local-builds, deploy-credentials; + 2 advanced-only: memory, spec-discipline), common (3), typescript (4), python (4), golang (4), swift (4)
 - `agents/` (8): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, spec-reviewer, tdd-guide (advanced only)
 - `commands/` (6): brainstorm, debug, deploy, plan, review, sdd (advanced only)
-- `skills/` (14): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first, spec-driven-development
+- `skills/` (27): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first, spec-driven-development (+13 reference templates for /sdd init scaffolding)
 - `plugins/` (8): known_marketplaces.json (default+advanced), codeflare-memory plugin (4 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md, memory-compact-prompt.md), codeflare-hooks plugin (3 files, advanced only: plugin.json, block-attributed-commits.sh, git-push-review-reminder.sh)
 
 ### Multi-Agent Preseed
@@ -192,20 +194,20 @@ The generator produces adapted config files for all supported agents from CC's p
 
 **What each agent gets:**
 
-| Agent | Instructions | Skills | Agents | Total |
-|-------|-------------|--------|--------|-------|
-| CC | 0 (individual rules) | 14 | 8 | 60 (all categories) |
-| Codex | 2 (default+advanced) | 13 | 0 | 15 |
-| Gemini | 2 | 13 | 8 | 23 |
-| Copilot | 2 | 0 | 8 | 10 |
-| OpenCode | 2 | 13 | 8 | 23 |
-| **Total** | | | | **131** |
+| Agent | Total Documents |
+|-------|-----------------|
+| CC | 74 |
+| Codex | 28 |
+| Gemini | 36 |
+| Copilot | 10 |
+| OpenCode | 36 |
+| **Total** | **184** |
 
 **Excluded from non-CC agents**: hooks (CC hook system), commands (CC slash commands), plugins (CC plugin system, including codeflare-memory), `rules/memory.md` (depends on MCP memory server), `consult-llm` skill (depends on CC-specific MCP tool).
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1) concatenates applicable rules into a single instructions file, (2) remaps tool names in agent definition frontmatter, (3) removes `model` field from frontmatter, (4) replaces `~/.claude/` path references with agent-specific config paths, (5) uses correct file extensions (e.g., `.agent.md` for Copilot agents).
 
-**Per-mode counts**: Default mode seeds 25 files, advanced mode seeds 127 files. Total array size is 131 (includes variant-per-mode duplicates for instructions files).
+**Per-mode counts**: Default mode seeds 25 files, advanced mode seeds 180 files. Total array size is 184 (includes variant-per-mode duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the generated array -- once for default mode (3 rules) and once for advanced mode (all rules including memory, ECC), with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this correctly by excluding keys that have a variant in the target mode.
 

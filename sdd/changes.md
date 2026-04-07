@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-07
+- Added REQ-AGENT-021: Spec-Driven Development Workflow (Pro) — three autonomy modes (interactive/auto/unleashed), `/sdd clean` rescue, project-agnostic operation, import mode for existing codebases, template scaffolding
+- Updated REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007, REQ-AGENT-014: preseed bundle now 184 documents (was 131), 74 manifest entries (was 60), advanced mode seeds 180 files (was 127); added spec-discipline rule and 13 SDD scaffolding templates
+- Added glossary terms: Spec Discipline, Autonomy Mode, Auto-Demote, Import Mode
+
 ## 2026-04-04
 - Updated REQ-STOR-004 AC5-AC6: vanishing-file recovery with session-scoped recovery filter (max 3 attempts, workspace files not auto-excluded) and static MCP auth cache exclusion
 - Updated REQ-STOR-003 AC4-AC5: daemon now attempts vanishing-file recovery before counting a failure; renumbered consecutive-failure fallback to AC5
