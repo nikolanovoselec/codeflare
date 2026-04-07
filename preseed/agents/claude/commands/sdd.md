@@ -157,7 +157,7 @@ Bootstrap a new project. Always interactive — you confirm the vision before an
     - `documentation/README.md`, `architecture.md`, `api-reference.md`, `configuration.md`, `deployment.md`
     - `documentation/decisions/README.md`
     - `tests/` (empty directory)
-16. **Print next steps**:
+16. **Print next steps** (user-visible):
     ```
     ✓ Spec created at sdd/
     ✓ Documentation scaffolding at documentation/
@@ -165,17 +165,15 @@ Bootstrap a new project. Always interactive — you confirm the vision before an
     ✓ Test scaffolding at tests/
     ✓ sdd/config.yml created (mode: interactive)
 
-    What to do next:
-      1. Review the spec at sdd/README.md
-      2. Run /plan to generate an implementation plan from Status: Planned REQs
-      3. Use TDD: write tests first (with REQ IDs in the test names),
-         then implement
-      4. Push your code — spec-reviewer and doc-updater agents handle SDD
+    Next: I'll enter Plan Mode to lay out a tests-first
+    implementation plan from the Planned REQs. Approve or revise
+    before any source file is written. tdd-guide authors the RED
+    phase; spec-reviewer promotes Planned→Implemented on push.
 
-    To switch modes:
-      /sdd autonomous on            → auto (recommended for solo dev)
-      /sdd autonomous unleashed on  → walk-away mode (PR-based review)
+    Modes: /sdd autonomous on | unleashed on | off
     ```
+
+17. **NEXT ACTION — MANDATORY**: enter Plan Mode. No code, tests, or config under `src/`/`lib/`/`app/`/`pkg/`/`tests/` before Plan Mode. Hard gate. "Build now" / "go" / "execute" / "ship it" authorize starting, never skipping. See `Plan Mode integration` in the `spec-driven-development` skill for the required plan shape.
 
 ### Import Mode (existing codebase)
 
@@ -291,6 +289,8 @@ Modify requirements in an existing domain. Always interactive.
 
 User-authored content gets priority — never block the user on cleanup findings. Cleanup happens later via `/sdd clean`.
 
+**NEXT ACTION — MANDATORY**: if any new/modified REQ is `Planned` or `Partial` and the user intends to implement it, enter Plan Mode. No source files until the plan is approved. See `Plan Mode integration` in the skill.
+
 ---
 
 ## /sdd add {domain}
@@ -308,6 +308,8 @@ Create a new domain. Always interactive.
 7. **Update `sdd/README.md`** domain index
 8. **Update `sdd/glossary.md`** with new terms
 9. **Add changelog entry** to `sdd/changes.md`
+
+**NEXT ACTION — MANDATORY**: after the new domain is written, enter Plan Mode. No source files until the plan is approved. See `Plan Mode integration` in the skill.
 
 ---
 
