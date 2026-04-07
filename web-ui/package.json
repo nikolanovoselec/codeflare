@@ -28,7 +28,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^25.5.0",
     "fast-check": "^4.6.0",
-    "jsdom": "^28.1.0",
+    "jsdom": "^29.0.1",
     "knip": "^5.88.0",
     "oxlint": "^1.56.0",
     "typescript": "^5.9.3",
