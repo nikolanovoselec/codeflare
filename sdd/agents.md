@@ -537,6 +537,8 @@ Multi-agent support, preseed system, and session modes.
 **Verification:** Integration test
 **Status:** Implemented
 
+---
+
 ## REQ-AGENT-021: Spec-Driven Development Workflow (Pro)
 
 **Intent:** Pro users need a workflow that keeps a product specification in lockstep with their codebase without manual maintenance, so the spec remains a trustworthy single source of truth even when development happens at high velocity.
@@ -544,20 +546,15 @@ Multi-agent support, preseed system, and session modes.
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. Pro mode preseeds a `spec-driven-development` skill, a `/sdd` slash command, a `spec-discipline` rule loaded into every agent's instructions, and `spec-reviewer` and `doc-updater` agents.
-2. `/sdd init` scaffolds a new `sdd/` folder from templates regardless of the host project's language or stack; in import mode it derives a spec from existing source code.
-3. Three autonomy modes are selectable via `sdd/config.yml`: `interactive`, `auto`, `unleashed`.
-4. After every push that touches a project containing `sdd/`, `spec-reviewer` runs first and `doc-updater` runs second (sequential, not parallel).
-5. The `auto_demote` setting downgrades requirements marked `Implemented` without test references to `Partial`; opt-in by default, forced `true` in `unleashed` mode.
-6. `/sdd clean` provides a rescue path for rotted specs; in `unleashed` mode it creates a new branch and opens a PR with full audit log as the safety net.
-7. The workflow operates on any project structure — it does not assume Codeflare-specific files, domains, or conventions.
-8. A 2-round commit-cycle limit prevents micro-fix spirals; the `[sdd-clean]` commit tag bypasses round detection so the rescue command does not crash itself.
-9. Conservative JUDGMENT auto-resolution in `unleashed` mode never overwrites spec intent: doc-vs-spec conflicts mark both sides as `Partial`, oversized REQs shrink in place, fake-Deprecated REQs move to "Out of Scope" sections.
+1. Pro mode preseeds the `spec-driven-development` skill, the `/sdd` command, the `spec-discipline` rule (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
+2. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects; in import mode it derives a spec from existing source code.
+3. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via `sdd/config.yml`; auto and unleashed apply fixes silently with the PR-based safety net in unleashed mode.
+4. After every push, `spec-reviewer` runs first then `doc-updater` runs second (sequential, never parallel) on any project containing `sdd/`.
+5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
+6. The workflow is project-agnostic and self-limits to 2 fix rounds per commit cycle to prevent micro-fix spirals.
 
 **Constraints:**
-- The spec-discipline rule is inlined into all 5 agents' instructions because Codex and Copilot lack first-class agent definitions or skill loaders.
-- Status transitions follow strict semantics: `Proposed → Planned → Partial → Implemented → Deprecated`. Deprecated requires `Replaced By` or `Removed In`. Never-built REQs move to "Out of Scope" rather than being deleted.
-- Spec changes are recorded in `sdd/changes.md` with ≤2 sentences per entry, user-facing only.
+- Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the test-coverage auto-demote rule follow `rules/spec-discipline.md`.
 
 **Priority:** P1
 **Dependencies:** REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007

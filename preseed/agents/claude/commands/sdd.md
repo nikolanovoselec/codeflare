@@ -2,7 +2,7 @@
 
 Turn rough product ideas into structured specifications. Keep the spec honest as the project grows. The spec is the single source of truth for **what the product does and why**.
 
-**Read `~/.claude/skills/spec-driven-development/SKILL.md` first.** It documents the structure, format, modes, and workflow. This file handles command parsing and routing.
+The structure, format, modes, and workflow are documented in the `spec-driven-development` skill (`~/.claude/skills/spec-driven-development/SKILL.md` for Claude; the equivalent skills directory for Codex/Gemini/OpenCode; for Copilot the skill is invoked via the `skill` tool by name). This file handles command parsing and routing.
 
 ---
 
@@ -217,11 +217,10 @@ When step 2 detected substantive existing code, the agent enters import mode ins
    - Performance budgets from CI config
    - Compliance markers from privacy/legal files
    - Each becomes a `CON-*` entry in `sdd/constraints.md`
-7. **Run the auto-demote check immediately** (regardless of `auto_demote` setting in config):
-   - For each derived REQ marked `Status: Implemented`, search test files for the REQ ID (which the agent just assigned)
-   - Since this is a fresh import, **no test files reference the REQ IDs** — the agent has not annotated tests yet
-   - **Smarter check for import**: instead of REQ-ID matching, search for the feature name or route path in test files. If found, keep `Implemented`. If not, demote to `Partial` with `Notes: No test coverage found during import analysis`.
-   - This gives the user an honest starting state: which features have tests vs which don't.
+7. **Run the import-time coverage baseline** (this is a one-time pass during `/sdd init` only — future spec-reviewer runs respect the `auto_demote` config setting):
+   - For each derived REQ marked `Status: Implemented`, search test files for the feature name or route path (NOT the REQ ID — the agent has not annotated tests yet, so this is a heuristic match for the import baseline only)
+   - If found, keep `Implemented`. If not, demote to `Partial` with `Notes: No test coverage found during import analysis. Add REQ-{ID} to test names to restore Implemented status.`
+   - Why this is a one-time pass and not the same as the auto-demote rule: import-mode runs once on a fresh spec where no REQ IDs are in tests yet. After import, the user adds REQ IDs to tests over time, and the regular `auto_demote` setting (default `false`) takes over for steady-state runs.
 8. **Present the derived spec for confirmation**, one domain at a time:
    - Show the proposed REQs in the domain
    - Ask: "Does this match what {domain} actually does? Add, remove, or modify any REQs?"

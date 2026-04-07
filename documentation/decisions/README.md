@@ -1,6 +1,6 @@
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD42 throughout the codebase and documentation.
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD44 throughout the codebase and documentation.
 
 **Audience:** Developers
 
@@ -450,7 +450,7 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 **Decision:** Codeflare ships SDD (Spec-Driven Development) as a Pro feature with three autonomy modes (`interactive`, `auto`, `unleashed`), with a universal enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions, and conservative JUDGMENT auto-resolution that never overwrites spec intent. The spec-reviewer and doc-updater agents are project-agnostic and detect `sdd/` automatically.
 
-**Context:** A previous SDD workflow shipped as a skill + agent pair, but real-world use on a separate project (salt-and-water vacation rental site) revealed several failure modes:
+**Context:** A previous SDD workflow shipped as a skill + agent pair, but real-world use on a downstream project revealed several failure modes:
 
 - changes.md grew to 2,517 lines / 159 entries because the spec-reviewer agent treated every commit as a "verification pass" event
 - 16 of 91 requirements were marked Deprecated as a graveyard for never-built ideas instead of actual deprecations

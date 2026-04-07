@@ -8,7 +8,7 @@ version: 4.0.0
 
 A product specification (`sdd/`) is the single source of truth for **what the product does and why**. It is not a record of what the code currently does. It is not a bug tracker. It is not a changelog of every commit.
 
-The full enforcement layer lives in `~/.claude/rules/spec-discipline.md` and is loaded into every agent's instructions automatically. **Read that file first.** This skill describes the workflow on top of those rules.
+The full enforcement layer lives in the `spec-discipline` rule which is loaded into every agent's instructions automatically (inlined into the always-loaded instructions file for non-Claude agents, or read directly from `~/.claude/rules/spec-discipline.md` for Claude). The rules are already in your context. This skill describes the workflow on top of those rules.
 
 ## How it works at a glance
 

@@ -17,13 +17,18 @@ if [[ ! "$COMMAND" =~ git.*push ]]; then
 fi
 
 # Build reminder based on what exists
-REMINDER="IMPORTANT: git-workflow rule requires running review agents in parallel with this push. Launch these background agents NOW (in this same response, alongside the push):"
-REMINDER="$REMINDER 1) code-reviewer agent on the changes being pushed."
-REMINDER="$REMINDER 2) doc-updater agent to check if documentation/ needs updates."
+# Execution order: code-reviewer in parallel with the others (lane: source code).
+# spec-reviewer FIRST among docs/spec agents (only if sdd/ exists).
+# doc-updater SECOND, AFTER spec-reviewer completes (sequential because they share files).
+REMINDER="IMPORTANT: git-workflow rule requires running review agents alongside this push. Launch these background agents NOW (in this same response):"
+REMINDER="$REMINDER 1) code-reviewer agent on the changes being pushed (runs in parallel — own lane: source code)."
 
-# Check if sdd/ exists for conditional 3rd agent
-if [ -d "sdd" ] || [ -d "$HOME/workspace/*/sdd" ] 2>/dev/null; then
-  REMINDER="$REMINDER 3) spec-reviewer agent to update sdd/ if code changes affect requirements."
+# Check if sdd/ exists for conditional spec-reviewer + sequential doc-updater
+if [ -d "sdd" ]; then
+  REMINDER="$REMINDER 2) spec-reviewer agent FIRST to update sdd/ (only if sdd/ exists)."
+  REMINDER="$REMINDER 3) doc-updater agent SECOND, AFTER spec-reviewer completes — they share files in sdd/+documentation/ so they MUST run sequentially, never in parallel."
+else
+  REMINDER="$REMINDER 2) doc-updater agent to check if documentation/ needs updates."
 fi
 
 REMINDER="$REMINDER Also start CI monitoring in background after push completes."

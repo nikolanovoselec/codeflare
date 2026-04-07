@@ -177,12 +177,12 @@ In `unleashed` mode, `auto_demote: true` is forced because the PR review is the 
 Spec-reviewer and doc-updater self-limit to prevent infinite micro-fix spirals:
 
 1. At the start of every run, check the last 3 commits via `git log -3 --format="%s"`
-2. Count commits whose subject starts with `[sdd-clean]`, `[autonomous]`, `[unleashed]`, or `[spec-reviewer]`
+2. Count commits whose subject starts with `[autonomous]`, `[unleashed]`, or `[spec-reviewer]` — **NOT `[sdd-clean]`**, which is explicitly excluded
 3. If ≥2 of the last 3 commits are agent-authored on the **same target REQ-ID or category**, hard stop
 4. Write the would-be findings to `sdd/.review-needed.md` and exit
 5. The counter resets when a non-agent commit lands (real user code or manual edits)
 
-Commits made by `/sdd clean` are tagged `[sdd-clean]` and **excluded** from the round detection — `/sdd clean` may make many commits in succession without triggering the limit on itself. The next push after `/sdd clean` is round 1, not round 3.
+Commits made by `/sdd clean` are tagged `[sdd-clean]` and **excluded** from the round detection — `/sdd clean` may make many commits in succession without triggering the limit on itself. The next push after `/sdd clean` is round 1, not round 3. Doc-updater applies the same exclusion rule.
 
 ## Spiral detection across runs
 
