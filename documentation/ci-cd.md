@@ -10,6 +10,12 @@ GitHub Actions workflows, test suites, E2E infrastructure, and deployment pipeli
 
 Eight workflows covering deploy, testing, fuzzing, penetration testing, stress testing, and supply chain security. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
 
+### Dependabot Configuration
+
+Dependabot runs weekly against the `develop` branch for three npm package directories (`/`, `/web-ui`, `/host`), Docker images, and GitHub Actions.
+
+**Node Docker image major updates are ignored.** The `docker.io/library/node` and `public.ecr.aws/docker/library/node` images are pinned to suppress semver-major proposals. Dependabot would otherwise propose Node Current (odd, non-LTS) releases such as Node 25. Node major upgrades are handled manually when a new LTS version is released (even major: 22, 24, 26, ...).
+
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | Push to `main` + `workflow_dispatch` (production/integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets |
