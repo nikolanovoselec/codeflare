@@ -31,7 +31,7 @@ When `sdd/` exists, tests are derived from the REQ's acceptance criteria — one
    - Empty bodies: `it(..., () => {})`, `it(..., () => { /* TODO */ })`, `def test_foo(): pass`
    - Skipped tests: `.skip`, `xit`, `xdescribe`, `test.skip`, `it.skip`, `@pytest.mark.skip`, `#[ignore]`, `t.Skip()` — tests must run
    - Single-assertion placeholders that don't exercise the AC
-4. **RED verification is mandatory.** Before any implementation is written, run the test and observe it fail. Log the failure output to the conversation so the user sees RED was confirmed. If the test passes immediately → the test is wrong, the feature already exists, or you are testing a tautology. Fix the test until it genuinely fails for the right reason.
+4. **RED verification is mandatory.** Before any implementation is written, push the test alone and monitor CI. Observe the test fail in CI and log the failure output to the conversation so the user sees RED was confirmed. Do not run tests locally — always use CI and monitor. If the test passes immediately on CI → the test is wrong, the feature already exists, or you are testing a tautology; fix the test until it genuinely fails for the right reason.
 5. **Edge cases from the REQ.** For each AC bullet, enumerate the null, empty, invalid, boundary, error, and unauthorized cases implied by the contract. Write tests for each. The "Edge Cases You MUST Test" list below is the floor, not the ceiling.
 
 ## Source annotation (when `sdd/` exists)

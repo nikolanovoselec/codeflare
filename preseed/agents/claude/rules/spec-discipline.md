@@ -164,7 +164,7 @@ Both `spec-reviewer` and `doc-updater` agents tag every finding with severity:
 
 Every REQ marked `Status: Implemented` must have at least one test file referencing its REQ ID. Every REQ with source code must have tests covering its acceptance criteria. Both rules are enforced by spec-reviewer when `enforce_tdd: true` in `sdd/config.yml` (default: `true`).
 
-**Test discovery** uses `test_globs` from `sdd/config.yml` (default list covers `tests/**/*.test.{ts,js,tsx,jsx,mjs}`, `__tests__/**/*`, `tests/e2e/**`, `playwright/**`, `*_test.{py,go,rb}`, `test_*.py`, and similar conventions).
+**Test discovery** uses `test_globs` from `sdd/config.yml`. The full default list is defined in the `sdd-config.yml` template and covers vitest/jest (`tests/**/*.test.*`, `tests/**/*.spec.*`, `test/**/*.test.*`, `__tests__/**/*`), pytest (`test_*.py`, `*_test.py`), go test (`*_test.go`), rspec (`*_test.rb`), cypress (`cypress/**`), and playwright (`playwright/**`, `tests/e2e/**`, `e2e/**`).
 
 **Source discovery** uses a built-in default list (`src/**`, `lib/**`, `app/**`, `pkg/**`, `cmd/**`, `internal/**` minus `test_globs` minus `node_modules`/`dist`/`.git`/`build`/`target`). Projects can override via an optional `src_globs` field.
 

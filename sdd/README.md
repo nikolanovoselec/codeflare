@@ -55,6 +55,6 @@ Codeflare is an ephemeral cloud IDE that runs AI coding agents in isolated conta
 
 1. New requirements are added to the relevant domain file
 2. Each requirement has an ID, intent, acceptance criteria, and constraints
-3. Implementation is planned from the spec (`/plan`)
+3. Implementation is planned from the spec via Plan Mode
 4. After implementation, documentation is updated
 5. Tests verify acceptance criteria

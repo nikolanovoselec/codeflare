@@ -115,7 +115,7 @@ Run these checks against the post-Phase-1 spec:
    - **Optional override**: `src_globs` in `sdd/config.yml` replaces the default list
    - Classify and act:
      - Source present + test present → OK (no finding)
-     - Source present + test absent → HIGH finding: *"REQ-X-NNN has source code at {file}:{line} but no test file references it. Invoke `tdd-guide` to write failing tests from the REQ's acceptance criteria."* If Status is `Planned` → auto-promote to `Partial` with `Notes: "Code exists but no test verifies it."` If Status is `Implemented` → existing 5a rule handles it.
+     - Source present + test absent → HIGH finding: *"REQ-X-NNN has source code at {file}:{line} but no test file references it. Invoke `tdd-guide` to write failing tests from the REQ's acceptance criteria."* If Status is `Planned` → auto-promote to `Partial` with `Notes: "Code exists but no test verifies it."` If Status is `Partial` → HIGH finding only, no status change (Status already reflects the gap). If Status is `Implemented` → existing 5a rule handles it.
      - Source absent + test present → LOW finding: *"Dead test — REQ-X-NNN has tests but no source code."*
      - Source absent + test absent → no finding (legitimate Planned/Proposed REQ not yet started)
    - Both 5a and 5b are behavioral observations → changelog entries when they fire

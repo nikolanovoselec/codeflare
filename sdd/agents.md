@@ -141,7 +141,7 @@ Multi-agent support, preseed system, and session modes.
 | git-push-review-reminder hook (Claude Code only) | No | Yes |
 | Language rules (23 files: common, TS, Python, Go, Swift) | No | Yes |
 | Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes |
-| Commands (6: /brainstorm, /debug, /deploy, /plan, /review, /sdd) | No | Yes |
+| Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes |
 | Cherry-picked skills (14: api-design, backend-patterns, spec-driven-development, etc.) | No | Yes |
 | Known marketplaces plugin config | Yes | Yes |
 
@@ -554,7 +554,7 @@ Multi-agent support, preseed system, and session modes.
 6. The workflow is project-agnostic and self-limits to 2 fix rounds per commit cycle to prevent micro-fix spirals.
 
 **Constraints:**
-- Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the test-coverage auto-demote rule follow `rules/spec-discipline.md`.
+- Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
 
 **Priority:** P1
 **Dependencies:** REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007
