@@ -64,7 +64,10 @@ jobs:
         working-directory: web-ui
 
       - name: Run backend tests
-        run: npm test
+        # @cloudflare/vitest-pool-workers hard-codes a `[vpw:info] Starting runtime for ...`
+        # log on every test file (LogLevel.VERBOSE, no config to silence). Filter the spam
+        # so the CI test output stays readable. set -o pipefail keeps the exit code from npm.
+        run: set -o pipefail && npm test 2>&1 | grep -v -F '[vpw:info] Starting runtime for'
 
       - name: Run frontend tests
         run: npm test

@@ -94,9 +94,17 @@ describe('ECC rules in agent-seed', () => {
     }
   });
 
+  // Rules that are intentionally advanced-mode-only (Pro features).
+  // memory.md depends on the MCP memory server.
+  // spec-discipline.md is part of the Pro-mode SDD workflow (REQ-AGENT-021).
+  const ADVANCED_ONLY_CODEFLARE_RULES = [
+    '.claude/rules/memory.md',
+    '.claude/rules/spec-discipline.md',
+  ];
+
   it('non-memory codeflare rules have default+advanced modes', () => {
     const cfRules = codeflareRules().filter(
-      (doc) => doc.key !== '.claude/rules/memory.md'
+      (doc) => !ADVANCED_ONLY_CODEFLARE_RULES.includes(doc.key)
     );
     expect(cfRules.length).toBeGreaterThan(0);
     for (const rule of cfRules) {
@@ -111,6 +119,14 @@ describe('ECC rules in agent-seed', () => {
     );
     expect(memoryRule).toBeDefined();
     expect(memoryRule!.modes).toEqual(['advanced']);
+  });
+
+  it('spec-discipline rule is advanced-only (Pro-mode SDD workflow)', () => {
+    const specDisciplineRule = codeflareRules().find(
+      (doc) => doc.key === '.claude/rules/spec-discipline.md'
+    );
+    expect(specDisciplineRule).toBeDefined();
+    expect(specDisciplineRule!.modes).toEqual(['advanced']);
   });
 
   it('total ECC rules count is 19', () => {
