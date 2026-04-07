@@ -23,6 +23,14 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    ignore:
+      # Stay on Node LTS (even majors: 22, 24, 26, ...). Dependabot kept proposing
+      # Node 25 Current (non-LTS), which should not ship to the production Container DO.
+      # Revisit manually when Node 26 LTS is released.
+      - dependency-name: "docker.io/library/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "public.ecr.aws/docker/library/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
