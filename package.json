@@ -42,7 +42,7 @@
     "fast-check": "^4.6.0",
     "knip": "^5.86.0",
     "oxlint": "^1.55.0",
-    "puppeteer": "^24.39.1",
+    "puppeteer": "^24.40.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.0",
     "wrangler": "^4.75.0"
