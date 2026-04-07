@@ -21,6 +21,10 @@ export default defineConfig({
           'enable_nodejs_fs_module',
           'enable_nodejs_http_modules',
           'enable_nodejs_perf_hooks_module',
+          // Required by the Vitest runner — explicit so the pool doesn't
+          // auto-inject (and log [vpw:debug] noise) on every test file.
+          'enable_nodejs_v8_module',
+          'enable_nodejs_process_v2',
         ],
       },
       wrangler: { configPath: './wrangler.toml' },
