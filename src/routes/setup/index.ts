@@ -229,9 +229,21 @@ app.post('/configure', async (c) => {
       await runStep('configure_custom_domain', () =>
         handleConfigureCustomDomain(token, accountId, customDomain, c.req.url, steps, workerName)
       );
-      await runStep('create_access_app', () =>
-        handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE))
-      );
+      // Issue #140: Skip CF Access provisioning when GitHub OIDC is configured.
+      // In SaaS + OIDC mode, the Worker handles authentication directly via the
+      // github-auth routes and the requireIdentity middleware. Creating a CF Access
+      // application on the same domain causes CF Access to intercept all requests
+      // before the Worker runs, breaking the OIDC login flow.
+      const useGithubOidc = isSaasModeActive(c.env.SAAS_MODE) && c.env.OAUTH_CLIENT_ID;
+      if (useGithubOidc) {
+        // No-op runStep keeps SSE progress events flowing (running → success)
+        // so the wizard UI advances naturally. No CF Access resources are created.
+        await runStep('create_access_app', async () => { /* skipped: GitHub OIDC handles auth */ });
+      } else {
+        await runStep('create_access_app', () =>
+          handleCreateAccessApp(token, accountId, customDomain, allowedUsers, adminUsers, steps, c.env.KV, workerName, isSaasModeActive(c.env.SAAS_MODE))
+        );
+      }
 
       const onboardingLandingActive = isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE);
       const saasMode = isSaasModeActive(c.env.SAAS_MODE);
