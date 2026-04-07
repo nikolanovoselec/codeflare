@@ -1,6 +1,6 @@
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD42 throughout the codebase and documentation.
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD44 throughout the codebase and documentation.
 
 **Audience:** Developers
 
@@ -53,6 +53,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD41](#ad41-custom-tier-uses-contact-flow-not-self-service-checkout) | Custom tier uses contact flow (not self-service checkout) | Billing |
 | [AD42](#ad42-unauthenticated-first-setbucketname-call-cf-010) | Unauthenticated first setBucketName call (CF-010) | Security |
 | [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Parse-and-exclude vanishing files before escalating to nuke | Storage |
+| [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | SDD three-mode autonomy with conservative JUDGMENT resolution | Architecture |
 
 ---
 
@@ -440,6 +441,68 @@ The race condition is: rclone lists a file at path X, then the file is deleted (
 Non-workspace files are auto-excluded because they are config/cache files that will regenerate. Workspace files (user code) are not auto-excluded — they get a plain retry on the assumption the file reappeared after a save completed. Known ephemeral files (`.claude/mcp-*.json` — MCP auth cache with millisecond lifetime) are statically excluded from `RCLONE_FILTERS_COMMON` to prevent the race from occurring at all.
 
 The recovery applies at both call sites: `establish_bisync_baseline()` (startup) and `bisync_with_r2()` (daemon). The filter file is initialized empty on every container start via `init_recovery_filters()`.
+
+---
+
+### AD44: SDD three-mode autonomy with conservative JUDGMENT resolution
+
+**Category:** Architecture
+
+**Decision:** Codeflare ships SDD (Spec-Driven Development) as a Pro feature with three autonomy modes (`interactive`, `auto`, `unleashed`), with a universal enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions, and conservative JUDGMENT auto-resolution that never overwrites spec intent. The spec-reviewer and doc-updater agents are project-agnostic and detect `sdd/` automatically.
+
+**Context:** A previous SDD workflow shipped as a skill + agent pair, but real-world use on a downstream project revealed several failure modes:
+
+- changes.md grew to 2,517 lines / 159 entries because the spec-reviewer agent treated every commit as a "verification pass" event
+- 16 of 91 requirements were marked Deprecated as a graveyard for never-built ideas instead of actual deprecations
+- Status fields contained multi-line prose with commit SHAs
+- Implementation details (hex codes, CSS class names, function names, file paths, env vars) leaked into REQs in 800+ places
+- 35 of 37 Implemented REQs had no test coverage (the spec lied about verification)
+- The micro-fix loop produced 485 commits for 5,976 lines of source code
+- The doc-updater agent was hardcoded to Codeflare's specific file structure and couldn't help other projects
+- Codex users got no agent enforcement (no agent files), Copilot users got no skill loading (skill mechanism is opaque)
+
+**Alternatives considered:**
+
+1. **Single mode** with strict enforcement and no auto-resolution. Rejected: too rigid for users who want walk-away workflows.
+2. **Two modes** (interactive + auto). Rejected: users who trust the agent fully need a third mode that handles JUDGMENT calls without escalating; but auto would be unsafe if it auto-resolved JUDGMENT.
+3. **Three modes with "code wins" auto-resolution in unleashed**. Rejected after design review (opus ultrathink): "code wins" overwrites spec intent and turns the spec into a passive description of whatever the code happens to do, defeating "single source of truth".
+4. **Per-run change cap** (max 50 fixes per run). Rejected: contradicts the walk-away intent of unleashed mode.
+5. **Dry-run gate by default** for /sdd clean. Rejected for unleashed mode: contradicts walk-away. Replaced by PR-based safety net (unleashed creates a new branch + PR; user reviews when they return).
+
+**Rationale:**
+
+- **Three modes** map to three user types: new SDD users (interactive), solo developers in steady-state (auto), trusting power users with PR review habits (unleashed).
+- **Conservative JUDGMENT auto-resolution in unleashed**: doc-vs-spec conflicts mark BOTH sides as `Partial` with `Notes:` (never overwrite intent); oversized REQs shrink in place by extracting implementation prose to docs (never split, since LLMs cannot reliably preserve meaning when splitting); fake-Deprecated REQs move to README "Out of Scope" section (never delete, satisfying the existing "never delete" rule).
+- **PR-based safety net** for unleashed mode: walk-away users get reviewable surface (PR description has full audit log), and rollback is "close the PR" — the working branch is never touched.
+- **Universal enforcement layer** (`rules/spec-discipline.md`) inlined into every agent's instructions file ensures Codex (no agent files) and Copilot (no skill loading) get the same discipline as Claude.
+- **Project-agnostic agent refactor**: spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings, read `documentation/README.md` to discover the project's actual file structure, and detect `sdd/` to switch between SDD-strict and docs-only modes.
+- **Sequential execution** (spec-reviewer first, doc-updater second) prevents race conditions on shared files.
+- **2-round commit-cycle limit** with `[sdd-clean]` tag exclusion catches micro-fix spirals without crashing the rescue command itself.
+- **Auto-demote rule** (Implemented → Partial without test coverage) is opt-in via `sdd/config.yml` to avoid mass-demoting existing projects on first install. Forced `true` in unleashed mode where the PR review is the safety net.
+- **Template scaffolding** in `references/templates/` lets `/sdd init` bootstrap any project with no external dependencies.
+
+**Trade-offs accepted:**
+
+- The unleashed mode's conservative defaults will sometimes mark a REQ as `Partial` when the user knows it's `Implemented` (e.g., visual design REQs without unit tests). The user adds an entry to `sdd/.user-overrides.md` and it's not re-attempted.
+- The PR-based safety net adds friction for users who want true zero-touch (the PR has to be merged manually). Acceptable trade-off for the rollback story.
+- The forbidden-content allowlist requires per-project tuning for projects that legitimately use vendor names, protocol names, or HTTP status codes in their REQs. Configurable via `sdd/config.yml`.
+
+**Related requirements:**
+
+- REQ-AGENT-005 (Pro mode preseed inventory)
+- REQ-AGENT-006 (preseed bundle generation)
+- REQ-AGENT-007 (per-agent adaptation pipeline)
+- REQ-AGENT-014 (manifest as single source of truth)
+- REQ-AGENT-021 (SDD workflow as Pro feature) — added in this overhaul
+
+**Implementation references:**
+
+- `preseed/agents/claude/rules/spec-discipline.md` (universal enforcement layer)
+- `preseed/agents/claude/skills/spec-driven-development/SKILL.md` (workflow + modes documentation)
+- `preseed/agents/claude/skills/spec-driven-development/references/templates/` (scaffolding templates for /sdd init)
+- `preseed/agents/claude/agents/spec-reviewer.md` (project-agnostic spec-reviewer agent)
+- `preseed/agents/claude/agents/doc-updater.md` (project-agnostic doc-updater agent)
+- `preseed/agents/claude/commands/sdd.md` (sub-command dispatcher with help screen)
 
 ---
 

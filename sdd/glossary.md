@@ -45,3 +45,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Entrypoint | entrypoint.sh — container initialization script handling sync, config, and terminal server startup |
 | Recovery Filter | Session-scoped rclone filter file (`/tmp/rclone-recovery-filters.txt`) that dynamically excludes transient files which vanish between listing and copy, preventing bisync fatal errors |
 | Scoped R2 Token | Per-user R2 API token restricted to that user's bucket only |
+| Spec Discipline | The universal SDD enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions; activates only when `sdd/` exists in the project |
+| Autonomy Mode | One of `interactive`, `auto`, or `unleashed` set in `sdd/config.yml`; controls how aggressively spec-reviewer and doc-updater apply fixes without human confirmation |
+| Auto-Demote | The rule that downgrades a requirement from `Implemented` to `Partial` when no test file references its REQ ID; opt-in via `auto_demote: true` in `sdd/config.yml`, forced `true` in unleashed mode |
+| Import Mode | The `/sdd init` mode that activates when an existing codebase is detected; derives a spec from observed code behavior instead of bootstrapping from prose |

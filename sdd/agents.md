@@ -8,7 +8,7 @@ Multi-agent support, preseed system, and session modes.
 |---------|-----------|
 | Agent | One of six supported AI coding tools (`claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
 | Preseed | A set of configuration files (rules, skills, agents, commands, plugins) generated from a single Claude Code source of truth and deployed to each user's R2 bucket |
-| Session Mode | Either Standard (`default`, 25 preseed files) or Pro (`advanced`, 127 preseed files) controlling the scope of agent enhancements seeded to a user's storage |
+| Session Mode | Either Standard (`default`, 25 preseed files) or Pro (`advanced`, 180 preseed files) controlling the scope of agent enhancements seeded to a user's storage |
 | Manifest | The declarative `manifest.json` file that maps each preseed source file to its applicable modes and drives the code generation pipeline |
 
 ### Out of Scope
@@ -146,7 +146,7 @@ Multi-agent support, preseed system, and session modes.
 | Known marketplaces plugin config | Yes | Yes |
 
 1. Default mode seeds 25 files to R2.
-2. Advanced mode seeds 127 files to R2.
+2. Advanced mode seeds 180 files to R2.
 3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
 4. Pro mode registers hooks in `settings.json` (PreToolUse for commit attribution blocking, PreToolUse for git-push review reminders, UserPromptSubmit for memory capture); Standard mode merges only `skipDangerousModePermissionPrompt`.
 
@@ -172,7 +172,7 @@ Multi-agent support, preseed system, and session modes.
 3. `scripts/generate-agent-seed.mjs` reads the manifest and source files, generating `src/lib/agent-seed.generated.ts` with an `AGENTS_SEEDED_CONFIGS` array.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
-6. Total generated output is 131 documents across all 5 agents.
+6. Total generated output is 184 documents across all 5 agents.
 
 **Constraints:**
 - The generator must be re-run when preseed source files or the manifest change.
@@ -205,13 +205,13 @@ Multi-agent support, preseed system, and session modes.
 - Hooks, commands, and plugins are excluded from non-CC agents (they are CC-specific features).
 - `rules/memory.md` and `consult-llm` skill are excluded from non-CC agents (they depend on CC-specific MCP).
 
-| Agent | Instructions | Skills | Agents | Total Documents |
-|-------|-------------|--------|--------|-----------------|
-| Claude Code | 0 (individual rules) | 14 | 8 | 60 |
-| Codex | 2 (default+advanced) | 13 | 0 | 15 |
-| Gemini | 2 | 13 | 8 | 23 |
-| Copilot | 2 | 0 | 8 | 10 |
-| OpenCode | 2 | 13 | 8 | 23 |
+| Agent | Total Documents |
+|-------|-----------------|
+| Claude Code | 74 |
+| Codex | 28 |
+| Gemini | 36 |
+| Copilot | 10 |
+| OpenCode | 36 |
 
 **Applies To:** User
 **Priority:** P1
@@ -389,7 +389,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 1. `preseed/agents/claude/manifest.json` is the single declaration of all preseed files and their mode assignments.
-2. The manifest contains 60 total entries across: rules (24), agents (8), commands (6), skills (14), plugins (8).
+2. The manifest contains 74 total entries across: rules (25, including spec-discipline), agents (8), commands (6), skills (27, including 13 SDD scaffolding templates), plugins (8).
 3. Each entry specifies `"modes"` as an array of `"default"`, `"advanced"`, or both.
 4. The generator script (`scripts/generate-agent-seed.mjs`) is manifest-driven and ignores files not in the manifest.
 5. The generated output (`src/lib/agent-seed.generated.ts`) contains the `AGENTS_SEEDED_CONFIGS` array used at runtime.
@@ -535,4 +535,28 @@ Multi-agent support, preseed system, and session modes.
 **Priority:** P1
 **Dependencies:** REQ-AGENT-009
 **Verification:** Integration test
+**Status:** Implemented
+
+---
+
+## REQ-AGENT-021: Spec-Driven Development Workflow (Pro)
+
+**Intent:** Pro users need a workflow that keeps a product specification in lockstep with their codebase without manual maintenance, so the spec remains a trustworthy single source of truth even when development happens at high velocity.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. Pro mode preseeds the `spec-driven-development` skill, the `/sdd` command, the `spec-discipline` rule (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
+2. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects; in import mode it derives a spec from existing source code.
+3. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via `sdd/config.yml`; auto and unleashed apply fixes silently with the PR-based safety net in unleashed mode.
+4. After every push, `spec-reviewer` runs first then `doc-updater` runs second (sequential, never parallel) on any project containing `sdd/`.
+5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
+6. The workflow is project-agnostic and self-limits to 2 fix rounds per commit cycle to prevent micro-fix spirals.
+
+**Constraints:**
+- Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the test-coverage auto-demote rule follow `rules/spec-discipline.md`.
+
+**Priority:** P1
+**Dependencies:** REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007
+**Verification:** Manual check
 **Status:** Implemented

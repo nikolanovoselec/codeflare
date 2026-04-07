@@ -1,142 +1,396 @@
 # Spec-Driven Development
 
-Turn a rough product idea into a structured specification. The user describes what they want — you do the heavy lifting.
+Turn rough product ideas into structured specifications. Keep the spec honest as the project grows. The spec is the single source of truth for **what the product does and why**.
 
-## Sub-Commands
-
-| Command | Purpose |
-|---------|---------|
-| `/sdd` or `/sdd init` | Create a new spec from a product idea |
-| `/sdd edit {domain}` | Add or modify requirements in a domain |
-| `/sdd check` | Validate spec quality |
-| `/sdd add {domain}` | Add a new domain to an existing spec |
-
-## Core Principle
-
-**You propose, the user confirms.** Never ask an open-ended question without suggesting an answer. Draft everything — vision, domains, requirements, constraints — and present it for the user to accept, reject, or tweak.
-
-**HARD GATE: No implementation during spec creation.**
+The structure, format, modes, and workflow are documented in the `spec-driven-development` skill (`~/.claude/skills/spec-driven-development/SKILL.md` for Claude; the equivalent skills directory for Codex/Gemini/OpenCode; for Copilot the skill is invoked via the `skill` tool by name). This file handles command parsing and routing.
 
 ---
 
-## `/sdd init` — Create a New Spec
+## When the user types `/sdd` with no arguments
 
-### What the user gives you
+Print this help screen and exit. Do not invoke any sub-command unless the user provides one.
 
-A rough idea. Could be one sentence ("I want a task manager for teams") or a paragraph. Could be vague ("something like Notion but simpler") or specific. Take whatever you get.
+```
+# Spec-Driven Development
 
-### What you do
+SDD turns rough product ideas into structured specifications, then keeps them
+honest as the project grows. The spec (sdd/ folder) is the single source of
+truth for what the product does and why.
 
-**1. Draft the vision.** From the user's description, write a one-paragraph product vision. Include who it's for and what problem it solves. Present it:
+## Sub-commands
 
-> "Here's what I think you're describing: [vision]. Is that right, or should I adjust?"
+  /sdd init [idea]      Bootstrap a new project from a product idea.
+                        Creates sdd/, documentation/, root README, tests/,
+                        and sdd/config.yml. Always interactive (you confirm
+                        the vision and domains).
 
-**2. Propose actors.** From the vision, identify who interacts with the product (users, admins, external systems). Present a table:
+  /sdd edit {domain}    Add or modify requirements in an existing domain.
+                        Always interactive — adding requirements requires
+                        user input, even in auto/unleashed mode.
 
-> "I see these actors: [table]. Anyone missing?"
+  /sdd add {domain}     Create a new domain in an existing spec.
+                        Always interactive.
 
-**3. Map the user journey.** Ask ONE question:
+  /sdd clean            Refactor a rotted spec. Detects implementation
+                        leakage, fake-Deprecated REQs, prose Status fields,
+                        oversized REQs, bloated changelogs. Mode-aware.
 
-> "Walk me through what happens from the moment someone first opens this until they're using it daily."
+  /sdd autonomous       Set the autonomy mode in sdd/config.yml.
+                        Subcommands: on | off | unleashed | status
 
-From the answer, extract nouns and verbs. If the user is brief, propose a journey yourself and ask if it's right.
+  /sdd                  This help screen.
 
-**4. Propose domains.** Group the journey into 5-12 feature domains. Present as a table with descriptions and priorities:
+## Three autonomy modes
 
-> "I'd break this into these domains: [table]. Want to add, remove, or rename any?"
+  interactive  (default)
+    Confirm every change before applying. Safe for new SDD users and
+    high-stakes specs. /sdd clean reports findings and asks per-batch.
 
-**5. Propose principles.** Based on everything so far, draft 3-7 design principles. These should be specific to this product, not generic. Present them:
+  auto
+    SAFE and RISKY fixes auto-applied silently on the current branch.
+    JUDGMENT items escalate to sdd/.review-needed.md for later review.
+    Recommended for solo developers in steady-state.
 
-> "These principles would guide every decision: [list]. Anything to change?"
+  unleashed
+    Walk-away mode. /sdd clean creates a new branch, applies SAFE +
+    RISKY + JUDGMENT fixes (using conservative defaults that preserve
+    information without overwriting intent), commits per category,
+    opens a PR. You walk away. You come back to a PR — review and
+    merge or close.
 
-**6. Draft requirements.** For each domain, draft 5-15 requirements with full format (Intent, Applies To, Acceptance Criteria, Constraints, Priority, Dependencies, Verification, Status: Planned). Present one domain at a time:
+  /sdd autonomous on            → set mode = auto
+  /sdd autonomous unleashed on  → set mode = unleashed
+  /sdd autonomous off           → set mode = interactive
+  /sdd autonomous status        → show current mode + recent overrides
 
-> "Here's what I think {domain} needs: [requirements]. What's missing? What's wrong?"
+## Auto-detection (no /sdd invocation needed)
 
-For each requirement, actively propose edge cases and failure modes:
+Once a project has an sdd/ folder, the workflow runs automatically.
+After every git push:
+  • spec-reviewer agent updates sdd/ to match the code
+  • doc-updater agent updates documentation/ to match the code
+  • Both agents read sdd/config.yml to know the autonomy level
+  • Both agents respect sdd/.user-overrides.md to skip findings you
+    explicitly told them to ignore
 
-> "What should happen if [failure case]? I'd suggest [proposed behavior]."
+If sdd/ doesn't exist, spec-reviewer exits silently and doc-updater
+runs in docs-only mode (project-agnostic doc maintenance).
 
-**7. Draft constraints.** Propose the technology stack (based on what you know about the user's deployment target), security/performance/reliability guardrails, and boundaries. Give each constraint a CON-* ID:
+## Quick start
 
-> "Here are the guardrails I'd set: [constraints]. Anything too strict or too loose?"
+  New project from an idea     /sdd init "vacation rental site for Pasman"
+  Existing rotted spec         /sdd clean
+  Vibe code on a project       (just write code — agents handle SDD)
+  Switch off interactive mode  /sdd autonomous on
+  Walk-away cleanup            /sdd autonomous unleashed on; /sdd clean
 
-**8. Write the spec.** Create `sdd/` with all files. Add glossary terms, changelog entry, and out-of-scope sections.
+## Where settings live
 
-Present the final structure and wait for approval.
+  sdd/config.yml         mode: interactive | auto | unleashed
+                         auto_demote: true | false
+                         test_globs: [...]
+                         forbidden_content_allowlist: {...}
 
-### Tips for the agent
+  sdd/.user-overrides.md Findings you told the agent to skip (committed)
+  sdd/.review-needed.md  Findings escalated for human review (committed)
+  sdd/.coverage-report.md Output of auto_demote: false runs (committed)
+  sdd/.last-clean-run.md Audit log of the most recent /sdd clean run
 
-- **Infer aggressively.** If the user says "a blog," you know it needs posts, authors, comments, tags, admin panel, RSS feed. Propose all of it — let them cut what they don't want.
-- **Propose, don't interrogate.** Bad: "What authentication do you need?" Good: "I'd use email/password with optional OAuth. Sound right?"
-- **Name the actors early.** Every requirement should say who it applies to.
-- **P0 first.** Draft the core workflow as P0, admin/config as P1, polish as P2, stretch as P3.
-- **Failure modes matter.** For every P0 requirement, ask yourself "what happens when this fails?" and include a criterion for it.
-- **One question at a time.** Never dump multiple questions. Present a proposal and ask one thing.
+## Reference
+
+  Skill:    ~/.claude/skills/spec-driven-development/SKILL.md
+  Rules:    ~/.claude/rules/spec-discipline.md (loaded into all agents)
+  Templates: ~/.claude/skills/spec-driven-development/references/templates/
+```
 
 ---
 
-## `/sdd edit {domain}` — Edit a Domain
+## /sdd init
 
-Add or modify requirements in an existing domain:
+Bootstrap a new project. Always interactive — you confirm the vision before any files are written.
 
-1. Read `sdd/README.md`, `sdd/constraints.md`, `sdd/glossary.md` for context
-2. Read `sdd/{domain}.md` for existing requirements
-3. Ask the user what they want to add or change
-4. Draft new/modified requirements and present for confirmation
-5. Write the updated domain file
-6. Update glossary and changelog
+### Behavior
+
+1. **Check for existing sdd/**: if `sdd/` already exists, abort with:
+   ```
+   Error: sdd/ already exists in this project.
+   To rescue an existing rotted spec, use /sdd clean.
+   To overwrite (destructive), use /sdd init --force.
+   ```
+2. **Detect existing code**: check for substantive source code in the project
+   - Look for `src/`, `lib/`, `app/`, `pkg/`, language-specific directories
+   - Look for project files: `package.json`, `Cargo.toml`, `go.mod`, `requirements.txt`, `pyproject.toml`, `Gemfile`, `pom.xml`, etc.
+   - Count source files (`.py`, `.ts`, `.tsx`, `.js`, `.go`, `.rs`, `.rb`, `.java`, etc.) — if >5 source files exist, treat as **existing codebase**
+3. **Branch on detection**:
+   - **Empty or near-empty project** → continue to step 4 (greenfield bootstrap)
+   - **Existing codebase detected** → switch to **import mode** (jump to "Import Mode" section below)
+4. **Read the user's input**: `$ARGUMENTS` may contain a one-sentence idea, a paragraph, or be empty
+5. **If empty**, ask: "What are you building? Describe in plain language — a sentence is enough."
+6. **Draft a vision** from the prose. Present for confirmation:
+   > "Here's what I think you're describing: {vision}. Is that right, or should I adjust?"
+7. **Propose actors**. Use User and Admin as defaults. "System" is a qualifier, not an actor. Present a table.
+8. **Map the journey**. Ask one question:
+   > "Walk me through what happens from the moment someone first opens this until they're using it daily."
+   From the answer, extract domains. If the user is brief, propose a journey yourself.
+9. **Propose 5-12 domains** with one-line descriptions and priorities. Present as a table.
+10. **Propose 3-7 design principles** specific to this product (not generic).
+11. **Draft requirements** for each domain (5-15 per domain). Present one domain at a time. Confirm before moving to the next.
+12. **Draft constraints** with CON-* IDs. Propose technology stack based on what the user has implied.
+13. **Read scaffolding templates** from `~/.claude/skills/spec-driven-development/references/templates/`:
+    - `root-readme.md`
+    - `sdd-readme.md`
+    - `sdd-glossary.md`
+    - `sdd-constraints.md`
+    - `sdd-changes.md`
+    - `sdd-config.yml`
+    - `documentation-readme.md`
+    - `documentation-architecture.md`
+    - `documentation-api-reference.md`
+    - `documentation-configuration.md`
+    - `documentation-deployment.md`
+    - `documentation-decisions-readme.md`
+14. **Substitute placeholders** (`{PROJECT_NAME}`, `{ACTOR_1}`, `{INSTALL_COMMAND}`, etc.) with values from the user's input and inferred context
+15. **Write the files**:
+    - `sdd/README.md`, `sdd/glossary.md`, `sdd/constraints.md`, `sdd/changes.md`, `sdd/config.yml`
+    - One file per domain in `sdd/{domain}.md` with the drafted REQs
+    - `README.md` in repo root
+    - `documentation/README.md`, `architecture.md`, `api-reference.md`, `configuration.md`, `deployment.md`
+    - `documentation/decisions/README.md`
+    - `tests/` (empty directory)
+16. **Print next steps**:
+    ```
+    ✓ Spec created at sdd/
+    ✓ Documentation scaffolding at documentation/
+    ✓ Root README.md linking both
+    ✓ Test scaffolding at tests/
+    ✓ sdd/config.yml created (mode: interactive)
+
+    What to do next:
+      1. Review the spec at sdd/README.md
+      2. Run /plan to generate an implementation plan from Status: Planned REQs
+      3. Use TDD: write tests first (with REQ IDs in the test names),
+         then implement
+      4. Push your code — spec-reviewer and doc-updater agents handle SDD
+
+    To switch modes:
+      /sdd autonomous on            → auto (recommended for solo dev)
+      /sdd autonomous unleashed on  → walk-away mode (PR-based review)
+    ```
+
+### Import Mode (existing codebase)
+
+When step 2 detected substantive existing code, the agent enters import mode instead of greenfield bootstrap. This is the path for **converting an existing project to SDD**.
+
+#### Workflow
+
+1. **Confirm intent with the user**:
+   > "Detected existing codebase: {N} source files in src/, package.json present, framework: {detected}. Should I derive a spec from the existing code (recommended for SDD migration), or treat this as a fresh start (will ignore existing code)?"
+   - If user picks "fresh start": jump to step 4 in the greenfield flow above (ignore the existing code)
+   - If user picks "derive from code" (default): continue
+2. **Analyze the project**:
+   - Read `README.md` to extract project intent and feature list
+   - Read `package.json` (or equivalent) for name, description, dependencies, scripts
+   - Read top-level config files (`tsconfig.json`, `wrangler.toml`, `Cargo.toml`, etc.) to understand the runtime
+   - Walk the directory tree under `src/`, `app/`, `lib/`, `pkg/` (project-language-aware) to identify modules
+3. **Identify domains from directory structure**. Heuristics:
+   - `src/api/auth/` or `src/auth/` → "Authentication" domain
+   - `src/api/billing/` or `src/billing/` → "Billing" or "Subscription" domain
+   - `src/pages/` or `src/routes/` → "UI" or one domain per page section
+   - `src/lib/` → utility libs, usually NOT a domain (referenced from other domains)
+   - Top-level feature directories → one domain each
+   - Generic structures (no clear domains): propose 3-5 broad domains and let the user refine
+4. **Read representative files** in each identified domain. For each module:
+   - Route handlers / endpoint definitions → API contracts
+   - Schema files (`zod`, `prisma`, `pydantic`) → data shapes
+   - Auth middleware → security constraints
+   - Test files → coverage map (which features have tests)
+5. **Derive REQs from observed behavior** (one per major feature/route/page). For each REQ:
+   - **Intent**: inferred from naming, comments, README references. Mark with `(inferred)` if unclear so the user knows to validate.
+   - **Acceptance Criteria**: describe **observable behavior** at the user-facing level. Strip implementation details (file paths, function names, hex codes go to documentation/, not the spec).
+   - **Status**: tentatively `Implemented`. Will be auto-checked in step 7.
+   - **Priority**: P0 for core flows (auth, primary user actions), P1 for supporting features, P2 for polish, P3 for stretch.
+   - **Dependencies**: cross-domain REQ links discovered from imports.
+   - **Verification**: `Automated test` if a test file references the feature, `Manual check` otherwise.
+6. **Identify cross-cutting constraints** by reading config files and middleware:
+   - Tech stack from `package.json` / `Cargo.toml` / etc.
+   - Security headers from middleware
+   - Performance budgets from CI config
+   - Compliance markers from privacy/legal files
+   - Each becomes a `CON-*` entry in `sdd/constraints.md`
+7. **Run the import-time coverage baseline** (this is a one-time pass during `/sdd init` only — future spec-reviewer runs respect the `auto_demote` config setting):
+   - For each derived REQ marked `Status: Implemented`, search test files for the feature name or route path (NOT the REQ ID — the agent has not annotated tests yet, so this is a heuristic match for the import baseline only)
+   - If found, keep `Implemented`. If not, demote to `Partial` with `Notes: No test coverage found during import analysis. Add REQ-{ID} to test names to restore Implemented status.`
+   - Why this is a one-time pass and not the same as the auto-demote rule: import-mode runs once on a fresh spec where no REQ IDs are in tests yet. After import, the user adds REQ IDs to tests over time, and the regular `auto_demote` setting (default `false`) takes over for steady-state runs.
+8. **Present the derived spec for confirmation**, one domain at a time:
+   - Show the proposed REQs in the domain
+   - Ask: "Does this match what {domain} actually does? Add, remove, or modify any REQs?"
+   - User edits inline; agent adjusts
+9. **Optionally let the user fill in vision and principles**:
+   - Vision: pre-fill from README. User confirms or rewrites.
+   - Principles: ask "What design principles should guide future changes? I see {N} themes in the existing code: {list}." User confirms or replaces.
+10. **Write the same scaffolding as greenfield init**, plus the derived REQs:
+    - `sdd/README.md` with derived domain index and Out of Scope section (empty)
+    - One `sdd/{domain}.md` per derived domain with the validated REQs
+    - `sdd/constraints.md` with derived CON-* entries
+    - `sdd/glossary.md` with terms inferred from code (vendor names, protocols, domain concepts)
+    - `sdd/changes.md` with one entry: `## YYYY-MM-DD\n- Initial spec imported from existing codebase via /sdd init (N requirements across M domains)`
+    - `sdd/config.yml` with `mode: interactive` and `auto_demote: false` (respect existing-project caution)
+    - `documentation/` scaffolding from templates, with backlinks to derived REQs where applicable
+    - Root `README.md` updated to reference `sdd/` and `documentation/` (preserve existing content if already present — append the SDD section)
+11. **Print next steps for the imported project**:
+    ```
+    ✓ Spec imported from existing codebase
+    ✓ {N} requirements across {M} domains
+    ✓ {X} marked Implemented (tests found)
+    ✓ {Y} marked Partial (no tests found — see Notes: field)
+    ✓ {Z} CON-* constraints derived
+    ✓ documentation/ scaffolding created (existing files preserved)
+    ✓ sdd/config.yml created (mode: interactive, auto_demote: false)
+
+    The spec describes what the code currently does. Review it and:
+      1. Adjust requirements that don't match your intent
+      2. Add REQ IDs to test names so spec-reviewer can verify Implemented status
+         (e.g., test('REQ-AUTH-001: rejects expired tokens', () => {...}))
+      3. Run /sdd check anytime to see what's still Partial
+      4. Once test annotations are in place, switch on auto_demote in sdd/config.yml
+      5. To convert Partial → Implemented as you add tests, just push — the
+         spec-reviewer agent handles it on every push
+
+    Your code is unchanged. Only sdd/, documentation/, and root README were created.
+    ```
+
+#### Import mode safety rules
+
+- **Never edit existing source code** during import — only read it
+- **Never overwrite existing `README.md`** — append the SDD section, preserve existing content
+- **Never overwrite existing `documentation/`** files — only create files that don't exist
+- **Always confirm derived REQs with the user** before writing — even in `auto` or `unleashed` mode (import mode is always interactive because inferring intent from code is genuinely judgment-required)
+- **Mark inferred intent explicitly** with `(inferred)` so the user knows what to validate first
+- **Default `auto_demote: false`** — never aggressively demote on a freshly imported spec; let the user add test annotations first
 
 ---
 
-## `/sdd check` — Validate Spec
+## /sdd edit {domain}
 
-Read all `sdd/` files and verify:
+Modify requirements in an existing domain. Always interactive.
 
-1. Every domain in README index has a file
-2. Every requirement has all fields (ID, Intent, Applies To, AC, Constraints, Priority, Dependencies, Verification, Status)
-3. All acceptance criteria are binary pass/fail
-4. Constraint IDs (CON-*) exist in constraints.md
-5. Cross-requirement references (REQ-*-*) resolve
-6. P0 requirements cover failure modes
-7. Each domain has Key Concepts, Out of Scope, Domain Dependencies
-8. README has Actors table
-9. Glossary covers key terms used across domains
-10. No duplicate requirements across domains
+### Behavior
 
-Report pass/fail per check with specific issues.
+1. **Validate**: `sdd/{domain}.md` must exist. If not, suggest `/sdd add {domain}`.
+2. **Read context**: `sdd/README.md`, `sdd/constraints.md`, `sdd/glossary.md`, `sdd/{domain}.md`
+3. **Ask the user**: "What do you want to add or change in {domain}?"
+4. **Draft the new or modified REQ** in the format defined by `~/.claude/skills/spec-driven-development/SKILL.md`
+5. **Validate against discipline rules**:
+   - Forbidden content (per `sdd/config.yml` allowlist)
+   - REQ length warnings
+   - Status field is one word
+   - All required fields present
+6. **Confirm with user**, then write the file
+7. **Update glossary** if new terms were introduced
+8. **Add a changelog entry** to `sdd/changes.md` (≤2 sentences, dated, user-facing)
 
----
-
-## `/sdd add {domain}` — Add New Domain
-
-1. Read existing spec for context
-2. Ask the user what this domain covers
-3. Draft requirements (same process as init step 6)
-4. Create `sdd/{domain}.md`
-5. Update README index, glossary, changelog
+User-authored content gets priority — never block the user on cleanup findings. Cleanup happens later via `/sdd clean`.
 
 ---
 
-## Transitioning to Implementation
+## /sdd add {domain}
 
-When the user is ready to implement, they use `/plan`. The agent MUST:
+Create a new domain. Always interactive.
 
-1. **Read the spec first.** Load `sdd/README.md` and the relevant domain file(s).
-2. **Plan ONLY new work.** Filter for `Status: Planned` or `Status: Proposed` requirements. Never re-plan Implemented requirements — they're the existing foundation.
-3. **Enforce TDD.** The plan must include writing tests BEFORE implementation. Tests are derived directly from acceptance criteria in the spec.
-4. **Require documentation updates.** Every plan must include a step to update `documentation/` for any user-visible changes.
-5. **After implementation:** mark requirements as `Status: Implemented` in the spec, add a changelog entry to `sdd/changes.md`.
+### Behavior
 
-The spec is never "done." It grows with the product. Every new idea starts here.
+1. **Validate**: `sdd/{domain}.md` must NOT exist
+2. **Validate**: `sdd/` must exist (if not, suggest `/sdd init`)
+3. **Ask the user**: "What does the {domain} domain cover?"
+4. **Propose 5-15 initial REQs** based on the user's description
+5. **Confirm** with the user
+6. **Create `sdd/{domain}.md`**
+7. **Update `sdd/README.md`** domain index
+8. **Update `sdd/glossary.md`** with new terms
+9. **Add changelog entry** to `sdd/changes.md`
+
+---
+
+## /sdd clean
+
+Refactor a rotted spec. Mode-aware.
+
+### Behavior
+
+1. **Read `sdd/config.yml`** to determine mode (`interactive`, `auto`, `unleashed`)
+2. **Apply per-command flags**: `--interactive`, `--auto`, `--unleashed` override the config setting for this run
+3. **Validate working tree**: refuse if `git status --porcelain` is non-empty
+4. **In `auto` mode**: refuse if current branch is `main` or `master` without `--branch-confirmed`
+5. **In `unleashed` mode**: create a new branch `sdd-cleanup-{YYYY-MM-DD}-{shortsha}` regardless of current branch
+6. **Scan `sdd/` for findings**:
+   - Strikethrough text in REQs (LOW)
+   - Prose Status fields (LOW)
+   - Implementation leakage in REQs per allowlist (LOW)
+   - Oversized REQs >50 lines (MEDIUM/HIGH)
+   - Fake-Deprecated REQs (no Replaced By) (MEDIUM, JUDGMENT)
+   - Bloated `changes.md` >200 lines or >30 entries (RISKY, batched)
+   - Status: Implemented REQs without test coverage (HIGH if `auto_demote: true`, otherwise report-only)
+   - Doc-vs-spec conflicts (MEDIUM, JUDGMENT)
+7. **Apply per mode**:
+   - **interactive**: report findings batch by batch, ask confirmation
+   - **auto**: apply SAFE + RISKY silently, escalate JUDGMENT to `sdd/.review-needed.md`
+   - **unleashed**: apply SAFE + RISKY + JUDGMENT (conservative defaults), commit per category, push branch, open PR
+8. **All commits tagged `[sdd-clean]`** to bypass spec-reviewer's round-detection
+9. **Backup before destructive ops**: archive `changes.md` to `changes-archive-YYYY-MM.md` before truncating
+10. **Write `sdd/.last-clean-run.md`** with full audit log
+11. **In unleashed mode**, the PR description includes the full audit log so the user can review when they return
+
+### Conservative JUDGMENT auto-resolution (unleashed only)
+
+| JUDGMENT type | Action |
+|---|---|
+| Doc-vs-spec conflict | Mark REQ as `Partial`, add `Notes:`, log to `.review-needed.md`. Never overwrite intent. |
+| Oversized REQ refactor | Extract implementation prose to `documentation/{relevant}.md`, leave Intent + AC verbatim in REQ. Never split. |
+| Fake-Deprecated REQ | Move to `## Out of Scope` section in domain README. Never delete. |
+
+---
+
+## /sdd autonomous
+
+Set the autonomy mode.
+
+### Behavior
+
+```
+/sdd autonomous on              → write `mode: auto` to sdd/config.yml
+/sdd autonomous unleashed on    → write `mode: unleashed` to sdd/config.yml
+/sdd autonomous off             → write `mode: interactive` to sdd/config.yml
+/sdd autonomous status          → print current mode + last 5 overrides from .user-overrides.md
+```
+
+If `sdd/config.yml` doesn't exist, create it from the template first. If `sdd/` doesn't exist, error out: "No SDD project here. Run `/sdd init` first."
 
 ---
 
 ## Arguments
 
-$ARGUMENTS: Sub-command and context. Examples:
-- `/sdd` — start from scratch
-- `/sdd init a marketplace for handmade crafts`
-- `/sdd edit authentication` — add/modify requirements in existing domain
-- `/sdd check` — validate spec quality
-- `/sdd add notifications` — add a new domain
+`$ARGUMENTS`: parsed as the sub-command and its arguments.
+
+Examples:
+- `/sdd` — print help screen
+- `/sdd init "a marketplace for handmade crafts"` — bootstrap with idea
+- `/sdd init` — bootstrap, ask for idea interactively
+- `/sdd edit authentication` — modify auth domain
+- `/sdd add notifications` — create new domain
+- `/sdd clean` — rescue rotted spec (per current mode)
+- `/sdd clean --unleashed` — force unleashed mode for this run
+- `/sdd autonomous on` — switch to auto mode
+- `/sdd autonomous unleashed on` — switch to unleashed mode
+- `/sdd autonomous status` — show current mode
+
+---
+
+## Implementation note
+
+The `/sdd` command itself does not contain the SDD logic. It dispatches to the workflow described in `~/.claude/skills/spec-driven-development/SKILL.md`, the rules in `~/.claude/rules/spec-discipline.md`, and the templates in `~/.claude/skills/spec-driven-development/references/templates/`.
+
+When invoked, the agent should:
+1. Parse `$ARGUMENTS` to identify the sub-command
+2. Read the relevant sections of SKILL.md and the rules file
+3. Execute the sub-command's behavior as documented above
+4. Report results to the user
