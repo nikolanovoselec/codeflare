@@ -8,7 +8,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 ## Container Image
 
-**File:** `Dockerfile` - Base: `node:24-bookworm-slim`, multi-stage build (builder compiles native addons, runtime has no build tools).
+**File:** `Dockerfile` - Base: `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror; avoids Docker Hub anonymous pull rate limits on CI runners), multi-stage build (builder compiles native addons, runtime has no build tools).
 
 ### Installed Tools
 
