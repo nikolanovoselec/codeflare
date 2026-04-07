@@ -2,7 +2,9 @@
 # Uses node-pty for PTY management and rclone for R2 storage sync
 
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
-FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb AS builder
+# Use AWS ECR Public mirror of Docker Hub to avoid anonymous pull rate limits on CI.
+# Shared GitHub Actions runner IPs routinely hit Docker Hub's 100-pull/6h cap.
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -18,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- Stage 2: Runtime ----
-FROM node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
 
 # Suppress npm update nag; configure claude-unleashed for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
