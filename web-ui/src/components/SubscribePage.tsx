@@ -283,11 +283,12 @@ const SubscribePage: Component = () => {
     }
   });
 
-  // Scroll to top when entering tier phase
+  // Scroll to top when entering tier phase. Skip in jsdom (test environment)
+  // because jsdom logs a "Not implemented: Window.scrollTo" warning every call.
   createEffect(() => {
-    if (subscribePhase() === 'tiers') {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    if (subscribePhase() !== 'tiers') return;
+    if (typeof navigator !== 'undefined' && navigator.userAgent.includes('jsdom')) return;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
   onCleanup(() => {
