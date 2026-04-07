@@ -521,3 +521,7 @@ Before shipping a new endpoint:
 - [ ] Response does not leak internal details (stack traces, SQL errors)
 - [ ] Consistent naming with existing endpoints (camelCase vs snake_case)
 - [ ] Documented (OpenAPI/Swagger spec updated)
+
+## REQ annotations (when `sdd/` exists)
+
+When implementing API handlers in a project with an `sdd/` folder, annotate each handler file with `// Implements REQ-X-NNN` for every REQ it implements. This lets spec-reviewer detect code-without-tests by grep. See `spec-discipline.md` → Source code ↔ REQ annotations.

@@ -19,6 +19,27 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 
 Code written before its test? **Delete it. Start over.** Don't keep it as "reference", don't "adapt" it while writing tests. Implement fresh from tests.
 
+## Test quality rules
+
+When `sdd/` exists, tests are derived from the REQ's acceptance criteria — one test per AC bullet. Apply the following quality rules to every test you write:
+
+1. **One test per AC bullet.** If the REQ has 5 numbered AC bullets, write 5 test functions. Name each exactly: `REQ-{DOMAIN}-{NNN}: {one-line AC summary}`. The REQ ID MUST appear literally in the test name so spec-reviewer can grep for it.
+2. **Assert observable behavior.** Every test must assert a specific outcome that would fail if the implementation is wrong. "Does not throw" and "is defined" are not acceptable as the only assertion — use them as guards, follow with a real check.
+3. **Banned patterns — never write these:**
+   - Identity assertions: `expect(true).toBe(true)`, `expect(1).toEqual(1)`, `expect(x).toBe(x)`, `assert True`, `assertTrue(true)`
+   - Lone existence checks as the only assertion: `expect(x).toBeDefined()`, `expect(x).not.toThrow()`
+   - Empty bodies: `it(..., () => {})`, `it(..., () => { /* TODO */ })`, `def test_foo(): pass`
+   - Skipped tests: `.skip`, `xit`, `xdescribe`, `test.skip`, `it.skip`, `@pytest.mark.skip`, `#[ignore]`, `t.Skip()` — tests must run
+   - Single-assertion placeholders that don't exercise the AC
+4. **RED verification is mandatory.** Before any implementation is written, run the test and observe it fail. Log the failure output to the conversation so the user sees RED was confirmed. If the test passes immediately → the test is wrong, the feature already exists, or you are testing a tautology. Fix the test until it genuinely fails for the right reason.
+5. **Edge cases from the REQ.** For each AC bullet, enumerate the null, empty, invalid, boundary, error, and unauthorized cases implied by the contract. Write tests for each. The "Edge Cases You MUST Test" list below is the floor, not the ceiling.
+
+## Source annotation (when `sdd/` exists)
+
+When you write or modify a production-code file that implements a REQ, add an `Implements REQ-X-NNN` comment to the file. Format matches the file's language: `// Implements REQ-SITE-002` for JS/TS/Java/Go/C-family, `# Implements REQ-API-001` for Python/Ruby/shell/YAML, `/** Implements REQ-SITE-002 */` for JSDoc blocks, `<!-- Implements REQ-UI-003 -->` for HTML/Astro/Svelte. One comment per REQ; do not concatenate. See `spec-discipline.md` → Source code ↔ REQ annotations for the full convention.
+
+Test files do NOT need the annotation — the REQ ID in the test name is sufficient.
+
 ## Spec-Driven Test Derivation
 
 If `sdd/` exists in the project, read the relevant domain file first. Acceptance criteria in the spec are your primary source for test cases — each criterion maps to at least one test. If no `sdd/` exists, derive tests from the conversation and code context as usual.

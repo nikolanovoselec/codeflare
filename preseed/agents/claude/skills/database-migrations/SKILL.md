@@ -333,3 +333,7 @@ Day 7: Migration drops old status column
 | Inline index on large table | Blocks writes during build | CREATE INDEX CONCURRENTLY |
 | Schema + data in one migration | Hard to rollback, long transactions | Separate migrations |
 | Dropping column before removing code | Application errors on missing column | Remove code first, drop column next deploy |
+
+## REQ annotations (when `sdd/` exists)
+
+When writing migration files in a project with an `sdd/` folder, annotate each migration with a comment naming the REQ(s) driving the schema change: `-- Implements REQ-DB-003` (SQL) or `// Implements REQ-DB-003` (TypeScript/JS migrations). This lets spec-reviewer detect code-without-tests by grep. See `spec-discipline.md` → Source code ↔ REQ annotations.

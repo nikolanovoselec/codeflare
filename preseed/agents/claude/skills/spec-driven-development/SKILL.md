@@ -28,10 +28,10 @@ sdd/
 ├── glossary.md          # Canonical term definitions
 ├── constraints.md       # Technology stack, cross-cutting CON-* constraints
 ├── changes.md           # Semantic changelog (≤2 sentences per entry, user-facing only)
-├── config.yml           # mode, auto_demote, test_globs, allowlists
+├── config.yml           # mode, enforce_tdd, test_globs, src_globs (optional), allowlists
 ├── .user-overrides.md   # Findings the user explicitly told the agent to skip (committed)
 ├── .review-needed.md    # Findings escalated for human review (committed, cleared on resolution)
-├── .coverage-report.md  # Output of auto_demote: false runs (committed)
+├── .coverage-report.md  # Output of enforce_tdd: false runs (committed)
 ├── .last-clean-run.md   # Audit log of the most recent /sdd clean run (committed)
 └── {domain}.md          # Requirements per feature area
 ```
@@ -90,7 +90,7 @@ pending.md         # In-flight work and known gaps (NOT requirements)
 | SAFE fixes (strip strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves, bulk operations) | Confirm + backup + apply | Backup + apply | Backup + apply |
 | JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to `sdd/.review-needed.md`, continue | **Auto-resolve conservatively** (rules below), continue |
-| `auto_demote` default | per `sdd/config.yml` | per `sdd/config.yml` | **Forced true** (PR review is the safety net) |
+| `enforce_tdd` default | per `sdd/config.yml` (default true) | per `sdd/config.yml` (default true) | **Forced true** (PR review is the safety net) |
 | Output | Inline confirmations | Inline reports | **Pull request with full description** |
 
 The fundamental difference: **where the work lands and how JUDGMENT is handled**, nothing else. No artificial change limits in any mode.
@@ -217,7 +217,9 @@ In `unleashed` mode specifically:
 - **Fake-Deprecated REQs** (Deprecated without `Replaced By:`) → moved to `## Out of Scope` section in domain README (interactive/auto/unleashed: see escalation rules)
 - **Oversized REQs** (>50 lines) → flagged; in unleashed mode, implementation prose extracted to docs while Intent + AC stay verbatim
 - **Bloated `changes.md`** (verification log entries, commit SHAs, multi-paragraph entries) → archived to `sdd/changes-archive-YYYY-MM.md`, new file written with user-facing entries only
-- **Status: Implemented REQs without test coverage** → if `auto_demote: true`, demoted to `Partial` with `Notes:` explaining what's missing; if `auto_demote: false`, written to `sdd/.coverage-report.md` only
+- **Status: Implemented REQs without test coverage** → if `enforce_tdd: true`, demoted to `Partial` with `Notes:` explaining what's missing; if `enforce_tdd: false`, written to `sdd/.coverage-report.md` only
+- **Status: Planned/Partial REQs with source code but no test** → if `enforce_tdd: true`, HIGH finding + auto-promote `Planned → Partial` with `Notes:` (requires the `Implements REQ-X-NNN` annotation convention in source files — see `spec-discipline.md` → Source code ↔ REQ annotations)
+- **Test quality heuristics** → AC-count vs test-count check, tautology detection, skipped-test detection (all run when `enforce_tdd: true`)
 - **Missing doc→spec backlinks** → generated automatically (links from `documentation/` files to relevant REQ IDs)
 
 ## /sdd edit — adding or modifying requirements
@@ -266,7 +268,7 @@ test('REQ-AUTH-001: rejects expired JWT tokens', () => {
 });
 ```
 
-When `auto_demote: true`, REQs without test references get downgraded to `Partial` with a `Notes:` field. Default is `auto_demote: false` to avoid surprising existing projects on first install — the user opts in after they've added REQ-ID test annotations.
+When `enforce_tdd: true` (the default), REQs without test references get downgraded to `Partial` with a `Notes:` field, and REQs whose source code exists but lacks tests get flagged and auto-promoted `Planned → Partial`. Source code must annotate each REQ it implements with a comment like `Implements REQ-X-NNN` so spec-reviewer has something concrete to grep (see `spec-discipline.md` → Source code ↔ REQ annotations). Projects that genuinely cannot admit automated testing (pure visual design systems, for example) can opt out with `enforce_tdd: false`.
 
 **Bug fix discipline**: when fixing a bug, write a failing test that reproduces it BEFORE writing the fix. The test proves the bug exists and proves the fix works. The `tdd-guide` agent enforces this proactively.
 

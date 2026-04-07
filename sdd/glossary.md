@@ -47,5 +47,6 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Scoped R2 Token | Per-user R2 API token restricted to that user's bucket only |
 | Spec Discipline | The universal SDD enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions; activates only when `sdd/` exists in the project |
 | Autonomy Mode | One of `interactive`, `auto`, or `unleashed` set in `sdd/config.yml`; controls how aggressively spec-reviewer and doc-updater apply fixes without human confirmation |
-| Auto-Demote | The rule that downgrades a requirement from `Implemented` to `Partial` when no test file references its REQ ID; opt-in via `auto_demote: true` in `sdd/config.yml`, forced `true` in unleashed mode |
+| Enforce TDD | The SDD enforcement mode set via `enforce_tdd: true` in `sdd/config.yml` (default true); makes spec-reviewer auto-demote `Implemented` REQs without tests to `Partial`, flag `Planned`/`Partial` REQs whose source code exists but has no test, and run test-quality heuristics on every push. Forced `true` in unleashed mode. |
+| Implements Annotation | A comment in a source file naming the REQ it implements (e.g. `// Implements REQ-AUTH-001`); spec-reviewer greps for the literal REQ ID when classifying code-vs-test coverage. Required whenever `enforce_tdd: true`. |
 | Import Mode | The `/sdd init` mode that activates when an existing codebase is detected; derives a spec from observed code behavior instead of bootstrapping from prose |

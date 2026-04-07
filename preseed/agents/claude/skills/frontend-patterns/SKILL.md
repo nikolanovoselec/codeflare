@@ -639,4 +639,8 @@ export function Modal({ isOpen, onClose, children }: ModalProps) {
 }
 ```
 
+## REQ annotations (when `sdd/` exists)
+
+When implementing frontend code in a project with an `sdd/` folder, annotate each source file with `// Implements REQ-X-NNN` (or language equivalent) for every REQ it implements. This lets spec-reviewer detect code-without-tests by grep. See `spec-discipline.md` → Source code ↔ REQ annotations.
+
 **Remember**: Modern frontend patterns enable maintainable, performant user interfaces. Choose patterns that fit your project complexity.

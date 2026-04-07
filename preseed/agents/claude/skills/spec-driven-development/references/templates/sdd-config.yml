@@ -11,13 +11,18 @@
 #              Walk-away workflow — review the PR when you come back.
 mode: interactive
 
-# Auto-demote: when true, spec-reviewer downgrades Implemented REQs without
-# test coverage to Partial. When false, spec-reviewer only writes
-# sdd/.coverage-report.md without modifying the spec.
+# enforce_tdd: when true, spec-reviewer enforces the TDD contract on every run:
+#   - Downgrades Implemented REQs without test coverage to Partial
+#   - Flags Planned/Partial REQs with source code but no test (HIGH finding)
+#   - Runs test quality heuristics (AC count vs test count, tautology
+#     detection, skipped-test detection) against every test file
+#
+# When false, spec-reviewer only writes sdd/.coverage-report.md without
+# modifying the spec.
 #
 # Forced to true in unleashed mode (PR review is the safety net).
-# Default false to avoid surprising existing projects on first install.
-auto_demote: false
+# Default true — TDD is the contract; opt out per project if needed.
+enforce_tdd: true
 
 # Test discovery globs — where spec-reviewer looks for REQ ID references in test files.
 # Detection is binary: the REQ ID literally appears in a test file or it doesn't.

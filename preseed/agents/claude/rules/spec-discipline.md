@@ -160,17 +160,53 @@ Both `spec-reviewer` and `doc-updater` agents tag every finding with severity:
 - `auto`: auto-fix CRITICAL + HIGH + MEDIUM, defer LOW to `/sdd clean`
 - `unleashed`: auto-fix everything including LOW, on a new branch
 
-## Test coverage and the auto-demote rule
+## Test coverage and enforce_tdd
 
-Every REQ marked `Status: Implemented` should have at least one test file that references its REQ ID. Test discovery uses `test_globs` from `sdd/config.yml` (default: `tests/**/*.test.{ts,js}`, `tests/**/*.spec.{ts,js}`, `__tests__/**/*`, `*.test.{py,go,rb}`, `tests/e2e/**`, `cypress/**`, `playwright/**`).
+Every REQ marked `Status: Implemented` must have at least one test file referencing its REQ ID. Every REQ with source code must have tests covering its acceptance criteria. Both rules are enforced by spec-reviewer when `enforce_tdd: true` in `sdd/config.yml` (default: `true`).
 
-Detection is **binary**: the REQ ID literally appears in a test file (in a test name, comment, or assertion message), or it doesn't.
+**Test discovery** uses `test_globs` from `sdd/config.yml` (default list covers `tests/**/*.test.{ts,js,tsx,jsx,mjs}`, `__tests__/**/*`, `tests/e2e/**`, `playwright/**`, `*_test.{py,go,rb}`, `test_*.py`, and similar conventions).
 
-When `auto_demote: true` in `sdd/config.yml`, spec-reviewer downgrades any `Implemented` REQ without a test reference to `Partial` and adds a `Notes:` field explaining what's missing. The auto-demote IS a behavioral observation that DOES get a changelog entry.
+**Source discovery** uses a built-in default list (`src/**`, `lib/**`, `app/**`, `pkg/**`, `cmd/**`, `internal/**` minus `test_globs` minus `node_modules`/`dist`/`.git`/`build`/`target`). Projects can override via an optional `src_globs` field.
 
-When `auto_demote: false` (the default), spec-reviewer only writes a coverage report at `sdd/.coverage-report.md` and never modifies the spec. The user opts in by setting `auto_demote: true` after they've adopted REQ-ID test annotations.
+**Detection is binary**: the REQ ID literally appears in a source or test file, or it doesn't. The comparison is a plain substring match; no parsing.
 
-In `unleashed` mode, `auto_demote: true` is forced because the PR review is the safety net — the user sees every demotion in the PR before merging.
+When `enforce_tdd: true`, spec-reviewer runs three classification passes on every push:
+
+1. **Auto-demote**: `Implemented` REQ with no test reference → demoted to `Partial` with `Notes:` explaining the gap. Behavioral observation → changelog entry.
+2. **Source-vs-test coverage**: `Planned`/`Partial` REQ with source code (REQ ID found in source) but no test → HIGH finding, auto-promote `Planned` → `Partial` with `Notes: "Code exists but no test verifies it."` Behavioral observation → changelog entry. `Implemented` REQ in the same state → handled by the auto-demote rule above.
+3. **Test quality heuristics**: for every REQ with tests, count AC bullets vs test count (MEDIUM finding if mismatched), scan for tautology patterns and empty bodies (HIGH finding), and detect skipped tests (MEDIUM finding). Quality findings do not produce changelog entries.
+
+When `enforce_tdd: false`, spec-reviewer writes `sdd/.coverage-report.md` without modifying the spec. Opt out per project if the product domain genuinely does not admit automated testing (e.g., pure visual design systems).
+
+In `unleashed` mode, `enforce_tdd: true` is forced — the PR review is the safety net.
+
+## Source code ↔ REQ annotations
+
+Source files implementing a requirement must reference the REQ ID in a comment so spec-reviewer can detect code-without-tests by grep. Without annotations, the source-vs-test check has nothing to match and silently passes broken code.
+
+**Format** (match the file's language):
+
+| Language / file type | Example |
+|---|---|
+| TypeScript, JavaScript, Java, C, Go, Rust | `// Implements REQ-SITE-002` |
+| JSDoc block above a function or class | `/** Implements REQ-SITE-002 */` |
+| Python, Ruby, shell, YAML, TOML | `# Implements REQ-API-001` |
+| HTML, Astro, Svelte, Vue template | `<!-- Implements REQ-UI-003 -->` |
+| CSS, SCSS | `/* Implements REQ-BRAND-001 */` |
+
+**Rules:**
+
+- Every source file implementing observable behavior from one or more REQs must contain at least one `Implements REQ-X-NNN` comment for each REQ it implements. Place at the top of the file or inline at the function/class level in multi-REQ files.
+- spec-reviewer greps for the literal REQ ID substring. The "Implements" keyword is a convention for humans, not a parser token — any comment mentioning the REQ ID counts.
+- When refactoring, annotations move with the code. When code is deleted, annotations are deleted. Never leave orphan annotations pointing at moved or removed code.
+- Tests already name the REQ ID in their test function name (`test('REQ-X-NNN: rejects expired token', ...)`) — no additional annotation needed in test files.
+- Multiple REQs per file: list each separately. Do not concatenate (`Implements REQ-A-001, REQ-A-002` is ambiguous — write two comments).
+
+**Agent responsibilities:**
+
+- **Code-writing agents** (`tdd-guide`, `build-error-resolver`, `refactor-cleaner`, `security-reviewer`, any agent writing new source files): add or preserve annotations for every REQ the code implements
+- **Code-reviewing agents** (`code-reviewer`): flag source files that implement observable behavior matching a REQ's AC but lack an annotation (MEDIUM finding)
+- **Spec-reviewer**: runs the source-vs-test coverage check above on every push
 
 ## The 2-round commit cycle limit
 
@@ -217,15 +253,16 @@ Each entry is keyed by `{rule_id}:{target_id}`. Spec-reviewer reads this file at
 ## Modes (set via `sdd/config.yml`)
 
 ```yaml
-mode: interactive   # or 'auto' or 'unleashed'
-auto_demote: false  # opt-in for auto-demote (forced true in unleashed mode)
+mode: interactive    # or 'auto' or 'unleashed'
+enforce_tdd: true    # TDD enforcement (forced true in unleashed mode); opt out per project if needed
 test_globs:
   - "tests/**/*.test.{ts,js}"
   - "__tests__/**/*"
   - "tests/e2e/**"
+# src_globs is optional; defaults to src/** lib/** app/** pkg/** cmd/** internal/**
 forbidden_content_allowlist:
-  protocols: true   # OAuth, JWT, etc. allowed in REQs
-  vendors: true     # Cloudflare Access, Stripe, etc. allowed
+  protocols: true    # OAuth, JWT, etc. allowed in REQs
+  vendors: true      # Cloudflare Access, Stripe, etc. allowed
   http_codes_in_api_reqs: true
 forbidden_content_overrides: []  # explicit REQ IDs that opt out of forbidden checks
 ```
@@ -236,7 +273,7 @@ forbidden_content_overrides: []  # explicit REQ IDs that opt out of forbidden ch
 | SAFE fixes | Confirm before applying | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves) | Confirm + backup | Backup + apply | Backup + apply |
 | JUDGMENT calls | Escalate to user, pause | Escalate to `sdd/.review-needed.md`, continue | **Auto-resolve conservatively** (rules below), continue |
-| auto_demote default | per config (default false) | per config (default false) | **forced true** |
+| enforce_tdd default | per config (default true) | per config (default true) | **forced true** |
 | Output | Inline confirmations | Inline reports | **Pull request with full description** |
 
 The fundamental difference between modes is **where the work lands and how JUDGMENT is handled**, not what gets done.
@@ -276,10 +313,10 @@ Before any agent-driven write to `sdd/` or `documentation/`:
 
 | File | Committed to git | Purpose |
 |---|---|---|
-| `sdd/config.yml` | Yes | Mode, auto_demote, test_globs, allowlists |
+| `sdd/config.yml` | Yes | Mode, enforce_tdd, test_globs, src_globs (optional), allowlists |
 | `sdd/.user-overrides.md` | Yes | User decisions to skip specific findings |
 | `sdd/.review-needed.md` | Yes | Findings escalated for human review (cleared on resolution) |
-| `sdd/.coverage-report.md` | Yes | Output of auto_demote: false runs |
+| `sdd/.coverage-report.md` | Yes | Output of enforce_tdd: false runs |
 | `sdd/.last-clean-run.md` | Yes | Audit log of the most recent /sdd clean run |
 | `sdd/changes-archive-*.md` | Yes | Archived old changelogs from /sdd clean runs |
 

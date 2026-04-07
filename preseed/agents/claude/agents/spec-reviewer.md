@@ -40,9 +40,9 @@ If false, exit silently with code 0. Nothing to do.
 
 ### Step 0b: Read the configuration
 
-Read `sdd/config.yml`. If missing, write defaults from `~/.claude/skills/spec-driven-development/references/templates/sdd-config.yml` (interactive mode, `auto_demote: false`) and continue.
+Read `sdd/config.yml`. If missing, write defaults from the `sdd-config.yml` template in the `spec-driven-development` skill (interactive mode, `enforce_tdd: true`) and continue.
 
-Required fields: `mode`, `auto_demote`, `test_globs`, `forbidden_content_allowlist`.
+Required fields: `mode`, `enforce_tdd`, `test_globs`, `forbidden_content_allowlist`.
 
 ### Step 0c: Check the round counter (anti-spiral)
 
@@ -100,10 +100,41 @@ Run these checks against the post-Phase-1 spec:
 2. **REQ length**: count lines per REQ. ≤25 OK, 26-50 LOW, 51-100 MEDIUM, >100 HIGH. Allow `<!-- sdd-allow-large -->` opt-out.
 3. **Status field discipline**: any Status field with prose (>1 word, with optional `Notes:` field for `Partial`). Severity: LOW.
 4. **Fake-Deprecated**: any `Deprecated` REQ without `Replaced By:` or `Removed In:` field. Severity: MEDIUM (JUDGMENT).
-5. **Auto-demote check** (only if `auto_demote: true` in config OR mode is `unleashed`):
+5. **Test coverage + enforce_tdd check** (only if `enforce_tdd: true` in config OR mode is `unleashed`):
+
+   Run three classification passes against every REQ:
+
+   **5a. Auto-demote (existing rule, kept)**
    - For every `Status: Implemented` REQ, search test files (per `test_globs`) for the REQ ID
-   - If no test references the REQ ID: HIGH finding, demote to `Partial` with `Notes:` explaining what's missing
-   - This IS a behavioral observation — adds a changelog entry
+   - If no test references the REQ ID → HIGH finding, demote to `Partial` with `Notes:` explaining what's missing
+   - Behavioral observation → adds a changelog entry
+
+   **5b. Source-vs-test coverage (new rule, closes the "code but no test" gap)**
+   - For every REQ with Status `Planned`, `Partial`, or `Implemented`, grep source files for the REQ ID
+   - **Default source directories** (built-in, no config required): `src/**`, `lib/**`, `app/**`, `pkg/**`, `cmd/**`, `internal/**`, minus the project's `test_globs`, minus `node_modules`, `dist`, `.git`, `build`, `target`
+   - **Optional override**: `src_globs` in `sdd/config.yml` replaces the default list
+   - Classify and act:
+     - Source present + test present → OK (no finding)
+     - Source present + test absent → HIGH finding: *"REQ-X-NNN has source code at {file}:{line} but no test file references it. Invoke `tdd-guide` to write failing tests from the REQ's acceptance criteria."* If Status is `Planned` → auto-promote to `Partial` with `Notes: "Code exists but no test verifies it."` If Status is `Implemented` → existing 5a rule handles it.
+     - Source absent + test present → LOW finding: *"Dead test — REQ-X-NNN has tests but no source code."*
+     - Source absent + test absent → no finding (legitimate Planned/Proposed REQ not yet started)
+   - Both 5a and 5b are behavioral observations → changelog entries when they fire
+
+   **5c. Test quality heuristics (new rule, catches tautologies and skipped tests)**
+   - For every REQ referenced in at least one test file:
+     1. Parse the REQ's `Acceptance Criteria:` block in the domain file. Count numbered bullets → `ac_count`.
+     2. Count distinct test functions referencing the REQ ID across `test_globs`. Detection patterns: `test(...)`, `it(...)`, `def test_*`, `func Test*`, `describe(...).it(...)` → `test_count`.
+     3. If `test_count < ac_count` → MEDIUM finding: *"REQ-X-NNN has {ac_count} acceptance criteria but only {test_count} tests. Each AC should have at least one test."*
+     4. Scan the bodies of all tests that reference the REQ ID for banned patterns:
+        - Identity assertions: `expect(true).toBe(true)`, `expect(1).toEqual(1)`, `expect(x).toBe(x)`
+        - No-op assertions as the only assertion: `expect(x).toBeDefined()`, `expect(x).not.toThrow()`
+        - `assert True`, `assertTrue(True)`, `assert 1 == 1`
+        - Empty bodies: `it(..., () => {})`, `it(..., () => { /* TODO */ })`, `def test_foo(): pass`
+        - → HIGH finding: *"Tautological or empty test for REQ-X-NNN at {file}:{line}."*
+     5. Detect skipped tests referencing a REQ ID: `.skip`, `xit`, `xdescribe`, `test.skip`, `it.skip`, `@pytest.mark.skip`, `#[ignore]`, `t.Skip()`
+        - → MEDIUM finding: *"Test for REQ-X-NNN is skipped at {file}:{line}."*
+   - Test quality findings are NOT behavioral observations → no changelog entry
+
 6. **Format compliance**: every REQ has all required fields (ID, Intent, Applies To, AC, Constraints, Priority, Dependencies, Verification, Status). Missing fields: HIGH.
 7. **Cross-reference resolution**: every `REQ-*-*` reference resolves to an existing REQ. Broken refs: HIGH.
 8. **Constraint references**: every `CON-*` reference in REQs exists in `sdd/constraints.md`. Broken refs: MEDIUM.
@@ -141,7 +172,7 @@ For each finding (HIGH first, then MEDIUM, then LOW):
    - **Doc-vs-spec conflict**: mark REQ as `Partial`, add `Notes:`, log to `sdd/.review-needed.md`. **Never overwrite intent.**
    - **Oversized REQ**: extract implementation prose to relevant `documentation/` file, leave Intent + AC verbatim. **Never split into multiple REQs.**
    - **Fake-Deprecated REQ**: move definition to `## Out of Scope` section in domain README, remove from domain file. **Never delete.**
-4. `auto_demote` is forced true in unleashed mode
+4. `enforce_tdd` is forced true in unleashed mode
 5. Commit per category with `[unleashed] [spec-reviewer]` prefix
 6. Push the branch
 7. Open a PR with full audit log in the description (use `gh pr create`)

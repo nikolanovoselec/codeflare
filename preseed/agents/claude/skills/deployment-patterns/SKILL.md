@@ -425,3 +425,7 @@ Before any production deployment:
 - [ ] Database migration tested against production-sized data
 - [ ] Runbook for common failure scenarios
 - [ ] On-call rotation and escalation path defined
+
+## REQ annotations (when `sdd/` exists)
+
+When writing deployment config (Dockerfiles, CI workflows, infrastructure code) in a project with an `sdd/` folder, annotate files with `# Implements REQ-DEPLOY-NNN` (or language equivalent) for every deployment-related REQ they satisfy. This lets spec-reviewer detect code-without-tests by grep. See `spec-discipline.md` → Source code ↔ REQ annotations.

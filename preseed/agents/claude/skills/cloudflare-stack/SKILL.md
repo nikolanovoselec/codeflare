@@ -179,3 +179,7 @@ This skill owns the entire pre-build and build phase. `/github-cloudflare-ship` 
 - If the user specifically requests an incompatible technology (e.g., "build me a Django app"), explain gently: "I'll build this as a web app that we can easily put online. I'll use [technology] which will give you the same result and can be deployed with a single command."
 - Focus on what the project DOES, not what technology it uses.
 - The post-build question should feel natural, not like a tech setup — "Want to put it online?" not "Want to configure CI/CD?"
+
+## REQ annotations (when `sdd/` exists)
+
+When implementing code in a project with an `sdd/` folder, annotate each source file with `// Implements REQ-X-NNN` (or language equivalent) for every REQ it implements. This lets spec-reviewer detect code-without-tests by grep. See `spec-discipline.md` → Source code ↔ REQ annotations.

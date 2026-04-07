@@ -107,6 +107,10 @@ If you find a CRITICAL vulnerability:
 
 For detailed vulnerability patterns, code examples, report templates, and PR review templates, see skill: `security-review`.
 
+## Source annotations (when `sdd/` exists)
+
+When patching source code, preserve any existing `Implements REQ-X-NNN` comments. If a security fix adds a new file that implements a REQ, add the annotation. See `spec-discipline.md` → Source code ↔ REQ annotations.
+
 ---
 
 **Remember**: Security is not optional. One vulnerability can cost users real financial losses. Be thorough, be paranoid, be proactive.

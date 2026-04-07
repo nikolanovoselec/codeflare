@@ -251,3 +251,7 @@ When reviewing AI-generated changes, prioritize:
 2. Security assumptions and trust boundaries
 3. Hidden coupling or accidental architecture drift
 4. Caller impact — AI tools frequently change function signatures without updating all callers
+
+## REQ annotations (when `sdd/` exists)
+
+In projects with an `sdd/` folder, every source file implementing observable behavior from a REQ must include a comment annotating it: `// Implements REQ-X-NNN` (or language equivalent). Review rule: if a changed source file implements behavior matching a REQ's acceptance criteria but lacks the annotation → MEDIUM finding, suggest the specific annotation line. See `spec-discipline.md` → Source code ↔ REQ annotations.

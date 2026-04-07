@@ -159,3 +159,7 @@ data = dataclasses.asdict(entry)  # Use manual serialization instead
 - Data that must always be fresh (real-time feeds)
 - Cache entries that would be extremely large (consider streaming instead)
 - Results that depend on parameters beyond file content (e.g., different extraction configs)
+
+## REQ annotations (when `sdd/` exists)
+
+When implementing this pattern in a project with an `sdd/` folder, annotate the cache and service-layer files with `// Implements REQ-X-NNN` for every REQ they implement. This lets spec-reviewer detect code-without-tests by grep. See `spec-discipline.md` → Source code ↔ REQ annotations.

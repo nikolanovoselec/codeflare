@@ -87,13 +87,14 @@ runs in docs-only mode (project-agnostic doc maintenance).
 ## Where settings live
 
   sdd/config.yml         mode: interactive | auto | unleashed
-                         auto_demote: true | false
+                         enforce_tdd: true | false     (default: true)
                          test_globs: [...]
+                         src_globs: [...]              (optional override)
                          forbidden_content_allowlist: {...}
 
   sdd/.user-overrides.md Findings you told the agent to skip (committed)
   sdd/.review-needed.md  Findings escalated for human review (committed)
-  sdd/.coverage-report.md Output of auto_demote: false runs (committed)
+  sdd/.coverage-report.md Output of enforce_tdd: false runs (committed)
   sdd/.last-clean-run.md Audit log of the most recent /sdd clean run
 
 ## Reference
@@ -220,10 +221,10 @@ When step 2 detected substantive existing code, the agent enters import mode ins
    - Performance budgets from CI config
    - Compliance markers from privacy/legal files
    - Each becomes a `CON-*` entry in `sdd/constraints.md`
-7. **Run the import-time coverage baseline** (this is a one-time pass during `/sdd init` only — future spec-reviewer runs respect the `auto_demote` config setting):
+7. **Run the import-time coverage baseline** (one-time pass during `/sdd init` only — future spec-reviewer runs respect the `enforce_tdd` config setting):
    - For each derived REQ marked `Status: Implemented`, search test files for the feature name or route path (NOT the REQ ID — the agent has not annotated tests yet, so this is a heuristic match for the import baseline only)
    - If found, keep `Implemented`. If not, demote to `Partial` with `Notes: No test coverage found during import analysis. Add REQ-{ID} to test names to restore Implemented status.`
-   - Why this is a one-time pass and not the same as the auto-demote rule: import-mode runs once on a fresh spec where no REQ IDs are in tests yet. After import, the user adds REQ IDs to tests over time, and the regular `auto_demote` setting (default `false`) takes over for steady-state runs.
+   - Why this is a one-time pass: import-mode runs once on a fresh spec where no REQ IDs are in tests yet. After import, the user adds REQ IDs to tests over time, and the regular `enforce_tdd` setting takes over for steady-state runs.
 8. **Present the derived spec for confirmation**, one domain at a time:
    - Show the proposed REQs in the domain
    - Ask: "Does this match what {domain} actually does? Add, remove, or modify any REQs?"
@@ -237,7 +238,7 @@ When step 2 detected substantive existing code, the agent enters import mode ins
     - `sdd/constraints.md` with derived CON-* entries
     - `sdd/glossary.md` with terms inferred from code (vendor names, protocols, domain concepts)
     - `sdd/changes.md` with one entry: `## YYYY-MM-DD\n- Initial spec imported from existing codebase via /sdd init (N requirements across M domains)`
-    - `sdd/config.yml` with `mode: interactive` and `auto_demote: false` (respect existing-project caution)
+    - `sdd/config.yml` with `mode: interactive` and `enforce_tdd: false` (respect existing-project caution — the imported code predates the annotation convention; user opts in after adding annotations)
     - `documentation/` scaffolding from templates, with backlinks to derived REQs where applicable
     - Root `README.md` updated to reference `sdd/` and `documentation/` (preserve existing content if already present — append the SDD section)
 11. **Print next steps for the imported project**:
@@ -248,14 +249,15 @@ When step 2 detected substantive existing code, the agent enters import mode ins
     ✓ {Y} marked Partial (no tests found — see Notes: field)
     ✓ {Z} CON-* constraints derived
     ✓ documentation/ scaffolding created (existing files preserved)
-    ✓ sdd/config.yml created (mode: interactive, auto_demote: false)
+    ✓ sdd/config.yml created (mode: interactive, enforce_tdd: false)
 
     The spec describes what the code currently does. Review it and:
       1. Adjust requirements that don't match your intent
       2. Add REQ IDs to test names so spec-reviewer can verify Implemented status
          (e.g., test('REQ-AUTH-001: rejects expired tokens', () => {...}))
-      3. Run /sdd check anytime to see what's still Partial
-      4. Once test annotations are in place, switch on auto_demote in sdd/config.yml
+      3. Add `Implements REQ-X-NNN` comments to source files so spec-reviewer
+         can detect code-without-tests
+      4. Once annotations are in place, flip `enforce_tdd: true` in sdd/config.yml
       5. To convert Partial → Implemented as you add tests, just push — the
          spec-reviewer agent handles it on every push
 
@@ -269,7 +271,7 @@ When step 2 detected substantive existing code, the agent enters import mode ins
 - **Never overwrite existing `documentation/`** files — only create files that don't exist
 - **Always confirm derived REQs with the user** before writing — even in `auto` or `unleashed` mode (import mode is always interactive because inferring intent from code is genuinely judgment-required)
 - **Mark inferred intent explicitly** with `(inferred)` so the user knows what to validate first
-- **Default `auto_demote: false`** — never aggressively demote on a freshly imported spec; let the user add test annotations first
+- **Default `enforce_tdd: false` for imports only** — never aggressively demote on a freshly imported spec; let the user add REQ-ID test names and `Implements REQ-X-NNN` source annotations first, then opt in. Greenfield `/sdd init` still defaults to `enforce_tdd: true`.
 
 ---
 
@@ -336,7 +338,9 @@ Refactor a rotted spec. Mode-aware.
    - Oversized REQs >50 lines (MEDIUM/HIGH)
    - Fake-Deprecated REQs (no Replaced By) (MEDIUM, JUDGMENT)
    - Bloated `changes.md` >200 lines or >30 entries (RISKY, batched)
-   - Status: Implemented REQs without test coverage (HIGH if `auto_demote: true`, otherwise report-only)
+   - Status: Implemented REQs without test coverage (HIGH if `enforce_tdd: true`, otherwise report-only)
+   - Status: Planned/Partial REQs with source code but no test (HIGH if `enforce_tdd: true`)
+   - Test quality findings: tautologies, skipped tests, AC-count mismatch (HIGH/MEDIUM if `enforce_tdd: true`)
    - Doc-vs-spec conflicts (MEDIUM, JUDGMENT)
 7. **Apply per mode**:
    - **interactive**: report findings batch by batch, ask confirmation
