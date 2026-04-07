@@ -124,7 +124,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 - **Session cards** (`SessionStatCard.tsx`): Clock icon (`mdiClockTimeEightOutline`) between status dot and menu trigger. Click shows inline tooltip with explanation text (same pattern as Workspace tooltip in `FileList.tsx`).
 - **Header toolbar** (`Header.tsx`): Clock icon between avatar and bookmarks button. Click shows dropdown with countdown bucket + explanation text.
-- **Data source:** `lastActiveAt` initialized to container start time by `onStart()`, then updated by `collectMetrics` every 60s when user input is detected (from `lastSeenInputAt` timestamp). This ensures the timer icon works from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5s session list poll.
+- **Data source:** `lastActiveAt` initialized to container start time by `onStart()`, then refreshed by `collectMetrics` every 60 s from the in-container `/activity` endpoint's `lastInputAt` value (the Unix timestamp of the last PTY keystroke tracked by the terminal server). This ensures the timer icon has a reference timestamp from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5 s session list poll.
 
 ---
 

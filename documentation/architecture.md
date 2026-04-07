@@ -53,26 +53,22 @@ With SPA fallback (`not_found_handling = "single-page-application"`), control-pl
 
 ### Container DO (container)
 
-**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `defaultPort = 8080`, `sleepAfter = '5m'` class default (overridden per user from preferences on session start — see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)). SDK-managed lifecycle, renewed only on new user input via input-change detection. A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` as lowercase `timekeeper` for per-user usage tracking (see [Timekeeper DO](authentication.md#timekeeper-do-usage-tracking)).
+**File:** `src/container/index.ts` - Extends `Container` from `@cloudflare/containers`. Exported from `src/index.ts` as lowercase `container` (matching `wrangler.toml` class_name). `defaultPort = 8080`, `sleepAfter = '24h'` sentinel (SDK timer pinned so it never fires in normal operation — idle enforcement is owned entirely by `collectMetrics()`, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)). A second DO, `Timekeeper`, is exported from `src/timekeeper/index.ts` as lowercase `timekeeper` for per-user usage tracking (see [Timekeeper DO](authentication.md#timekeeper-do-usage-tracking)).
 
 **SDK-Managed Hibernation:** `sleepAfter` lets the SDK handle container process lifecycle via its own alarm loop. `onStart()` records `containerStartedAt`, refreshes `envVars` via `updateEnvVars()`, updates KV with `lastStartedAt` timestamp AND `lastActiveAt` (set to start time so the frontend sleep timer icon has a reference timestamp even before any user input), clears stale `collectMetrics` schedules, and arms a fresh 60-second `collectMetrics` schedule. `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')` to kill the alarm loop immediately (preventing zombie alarms on dead containers), then sets KV status to `'stopped'` and updates `lastActiveAt` timestamp, ensuring other devices see correct status for hibernated containers.
 
-**Fetch proxy bypass:** The `fetch()` override proxies requests via `getTcpPort().fetch()` instead of `super.fetch()` (which calls the SDK's `containerFetch()`). This is critical because `containerFetch()` calls `renewActivityTimeout()` internally, resetting the idle timer on every WebSocket reconnection — defeating the input-change-based renewal in `collectMetrics()`. By using `getTcpPort().fetch()`, only explicit `renewActivityTimeout()` calls (triggered by new user input) reset the timer.
+**Request proxying:** The `fetch()` override dispatches `_internal/*` requests to local handlers (via the `internalRoutes` map), then delegates all other requests to `super.fetch()` — the SDK's `containerFetch()` — which handles container startup readiness, WebSocket upgrades, and in-container HTTP routing. If an auth token has been generated, the request headers are cloned and augmented with `Authorization: Bearer <token>` before delegation. When `this.ctx.container?.running === false`, the override short-circuits: HTTP requests get `503`, and WebSocket upgrades are accepted and immediately closed with code `4503 container-stopped` so the browser can distinguish a stopped container from network errors.
 
-**`collectMetrics()` Input-Change Detection (every 60s):**
-1. Checks `this.ctx.container?.running` - returns early (no re-arm) if container is dead
-2. Fetches `/activity` via `getTcpPort()` - uses input-change detection to decide whether to renew `sleepAfter`:
-   - Reads `lastInputAt` from the activity response (Unix timestamp of last real user input)
-   - Compares to `this.lastSeenInputAt` (the value from the previous poll)
-   - **New input detected** (`lastInputAt !== null && lastInputAt !== lastSeenInputAt`): calls `renewActivityTimeout()` to reset the `sleepAfter` timer
-   - **No new input**: does not renew — the `sleepAfter` timer continues counting down from the last renewal
-   - Non-OK `/activity` response: does not renew (broken activity endpoint should not keep containers alive)
-   - Activity logs are at info level for all renewal decisions
-3. Fetches `/health` via `getTcpPort()` - reads cpu/mem/hdd/syncStatus
-4. **Zombie DO detection**: When identifiers are missing (post-`destroy()`), returns early WITHOUT re-arming
-5. Writes metrics to KV session record (`session.metrics`) if container still running
-6. **Timekeeper usage ping** (SaaS mode only, when `SAAS_MODE=active` + `bucketName` + `userEmail` + `TIMEKEEPER` binding): increments `_usageSeconds` by 60, persists to DO storage, pings Timekeeper DO with `{ bucketName, sessionId, totalSeconds, email }`. If Timekeeper returns `quotaExceeded: true`, calls `stop('SIGTERM')` and returns without re-arming
-7. Re-arms schedule if container still running
+**SDK timer is intentionally inert:** In `@cloudflare/containers` v0.2.x, `containerFetch()` refreshes the SDK activity timer on every WebSocket message in both directions. That semantics is "any traffic", but codeflare wants "no user input" — a container running `tail -f` or `yes` should still sleep when the user walks away. Codeflare therefore pins `sleepAfter` to `'24h'` as a sentinel so the SDK timer never fires in practice, and delegates all idle decisions to `collectMetrics()`, which reads real PTY input activity from inside the container and stops it explicitly when the user-configured threshold is exceeded.
+
+**`collectMetrics()` idle enforcement (every 60s):**
+1. Checks `this.ctx.container?.running` — returns early (no re-arm) if container is dead.
+2. Fetches `/activity` via `getTcpPort()` — reads `lastInputAt` (Unix timestamp of last PTY keystroke, tracked by the in-container terminal server) and computes `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)`. If `idleMs > parseSleepAfterMs(idleTimeoutPref)`, writes KV status `'stopped'` and calls `stop('SIGTERM')` directly — this is the sole idle-hibernation path. If `/activity` returns non-OK or throws, the step is skipped and collectMetrics fails open (does NOT stop the container — a broken activity endpoint should not kill an active session).
+3. Fetches `/health` via `getTcpPort()` — reads cpu/mem/hdd/syncStatus.
+4. **Zombie DO detection**: when identifiers are missing (post-`destroy()`), returns early WITHOUT re-arming.
+5. Writes metrics to KV session record (`session.metrics`) if container still running.
+6. **Timekeeper usage ping** (SaaS mode only, when `SAAS_MODE=active` + `bucketName` + `userEmail` + `TIMEKEEPER` binding): increments `_usageSeconds` by 60, persists to DO storage, pings Timekeeper DO with `{ bucketName, sessionId, totalSeconds, email }`. If Timekeeper returns `quotaExceeded: true`, calls `stop('SIGTERM')` and returns without re-arming.
+7. Re-arms the 60 s schedule if container still running.
 
 **Zombie DO Detection:** When `collectMetrics` reaches the health-fetch stage but `sessionId` or `bucketName` are missing from DO storage (happens after `destroy()` clears them), it logs `"missing identifiers, not re-arming (zombie DO)"` and returns without scheduling the next cycle. This is the kill switch for orphaned DOs.
 
@@ -82,13 +78,11 @@ flowchart TD
     CRunning -->|No| Exit1["Early return, no re-arm<br/>(loop dies -- container dead)"]
     CRunning -->|Yes| FetchAct["Fetch /activity<br/>from container"]
     FetchAct --> ActOK{"Response OK?"}
-    ActOK -->|No| NoRenewErr["Don't renew<br/>(broken endpoint)"]
-    ActOK -->|Yes| InputChanged{"lastInputAt changed<br/>since last poll?"}
-    InputChanged -->|Yes| Renew["renewActivityTimeout()<br/>(reset sleepAfter timer)"]
-    InputChanged -->|No| NoRenew["Don't renew<br/>(no new input)"]
-    Renew --> FetchHealth["Fetch /health<br/>from container"]
-    NoRenew --> FetchHealth
-    NoRenewErr --> FetchHealth
+    ActOK -->|No| Skip["Skip idle check (fail-open)"]
+    ActOK -->|Yes| IdleCheck{"idleMs &gt;<br/>idleTimeoutPref?"}
+    IdleCheck -->|Yes| StopIdle["stop('SIGTERM')<br/>(idle exceeded)"]
+    IdleCheck -->|No| FetchHealth["Fetch /health<br/>from container"]
+    Skip --> FetchHealth
     FetchHealth --> IDs{"identifiers exist?<br/>(sessionId + bucketName)"}
     IDs -->|No| Exit2["Early return, no re-arm<br/>(zombie DO detected)"]
     IDs -->|Yes| WriteKV["Write metrics to KV"]
@@ -100,7 +94,7 @@ flowchart TD
     TK -->|No| ReArm
 ```
 
-**`onActivityExpired()` Override:** Performs a final input-change check before stopping. Fetches `/activity` and compares `lastInputAt` to `lastSeenInputAt`. If new input was received since the last `collectMetrics` poll (i.e., user typed between the last poll and expiry), renews `sleepAfter` and returns. Otherwise calls `this.stop('SIGTERM')`. Container not running, non-OK `/activity` response, or fetch error all result in `this.stop('SIGTERM')`. By the time `onActivityExpired` fires, the user-configured `sleepAfter` duration of zero `renewActivityTimeout()` calls has elapsed.
+**`onActivityExpired()` Override:** None. Codeflare does not override `onActivityExpired()` anymore. With `sleepAfter` pinned to `'24h'`, the SDK timer effectively never fires in normal operation, and `collectMetrics()` owns all idle-stop decisions. If a container somehow reaches the 24 h ceiling idle, the SDK's default `onActivityExpired` implementation stops it — that is the correct fallback.
 
 **`destroy()` Override:** Clears `SESSION_ID_KEY`, `bucketName`, `workspaceSyncEnabled`, `tabConfig`, `fastStartEnabled` from DO storage and nulls `_bucketName`, `_sessionId`, `_r2AccessKeyId`, `_r2SecretAccessKey`, `_containerAuthToken`, `_openaiApiKey`, `_geminiApiKey`, `_githubToken`, `_cloudflareApiToken`, `_cloudflareAccountId`, `_encryptionKey` in memory, and resets `_sessionMode` to `'default'` BEFORE calling `super.destroy()`. This prevents `onStop()` (triggered asynchronously by `super.destroy()` killing the container) from resurrecting deleted sessions in KV.
 
@@ -140,15 +134,13 @@ Sync handled entirely by `entrypoint.sh` (60s daemon). Terminal server reads syn
 
 **Auth-Exempt Paths:** The terminal server validates `Authorization: Bearer <token>` on all HTTP requests. Paths called via `getTcpPort().fetch()` (which bypasses the DO's `fetch()` override that injects the auth header) must be in the `authExemptPaths` Set at `host/src/server.ts`: `['/health', '/activity']`. The `/activity` endpoint is also exempted from auth in the DO-level `fetch()` override so internal health checks don't require token injection.
 
-**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null }`. Used by both `collectMetrics()` (input-change detection) and `onActivityExpired()` (final input check). Active connections = WebSocket clients that are currently connected. `disconnectedForMs` tracks time since all clients disconnected (null if clients are currently connected). `lastInputAt` is the Unix timestamp (ms) of the last real user input — determined by `containsUserInput()` after `stripTerminalResponses()` removes terminal protocol chatter (CPR, OSC, DA). The DO compares `lastInputAt` to its `lastSeenInputAt` field to detect new input between polls.
+**`GET /activity` Endpoint:** Returns `{ hasActiveConnections: boolean, connectedClients: number, activeSessions: number, disconnectedForMs: number | null, lastInputAt: number | null }`. Consumed exclusively by the Container DO's `collectMetrics()` poll. Active connections = WebSocket clients currently connected. `disconnectedForMs` tracks time since all clients disconnected (null while clients are connected). `lastInputAt` is the Unix timestamp (ms) of the last real user input — determined by `containsUserInput()` after `stripTerminalResponses()` removes terminal protocol chatter (CPR, OSC, DA). This is the authoritative signal for codeflare's "user has walked away" idle policy.
 
-**Idle Detection (Two-Layer):** The Container DO enforces idle timeout through two complementary mechanisms:
+**Idle Detection (Single Source of Truth):** Idle hibernation is enforced exclusively by `collectMetrics()`, which polls `/activity` every 60 s and computes `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)`. When this exceeds `parseSleepAfterMs(idleTimeoutPref)`, it writes KV status `'stopped'` and calls `this.stop('SIGTERM')` directly. See REQ-SESSION-004 / REQ-SESSION-005.
 
-1. **SDK timer (`onActivityExpired`):** The SDK's built-in `sleepAfter` timer fires when no HTTP requests pass through `super.fetch()` for the configured duration. Works well for longer timeouts (30m+) where WebSocket reconnects are infrequent. `onActivityExpired()` checks `/activity` one last time and calls `this.stop('SIGTERM')`. The KV status write happens in `onStop()`, not in `onActivityExpired()` itself.
+The SDK's `sleepAfter` timer is intentionally disabled — it's pinned to `'24h'` so it never fires in normal operation. This is necessary because `@cloudflare/containers` v0.2.x refreshes the SDK timer on every WebSocket message in both directions, which would give "any traffic" semantics (containers running `tail -f` or `yes` would never sleep even after the user walks away). Codeflare needs "no user input" semantics, which only an in-container PTY tracker (the terminal server's `lastInputAt`) can provide.
 
-2. **Explicit idle-stop (`collectMetrics`):** `collectMetrics()` polls `/activity` every 60s and independently checks idle time: `Date.now() - (lastInputAt ?? containerStartedAt)`. If this exceeds `parseSleepAfterMs()`, it writes KV status `'stopped'` and calls `this.stop('SIGTERM')`. This is the **primary** enforcement for short timeouts (5m) because `super.fetch()` resets the SDK timer on every HTTP request (including periodic WebSocket reconnects), preventing `onActivityExpired()` from firing.
-
-The `containerStartedAt` fallback is critical: if a user opens a terminal but never types, `lastInputAt` stays `null`. Without the fallback, the idle check would be skipped and the container would run forever. With the fallback, idle time is measured from container start.
+The `containerStartedAt` fallback is critical: if a user opens a terminal but never types, `lastInputAt` stays `null`. Without the fallback, the idle check would be skipped and the container would run forever. With the fallback, idle time is measured from container start, so an unused terminal still stops after the configured timeout.
 
 `containsUserInput()` in `host/src/session.ts` uses a whitelist approach — only actual keypresses count (printable characters, control keys, arrow keys, function keys, Alt+key, mouse clicks). Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to the PTY. Scenarios: user stops typing → container stops after `sleepAfter` + up to 60s (poll granularity); browser closed → same; user opens terminal but never types → container stops after `sleepAfter` from start time.
 
@@ -325,7 +317,7 @@ flowchart TD
 
 **Session Stop Flow (user-initiated):** Sets KV status to `'stopped'`, calls `container.destroy()` (sends SIGINT per Dockerfile STOPSIGNAL, then SIGKILL), entrypoint.sh shutdown handler runs final `rclone bisync`. `destroy()` override clears `SESSION_ID_KEY`/`bucketName` from DO storage before `super.destroy()` -- prevents `onStop()` from resurrecting the deleted session. Both `batch-status` and `GET /:id/status` trust the `'stopped'` KV status to avoid waking the DO (exception: stale >5 minutes triggers probe).
 
-**Session Stop Flow (idle):** `onActivityExpired()` detects no new user input since last `collectMetrics` poll, or unreachable activity endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule and writes `status: 'stopped'` to KV. Note: `onActivityExpired()` itself does not write KV — the KV write happens in `onStop()`.
+**Session Stop Flow (idle):** `collectMetrics()` polls `/activity` every 60 s, computes `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)`, and when `idleMs > parseSleepAfterMs(idleTimeoutPref)` writes KV `status: 'stopped'` (with `lastActiveAt`) and calls `this.stop('SIGTERM')`. The subsequent `onStop()` clears the `collectMetrics` schedule via `deleteSchedules('collectMetrics')`. See REQ-SESSION-004 / REQ-SESSION-005.
 
 ---
 
@@ -405,10 +397,10 @@ stateDiagram-v2
     initializing --> error : error
     running --> stopping : stop
     stopping --> stopped : poll stopped
-    running --> stopped : onActivityExpired (no new input)
+    running --> stopped : collectMetrics (idle &gt; idleTimeoutPref)
 ```
 
-**Stop (idle):** `sleepAfter` expires -> SDK calls `onActivityExpired()` -> checks `/activity` -> `lastInputAt` unchanged since last poll (no new input) or unreachable endpoint -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule -> KV status = `'stopped'`
+**Stop (idle):** `collectMetrics()` poll -> `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)` -> `idleMs > parseSleepAfterMs(idleTimeoutPref)` -> write KV `status: 'stopped'` (with `lastActiveAt`) -> `this.stop('SIGTERM')` -> `onStop()` clears `collectMetrics` schedule.
 
 **Fast container-stopped detection (frontend):** When the Container DO's "not running" guard returns close code `4503` (`WS_CONTAINER_STOPPED_CODE`), the terminal store stops retrying and marks the connection as disconnected. This is server-authoritative — the container is definitively not running. Non-4503 close codes (1006, 1001, 1011, etc.) trigger automatic reconnection with 1s delay.
 
@@ -420,14 +412,14 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    subgraph Idle["Idle Stop"]
-        I1["sleepAfter expires"] --> I2["onActivityExpired()"]
-        I2 --> I3["Check /activity"]
-        I3 --> I4{"lastInputAt changed<br/>since last poll?"}
-        I4 -->|Yes| I4R["renewActivityTimeout()"]
-        I4 -->|No| I5["this.stop('SIGTERM')"]
+    subgraph Idle["Idle Stop (collectMetrics)"]
+        I1["collectMetrics() fires<br/>(every 60s)"] --> I2["Fetch /activity"]
+        I2 --> I3{"idleMs &gt;<br/>idleTimeoutPref?"}
+        I3 -->|No| I3N["Continue<br/>(container stays alive)"]
+        I3 -->|Yes| I4["Write KV status='stopped'"]
+        I4 --> I5["this.stop('SIGTERM')"]
         I5 --> I6["onStop()"]
-        I6 --> I7["KV status = 'stopped'"]
+        I6 --> I7["Clear collectMetrics schedule"]
         I6 -.- IN["Identifiers INTACT<br/>so onStop() writes KV"]
     end
 
@@ -528,13 +520,13 @@ Architectural principles and design rationale.
 1. **rclone bisync > s3fs FUSE** - FUSE mounts are fragile and slow. Periodic bisync with local disk is faster and more reliable.
 2. **Newest file wins** - Simple conflict resolution for single-user scenarios.
 3. **Resilient bisync over auto-resync** - `--resilient` + `--recover` handle transient failures without losing deletion tracking. `--resync` is only used for initial baseline establishment (see AD14).
-4. **SDK-managed lifecycle with input-change detection** - `sleepAfter` with `collectMetrics` input-change detection keeps containers alive during active use. The DO polls `/activity` every 60s and compares `lastInputAt` to the previous value. Renewal only happens when new user input is detected (the value changed). This is simpler and more reliable than the previous heartbeat-based approach (which required frontend 60s heartbeat intervals, three-tier evaluation logic with heartbeat staleness, and legacy fallback paths). Input-change detection has a single signal: did the user type something new? Container stops ~30 min after the last user input.
+4. **Single-source idle detection via `collectMetrics`** - The DO polls `/activity` inside the container every 60 s and explicitly calls `stop('SIGTERM')` when `idleMs > parseSleepAfterMs(idleTimeoutPref)`. The SDK's own `sleepAfter` timer is pinned to `'24h'` and plays no role in idle decisions (see AD/rationale #11). This replaced both the earlier heartbeat-based approach AND a short-lived input-change-detection design that leaned on the SDK timer — both were fragile when WebSocket reconnects reset the SDK's activity timer. One mechanism, one signal: has the user typed within the configured threshold? Container stops ~threshold + up to 60 s after the last keystroke.
 5. **`onStop()` must set KV status and clear schedules** - SDK hibernation fires `onStop()` which must write `status: 'stopped'` to KV (otherwise other devices see stale 'running' status) and call `deleteSchedules('collectMetrics')` to kill the alarm loop (otherwise zombie alarms fire on a dead container indefinitely).
 6. **`destroy()` must clear identifiers before `super.destroy()`** - `onStop()` fires asynchronously after `super.destroy()`. Without clearing identifiers first, `onStop()` resuscitates deleted sessions in KV via read-modify-write.
 7. **Secrets persist with worker state** - `wrangler delete` destroys all secrets.
 8. **Single port architecture** - All services on port 8080 eliminates port conflict bugs.
 9. **CPU metrics show load average, not utilization** - `os.loadavg()[0] / cpus * 100` measures run queue depth. Values >100% are normal.
-10. **Downgrade verbose activity logs to debug** - Per-cycle activity check logs at `info` level generate log volume (every 60s per container). Once input-change detection is confirmed stable, downgrade to `debug`.
+10. **Downgrade verbose activity logs to debug** - Per-cycle activity check logs at `info` level generate log volume (every 60 s per container). Once the single-source `collectMetrics` idle enforcement is confirmed stable in production, downgrade to `debug`.
 11. **Stateless dashboard polling preserves hibernation** - Dashboard status endpoints must be pure KV reads with zero DO contact. Waking a DO resets the Container SDK's internal activity timer; even with the SDK timer pinned to 24 h (see [REQ-SESSION-004](../sdd/session-lifecycle.md#req-session-004) AC5), unnecessary DO wake-ups waste resources and can interfere with hibernation. `@cloudflare/containers` v0.2.x also auto-refreshes on any WebSocket message, so the SDK timer sees "any traffic" semantics, not "no user input" semantics — this is the primary reason idle enforcement is delegated entirely to `collectMetrics()` rather than the SDK timer.
 12. **Polling interval vs push cadence** - The backend pushes metrics to KV every 60s (`collectMetrics`). The frontend polls at 5s for responsive session status updates (start/stop transitions). Metrics on the dashboard may be up to ~60s stale.
 13. **rclone version upgrades can break bisync** - The Alpine → Debian migration changed rclone v1.68 → v1.73, introducing stricter MD5 post-transfer verification that aborts on files modified during sync ("corrupted on transfer"). Fix: `--ignore-checksum` on all bisync commands. Pin rclone version in Dockerfile to prevent future surprise breakage. Additionally, `--max-delete 100` is required on all bisync commands — the default 50% threshold aborts syncs when bulk deletions (e.g., deleting a workspace folder) remove more than half the tracked files. **Warning**: `--resync` should never be used as an automatic recovery mechanism — it destroys bisync's deletion tracking (see AD14).
