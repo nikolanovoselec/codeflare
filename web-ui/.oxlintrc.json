@@ -10,7 +10,10 @@
       }
     ],
     "no-unassigned-vars": "off",
-    "unicorn/no-useless-spread": "off",
-    "no-this-alias": "off"
+    "eslint/no-unassigned-vars": "off",
+    "no-this-alias": "off",
+    "typescript/no-this-alias": "off",
+    "no-useless-spread": "off",
+    "unicorn/no-useless-spread": "off"
   }
 }
