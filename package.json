@@ -41,7 +41,7 @@
     "@vitest/coverage-v8": "^4.1.0",
     "fast-check": "^4.6.0",
     "knip": "^5.86.0",
-    "oxlint": "^1.55.0",
+    "oxlint": "^1.59.0",
     "puppeteer": "^24.39.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.0",
