@@ -4,6 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-04-07
 - Setup wizard now honors REQ-AUTH-002 constraint by skipping the `create_access_app` step in SaaS+OIDC mode (issue #140)
+- Dockerfile base image now pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror) instead of Docker Hub to avoid anonymous pull rate limits in CI; image digest preserved, REQ-OPS-011 unaffected (still bookworm-slim Node 24)
 
 ## 2026-04-06
 - Updated REQ-SUB-018 AC4-AC5: usage warning banners (80%, 95%) are dismissible with × button; 100% banner remains non-dismissible
