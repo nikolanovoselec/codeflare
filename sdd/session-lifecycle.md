@@ -134,8 +134,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 2. `containsUserInput()` uses a whitelist: printable characters, control keys (Enter, Backspace, Tab, Ctrl+key), arrow keys, function keys, Alt+key, and mouse clicks count as input.
 3. Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count as input.
 4. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to PTY.
-5. The Container DO's `fetch()` override uses `getTcpPort().fetch()` instead of `super.fetch()` so that WebSocket and HTTP routing never enters the SDK's activity-tracking code path (defense in depth alongside the SDK timer being pinned to 24h).
-6. `collectMetrics()` compares `lastInputAt` to `lastSeenInputAt` to detect new input between polls and uses that delta solely to drive its own idle decision; there is no SDK timer to renew.
+5. The Container DO's `fetch()` override dispatches `_internal/*` routes locally and delegates all other traffic to `super.fetch()` (optionally with an `Authorization: Bearer <token>` header for in-container auth). The SDK's activity timer being refreshed on every proxied request is harmless because `sleepAfter` is pinned to `'24h'` (REQ-SESSION-004 AC5), making the SDK timer functionally inert as an idle detector.
+6. `collectMetrics()` polls the in-container `/activity` endpoint every 60 s over the DO's private TCP port (not via the public fetch proxy), reads the authoritative `lastInputAt` value tracked by the terminal server, and computes `idleMs = Date.now() - (lastInputAt ?? containerStartedAt)` to drive its own idle-stop decision. There is no dependency on the SDK's activity timer.
 
 **Constraints:**
 - If no input is ever received (`lastInputAt` is null), idle time is measured from `containerStartedAt`.

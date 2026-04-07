@@ -24,7 +24,7 @@ The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO
 
 ## Container Auth Token
 
-A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All proxied HTTP requests from the DO to the container include this token in the `Authorization: Bearer` header. The terminal server (`host/src/server.ts`) validates this token on all non-exempt paths. `getTcpPort().fetch()` bypasses the DO's `fetch()` override (which injects the header), so internal paths (`/health`, `/activity`) must be in `authExemptPaths`.
+A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` env var. All requests proxied from the DO to the container via the public `fetch()` override include this token in the `Authorization: Bearer` header. The terminal server (`host/src/server.ts`) validates the token on all non-exempt paths. Internal paths (`/health`, `/activity`) are in `authExemptPaths` because `collectMetrics()` calls them directly via `ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)` from inside the DO class — that path enters the container over the SDK's private TCP plumbing and never runs through the public `fetch()` override, so no `Authorization` header is injected. The whitelist is safe because these two paths expose no user data and no mutable container state.
 
 ## Dual R2 Credential Architecture
 

@@ -315,7 +315,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 1. A random UUID is generated per DO lifecycle and passed to the container as `CONTAINER_AUTH_TOKEN` environment variable.
 2. All proxied HTTP requests from the DO to the container include the token in the `Authorization: Bearer` header.
 3. The terminal server validates this token on all non-exempt paths.
-4. Auth-exempt paths (`/health`, `/activity`) are whitelisted because `getTcpPort().fetch()` bypasses the DO's `fetch()` override.
+4. Auth-exempt paths (`/health`, `/activity`) are whitelisted at the terminal server because `collectMetrics()` calls them directly via `ctx.container.getTcpPort(TERMINAL_SERVER_PORT).fetch(...)`. That path enters the container over the SDK's private TCP plumbing and never runs through the DO's public `fetch()` override, so the `Authorization: Bearer` header injection does not happen. Whitelisting these two internal-health paths is safe because they expose no user data and no mutable container state.
 
 **Constraints:**
 - The token is unique per DO lifecycle, not per session or per request.
