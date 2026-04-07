@@ -478,7 +478,9 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 - **Project-agnostic agent refactor**: spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings, read `documentation/README.md` to discover the project's actual file structure, and detect `sdd/` to switch between SDD-strict and docs-only modes.
 - **Sequential execution** (spec-reviewer first, doc-updater second) prevents race conditions on shared files.
 - **2-round commit-cycle limit** with `[sdd-clean]` tag exclusion catches micro-fix spirals without crashing the rescue command itself.
-- **Auto-demote rule** (Implemented → Partial without test coverage) is opt-in via `sdd/config.yml` to avoid mass-demoting existing projects on first install. Forced `true` in unleashed mode where the PR review is the safety net.
+- **`enforce_tdd` rule** (renamed from `auto_demote`, default `true`): spec-reviewer auto-demotes `Implemented` REQs without test coverage to `Partial`, detects `Planned`/`Partial` REQs whose source code exists but has no corresponding test (code-without-test finding), and runs test-quality heuristics (AC-count vs test-count ratio, tautology detection, skipped-test detection) on every push. Forced `true` in unleashed mode where the PR review is the safety net.
+- **Plan Mode mandate**: `/sdd init`, `/sdd edit`, and `/sdd add` emit `EnterPlanMode` directives so spec-to-code transitions always go through Plan Mode (a built-in Claude Code primitive). The `/plan` custom slash command is removed — Plan Mode replaces it.
+- **`Implements REQ-X-NNN` annotation convention**: source files must carry a comment naming the REQ they implement (e.g., `// Implements REQ-AUTH-001`). spec-reviewer greps for these annotations when running coverage checks; they are the bridge between source code and the spec.
 - **Template scaffolding** in `references/templates/` lets `/sdd init` bootstrap any project with no external dependencies.
 
 **Trade-offs accepted:**

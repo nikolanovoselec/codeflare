@@ -115,7 +115,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 | `block-attributed-commits` hook (CC only) | No | Yes |
 | Language rules (23 files: common, TS, Python, Go, Swift) | No | Yes |
 | Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes |
-| Commands (6: /brainstorm, /debug, /deploy, /plan, /review, /sdd) | No | Yes |
+| Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes |
 | Cherry-picked skills (8: api-design, backend-patterns, etc.) | No | Yes |
 | `spec-discipline` rule (universal SDD enforcement, all 5 agents) | No | Yes |
 | SDD template scaffolding (13 files for `/sdd init`) | No | Yes |
@@ -139,7 +139,7 @@ ECC-derived rules, agents, commands, and skills are preseeded directly to the ag
 
 **Agents (8)**: `architect`, `build-error-resolver`, `code-reviewer`, `doc-updater`, `refactor-cleaner`, `security-reviewer`, `spec-reviewer`, `tdd-guide`. Preseeded to `~/.claude/agents/*.md` (and adapted equivalents for other agents) via the manifest pipeline with `"modes": ["advanced"]`. Each agent definition has YAML frontmatter with `name`, `description`, `tools` (emitted as a record `{read: true, write: true}` for OpenCode, instead of array format), and `model` (CC only).
 
-**Commands (6)**: `brainstorm`, `debug`, `deploy`, `plan`, `review`, `sdd`. Preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't support slash commands).
+**Commands (5)**: `brainstorm`, `debug`, `deploy`, `review`, `sdd`. Preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't support slash commands). Planning transitions are handled via Plan Mode (a built-in Claude Code primitive), not a slash command.
 
 **Skills (27 entries)**: `cloudflare-stack`, `ship` (+ 2 reference files), `consult-llm`, `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`, `spec-driven-development` (+ 13 reference templates for `/sdd init` scaffolding). Preseeded to `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for agents that support skills). `consult-llm` is CC-only (depends on MCP tool).
 
@@ -160,10 +160,10 @@ All preseed content is deployed via the manifest pipeline:
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
-**Manifest structure (74 total entries)**:
+**Manifest structure (73 total entries)**:
 - `rules/` (25): core (4 default+advanced: ci-monitoring, cloudflare-environment, no-local-builds, deploy-credentials; + 2 advanced-only: memory, spec-discipline), common (3), typescript (4), python (4), golang (4), swift (4)
 - `agents/` (8): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, spec-reviewer, tdd-guide (advanced only)
-- `commands/` (6): brainstorm, debug, deploy, plan, review, sdd (advanced only)
+- `commands/` (5): brainstorm, debug, deploy, review, sdd (advanced only)
 - `skills/` (27): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first, spec-driven-development (+13 reference templates for /sdd init scaffolding)
 - `plugins/` (8): known_marketplaces.json (default+advanced), codeflare-memory plugin (4 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md, memory-compact-prompt.md), codeflare-hooks plugin (3 files, advanced only: plugin.json, block-attributed-commits.sh, git-push-review-reminder.sh)
 
