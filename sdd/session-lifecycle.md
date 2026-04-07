@@ -106,14 +106,15 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. The `sleepAfter` value is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h.
 2. Default is 30m for paying users; free-tier users are locked to 5m regardless of stored preference.
 3. The idle timer resets only when new user input is detected (not on heartbeats, reconnections, or protocol chatter).
-4. When the timer expires, `onActivityExpired()` performs a final input check and calls `this.stop('SIGTERM')` if no new input is found.
-5. `collectMetrics()` independently enforces idle timeout every 60 seconds as backup for short timeouts where SDK timer resets on HTTP activity.
+4. `collectMetrics()` is the sole enforcer of the idle timeout: it polls the in-container `/activity` endpoint every 60 seconds, computes idle time from `lastInputAt`, and explicitly calls `this.stop('SIGTERM')` once the user-configured threshold is exceeded.
+5. The Container SDK's own `sleepAfter` timer is pinned to a 24h sentinel so it never fires in normal operation; idle policy is owned exclusively by `collectMetrics()`. The user-facing preference is held in the `idleTimeoutPref` field.
 6. Admins can always change their own `sleepAfter`; non-subscribed users have the dropdown disabled.
 
 **Constraints:**
 - `sleepAfter` is validated against `/^(5m|15m|30m|1h|2h)$/` on the DO side.
-- `sleepAfter` is persisted to DO storage so it survives Cloudflare DO resets.
+- `sleepAfter` is persisted to DO storage so it survives Cloudflare DO resets. The wire-protocol and storage key remain `sleepAfter` for backwards compatibility with existing sessions even though the in-memory field is named `idleTimeoutPref`.
 - Backend enforcement in `lifecycle.ts`: free-tier override cannot be bypassed via API.
+- Idle detection MUST NOT rely on the Container SDK's built-in timer, because it refreshes on any WebSocket traffic in either direction (including background process output like `tail -f`). Codeflare requires "no user input" semantics, not "no traffic" semantics.
 
 **Priority:** P0
 **Dependencies:** REQ-SESSION-005
@@ -133,8 +134,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 2. `containsUserInput()` uses a whitelist: printable characters, control keys (Enter, Backspace, Tab, Ctrl+key), arrow keys, function keys, Alt+key, and mouse clicks count as input.
 3. Terminal protocol responses (CSI, OSC, DCS, APC, focus reports, mouse movement) do not count as input.
 4. `stripTerminalResponses()` removes terminal emulator response sequences (CPR, OSC 10/11/12, DA1) before writing to PTY.
-5. The Container DO's `fetch()` override uses `getTcpPort().fetch()` instead of `super.fetch()` to prevent WebSocket reconnections from resetting the SDK idle timer.
-6. `collectMetrics()` compares `lastInputAt` to `lastSeenInputAt` to detect new input between polls; only new input triggers `renewActivityTimeout()`.
+5. The Container DO's `fetch()` override uses `getTcpPort().fetch()` instead of `super.fetch()` so that WebSocket and HTTP routing never enters the SDK's activity-tracking code path (defense in depth alongside the SDK timer being pinned to 24h).
+6. `collectMetrics()` compares `lastInputAt` to `lastSeenInputAt` to detect new input between polls and uses that delta solely to drive its own idle decision; there is no SDK timer to renew.
 
 **Constraints:**
 - If no input is ever received (`lastInputAt` is null), idle time is measured from `containerStartedAt`.

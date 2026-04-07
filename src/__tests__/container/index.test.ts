@@ -626,10 +626,13 @@ describe('container DO class', () => {
   });
 
   describe('idleTimeoutPref', () => {
-    // The setBucketName wire protocol still uses the field name 'sleepAfter'
-    // (backwards compat) and the DO storage key is still 'sleepAfter' — but
-    // the in-memory field is now idleTimeoutPref, because SDK.sleepAfter is
-    // pinned to 24h and plays no role in idle detection.
+    // Naming boundary clarified:
+    //   - In-memory field holding the user preference: idleTimeoutPref (new)
+    //   - SDK.sleepAfter: pinned to '24h', no role in idle decisions
+    //   - setBucketName wire-protocol field: sleepAfter (unchanged, backwards compat)
+    //   - DO storage key:                    sleepAfter (unchanged, backwards compat)
+    // The wire + storage names are intentionally preserved so existing clients
+    // and persisted DOs keep working across the refactor.
 
     it('defaults to 5m when not in storage', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
@@ -942,7 +945,7 @@ describe('container DO class', () => {
 
     it('honors user-configured idleTimeoutPref (2h) before stopping', async () => {
       const instance = await createRunningInstance();
-      (instance as any).idleTimeoutPref = '2h';
+      instance.idleTimeoutPref = '2h'; // public field, no cast needed
       const now = Date.now();
 
       // lastInputAt 10m old — would stop at 5m default, but 2h pref keeps it alive

@@ -7,6 +7,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 - Dockerfile base image now pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror) instead of Docker Hub to avoid anonymous pull rate limits in CI; image digest preserved, REQ-OPS-011 unaffected (still bookworm-slim Node 24)
 - Added REQ-AGENT-021: Spec-Driven Development Workflow (Pro) — three autonomy modes, `/sdd clean` rescue, project-agnostic operation, import mode for existing codebases
 - Updated REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007, REQ-AGENT-014: preseed bundle expanded to include the `spec-discipline` enforcement rule and 13 SDD scaffolding templates
+- Updated REQ-SESSION-004 AC4-AC5 and REQ-SESSION-005 AC5-AC6: idle detection consolidated to a single mechanism. `collectMetrics()` is now the sole enforcer of the user-configured idle timeout; the Container SDK's `sleepAfter` timer is pinned to 24h and the `onActivityExpired` override has been removed. Motivation: @cloudflare/containers v0.2.3 refreshes the SDK timer on any WebSocket message in either direction, which would keep containers alive whenever background processes (`tail -f`, log streams) emit output. Codeflare needs "no user input" semantics, not "no traffic" semantics. Wire protocol and DO storage key remain `sleepAfter` for backwards compatibility; the in-memory field is now `idleTimeoutPref`.
 
 ## 2026-04-06
 - Updated REQ-SUB-018 AC4-AC5: usage warning banners (80%, 95%) are dismissible with × button; 100% banner remains non-dismissible
