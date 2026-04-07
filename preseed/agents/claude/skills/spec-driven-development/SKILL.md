@@ -284,19 +284,22 @@ These are recommended defaults, configurable per project in `sdd/config.yml`:
 
 These are guidance, not enforcement. The auto-demote rule is the only hard enforcement (binary: test exists per REQ or it doesn't).
 
-## /plan integration
+## Plan Mode integration
 
-After `/sdd clean` auto-demotes Implemented REQs to `Partial`, the natural next step is `/plan`:
+**Plan Mode is mandatory on every spec→code transition**: after `/sdd init`, `/sdd edit` (if new REQ is `Planned`/`Partial`), or `/sdd add`. Next action MUST be entering Plan Mode (Claude Code: `EnterPlanMode`; other agents: the equivalent planning primitive). Hard gate. "build now" / "go" / "execute" / "ship it" / "just do it" authorize *starting*, never skipping.
 
-```bash
-/plan
-# Reads sdd/, filters Status: Partial and Status: Planned
-# Derives a phased implementation plan
-# For Partial: "write tests, verify they currently fail, then verify they pass"
-# For Planned: "write tests first, then implement"
-```
+The plan must:
+1. Read all of `sdd/`, enumerate REQs by Status
+2. Filter to `Status: Planned` and `Status: Partial`
+3. Topo-sort by `Dependencies:`
+4. **Phase RED**: one failing test per AC via `tdd-guide`. Test name: `REQ-{DOMAIN}-{NNN}: {AC summary}`
+5. **Phase GREEN**: minimal impl, one REQ at a time, in dependency order
+6. **Phase VERIFY**: push, let `spec-reviewer` promote `Planned`→`Implemented` on next run
+7. Name the test framework from the stack (vitest, jest, pytest, go test, rspec, xctest, etc.); add Phase 0 if none exists
 
-`/plan` never re-plans `Implemented` REQs — they're the foundation new work builds on.
+**Informal proposal ≠ formal Plan Mode.** A detailed prose proposal + user "execute" / "go" / "fine" is *informal* approval. Still enter Plan Mode and re-present the same plan as a formal artifact. Treating "execute" as plan approval when no formal plan exists is the trap that breaks SDD.
+
+**Legitimate skip**: only if the user, after seeing a plan proposal, explicitly says "skip plan mode" or "no plan". Record in a feedback memory. Mark affected REQs `Partial` (not `Implemented`) until tests exist. "build now" / "go" / "execute" never count.
 
 ## What is NOT a requirement
 
