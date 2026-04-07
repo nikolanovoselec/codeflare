@@ -63,6 +63,11 @@
       "advanced"
     ]
   },
+  "rules/spec-discipline.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/common/coding-style.md": {
     "modes": [
       "advanced"
@@ -299,6 +304,71 @@
     ]
   },
   "skills/spec-driven-development/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/root-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-glossary.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-constraints.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-changes.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-config.yml": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-architecture.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-api-reference.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-configuration.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-deployment.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-decisions-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/gitignore-additions.txt": {
     "modes": [
       "advanced"
     ]

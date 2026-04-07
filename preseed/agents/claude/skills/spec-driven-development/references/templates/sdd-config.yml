@@ -1,0 +1,52 @@
+# SDD configuration — controls how spec-reviewer and doc-updater agents behave on this project.
+# This file is read by both agents at the start of every run.
+
+# Mode: interactive | auto | unleashed
+#
+# interactive: confirm every fix before applying. Safe for new SDD users.
+# auto:        apply SAFE+RISKY fixes silently on the current branch.
+#              Escalate JUDGMENT calls to sdd/.review-needed.md.
+# unleashed:   apply everything (including JUDGMENT) on a new branch + PR.
+#              Conservative defaults preserve information without overwriting intent.
+#              Walk-away workflow — review the PR when you come back.
+mode: interactive
+
+# Auto-demote: when true, spec-reviewer downgrades Implemented REQs without
+# test coverage to Partial. When false, spec-reviewer only writes
+# sdd/.coverage-report.md without modifying the spec.
+#
+# Forced to true in unleashed mode (PR review is the safety net).
+# Default false to avoid surprising existing projects on first install.
+auto_demote: false
+
+# Test discovery globs — where spec-reviewer looks for REQ ID references in test files.
+# Detection is binary: the REQ ID literally appears in a test file or it doesn't.
+test_globs:
+  - "tests/**/*.test.{ts,js,tsx,jsx,mjs}"
+  - "tests/**/*.spec.{ts,js,tsx,jsx,mjs}"
+  - "__tests__/**/*"
+  - "test/**/*.test.{ts,js,tsx,jsx,mjs}"
+  - "**/*_test.{py,go,rb}"
+  - "**/test_*.py"
+  - "tests/e2e/**"
+  - "cypress/**"
+  - "playwright/**"
+  - "e2e/**"
+
+# Forbidden content allowlist — which categories are acceptable inside REQs.
+# When false, the category is banned. When true, it's allowed.
+forbidden_content_allowlist:
+  protocols: true        # OAuth, JWT, WebSocket, etc.
+  vendors: true          # Cloudflare Access, Stripe, Resend, etc.
+  http_codes_in_api_reqs: true  # HTTP status codes when documenting an API contract REQ
+  performance_numbers: true  # "p95 < 200ms", "LCP < 2.5s"
+  user_facing_strings: true  # quoted text the user actually sees
+
+# Per-REQ overrides — REQ IDs that opt out of forbidden-content checks entirely
+forbidden_content_overrides: []
+
+# REQ length thresholds (in lines) — soft warnings only, never auto-fix
+req_length:
+  warn: 25
+  medium: 50
+  high: 100
