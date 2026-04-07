@@ -297,7 +297,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Intent:** Reliable CLI agent execution requires a glibc-based Linux distribution (Alpine/musl caused crashes for some agents).
 
 **Acceptance Criteria:**
-1. Dockerfile uses `node:24-bookworm-slim` as base image.
+1. Dockerfile uses `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror) as base image.
 2. All agent CLIs (Claude Code, Codex, Gemini CLI, Copilot, OpenCode) start without crashes.
 3. System packages include essential tools (git, gh, ripgrep, fd, neovim, tmux, fzf, yazi, lazygit).
 
