@@ -31,7 +31,7 @@
     "jsdom": "^28.1.0",
     "knip": "^5.88.0",
     "oxlint": "^1.56.0",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.2",
     "vite": "^8.0.0",
     "vite-plugin-solid": "^2.11.11",
     "vitest": "^4.1.0"
