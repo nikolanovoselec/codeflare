@@ -284,24 +284,19 @@ These are recommended defaults, configurable per project in `sdd/config.yml`:
 
 These are guidance, not enforcement. The auto-demote rule is the only hard enforcement (binary: test exists per REQ or it doesn't).
 
-## Plan Mode integration
+## /plan integration
 
-**Plan Mode is mandatory on every spec→code transition**: after `/sdd init`, `/sdd edit` (if new REQ is `Planned`/`Partial`), `/sdd add`, or `/sdd clean` demoting `Implemented`→`Partial`. Next action MUST be entering Plan Mode (Claude Code: `EnterPlanMode`; other agents: the equivalent planning primitive). Hard gate. "Build now" / "go" / "execute" / "ship it" / "just do it" authorize *starting*, never skipping.
+After `/sdd clean` auto-demotes Implemented REQs to `Partial`, the natural next step is `/plan`:
 
-The plan must:
-1. Read all of `sdd/`, enumerate REQs by Status
-2. Filter to `Status: Planned` and `Status: Partial` (skip `Implemented`/`Proposed`/`Deprecated`)
-3. Topo-sort by `Dependencies:`
-4. **Phase RED**: one failing test per AC via `tdd-guide`. Test name: `REQ-{DOMAIN}-{NNN}: {AC summary}`
-5. **Phase GREEN**: minimal impl, one REQ at a time, in dependency order
-6. **Phase VERIFY**: push, let `spec-reviewer` promote `Planned`→`Implemented` on next run
-7. Name the test framework from the stack (vitest, jest, pytest, go test, rspec, xctest, etc.); add Phase 0 if none exists
+```bash
+/plan
+# Reads sdd/, filters Status: Partial and Status: Planned
+# Derives a phased implementation plan
+# For Partial: "write tests, verify they currently fail, then verify they pass"
+# For Planned: "write tests first, then implement"
+```
 
-**Informal proposal ≠ formal Plan Mode.** A detailed prose proposal + user "execute"/"go"/"fine" is *informal* approval. Still enter Plan Mode and re-present the same plan as a formal artifact. Treating "execute" as plan approval when no formal plan exists is the trap that broke SDD.
-
-**Legitimate skip**: only if the user, after seeing a plan proposal, explicitly says "skip plan mode" or "no plan". Record in a feedback memory. Mark affected REQs `Partial` (not `Implemented`) until tests exist. "Build now" / "go" / "execute" never count.
-
-Earlier versions referenced a custom `/plan` command. It's now a thin shortcut that triggers Plan Mode with SDD-aware instructions.
+`/plan` never re-plans `Implemented` REQs — they're the foundation new work builds on.
 
 ## What is NOT a requirement
 
