@@ -301,7 +301,7 @@ The plan must:
 
 **Legitimate skip**: only if the user, after seeing a plan proposal, explicitly says "skip plan mode" or "no plan". Record in a feedback memory. Mark affected REQs `Partial` (not `Implemented`) until tests exist. "Build now" / "go" / "execute" never count.
 
-The `/plan` slash command is a thin shortcut that triggers Plan Mode with SDD awareness; entering Plan Mode directly works equally.
+Earlier versions referenced a custom `/plan` command. It's now a thin shortcut that triggers Plan Mode with SDD-aware instructions.
 
 ## What is NOT a requirement
 
