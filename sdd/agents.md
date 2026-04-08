@@ -148,7 +148,7 @@ Multi-agent support, preseed system, and session modes.
 1. Default mode seeds 25 files to R2.
 2. Advanced mode seeds 180 files to R2.
 3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
-4. Pro mode registers hooks in `settings.json` (PreToolUse for commit attribution blocking, PreToolUse for git-push review reminders, UserPromptSubmit for memory capture); Standard mode merges only `skipDangerousModePermissionPrompt`.
+4. Pro mode registers hooks in `settings.json` with command-pattern gates so they only fire on relevant Bash calls: two PreToolUse entries for commit attribution blocking (gated on `Bash(git *)` and `Bash(gh *)`, covering git commit/merge/tag/notes and gh pr/issue/release create/edit/comment/review/merge), one PreToolUse entry for the git-push review reminder (gated on `Bash(git push*)`), and one UserPromptSubmit entry for memory capture; Standard mode merges only `skipDangerousModePermissionPrompt`.
 
 **Constraints:**
 - Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.
@@ -549,7 +549,7 @@ Multi-agent support, preseed system, and session modes.
 1. Pro mode preseeds the `spec-driven-development` skill, the `/sdd` command, the `spec-discipline` rule (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
 2. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects; in import mode it derives a spec from existing source code.
 3. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via `sdd/config.yml`; auto and unleashed apply fixes silently with the PR-based safety net in unleashed mode.
-4. After every push, `spec-reviewer` runs first then `doc-updater` runs second (sequential, never parallel) on any project containing `sdd/`.
+4. After every push, `spec-reviewer` runs first then `doc-updater` runs second (sequential, never parallel) on any project containing `sdd/`; on non-SDD projects (no `sdd/` folder) no review agents run at all — the `git-push-review-reminder` hook exits silently and the push proceeds friction-free (vibe-coding mode).
 5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
 6. The workflow is project-agnostic and self-limits to 2 fix rounds per commit cycle to prevent micro-fix spirals.
 

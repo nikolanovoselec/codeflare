@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-08
+- SDD opt-in is now binary (REQ-AGENT-021 AC4): non-SDD projects get zero post-push review agents (vibe-coding mode), while projects with an `sdd/` folder get the full code-reviewer + spec-reviewer + doc-updater workflow. The `git-push-review-reminder` hook enforces the gate by exiting silently when `sdd/README.md` is missing.
+- REQ-AGENT-005 AC4 updated: the two PreToolUse hooks now use command-pattern `if` gates (`Bash(git *)`, `Bash(gh *)`, `Bash(git push*)`) so they only fire on relevant commands, and the attribution-blocking surface expanded to cover git merge/tag/notes and gh pr/issue/release edit/comment/review/merge in addition to commits and PR creation.
+
 ## 2026-04-07
 - Setup wizard now honors REQ-AUTH-002 constraint by skipping the `create_access_app` step in SaaS+OIDC mode (issue #140)
 - Dockerfile base image now pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror) instead of Docker Hub to avoid anonymous pull rate limits in CI; image digest preserved, REQ-OPS-011 unaffected (still bookworm-slim Node 24)
