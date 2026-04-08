@@ -14,12 +14,7 @@ set -e
 # Vibe-coding gate: if the project is not SDD-bootstrapped, emit nothing.
 # The push proceeds without any review agents. No reminder means the assistant
 # does not spawn code-reviewer, spec-reviewer, or doc-updater for this push.
-#
-# Anchor the check to the git repo root rather than CWD — the assistant may
-# `cd` into a subdirectory before pushing, in which case relative `[ -d sdd ]`
-# would silently fail and skip the SDD workflow on a real SDD project.
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-if [ ! -d "$ROOT/sdd" ] || [ ! -f "$ROOT/sdd/README.md" ]; then
+if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
   exit 0
 fi
 

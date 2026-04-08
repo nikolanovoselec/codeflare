@@ -32,12 +32,8 @@ You run **before** `doc-updater` after every push, sequentially. Never in parall
 
 ### Step 0a: Detect the SDD bootstrap
 
-Anchor the check to the git repo root, not CWD — the agent may have been
-invoked from a subdirectory:
-
 ```bash
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-test -d "$ROOT/sdd" && test -f "$ROOT/sdd/README.md"
+test -d sdd && test -f sdd/README.md
 ```
 
 If false, exit silently with code 0. Nothing to do.
