@@ -15,20 +15,40 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 [[ -z "$TRANSCRIPT" || -z "$SESSION_ID" || ! -f "$TRANSCRIPT" ]] && exit 0
 
-# Count REAL user prompts only.
+# Count REAL user prompts only — messages a human actually typed.
 #
-# Important: `grep -c '"type":"user"'` (the previous pattern) over-counts by
-# ~6x because tool_result messages are also wrapped as `{"type":"user", ...}`
-# in the transcript — every Bash call, Read, Edit, etc. adds one. The
-# threshold of 30 then trips on every ~5 user prompts plus tool churn,
-# spawning capture agents far too often.
+# The Claude CLI writes many synthetic messages to the transcript with
+# `role:"user"`, all of which the naive grep `'"type":"user"'` would
+# match. Two over-counting layers to peel off:
 #
-# Real user messages have `content` as a string, while tool_result messages
-# have `content` as an array `[{...}]`. Matching `"role":"user","content":"`
-# (note the trailing quote) requires content to start with a string literal,
-# excluding tool_result wrappers. Verified to match jq filter results
-# 1:1 on a 4000-line transcript.
-CURRENT_COUNT=$(grep -c '"role":"user","content":"' "$TRANSCRIPT") || CURRENT_COUNT=0
+#   Layer 1 — tool_result wrappers
+#     `{"type":"user", message:{role:"user", content:[{type:"tool_result",...}]}}`
+#     Created on every Bash, Read, Edit, etc. tool call return.
+#     Distinguished by `content` being an array `[...]` instead of a string.
+#     `'"role":"user","content":"'` (with trailing quote) excludes them.
+#
+#   Layer 2 — slash-command + task-notification wrappers
+#     `{"type":"user", message:{role:"user", content:"<local-command-caveat>..."}}`
+#     `{"type":"user", message:{role:"user", content:"<command-name>/foo</command-name>"}}`
+#     `{"type":"user", message:{role:"user", content:"<command-message>...</command-message>"}}`
+#     `{"type":"user", message:{role:"user", content:"<command-args>...</command-args>"}}`
+#     `{"type":"user", message:{role:"user", content:"<local-command-stdout>..."}}`
+#     `{"type":"user", message:{role:"user", content:"<task-notification>..."}}`
+#     Plus any record with `isMeta: true`.
+#     All of these have string content but start with a `<` tag.
+#     `[^<]` after the opening quote excludes them.
+#
+# Empirical test (4124-line aa375f82 transcript):
+#   old grep '"type":"user"'                       → 1451 (counts everything)
+#   '"role":"user","content":"'                    →  241 (string-only, includes synthetic)
+#   '"role":"user","content":"[^<]'                →   83 (real human prompts) ✓
+#
+# Verified against jq filter `select(.type=="user" and (.message.content
+# | type == "string") and (.message.content | startswith("<") | not)
+# and ((.isMeta // false) | not))` — same count.
+CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
+META_COUNT=$(grep -c '"isMeta":true.*"role":"user"' "$TRANSCRIPT") || META_COUNT=0
+CURRENT_COUNT=$((CURRENT_COUNT - META_COUNT))
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
 if [[ -f "$COUNTER_FILE" ]]; then
