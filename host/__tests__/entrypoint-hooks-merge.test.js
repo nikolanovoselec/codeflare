@@ -46,6 +46,25 @@ describe('settings.json configuration', () => {
     );
   });
 
+  it('PreToolUse hooks use if-gates to filter by command pattern', () => {
+    // All PreToolUse hook entries should have an `if` field (permission-rule
+    // syntax) so they only fire on relevant Bash commands instead of every
+    // Bash call. block-attributed-commits runs on `git *` and `gh *`;
+    // git-push-review-reminder runs only on `git push*`.
+    assert.ok(
+      entrypoint.includes('"if":"Bash(git *)"'),
+      'block-attributed-commits should be if-gated on Bash(git *)'
+    );
+    assert.ok(
+      entrypoint.includes('"if":"Bash(gh *)"'),
+      'block-attributed-commits should also be if-gated on Bash(gh *)'
+    );
+    assert.ok(
+      entrypoint.includes('"if":"Bash(git push*)"'),
+      'git-push-review-reminder should be if-gated on Bash(git push*)'
+    );
+  });
+
   it('SESSION_MODE gates hook registration', () => {
     assert.ok(
       entrypoint.includes('SESSION_MODE:-default') && entrypoint.includes('"hooks"'),

@@ -1059,7 +1059,14 @@ fi
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
+    # PreToolUse hooks are gated with "if" permission-rule syntax so they only
+    # fire on relevant commands instead of every Bash call:
+    #   - block-attributed-commits: runs on git * and gh * (catches commit,
+    #     merge, tag, notes, gh pr/issue/release create/edit/comment), with
+    #     further narrowing inside the script
+    #   - git-push-review-reminder: runs only on git push*, and itself
+    #     exits silently unless sdd/ is bootstrapped (vibe-coding gate)
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(git push*)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
     echo "[entrypoint] Advanced mode: configuring settings.json with hooks"
 else
     SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
