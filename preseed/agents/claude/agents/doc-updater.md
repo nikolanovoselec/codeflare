@@ -23,8 +23,12 @@ You run **after** `spec-reviewer` (sequentially), so you always read the post-ed
 
 ### Step 0a: Detect SDD bootstrap
 
+Anchor the check to the git repo root, not CWD — the agent may have been
+invoked from a subdirectory:
+
 ```bash
-test -d sdd && test -f sdd/README.md
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+test -d "$ROOT/sdd" && test -f "$ROOT/sdd/README.md"
 ```
 
 **If false, exit silently with code 0.** Non-SDD projects do not get automatic documentation maintenance — the user has not opted into the workflow. This mirrors `spec-reviewer`'s gate so the post-push behavior is binary: either the project has `sdd/` and all three review agents run, or it doesn't and none of them fire.
