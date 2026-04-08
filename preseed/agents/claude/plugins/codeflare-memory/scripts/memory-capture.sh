@@ -43,12 +43,12 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 #   '"role":"user","content":"'                    →  241 (string-only, includes synthetic)
 #   '"role":"user","content":"[^<]'                →   83 (real human prompts) ✓
 #
-# Verified against jq filter `select(.type=="user" and (.message.content
-# | type == "string") and (.message.content | startswith("<") | not)
-# and ((.isMeta // false) | not))` — same count.
+# All observed `isMeta:true` records in the transcript also have content
+# starting with `<` (they ARE the slash-command wrappers), so the Layer 1
+# `[^<]` filter already excludes them. No second-pass isMeta subtraction
+# needed; an earlier draft of this fix tried it with the wrong field
+# order and produced 0 anyway.
 CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
-META_COUNT=$(grep -c '"isMeta":true.*"role":"user"' "$TRANSCRIPT") || META_COUNT=0
-CURRENT_COUNT=$((CURRENT_COUNT - META_COUNT))
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
 if [[ -f "$COUNTER_FILE" ]]; then
