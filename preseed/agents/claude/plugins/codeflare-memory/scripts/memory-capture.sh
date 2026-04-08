@@ -15,7 +15,20 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 [[ -z "$TRANSCRIPT" || -z "$SESSION_ID" || ! -f "$TRANSCRIPT" ]] && exit 0
 
-CURRENT_COUNT=$(grep -c '"type":"user"' "$TRANSCRIPT") || CURRENT_COUNT=0
+# Count REAL user prompts only.
+#
+# Important: `grep -c '"type":"user"'` (the previous pattern) over-counts by
+# ~6x because tool_result messages are also wrapped as `{"type":"user", ...}`
+# in the transcript — every Bash call, Read, Edit, etc. adds one. The
+# threshold of 30 then trips on every ~5 user prompts plus tool churn,
+# spawning capture agents far too often.
+#
+# Real user messages have `content` as a string, while tool_result messages
+# have `content` as an array `[{...}]`. Matching `"role":"user","content":"`
+# (note the trailing quote) requires content to start with a string literal,
+# excluding tool_result wrappers. Verified to match jq filter results
+# 1:1 on a 4000-line transcript.
+CURRENT_COUNT=$(grep -c '"role":"user","content":"' "$TRANSCRIPT") || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
 if [[ -f "$COUNTER_FILE" ]]; then
