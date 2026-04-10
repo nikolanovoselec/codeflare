@@ -15,17 +15,9 @@ import { updateUserRecord } from '../lib/user-record';
 import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { getPreferencesKey, SETUP_KEYS } from '../lib/kv-keys';
 import { isStripeConfigured, getStripePrices } from '../lib/stripe';
+import { getCurrencyForCountry } from '../lib/currency';
 
 const logger = createLogger('auth-routes');
-
-/** Map country code to currency for subscription email formatting. */
-const EUR_COUNTRIES = new Set(['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY']);
-function getCurrencyForCountry(country: string): string {
-  if (country === 'CH' || country === 'LI') return 'CHF';
-  if (country === 'GB') return 'GBP';
-  if (EUR_COUNTRIES.has(country)) return 'EUR';
-  return 'USD';
-}
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -53,14 +45,16 @@ app.get('/tiers', requireIdentity, async (c) => {
     return !!t.stripePriceId;
   });
 
-  // Enrich with Stripe prices when configured
+  // Enrich with Stripe prices when configured (REQ-SUB-020: detect visitor currency)
   if (isStripeConfigured(c.env) && c.env.STRIPE_SECRET_KEY) {
+    const country = c.req.header('CF-IPCountry') || '';
+    const currency = getCurrencyForCountry(country);
     const priceIds = subscribable.flatMap((t) =>
       [t.stripePriceId, t.stripeAdvancedPriceId].filter((id): id is string => !!id)
     );
     if (priceIds.length > 0) {
       try {
-        const prices = await getStripePrices(priceIds, c.env.STRIPE_SECRET_KEY);
+        const prices = await getStripePrices(priceIds, c.env.STRIPE_SECRET_KEY, currency);
         const enriched = subscribable.map((t) => {
           const stdPrice = t.stripePriceId ? prices.get(t.stripePriceId) : undefined;
           const advPrice = t.stripeAdvancedPriceId ? prices.get(t.stripeAdvancedPriceId) : undefined;
@@ -360,7 +354,7 @@ app.post('/subscribe', requireIdentity, subscribeRateLimiter, async (c) => {
       ? (tierConfig?.advancedPriceMonthly ?? tierConfig?.priceMonthly)
       : tierConfig?.priceMonthly;
     const priceStr = priceCents != null && priceCents > 0
-      ? `${cur === 'EUR' ? '\u20AC' : cur === 'GBP' ? '\u00A3' : cur === 'CHF' ? 'CHF ' : '$'}${(priceCents / 100).toFixed(0)}`
+      ? `${cur === 'eur' ? '\u20AC' : cur === 'gbp' ? '\u00A3' : cur === 'chf' ? 'CHF ' : '$'}${(priceCents / 100).toFixed(0)}`
       : undefined;
     const emailMonthlyHours = tierConfig?.monthlySeconds != null ? `${Math.round(tierConfig.monthlySeconds / 3600)}h` : 'Unlimited';
     const emailMaxSessions = tierConfig?.maxSessions ?? 1;

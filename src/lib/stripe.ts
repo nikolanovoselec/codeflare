@@ -46,14 +46,26 @@ export function isStripeConfigured(env: Pick<Env, 'STRIPE_SECRET_KEY'>): boolean
 // Stripe Price fetching — for displaying prices on subscribe page
 // ---------------------------------------------------------------------------
 
-/** Cached Stripe price data (1-hour TTL) */
-const priceCache = new Map<string, { amount: number; currency: string; cachedAt: number }>();
+// Implements REQ-SUB-020
+
+/** Cached Stripe price data (1-hour TTL) — stores base + currency_options */
+interface CachedPrice {
+  amount: number;
+  currency: string;
+  currencyOptions?: Record<string, { unit_amount: number }>;
+  cachedAt: number;
+}
+const priceCache = new Map<string, CachedPrice>();
 const PRICE_CACHE_TTL_MS = 3_600_000; // 1 hour
 
-/** Fetch price amount + currency from Stripe API for multiple price IDs. */
+/**
+ * Fetch price amount + currency from Stripe API for multiple price IDs.
+ * When `currency` is provided, returns the amount from currency_options if available.
+ */
 export async function getStripePrices(
   priceIds: string[],
   secretKey: string,
+  currency?: string,
 ): Promise<Map<string, { amount: number; currency: string }>> {
   const result = new Map<string, { amount: number; currency: string }>();
   const now = Date.now();
@@ -63,26 +75,38 @@ export async function getStripePrices(
   for (const id of priceIds) {
     const cached = priceCache.get(id);
     if (cached && now - cached.cachedAt < PRICE_CACHE_TTL_MS) {
-      result.set(id, { amount: cached.amount, currency: cached.currency });
+      result.set(id, selectCurrency(cached, currency));
     } else {
       toFetch.push(id);
     }
   }
 
-  // Fetch uncached prices in parallel
+  // Fetch uncached prices in parallel (expand currency_options for multi-currency)
   if (toFetch.length > 0) {
     const fetches = toFetch.map(async (id) => {
       try {
-        const response = await fetch(`https://api.stripe.com/v1/prices/${id}`, {
-          headers: { 'Authorization': `Bearer ${secretKey}` },
-          signal: AbortSignal.timeout(10_000),
-        });
+        const response = await fetch(
+          `https://api.stripe.com/v1/prices/${id}?expand[]=currency_options`,
+          {
+            headers: { 'Authorization': `Bearer ${secretKey}` },
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
         if (response.ok) {
-          const data = await response.json() as { unit_amount?: number; currency?: string };
+          const data = await response.json() as {
+            unit_amount?: number;
+            currency?: string;
+            currency_options?: Record<string, { unit_amount: number }>;
+          };
           if (data.unit_amount != null && data.currency) {
-            const entry = { amount: data.unit_amount, currency: data.currency.toUpperCase() };
-            priceCache.set(id, { ...entry, cachedAt: now });
-            result.set(id, entry);
+            const cached: CachedPrice = {
+              amount: data.unit_amount,
+              currency: data.currency.toUpperCase(),
+              currencyOptions: data.currency_options,
+              cachedAt: now,
+            };
+            priceCache.set(id, cached);
+            result.set(id, selectCurrency(cached, currency));
           }
         }
       } catch { /* non-fatal — price just won't be displayed */ }
@@ -91,6 +115,24 @@ export async function getStripePrices(
   }
 
   return result;
+}
+
+/** Pick the right amount/currency from cached price data. */
+function selectCurrency(
+  cached: CachedPrice,
+  currency?: string,
+): { amount: number; currency: string } {
+  if (currency) {
+    const key = currency.toLowerCase();
+    if (key === cached.currency.toLowerCase()) {
+      return { amount: cached.amount, currency: cached.currency };
+    }
+    const opt = cached.currencyOptions?.[key];
+    if (opt) {
+      return { amount: opt.unit_amount, currency: key.toUpperCase() };
+    }
+  }
+  return { amount: cached.amount, currency: cached.currency };
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +190,8 @@ interface CheckoutSessionOptions {
   trialDays?: number;
   /** Trial compute quota in hours — shown in checkout custom text. */
   trialQuotaHours?: number;
+  /** ISO 4217 currency code (lowercase). Selects from Price's currency_options. */
+  currency?: string;
 }
 
 interface CheckoutSessionResult {
@@ -166,6 +210,10 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
     'customer_email': opts.customerEmail,
   };
 
+  if (opts.currency) {
+    params['currency'] = opts.currency;
+  }
+
   if (opts.metadata) {
     for (const [key, value] of Object.entries(opts.metadata)) {
       params[`metadata[${key}]`] = value;
@@ -178,7 +226,7 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
   }
 
   // CF-030: Derive idempotency key to prevent duplicate checkout sessions on retry
-  const idempotencyInput = `${opts.customerEmail}:${opts.priceId}:${Math.floor(Date.now() / 60000)}`;
+  const idempotencyInput = `${opts.customerEmail}:${opts.priceId}:${opts.currency ?? ''}:${Math.floor(Date.now() / 60000)}`;
   const idempotencyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(idempotencyInput));
   const idempotencyKey = Array.from(new Uint8Array(idempotencyBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
 

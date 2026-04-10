@@ -275,14 +275,15 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 **Architecture — Signal and Sync pattern:**
 Webhooks are signals that trigger a fetch of the latest state from the Stripe API. KV is a read cache, not the source of truth. This eliminates race conditions from incremental KV patching and ensures KV always reflects the latest Stripe state.
 
-- Library: `src/lib/stripe.ts` — checkout session creation, webhook signature verification, `fetchSubscription()` (Signal and Sync), Stripe API communication
+- Library: `src/lib/stripe.ts` — checkout session creation, webhook signature verification, `fetchSubscription()` (Signal and Sync), Stripe API communication; `getStripePrices()` expands `currency_options` from the Stripe API and returns amounts in the requested currency
+- Currency detection: `src/lib/currency.ts` — `getCurrencyForCountry(country)` maps a 2-letter ISO country code to a supported currency (CHF/USD/EUR/GBP). Implements [REQ-SUB-020](../sdd/subscription.md#req-sub-020).
 - Billing routes: `src/routes/billing.ts` — `POST /api/billing/checkout` (authenticated), `GET /api/billing/status` (Stripe-verified), `POST /api/billing/switch` (portal deep-link for plan changes)
 - Webhook: `src/routes/stripe-webhook.ts` — `POST /public/stripe/webhook` (unauthenticated, HMAC-verified), `syncSubscriptionState()`
 - Types: billing fields defined in `parseUserRecord` Zod schema in `src/lib/user-record.ts`
 
 **Checkout flow:**
 1. User selects paid tier on subscribe page → frontend calls `POST /api/billing/checkout` with `{ tier, mode }`
-2. Backend creates Stripe Checkout Session with `customer_email` and tier/mode metadata
+2. Backend detects visitor currency from the `CF-IPCountry` request header via `getCurrencyForCountry()`, then creates a Stripe Checkout Session with `customer_email`, tier/mode metadata, and the detected `currency`
 3. Frontend redirects to Stripe-hosted checkout page
 4. After payment, Stripe redirects to `/app/subscribe?checkout=success`
 5. Frontend polls `GET /api/auth/status` every 2s (max 30s) waiting for webhook to activate the subscription
@@ -498,9 +499,10 @@ Priority in `AppContent.onMount` (`web-ui/src/App.tsx`): pending tier → subscr
 **`GET /api/auth/tiers`** (requires identity) and **`GET /public/tiers`** (unauthenticated, only available when `ONBOARDING_LANDING_PAGE=active`):
 - Both return subscribable tier configs: `free`, `standard`, `advanced`, `max`, `unlimited` (filtered from full 8-tier config)
 - The frontend SubscribePage uses `/api/auth/tiers` (identity-gated) via `getPublicTiers()` in `web-ui/src/api/client.ts`; `/public/tiers` is gated behind onboarding landing page middleware
+- **Multi-currency:** the tiers endpoint detects the visitor's currency from the `CF-IPCountry` request header via `getCurrencyForCountry()` and passes it to `getStripePrices()`, which fetches `currency_options` from the Stripe API. Returned `priceMonthly`/`advancedPriceMonthly` values are in the visitor's currency (CHF, USD, EUR, or GBP). Implements [REQ-SUB-020](../sdd/subscription.md#req-sub-020).
 - Response: `{ tiers: SubscriptionTierConfig[] }` — each tier object includes all properties:
   - `id`, `displayName`, `monthlySeconds`, `maxSessions`, `sessionModes`
-  - `priceMonthly` (cents), `advancedPriceMonthly` (cents, optional), `trialQuotaHours`, `description`
+  - `priceMonthly` (cents, in visitor currency), `advancedPriceMonthly` (cents, in visitor currency, optional), `trialQuotaHours`, `description`
   - `order`, `canLogin`, `isDefault`
 - Used by subscribe page to render tier selection cards
 - Data is cached at 60-second TTL via `getTierConfig()`
