@@ -336,7 +336,7 @@ describe('Preferences Routes', () => {
   describe('preseed reconciliation on sessionMode change', () => {
     it('calls reconcileAgentConfigs when sessionMode changes from default to advanced', async () => {
       const app = createTestApp();
-      const prefsKey = 'preferences:codeflare-test-user';
+      const prefsKey = 'user-prefs:codeflare-test-user';
       await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'default' }));
 
       const res = await app.request('/preferences', {
@@ -357,7 +357,7 @@ describe('Preferences Routes', () => {
 
     it('calls reconcileAgentConfigs when sessionMode changes from advanced to default', async () => {
       const app = createTestApp();
-      const prefsKey = 'preferences:codeflare-test-user';
+      const prefsKey = 'user-prefs:codeflare-test-user';
       await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
 
       // Mock auth to simulate a user who paid for Pro (so the guard at line 64 passes)
@@ -386,7 +386,7 @@ describe('Preferences Routes', () => {
 
     it('does NOT call reconcileAgentConfigs when sessionMode stays the same', async () => {
       const app = createTestApp();
-      const prefsKey = 'preferences:codeflare-test-user';
+      const prefsKey = 'user-prefs:codeflare-test-user';
       await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
 
       const { authMiddleware } = await import('../../middleware/auth');
@@ -421,7 +421,7 @@ describe('Preferences Routes', () => {
 
     it('reconcileAgentConfigs failure does not break the preferences response', async () => {
       const app = createTestApp();
-      const prefsKey = 'preferences:codeflare-test-user';
+      const prefsKey = 'user-prefs:codeflare-test-user';
       await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'default' }));
       mockReconcileAgentConfigs.mockRejectedValueOnce(new Error('R2 timeout'));
 

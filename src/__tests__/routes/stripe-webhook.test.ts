@@ -533,7 +533,7 @@ describe('auto-reconcile on subscription.deleted', () => {
 
   it('sets sessionMode to default in preferences KV on deletion', async () => {
     seedCustomer('cus_del_2', 'del-prefs@example.com', { subscribedMode: 'advanced' });
-    const prefsKey = `preferences:codeflare-del-prefs-example-com`;
+    const prefsKey = `user-prefs:codeflare-del-prefs-example-com`;
     await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
 
     const body = buildEvent('customer.subscription.deleted', {
