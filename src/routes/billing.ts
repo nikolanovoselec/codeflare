@@ -23,6 +23,7 @@ import {
   createSwitchPortalSession,
   fetchSubscription,
 } from '../lib/stripe';
+import { getCurrencyForCountry } from '../lib/currency';
 import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 
 const logger = createLogger('billing');
@@ -94,6 +95,10 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   const tierConfig = tiers.find(t => t.id === tier);
   const trialQuotaHours = tierConfig?.trialQuotaHours ?? 4;
 
+  // REQ-SUB-020: detect visitor currency from Cloudflare geo header
+  const country = c.req.header('CF-IPCountry') || '';
+  const currency = getCurrencyForCountry(country);
+
   const session = await createCheckoutSession({
     priceId,
     customerEmail: user.email,
@@ -103,6 +108,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     metadata: { tier, mode, email: user.email },
     trialDays: trialUsed ? undefined : 7,
     trialQuotaHours: trialUsed ? undefined : trialQuotaHours,
+    currency,
   });
 
   // Store checkoutSessionId on user KV (non-fatal)

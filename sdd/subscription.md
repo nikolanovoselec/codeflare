@@ -17,7 +17,6 @@ Tiers, billing, usage tracking, and quotas.
 
 - **Per-feature billing** -- All features within a tier are available to all users on that tier. No add-on purchases or feature flags gated by separate payments.
 - **Usage-based overage billing** -- Users who exceed quota are stopped, not charged extra. No metered billing or pay-per-minute beyond the tier allowance.
-- **Multi-currency pricing** -- Prices are set in a single currency via Stripe. No currency conversion, localized pricing, or regional price differentiation.
 
 ### Domain Dependencies
 
@@ -494,3 +493,28 @@ Tiers, billing, usage tracking, and quotas.
 **Verification:** Integration test
 
 **Status:** Implemented
+
+---
+
+## REQ-SUB-020: Multi-Currency Pricing
+
+**Intent:** Visitors must see subscription prices in their local currency (CHF, USD, EUR, GBP) with Stripe charging the exact displayed amount -- no surprise FX conversion on the bank statement.
+
+**Acceptance Criteria:**
+1. Each Stripe Price object has `currency_options` for USD, EUR, and GBP (CHF is the base currency), all at the same nominal amount.
+2. `GET /api/auth/tiers` detects visitor currency from the `CF-IPCountry` request header and returns Stripe prices in that currency.
+3. `POST /api/billing/checkout` detects visitor currency from `CF-IPCountry` and passes it to the Stripe Checkout Session so Stripe charges in the visitor's currency.
+4. Country-to-currency mapping: CH/LI to CHF, GB to GBP, 19 Eurozone countries to EUR, all others to USD.
+5. Currency detection is server-side only; no user-facing currency switcher.
+
+**Constraints:**
+- Currency is auto-detected per request; there is no override mechanism.
+- Stripe `currency_options` must be configured on each Price object in the Stripe Dashboard before this feature works.
+
+**Applies To:** User
+**Priority:** P1
+**Dependencies:** REQ-SUB-004
+**Verification:** Automated test
+
+**Status:** Partial
+Notes: Stripe `currency_options` must be configured on each Price object in the Dashboard. Code is implemented but not yet verified end-to-end.

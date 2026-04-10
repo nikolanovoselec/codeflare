@@ -152,6 +152,68 @@ describe('POST /billing/checkout', () => {
 
     expect(res.status).toBe(400);
   });
+
+  // REQ-SUB-020: Multi-currency pricing
+  it('passes detected currency from CF-IPCountry to createCheckoutSession', async () => {
+    const { app } = createApp();
+    await app.request('/billing/checkout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-IPCountry': 'DE',
+      },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    expect(createCheckoutSession).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'eur' }),
+    );
+  });
+
+  it('defaults to USD currency when CF-IPCountry is absent', async () => {
+    const { app } = createApp();
+    await app.request('/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    expect(createCheckoutSession).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'usd' }),
+    );
+  });
+
+  it('passes CHF for Swiss visitors', async () => {
+    const { app } = createApp();
+    await app.request('/billing/checkout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-IPCountry': 'CH',
+      },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    expect(createCheckoutSession).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'chf' }),
+    );
+  });
+
+  it('passes GBP for UK visitors', async () => {
+    const { app } = createApp();
+    await app.request('/billing/checkout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-IPCountry': 'GB',
+      },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    expect(createCheckoutSession).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'gbp' }),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -487,3 +487,155 @@ describe('fetchSubscription', () => {
     expect(snapshot!.billingPeriodEnd).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQ-SUB-020: Multi-currency pricing
+// ---------------------------------------------------------------------------
+
+describe('createCheckoutSession with currency', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('passes currency as top-level param when provided', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'cs_eur', url: 'https://checkout.stripe.com/eur' }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await createCheckoutSession({
+      priceId: 'price_test_123',
+      customerEmail: 'user@example.com',
+      successUrl: 'https://example.com/success',
+      cancelUrl: 'https://example.com/cancel',
+      secretKey: 'sk_test_key',
+      currency: 'eur',
+    });
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = fetchCall[1].body as string;
+    expect(body).toContain('currency=eur');
+  });
+
+  it('does NOT include currency param when not provided', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'cs_default', url: 'https://checkout.stripe.com/default' }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await createCheckoutSession({
+      priceId: 'price_test_123',
+      customerEmail: 'user@example.com',
+      successUrl: 'https://example.com/success',
+      cancelUrl: 'https://example.com/cancel',
+      secretKey: 'sk_test_key',
+    });
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = fetchCall[1].body as string;
+    expect(body).not.toContain('currency=');
+  });
+});
+
+describe('getStripePrices with currency', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    // Clear the module-level price cache between tests
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('expands currency_options when fetching prices', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({
+        unit_amount: 2400,
+        currency: 'chf',
+        currency_options: {
+          usd: { unit_amount: 2400 },
+          eur: { unit_amount: 2400 },
+          gbp: { unit_amount: 2400 },
+        },
+      }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    // Re-import to get fresh cache
+    const { getStripePrices } = await import('../../lib/stripe');
+    await getStripePrices(['price_test'], 'sk_test_key');
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(fetchCall[0]).toContain('expand');
+    expect(fetchCall[0]).toContain('currency_options');
+  });
+
+  it('returns base currency amount when no currency specified', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({
+        unit_amount: 2400,
+        currency: 'chf',
+        currency_options: {
+          usd: { unit_amount: 2400 },
+          eur: { unit_amount: 2400 },
+        },
+      }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    const { getStripePrices } = await import('../../lib/stripe');
+    const result = await getStripePrices(['price_test'], 'sk_test_key');
+
+    const price = result.get('price_test');
+    expect(price).toBeDefined();
+    expect(price!.currency).toBe('CHF');
+    expect(price!.amount).toBe(2400);
+  });
+
+  it('returns currency_options amount when currency is specified', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({
+        unit_amount: 2400,
+        currency: 'chf',
+        currency_options: {
+          usd: { unit_amount: 2400 },
+          eur: { unit_amount: 2400 },
+          gbp: { unit_amount: 2400 },
+        },
+      }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    const { getStripePrices } = await import('../../lib/stripe');
+    const result = await getStripePrices(['price_test'], 'sk_test_key', 'eur');
+
+    const price = result.get('price_test');
+    expect(price).toBeDefined();
+    expect(price!.currency).toBe('EUR');
+    expect(price!.amount).toBe(2400);
+  });
+
+  it('falls back to base currency when requested currency not in options', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({
+        unit_amount: 2400,
+        currency: 'chf',
+        currency_options: {
+          usd: { unit_amount: 2400 },
+        },
+      }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    const { getStripePrices } = await import('../../lib/stripe');
+    const result = await getStripePrices(['price_test'], 'sk_test_key', 'jpy');
+
+    const price = result.get('price_test');
+    expect(price).toBeDefined();
+    expect(price!.currency).toBe('CHF');
+    expect(price!.amount).toBe(2400);
+  });
+});

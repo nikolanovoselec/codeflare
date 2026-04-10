@@ -3,6 +3,8 @@
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
 ## 2026-04-10
+- Added REQ-SUB-020: Multi-currency pricing via Stripe `currency_options`. Subscribe page and checkout auto-detect visitor currency from `CF-IPCountry` (CHF/USD/EUR/GBP).
+- Removed multi-currency pricing from Out of Scope.
 - Updated REQ-AGENT-004 AC4-AC6: session mode now auto-reconciles on Stripe mode change, subscription termination, and Settings toggle -- no longer requires explicit recreate click
 - Updated REQ-SUB-015 AC6-AC7: reconciliation generalized from downgrade-only to any mode change; added AC7 for subscription deletion reconciliation
 
