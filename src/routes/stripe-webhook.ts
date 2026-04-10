@@ -265,6 +265,25 @@ async function handleSubscriptionDeleted(
     accessTier: 'free',
   });
 
+  // Auto-reconcile preseed to default mode — subscription actually terminated
+  // (period ended after cancel, or immediate revocation). This does NOT fire
+  // when user initiates cancellation (that's cancel_at_period_end: true on
+  // subscription.updated, which keeps the subscription active).
+  try {
+    const bucketName = getBucketName(email);
+    const { endpoint } = await getR2Config(env);
+    await reconcileAgentConfigs(env, bucketName, endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+    });
+    const prefsKey = getPreferencesKey(bucketName);
+    const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
+    await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: 'default' }));
+    logger.info('Auto-reconciled agent configs on subscription deletion', { email });
+  } catch (err) {
+    logger.warn('Auto-reconcile on subscription deletion failed (non-fatal)', { error: String(err) });
+  }
+
   logger.info('Subscription deleted', { email, customerId });
 }
 
@@ -342,24 +361,25 @@ export async function syncSubscriptionState(
   // 5. Write via updateUserRecord (preserves existing fields)
   await updateUserRecord(env.KV, email, patch);
 
-  // 6. Auto-recreate on downgrade: if mode changed from advanced → default,
-  // clean up Pro assets and update session preferences.
+  // 6. Auto-reconcile on mode change: if subscribedMode changed between
+  // advanced and default in either direction, reconcile R2 preseed files
+  // so the next session picks up the correct skills/agents/rules.
   const previousMode = existing?.subscribedMode ?? 'default';
   const newMode = (patch.subscribedMode as string) ?? previousMode;
-  if (previousMode === 'advanced' && newMode === 'default') {
+  if (previousMode !== newMode) {
     try {
       const bucketName = getBucketName(email);
       const { endpoint } = await getR2Config(env);
-      await reconcileAgentConfigs(env, bucketName, endpoint, 'default', {
+      await reconcileAgentConfigs(env, bucketName, endpoint, newMode as 'default' | 'advanced', {
         overwrite: true,
         cleanup: true,
       });
       const prefsKey = getPreferencesKey(bucketName);
       const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
-      await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: 'default' }));
-      logger.info('Auto-recreated agent configs on downgrade', { email, previousMode, newMode });
+      await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: newMode }));
+      logger.info('Auto-reconciled agent configs on mode change', { email, previousMode, newMode });
     } catch (err) {
-      logger.warn('Auto-recreate on downgrade failed (non-fatal)', { error: String(err) });
+      logger.warn('Auto-reconcile on mode change failed (non-fatal)', { error: String(err) });
     }
   }
 

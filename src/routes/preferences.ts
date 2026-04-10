@@ -11,6 +11,11 @@ import { ValidationError } from '../lib/error-types';
 import { parseJsonBody, firstZodError } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
+import { reconcileAgentConfigs } from '../lib/r2-seed';
+import { getR2Config } from '../lib/r2-config';
+import { createLogger } from '../lib/logger';
+
+const logger = createLogger('preferences');
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
@@ -71,6 +76,25 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const updated: UserPreferences = { ...existing, ...parsed.data } as UserPreferences;
 
   await c.env.KV.put(key, JSON.stringify(updated));
+
+  // Auto-reconcile preseed when sessionMode changes so the next session
+  // picks up the correct skills/agents/rules without manual Recreate click.
+  if (parsed.data.sessionMode && parsed.data.sessionMode !== existing.sessionMode) {
+    try {
+      const { endpoint } = await getR2Config(c.env);
+      await reconcileAgentConfigs(c.env, bucketName, endpoint, parsed.data.sessionMode, {
+        overwrite: true,
+        cleanup: true,
+      });
+      logger.info('Auto-reconciled agent configs on preferences change', {
+        bucketName,
+        previousMode: existing.sessionMode ?? 'default',
+        newMode: parsed.data.sessionMode,
+      });
+    } catch (err) {
+      logger.warn('Auto-reconcile on preferences change failed (non-fatal)', { error: String(err) });
+    }
+  }
 
   return c.json(updated);
 });
