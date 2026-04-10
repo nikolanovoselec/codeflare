@@ -21,6 +21,15 @@ vi.mock('../../lib/access', () => ({
   }),
 }));
 
+const mockGetStripePrices = vi.fn(async () => new Map());
+vi.mock('../../lib/stripe', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/stripe')>();
+  return {
+    ...actual,
+    getStripePrices: mockGetStripePrices,
+  };
+});
+
 // Import after mock
 import authRoutes from '../../routes/auth';
 
@@ -188,6 +197,58 @@ describe('Auth routes', () => {
       expect(body.accessTier).toBe('advanced');
       expect(body.subscriptionTier).toBe('advanced');
       expect(body.role).toBe('user');
+    });
+  });
+
+  // REQ-SUB-020: Multi-currency pricing
+  describe('GET /tiers currency detection', () => {
+    it('passes detected EUR currency to getStripePrices for German visitor', async () => {
+      // Seed tier config with Stripe price IDs
+      const { getDefaultTiers, resetTierConfigCache } = await import('../../lib/subscription');
+      resetTierConfigCache();
+      const tiersWithPrices = getDefaultTiers().map((t) => {
+        if (t.id === 'standard') return { ...t, stripePriceId: 'price_std' };
+        return t;
+      });
+      mockKV._set('tiers:config', tiersWithPrices);
+
+      mockGetStripePrices.mockResolvedValue(
+        new Map([['price_std', { amount: 2400, currency: 'EUR' }]]),
+      );
+
+      const app = createApp({ STRIPE_SECRET_KEY: 'sk_test_123' });
+      await app.request('/auth/tiers', {
+        headers: { 'CF-IPCountry': 'DE' },
+      });
+
+      expect(mockGetStripePrices).toHaveBeenCalledWith(
+        expect.any(Array),
+        'sk_test_123',
+        'eur',
+      );
+    });
+
+    it('passes USD currency when CF-IPCountry is absent', async () => {
+      const { getDefaultTiers, resetTierConfigCache } = await import('../../lib/subscription');
+      resetTierConfigCache();
+      const tiersWithPrices = getDefaultTiers().map((t) => {
+        if (t.id === 'standard') return { ...t, stripePriceId: 'price_std' };
+        return t;
+      });
+      mockKV._set('tiers:config', tiersWithPrices);
+
+      mockGetStripePrices.mockResolvedValue(
+        new Map([['price_std', { amount: 2400, currency: 'USD' }]]),
+      );
+
+      const app = createApp({ STRIPE_SECRET_KEY: 'sk_test_123' });
+      await app.request('/auth/tiers');
+
+      expect(mockGetStripePrices).toHaveBeenCalledWith(
+        expect.any(Array),
+        'sk_test_123',
+        'usd',
+      );
     });
   });
 });

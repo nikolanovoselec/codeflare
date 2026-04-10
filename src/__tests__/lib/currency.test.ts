@@ -23,8 +23,8 @@ describe('getCurrencyForCountry', () => {
     expect(getCurrencyForCountry('FR')).toBe('eur');
   });
 
-  it('returns EUR for all 19 Eurozone countries', () => {
-    const eurozone = ['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY'];
+  it('returns EUR for all 20 Eurozone countries', () => {
+    const eurozone = ['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY', 'HR'];
     for (const country of eurozone) {
       expect(getCurrencyForCountry(country)).toBe('eur');
     }

@@ -504,7 +504,7 @@ Tiers, billing, usage tracking, and quotas.
 1. Each Stripe Price object has `currency_options` for USD, EUR, and GBP (CHF is the base currency), all at the same nominal amount.
 2. `GET /api/auth/tiers` detects visitor currency from the `CF-IPCountry` request header and returns Stripe prices in that currency.
 3. `POST /api/billing/checkout` detects visitor currency from `CF-IPCountry` and passes it to the Stripe Checkout Session so Stripe charges in the visitor's currency.
-4. Country-to-currency mapping: CH/LI to CHF, GB to GBP, 19 Eurozone countries to EUR, all others to USD.
+4. Country-to-currency mapping: CH/LI to CHF, GB to GBP, 20 Eurozone countries to EUR, all others to USD.
 5. Currency detection is server-side only; no user-facing currency switcher.
 
 **Constraints:**

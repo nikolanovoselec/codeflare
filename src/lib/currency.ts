@@ -5,7 +5,7 @@ export type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];
 
 const EUR_COUNTRIES = new Set([
   'DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT',
-  'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY',
+  'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY', 'HR',
 ]);
 
 /** Map a 2-letter ISO country code to a supported currency. */

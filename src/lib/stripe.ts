@@ -46,6 +46,8 @@ export function isStripeConfigured(env: Pick<Env, 'STRIPE_SECRET_KEY'>): boolean
 // Stripe Price fetching — for displaying prices on subscribe page
 // ---------------------------------------------------------------------------
 
+// Implements REQ-SUB-020
+
 /** Cached Stripe price data (1-hour TTL) — stores base + currency_options */
 interface CachedPrice {
   amount: number;
@@ -224,7 +226,7 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
   }
 
   // CF-030: Derive idempotency key to prevent duplicate checkout sessions on retry
-  const idempotencyInput = `${opts.customerEmail}:${opts.priceId}:${Math.floor(Date.now() / 60000)}`;
+  const idempotencyInput = `${opts.customerEmail}:${opts.priceId}:${opts.currency ?? ''}:${Math.floor(Date.now() / 60000)}`;
   const idempotencyBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(idempotencyInput));
   const idempotencyKey = Array.from(new Uint8Array(idempotencyBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
 
