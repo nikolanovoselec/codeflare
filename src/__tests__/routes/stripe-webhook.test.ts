@@ -541,7 +541,8 @@ describe('auto-reconcile on subscription.deleted', () => {
     });
     await postWebhook(createApp(), body);
 
-    const prefs = JSON.parse(await mockKV.get(prefsKey) || '{}');
+    const prefsRaw = await mockKV.get(prefsKey) as string | null;
+    const prefs = JSON.parse(prefsRaw || '{}');
     expect(prefs.sessionMode).toBe('default');
   });
 
