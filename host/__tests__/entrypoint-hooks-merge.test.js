@@ -27,10 +27,14 @@ describe('settings.json configuration', () => {
   });
 
   it('advanced mode SETTINGS_CONFIG includes hooks', () => {
-    // Advanced mode should merge PreToolUse and UserPromptSubmit hooks into settings.json
+    // Advanced mode should merge PreToolUse, PostToolUse, and UserPromptSubmit hooks
     assert.ok(
       entrypoint.includes('PreToolUse'),
       'entrypoint should configure PreToolUse hook for advanced mode'
+    );
+    assert.ok(
+      entrypoint.includes('PostToolUse'),
+      'entrypoint should configure PostToolUse hook for review-reminder'
     );
     assert.ok(
       entrypoint.includes('UserPromptSubmit'),
@@ -46,11 +50,9 @@ describe('settings.json configuration', () => {
     );
   });
 
-  it('PreToolUse hooks use if-gates to filter by command pattern', () => {
-    // All PreToolUse hook entries should have an `if` field (permission-rule
-    // syntax) so they only fire on relevant Bash commands instead of every
-    // Bash call. block-attributed-commits runs on `git *` and `gh *`;
-    // git-push-review-reminder runs only on `git push*`.
+  it('hooks use if-gates to filter by command pattern', () => {
+    // PreToolUse: block-attributed-commits gated on git * and gh *.
+    // PostToolUse: git-push-review-reminder gated on git push*.
     assert.ok(
       entrypoint.includes('"if":"Bash(git *)"'),
       'block-attributed-commits should be if-gated on Bash(git *)'
