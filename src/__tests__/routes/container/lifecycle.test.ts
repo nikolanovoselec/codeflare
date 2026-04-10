@@ -94,7 +94,7 @@ vi.mock('../../../lib/agent-config', () => ({
 // Mock kv-keys
 vi.mock('../../../lib/kv-keys', () => ({
   getSessionKey: vi.fn((bucket: string, sessionId: string) => `session:${bucket}:${sessionId}`),
-  getPreferencesKey: vi.fn((bucket: string) => `preferences:${bucket}`),
+  getPreferencesKey: vi.fn((bucket: string) => `user-prefs:${bucket}`),
   getLlmKeysKey: vi.fn((bucket: string) => `llm-keys:${bucket}`),
   getDeployKeysKey: vi.fn((bucket: string) => `deploy-keys:${bucket}`),
   listAllKvKeys: vi.fn(async () => []),

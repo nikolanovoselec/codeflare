@@ -77,7 +77,7 @@ vi.mock('../../lib/agent-config', () => ({
 const mockListAllKvKeys = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<unknown>>());
 vi.mock('../../lib/kv-keys', () => ({
   getSessionKey: vi.fn((bucket: string, sessionId: string) => `session:${bucket}:${sessionId}`),
-  getPreferencesKey: vi.fn((bucket: string) => `preferences:${bucket}`),
+  getPreferencesKey: vi.fn((bucket: string) => `user-prefs:${bucket}`),
   listAllKvKeys: mockListAllKvKeys,
   getSessionPrefix: vi.fn((bucket: string) => `session:${bucket}:`),
   putSessionWithMetadata: vi.fn(async (kv: unknown, key: string, session: unknown) => {
