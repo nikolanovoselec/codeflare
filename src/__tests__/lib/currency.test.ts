@@ -23,11 +23,27 @@ describe('getCurrencyForCountry', () => {
     expect(getCurrencyForCountry('FR')).toBe('eur');
   });
 
-  it('returns EUR for all 20 Eurozone countries', () => {
-    const eurozone = ['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'AT', 'IE', 'FI', 'PT', 'GR', 'LU', 'SI', 'SK', 'EE', 'LV', 'LT', 'MT', 'CY', 'HR'];
-    for (const country of eurozone) {
+  it('returns EUR for all European countries (except CH/LI/GB)', () => {
+    const european = [
+      // Eurozone
+      'AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR',
+      'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PT', 'SI', 'SK',
+      // EU non-Eurozone
+      'BG', 'CZ', 'DK', 'HU', 'PL', 'RO', 'SE',
+      // Non-EU European
+      'AD', 'AL', 'BA', 'BY', 'FO', 'IS', 'MC', 'MD', 'ME', 'MK',
+      'NO', 'RS', 'SM', 'TR', 'UA', 'VA', 'XK',
+    ];
+    for (const country of european) {
       expect(getCurrencyForCountry(country)).toBe('eur');
     }
+  });
+
+  it('returns EUR for non-Eurozone European countries', () => {
+    expect(getCurrencyForCountry('NO')).toBe('eur');
+    expect(getCurrencyForCountry('SE')).toBe('eur');
+    expect(getCurrencyForCountry('PL')).toBe('eur');
+    expect(getCurrencyForCountry('UA')).toBe('eur');
   });
 
   it('returns USD for United States', () => {
