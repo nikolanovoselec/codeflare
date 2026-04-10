@@ -431,7 +431,7 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
-`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle), `sessionMode` (SessionMode, optional — default/advanced), `sleepAfter` (SleepAfterOption, optional — auto-sleep duration, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](container.md#fast-start).
+`UserPreferences` fields: `lastAgentType` (AgentType, optional — last selected agent), `lastPresetId` (string, optional — last used preset), `workspaceSyncEnabled` (boolean, default: `false` — workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` — fast CLI start toggle), `sessionMode` (SessionMode, optional — default/advanced), `sleepAfter` (SleepAfterOption, optional — auto-sleep duration, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](container.md#fast-start). **Side effect:** when `sessionMode` changes, `PATCH /api/preferences` calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to seed the correct preseed set for the new mode. Non-fatal — failure does not block the preference save. Implements [REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4–AC5.
 
 ### LLM API Keys
 

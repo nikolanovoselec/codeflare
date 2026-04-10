@@ -108,9 +108,9 @@ Multi-agent support, preseed system, and session modes.
 1. Session mode is stored as `sessionMode?: 'default' | 'advanced'` in `UserPreferences` (KV).
 2. `resolveSessionMode(prefs)` is the single source of truth for the `?? 'default'` fallback.
 3. Mode selection is available in Settings > Session Defaults.
-4. Mode takes effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation.
-5. Existing users keep all their current R2 files until they recreate.
-6. No migration is required; existing users are unaffected by mode changes until explicit action.
+4. Mode takes effect on any of: explicit "Recreate AI agent skills & rules" click, new bucket creation, Stripe mode change (upgrade or downgrade via webhook), subscription termination, or Settings toggle of `sessionMode`.
+5. On Stripe-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted (see REQ-AGENT-005 Constraints).
+6. Reconciliation triggered by webhooks or Settings is non-fatal: failure does not block the webhook response or the preference write.
 
 **Constraints:**
 - Only tiers with `'advanced'` in their `sessionModes` array can use Pro mode (see REQ-SUB-014).

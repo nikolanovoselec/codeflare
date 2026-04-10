@@ -258,11 +258,14 @@ async function handleSubscriptionDeleted(
     return;
   }
 
-  // CF-004: Reset tiers to 'free' so all enforcement paths (including raw field reads) deny access
+  // CF-004: Reset tiers to 'free' so all enforcement paths (including raw field reads) deny access.
+  // Also reset subscribedMode to 'default' so code reading subscribedMode from KV
+  // doesn't see stale 'advanced' after the subscription is gone.
   await updateUserRecord(env.KV, email, {
     billingStatus: BILLING_STATUS.CANCELED,
     subscriptionTier: 'free',
     accessTier: 'free',
+    subscribedMode: 'default',
   });
 
   // Auto-reconcile preseed to default mode — subscription actually terminated
@@ -376,7 +379,7 @@ export async function syncSubscriptionState(
       });
       const prefsKey = getPreferencesKey(bucketName);
       const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
-      await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: newMode }));
+      await env.KV.put(prefsKey, JSON.stringify({ ...(prefs ?? {}), sessionMode: newMode }));
       logger.info('Auto-reconciled agent configs on mode change', { email, previousMode, newMode });
     } catch (err) {
       logger.warn('Auto-reconcile on mode change failed (non-fatal)', { error: String(err) });

@@ -125,7 +125,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 
 **Resolver**: `resolveSessionMode(prefs)` in `src/lib/session-mode.ts` -- single source of truth for the `?? 'default'` fallback.
 
-**When mode takes effect**: Only on explicit "Recreate AI agent skills & rules" click or new bucket creation. Existing users keep all their current R2 files until they Recreate.
+**When mode takes effect**: On any of: explicit "Recreate AI agent skills & rules" click, new bucket creation, Stripe mode change (upgrade or downgrade via webhook), subscription termination (`customer.subscription.deleted`), or Settings toggle of `sessionMode`. On Stripe-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted. Implements [REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4–AC5.
 
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds mode-appropriate files then deletes preseed-managed files not in the current mode. Strictly scoped to keys from `AGENTS_SEEDED_CONFIGS` -- no bucket listing, no prefix scans, never touches user-created files. `getPreseedKeysNotInMode()` excludes variant-per-mode keys (instruction files that exist in both modes with different content) to avoid deleting a file that was just seeded. Partial delete failures return `warnings` without failing the overall operation. `getConfigsForMode()` validates no duplicate keys within a single mode.
 

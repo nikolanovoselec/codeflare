@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-10
+- Updated REQ-AGENT-004 AC4-AC6: session mode now auto-reconciles on Stripe mode change, subscription termination, and Settings toggle -- no longer requires explicit recreate click
+- Updated REQ-SUB-015 AC6-AC7: reconciliation generalized from downgrade-only to any mode change; added AC7 for subscription deletion reconciliation
+
 ## 2026-04-08
 - SDD opt-in is now binary (REQ-AGENT-021 AC4): non-SDD projects get zero post-push review agents (vibe-coding mode), while projects with an `sdd/` folder get the full code-reviewer + spec-reviewer + doc-updater workflow. The `git-push-review-reminder` hook enforces the gate by exiting silently when `sdd/README.md` is missing.
 - REQ-AGENT-005 AC4 updated: the two PreToolUse hooks now use command-pattern `if` gates (`Bash(git *)`, `Bash(gh *)`, `Bash(git push*)`) so they only fire on relevant commands, and the attribution-blocking surface expanded to cover git merge/tag/notes and gh pr/issue/release edit/comment/review/merge in addition to commits and PR creation.

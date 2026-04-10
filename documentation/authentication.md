@@ -299,7 +299,7 @@ Webhooks are signals that trigger a fetch of the latest state from the Stripe AP
 3. Timestamp guard: skips write if KV's `lastSyncedAt` > now (prevents stale webhook from overwriting newer state)
 4. Builds KV patch from snapshot — only sets tier/mode if price metadata is present (preserves existing values when null)
 5. Writes via `updateUserRecord()` (preserves existing KV fields like `addedBy`, `onboardingComplete`)
-6. **Auto-recreate on downgrade:** If `subscribedMode` changed from `advanced` to `default`, calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to remove Pro assets and seed Standard configs. Also updates `sessionMode` in user preferences. Non-fatal (try/catch) — if R2 fails, user can manually recreate via Settings.
+6. **Auto-reconcile on any mode change:** `reconcileAgentConfigs(overwrite: true, cleanup: true)` runs on upgrade (default → advanced), downgrade (advanced → default), and subscription termination (`customer.subscription.deleted`, forced to default mode). Seeds the correct preseed set, overwrites existing preseed files, and removes files not in the new mode. Also updates `sessionMode` in user preferences to match. Non-fatal (try/catch) — if R2 fails, user can manually recreate via Settings. Implements [REQ-SUB-015](../sdd/subscription.md#req-sub-015) AC6–AC7.
 
 **Admin checkout notification:** After `syncSubscriptionState` completes in `handleCheckoutCompleted`, sends `sendSubscriptionAdminNotification` to admin emails with the user's tier and mode. Best-effort (fire-and-forget).
 

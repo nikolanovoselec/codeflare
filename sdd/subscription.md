@@ -388,11 +388,13 @@ Tiers, billing, usage tracking, and quotas.
 3. A `lastSyncedAt` timestamp guard prevents stale webhooks from overwriting newer state.
 4. KV patches are built from the fetched snapshot; only tier/mode is set when price metadata is present (preserves existing values when null).
 5. Writes use `updateUserRecord()` (atomic read-merge-write) to prevent concurrent webhook writes from losing fields.
-6. On mode downgrade (advanced to default), `reconcileAgentConfigs(overwrite: true, cleanup: true)` is called to seed Standard configs.
+6. On any mode change (upgrade or downgrade), `reconcileAgentConfigs` is called to seed the correct config set for the new mode.
+7. On subscription termination (`customer.subscription.deleted`), after resetting KV tier to `free`, `reconcileAgentConfigs` is called with `default` mode to restore Standard configs.
 
 **Constraints:**
 - `lastSyncedAt` guard uses `>` (not `>=`) to avoid discarding same-second events.
-- Auto-recreate on downgrade is non-fatal (try/catch); failure does not block the webhook.
+- Auto-reconcile on mode change or deletion is non-fatal (try/catch); failure does not block the webhook.
+- Subscription cancellation (`cancel_at_period_end`) does NOT trigger reconciliation; only actual termination (period end or revocation) does.
 
 **Applies To:** User
 **Priority:** P1
