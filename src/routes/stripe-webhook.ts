@@ -281,7 +281,7 @@ async function handleSubscriptionDeleted(
     });
     const prefsKey = getPreferencesKey(bucketName);
     const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
-    await env.KV.put(prefsKey, JSON.stringify({ ...prefs, sessionMode: 'default' }));
+    await env.KV.put(prefsKey, JSON.stringify({ ...(prefs ?? {}), sessionMode: 'default' }));
     logger.info('Auto-reconciled agent configs on subscription deletion', { email });
   } catch (err) {
     logger.warn('Auto-reconcile on subscription deletion failed (non-fatal)', { error: String(err) });
