@@ -11,14 +11,14 @@ const EUR_COUNTRIES = new Set([
   // EU members outside Eurozone
   'BG', 'CZ', 'DK', 'HU', 'PL', 'RO', 'SE',
   // Non-EU European
-  'AD', 'AL', 'BA', 'BY', 'FO', 'IS', 'MC', 'MD', 'ME', 'MK',
-  'NO', 'RS', 'SM', 'TR', 'UA', 'VA', 'XK',
+  'AD', 'AL', 'AX', 'BA', 'BY', 'FO', 'IS', 'MC', 'MD', 'ME',
+  'MK', 'NO', 'RS', 'SJ', 'SM', 'TR', 'UA', 'VA', 'XK',
 ]);
 
 /** Map a 2-letter ISO country code to a supported currency. */
 export function getCurrencyForCountry(country: string): SupportedCurrency {
   if (country === 'CH' || country === 'LI') return 'chf';
-  if (country === 'GB') return 'gbp';
+  if (country === 'GB' || country === 'GI' || country === 'GG' || country === 'JE' || country === 'IM') return 'gbp';
   if (EUR_COUNTRIES.has(country)) return 'eur';
   return 'usd';
 }

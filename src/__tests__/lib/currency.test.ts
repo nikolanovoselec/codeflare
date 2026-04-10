@@ -11,8 +11,12 @@ describe('getCurrencyForCountry', () => {
     expect(getCurrencyForCountry('LI')).toBe('chf');
   });
 
-  it('returns GBP for United Kingdom', () => {
+  it('returns GBP for United Kingdom and British territories', () => {
     expect(getCurrencyForCountry('GB')).toBe('gbp');
+    expect(getCurrencyForCountry('GI')).toBe('gbp');
+    expect(getCurrencyForCountry('GG')).toBe('gbp');
+    expect(getCurrencyForCountry('JE')).toBe('gbp');
+    expect(getCurrencyForCountry('IM')).toBe('gbp');
   });
 
   it('returns EUR for Germany', () => {
@@ -31,8 +35,8 @@ describe('getCurrencyForCountry', () => {
       // EU non-Eurozone
       'BG', 'CZ', 'DK', 'HU', 'PL', 'RO', 'SE',
       // Non-EU European
-      'AD', 'AL', 'BA', 'BY', 'FO', 'IS', 'MC', 'MD', 'ME', 'MK',
-      'NO', 'RS', 'SM', 'TR', 'UA', 'VA', 'XK',
+      'AD', 'AL', 'AX', 'BA', 'BY', 'FO', 'IS', 'MC', 'MD', 'ME',
+      'MK', 'NO', 'RS', 'SJ', 'SM', 'TR', 'UA', 'VA', 'XK',
     ];
     for (const country of european) {
       expect(getCurrencyForCountry(country)).toBe('eur');
