@@ -15,11 +15,19 @@ vi.mock('../../middleware/auth', () => ({
   }),
 }));
 
+// Mock r2-seed and r2-config for preseed reconciliation tests
+const { mockReconcileAgentConfigs } = vi.hoisted(() => ({
+  mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
+}));
+vi.mock('../../lib/r2-seed', () => ({ reconcileAgentConfigs: mockReconcileAgentConfigs }));
+vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
+
 describe('Preferences Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
     mockKV = createMockKV();
+    mockReconcileAgentConfigs.mockClear();
   });
 
   function createTestApp() {
@@ -319,6 +327,113 @@ describe('Preferences Routes', () => {
       expect(res.status).toBe(400);
       const body = await res.json() as { code?: string };
       expect(body.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Preseed reconciliation on sessionMode change
+  // ---------------------------------------------------------------------------
+  describe('preseed reconciliation on sessionMode change', () => {
+    it('calls reconcileAgentConfigs when sessionMode changes from default to advanced', async () => {
+      const app = createTestApp();
+      const prefsKey = 'preferences:codeflare-test-user';
+      await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'default' }));
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+        expect.anything(),
+        'codeflare-test-user',
+        'https://r2.test',
+        'advanced',
+        { overwrite: true, cleanup: true },
+      );
+    });
+
+    it('calls reconcileAgentConfigs when sessionMode changes from advanced to default', async () => {
+      const app = createTestApp();
+      const prefsKey = 'preferences:codeflare-test-user';
+      await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
+
+      // Mock auth to simulate a user who paid for Pro (so the guard at line 64 passes)
+      const { authMiddleware } = await import('../../middleware/auth');
+      vi.mocked(authMiddleware).mockImplementationOnce(async (c: any, next: any) => {
+        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user', subscribedMode: 'advanced' });
+        c.set('bucketName', 'codeflare-test-user');
+        return next();
+      });
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'default' }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+        expect.anything(),
+        'codeflare-test-user',
+        'https://r2.test',
+        'default',
+        { overwrite: true, cleanup: true },
+      );
+    });
+
+    it('does NOT call reconcileAgentConfigs when sessionMode stays the same', async () => {
+      const app = createTestApp();
+      const prefsKey = 'preferences:codeflare-test-user';
+      await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
+
+      const { authMiddleware } = await import('../../middleware/auth');
+      vi.mocked(authMiddleware).mockImplementationOnce(async (c: any, next: any) => {
+        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user', subscribedMode: 'advanced' });
+        c.set('bucketName', 'codeflare-test-user');
+        return next();
+      });
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockReconcileAgentConfigs).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call reconcileAgentConfigs when PATCH has no sessionMode field', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceSyncEnabled: true }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockReconcileAgentConfigs).not.toHaveBeenCalled();
+    });
+
+    it('reconcileAgentConfigs failure does not break the preferences response', async () => {
+      const app = createTestApp();
+      const prefsKey = 'preferences:codeflare-test-user';
+      await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'default' }));
+      mockReconcileAgentConfigs.mockRejectedValueOnce(new Error('R2 timeout'));
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { sessionMode?: string };
+      expect(body.sessionMode).toBe('advanced');
     });
   });
 });

@@ -461,7 +461,7 @@ describe('auto-recreate on downgrade', () => {
     expect(mockReconcileAgentConfigs).not.toHaveBeenCalled();
   });
 
-  it('does NOT call reconcileAgentConfigs on upgrade (default → advanced)', async () => {
+  it('calls reconcileAgentConfigs on upgrade (default → advanced)', async () => {
     seedCustomer('cus_up_1', 'upgrade@example.com', { subscribedMode: 'default' });
     vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
       customerId: 'cus_up_1', tier: 'advanced', mode: 'advanced',
@@ -470,11 +470,18 @@ describe('auto-recreate on downgrade', () => {
     const body = buildEvent('customer.subscription.updated', {
       id: 'sub_up_1', customer: 'cus_up_1',
     });
-    await postWebhook(createApp(), body);
-    expect(mockReconcileAgentConfigs).not.toHaveBeenCalled();
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+    expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('upgrade-example-com'),
+      'https://r2.test',
+      'advanced',
+      { overwrite: true, cleanup: true },
+    );
   });
 
-  it('reconcileAgentConfigs failure does not break the webhook', async () => {
+  it('reconcileAgentConfigs failure on downgrade does not break the webhook', async () => {
     seedCustomer('cus_fail_1', 'fail@example.com', { subscribedMode: 'advanced' });
     vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
       customerId: 'cus_fail_1', tier: 'standard', mode: 'default',
@@ -483,6 +490,67 @@ describe('auto-recreate on downgrade', () => {
 
     const body = buildEvent('customer.subscription.updated', {
       id: 'sub_fail_1', customer: 'cus_fail_1',
+    });
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+  });
+
+  it('reconcileAgentConfigs failure on upgrade does not break the webhook', async () => {
+    seedCustomer('cus_fail_2', 'fail-up@example.com', { subscribedMode: 'default' });
+    vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({
+      customerId: 'cus_fail_2', tier: 'advanced', mode: 'advanced',
+    }));
+    mockReconcileAgentConfigs.mockRejectedValueOnce(new Error('R2 timeout'));
+
+    const body = buildEvent('customer.subscription.updated', {
+      id: 'sub_fail_2', customer: 'cus_fail_2',
+    });
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-reconcile on subscription.deleted
+// ---------------------------------------------------------------------------
+describe('auto-reconcile on subscription.deleted', () => {
+  it('calls reconcileAgentConfigs with default mode on subscription deletion', async () => {
+    seedCustomer('cus_del_1', 'deleted@example.com', { subscribedMode: 'advanced' });
+
+    const body = buildEvent('customer.subscription.deleted', {
+      id: 'sub_del_1', customer: 'cus_del_1',
+    });
+    const res = await postWebhook(createApp(), body);
+    expect(res.status).toBe(200);
+    expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('deleted-example-com'),
+      'https://r2.test',
+      'default',
+      { overwrite: true, cleanup: true },
+    );
+  });
+
+  it('sets sessionMode to default in preferences KV on deletion', async () => {
+    seedCustomer('cus_del_2', 'del-prefs@example.com', { subscribedMode: 'advanced' });
+    const prefsKey = `preferences:codeflare-del-prefs-example-com`;
+    await mockKV.put(prefsKey, JSON.stringify({ sessionMode: 'advanced' }));
+
+    const body = buildEvent('customer.subscription.deleted', {
+      id: 'sub_del_2', customer: 'cus_del_2',
+    });
+    await postWebhook(createApp(), body);
+
+    const prefs = JSON.parse(await mockKV.get(prefsKey) || '{}');
+    expect(prefs.sessionMode).toBe('default');
+  });
+
+  it('reconcileAgentConfigs failure on deletion does not break the webhook', async () => {
+    seedCustomer('cus_del_3', 'del-fail@example.com', { subscribedMode: 'advanced' });
+    mockReconcileAgentConfigs.mockRejectedValueOnce(new Error('R2 down'));
+
+    const body = buildEvent('customer.subscription.deleted', {
+      id: 'sub_del_3', customer: 'cus_del_3',
     });
     const res = await postWebhook(createApp(), body);
     expect(res.status).toBe(200);
