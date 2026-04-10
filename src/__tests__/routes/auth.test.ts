@@ -21,7 +21,9 @@ vi.mock('../../lib/access', () => ({
   }),
 }));
 
-const mockGetStripePrices = vi.fn(async () => new Map());
+const { mockGetStripePrices } = vi.hoisted(() => ({
+  mockGetStripePrices: vi.fn(async () => new Map()),
+}));
 vi.mock('../../lib/stripe', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/stripe')>();
   return {
