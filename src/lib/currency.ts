@@ -1,7 +1,7 @@
 // Implements REQ-SUB-020
 
 export const SUPPORTED_CURRENCIES = ['chf', 'usd', 'eur', 'gbp'] as const;
-export type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];
+type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];
 
 /** All European countries default to EUR (except CH/LI → CHF, GB → GBP). */
 const EUR_COUNTRIES = new Set([
