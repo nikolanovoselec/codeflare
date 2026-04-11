@@ -83,7 +83,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
         </div>
         <div class="setting-row setting-row--column-gap">
           <span class="settings-hint" data-testid="session-mode-hint">
-            Controls which AI skills and rules are preseeded. Click "Recreate" below to apply.
+            Controls which AI skills and rules are preseeded. Skills update automatically when you switch modes.
           </span>
         </div>
       </section>

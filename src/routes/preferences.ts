@@ -82,7 +82,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   if (parsed.data.sessionMode && parsed.data.sessionMode !== existing.sessionMode) {
     try {
       const { endpoint } = await getR2Config(c.env);
-      await reconcileAgentConfigs(c.env, bucketName, endpoint, parsed.data.sessionMode, {
+      const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, parsed.data.sessionMode, {
         overwrite: true,
         cleanup: true,
       });
@@ -90,6 +90,8 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         bucketName,
         previousMode: existing.sessionMode ?? 'default',
         newMode: parsed.data.sessionMode,
+        written: result.written.length,
+        deleted: result.deleted.length,
       });
     } catch (err) {
       logger.warn('Auto-reconcile on preferences change failed (non-fatal)', { error: String(err) });

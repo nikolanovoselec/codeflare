@@ -204,9 +204,13 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     void sessionStore.updatePreferences({ fastStartEnabled: !fastStartEnabled() });
   };
 
-  const handleSessionModeChange = (mode: 'default' | 'advanced') => {
+  const handleSessionModeChange = async (mode: 'default' | 'advanced') => {
     if (mode === currentSessionMode()) return;
-    void sessionStore.updatePreferences({ sessionMode: mode });
+    await sessionStore.updatePreferences({ sessionMode: mode });
+    // Show feedback — auto-reconcile runs server-side as part of the PATCH
+    if (currentSessionMode() === mode) {
+      setRecreateAgentMessage(`Agent skills updated for ${mode === 'advanced' ? 'Pro' : 'Standard'} mode. Takes effect in new sessions.`);
+    }
   };
 
   const handleSleepAfterChange = (value: string) => {
