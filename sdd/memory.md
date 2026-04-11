@@ -37,9 +37,8 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 4. Observations are saved to a `chat-{TODAY}` entity (daily raw capture bucket) in the MCP knowledge graph.
 5. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
 6. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
-7. Capture-related `additionalContext` only appears on the turn where the 30-message threshold is reached. Memory scan directives (AC8, AC9) appear independently on their respective triggers.
+7. Capture-related `additionalContext` only appears on the turn where the 30-message threshold is reached. The memory scan directive (AC8) appears independently on its own trigger.
 8. On the first message of a session (no counter file exists), the hook injects a memory scan directive into `additionalContext` instructing the agent to call `search_nodes` with the user's message before responding.
-9. When the user prompt contains "resume", the hook injects a memory scan directive into `additionalContext` instructing the agent to call `read_graph` to load the full knowledge graph before responding.
 
 **Constraints:**
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).

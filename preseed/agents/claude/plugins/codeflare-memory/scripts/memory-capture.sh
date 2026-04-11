@@ -66,12 +66,6 @@ else
     MEMORY_SCAN="BEFORE responding, search MCP memory for context. Use the user's message as your search query (search_nodes). This loads project knowledge, user preferences, and prior decisions from the knowledge graph."
 fi
 
-# Detect /resume — inject broad memory scan
-USER_CONTENT=$(echo "$INPUT" | jq -r '.user_prompt // empty' 2>/dev/null) || true
-if echo "$USER_CONTENT" | grep -qi 'resume'; then
-    MEMORY_SCAN="BEFORE responding, load MCP memory context: call read_graph to get the full knowledge graph. This loads project knowledge, user preferences, and prior decisions so you can continue with full context."
-fi
-
 DELTA=$((CURRENT_COUNT - last_count))
 if [[ $DELTA -lt 30 ]]; then
     # No capture needed, but still emit memory scan directive if set
