@@ -45,7 +45,7 @@ const ALL_TIPS: Tip[] = [
   { text: 'Check your compute usage on the Usage page', category: 'general' },
   { text: 'Your files sync to R2 every 60 seconds \u2014 safe even if your session dies', category: 'general' },
   { text: 'Ask your agent to build a Cloudflare Workers project and deploy it for you', category: 'general' },
-  { text: 'Try Spec-Driven Development (SDD) \u2014 type /sdd init in Claude Code to get started', category: 'general' },
+  { text: 'Try Spec-Driven Development \u2014 type /sdd init in Claude Code to get started', category: 'general' },
 ];
 
 /** Fisher-Yates shuffle — returns a new shuffled array */
