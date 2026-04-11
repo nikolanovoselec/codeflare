@@ -98,7 +98,7 @@ describe('DeployKeysSection Component', () => {
       });
     });
 
-    it('shows external link to provider', async () => {
+    it('shows create token link with tier selector for GitHub', async () => {
       render(() => <DeployKeysSection />);
       await waitFor(() => {
         expect(screen.getByText(/Connect to GitHub/)).toBeInTheDocument();
@@ -107,10 +107,10 @@ describe('DeployKeysSection Component', () => {
       fireEvent.click(screen.getByText(/Connect to GitHub/).closest('button')!);
 
       await waitFor(() => {
-        expect(screen.getByTestId('deploy-github-row-external')).toBeInTheDocument();
+        expect(screen.getByTestId('deploy-github-row-create-token')).toBeInTheDocument();
       });
 
-      const link = screen.getByTestId('deploy-github-row-external') as HTMLAnchorElement;
+      const link = screen.getByTestId('deploy-github-row-create-token') as HTMLAnchorElement;
       expect(link.href).toContain('github.com/settings/personal-access-tokens');
     });
   });
