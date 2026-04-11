@@ -58,7 +58,6 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
       setExpanded(true);
     }
     setTokenValue('');
-    requestAnimationFrame(() => inputRef?.focus());
   };
 
   const handleSave = () => {

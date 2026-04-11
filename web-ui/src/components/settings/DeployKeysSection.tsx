@@ -166,7 +166,7 @@ const DeployKeysSection: Component = () => {
         message={cfMessage()}
         error={cfError()}
         testId="deploy-cf-row"
-        instructions={<>Click <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
+        instructions={<>Press <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Open Cloudflare"</span> below, click <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
       />
 
       {/* Cloudflare multi-account dropdown */}

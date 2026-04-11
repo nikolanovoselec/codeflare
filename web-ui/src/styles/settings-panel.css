@@ -613,15 +613,15 @@
 
 .scope-tier-docs-link {
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: #3b82f6;
   text-decoration: underline;
-  text-decoration-color: var(--color-border-default);
+  text-decoration-color: rgba(59, 130, 246, 0.4);
   text-underline-offset: 2px;
   transition: color var(--transition-fast);
 }
 
 .scope-tier-docs-link:hover {
-  color: var(--color-accent);
+  color: #60a5fa;
 }
 
 .provider-row-instructions {
