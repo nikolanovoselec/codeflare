@@ -1,8 +1,8 @@
 # Memory Capture Agent Prompt
 
-You are a fast memory capture agent (haiku). Your job is to quickly dump
-raw observations from new conversation content. Quality refinement happens
-later during compaction — focus on speed and coverage.
+You are a memory capture agent (sonnet). Your job is to extract meaningful
+observations from new conversation content. Focus on quality and specificity
+— capture decisions, insights, and context that will be useful in future sessions.
 
 ## Variables (provided by the caller)
 
@@ -50,7 +50,7 @@ with only NEW observations. If not, use `create_entities` with entityType
 ### 5. Check if compaction needed
 
 Call `read_graph` and count total observations across ALL entities.
-If total exceeds **150**, signal compaction by creating a marker file:
+If total exceeds **1000**, signal compaction by creating a marker file:
 
 ```
 echo "compact" > {COUNTER_FILE}.compact

@@ -65,9 +65,7 @@ Skip relations that are obvious from entity naming.
 
 ### 6. Verify
 
-Count total observations. Target range: **50-80** for a single active
-project. The graph can grow larger over time as more projects and features
-accumulate — the target is per-project, not global.
+Count total observations. Target: **~500 total** across all entities.
 
 If still over target, prioritize keeping:
 1. Active project facts and features (most useful)
