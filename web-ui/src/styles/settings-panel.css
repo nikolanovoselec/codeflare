@@ -557,6 +557,85 @@
   pointer-events: none;
 }
 
+/* Scope Tier Selector (token creation flow) */
+.scope-tier-control {
+  display: flex;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  overflow: hidden;
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.scope-tier-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-base);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  user-select: none;
+  min-width: 80px;
+}
+
+.scope-tier-option input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.scope-tier-option + .scope-tier-option {
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.scope-tier-option--selected {
+  background: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.scope-tier-option:not(.scope-tier-option--selected):hover {
+  background: var(--color-bg-muted);
+}
+
+.scope-tier-description {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2) 0;
+  min-height: 1.2em;
+}
+
+.scope-tier-docs-link {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-default);
+  text-underline-offset: 2px;
+  transition: color var(--transition-fast);
+}
+
+.scope-tier-docs-link:hover {
+  color: var(--color-accent);
+}
+
+.provider-row-instructions {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2) 0;
+  line-height: 1.5;
+}
+
+.provider-row-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
 /* LLM Key Input */
 .llm-key-input {
   width: 100%;

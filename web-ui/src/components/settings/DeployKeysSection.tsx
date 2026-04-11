@@ -3,39 +3,7 @@ import { getDeployKeys, updateDeployKeys } from '../../api/client';
 import type { DeployKeysResponse } from '../../api/client';
 import ProviderRow from './ProviderRow';
 import { GitHubIcon, CloudflareIcon } from './BrandIcons';
-
-// GitHub fine-grained PAT template URL with permissions pre-filled.
-// Parameter names must match GitHub's internal permission keys (Aug 2025 format).
-// Docs: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
-const GITHUB_TOKEN_URL =
-  'https://github.com/settings/personal-access-tokens/new?name=Codeflare&description=Push+%26+deploy+from+Codeflare&expires_in=90'
-  // Repository permissions
-  + '&contents=write&administration=write&workflows=write&actions=write&actions_variables=write'
-  + '&pull_requests=write&issues=write&deployments=write&environments=write&pages=write'
-  + '&secrets=write&statuses=write&repository_hooks=write&merge_queues=write'
-  + '&security_events=write&custom_properties=write&discussions=write'
-  + '&metadata=read'
-  // Account permissions
-  + '&emails=read&user_copilot_requests=read';
-
-// Cloudflare template URL with full Codeflare-level scopes pre-filled.
-const CLOUDFLARE_TOKEN_SCOPES = [
-  { key: 'workers_scripts', type: 'edit' },
-  { key: 'workers_kv', type: 'edit' },
-  { key: 'workers_routes', type: 'edit' },
-  { key: 'workers_r2', type: 'edit' },
-  { key: 'd1', type: 'edit' },
-  { key: 'pages', type: 'edit' },
-  { key: 'containers', type: 'edit' },
-  { key: 'access', type: 'edit' },
-  { key: 'access_acct', type: 'edit' },
-  { key: 'account_api_tokens', type: 'edit' },
-  { key: 'account_settings', type: 'read' },
-  { key: 'zone', type: 'read' },
-  { key: 'zone_dns', type: 'edit' },
-];
-const CLOUDFLARE_TOKEN_URL =
-  `https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=${encodeURIComponent(JSON.stringify(CLOUDFLARE_TOKEN_SCOPES))}&accountId=%2A&zoneId=all&name=Codeflare`;
+import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE } from '../../lib/token-scopes';
 
 interface CloudflareAccount {
   id: string;
@@ -167,8 +135,6 @@ const DeployKeysSection: Component = () => {
         icon={GitHubIcon}
         name="GitHub"
         brandColor="#24292f"
-        externalUrl={GITHUB_TOKEN_URL}
-        externalLabel="Open GitHub"
         placeholder="github_pat_..."
         connected={githubConnected()}
         onSave={(token) => { void handleSaveGithub(token); }}
@@ -178,13 +144,18 @@ const DeployKeysSection: Component = () => {
         message={githubMessage()}
         error={githubError()}
         testId="deploy-github-row"
+        tierOptions={{
+          tiers: GITHUB_TIERS,
+          getUrl: getGithubTokenUrl,
+          docsUrl: 'https://github.com/nikolanovoselec/codeflare/blob/main/documentation/token-scopes.md',
+        }}
       />
 
       <ProviderRow
         icon={CloudflareIcon}
         name="Cloudflare"
         brandColor="#f38020"
-        externalUrl={CLOUDFLARE_TOKEN_URL}
+        externalUrl={CLOUDFLARE_TOKEN_PAGE}
         externalLabel="Open Cloudflare"
         placeholder="Cloudflare API token..."
         connected={cfConnected()}
@@ -195,6 +166,7 @@ const DeployKeysSection: Component = () => {
         message={cfMessage()}
         error={cfError()}
         testId="deploy-cf-row"
+        instructions={'Click "Create Token", then use the "Edit Cloudflare Workers" template. Select your account and zones, then create the token.'}
       />
 
       {/* Cloudflare multi-account dropdown */}
