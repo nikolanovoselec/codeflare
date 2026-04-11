@@ -7,7 +7,7 @@ import ScrambleText from './ScrambleText';
 import Icon from './Icon';
 import { mdiArrowRight } from '@mdi/js';
 import { logger } from '../lib/logger';
-import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE } from '../lib/token-scopes';
+import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE, SCOPES_DOCS_URL } from '../lib/token-scopes';
 import '../styles/login-page.css';
 import '../styles/onboarding-page.css';
 
@@ -273,7 +273,7 @@ const OnboardingPage: Component = () => {
               tierOptions={{
                 tiers: GITHUB_TIERS,
                 getUrl: getGithubTokenUrl,
-                docsUrl: 'https://github.com/nikolanovoselec/codeflare/blob/main/documentation/token-scopes.md',
+                docsUrl: SCOPES_DOCS_URL,
               }}
             />
           </div>

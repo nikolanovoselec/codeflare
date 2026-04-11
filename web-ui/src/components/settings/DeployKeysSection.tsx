@@ -3,7 +3,7 @@ import { getDeployKeys, updateDeployKeys } from '../../api/client';
 import type { DeployKeysResponse } from '../../api/client';
 import ProviderRow from './ProviderRow';
 import { GitHubIcon, CloudflareIcon } from './BrandIcons';
-import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE } from '../../lib/token-scopes';
+import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE, SCOPES_DOCS_URL } from '../../lib/token-scopes';
 
 interface CloudflareAccount {
   id: string;
@@ -147,7 +147,7 @@ const DeployKeysSection: Component = () => {
         tierOptions={{
           tiers: GITHUB_TIERS,
           getUrl: getGithubTokenUrl,
-          docsUrl: 'https://github.com/nikolanovoselec/codeflare/blob/main/documentation/token-scopes.md',
+          docsUrl: SCOPES_DOCS_URL,
         }}
       />
 

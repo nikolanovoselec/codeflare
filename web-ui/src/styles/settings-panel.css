@@ -631,11 +631,6 @@
   line-height: 1.5;
 }
 
-.provider-row-hint {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-
 /* LLM Key Input */
 .llm-key-input {
   width: 100%;
