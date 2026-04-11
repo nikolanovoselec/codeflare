@@ -49,3 +49,6 @@ export const CLOUDFLARE_TOKEN_PAGE = 'https://dash.cloudflare.com/profile/api-to
 
 /** Documentation page listing all scopes per tier with explanations. */
 export const SCOPES_DOCS_URL = 'https://github.com/nikolanovoselec/codeflare/blob/main/documentation/token-scopes.md';
+
+/** Cloudflare brand color for instruction highlights. */
+export const CLOUDFLARE_BRAND_COLOR = '#f38020';

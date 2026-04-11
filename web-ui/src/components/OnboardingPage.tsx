@@ -7,7 +7,7 @@ import ScrambleText from './ScrambleText';
 import Icon from './Icon';
 import { mdiArrowRight } from '@mdi/js';
 import { logger } from '../lib/logger';
-import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE, SCOPES_DOCS_URL } from '../lib/token-scopes';
+import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE, SCOPES_DOCS_URL, CLOUDFLARE_BRAND_COLOR } from '../lib/token-scopes';
 import '../styles/login-page.css';
 import '../styles/onboarding-page.css';
 
@@ -302,7 +302,7 @@ const OnboardingPage: Component = () => {
               message={cfMessage()}
               error={cfError()}
               testId="onboarding-cloudflare-row"
-              instructions={<>Click <span style={{color: '#f38020', "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: '#f38020', "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
+              instructions={<>Click <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
             />
             {/* Multi-account dropdown */}
             <Show when={cfAccounts().length > 1}>

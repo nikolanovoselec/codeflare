@@ -191,9 +191,6 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
             </a>
           </Show>
 
-          {/* Paste step hint */}
-          <p class="provider-row-instructions">Copy the token, return to this page, paste above and save.</p>
-
           <div class="provider-row-input-group">
             <input
               ref={inputRef}
@@ -216,6 +213,9 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
               {props.saving ? 'Saving...' : 'Save'}
             </button>
           </div>
+
+          {/* Paste step hint — below input so "paste above" is correct */}
+          <p class="provider-row-instructions">Copy the token, return to this page, paste above and save.</p>
 
           <div class="provider-row-expand-footer">
             <Show when={props.error}>

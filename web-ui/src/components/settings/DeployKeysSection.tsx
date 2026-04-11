@@ -3,7 +3,7 @@ import { getDeployKeys, updateDeployKeys } from '../../api/client';
 import type { DeployKeysResponse } from '../../api/client';
 import ProviderRow from './ProviderRow';
 import { GitHubIcon, CloudflareIcon } from './BrandIcons';
-import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE, SCOPES_DOCS_URL } from '../../lib/token-scopes';
+import { getGithubTokenUrl, GITHUB_TIERS, CLOUDFLARE_TOKEN_PAGE, SCOPES_DOCS_URL, CLOUDFLARE_BRAND_COLOR } from '../../lib/token-scopes';
 
 interface CloudflareAccount {
   id: string;
@@ -166,7 +166,7 @@ const DeployKeysSection: Component = () => {
         message={cfMessage()}
         error={cfError()}
         testId="deploy-cf-row"
-        instructions={<>Click <span style={{color: '#f38020', "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: '#f38020', "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
+        instructions={<>Click <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: CLOUDFLARE_BRAND_COLOR, "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
       />
 
       {/* Cloudflare multi-account dropdown */}
