@@ -51,6 +51,7 @@ TRANSCRIPT="${TRANSCRIPT/#\~/$USER_HOME}"
 CURRENT_COUNT=$(grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT") || CURRENT_COUNT=0
 
 COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}"
+MEMORY_SCAN=""
 if [[ -f "$COUNTER_FILE" ]]; then
     last_count=$(head -1 "$COUNTER_FILE" 2>/dev/null) || last_count=0
     last_line=$(tail -1 "$COUNTER_FILE" 2>/dev/null) || last_line=1
@@ -61,10 +62,24 @@ else
     last_count=$CURRENT_COUNT
     last_line=$(wc -l < "$TRANSCRIPT")
     printf '%s\n%s\n' "$last_count" "$last_line" > "$COUNTER_FILE"
+    # First message — inject MCP memory scan directive
+    MEMORY_SCAN="BEFORE responding, search MCP memory for context. Use the user's message as your search query (search_nodes). This loads project knowledge, user preferences, and prior decisions from the knowledge graph."
+fi
+
+# Detect /resume — inject broad memory scan
+USER_CONTENT=$(echo "$INPUT" | jq -r '.user_prompt // empty' 2>/dev/null) || true
+if echo "$USER_CONTENT" | grep -qi 'resume'; then
+    MEMORY_SCAN="BEFORE responding, load MCP memory context: call read_graph to get the full knowledge graph. This loads project knowledge, user preferences, and prior decisions so you can continue with full context."
 fi
 
 DELTA=$((CURRENT_COUNT - last_count))
-[[ $DELTA -lt 30 ]] && exit 0
+if [[ $DELTA -lt 30 ]]; then
+    # No capture needed, but still emit memory scan directive if set
+    if [[ -n "$MEMORY_SCAN" ]]; then
+        jq -n --arg ctx "$MEMORY_SCAN" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
+    fi
+    exit 0
+fi
 
 TODAY=$(date +%Y-%m-%d)
 TOTAL_LINES=$(wc -l < "$TRANSCRIPT")
@@ -88,6 +103,11 @@ printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
 
 # UserPromptSubmit: exit 0 with additionalContext (no blocking)
 CONTEXT="Check if ${VARS_FILE} exists. If it does, spawn a background haiku agent to read ${USER_HOME}/.claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md and ${VARS_FILE}, then execute. If the file does not exist, do nothing — capture was already completed."
+
+# Append memory scan directive if set (first message or /resume)
+if [[ -n "$MEMORY_SCAN" ]]; then
+    CONTEXT="${MEMORY_SCAN} ${CONTEXT}"
+fi
 
 jq -n --arg ctx "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
 exit 0
