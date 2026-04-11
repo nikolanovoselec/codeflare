@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-11
+- Updated REQ-AGENT-005 AC4: git-push-review-reminder moved from PreToolUse to PostToolUse so the directive arrives in the same turn as the push result
+- Updated REQ-AGENT-008 AC3-AC4: entrypoint hooks merge now preserves user-added hooks while replacing managed hooks; PostToolUse added to hook event types
+- REQ-SUB-020 promoted to Implemented: multi-currency pricing code complete with full test coverage
+
 ## 2026-04-10
 - Added REQ-SUB-020: Multi-currency pricing via Stripe `currency_options`. Subscribe page and checkout auto-detect visitor currency from `CF-IPCountry` (CHF/USD/EUR/GBP).
 - Removed multi-currency pricing from Out of Scope.

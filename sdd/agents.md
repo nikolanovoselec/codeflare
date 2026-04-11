@@ -148,7 +148,7 @@ Multi-agent support, preseed system, and session modes.
 1. Default mode seeds 25 files to R2.
 2. Advanced mode seeds 180 files to R2.
 3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
-4. Pro mode registers hooks in `settings.json` with command-pattern gates so they only fire on relevant Bash calls: two PreToolUse entries for commit attribution blocking (gated on `Bash(git *)` and `Bash(gh *)`, covering git commit/merge/tag/notes and gh pr/issue/release create/edit/comment/review/merge), one PreToolUse entry for the git-push review reminder (gated on `Bash(git push*)`), and one UserPromptSubmit entry for memory capture; Standard mode merges only `skipDangerousModePermissionPrompt`.
+4. Pro mode registers hooks in `settings.json` with command-pattern gates so they only fire on relevant Bash calls: two PreToolUse entries for commit attribution blocking (gated on `Bash(git *)` and `Bash(gh *)`, covering git commit/merge/tag/notes and gh pr/issue/release create/edit/comment/review/merge), one PostToolUse entry for the git-push review reminder (gated on `Bash(git push*)`) so the directive arrives in the same turn as the push result, and one UserPromptSubmit entry for memory capture; Standard mode merges only `skipDangerousModePermissionPrompt`.
 
 **Constraints:**
 - Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.
@@ -229,8 +229,8 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 1. On first bucket creation, `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2.
 2. During container startup, initial `rclone sync` from R2 restores preseed files to the container's config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`).
-3. `entrypoint.sh` merges settings into `~/.claude/settings.json` using `jq` recursive merge, preserving user's existing settings.
-4. In advanced mode, settings merge includes hook registrations (PreToolUse, UserPromptSubmit).
+3. `entrypoint.sh` merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks (any hook whose command does not match codeflare-* managed paths) and replacing managed hooks with the current platform version.
+4. In advanced mode, settings merge includes hook registrations (PreToolUse, PostToolUse, UserPromptSubmit).
 5. `entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable codeflare-memory and codeflare-hooks plugins (permanent, not mode-gated; missing plugin files are silently skipped).
 6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning).
 

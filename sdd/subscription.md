@@ -516,5 +516,4 @@ Tiers, billing, usage tracking, and quotas.
 **Dependencies:** REQ-SUB-004
 **Verification:** Automated test
 
-**Status:** Partial
-Notes: Stripe `currency_options` must be configured on each Price object in the Dashboard. Code is implemented but not yet verified end-to-end.
+**Status:** Implemented
