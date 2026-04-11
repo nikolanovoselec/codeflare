@@ -51,6 +51,7 @@ const ALL_TIPS: Tip[] = [
   { text: 'Turn off Fast Start in Settings if you want agents to auto-update on boot', category: 'general' },
   { text: 'Your files sync to R2 every 60 seconds \u2014 safe even if your session dies', category: 'general' },
   { text: 'Ask your agent to build a Cloudflare Workers project and deploy it for you', category: 'general' },
+  { text: 'Try Spec-Driven Development (SDD) \u2014 type /sdd init to get started', category: 'general' },
 ];
 
 /** Fisher-Yates shuffle — returns a new shuffled array */

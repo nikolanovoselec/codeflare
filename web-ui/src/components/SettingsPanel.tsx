@@ -204,12 +204,17 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     void sessionStore.updatePreferences({ fastStartEnabled: !fastStartEnabled() });
   };
 
+  // Implements REQ-AGENT-005
   const handleSessionModeChange = async (mode: 'default' | 'advanced') => {
     if (mode === currentSessionMode()) return;
-    await sessionStore.updatePreferences({ sessionMode: mode });
-    // Show feedback — auto-reconcile runs server-side as part of the PATCH
-    if (currentSessionMode() === mode) {
-      setRecreateAgentMessage(`Agent skills updated for ${mode === 'advanced' ? 'Pro' : 'Standard'} mode. Takes effect in new sessions.`);
+    try {
+      await sessionStore.updatePreferences({ sessionMode: mode });
+      // Show feedback — auto-reconcile runs server-side as part of the PATCH
+      if (currentSessionMode() === mode) {
+        setRecreateAgentMessage(`Agent skills updated for ${mode === 'advanced' ? 'Pro' : 'Standard'} mode. Takes effect in new sessions.`);
+      }
+    } catch {
+      // updatePreferences handles its own errors
     }
   };
 

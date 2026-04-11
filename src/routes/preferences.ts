@@ -77,6 +77,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
   await c.env.KV.put(key, JSON.stringify(updated));
 
+  // Implements REQ-AGENT-005
   // Auto-reconcile preseed when sessionMode changes so the next session
   // picks up the correct skills/agents/rules without manual Recreate click.
   if (parsed.data.sessionMode && parsed.data.sessionMode !== existing.sessionMode) {

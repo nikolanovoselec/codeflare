@@ -1074,6 +1074,8 @@ fi
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
+    JQ_ERR=$(mktemp)
+    # Implements REQ-AGENT-008
     # Merge non-hooks settings with *, rebuild hooks separately to avoid
     # jq array-replace destroying user-added hooks or leaving stale managed hooks.
     # "Managed" = command path contains codeflare-(hooks|memory)/scripts/.
@@ -1088,21 +1090,23 @@ if [ -f "$SETTINGS_FILE" ]; then
           {key: $type, value: (
             [$existArr[].matcher, $cfgArr[].matcher] | unique |
             map(. as $m |
-              [$existArr[] | select(.matcher == $m) | .hooks[] |
+              [$existArr[] | select(.matcher == $m) | (.hooks // [])[] |
                 select((.command // "") | test("codeflare-(hooks|memory)/scripts/") | not)
               ] as $user |
               [$cfgArr[] | select(.matcher == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}
-            )
+            ) | map(select(.hooks | length > 0))
           )}
-        ) | from_entries
+        ) | from_entries |
+        with_entries(select(.value | length > 0))
       )}
-    ' "$SETTINGS_FILE" > "$TMP_SETTINGS" 2>/dev/null; then
+    ' "$SETTINGS_FILE" > "$TMP_SETTINGS" 2>"$JQ_ERR"; then
         mv "$TMP_SETTINGS" "$SETTINGS_FILE"
     else
-        echo "[entrypoint] WARNING: Could not merge settings config (malformed settings.json?)"
+        echo "[entrypoint] WARNING: Could not merge settings config: $(cat "$JQ_ERR")"
         rm -f "$TMP_SETTINGS"
     fi
+    rm -f "$JQ_ERR"
 else
     echo "$SETTINGS_CONFIG" | jq '.' > "$SETTINGS_FILE"
 fi
