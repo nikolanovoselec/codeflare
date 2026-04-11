@@ -11,6 +11,15 @@
 # Vibe-coding mode: if sdd/ does not exist, emits nothing. Zero friction.
 set -e
 
+# Command gate — settings.json if-gate has a known bug (#20334) where
+# PostToolUse matcher fires for unrelated tools. Filter in-script as workaround.
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null) || true
+case "$COMMAND" in
+  "git push"*) ;; # match — continue
+  *) exit 0 ;;    # not a push — skip
+esac
+
 # Vibe-coding gate.
 if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
   exit 0
