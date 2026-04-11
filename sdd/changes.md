@@ -3,6 +3,8 @@
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
 ## 2026-04-11
+- Updated REQ-MEM-001 AC2/AC7-AC9: memory-capture hook now injects MCP memory scan directive on first message (search_nodes) and /resume (read_graph). Message counting method corrected in spec.
+- Updated REQ-MEM-002 AC2: first-run baseline now also injects memory scan directive before exiting.
 - Updated REQ-AGENT-010 AC9-AC11: GitHub token creation now offers three scope tiers (Minimal/Recommended/Advanced). Cloudflare simplified to "Edit Cloudflare Workers" template. Documentation page for all scopes.
 - Updated REQ-AGENT-005 AC4: git-push-review-reminder moved from PreToolUse to PostToolUse so the directive arrives in the same turn as the push result
 - Updated REQ-AGENT-008 AC3-AC4: entrypoint hooks merge now preserves user-added hooks while replacing managed hooks; PostToolUse added to hook event types

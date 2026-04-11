@@ -32,12 +32,14 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 
 **Acceptance Criteria:**
 1. The `memory-capture.sh` script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
-2. The hook counts user messages in the JSONL transcript via `jq -r '.type' "$TRANSCRIPT" | grep -c '^user$'`.
+2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
 3. When triggered, the main agent spawns a background haiku agent that reads the recent transcript and extracts 3-5 observations.
 4. Observations are saved to a `chat-{TODAY}` entity (daily raw capture bucket) in the MCP knowledge graph.
 5. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
 6. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
-7. `additionalContext` only appears on the turn where the hook fired (no stale replays).
+7. Capture-related `additionalContext` only appears on the turn where the 30-message threshold is reached. Memory scan directives (AC8, AC9) appear independently on their respective triggers.
+8. On the first message of a session (no counter file exists), the hook injects a memory scan directive into `additionalContext` instructing the agent to call `search_nodes` with the user's message before responding.
+9. When the user prompt contains "resume", the hook injects a memory scan directive into `additionalContext` instructing the agent to call `read_graph` to load the full knowledge graph before responding.
 
 **Constraints:**
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
@@ -58,7 +60,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 
 **Acceptance Criteria:**
 1. The hook reads the counter file at `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset).
-2. If no counter file exists (first run after container recycle or `/resume`), the hook writes a baseline from the current transcript count and exits (establishing the baseline for subsequent delta calculations).
+2. If no counter file exists (first run after container start), the hook writes a baseline from the current transcript count and injects a memory scan directive (REQ-MEM-001 AC8) before exiting.
 3. If the delta between the current user message count and the last summarized count is less than 30, the hook exits silently.
 4. When the delta reaches 30, the hook writes the `.vars` file and emits the `additionalContext` instruction.
 5. The counter is updated (current count + total lines) BEFORE emitting, preventing re-triggering on subsequent hook invocations within the same window.
