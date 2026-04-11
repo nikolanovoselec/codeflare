@@ -36,7 +36,6 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
   const [expanded, setExpanded] = createSignal(false);
   const [tokenValue, setTokenValue] = createSignal('');
   const [selectedTier, setSelectedTier] = createSignal<ScopeTier>('recommended');
-  let inputRef: HTMLInputElement | undefined;
 
   const hasTiers = () => !!props.tierOptions;
   const hasInstructions = () => !!props.instructions;
@@ -192,7 +191,6 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
 
           <div class="provider-row-input-group">
             <input
-              ref={inputRef}
               type="password"
               class="provider-row-token-input"
               value={tokenValue()}
