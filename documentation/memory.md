@@ -213,10 +213,10 @@ The generator produces adapted config files for all supported agents from CC's p
 
 ### Settings.json Merge
 
-`entrypoint.sh` merges settings into `~/.claude/settings.json` using `jq '. * $cfg'` recursive merge. In advanced mode, this includes `skipDangerousModePermissionPrompt` plus hook registrations (PreToolUse and UserPromptSubmit). In default mode, only `skipDangerousModePermissionPrompt` is merged (no hooks). Handles three cases:
+`entrypoint.sh` merges settings into `~/.claude/settings.json` using a two-phase strategy. Non-hooks settings (statusLine, effortLevel, permissions, etc.) are merged with `jq '. * $cfg'`. Hooks are rebuilt separately: for each hook type and matcher, user-added hooks (commands not matching `codeflare-(hooks|memory)/scripts/`) are preserved, while managed hooks are replaced with the entrypoint's definitions. This prevents stale managed hooks from persisting while keeping user customizations. Handles three cases:
 
 - **File doesn't exist**: Creates with settings config
-- **File exists**: Recursive merge preserving user's existing settings (statusLine, permissions, etc.)
+- **File exists**: Merges non-hooks settings, rebuilds hooks preserving user additions
 - **File malformed**: Skips with warning, does not overwrite
 
 ### Plugin Enablement

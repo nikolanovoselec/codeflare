@@ -1074,7 +1074,30 @@ fi
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
-    if jq --argjson cfg "$SETTINGS_CONFIG" '. * $cfg' "$SETTINGS_FILE" > "$TMP_SETTINGS" 2>/dev/null; then
+    # Merge non-hooks settings with *, rebuild hooks separately to avoid
+    # jq array-replace destroying user-added hooks or leaving stale managed hooks.
+    # "Managed" = command path contains codeflare-(hooks|memory)/scripts/.
+    if jq --argjson cfg "$SETTINGS_CONFIG" '
+      . as $orig |
+      (del(.hooks) * ($cfg | del(.hooks))) +
+      {hooks: (
+        (($orig.hooks // {}) | keys) + (($cfg.hooks // {}) | keys) | unique |
+        map(. as $type |
+          ($orig.hooks[$type] // []) as $existArr |
+          ($cfg.hooks[$type] // []) as $cfgArr |
+          {key: $type, value: (
+            [$existArr[].matcher, $cfgArr[].matcher] | unique |
+            map(. as $m |
+              [$existArr[] | select(.matcher == $m) | .hooks[] |
+                select((.command // "") | test("codeflare-(hooks|memory)/scripts/") | not)
+              ] as $user |
+              [$cfgArr[] | select(.matcher == $m) | (.hooks // [])[]] as $mgr |
+              {matcher: $m, hooks: ($user + $mgr)}
+            )
+          )}
+        ) | from_entries
+      )}
+    ' "$SETTINGS_FILE" > "$TMP_SETTINGS" 2>/dev/null; then
         mv "$TMP_SETTINGS" "$SETTINGS_FILE"
     else
         echo "[entrypoint] WARNING: Could not merge settings config (malformed settings.json?)"
