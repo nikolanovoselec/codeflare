@@ -75,10 +75,12 @@ jobs:
 
       - name: Type check backend
         run: npm run typecheck
+        timeout-minutes: 5
 
       - name: Type check frontend
         run: npm run typecheck
         working-directory: web-ui
+        timeout-minutes: 5
 
       - name: Security audit (backend)
         run: npm audit --audit-level=high --omit=dev
