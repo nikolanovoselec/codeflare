@@ -25,8 +25,8 @@ interface ProviderRowProps {
     getUrl: (tier: ScopeTier) => string;
     docsUrl?: string;
   };
-  /** Cloudflare-style instruction text shown in expanded section. */
-  instructions?: string;
+  /** Instruction JSX shown in expanded section (e.g., Cloudflare template guidance). */
+  instructions?: JSX.Element;
 }
 
 const TIER_ORDER: ScopeTier[] = ['minimal', 'recommended', 'advanced'];
@@ -39,6 +39,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
   let inputRef: HTMLInputElement | undefined;
 
   const hasTiers = () => !!props.tierOptions;
+  const hasInstructions = () => !!props.instructions;
 
   const resolvedUrl = () => {
     if (props.tierOptions) return props.tierOptions.getUrl(selectedTier());
@@ -46,11 +47,11 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
   };
 
   const handleConnect = () => {
-    if (hasTiers()) {
-      // Tier selector: expand only, user clicks "Create Token" link
+    if (hasTiers() || hasInstructions()) {
+      // Expand only — user clicks the link manually
       setExpanded(true);
     } else {
-      // No tiers: open URL directly (existing behavior)
+      // No tiers or instructions: open URL directly (existing behavior)
       if (props.externalUrl) {
         window.open(props.externalUrl, '_blank');
       }
@@ -159,13 +160,26 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
             )}
           </Show>
 
-          {/* Instructions (Cloudflare) */}
-          <Show when={!hasTiers() && props.instructions}>
-            <p class="provider-row-instructions">{props.instructions}</p>
+          {/* Instructions + link (Cloudflare) */}
+          <Show when={!hasTiers() && hasInstructions()}>
+            <div class="provider-row-instructions">{props.instructions}</div>
+            <Show when={props.externalUrl}>
+              <a
+                class="provider-row-connect-btn"
+                style={{ background: props.brandColor || 'var(--color-bg-tertiary)', "text-decoration": "none", "text-align": "center" }}
+                href={props.externalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={props.testId ? `${props.testId}-open-provider` : undefined}
+              >
+                <ProviderIcon size={20} fill="white" />
+                <span>Open {props.name}</span>
+              </a>
+            </Show>
           </Show>
 
-          {/* Reopen link (only when no tier selector) */}
-          <Show when={!hasTiers() && props.externalUrl}>
+          {/* Reopen link (only when no tier selector and no instructions) */}
+          <Show when={!hasTiers() && !hasInstructions() && props.externalUrl}>
             <a
               class="provider-row-reopen-link"
               href={props.externalUrl}
@@ -176,6 +190,9 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
               Didn't open? Click here to open {props.name}.
             </a>
           </Show>
+
+          {/* Paste step hint */}
+          <p class="provider-row-instructions">Copy the token, return to this page, paste above and save.</p>
 
           <div class="provider-row-input-group">
             <input

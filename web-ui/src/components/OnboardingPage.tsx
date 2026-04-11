@@ -302,7 +302,7 @@ const OnboardingPage: Component = () => {
               message={cfMessage()}
               error={cfError()}
               testId="onboarding-cloudflare-row"
-              instructions={'Click "Create Token", then use the "Edit Cloudflare Workers" template. Select your account and zones, then create the token.'}
+              instructions={<>Click <span style={{color: '#f38020', "font-weight": "600"}}>"Create Token"</span>, then use the <span style={{color: '#f38020', "font-weight": "600"}}>"Edit Cloudflare Workers"</span> template. Select your account and zones, then create the token.</>}
             />
             {/* Multi-account dropdown */}
             <Show when={cfAccounts().length > 1}>
