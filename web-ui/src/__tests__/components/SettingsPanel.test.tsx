@@ -322,12 +322,12 @@ describe('SettingsPanel Component', () => {
       expect(advancedOpt).toHaveAttribute('aria-checked', 'true');
     });
 
-    it('hint text contains "Recreate" wording', () => {
+    it('hint text explains auto-update on mode switch', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
       const hint = screen.getByTestId('session-mode-hint');
-      expect(hint.textContent).toContain('Recreate');
+      expect(hint.textContent).toContain('automatically');
     });
 
     it('Pro mode radio is disabled when subscribedMode is default', async () => {
