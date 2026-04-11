@@ -125,7 +125,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 
 **Resolver**: `resolveSessionMode(prefs)` in `src/lib/session-mode.ts` -- single source of truth for the `?? 'default'` fallback.
 
-**When mode takes effect**: On any of: explicit "Recreate AI agent skills & rules" click, new bucket creation, Stripe mode change (upgrade or downgrade via webhook), subscription termination (`customer.subscription.deleted`), or Settings toggle of `sessionMode`. On Stripe-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted. Implements [REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4–AC5.
+**When mode takes effect**: On any of: explicit "Recreate AI agent skills & rules" click, new bucket creation, Stripe mode change (upgrade or downgrade via webhook), subscription termination (`customer.subscription.deleted`), or Settings toggle of `sessionMode`. The Settings toggle immediately triggers server-side reconciliation as part of the `PATCH /api/preferences` call -- no separate Recreate click is required; the UI shows a confirmation ("Agent skills updated for X mode. Takes effect in new sessions.") when the toggle completes. On Stripe-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted. Implements [REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4–AC5 and [REQ-AGENT-005](../sdd/agents.md#req-agent-005).
 
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds mode-appropriate files then deletes preseed-managed files not in the current mode. Strictly scoped to keys from `AGENTS_SEEDED_CONFIGS` -- no bucket listing, no prefix scans, never touches user-created files. `getPreseedKeysNotInMode()` excludes variant-per-mode keys (instruction files that exist in both modes with different content) to avoid deleting a file that was just seeded. Partial delete failures return `warnings` without failing the overall operation. `getConfigsForMode()` validates no duplicate keys within a single mode.
 
@@ -213,11 +213,13 @@ The generator produces adapted config files for all supported agents from CC's p
 
 ### Settings.json Merge
 
+Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3–AC5.
+
 `entrypoint.sh` merges settings into `~/.claude/settings.json` using a two-phase strategy. Non-hooks settings (statusLine, effortLevel, permissions, etc.) are merged with `jq '. * $cfg'`. Hooks are rebuilt separately: for each hook type and matcher, user-added hooks (commands not matching `codeflare-(hooks|memory)/scripts/`) are preserved, while managed hooks are replaced with the entrypoint's definitions. This prevents stale managed hooks from persisting while keeping user customizations. Handles three cases:
 
 - **File doesn't exist**: Creates with settings config
-- **File exists**: Merges non-hooks settings, rebuilds hooks preserving user additions
-- **File malformed**: Skips with warning, does not overwrite
+- **File exists**: Merges non-hooks settings, rebuilds hooks preserving user additions; empty-hooks matchers and empty hook-type top-level keys are filtered out to keep `settings.json` clean (guards against `null` hooks arrays from pre-existing settings)
+- **File malformed**: Skips with warning (includes the jq error text), does not overwrite
 
 ### Plugin Enablement
 
