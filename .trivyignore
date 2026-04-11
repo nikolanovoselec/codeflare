@@ -129,6 +129,10 @@ CVE-2026-3497
 # Container uses git over HTTPS, not scp; no fix in bookworm.
 CVE-2026-35385
 
+# openssh-client 9.2p1: security bypass via mishandling
+# Container uses git over HTTPS, not SSH auth; no fix in bookworm.
+CVE-2026-35414
+
 # picomatch 4.0.3: ReDoS via crafted extglob patterns (CVE-2026-33671)
 # Transitive dep of globally-installed npm CLIs. CLIs use hardcoded glob patterns,
 # not user-controlled input. Fix: 4.0.4 — waiting for upstream CLI updates.
