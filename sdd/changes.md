@@ -3,6 +3,7 @@
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
 ## 2026-04-11
+- Updated REQ-MEM-001, REQ-MEM-003, REQ-MEM-007, REQ-MEM-008: memory capture agent upgraded from haiku to sonnet for higher-quality observations. Compaction threshold raised from 150 to 1000 observations; compaction target changed from 50-80 per project to ~500 total.
 - Updated REQ-MEM-001 AC2/AC7-AC8: memory-capture hook now injects MCP memory scan directive on first message (search_nodes). Message counting method corrected in spec.
 - Updated REQ-MEM-002 AC2: first-run baseline now also injects memory scan directive before exiting.
 - Updated REQ-AGENT-010 AC9-AC11: GitHub token creation now offers three scope tiers (Minimal/Recommended/Advanced). Cloudflare simplified to "Edit Cloudflare Workers" template. Documentation page for all scopes.

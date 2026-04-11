@@ -29,14 +29,14 @@ Conversation context (decisions, debugging insights, solutions) is automatically
 
 The memory system uses two phases with different models optimized for their task:
 
-**Phase 1 -- Capture (haiku, fast, every 30 messages):**
-Raw observation capture into daily `chat-{TODAY}` entities. Haiku's job is speed -- dump 3-5 observations per window without worrying about graph structure. This is the "write-ahead log."
+**Phase 1 -- Capture (sonnet, quality, every 30 messages):**
+Meaningful observation capture into daily `chat-{TODAY}` entities. Sonnet extracts 3-5 quality observations per window -- decisions, insights, and context useful for future sessions. This is the "write-ahead log."
 
-**Phase 2 -- Compact (opus, thorough, triggered at 150 observations):**
-When the capture agent detects the graph has grown past 150 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: 50-80 quality observations per active project.
+**Phase 2 -- Compact (opus, thorough, triggered at 1000 observations):**
+When the capture agent detects the graph has grown past 1000 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: ~500 total observations.
 
 ```
-UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: haiku capture     Phase 2: opus compact
+UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: sonnet capture    Phase 2: opus compact
     |                                    |                            |                          |
     +-- count user msgs                  |                            |                          |
     +-- delta < 30? -> exit              |                            |                          |
@@ -45,17 +45,17 @@ UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: haiku 
     +-- output JSON + exit 0 -------> check .vars freshness           |                          |
                                     (skip if >60s stale)              |                          |
                                     create lock                       |                          |
-                                    spawn haiku agent -----------> read prompt + vars            |
+                                    spawn sonnet agent -----------> read prompt + vars           |
                                          |                       read transcript                 |
                                     (continues normally)         save 3-5 obs to chat-{TODAY}    |
-                                         |                       if obs >150: write .compact     |
+                                         |                       if obs >1000: write .compact    |
                                          |                       write counter, rm lock          |
                                     check .compact marker             |                          |
                                     if exists: spawn opus ----------------------------------> read full graph
                                                                                            distill chat-* -> semantic entities
                                                                                            build relations
                                                                                            deduplicate + prune
-                                                                                           target 50-80 obs
+                                                                                           target ~500 obs
                                                                                            rm .compact marker
 ```
 
@@ -74,11 +74,11 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the
 
 Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/` (preseeded alongside the hook script):
 
-**`memory-agent-prompt.md`** (haiku capture):
+**`memory-agent-prompt.md`** (sonnet capture):
 - Reads transcript from line offset, extracts 3-5 observations
 - Saves to `chat-{TODAY}` entity (daily raw capture bucket)
 - Writes counter as first step (before reading transcript)
-- Checks total observations -- if >150, writes `.compact` marker file
+- Checks total observations -- if >1000, writes `.compact` marker file
 - Does NOT attempt compaction itself
 
 **`memory-compact-prompt.md`** (opus compaction):
@@ -86,8 +86,8 @@ Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/` (preseede
 - Distills `chat-*` entities older than 3 days into semantic entities (`project-*`, `*-architecture`, `*-session-archive`, `user-preferences`, `reference-*`)
 - Keeps recent `chat-*` (last 3 days) as raw buffer
 - Deduplicates, prunes stale data, builds relations
-- Target: 50-80 observations per active project
-- Graph designed to grow over time as projects accumulate -- compaction is per-project, not global
+- Target: ~500 total observations
+- Graph designed to grow over time as projects accumulate -- compaction targets ~500 total observations across all entities
 
 ### Counter Storage
 
@@ -232,7 +232,7 @@ Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3–AC5.
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
 - **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only).
-- **Compaction not running**: Compaction triggers when haiku writes a `.compact` marker file (total observations >150). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
+- **Compaction not running**: Compaction triggers when the sonnet capture agent writes a `.compact` marker file (total observations >1000). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
 - **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entry pointing to `block-attributed-commits.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint SESSION_MODE gating may have failed. Remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 

@@ -41,14 +41,14 @@ When the user says "check memory", "update memory", "optimize memory", "compact 
 
 The memory-capture hook fires every 30 user messages and injects
 `additionalContext` into the system-reminder with instructions to spawn
-a background haiku agent. The hook handles all counting and gating —
+a background sonnet agent. The hook handles all counting and gating —
 it only emits when it's time.
 
 **Execution protocol:**
 
 1. See the hook instruction in `additionalContext` → check if the
    `.vars` file referenced in the message exists (`ls <vars_file>`).
-2. If the file EXISTS → spawn a background haiku agent with the
+2. If the file EXISTS → spawn a background sonnet agent with the
    instructions from the hook message. The agent deletes the `.vars`
    file as its first step, preventing duplicate spawns.
 3. If the file does NOT exist → do nothing. Capture was already done.
@@ -60,11 +60,11 @@ checks needed.
 
 ## Compaction Trigger
 
-After the haiku capture agent runs, check for a compaction marker file
+After the sonnet capture agent runs, check for a compaction marker file
 at `{COUNTER_FILE}.compact` (where COUNTER_FILE is `~/.memory/counter/{session_id}`).
 
 If the marker exists:
-1. Spawn a background **opus** Task agent (not haiku).
+1. Spawn a background **opus** Task agent (not sonnet).
 2. The agent must read `~/.claude/plugins/codeflare-memory/scripts/memory-compact-prompt.md`.
 3. Pass the marker file path as `COMPACT_MARKER` variable.
 4. The opus agent will restructure the graph and remove the marker when done.

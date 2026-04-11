@@ -8,8 +8,8 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 
 - **MCP Memory** -- The Model Context Protocol memory server (`server-memory`) that provides a knowledge graph API. Reads and writes `session-{SESSION_ID}.jsonl` files containing entities, observations, and relations.
 - **Knowledge Graph** -- The in-memory graph structure (entities with observations, plus inter-entity relations) that persists as JSONL. Each entity has a name, type, and list of observations. Relations connect entities with labeled edges.
-- **Capture** -- Phase 1 of the two-phase memory system. A lightweight haiku agent extracts 3-5 observations from the recent conversation transcript and appends them to `chat-{TODAY}` entities. Triggered every 30 user messages via a `UserPromptSubmit` hook.
-- **Compaction** -- Phase 2 of the two-phase memory system. An opus agent restructures the knowledge graph when it exceeds 150 observations, distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `user-preferences`). Targets 50-80 observations per active project.
+- **Capture** -- Phase 1 of the two-phase memory system. A sonnet agent extracts 3-5 observations from the recent conversation transcript and appends them to `chat-{TODAY}` entities. Triggered every 30 user messages via a `UserPromptSubmit` hook.
+- **Compaction** -- Phase 2 of the two-phase memory system. An opus agent restructures the knowledge graph when it exceeds 1000 observations, distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `user-preferences`). Targets ~500 total observations across all entities.
 - **Session Mode** -- Controls whether memory features are active. Advanced (Pro) mode enables R2 sync of memory files, capture hooks, and compaction. Default (Standard) mode provides in-session-only memory with no persistence.
 
 ### Out of Scope
@@ -33,7 +33,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 **Acceptance Criteria:**
 1. The `memory-capture.sh` script runs as a `UserPromptSubmit` hook, injecting a short instruction into the main agent's context via `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` + `exit 0`.
 2. The hook counts real user messages in the JSONL transcript using a two-layer grep filter that excludes tool-result wrappers (content is an array, not a string) and synthetic messages (slash commands, task notifications -- content starts with `<`).
-3. When triggered, the main agent spawns a background haiku agent that reads the recent transcript and extracts 3-5 observations.
+3. When triggered, the main agent spawns a background sonnet agent that reads the recent transcript and extracts 3-5 observations.
 4. Observations are saved to a `chat-{TODAY}` entity (daily raw capture bucket) in the MCP knowledge graph.
 5. The hook handles tilde expansion in `transcript_path` (Claude Code may send tilde-prefixed paths).
 6. All variables (transcript path, line offset, date, counts, counter file path) are written to a `.vars` JSON file to keep the context string short.
@@ -80,29 +80,29 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 
 ## REQ-MEM-003: Two-phase memory (fast capture + periodic compaction)
 
-**Intent:** Memory management uses two phases optimized for their task: fast raw capture (haiku) and thorough graph restructuring (opus).
+**Intent:** Memory management uses two phases optimized for their task: quality capture (sonnet) and thorough graph restructuring (opus).
 
 **Acceptance Criteria:**
-1. **Phase 1 (Capture):** Haiku agent runs every 30 user messages, dumps 3-5 observations into `chat-{TODAY}` entities without worrying about graph structure. Serves as a "write-ahead log."
-2. **Phase 2 (Compaction):** Opus agent is triggered when the capture agent detects the graph has grown past 150 total observations.
-3. The capture agent writes a marker file (`{COUNTER_FILE}.compact`) when observations exceed 150.
+1. **Phase 1 (Capture):** Sonnet agent runs every 30 user messages, extracts 3-5 meaningful observations into `chat-{TODAY}` entities. Serves as a "write-ahead log."
+2. **Phase 2 (Compaction):** Opus agent is triggered when the capture agent detects the graph has grown past 1000 total observations.
+3. The capture agent writes a marker file (`{COUNTER_FILE}.compact`) when observations exceed 1000.
 4. The main agent detects the marker file and spawns a background opus agent.
 5. The opus agent reads the full graph, distills `chat-*` entities older than 3 days into semantic entities (`project-*`, `*-architecture`, `*-session-archive`, `user-preferences`, `reference-*`).
 6. Recent `chat-*` entities (last 3 days) are kept as raw buffer.
 7. Compaction deduplicates, prunes stale data, and builds relations.
-8. Target: 50-80 observations per active project after compaction.
-9. The graph is designed to grow over time as projects accumulate; compaction is per-project, not global.
+8. Target: ~500 total observations across all entities after compaction.
+9. The graph grows over time as projects accumulate; compaction manages the total across all entities.
 10. The opus agent removes the `.compact` marker file when done.
 
 **Constraints:**
-- Haiku is chosen for capture (speed priority). Opus is chosen for compaction (quality priority).
+- Sonnet is chosen for capture (quality + speed balance). Opus is chosen for compaction (restructuring priority).
 - Compaction marker is the sole coordination mechanism between phases.
 - The main agent checks for the compaction marker only once per turn (no polling).
 
 **Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-MEM-001, REQ-MEM-007
-**Verification:** Integration test (verify graph restructuring after 150+ observations accumulate)
+**Verification:** Integration test (verify graph restructuring after 1000+ observations accumulate)
 
 **Status:** Implemented
 
@@ -188,28 +188,28 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 
 ---
 
-## REQ-MEM-007: Compaction triggered at 150 observations
+## REQ-MEM-007: Compaction triggered at 1000 observations
 
 **Intent:** Graph compaction must be triggered automatically when the knowledge graph grows large enough to benefit from restructuring.
 
 **Acceptance Criteria:**
-1. After each capture run, the haiku agent counts total observations in the graph.
-2. If the total exceeds 150, the agent writes a `.compact` marker file at `{COUNTER_FILE}.compact`.
-3. The main agent detects the marker file and spawns a background opus agent (not haiku).
+1. After each capture run, the sonnet agent counts total observations in the graph.
+2. If the total exceeds 1000, the agent writes a `.compact` marker file at `{COUNTER_FILE}.compact`.
+3. The main agent detects the marker file and spawns a background opus agent (not sonnet).
 4. The opus agent reads `memory-compact-prompt.md` for instructions.
-5. The prompt instructs the agent to: read the full graph, identify entity structure by domain, distill old `chat-*` entities into semantic entities, keep recent `chat-*` (last 3 days), deduplicate, prune stale data, build relations, target 50-80 observations per active project.
+5. The prompt instructs the agent to: read the full graph, identify entity structure by domain, distill old `chat-*` entities into semantic entities, keep recent `chat-*` (last 3 days), deduplicate, prune stale data, build relations, target ~500 total observations.
 6. The opus agent removes the `.compact` marker file when compaction is complete.
 7. The marker file is the gate: if it does not exist, no compaction runs.
 
 **Constraints:**
-- The 150-observation threshold balances graph quality against compaction frequency.
-- Compaction is per-project, not global; the graph grows over time as projects accumulate.
+- The 1000-observation threshold allows the graph to accumulate substantial context before triggering restructuring.
+- Compaction targets ~500 total observations across all entities.
 - Counter storage: `~/.memory/counter/{session_id}` (counter), `{session_id}.vars` (hook variables), `{session_id}.compact` (compaction marker).
 
 **Applies To:** User
 **Priority:** P2
 **Dependencies:** REQ-MEM-003
-**Verification:** Integration test (verify marker file creation at 150+ observations and opus agent invocation)
+**Verification:** Integration test (verify marker file creation at 1000+ observations and opus agent invocation)
 
 **Status:** Implemented
 
@@ -220,7 +220,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 **Intent:** Memory capture and compaction prompt files must be deployed alongside the rest of the preseed content through the standard manifest pipeline.
 
 **Acceptance Criteria:**
-1. Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/`: `memory-agent-prompt.md` (haiku capture) and `memory-compact-prompt.md` (opus compaction).
+1. Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/`: `memory-agent-prompt.md` (sonnet capture) and `memory-compact-prompt.md` (opus compaction).
 2. The codeflare-memory plugin includes 4 files in the manifest: `plugin.json`, `memory-capture.sh`, `memory-agent-prompt.md`, `memory-compact-prompt.md`.
 3. All plugin files are marked as advanced-only in the manifest (`"modes": ["advanced"]`).
 4. The hook script (`memory-capture.sh`) is delivered via the plugin but registered via `settings.json` merge (not the plugin system).
