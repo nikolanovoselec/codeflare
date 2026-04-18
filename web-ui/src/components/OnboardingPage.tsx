@@ -1,6 +1,5 @@
 import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
 import { getDeployKeys, updateDeployKeys, markOnboardingComplete, getAuthStatus, getPreferences, updatePreferences } from '../api/client';
-import type { DeployKeysResponse } from '../api/client';
 import ProviderRow from './settings/ProviderRow';
 import { GitHubIcon, CloudflareIcon } from './settings/BrandIcons';
 import ScrambleText from './ScrambleText';
