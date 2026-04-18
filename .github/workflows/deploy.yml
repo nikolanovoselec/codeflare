@@ -210,11 +210,7 @@ jobs:
           echo "local_ref=${IMAGE_NAME}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Free disk space for Trivy scan
-        run: |
-          docker builder prune -af || true
-          docker image prune -af --filter "until=1h" || true
-          rm -rf /tmp/trivy-* || true
-          df -h /
+        run: docker builder prune -af && rm -rf /tmp/trivy-* || true
 
       - name: Scan container image for vulnerabilities
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
