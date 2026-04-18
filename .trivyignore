@@ -165,3 +165,7 @@ CVE-2026-32282
 # jq 1.6: out-of-bounds read in jv_parse_sized() on malformed input
 # jq processes trusted JSON from entrypoint scripts and hooks, not user-controlled input. No fix in bookworm.
 CVE-2026-39979
+
+# jq 1.6: DoS via crafted JSON object
+# Same as above — jq only processes trusted entrypoint/hook JSON. No fix in bookworm.
+CVE-2026-40164
