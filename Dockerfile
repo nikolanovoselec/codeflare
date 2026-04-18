@@ -27,6 +27,7 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 ENV IS_SANDBOX=1
 ENV DISABLE_INSTALLATION_CHECKS=1
 ENV DISABLE_AUTOUPDATER=1
+ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 
 # Upgrade base packages + install runtime packages (single apt-get update layer)
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \

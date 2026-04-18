@@ -35,7 +35,7 @@ Multi-agent support, preseed system, and session modes.
 1. Six agent types are defined: `claude-code`, `codex`, `copilot`, `gemini`, `opencode`, `bash`.
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`).
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
-4. All agent CLIs have V8 compile cache warm-up at Docker build time (except Go binaries which are natively compiled).
+4. Node.js-based agent CLIs (Codex, Gemini, Copilot) run `--version` at Docker build time to trigger V8 compile cache warm-up via `NODE_COMPILE_CACHE`. Claude Code is a native binary and needs no warm-up. Go-based agents (OpenCode) are natively compiled.
 
 **Constraints:**
 - Agent CLI versions are installed via `@latest` at build time; versions may drift between deploys.

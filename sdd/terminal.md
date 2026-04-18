@@ -234,7 +234,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 1. The terminal server sends JSON control messages with `{"type":"process-name","processName":"..."}` over the WebSocket.
 2. The frontend parses control messages (identified by the `{"type":` prefix) separately from raw terminal data.
 3. `PROCESS_ICON_MAP` maps running process names (claude, codex, gemini, opencode, copilot, htop, yazi, lazygit, bash, sh, zsh) to MDI icons.
-4. `PROCESS_DISPLAY_NAME` maps binary names to user-friendly display names (e.g., `claude` -> `claude`).
+4. `PROCESS_DISPLAY_NAME` provides optional overrides from binary name to display name (currently empty -- all agent binary names match their display names).
 5. `AGENT_ICON_MAP` maps the 6 agent types to session card icons.
 6. The `onProcessName` callback is registered by the session store to receive process-name updates from the terminal store (avoiding circular imports).
 7. Process name updates are reflected in tab headers and session status cards in real time.
