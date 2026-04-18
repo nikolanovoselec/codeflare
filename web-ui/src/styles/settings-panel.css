@@ -947,8 +947,9 @@
 .settings-admin-actions {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2, 0.5rem);
+  gap: var(--space-3);
   width: 100%;
+  margin: var(--space-3) 0;
 }
 
 .settings-admin-actions .button {
