@@ -284,7 +284,6 @@
   border-radius: var(--radius-md);
   color: var(--color-text-primary);
   font-size: 0.8rem;
-  font-family: var(--font-mono);
   cursor: pointer;
 }
 
@@ -471,7 +470,6 @@
   border-radius: var(--radius-md);
   color: var(--color-text-primary);
   font-size: var(--text-sm);
-  font-family: var(--font-mono);
   width: 100px;
   transition: border-color var(--transition-fast);
 }
@@ -640,7 +638,6 @@
   border-radius: var(--radius-md);
   color: var(--color-text-primary);
   font-size: var(--text-sm);
-  font-family: var(--font-mono);
   transition: border-color var(--transition-fast);
 }
 
@@ -677,7 +674,6 @@
   color: white;
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
-  font-family: var(--font-mono);
   cursor: pointer;
   transition: filter var(--transition-fast);
   letter-spacing: -0.01em;
@@ -771,7 +767,6 @@
   color: white;
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
-  font-family: var(--font-mono);
   text-decoration: none;
   cursor: pointer;
   transition: filter var(--transition-fast);
@@ -796,7 +791,6 @@
   border-radius: var(--radius-lg);
   color: var(--color-text-primary);
   font-size: 16px;
-  font-family: var(--font-mono);
   transition: border-color var(--transition-fast);
 }
 
@@ -818,7 +812,6 @@
   color: white;
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
-  font-family: var(--font-mono);
   cursor: pointer;
   white-space: nowrap;
   transition: background var(--transition-fast);

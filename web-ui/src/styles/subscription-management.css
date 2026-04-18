@@ -33,7 +33,6 @@
   margin: 0;
   font-size: var(--text-xl);
   font-weight: var(--font-semibold);
-  font-family: var(--font-mono);
 }
 
 .sub-mgmt-loading { text-align: center; color: var(--color-text-secondary); padding: var(--space-8); }
@@ -46,7 +45,6 @@
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-4);
   font-size: var(--text-sm);
-  font-family: var(--font-mono);
 }
 
 /* Tier selector */
@@ -61,7 +59,6 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.35rem;
-  font-family: var(--font-mono);
 }
 
 .sub-mgmt-select {
@@ -73,7 +70,6 @@
   color: var(--color-text-primary);
   font-size: 0.9rem;
   font-weight: var(--font-medium);
-  font-family: var(--font-mono);
 }
 
 .sub-mgmt-select option {
@@ -110,7 +106,6 @@
   color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-family: var(--font-mono);
 }
 
 .sub-mgmt-input {
@@ -121,7 +116,6 @@
   color: var(--color-text-primary);
   font-size: 0.85rem;
   max-width: 200px;
-  font-family: var(--font-mono);
 }
 
 .sub-mgmt-input--wide {
@@ -147,7 +141,6 @@
   font-size: 0.7rem;
   color: var(--color-text-secondary);
   font-style: italic;
-  font-family: var(--font-mono);
 }
 
 /* Actions */
@@ -167,7 +160,6 @@
   font-weight: var(--font-medium);
   font-size: 0.85rem;
   cursor: pointer;
-  font-family: var(--font-mono);
 }
 
 .sub-mgmt-save:hover { opacity: 0.9; }
@@ -176,7 +168,6 @@
 .sub-mgmt-success {
   color: var(--color-success);
   font-size: var(--text-sm);
-  font-family: var(--font-mono);
 }
 
 @media (max-width: 640px) {

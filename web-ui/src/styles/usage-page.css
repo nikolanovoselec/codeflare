@@ -36,7 +36,6 @@
   font-size: var(--text-xl);
   font-weight: var(--font-semibold);
   color: var(--color-text-primary);
-  font-family: var(--font-mono);
   text-transform: capitalize;
 }
 
@@ -44,7 +43,6 @@
   font-size: 1.5rem;
   font-weight: var(--font-bold);
   color: var(--color-text-primary);
-  font-family: var(--font-mono);
 }
 
 /* ── Progress bar ── */
@@ -69,7 +67,6 @@
   justify-content: space-between;
   font-size: 0.7rem;
   color: var(--color-text-dimmed);
-  font-family: var(--font-mono);
   margin-bottom: var(--space-4);
 }
 
@@ -94,14 +91,12 @@
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-family: var(--font-mono);
 }
 
 .usage-panel-stat-value {
   font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   color: var(--color-text-primary);
-  font-family: var(--font-mono);
 }
 
 /* ── Actions ── */
@@ -123,7 +118,6 @@
   text-decoration: none;
   font-weight: var(--font-medium);
   font-size: var(--text-sm);
-  font-family: var(--font-mono);
   cursor: pointer;
   transition: all 150ms ease-out;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);

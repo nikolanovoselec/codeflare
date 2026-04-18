@@ -220,7 +220,6 @@
 
 .init-progress-stage-time {
   font-size: var(--text-xs);
-  font-family: var(--font-mono);
   color: var(--color-text-muted);
   min-width: 48px;
   text-align: right;
@@ -281,7 +280,6 @@
   align-items: center;
   gap: var(--space-2);
   font-size: 11px;
-  font-family: var(--font-mono);
   color: var(--color-text-secondary);
   background: var(--color-bg-surface);
   padding: 2px 6px;

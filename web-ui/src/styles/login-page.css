@@ -115,7 +115,6 @@
   max-width: 420px;
   padding: var(--space-8);
   animation: fadeSlideUp 0.6s ease-out;
-  font-family: var(--font-mono);
 }
 
 /* ── Logo ── */
@@ -139,11 +138,9 @@
   font-weight: var(--font-semibold);
   color: var(--color-text-primary);
   letter-spacing: -0.02em;
-  font-family: var(--font-mono);
 }
 
 .login-title-scramble {
-  font-family: var(--font-mono);
   letter-spacing: 0.04em;
 }
 
@@ -190,7 +187,6 @@
 .login-feature-text {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
 
@@ -249,7 +245,6 @@
   color: var(--color-text-primary);
   font-size: var(--text-base);
   font-weight: var(--font-medium);
-  font-family: var(--font-mono);
   cursor: pointer;
   text-decoration: none;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
@@ -296,7 +291,6 @@
   margin: var(--space-8) 0 0;
   font-size: var(--text-sm);
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
 

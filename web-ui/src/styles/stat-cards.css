@@ -65,7 +65,6 @@
   align-items: center;
   gap: var(--space-1);
   font-size: 11px;
-  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.02em;
   line-height: 1.4;
@@ -79,7 +78,6 @@
 
 .stat-card__metric-value {
   font-size: 11px;
-  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.02em;
   line-height: 1.4;

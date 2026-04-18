@@ -3,14 +3,6 @@ html, body {
   overflow: hidden;
   overscroll-behavior: none;
   overflow-anchor: none;
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  color: var(--color-text-primary);
-}
-
-/* Force all elements to inherit font from body — browsers default form controls to system font */
-*, *::before, *::after {
-  font-family: inherit;
 }
 
 /* Layout Component Styles */

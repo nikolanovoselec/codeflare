@@ -28,7 +28,6 @@
 
 .subscribe-status-text {
   display: block;
-  font-family: var(--font-mono);
   font-size: 1.5rem;
   font-weight: var(--font-bold);
   letter-spacing: 0.03em;
@@ -38,12 +37,10 @@
 .subscribe-status-text--pending { color: #f97316; }
 .subscribe-status-text--blocked { color: var(--color-error); }
 
-.subscribe-title { margin: 0 0 var(--space-3); font-size: var(--text-xl); font-weight: var(--font-semibold); color: var(--color-text-primary); font-family: var(--font-mono); }
 .subscribe-message { margin: 0 0 var(--space-4); font-size: var(--text-base); color: var(--color-text-secondary); line-height: 1.6; }
 
 .subscribe-email {
   margin-bottom: var(--space-4); font-size: var(--text-sm); color: var(--color-text-muted);
-  font-family: var(--font-mono); letter-spacing: 0.02em;
   padding: var(--space-2) var(--space-4); background: rgba(24, 24, 27, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-lg); display: inline-block;
 }
@@ -62,7 +59,6 @@
   display: inline-block; padding: var(--space-3) var(--space-8);
   background: var(--color-accent); border: 1px solid rgba(59, 130, 246, 0.5); border-radius: var(--radius-xl);
   color: var(--color-text-primary); font-size: var(--text-base); font-weight: var(--font-medium);
-  font-family: var(--font-mono);
   text-decoration: none; cursor: pointer;
   box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
   transition: all 150ms ease-out; margin-bottom: var(--space-4);
@@ -75,7 +71,6 @@
   background: rgba(24, 24, 27, 0.85); backdrop-filter: blur(12px);
   border: 1px solid var(--color-glass-border); border-radius: var(--radius-xl);
   color: var(--color-text-secondary); font-size: var(--text-sm);
-  font-family: var(--font-mono);
   text-decoration: none; cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); transition: all 150ms ease-out;
 }
@@ -87,7 +82,6 @@
 
 .subscribe-portal-note {
   font-size: 0.7rem; color: var(--color-text-dimmed); text-align: center; margin: var(--space-1) 0 0;
-  font-family: var(--font-mono);
 }
 
 .subscribe-manage-button {
@@ -113,7 +107,6 @@
 }
 .subscribe-mode-toggle-btn {
   flex: 1; padding: var(--space-2) var(--space-4); font-size: 0.8rem;
-  font-family: var(--font-mono); font-weight: var(--font-medium);
   border: none; background: transparent; color: var(--color-text-dimmed);
   cursor: pointer; transition: all 150ms ease;
 }
@@ -133,7 +126,6 @@
 .subscribe-mode-card-feature {
   display: flex; align-items: flex-start; gap: var(--space-2);
   font-size: var(--text-sm); color: var(--color-text-muted);
-  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
 .subscribe-mode-card-feature svg { color: var(--color-accent); flex-shrink: 0; margin-top: 0.15rem; }
@@ -158,7 +150,6 @@
 }
 .subscribe-mode-pro-label {
   margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--color-accent);
-  font-family: var(--font-mono);
   font-weight: var(--font-medium); letter-spacing: 0.02em;
 }
 .subscribe-mode-card-features--pro .subscribe-mode-card-feature svg { color: #8b5cf6; }
@@ -200,7 +191,6 @@
 
 .subscribe-detail-name {
   margin: 0 0 var(--space-2); font-size: var(--text-xl); font-weight: var(--font-semibold); color: var(--color-text-primary);
-  font-family: var(--font-mono);
 }
 .subscribe-detail-price { margin-bottom: var(--space-2); }
 .subscribe-detail-tagline { margin: 0 0 var(--space-4); font-size: var(--text-sm); color: var(--color-text-muted); letter-spacing: 0.02em; }
@@ -208,7 +198,6 @@
 .subscribe-detail-specs {
   display: flex; align-items: center; justify-content: center; gap: var(--space-2);
   font-size: var(--text-sm); color: var(--color-text-muted); margin-bottom: var(--space-4);
-  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
 .subscribe-detail-specs-sep { color: var(--color-text-dimmed); }
@@ -216,7 +205,6 @@
 /* Reused from old tier cards */
 .subscribe-tier-price-amount {
   font-size: 2rem; font-weight: var(--font-bold); color: var(--color-text-primary);
-  font-family: var(--font-mono);
 }
 .subscribe-tier-price-period { font-size: 0.8rem; color: var(--color-text-dimmed); font-weight: 400; }
 
@@ -228,14 +216,12 @@
 .subscribe-tier-feature-item {
   display: flex; align-items: center; gap: var(--space-2);
   font-size: var(--text-sm); color: var(--color-text-muted);
-  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
 .subscribe-tier-feature-item svg { color: var(--color-success); flex-shrink: 0; }
 
 .subscribe-tier-badge {
   font-size: var(--text-sm); color: var(--color-success);
-  font-family: var(--font-mono);
   letter-spacing: 0.02em;
   background: var(--color-success-bg); border: 1px solid rgba(34, 197, 94, 0.2);
   border-radius: var(--radius-md); padding: var(--space-1) var(--space-2);
@@ -246,7 +232,6 @@
   width: 100%; padding: 0.7rem; border-radius: var(--radius-lg);
   border: 1px solid rgba(255, 255, 255, 0.12); background: transparent;
   color: var(--color-text-primary); font-size: 0.85rem; font-weight: var(--font-medium);
-  font-family: var(--font-mono);
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-tier-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.2); }
@@ -309,7 +294,6 @@
 }
 
 .subscribe-lifeline-label {
-  font-size: 0.7rem; font-family: var(--font-mono);
   white-space: nowrap; font-weight: var(--font-medium); letter-spacing: 0.02em;
   color: var(--color-text-muted);
 }

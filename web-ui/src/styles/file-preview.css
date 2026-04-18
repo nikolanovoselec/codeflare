@@ -75,7 +75,6 @@
   display: flex;
   flex: 1;
   overflow: auto;
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
 
@@ -127,6 +126,5 @@
 }
 
 .file-preview-binary-size {
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
