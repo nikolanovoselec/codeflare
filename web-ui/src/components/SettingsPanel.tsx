@@ -161,7 +161,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     const tier = liveAccessTier();
     return tier === 'free';
   };
-  const sleepAfter = () => isFreeUser() ? '5m' : (sessionStore.preferences.sleepAfter ?? '30m');
+  const sleepAfter = () => isFreeUser() ? '15m' : (sessionStore.preferences.sleepAfter ?? '30m');
   const [userHasSubscribed, setUserHasSubscribed] = createSignal(false);
   const canChangeSleepAfter = () => (isAdmin() || userHasSubscribed()) && !isFreeUser();
 

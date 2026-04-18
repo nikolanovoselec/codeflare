@@ -219,7 +219,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
             {props.canChangeSleepAfter()
               ? 'Container stops after this idle duration. Takes effect for new sessions, started several minutes after changing the duration.'
               : props.isFreeUser()
-                ? 'Fixed at 5 minutes on the Free plan. Upgrade for longer idle timeouts.'
+                ? 'Fixed at 15 minutes on the Free plan. Upgrade for longer idle timeouts.'
                 : 'Auto-sleep is managed by your administrator.'}
           </span>
         </div>

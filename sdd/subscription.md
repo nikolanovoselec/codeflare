@@ -95,7 +95,7 @@ Tiers, billing, usage tracking, and quotas.
 4. Free-tier users have `billingStatus` fields that remain null/absent.
 
 **Constraints:**
-- Free-tier auto-sleep is locked to 5 minutes; the dropdown is disabled in the frontend.
+- Free-tier auto-sleep is locked to 15 minutes; the dropdown is disabled in the frontend.
 - Free tier is limited to 1 concurrent session.
 
 **Applies To:** User

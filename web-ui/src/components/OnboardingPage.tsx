@@ -1,5 +1,5 @@
 import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
-import { getDeployKeys, updateDeployKeys, markOnboardingComplete } from '../api/client';
+import { getDeployKeys, updateDeployKeys, markOnboardingComplete, getAuthStatus, getPreferences, updatePreferences } from '../api/client';
 import type { DeployKeysResponse } from '../api/client';
 import ProviderRow from './settings/ProviderRow';
 import { GitHubIcon, CloudflareIcon } from './settings/BrandIcons';
@@ -102,6 +102,10 @@ const OnboardingPage: Component = () => {
   const githubConnected = () => githubToken().startsWith('****');
   const cfConnected = () => cfToken().startsWith('****');
 
+  // Idle timeout state
+  const [isFreeUser, setIsFreeUser] = createSignal(false);
+  const [sleepAfter, setSleepAfter] = createSignal('30m');
+
   onMount(async () => {
     // Override global overflow:hidden on html/body so this standalone page can scroll.
     // Capture previous values so cleanup restores exact prior state (not blank).
@@ -116,12 +120,22 @@ const OnboardingPage: Component = () => {
     });
 
     try {
-      const keys: DeployKeysResponse = await getDeployKeys();
+      const [keys, auth, prefs] = await Promise.all([
+        getDeployKeys(),
+        getAuthStatus().catch(() => null),
+        getPreferences().catch(() => null),
+      ]);
       if (keys.githubToken) setGithubToken(keys.githubToken);
       if (keys.cloudflareApiToken) setCfToken(keys.cloudflareApiToken);
       if (keys.cloudflareAccountId) setCfAccountId(keys.cloudflareAccountId);
+      if (auth?.accessTier === 'free') {
+        setIsFreeUser(true);
+        setSleepAfter('15m');
+      } else if (prefs?.sleepAfter) {
+        setSleepAfter(prefs.sleepAfter);
+      }
     } catch (err) {
-      logger.warn('Failed to load deploy keys:', err);
+      logger.warn('Failed to load onboarding data:', err);
     } finally {
       setLoading(false);
     }
@@ -213,6 +227,12 @@ const OnboardingPage: Component = () => {
     }
   };
 
+  const handleSleepAfterChange = (value: string) => {
+    if (value === sleepAfter() || isFreeUser()) return;
+    setSleepAfter(value);
+    void updatePreferences({ sleepAfter: value as import('../types').SleepAfterOption });
+  };
+
   return (
     <div class="onboarding-page">
       <div class="login-particles login-particles--1" />
@@ -248,10 +268,40 @@ const OnboardingPage: Component = () => {
             <div class="login-spinner" />
           </div>
         }>
-          {/* Section 1: Connect GitHub */}
-          <div class="onboarding-section" data-testid="onboarding-github-section">
+          {/* Section 1: Idle Timeout */}
+          <div class="onboarding-section" data-testid="onboarding-timeout-section">
             <h2 class="onboarding-section-title">
               <span class="onboarding-step-number">1</span>
+              Set your idle timeout
+            </h2>
+            <p class="onboarding-section-description">
+              Your session uses compute time while running. It pauses automatically when no activity is detected.
+            </p>
+            <div class="onboarding-timeout-row">
+              <label>Pause after</label>
+              <select
+                class="onboarding-timeout-select"
+                value={sleepAfter()}
+                disabled={isFreeUser()}
+                onChange={(e) => handleSleepAfterChange(e.currentTarget.value)}
+                data-testid="onboarding-timeout-select"
+              >
+                <option value="5m">5 minutes</option>
+                <option value="15m">15 minutes</option>
+                <option value="30m">30 minutes</option>
+                <option value="1h">1 hour</option>
+                <option value="2h">2 hours</option>
+              </select>
+            </div>
+            <span class="onboarding-section-hint">
+              You can also change this anytime in Settings.
+            </span>
+          </div>
+
+          {/* Section 2: Connect GitHub */}
+          <div class="onboarding-section" data-testid="onboarding-github-section">
+            <h2 class="onboarding-section-title">
+              <span class="onboarding-step-number">2</span>
               Connect GitHub
             </h2>
             <p class="onboarding-section-description">
@@ -278,10 +328,10 @@ const OnboardingPage: Component = () => {
             />
           </div>
 
-          {/* Section 2: Connect Cloudflare */}
+          {/* Section 3: Connect Cloudflare */}
           <div class="onboarding-section" data-testid="onboarding-cloudflare-section">
             <h2 class="onboarding-section-title">
-              <span class="onboarding-step-number">2</span>
+              <span class="onboarding-step-number">3</span>
               Connect Cloudflare
             </h2>
             <p class="onboarding-section-description">
@@ -321,10 +371,10 @@ const OnboardingPage: Component = () => {
             </Show>
           </div>
 
-          {/* Section 3: Coding Agents */}
+          {/* Section 4: Coding Agents */}
           <div class="onboarding-section" data-testid="onboarding-agents-section">
             <h2 class="onboarding-section-title">
-              <span class="onboarding-step-number">3</span>
+              <span class="onboarding-step-number">4</span>
               Grab a Coding Agent subscription
             </h2>
             <p class="onboarding-section-description">
