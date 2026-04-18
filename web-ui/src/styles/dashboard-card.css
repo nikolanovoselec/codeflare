@@ -16,6 +16,8 @@
 }
 
 .dashboard-card__text {
+  text-transform: uppercase;
+  line-height: 1.6;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
