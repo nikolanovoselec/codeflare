@@ -140,7 +140,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 **Constraints:**
 - Fast Start (`FAST_CLI_START=true`, default) disables auto-update checks for all 5 AI tools to eliminate 5-30s startup delay.
 - PTY spawns `bash -l` (login shell) so `.bashrc` agent autostart logic runs.
-- Auto-start flags include `--silent` and `--no-consent` for non-interactive boot.
+- Auto-start uses `--dangerously-skip-permissions` flag with `IS_SANDBOX=1` for permission bypass when running as root.
 
 **Priority:** P0
 **Dependencies:** REQ-TERM-002, REQ-SESSION-003
