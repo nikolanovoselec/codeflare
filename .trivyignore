@@ -169,3 +169,7 @@ CVE-2026-39979
 # jq 1.6: DoS via crafted JSON object
 # Same as above — jq only processes trusted entrypoint/hook JSON. No fix in bookworm.
 CVE-2026-40164
+
+# cpython 3.11: arbitrary code execution or information disclosure
+# python3 is used for ECC observe hooks only (stdlib, no network, no untrusted input). No fix in bookworm.
+CVE-2026-6100
