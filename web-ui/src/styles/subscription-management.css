@@ -46,7 +46,7 @@
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-4);
   font-size: var(--text-sm);
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
 }
 
 /* Tier selector */
@@ -61,7 +61,7 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.35rem;
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
 }
 
 .sub-mgmt-select {
@@ -73,7 +73,7 @@
   color: var(--color-text-primary);
   font-size: 0.9rem;
   font-weight: var(--font-medium);
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
 }
 
 .sub-mgmt-select option {
@@ -110,7 +110,7 @@
   color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
 }
 
 .sub-mgmt-input {
@@ -147,7 +147,7 @@
   font-size: 0.7rem;
   color: var(--color-text-secondary);
   font-style: italic;
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
 }
 
 /* Actions */
@@ -176,7 +176,7 @@
 .sub-mgmt-success {
   color: var(--color-success);
   font-size: var(--text-sm);
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
 }
 
 @media (max-width: 640px) {

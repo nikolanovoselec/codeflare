@@ -3,7 +3,7 @@
           align-items: center;
           justify-content: center;
           gap: 8px;
-          font-family: var(--font-sans);
+          font-family: var(--font-mono);
           font-weight: 500;
           border-radius: 6px;
           border: none;

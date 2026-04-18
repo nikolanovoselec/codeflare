@@ -27,7 +27,7 @@
   padding: var(--space-8);
   animation: fadeSlideUp 0.6s ease-out;
   margin: 0 auto;
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
 }
 
 /* Header */
