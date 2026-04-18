@@ -141,7 +141,7 @@ const FileList: Component<FileListProps> = (props) => {
 
       <Show when={props.displayedItems().prefixes.length === 0 && props.displayedItems().objects.length === 0}>
         <div class="storage-empty" data-testid="storage-empty">
-          <p>No files found. Drag and drop files here to upload.</p>
+          <p>No files found. Use the upload button to add files.</p>
         </div>
       </Show>
     </div>
