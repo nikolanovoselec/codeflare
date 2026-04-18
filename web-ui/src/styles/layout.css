@@ -8,8 +8,8 @@ html, body {
   color: var(--color-text-primary);
 }
 
-/* Force all form controls to inherit font from body — browsers default to system font */
-input, select, textarea, button {
+/* Force all elements to inherit font from body — browsers default form controls to system font */
+*, *::before, *::after {
   font-family: inherit;
 }
 
