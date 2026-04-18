@@ -15,7 +15,7 @@ describe('terminal-config', () => {
   });
 
   describe('getTabIcon', () => {
-    it('returns robot icon for "cu" (claude code)', () => {
+    it('returns robot icon for claude', () => {
       expect(getTabIcon('claude')).toBe(mdiRobotOutline);
     });
 
@@ -48,7 +48,7 @@ describe('terminal-config', () => {
   });
 
   describe('getTabDisplayName', () => {
-    it('maps "cu" to "claude"', () => {
+    it('returns claude display name', () => {
       expect(getTabDisplayName('claude')).toBe('claude');
     });
 

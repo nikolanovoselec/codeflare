@@ -22,9 +22,7 @@ export const TERMINAL_TAB_CONFIG: Record<string, { name: string; icon: string }>
 };
 
 // Map process names to display names (when different from process name)
-const PROCESS_DISPLAY_NAME: Record<string, string> = {
-  'claude': 'claude',
-};
+const PROCESS_DISPLAY_NAME: Record<string, string> = {};
 
 /** Get display name for a process */
 export function getTabDisplayName(processName: string): string {

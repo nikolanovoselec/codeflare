@@ -25,14 +25,9 @@ describe('getPrewarmConfig', () => {
   });
 
   describe('when tab 1 has a command', () => {
-    it('extracts the command name', () => {
+    it('extracts first token from command string', () => {
       const cfg = getPrewarmConfig([{ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Claude' }]);
-      assert.equal(cfg.command, 'claude --dangerously-skip-permissions');
-    });
-
-    it('extracts first token from compound commands', () => {
-      const cfg = getPrewarmConfig([{ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Claude' }]);
-      assert.equal(cfg.command, 'claude --dangerously-skip-permissions');
+      assert.equal(cfg.command, 'claude');
     });
 
     it('extracts command for opencode', () => {
