@@ -161,3 +161,7 @@ CVE-2026-32280
 # Go stdlib in rclone v1.73.2 / lazygit v0.60.0: Root.Chmod symlink traversal
 # Container runs trusted code only; these tools don't use Root.Chmod on untrusted paths.
 CVE-2026-32282
+
+# jq 1.6: out-of-bounds read in jv_parse_sized() on malformed input
+# jq processes trusted JSON from entrypoint scripts and hooks, not user-controlled input. No fix in bookworm.
+CVE-2026-39979
