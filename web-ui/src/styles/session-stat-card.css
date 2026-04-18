@@ -12,7 +12,7 @@
   box-shadow: inset 2px 0 0 var(--color-success);
 }
 
-/* Name truncation (font/color inherited from .stat-card__title) */
+/* Name truncation (font/color via .type-section-header) */
 .session-stat-card__name {
   flex: 1;
   min-width: 0;

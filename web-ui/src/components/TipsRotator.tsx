@@ -105,10 +105,10 @@ const TipsCard: Component = () => {
     >
       <div class="stat-card__header">
         <Icon path={mdiLightbulbOutline} size={14} class="stat-card__icon" />
-        <span class="stat-card__title">TIPS & TRICKS</span>
+        <span class="stat-card__title type-section-header">TIPS & TRICKS</span>
       </div>
       <div class="dashboard-card__content">
-        <span class="dashboard-card__text">{displayText()}</span>
+        <span class="dashboard-card__text type-body">{displayText()}</span>
       </div>
     </div>
   );
@@ -160,7 +160,7 @@ const WelcomeCard: Component<{ sessions?: SessionWithStatus[] }> = (props) => {
     >
       <div class="stat-card__header">
         <Icon path={mdiHandWaveOutline} size={14} class="stat-card__icon" />
-        <span class="stat-card__title">WELCOME BACK</span>
+        <span class="stat-card__title type-section-header">WELCOME BACK</span>
       </div>
       <div class="dashboard-card__content">
         {lastSessionTime() && (
@@ -168,7 +168,7 @@ const WelcomeCard: Component<{ sessions?: SessionWithStatus[] }> = (props) => {
             Last session {formatRelativeTime(lastSessionTime()!)}
           </span>
         )}
-        <span class="dashboard-card__text">{displayQuote()}</span>
+        <span class="dashboard-card__text type-body">{displayQuote()}</span>
       </div>
     </div>
   );

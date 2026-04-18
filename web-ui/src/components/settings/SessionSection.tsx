@@ -41,7 +41,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
       {/* Session Mode */}
       <section class="settings-section">
         <div class="settings-section-header">
-          <h3 class="settings-section-title">Session Mode</h3>
+          <h3 class="settings-section-title type-section-header">Session Mode</h3>
         </div>
         <div
           class="session-mode-control"
@@ -82,7 +82,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </label>
         </div>
         <div class="setting-row setting-row--column-gap">
-          <span class="settings-hint" data-testid="session-mode-hint">
+          <span class="settings-hint type-hint" data-testid="session-mode-hint">
             Controls which AI skills and rules are preseeded. Skills update automatically when you switch modes.
           </span>
         </div>
@@ -92,12 +92,12 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
       <section class="settings-section">
         <div class="settings-section-header">
           <Icon path={mdiFastForward} size={16} />
-          <h3 class="settings-section-title">Agent Startup</h3>
+          <h3 class="settings-section-title type-section-header">Agent Startup</h3>
         </div>
         <div class="setting-row setting-row--clickable" onClick={(e) => {
           if (!(e.target as HTMLElement).closest('.toggle')) props.onFastStartToggle();
         }}>
-          <label for="settings-fast-start">Fast Start</label>
+          <label class="type-label" for="settings-fast-start">Fast Start</label>
           <button
             type="button"
             id="settings-fast-start"
@@ -111,7 +111,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </button>
         </div>
         <div class="setting-row setting-row--column-gap">
-          <span class="settings-hint" data-testid="settings-fast-start-hint">
+          <span class="settings-hint type-hint" data-testid="settings-fast-start-hint">
             Launch pre-installed CLI versions for instant startup. Turn off to allow tools to auto-update on launch (slower startup, latest features).
           </span>
         </div>
@@ -121,12 +121,12 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
       <section class="settings-section">
         <div class="settings-section-header">
           <Icon path={mdiCloudSyncOutline} size={16} />
-          <h3 class="settings-section-title">R2 Sync</h3>
+          <h3 class="settings-section-title type-section-header">R2 Sync</h3>
         </div>
         <div class="setting-row setting-row--clickable" onClick={(e) => {
           if (!(e.target as HTMLElement).closest('.toggle')) props.onWorkspaceSyncToggle();
         }}>
-          <label for="settings-workspace-sync">Sync Workspace Folder</label>
+          <label class="type-label" for="settings-workspace-sync">Sync Workspace Folder</label>
           <button
             type="button"
             id="settings-workspace-sync"
@@ -140,7 +140,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </button>
         </div>
         <div class="setting-row setting-row--column-gap">
-          <span class="settings-hint" data-testid="settings-workspace-sync-hint">
+          <span class="settings-hint type-hint" data-testid="settings-workspace-sync-hint">
             Workspace sync increases startup time. Prefer cloning repositories fresh inside each session.
             Restart the session after changing this switch for it to take effect.
           </span>
@@ -159,7 +159,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </button>
           <Show when={props.recreateDocsMessage()}>
             {(message) => (
-              <span class="settings-hint" data-testid="settings-recreate-docs-success">{message()}</span>
+              <span class="settings-hint type-hint" data-testid="settings-recreate-docs-success">{message()}</span>
             )}
           </Show>
           <Show when={props.recreateDocsError()}>
@@ -180,7 +180,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </button>
           <Show when={props.recreateAgentMessage()}>
             {(message) => (
-              <span class="settings-hint" data-testid="settings-recreate-agent-success">{message()}</span>
+              <span class="settings-hint type-hint" data-testid="settings-recreate-agent-success">{message()}</span>
             )}
           </Show>
           <Show when={props.recreateAgentError()}>
@@ -195,10 +195,10 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
       <section class="settings-section">
         <div class="settings-section-header">
           <Icon path={mdiTimerSandComplete} size={16} />
-          <h3 class="settings-section-title">Auto-sleep</h3>
+          <h3 class="settings-section-title type-section-header">Auto-sleep</h3>
         </div>
         <div class="setting-row">
-          <label for="settings-sleep-after">Sleep after inactivity</label>
+          <label class="type-label" for="settings-sleep-after">Sleep after inactivity</label>
           <select
             id="settings-sleep-after"
             class="settings-select"
@@ -215,7 +215,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </select>
         </div>
         <div class="setting-row setting-row--column-gap">
-          <span class="settings-hint" data-testid="settings-sleep-after-hint">
+          <span class="settings-hint type-hint" data-testid="settings-sleep-after-hint">
             {props.canChangeSleepAfter()
               ? 'Container stops after this idle duration. Takes effect for new sessions, started several minutes after changing the duration.'
               : props.isFreeUser()
@@ -230,12 +230,12 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
         <section class="settings-section">
           <div class="settings-section-header">
             <Icon path={mdiContentPaste} size={16} />
-            <h3 class="settings-section-title">Clipboard</h3>
+            <h3 class="settings-section-title type-section-header">Clipboard</h3>
           </div>
           <div class="setting-row setting-row--clickable" onClick={(e) => {
             if (!(e.target as HTMLElement).closest('.toggle')) props.updateSetting('clipboardAccess', !props.clipboardAccess());
           }}>
-            <label for="settings-clipboard-access">Allow paste from clipboard</label>
+            <label class="type-label" for="settings-clipboard-access">Allow paste from clipboard</label>
             <button
               type="button"
               id="settings-clipboard-access"
@@ -249,7 +249,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
             </button>
           </div>
           <div class="setting-row setting-row--column-gap">
-            <span class="settings-hint">
+            <span class="settings-hint type-hint">
               Allow right-click paste from clipboard. Works best in Chrome; unreliable in other browsers. When enabled, your browser may prompt for clipboard permission.
             </span>
           </div>

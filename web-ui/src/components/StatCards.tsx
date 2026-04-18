@@ -47,7 +47,7 @@ const StatCards: Component<StatCardsProps> = (props) => {
           <div class="stat-card" data-testid="stat-card-storage">
             <div class="stat-card__header">
               <Icon path={mdiCloudOutline} size={14} class="stat-card__icon" />
-              <span class="stat-card__title">{formatBucketLabel(stats().bucketName)}</span>
+              <span class="stat-card__title type-section-header">{formatBucketLabel(stats().bucketName)}</span>
             </div>
             <div class="stat-card__metrics">
               <div class="stat-card__metric" data-testid="stat-card-files">

@@ -73,7 +73,7 @@ const SessionStatCard: Component<SessionStatCardProps> = (props) => {
         <span class="stat-card__icon">
           <Icon path={AGENT_ICON_MAP[props.session.agentType || ''] || mdiConsole} size={14} />
         </span>
-        <span class="stat-card__title session-stat-card__name">{props.session.name}</span>
+        <span class="stat-card__title type-section-header session-stat-card__name">{props.session.name}</span>
         <span
           class={`session-stat-card__dot session-stat-card__dot--${dotVariant()} ${isPulsing() ? 'session-stat-card__dot--pulse' : ''}`}
         />

@@ -72,9 +72,9 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
             <Icon path={mdiChevronDown} size={20} />
           </span>
           <span class="accordion-header-text">
-            <span class="settings-group-title">{props.title}</span>
+            <span class="settings-group-title type-group-header">{props.title}</span>
             <Show when={!props.isOpen}>
-              <span class="accordion-subtitle" data-testid={`accordion-subtitle-${props.group}`}>
+              <span class="accordion-subtitle type-hint" data-testid={`accordion-subtitle-${props.group}`}>
                 {props.subtitle}
               </span>
             </Show>
@@ -392,9 +392,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <section class="settings-section">
                 <div class="settings-section-header">
                   <Icon path={mdiCogOutline} size={16} />
-                  <h3 class="settings-section-title">Setup & Users</h3>
+                  <h3 class="settings-section-title type-section-header">Setup & Users</h3>
                 </div>
-                <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+                <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
                   Configure custom domain and admin users in the Setup Wizard.
                   Manage user roles and access tiers in User Management.
                 </p>
@@ -418,16 +418,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     <span>Manage Users</span>
                   </button>
                 </div>
-                <span class="settings-hint" data-testid="settings-r2-warning">
+                <span class="settings-hint type-hint" data-testid="settings-r2-warning">
                   If you rotate your Cloudflare API token, redeploy with the new token and re-run the Setup Wizard.
                 </span>
               </section>
               <section class="settings-section">
                 <div class="settings-section-header">
                   <Icon path={mdiCogOutline} size={16} />
-                  <h3 class="settings-section-title">Subscription Tiers</h3>
+                  <h3 class="settings-section-title type-section-header">Subscription Tiers</h3>
                 </div>
-                <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+                <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
                   Configure monthly hours, pricing, trial periods, and session modes for each tier.
                 </p>
                 <div class="settings-admin-actions">

@@ -24,9 +24,9 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
       <section class="settings-section">
         <div class="settings-section-header">
           <Icon path={mdiPaletteOutline} size={16} />
-          <h3 class="settings-section-title">Accent Color</h3>
+          <h3 class="settings-section-title type-section-header">Accent Color</h3>
         </div>
-        <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+        <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
           Customize the UI accent color
         </p>
         <div class="accent-color-row">
@@ -88,7 +88,7 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
         <div class="setting-row setting-row--clickable" onClick={(e) => {
           if (!(e.target as HTMLElement).closest('.toggle')) props.updateSetting('showTips', !props.showTips());
         }}>
-          <label for="settings-show-tips">Show tips on dashboard</label>
+          <label class="type-label" for="settings-show-tips">Show tips on dashboard</label>
           <button
             type="button"
             id="settings-show-tips"
@@ -102,7 +102,7 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
           </button>
         </div>
         <div class="setting-row setting-row--column-gap">
-          <span class="settings-hint">
+          <span class="settings-hint type-hint">
             Show rotating tips & tricks on the dashboard. When disabled, a welcome card is shown instead.
           </span>
         </div>
@@ -114,7 +114,7 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
           <div class="setting-row setting-row--clickable" onClick={(e) => {
             if (!(e.target as HTMLElement).closest('.toggle')) props.updateSetting('showButtonLabels', !props.showButtonLabels());
           }}>
-            <label for="settings-button-labels">Show button labels</label>
+            <label class="type-label" for="settings-button-labels">Show button labels</label>
             <button
               type="button"
               id="settings-button-labels"
@@ -128,7 +128,7 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
             </button>
           </div>
           <div class="setting-row setting-row--column-gap">
-            <span class="settings-hint">
+            <span class="settings-hint type-hint">
               Briefly show text labels next to floating terminal buttons when the keyboard opens.
             </span>
           </div>
@@ -141,7 +141,7 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
           <div class="setting-row setting-row--clickable" onClick={(e) => {
             if (!(e.target as HTMLElement).closest('.toggle')) props.updateSetting('samsungAddressBarTop', !props.samsungAddressBarTop());
           }}>
-            <label for="settings-samsung-bar-top">Alternative layout</label>
+            <label class="type-label" for="settings-samsung-bar-top">Alternative layout</label>
             <button
               type="button"
               id="settings-samsung-bar-top"
@@ -155,7 +155,7 @@ const AppearanceSection: Component<AppearanceSectionProps> = (props) => {
             </button>
           </div>
           <div class="setting-row setting-row--column-gap">
-            <span class="settings-hint">
+            <span class="settings-hint type-hint">
               Enable if floating buttons appear in the wrong position. Adjusts layout for alternative browser configurations.
             </span>
           </div>

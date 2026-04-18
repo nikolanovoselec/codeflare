@@ -122,7 +122,7 @@ const DeployKeysSection: Component = () => {
 
   return (
     <>
-      <p class="settings-hint" style={{ "margin-bottom": "var(--space-2)" }}>
+      <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
         Connect your accounts so every session can push code and deploy automatically.
       </p>
       <ol class="provider-steps">
@@ -187,7 +187,7 @@ const DeployKeysSection: Component = () => {
       </Show>
 
       <div class="setting-row setting-row--column-gap">
-        <span class="settings-hint" data-testid="deploy-keys-hint">
+        <span class="settings-hint type-hint" data-testid="deploy-keys-hint">
           Tokens take effect on next session start. Used by git push, gh CLI, and wrangler.
         </span>
       </div>

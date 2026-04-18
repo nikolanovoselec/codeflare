@@ -131,7 +131,7 @@ const LlmKeysSection: Component = () => {
       />
 
       <div class="setting-row setting-row--column-gap">
-        <span class="settings-hint" data-testid="llm-keys-hint">
+        <span class="settings-hint type-hint" data-testid="llm-keys-hint">
           Keys take effect on next session start. Say "consult LLMs" in Claude Code to use.
         </span>
       </div>

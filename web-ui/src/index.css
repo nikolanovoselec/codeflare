@@ -6,6 +6,7 @@
 @import './styles/design-tokens.css';
 @import './styles/animations.css';
 @import './styles/components.css';
+@import './styles/typography.css';
 
 /* ==========================================================================
    Reset & Base Styles

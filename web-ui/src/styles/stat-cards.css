@@ -39,13 +39,7 @@
   align-items: center;
 }
 
-.stat-card__title {
-  font-size: var(--text-xs, 0.75rem);
-  font-weight: var(--font-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted, #6b7280);
-}
+/* .stat-card__title — typography via .type-section-header */
 
 /* Metric rows — matches session card metric style */
 .stat-card__metrics {
