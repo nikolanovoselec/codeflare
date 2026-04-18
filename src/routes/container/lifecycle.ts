@@ -418,7 +418,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     let sessionMode = resolveSessionMode(preferences);
-    // Free tier: locked to 5m idle timeout. All other tiers: user preference or 30m default.
+    // Free tier: locked to 15m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
     // Clamp session mode against effective tier — canceled users can't use advanced (SaaS only)
     if (isSaasModeActive(c.env.SAAS_MODE) && sessionMode === 'advanced') {
@@ -429,7 +429,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
         }
       } catch { /* non-SaaS or KV unavailable — allow the stored mode */ }
     }
-    const sleepAfter = effectiveTier === 'free' ? '5m' : (preferences.sleepAfter || '30m');
+    const sleepAfter = effectiveTier === 'free' ? '15m' : (preferences.sleepAfter || '30m');
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
     const cryptoKey = await getOrImportKey(c.env);

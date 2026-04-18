@@ -127,7 +127,8 @@ const OnboardingPage: Component = () => {
       if (keys.githubToken) setGithubToken(keys.githubToken);
       if (keys.cloudflareApiToken) setCfToken(keys.cloudflareApiToken);
       if (keys.cloudflareAccountId) setCfAccountId(keys.cloudflareAccountId);
-      if (auth?.accessTier === 'free') {
+      const effectiveTier = auth?.subscriptionTier ?? auth?.accessTier;
+      if (effectiveTier === 'free') {
         setIsFreeUser(true);
         setSleepAfter('15m');
       } else if (prefs?.sleepAfter) {
@@ -228,8 +229,11 @@ const OnboardingPage: Component = () => {
 
   const handleSleepAfterChange = (value: string) => {
     if (value === sleepAfter() || isFreeUser()) return;
+    const previous = sleepAfter();
     setSleepAfter(value);
-    void updatePreferences({ sleepAfter: value as import('../types').SleepAfterOption });
+    updatePreferences({ sleepAfter: value as import('../types').SleepAfterOption }).catch(() => {
+      setSleepAfter(previous);
+    });
   };
 
   return (
@@ -277,8 +281,9 @@ const OnboardingPage: Component = () => {
               Your session uses compute time while running. It pauses automatically when no activity is detected.
             </p>
             <div class="onboarding-timeout-row">
-              <label>Pause after</label>
+              <label for="onboarding-sleep-after">Pause after</label>
               <select
+                id="onboarding-sleep-after"
                 class="onboarding-timeout-select"
                 value={sleepAfter()}
                 disabled={isFreeUser()}
@@ -293,7 +298,9 @@ const OnboardingPage: Component = () => {
               </select>
             </div>
             <span class="onboarding-section-hint">
-              You can also change this anytime in Settings.
+              {isFreeUser()
+                ? 'Fixed at 15 minutes on the Free plan. Upgrade for longer idle timeouts.'
+                : 'You can also change this anytime in Settings.'}
             </span>
           </div>
 
