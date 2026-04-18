@@ -3,6 +3,9 @@ html, body {
   overflow: hidden;
   overscroll-behavior: none;
   overflow-anchor: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--color-text-primary);
 }
 
 /* Layout Component Styles */
