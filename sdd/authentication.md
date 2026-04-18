@@ -353,15 +353,16 @@ None. Authentication is foundational; other domains depend on it.
 **Applies To:** User
 
 **Acceptance Criteria:**
-1. `/app/onboarding` shows steps for GitHub PAT, CF API token, and agent subscription.
-2. First-time users are auto-redirected to onboarding.
-3. `onboardingComplete` flag prevents re-redirect.
+1. `/app/onboarding` shows four steps: idle timeout selector, GitHub PAT, Cloudflare API token, and agent subscription.
+2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 5m-2h.
+3. First-time users are auto-redirected to onboarding.
+4. `onboardingComplete` flag prevents re-redirect.
 
 **Constraints:**
 - None
 
 **Priority:** P1
-**Dependencies:** REQ-AUTH-007
+**Dependencies:** REQ-AUTH-007, REQ-SESSION-014
 **Verification:** Integration test
 **Status:** Implemented
 
