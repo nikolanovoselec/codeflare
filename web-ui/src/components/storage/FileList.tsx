@@ -2,6 +2,7 @@ import { Component, For, Show, Accessor } from 'solid-js';
 import { storageStore } from '../../stores/storage';
 import { getFileIcon } from '../../lib/file-icons';
 import { formatRelativeTime, formatSize } from '../../lib/format';
+import { isTouchDevice } from '../../lib/mobile';
 import Icon from '../Icon';
 import { mdiTrainCarContainer } from '@mdi/js';
 
@@ -141,7 +142,10 @@ const FileList: Component<FileListProps> = (props) => {
 
       <Show when={props.displayedItems().prefixes.length === 0 && props.displayedItems().objects.length === 0}>
         <div class="storage-empty" data-testid="storage-empty">
-          <p>No files found. Use the upload button to add files.</p>
+          <p>{isTouchDevice()
+            ? 'No files found. Use the upload button to add files.'
+            : 'No files found. Drag and drop files here to upload.'
+          }</p>
         </div>
       </Show>
     </div>
