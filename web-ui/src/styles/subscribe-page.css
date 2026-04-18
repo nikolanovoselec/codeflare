@@ -24,70 +24,70 @@
 
 /* ── Status text ── */
 
-.subscribe-status { text-align: center; margin-bottom: 2rem; }
+.subscribe-status { text-align: center; margin-bottom: var(--space-8); }
 
 .subscribe-status-text {
   display: block;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 1.5rem;
-  font-weight: 700;
+  font-weight: var(--font-bold);
   letter-spacing: 0.03em;
-  margin: 2rem 0;
+  margin: var(--space-8) 0;
 }
-.subscribe-status-text--active { color: #22c55e; }
+.subscribe-status-text--active { color: var(--color-success); }
 .subscribe-status-text--pending { color: #f97316; }
-.subscribe-status-text--blocked { color: #ef4444; }
+.subscribe-status-text--blocked { color: var(--color-error); }
 
-.subscribe-title { margin: 0 0 0.75rem; font-size: 1.25rem; font-weight: 600; color: #fafafa; font-family: 'JetBrains Mono', 'Fira Code', monospace; }
-.subscribe-message { margin: 0 0 1rem; font-size: 0.875rem; color: #a1a1aa; line-height: 1.6; }
+.subscribe-title { margin: 0 0 var(--space-3); font-size: var(--text-xl); font-weight: var(--font-semibold); color: var(--color-text-primary); font-family: var(--font-mono); }
+.subscribe-message { margin: 0 0 var(--space-4); font-size: var(--text-base); color: var(--color-text-secondary); line-height: 1.6; }
 
 .subscribe-email {
-  margin-bottom: 1.25rem; font-size: 0.8125rem; color: #71717a;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace; letter-spacing: 0.02em;
-  padding: 0.5rem 1rem; background: rgba(24, 24, 27, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; display: inline-block;
+  margin-bottom: var(--space-4); font-size: var(--text-sm); color: var(--color-text-muted);
+  font-family: var(--font-mono); letter-spacing: 0.02em;
+  padding: var(--space-2) var(--space-4); background: rgba(24, 24, 27, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-lg); display: inline-block;
 }
 
-.subscribe-loading { text-align: center; color: #a1a1aa; padding: 2rem; }
+.subscribe-loading { text-align: center; color: var(--color-text-secondary); padding: var(--space-8); }
 
 .subscribe-error {
-  color: #ef4444; background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px;
-  padding: 0.5rem 1rem; margin-bottom: 1rem; font-size: 0.8rem; text-align: center;
+  color: var(--color-error); background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border); border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-4); margin-bottom: var(--space-4); font-size: 0.8rem; text-align: center;
 }
 
 /* ── Buttons ── */
 
 .subscribe-action-button {
-  display: inline-block; padding: 0.75rem 2rem;
-  background: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.5); border-radius: 12px;
-  color: #fafafa; font-size: 0.875rem; font-weight: 500;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  display: inline-block; padding: var(--space-3) var(--space-8);
+  background: var(--color-info); border: 1px solid rgba(59, 130, 246, 0.5); border-radius: var(--radius-xl);
+  color: var(--color-text-primary); font-size: var(--text-base); font-weight: var(--font-medium);
+  font-family: var(--font-mono);
   text-decoration: none; cursor: pointer;
   box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
-  transition: all 150ms ease-out; margin-bottom: 1.25rem;
+  transition: all 150ms ease-out; margin-bottom: var(--space-4);
 }
 .subscribe-action-button:hover:not(:disabled) { background: #2563eb; box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4); transform: translateY(-1px); }
 .subscribe-action-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .subscribe-logout-button {
-  display: inline-block; padding: 0.625rem 1.5rem;
+  display: inline-block; padding: var(--space-3) var(--space-6);
   background: rgba(24, 24, 27, 0.85); backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;
-  color: #a1a1aa; font-size: 0.8125rem;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  border: 1px solid var(--color-glass-border); border-radius: var(--radius-xl);
+  color: var(--color-text-secondary); font-size: var(--text-sm);
+  font-family: var(--font-mono);
   text-decoration: none; cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); transition: all 150ms ease-out;
 }
-.subscribe-logout-button:hover { background: rgba(24, 24, 27, 0.95); border-color: rgba(255, 255, 255, 0.15); color: #fafafa; transform: translateY(-1px); }
+.subscribe-logout-button:hover { background: rgba(24, 24, 27, 0.95); border-color: rgba(255, 255, 255, 0.15); color: var(--color-text-primary); transform: translateY(-1px); }
 
 .subscribe-home-actions {
-  display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;
+  display: flex; gap: var(--space-3); justify-content: center; flex-wrap: wrap;
 }
 
 .subscribe-portal-note {
-  font-size: 0.7rem; color: #52525b; text-align: center; margin: 0.25rem 0 0;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.7rem; color: var(--color-text-dimmed); text-align: center; margin: var(--space-1) 0 0;
+  font-family: var(--font-mono);
 }
 
 .subscribe-manage-button {
@@ -100,27 +100,27 @@
 
 .subscribe-mode-card-merged {
   background: rgba(24, 24, 27, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;
-  padding: 1.5rem; text-align: left; width: 100%; max-width: 420px;
-  margin: 0 auto 1.5rem;
+  border: 1px solid var(--color-glass-border); border-radius: var(--radius-xl);
+  padding: var(--space-6); text-align: left; width: 100%; max-width: 420px;
+  margin: 0 auto var(--space-6);
   animation: fadeSlideIn 0.4s ease-out;
 }
 
 .subscribe-mode-toggle {
-  display: flex; gap: 0; margin-bottom: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px;
+  display: flex; gap: 0; margin-bottom: var(--space-4);
+  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-lg);
   overflow: hidden; background: rgba(24, 24, 27, 0.5);
 }
 .subscribe-mode-toggle-btn {
-  flex: 1; padding: 0.5rem 1rem; font-size: 0.8rem;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace; font-weight: 500;
-  border: none; background: transparent; color: #52525b;
+  flex: 1; padding: var(--space-2) var(--space-4); font-size: 0.8rem;
+  font-family: var(--font-mono); font-weight: var(--font-medium);
+  border: none; background: transparent; color: var(--color-text-dimmed);
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-mode-toggle-btn--active {
-  background: rgba(59, 130, 246, 0.15); color: #fafafa;
+  background: rgba(59, 130, 246, 0.15); color: var(--color-text-primary);
 }
-.subscribe-mode-toggle-btn:hover:not(.subscribe-mode-toggle-btn--active):not(:disabled) { color: #a1a1aa; }
+.subscribe-mode-toggle-btn:hover:not(.subscribe-mode-toggle-btn--active):not(:disabled) { color: var(--color-text-secondary); }
 .subscribe-mode-toggle-btn--disabled {
   opacity: 0.3;
   cursor: not-allowed;
@@ -128,38 +128,38 @@
 
 .subscribe-mode-card-features {
   list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 0.5rem;
+  display: flex; flex-direction: column; gap: var(--space-2);
 }
 .subscribe-mode-card-feature {
-  display: flex; align-items: flex-start; gap: 0.5rem;
-  font-size: 0.8125rem; color: #71717a;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  font-size: var(--text-sm); color: var(--color-text-muted);
+  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
-.subscribe-mode-card-feature svg { color: #3b82f6; flex-shrink: 0; margin-top: 0.15rem; }
+.subscribe-mode-card-feature svg { color: var(--color-info); flex-shrink: 0; margin-top: 0.15rem; }
 .subscribe-mode-card-feature > span:first-of-type { flex: 1; min-width: 0; }
 
 /* Green border on mode toggle for user's current subscribed mode */
 .subscribe-mode-toggle-btn--current {
-  border: 1.5px solid #22c55e !important;
+  border: 1.5px solid var(--color-success) !important;
   border-radius: 7px;
 }
 
 /* Green border on lifeline icon for user's current subscribed tier —
    must override .subscribe-lifeline-stop--selected specificity */
 .subscribe-lifeline-icon.subscribe-lifeline-icon--current {
-  border: 2px solid #22c55e !important;
+  border: 2px solid var(--color-success) !important;
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.3) !important;
 }
 
 .subscribe-mode-separator {
   height: 1px; background: rgba(255, 255, 255, 0.06);
-  margin: 0.75rem 0;
+  margin: var(--space-3) 0;
 }
 .subscribe-mode-pro-label {
-  margin: 0 0 0.5rem; font-size: 0.8125rem; color: #3b82f6;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-weight: 500; letter-spacing: 0.02em;
+  margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--color-info);
+  font-family: var(--font-mono);
+  font-weight: var(--font-medium); letter-spacing: 0.02em;
 }
 .subscribe-mode-card-features--pro .subscribe-mode-card-feature svg { color: #8b5cf6; }
 
@@ -191,7 +191,7 @@
   background: rgba(24, 24, 27, 0.65);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 16px;
-  padding: 2rem; margin-bottom: 2rem; width: 100%;
+  padding: var(--space-8); margin-bottom: var(--space-8); width: 100%;
   max-width: 420px; margin-left: auto; margin-right: auto;
   text-align: center;
   animation: fadeSlideIn 0.5s ease-out 0.1s both;
@@ -199,68 +199,68 @@
 }
 
 .subscribe-detail-name {
-  margin: 0 0 0.5rem; font-size: 1.25rem; font-weight: 600; color: #fafafa;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  margin: 0 0 var(--space-2); font-size: var(--text-xl); font-weight: var(--font-semibold); color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
-.subscribe-detail-price { margin-bottom: 0.5rem; }
-.subscribe-detail-tagline { margin: 0 0 1rem; font-size: 0.8125rem; color: #71717a; letter-spacing: 0.02em; }
+.subscribe-detail-price { margin-bottom: var(--space-2); }
+.subscribe-detail-tagline { margin: 0 0 var(--space-4); font-size: var(--text-sm); color: var(--color-text-muted); letter-spacing: 0.02em; }
 
 .subscribe-detail-specs {
-  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
-  font-size: 0.8125rem; color: #71717a; margin-bottom: 1rem;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  font-size: var(--text-sm); color: var(--color-text-muted); margin-bottom: var(--space-4);
+  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
-.subscribe-detail-specs-sep { color: #52525b; }
+.subscribe-detail-specs-sep { color: var(--color-text-dimmed); }
 
 /* Reused from old tier cards */
 .subscribe-tier-price-amount {
-  font-size: 2rem; font-weight: 700; color: #fafafa;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 2rem; font-weight: var(--font-bold); color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
-.subscribe-tier-price-period { font-size: 0.8rem; color: #52525b; font-weight: 400; }
+.subscribe-tier-price-period { font-size: 0.8rem; color: var(--color-text-dimmed); font-weight: 400; }
 
 .subscribe-tier-features {
-  list-style: none; margin: 0 0 1rem; padding: 0;
-  display: flex; flex-direction: column; gap: 0.5rem;
+  list-style: none; margin: 0 0 var(--space-4); padding: 0;
+  display: flex; flex-direction: column; gap: var(--space-2);
   text-align: left;
 }
 .subscribe-tier-feature-item {
-  display: flex; align-items: center; gap: 0.5rem;
-  font-size: 0.8125rem; color: #71717a;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-sm); color: var(--color-text-muted);
+  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
-.subscribe-tier-feature-item svg { color: #22c55e; flex-shrink: 0; }
+.subscribe-tier-feature-item svg { color: var(--color-success); flex-shrink: 0; }
 
 .subscribe-tier-badge {
-  font-size: 0.8125rem; color: #22c55e;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: var(--text-sm); color: var(--color-success);
+  font-family: var(--font-mono);
   letter-spacing: 0.02em;
-  background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2);
-  border-radius: 6px; padding: 0.25rem 0.5rem;
-  display: inline-block; margin-bottom: 1rem;
+  background: var(--color-success-bg); border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--radius-md); padding: var(--space-1) var(--space-2);
+  display: inline-block; margin-bottom: var(--space-4);
 }
 
 .subscribe-tier-btn {
-  width: 100%; padding: 0.7rem; border-radius: 8px;
+  width: 100%; padding: 0.7rem; border-radius: var(--radius-lg);
   border: 1px solid rgba(255, 255, 255, 0.12); background: transparent;
-  color: #fafafa; font-size: 0.85rem; font-weight: 500;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: var(--color-text-primary); font-size: 0.85rem; font-weight: var(--font-medium);
+  font-family: var(--font-mono);
   cursor: pointer; transition: all 150ms ease;
 }
 .subscribe-tier-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.2); }
-.subscribe-tier-btn--primary { background: #3b82f6; border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
+.subscribe-tier-btn--primary { background: var(--color-info); border-color: rgba(59, 130, 246, 0.5); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); }
 .subscribe-tier-btn--primary:hover:not(:disabled) { background: #2563eb; border-color: rgba(59, 130, 246, 0.7); box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35); }
 .subscribe-tier-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.subscribe-turnstile { margin-top: 1rem; display: flex; justify-content: center; }
+.subscribe-turnstile { margin-top: var(--space-4); display: flex; justify-content: center; }
 
 /* ── Lifeline rail ── */
 
 .subscribe-lifeline {
   position: relative; width: 100%; max-width: 540px;
-  margin: 1.5rem auto; padding-bottom: 0;
+  margin: var(--space-6) auto; padding-bottom: 0;
   animation: fadeSlideIn 0.5s ease-out 0.2s both;
 }
 
@@ -269,7 +269,7 @@
   position: absolute;
   /* Center vertically through 36px icons (18px = half icon height) */
   top: 18px;
-  left: 2.5rem; right: 2.5rem;
+  left: var(--space-10); right: var(--space-10);
   height: 0;
   border-top: 2px dashed rgba(255, 255, 255, 0.1);
   pointer-events: none;
@@ -282,13 +282,13 @@
 
 .subscribe-lifeline-stop {
   display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
-  background: none; border: none; cursor: pointer; padding: 0 0.25rem;
-  color: #52525b; transition: color 250ms ease, transform 200ms ease;
+  background: none; border: none; cursor: pointer; padding: 0 var(--space-1);
+  color: var(--color-text-dimmed); transition: color 250ms ease, transform 200ms ease;
   min-width: 44px; min-height: 44px;
   position: relative;
 }
 .subscribe-lifeline-stop:hover { transform: scale(1.08); }
-.subscribe-lifeline-stop--passed { color: #71717a; }
+.subscribe-lifeline-stop--passed { color: var(--color-text-muted); }
 .subscribe-lifeline-stop--selected { color: var(--color-accent); }
 
 .subscribe-lifeline-icon {
@@ -296,7 +296,7 @@
   /* Fully opaque so dashed line never shows through */
   background: hsl(217, 20%, 7%);
   border: 1px dashed rgba(255, 255, 255, 0.12);
-  border-radius: 6px; transition: all 250ms ease;
+  border-radius: var(--radius-md); transition: all 250ms ease;
   position: relative; z-index: 1;
 }
 .subscribe-lifeline-stop--passed .subscribe-lifeline-icon {
@@ -309,18 +309,18 @@
 }
 
 .subscribe-lifeline-label {
-  font-size: 0.7rem; font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  white-space: nowrap; font-weight: 500; letter-spacing: 0.02em;
-  color: #71717a;
+  font-size: 0.7rem; font-family: var(--font-mono);
+  white-space: nowrap; font-weight: var(--font-medium); letter-spacing: 0.02em;
+  color: var(--color-text-muted);
 }
-.subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: #fafafa; }
+.subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: var(--color-text-primary); }
 
 /* ── COMING SOON badge ── */
 
 .subscribe-coming-soon-badge {
   display: inline-block;
   font-size: 0.55rem;
-  font-weight: 700;
+  font-weight: var(--font-bold);
   color: var(--color-accent, #3b82f6);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -331,8 +331,8 @@
 /* ── Responsive ── */
 
 @media (max-width: 640px) {
-  .subscribe-mode-card-merged { padding: 1.25rem; }
-  .subscribe-detail-panel { padding: 1.25rem; }
+  .subscribe-mode-card-merged { padding: var(--space-4); }
+  .subscribe-detail-panel { padding: var(--space-4); }
   .subscribe-lifeline-label { font-size: 0.6rem; }
   .subscribe-lifeline-icon { width: 32px; height: 32px; }
   .subscribe-lifeline-track { top: 16px; }

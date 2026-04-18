@@ -30,7 +30,7 @@
   border-radius: var(--radius-md);
   overflow: hidden;
   cursor: pointer;
-  background: var(--color-bg-secondary, #18181b);
+  background: var(--color-bg-secondary, var(--color-bg-surface));
   min-height: 0;
 }
 
@@ -39,7 +39,7 @@
 }
 
 .tiled-terminal-slot--empty {
-  background: var(--color-bg-tertiary, #27272a);
+  background: var(--color-bg-tertiary, var(--color-bg-elevated));
   cursor: default;
 }
 

@@ -2,7 +2,7 @@
           display: flex;
           align-items: center;
           gap: 2px;
-          padding: 4px 8px;
+          padding: var(--space-1) var(--space-2);
           background: transparent;
           border-bottom: 1px solid var(--color-border-subtle);
           height: 36px;
@@ -16,13 +16,13 @@
           align-items: center;
           justify-content: center;
           gap: 6px;
-          padding: 4px 12px;
+          padding: var(--space-1) var(--space-3);
           min-width: 80px;
           font-size: 12px;
           color: var(--color-text-secondary);
           background: rgba(39, 39, 42, 0.6);
           backdrop-filter: blur(8px);
-          border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.08));
+          border: 1px solid var(--color-glass-border);
           border-radius: var(--radius-sm) var(--radius-sm) 0 0;
           cursor: pointer;
           transition: all var(--transition-base);
@@ -63,19 +63,19 @@
 
         /* Tab-type specific icon colors */
         .terminal-tab[data-type="claude"] .terminal-tab-icon {
-          color: var(--color-tab-claude, #3b82f6);
+          color: var(--color-tab-claude, var(--color-info));
         }
 
         .terminal-tab[data-type="htop"] .terminal-tab-icon {
-          color: var(--color-tab-htop, #22c55e);
+          color: var(--color-tab-htop, var(--color-success));
         }
 
         .terminal-tab[data-type="yazi"] .terminal-tab-icon {
-          color: var(--color-tab-yazi, #3b82f6);
+          color: var(--color-tab-yazi, var(--color-info));
         }
 
         .terminal-tab[data-type="terminal"] .terminal-tab-icon {
-          color: var(--color-tab-terminal, #f59e0b);
+          color: var(--color-tab-terminal, var(--color-warning));
         }
 
         .terminal-tab--active .terminal-tab-icon {
@@ -186,7 +186,7 @@
 
           .terminal-tab {
             min-width: 0;
-            padding: 4px 10px;
+            padding: var(--space-1) 10px;
             min-height: 36px;
           }
 
@@ -220,8 +220,8 @@
           top: 100%;
           left: 50%;
           transform: translateX(-50%);
-          margin-top: 4px;
-          padding: 6px 12px;
+          margin-top: var(--space-1);
+          padding: 6px var(--space-3);
           background: var(--color-bg-elevated);
           border: 1px solid var(--color-border-default);
           border-radius: var(--radius-md);
@@ -233,8 +233,8 @@
         .terminal-tab-close-popup-btn {
           display: flex;
           align-items: center;
-          gap: 4px;
-          padding: 4px 12px;
+          gap: var(--space-1);
+          padding: var(--space-1) var(--space-3);
           background: transparent;
           border: none;
           border-radius: var(--radius-sm);

@@ -10,12 +10,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2, 8px);
-  padding: 12px;
+  padding: var(--space-3);
   background: linear-gradient(135deg,
     var(--color-bg-elevated) 0%,
-    #18181b 100%);
+    var(--color-bg-surface) 100%);
   border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.06));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   transition: all 150ms ease;
 }
 
@@ -41,7 +41,7 @@
 
 .stat-card__title {
   font-size: var(--text-xs, 0.75rem);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-text-muted, #6b7280);
@@ -63,7 +63,7 @@
 .stat-card__metric-label {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   font-size: 11px;
   font-family: var(--font-mono);
   text-transform: uppercase;

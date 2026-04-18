@@ -63,7 +63,7 @@
     hsl(217, 38%, 8%) 100%);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 2rem 0;
+  padding: var(--space-8) 0;
 }
 
 /* ── Floating particles ── */
@@ -113,15 +113,15 @@
   z-index: 1;
   text-align: center;
   max-width: 420px;
-  padding: 2rem;
+  padding: var(--space-8);
   animation: fadeSlideUp 0.6s ease-out;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: var(--font-sans);
 }
 
 /* ── Logo ── */
 
 .login-logo {
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--space-4);
 }
 
 .login-logo-img {
@@ -134,24 +134,25 @@
 /* ── Title (scramble text) ── */
 
 .login-title {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--space-2);
   font-size: 2.5rem;
-  font-weight: 600;
-  color: #fafafa;
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
   letter-spacing: -0.02em;
+  font-family: var(--font-mono);
 }
 
 .login-title-scramble {
-  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.04em;
 }
 
 /* ── Subtitle ── */
 
 .login-subtitle {
-  margin: 0 0 2rem;
-  font-size: 0.8125rem;
-  color: #71717a;
+  margin: 0 0 var(--space-8);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
   line-height: 1.7;
   max-width: 360px;
   margin-left: auto;
@@ -163,15 +164,15 @@
 .login-features {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
+  gap: var(--space-2);
+  margin-bottom: var(--space-8);
 }
 
 .login-feature {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   opacity: 0;
   animation: featureFadeIn 0.4s ease-out forwards;
 }
@@ -183,13 +184,13 @@
   width: 20px;
   height: 20px;
   flex-shrink: 0;
-  color: #52525b;
+  color: var(--color-text-dimmed);
 }
 
 .login-feature-text {
-  font-size: 0.8125rem;
-  color: #71717a;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
   letter-spacing: 0.02em;
 }
 
@@ -199,14 +200,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem 0;
+  padding: var(--space-8) 0;
 }
 
 .login-spinner {
   width: 32px;
   height: 32px;
   border: 3px solid rgba(59, 130, 246, 0.15);
-  border-top-color: #3b82f6;
+  border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -214,14 +215,14 @@
 /* ── Error ── */
 
 .login-error {
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  font-size: 0.8125rem;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
   color: #fca5a5;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 8px;
-  line-height: 1.5;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius-lg);
+  line-height: var(--leading-normal);
 }
 
 /* ── Providers ── */
@@ -229,7 +230,7 @@
 .login-providers {
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
+  gap: var(--space-3);
 }
 
 .login-provider-button {
@@ -237,18 +238,18 @@
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
   width: 100%;
-  padding: 0.875rem 1.25rem;
+  padding: var(--space-3) var(--space-4);
   background: rgba(24, 24, 27, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  color: #fafafa;
-  font-size: 0.9375rem;
-  font-weight: 500;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  border-radius: var(--radius-xl);
+  color: var(--color-text-primary);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  font-family: var(--font-mono);
   cursor: pointer;
   text-decoration: none;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
@@ -291,16 +292,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.375rem;
-  margin: 2rem 0 0;
-  font-size: 0.8125rem;
-  color: #71717a;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  gap: var(--space-1);
+  margin: var(--space-8) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
   letter-spacing: 0.02em;
 }
 
 .login-footer-flag {
-  font-size: 0.875rem;
+  font-size: var(--text-base);
   line-height: 1;
 }
 
@@ -309,7 +310,7 @@
 @media (max-width: 640px) {
   .login-content {
     max-width: calc(100vw - 32px);
-    padding: 1.5rem;
+    padding: var(--space-6);
   }
 
   .login-title {

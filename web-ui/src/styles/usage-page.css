@@ -1,12 +1,12 @@
 .usage-loading,
 .usage-error {
   text-align: center;
-  padding: 2rem;
-  color: #a1a1aa;
+  padding: var(--space-8);
+  color: var(--color-text-secondary);
 }
 
 .usage-error {
-  color: #ef4444;
+  color: var(--color-error);
 }
 
 /* ── Usage panel (matches subscribe detail panel styling) ── */
@@ -16,8 +16,8 @@
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 16px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
+  padding: var(--space-6);
+  margin-bottom: var(--space-8);
   width: 100%;
   max-width: 420px;
   margin-left: auto;
@@ -29,22 +29,22 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 
 .usage-panel-plan {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #fafafa;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
   text-transform: capitalize;
 }
 
 .usage-panel-percent {
   font-size: 1.5rem;
-  font-weight: 700;
-  color: #fafafa;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-weight: var(--font-bold);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
 
 /* ── Progress bar ── */
@@ -55,7 +55,7 @@
   background: rgba(255, 255, 255, 0.08);
   border-radius: 3px;
   overflow: hidden;
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
 }
 
 .usage-bar-fill {
@@ -68,9 +68,9 @@
   display: flex;
   justify-content: space-between;
   font-size: 0.7rem;
-  color: #52525b;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  margin-bottom: 1.25rem;
+  color: var(--color-text-dimmed);
+  font-family: var(--font-mono);
+  margin-bottom: var(--space-4);
 }
 
 /* ── Stats row ── */
@@ -78,52 +78,52 @@
 .usage-panel-stats {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .usage-panel-stat {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--space-1);
   flex: 1;
 }
 
 .usage-panel-stat-label {
   font-size: 0.65rem;
-  color: #71717a;
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .usage-panel-stat-value {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #fafafa;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
 }
 
 /* ── Actions ── */
 
 .usage-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: var(--space-3);
   justify-content: center;
 }
 
 .usage-btn {
   display: inline-block;
-  padding: 0.625rem 1.5rem;
-  border-radius: 12px;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-xl);
   background: rgba(24, 24, 27, 0.85);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #a1a1aa;
+  color: var(--color-text-secondary);
   text-decoration: none;
-  font-weight: 500;
-  font-size: 0.8125rem;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-weight: var(--font-medium);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
   cursor: pointer;
   transition: all 150ms ease-out;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
@@ -132,7 +132,7 @@
 .usage-btn:hover {
   background: rgba(24, 24, 27, 0.95);
   border-color: rgba(255, 255, 255, 0.15);
-  color: #fafafa;
+  color: var(--color-text-primary);
   transform: translateY(-1px);
 }
 
@@ -143,10 +143,10 @@
 
 @media (max-width: 640px) {
   .usage-panel {
-    padding: 1.25rem;
+    padding: var(--space-4);
   }
   .usage-panel-stats {
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-3);
   }
 }

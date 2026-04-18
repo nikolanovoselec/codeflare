@@ -16,7 +16,7 @@
 
 .file-preview-filename {
   flex: 1;
-  font-weight: 500;
+  font-weight: var(--font-medium);
   font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
