@@ -278,7 +278,7 @@ const OnboardingPage: Component = () => {
               Set your idle timeout
             </h2>
             <p class="onboarding-section-description">
-              Your session uses compute time while running. It pauses automatically when no activity is detected.
+              Your session uses compute time while running. It pauses automatically when no user activity is detected.
             </p>
             <div class="onboarding-timeout-row">
               <label for="onboarding-sleep-after">Pause after</label>
