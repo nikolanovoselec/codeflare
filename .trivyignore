@@ -153,3 +153,11 @@ CVE-2026-27135
 # systemd (libsystemd0, libudev1): arbitrary code execution via spurious IPC
 # Container doesn't use systemd IPC; no fix available in bookworm.
 CVE-2026-29111
+
+# Go stdlib in rclone v1.73.2 / lazygit v0.60.0: chain building work amplification
+# These are CLI tools in sandboxed container, not exposed to untrusted certificate chains.
+CVE-2026-32280
+
+# Go stdlib in rclone v1.73.2 / lazygit v0.60.0: Root.Chmod symlink traversal
+# Container runs trusted code only; these tools don't use Root.Chmod on untrusted paths.
+CVE-2026-32282
