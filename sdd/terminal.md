@@ -132,7 +132,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 **Acceptance Criteria:**
 1. `TAB_CONFIG` environment variable is set by the Container DO and parsed by the terminal server.
 2. Tab 1 is pre-warmed at container start: the terminal server spawns a `PREWARM_SESSION_ID` PTY with a login shell that reads `.bashrc`.
-3. `.bashrc` reads `TAB_CONFIG` and launches the configured agent (e.g., `cu --silent --no-consent` for Claude Code, `codex` for Codex, etc.).
+3. `.bashrc` reads `TAB_CONFIG` and launches the configured agent (e.g., `claude --dangerously-skip-permissions` for Claude Code, `codex` for Codex, etc.).
 4. Pre-warm readiness is detected by the first PTY output (any terminal output indicates the agent has started). A 20-second hard timeout acts as a safety net.
 5. When the first WebSocket client connects for tab 1, the pre-warmed session is adopted (renamed from `prewarm-1` to the actual terminal ID). If not adopted within 2 minutes, the pre-warmed session is killed.
 6. The startup status stage progresses through: `starting` -> `syncing` -> `verifying` -> `mounting` (pre-warm in progress, terminal canvas hidden) -> `ready` (pre-warm complete, "Open" button appears).
@@ -233,8 +233,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 **Acceptance Criteria:**
 1. The terminal server sends JSON control messages with `{"type":"process-name","processName":"..."}` over the WebSocket.
 2. The frontend parses control messages (identified by the `{"type":` prefix) separately from raw terminal data.
-3. `PROCESS_ICON_MAP` maps running process names (cu, codex, gemini, opencode, copilot, htop, yazi, lazygit, bash, sh, zsh) to MDI icons.
-4. `PROCESS_DISPLAY_NAME` maps binary names to user-friendly display names (e.g., `cu` -> `claude`).
+3. `PROCESS_ICON_MAP` maps running process names (claude, codex, gemini, opencode, copilot, htop, yazi, lazygit, bash, sh, zsh) to MDI icons.
+4. `PROCESS_DISPLAY_NAME` maps binary names to user-friendly display names (e.g., `claude` -> `claude`).
 5. `AGENT_ICON_MAP` maps the 6 agent types to session card icons.
 6. The `onProcessName` callback is registered by the session store to receive process-name updates from the terminal store (avoiding circular imports).
 7. Process name updates are reflected in tab headers and session status cards in real time.

@@ -192,8 +192,8 @@ jobs:
           echo "Resolved container config:"
           sed -n '30,52p' wrangler.toml
 
-      - name: Generate claude-unleashed cache buster (optional)
-        if: ${{ vars.CLAUDE_UNLEASHED_CACHE_BUSTER == 'active' }}
+      - name: Generate cache buster (optional — force fresh npm install)
+        if: ${{ vars.CLAUDE_CODE_CACHE_BUSTER == 'active' }}
         run: echo "${{ github.sha }}" > .cache-bust
 
       - name: Use default Docker builder

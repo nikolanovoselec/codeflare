@@ -80,7 +80,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 1. `configure_tab_autostart()` in `entrypoint.sh` writes the agent's launch command into `.bashrc` for tab 1.
-2. The agent starts with `--silent --no-consent` flags (for Claude Code via `cu`).
+2. The agent starts with `--dangerously-skip-permissions` flag (for Claude Code via `claude`). The container sets `IS_SANDBOX=1` to allow this flag when running as root.
 3. Auto-start only runs for tab 1; user-created tabs (where `MANUAL_TAB=1`) skip autostart.
 4. The `.bashrc` autostart block sets `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"` so PTY sessions find globally installed CLI tools.
 5. Pre-warm readiness is detected by first PTY output (any terminal output means the agent is ready).
@@ -343,7 +343,7 @@ Multi-agent support, preseed system, and session modes.
 1. `fastStartEnabled` preference (default: `true`) maps to `FAST_CLI_START` container env var.
 2. When enabled, auto-update checks are disabled for all 5 AI tools, eliminating 5-30s startup delay.
 3. Each tool has a specific disable mechanism:
-   - Claude Code: `CLAUDE_UNLEASHED_NO_UPDATE=1`, `CLAUDE_UNLEASHED_CHANNEL=stable` (env vars)
+   - Claude Code: `DISABLE_AUTOUPDATER=1` (env var)
    - OpenCode: `OPENCODE_DISABLE_AUTOUPDATE=1` (env var)
    - Copilot: `COPILOT_AUTO_UPDATE=false` (env var)
    - Gemini: `~/.gemini/settings.json` with `enableAutoUpdate: false` (jq merge preserving user customizations)

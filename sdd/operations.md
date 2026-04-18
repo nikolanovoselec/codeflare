@@ -65,7 +65,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 6. `wrangler.toml` `image` field is patched to the registry URI (avoids Docker rebuild on deploy).
 7. Container resource tier is applied from `RESSOURCE_TIER` variable: low (0.25 vCPU / 1 GiB / 4 GB), default/saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 8 GB).
 8. All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set.
-9. Optional cache busting for Claude Unleashed layer via `CLAUDE_UNLEASHED_CACHE_BUSTER` variable.
+9. Optional cache busting for the AI agent layer via `CLAUDE_CODE_CACHE_BUSTER` variable.
 
 **Constraints:**
 - `MAX_INSTANCES` must be a positive integer, passed via env to avoid shell injection.

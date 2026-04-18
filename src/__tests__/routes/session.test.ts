@@ -302,7 +302,7 @@ describe('Session CRUD Routes', () => {
         createdAt: '2024-01-15T09:00:00.000Z',
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
         tabConfig: [
-          { id: '1', command: 'cu', label: 'claude' },
+          { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
           { id: '2', command: 'yazi', label: 'yazi' },
         ],
       };
@@ -313,7 +313,7 @@ describe('Session CRUD Routes', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tabConfig: [
-            { id: '1', command: 'cu', label: 'claude' },
+            { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
             { id: '2', command: 'lazygit', label: 'lazygit' },
             { id: '3', command: 'yazi', label: 'yazi' },
           ],
@@ -323,7 +323,7 @@ describe('Session CRUD Routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { session: Session };
       expect(body.session.tabConfig).toEqual([
-        { id: '1', command: 'cu', label: 'claude' },
+        { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
         { id: '2', command: 'lazygit', label: 'lazygit' },
         { id: '3', command: 'yazi', label: 'yazi' },
       ]);

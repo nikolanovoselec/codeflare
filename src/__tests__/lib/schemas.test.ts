@@ -3,7 +3,7 @@ import { TabConfigSchema } from '../../lib/schemas';
 
 describe('TabConfigSchema', () => {
   it('accepts valid tab config with id "1"', () => {
-    const result = TabConfigSchema.safeParse({ id: '1', command: 'cu', label: 'Terminal 1' });
+    const result = TabConfigSchema.safeParse({ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' });
     expect(result.success).toBe(true);
   });
 

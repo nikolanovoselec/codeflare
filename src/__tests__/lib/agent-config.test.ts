@@ -9,7 +9,7 @@ import { MAX_TABS } from '../../lib/constants';
  * Kept in sync with AGENT_COMMANDS in agent-config.ts.
  */
 const EXPECTED_COMMANDS: Record<AgentType, { command: string; label: string }> = {
-  'claude-code': { command: 'cu', label: 'Terminal 1' },
+  'claude-code': { command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' },
   'codex': { command: 'codex', label: 'Terminal 1' },
   'copilot': { command: 'copilot --yolo', label: 'Terminal 1' },
   'gemini': { command: 'gemini -y', label: 'Terminal 1' },
@@ -49,7 +49,7 @@ describe('getDefaultTabConfig', () => {
 
   it('sets tab 1 to the agent command for claude-code', () => {
     const tabs = getDefaultTabConfig('claude-code');
-    expect(tabs[0]).toEqual({ id: '1', command: 'cu', label: 'Terminal 1' });
+    expect(tabs[0]).toEqual({ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' });
   });
 
   it('sets tab 1 to codex for codex agent', () => {

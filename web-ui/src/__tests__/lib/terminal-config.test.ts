@@ -16,7 +16,7 @@ describe('terminal-config', () => {
 
   describe('getTabIcon', () => {
     it('returns robot icon for "cu" (claude code)', () => {
-      expect(getTabIcon('cu')).toBe(mdiRobotOutline);
+      expect(getTabIcon('claude')).toBe(mdiRobotOutline);
     });
 
     it('returns codex icon for "codex"', () => {
@@ -49,7 +49,7 @@ describe('terminal-config', () => {
 
   describe('getTabDisplayName', () => {
     it('maps "cu" to "claude"', () => {
-      expect(getTabDisplayName('cu')).toBe('claude');
+      expect(getTabDisplayName('claude')).toBe('claude');
     });
 
     it('returns process name unchanged for other processes', () => {
@@ -94,7 +94,7 @@ describe('terminal-config', () => {
   describe('PROCESS_ICON_MAP exhaustiveness via getTabIcon', () => {
     it('every agent type command resolves to a non-console icon', () => {
       // Agent commands that should have dedicated icons (not fallback console)
-      const agentProcessNames = ['cu', 'codex', 'gemini', 'opencode', 'copilot'];
+      const agentProcessNames = ['claude', 'codex', 'gemini', 'opencode', 'copilot'];
       for (const name of agentProcessNames) {
         const icon = getTabIcon(name);
         expect(icon, `${name} should have a dedicated icon, not fallback`).not.toBe(mdiConsole);

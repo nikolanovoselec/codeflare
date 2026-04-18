@@ -36,10 +36,10 @@ export TERM
 # === Fast Start: control auto-update behavior ===
 if [ "${FAST_CLI_START:-true}" = "false" ]; then
     # Unset Dockerfile-level vars so tools CAN auto-update
-    unset CLAUDE_UNLEASHED_NO_UPDATE CLAUDE_UNLEASHED_CHANNEL OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS
+    unset DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS
 else
-    # Ensure all disable vars are set
-    export CLAUDE_UNLEASHED_NO_UPDATE=1
+    # Ensure all disable vars are set (use bundled versions)
+    export DISABLE_AUTOUPDATER=1
     export OPENCODE_DISABLE_AUTOUPDATE=1
     export COPILOT_AUTO_UPDATE=false
 fi
@@ -725,7 +725,7 @@ PROFILE_EOF
 
 # terminal-autostart
 # Start different apps based on terminal tab ID:
-# Tab 1: Claude Code (cu)
+# Tab 1: Claude Code
 # Tab 2: htop (system monitor)
 # Tab 3: yazi (file manager)
 # Tab 4-6: Plain bash terminal in workspace
@@ -741,11 +741,10 @@ if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
     else
     case "${TERMINAL_ID:-1}" in
         1)
-            # Tab 1: Claude Code (via claude-unleashed)
-            # Auto-start: silent + no-consent for non-interactive boot
-            # Updates enabled (Fast Start is OFF -- tools will check for updates on launch)
-            # Manual re-run: just `cu` or `claude-unleashed`
-            cu --silent --no-consent
+            # Tab 1: Claude Code (official CLI)
+            # IS_SANDBOX=1 allows --dangerously-skip-permissions as root
+            # DISABLE_AUTOUPDATER controls whether the CLI auto-updates (Fast Start setting)
+            claude --dangerously-skip-permissions
             # If claude exits, drop to bash (don't use exec so PTY survives)
             ;;
         2)
@@ -794,7 +793,7 @@ if [ -t 1 ] && [ -z "$TERMINAL_APP_STARTED" ]; then
 BASHRC_HEADER
 
         # Parse TAB_CONFIG JSON and generate case entries
-        # TAB_CONFIG format: [{"id":"1","command":"cu","label":"claude"},{"id":"2","command":"","label":"bash"},...]
+        # TAB_CONFIG format: [{"id":"1","command":"claude --dangerously-skip-permissions","label":"claude"},{"id":"2","command":"","label":"bash"},...]
         local tab_count
         tab_count=$(echo "$TAB_CONFIG" | jq -r 'length')
 
@@ -806,11 +805,11 @@ BASHRC_HEADER
             cmd=$(echo "$TAB_CONFIG" | jq -r --arg id "$key" '.[] | select(.id == $id) | .command')
 
             case "$cmd" in
-                cu|claude-unleashed)
+                claude\ --dangerously-skip-permissions|claude)
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
-            # Claude Code (via claude-unleashed)
-            ${cmd} --silent --no-consent
+            # Claude Code (official CLI with sandbox permission bypass)
+            claude --dangerously-skip-permissions
             ;;
 CASE_EOF
                     ;;
@@ -958,8 +957,7 @@ init_sync_log
 # ============================================================================
 # R2 SYNC STARTUP
 # ============================================================================
-# Note: claude-unleashed (cu --silent --no-consent) handles consent automatically,
-# no pre-seeding needed.
+# Note: Claude Code consent is pre-accepted via bypassPermissionsModeAccepted in .claude.json.
 
 if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
     # Step 1: One-way sync FROM R2 to restore user data (credentials, plugins, etc.)

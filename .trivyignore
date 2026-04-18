@@ -21,7 +21,7 @@ CVE-2026-25679
 CVE-2026-27142
 
 # node-tar transitive dependency in globally-installed npm CLIs
-# (claude-unleashed, @openai/codex, @google/gemini-cli, opencode-ai).
+# (@anthropic-ai/claude-code, @openai/codex, @google/gemini-cli, opencode-ai).
 # These CLIs don't process untrusted tar archives at runtime.
 # Fix available (tar 7.5.3-7.5.8) but upstream packages haven't updated.
 CVE-2026-23745

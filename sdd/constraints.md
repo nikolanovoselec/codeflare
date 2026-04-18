@@ -24,7 +24,7 @@ Architectural and technology decisions that apply across all domains.
 | Linter | oxlint | Fast Rust-based linter for CI |
 | Testing | Vitest | Unit/integration tests; Puppeteer for E2E; fast-check for fuzzing |
 | Container Tools | git, gh, rclone, neovim, ripgrep, fd, fzf, yazi, lazygit, zoxide, tmux, htop, jq, bat | Pre-installed developer toolchain in every container |
-| AI Agents | claude-unleashed, @openai/codex, @google/gemini-cli, opencode-ai, @github/copilot | Global npm packages, V8 compile cache pre-warmed at build time |
+| AI Agents | @anthropic-ai/claude-code, @openai/codex, @google/gemini-cli, opencode-ai, @github/copilot | Global npm packages; Claude Code runs as root via `IS_SANDBOX=1` + `--dangerously-skip-permissions` |
 
 ## Non-Functional Requirements
 

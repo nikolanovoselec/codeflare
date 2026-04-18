@@ -23,17 +23,17 @@ export const TERMINAL_TAB_CONFIG: Record<string, { name: string; icon: string }>
 
 // Map process names to display names (when different from process name)
 const PROCESS_DISPLAY_NAME: Record<string, string> = {
-  'cu': 'claude',
+  'claude': 'claude',
 };
 
-/** Get display name for a process (e.g. 'cu' → 'claude') */
+/** Get display name for a process */
 export function getTabDisplayName(processName: string): string {
   return PROCESS_DISPLAY_NAME[processName] || processName;
 }
 
 // Map process names (from server) to MDI icon paths
 const PROCESS_ICON_MAP: Record<string, string> = {
-  'cu': mdiRobotOutline,
+  'claude': mdiRobotOutline,
   'codex': mdiCodeBraces,
   'gemini': mdiDiamond,
   'opencode': mdiRobotIndustrial,
