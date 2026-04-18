@@ -162,7 +162,7 @@
   padding: 0.45rem var(--space-4);
   border-radius: var(--radius-md);
   border: none;
-  background: var(--color-info);
+  background: var(--color-accent);
   color: var(--color-bg-base);
   font-weight: var(--font-medium);
   font-size: 0.85rem;
