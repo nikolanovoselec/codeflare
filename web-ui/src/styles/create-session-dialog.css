@@ -33,10 +33,10 @@
 .csd-section-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-text-muted);
@@ -46,7 +46,7 @@
 .csd-agents {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
 }
 
 .csd-agent-btn {
@@ -91,17 +91,17 @@
 .csd-agent-label {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
 }
 
 .csd-agent-badge {
-  font-size: 9px;
+  font-size: var(--text-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 1px 5px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 8px;
   background: hsla(var(--accent-hue), var(--accent-s), var(--accent-l), 0.15);
   color: var(--color-accent);

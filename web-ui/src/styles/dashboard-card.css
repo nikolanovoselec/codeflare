@@ -16,9 +16,9 @@
 }
 
 .dashboard-card__text {
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.05em;
   line-height: 1.4;
   color: var(--color-text-muted, #6b7280);
   display: -webkit-box;
@@ -28,9 +28,9 @@
 }
 
 .dashboard-card__text--static {
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.05em;
   line-height: 1.4;
   color: var(--color-text-secondary);
   display: -webkit-box;
