@@ -37,10 +37,11 @@
 .subscribe-status-text--pending { color: #f97316; }
 .subscribe-status-text--blocked { color: var(--color-error); }
 
+.subscribe-title { margin: 0 0 var(--space-3); font-size: var(--text-xl); font-weight: var(--font-semibold); color: var(--color-text-primary); }
 .subscribe-message { margin: 0 0 var(--space-4); font-size: var(--text-base); color: var(--color-text-secondary); line-height: 1.6; }
 
 .subscribe-email {
-  margin-bottom: var(--space-4); font-size: var(--text-sm); color: var(--color-text-muted);
+  margin-bottom: var(--space-4); font-size: var(--text-sm); color: var(--color-text-muted); letter-spacing: 0.02em;
   padding: var(--space-2) var(--space-4); background: rgba(24, 24, 27, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-lg); display: inline-block;
 }
@@ -106,7 +107,7 @@
   overflow: hidden; background: rgba(24, 24, 27, 0.5);
 }
 .subscribe-mode-toggle-btn {
-  flex: 1; padding: var(--space-2) var(--space-4); font-size: 0.8rem;
+  flex: 1; padding: var(--space-2) var(--space-4); font-size: 0.8rem; font-weight: var(--font-medium);
   border: none; background: transparent; color: var(--color-text-dimmed);
   cursor: pointer; transition: all 150ms ease;
 }
@@ -294,7 +295,7 @@
 }
 
 .subscribe-lifeline-label {
-  white-space: nowrap; font-weight: var(--font-medium); letter-spacing: 0.02em;
+  font-size: 0.7rem; white-space: nowrap; font-weight: var(--font-medium); letter-spacing: 0.02em;
   color: var(--color-text-muted);
 }
 .subscribe-lifeline-stop--selected .subscribe-lifeline-label { color: var(--color-text-primary); }
