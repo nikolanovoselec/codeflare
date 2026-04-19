@@ -830,7 +830,7 @@ const SubscribePage: Component = () => {
                           </For>
                         </ul>
                         <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
-                          Pro features are designed for claude-code. Other agents receive rules and agent definitions but may not support all capabilities.
+                          Pro features are designed for Claude Code. Other agents receive rules and agent definitions but may not support all capabilities.
                         </p>
                       </div>
                     </div>
