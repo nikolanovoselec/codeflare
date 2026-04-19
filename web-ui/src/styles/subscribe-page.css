@@ -91,18 +91,27 @@
 .subscribe-manage-button:hover { color: #ff9633; border-color: rgba(243, 128, 32, 0.5); }
 .subscribe-manage-button:disabled { opacity: 0.5; cursor: wait; }
 
-/* ── Merged mode card with Standard/Pro toggle ── */
+/* ── Mode section: toggle + Pro card + Standard card ── */
 
-.subscribe-mode-card-merged {
-  background: rgba(24, 24, 27, 0.7);
-  border: 1px solid var(--color-glass-border); border-radius: var(--radius-xl);
-  padding: var(--space-6); text-align: left; width: 100%; max-width: 420px;
+.subscribe-mode-section {
+  width: 100%; max-width: 420px;
   margin: 0 auto var(--space-6);
-  animation: fadeSlideIn 0.4s ease-out;
+  display: flex; flex-direction: column;
+  gap: var(--space-3);
+  animation: fadeSlideIn 0.5s ease-out 0.2s both;
+}
+
+.subscribe-mode-card {
+  background: rgba(24, 24, 27, 0.7);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  text-align: left;
+  width: 100%;
 }
 
 .subscribe-mode-toggle {
-  display: flex; gap: 0; margin-bottom: var(--space-4);
+  display: flex; gap: 0;
   border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-lg);
   overflow: hidden; background: rgba(24, 24, 27, 0.5);
 }
@@ -145,10 +154,6 @@
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.3) !important;
 }
 
-.subscribe-mode-separator {
-  height: 1px; background: rgba(255, 255, 255, 0.06);
-  margin: var(--space-3) 0;
-}
 .subscribe-mode-pro-label {
   margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--color-accent);
   font-weight: var(--font-medium); letter-spacing: 0.02em;
@@ -186,7 +191,7 @@
   padding: var(--space-8); margin-bottom: var(--space-8); width: 100%;
   max-width: 420px; margin-left: auto; margin-right: auto;
   text-align: center;
-  animation: fadeSlideIn 0.5s ease-out 0.1s both;
+  animation: fadeSlideIn 0.5s ease-out;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(59, 130, 246, 0.05) inset;
 }
 
@@ -247,7 +252,7 @@
 .subscribe-lifeline {
   position: relative; width: 100%; max-width: 540px;
   margin: var(--space-6) auto; padding-bottom: 0;
-  animation: fadeSlideIn 0.5s ease-out 0.2s both;
+  animation: fadeSlideIn 0.5s ease-out 0.1s both;
 }
 
 /* Dashed line through icon centers — pure CSS, no SVG alignment issues */
@@ -316,7 +321,7 @@
 /* ── Responsive ── */
 
 @media (max-width: 640px) {
-  .subscribe-mode-card-merged { padding: var(--space-4); }
+  .subscribe-mode-card { padding: var(--space-4); }
   .subscribe-detail-panel { padding: var(--space-4); }
   .subscribe-lifeline-label { font-size: 0.6rem; }
   .subscribe-lifeline-icon { width: 32px; height: 32px; }

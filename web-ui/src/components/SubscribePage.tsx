@@ -658,118 +658,10 @@ const SubscribePage: Component = () => {
               </div>
             </Show>
 
-            {/* ── Tier selection: mode cards + lifeline + detail — all visible ── */}
+            {/* ── Tier selection: detail panel → lifeline → mode section ── */}
             <Show when={subscribePhase() === 'tiers'}>
               <div ref={tierPhaseRef}>
-                {/* Merged mode card with Standard/Pro toggle */}
-                <div class="subscribe-mode-card-merged" data-testid="mode-chooser">
-                  {/* Mode toggle at top */}
-                  <div class="subscribe-mode-toggle">
-                    <button
-                      type="button"
-                      class="subscribe-mode-toggle-btn"
-                      classList={{
-                        'subscribe-mode-toggle-btn--active': globalMode() === 'default',
-                        'subscribe-mode-toggle-btn--current': isActive() && currentMode() === 'default',
-                      }}
-                      data-testid="mode-card-standard"
-                      onClick={() => setGlobalMode('default')}
-                    >
-                      Standard
-                    </button>
-                    <button
-                      type="button"
-                      class="subscribe-mode-toggle-btn"
-                      classList={{
-                        'subscribe-mode-toggle-btn--active': globalMode() === 'advanced',
-                        'subscribe-mode-toggle-btn--current': isActive() && currentMode() === 'advanced',
-                        'subscribe-mode-toggle-btn--disabled': !selectedTierSupportsPro(),
-                      }}
-                      data-testid="mode-card-pro"
-                      disabled={!selectedTierSupportsPro()}
-                      onClick={() => {
-                        if (!selectedTierSupportsPro()) return;
-                        setGlobalMode('advanced');
-                      }}
-                    >
-                      Pro
-                    </button>
-                  </div>
-
-                  {/* Standard features (always visible) */}
-                  <ul class="subscribe-mode-card-features">
-                    <For each={STANDARD_MODE_FEATURES}>
-                      {(f) => (
-                        <li class="subscribe-mode-card-feature">
-                          <Icon path={f.icon} size={16} />
-                          <span>{typeof f.text === 'function' ? f.text() : f.text}</span>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                  <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
-                    Voice input requires a compatible browser like Chrome or Samsung Internet.
-                  </p>
-                  <p class="subscribe-mode-card-feature" style={{ "margin-top": "0.5rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
-                    Coding agent subscription is <span style={{ color: '#22c55e', "font-weight": "700" }}>NOT INCLUDED</span>, bring your own.
-                  </p>
-
-                  {/* Pro features (animated expand/collapse) */}
-                  <div class={`subscribe-pro-expand ${globalMode() === 'advanced' ? 'subscribe-pro-expand--open' : ''}`}>
-                    <div class="subscribe-pro-expand-inner">
-                      <div class="subscribe-mode-separator" />
-                      <p class="subscribe-mode-pro-label">{scrambledProLabel()}</p>
-                      <ul class="subscribe-mode-card-features subscribe-mode-card-features--pro">
-                        <For each={PRO_MODE_FEATURES}>
-                          {(f, i) => (
-                            <li class="subscribe-mode-card-feature">
-                              <Icon path={f.icon} size={16} />
-                              <span>{scrambledProFeatures[i()]()}</span>
-                            </li>
-                          )}
-                        </For>
-                      </ul>
-                      <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
-                        Pro features are designed for Claude Code. Other agents receive rules and agent definitions but may not support all capabilities.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Lifeline — CSS dashed line through icon centers */}
-                <div class="subscribe-lifeline" data-testid="lifeline-rail">
-                  <div class="subscribe-lifeline-track" />
-                  <div class="subscribe-lifeline-stops">
-                    <For each={[...TIER_ORDER]}>
-                      {(tierId) => {
-                        const tierData = () => tiers().find(t => t.id === tierId);
-                        return (
-                          <Show when={tierData()}>
-                            {(td) => (
-                              <button
-                                type="button"
-                                class="subscribe-lifeline-stop"
-                                classList={{
-                                  'subscribe-lifeline-stop--selected': selectedTierId() === tierId,
-                                  'subscribe-lifeline-stop--passed': TIER_ORDER.indexOf(tierId as typeof TIER_ORDER[number]) <= TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]),
-                                }}
-                                onClick={() => setSelectedTierId(tierId)}
-                                data-testid={`lifeline-stop-${tierId}`}
-                              >
-                                <span class={`subscribe-lifeline-icon ${isActive() && currentTierId() === tierId ? 'subscribe-lifeline-icon--current' : ''}`}>
-                                  <Icon path={TIER_ICONS[tierId] ?? mdiStarOutline} size={20} />
-                                </span>
-                                <span class="subscribe-lifeline-label">{td().displayName}</span>
-                              </button>
-                            )}
-                          </Show>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </div>
-
-                {/* Detail panel for selected tier */}
+                {/* Detail panel for selected tier — TOP */}
                 <Show when={selectedTier()} fallback={
                   <div class="subscribe-error">No subscription tiers available.</div>
                 }>
@@ -854,6 +746,116 @@ const SubscribePage: Component = () => {
                     <div class="cf-turnstile" data-sitekey={turnstileSiteKey()} data-callback="onTurnstileSuccess" />
                   </div>
                 </Show>
+
+                {/* Lifeline — CSS dashed line through icon centers */}
+                <div class="subscribe-lifeline" data-testid="lifeline-rail">
+                  <div class="subscribe-lifeline-track" />
+                  <div class="subscribe-lifeline-stops">
+                    <For each={[...TIER_ORDER]}>
+                      {(tierId) => {
+                        const tierData = () => tiers().find(t => t.id === tierId);
+                        return (
+                          <Show when={tierData()}>
+                            {(td) => (
+                              <button
+                                type="button"
+                                class="subscribe-lifeline-stop"
+                                classList={{
+                                  'subscribe-lifeline-stop--selected': selectedTierId() === tierId,
+                                  'subscribe-lifeline-stop--passed': TIER_ORDER.indexOf(tierId as typeof TIER_ORDER[number]) <= TIER_ORDER.indexOf(selectedTierId() as typeof TIER_ORDER[number]),
+                                }}
+                                onClick={() => setSelectedTierId(tierId)}
+                                data-testid={`lifeline-stop-${tierId}`}
+                              >
+                                <span class={`subscribe-lifeline-icon ${isActive() && currentTierId() === tierId ? 'subscribe-lifeline-icon--current' : ''}`}>
+                                  <Icon path={TIER_ICONS[tierId] ?? mdiStarOutline} size={20} />
+                                </span>
+                                <span class="subscribe-lifeline-label">{td().displayName}</span>
+                              </button>
+                            )}
+                          </Show>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </div>
+
+                {/* Mode section — toggle + Pro card (animated) + Standard card */}
+                <div class="subscribe-mode-section" data-testid="mode-chooser">
+                  <div class="subscribe-mode-toggle">
+                    <button
+                      type="button"
+                      class="subscribe-mode-toggle-btn"
+                      classList={{
+                        'subscribe-mode-toggle-btn--active': globalMode() === 'default',
+                        'subscribe-mode-toggle-btn--current': isActive() && currentMode() === 'default',
+                      }}
+                      data-testid="mode-card-standard"
+                      onClick={() => setGlobalMode('default')}
+                    >
+                      Standard
+                    </button>
+                    <button
+                      type="button"
+                      class="subscribe-mode-toggle-btn"
+                      classList={{
+                        'subscribe-mode-toggle-btn--active': globalMode() === 'advanced',
+                        'subscribe-mode-toggle-btn--current': isActive() && currentMode() === 'advanced',
+                        'subscribe-mode-toggle-btn--disabled': !selectedTierSupportsPro(),
+                      }}
+                      data-testid="mode-card-pro"
+                      disabled={!selectedTierSupportsPro()}
+                      onClick={() => {
+                        if (!selectedTierSupportsPro()) return;
+                        setGlobalMode('advanced');
+                      }}
+                    >
+                      Pro
+                    </button>
+                  </div>
+
+                  {/* Pro card — animates in above Standard */}
+                  <div class={`subscribe-pro-expand ${globalMode() === 'advanced' ? 'subscribe-pro-expand--open' : ''}`}>
+                    <div class="subscribe-pro-expand-inner">
+                      <div class="subscribe-mode-card subscribe-mode-card--pro">
+                        <p class="subscribe-mode-pro-label">{scrambledProLabel()}</p>
+                        <ul class="subscribe-mode-card-features subscribe-mode-card-features--pro">
+                          <For each={PRO_MODE_FEATURES}>
+                            {(f, i) => (
+                              <li class="subscribe-mode-card-feature">
+                                <Icon path={f.icon} size={16} />
+                                <span>{scrambledProFeatures[i()]()}</span>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
+                        <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
+                          Pro features are designed for claude-code. Other agents receive rules and agent definitions but may not support all capabilities.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Standard card — always visible */}
+                  <div class="subscribe-mode-card subscribe-mode-card--standard">
+                    <ul class="subscribe-mode-card-features">
+                      <For each={STANDARD_MODE_FEATURES}>
+                        {(f) => (
+                          <li class="subscribe-mode-card-feature">
+                            <Icon path={f.icon} size={16} />
+                            <span>{typeof f.text === 'function' ? f.text() : f.text}</span>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                    <p class="subscribe-mode-card-feature" style={{ "margin-top": "1rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
+                      Voice input requires a compatible browser like Chrome or Samsung Internet.
+                    </p>
+                    <p class="subscribe-mode-card-feature" style={{ "margin-top": "0.5rem", color: "rgba(113, 113, 122, 0.6)", display: "block" }}>
+                      Coding agent subscription is <span style={{ color: '#22c55e', "font-weight": "700" }}>NOT INCLUDED</span>, bring your own.
+                    </p>
+                  </div>
+                </div>
 
                 <button
                   type="button"
