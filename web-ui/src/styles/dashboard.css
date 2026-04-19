@@ -114,6 +114,8 @@
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   cursor: pointer;
   transition: background 150ms ease;
 }
