@@ -45,7 +45,7 @@
 .stat-card__metrics {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1, 4px);
+  gap: 0;
 }
 
 .stat-card__metric {
