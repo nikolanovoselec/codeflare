@@ -185,8 +185,6 @@
   white-space: nowrap;
   font-size: var(--text-sm);
   color: var(--color-text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .storage-item-size,

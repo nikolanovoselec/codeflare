@@ -52,7 +52,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-1) 0;
+  padding: 2px 0;
 }
 
 .stat-card__metric-label {
