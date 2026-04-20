@@ -62,7 +62,7 @@
   font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  line-height: 1.4;
+  line-height: 1;
   color: var(--color-text-muted, #6b7280);
 }
 
