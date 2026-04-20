@@ -52,7 +52,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-1) 0;
+  padding: 2px 0;
 }
 
 .stat-card__metric-label {
@@ -110,11 +110,4 @@
 @keyframes stat-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
-}
-
-/* Mobile: keep tighter metric row padding */
-@media (max-width: 640px) {
-  .stat-card__metric {
-    padding: 2px 0;
-  }
 }
