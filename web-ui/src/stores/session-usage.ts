@@ -94,15 +94,18 @@ function loadDismissedLevel(): DismissedLevel {
   return null;
 }
 
+// Signal acts as a reactive trigger; actual value is read fresh from localStorage
+// on each get so long-lived tabs pick up a new month's empty key automatically.
 const [dismissedSignal, setDismissedSignal] = createSignal<DismissedLevel>(loadDismissedLevel());
 
 export function getDismissedQuotaLevel(): DismissedLevel {
-  return dismissedSignal();
+  dismissedSignal(); // reactive dependency — re-runs consumers on setDismissedQuotaLevel
+  return loadDismissedLevel();
 }
 
 export function setDismissedQuotaLevel(level: '80' | '95'): void {
-  setDismissedSignal(level);
   try {
     localStorage.setItem(getDismissedKey(), level);
   } catch { /* localStorage unavailable */ }
+  setDismissedSignal(level);
 }

@@ -53,17 +53,34 @@ describe('session-usage dismissed quota level', () => {
     expect(mod.getDismissedQuotaLevel()).toBe(null);
   });
 
-  it('does not throw when localStorage is unavailable', async () => {
-    const originalGet = Storage.prototype.getItem;
-    const originalSet = Storage.prototype.setItem;
-    Storage.prototype.getItem = () => { throw new Error('blocked'); };
-    Storage.prototype.setItem = () => { throw new Error('blocked'); };
-
+  it('clears dismissal when UTC month advances in an open session', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-30T23:59:00Z'));
     const mod = await import('../../stores/session-usage');
-    expect(() => mod.getDismissedQuotaLevel()).not.toThrow();
-    expect(() => mod.setDismissedQuotaLevel('80')).not.toThrow();
 
-    Storage.prototype.getItem = originalGet;
-    Storage.prototype.setItem = originalSet;
+    mod.setDismissedQuotaLevel('80');
+    expect(mod.getDismissedQuotaLevel()).toBe('80');
+
+    // Advance to May — April's key is no longer read
+    vi.setSystemTime(new Date('2026-05-01T00:01:00Z'));
+    expect(mod.getDismissedQuotaLevel()).toBe(null);
+  });
+
+  it('does not throw when localStorage is unavailable', async () => {
+    const getSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const setSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+
+    try {
+      const mod = await import('../../stores/session-usage');
+      expect(() => mod.getDismissedQuotaLevel()).not.toThrow();
+      expect(() => mod.setDismissedQuotaLevel('80')).not.toThrow();
+    } finally {
+      getSpy.mockRestore();
+      setSpy.mockRestore();
+    }
   });
 });

@@ -331,7 +331,7 @@ flowchart TD
 
 **Session store extraction (CF-013):** `web-ui/src/stores/session.ts` split from 768 → 582 lines:
 - `session-polling.ts` (196 lines): refreshSessionStatuses, miss counters, start/stop polling. Uses dependency injection via `registerPollingDeps()`.
-- `session-usage.ts` (73 lines): UsageState, warning levels, localStorage cache. Self-contained, no circular deps.
+- `session-usage.ts` (108 lines): UsageState, warning levels, localStorage cache, `getDismissedQuotaLevel`/`setDismissedQuotaLevel` for per-UTC-month banner dismissal. Self-contained, no circular deps.
 - `session.ts` (582 lines): facade re-exports all members. Public API unchanged.
 
 **Type safety fixes (CF-007):** `countPaidSlots` typed (no more `any[]`). Admin PATCH user uses `updateUserRecord` (not raw `KV.put`). `maxUsers` added to frontend `GetUsersResponseSchema` (no more double cast).
