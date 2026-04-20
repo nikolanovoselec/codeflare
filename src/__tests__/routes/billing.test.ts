@@ -131,7 +131,7 @@ describe('POST /billing/checkout', () => {
 
   it('passes billingCycleAnchor for next 1st of month when trial already used (REQ-SUB-021)', async () => {
     const { app, mockKV } = createApp();
-    mockKV._set('user:user@example.com', JSON.stringify({ email: 'user@example.com', trialUsed: true }));
+    mockKV._set('user:user@example.com', { email: 'user@example.com', trialUsed: true });
 
     const before = Math.floor(Date.now() / 1000);
     await app.request('/billing/checkout', {
