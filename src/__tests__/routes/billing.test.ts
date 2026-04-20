@@ -108,7 +108,8 @@ describe('POST /billing/checkout', () => {
     expect(createCheckoutSession).toHaveBeenCalled();
   });
 
-  it('passes billingCycleAnchor for future 1st of UTC month (REQ-SUB-021)', async () => {
+  it('passes billingCycleAnchor after trial end when trial is active (REQ-SUB-021)', async () => {
+    const before = Math.floor(Date.now() / 1000);
     const { app } = createApp();
     await app.request('/billing/checkout', {
       method: 'POST',
@@ -118,10 +119,33 @@ describe('POST /billing/checkout', () => {
 
     const mockedFn = createCheckoutSession as ReturnType<typeof vi.fn>;
     expect(mockedFn).toHaveBeenCalled();
-    const opts = mockedFn.mock.calls[0][0] as { billingCycleAnchor?: number };
-    expect(opts.billingCycleAnchor).toBeGreaterThan(Math.floor(Date.now() / 1000));
-    // Anchor must be at or before 32 days from now (1st of next month is within ~31 days)
-    expect(opts.billingCycleAnchor!).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 32 * 86400);
+    const opts = mockedFn.mock.calls[0][0] as { billingCycleAnchor?: number; trialDays?: number };
+    // Trial is active (user has not used trial) — 7 days
+    expect(opts.trialDays).toBe(7);
+    // Anchor must be strictly after trial end (now + 7 days) to satisfy Stripe
+    const trialEnd = before + 7 * 86400;
+    expect(opts.billingCycleAnchor!).toBeGreaterThan(trialEnd);
+    // Upper bound: trial end + ~31 days (first of next month after trial end)
+    expect(opts.billingCycleAnchor!).toBeLessThanOrEqual(trialEnd + 32 * 86400);
+  });
+
+  it('passes billingCycleAnchor for next 1st of month when trial already used (REQ-SUB-021)', async () => {
+    const { app, mockKV } = createApp();
+    mockKV._set('user:user@example.com', JSON.stringify({ email: 'user@example.com', trialUsed: true }));
+
+    const before = Math.floor(Date.now() / 1000);
+    await app.request('/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    const mockedFn = createCheckoutSession as ReturnType<typeof vi.fn>;
+    const opts = mockedFn.mock.calls[0][0] as { billingCycleAnchor?: number; trialDays?: number };
+    expect(opts.trialDays).toBeUndefined();
+    // Anchor is 1st of next month from now — within ~31 days
+    expect(opts.billingCycleAnchor!).toBeGreaterThan(before);
+    expect(opts.billingCycleAnchor!).toBeLessThanOrEqual(before + 32 * 86400);
   });
 
   it('rejects free tier', async () => {
