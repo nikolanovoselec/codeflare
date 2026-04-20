@@ -5,7 +5,7 @@ import SettingsPanel from './SettingsPanel';
 import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
-import { sessionStore, getUsageWarningLevel } from '../stores/session';
+import { sessionStore, getUsageWarningLevel, getDismissedQuotaLevel, setDismissedQuotaLevel } from '../stores/session';
 import { storageStore } from '../stores/storage';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
@@ -284,7 +284,19 @@ const Layout: Component<LayoutProps> = (props) => {
         </div>
       </Show>
 
-      {/* Usage quota banner — only shown at 100% */}
+      {/* Usage quota banners — dismissal persists per UTC month via localStorage. Implements REQ-SUB-018. */}
+      <Show when={usageWarning() === '80' && getDismissedQuotaLevel() == null}>
+        <div class="layout-auth-banner layout-usage-warning" data-testid="usage-warning-80">
+          <span>You've used 80% of your monthly compute quota. <a href="/app/subscribe">Upgrade plan</a></span>
+          <button type="button" class="layout-banner-dismiss" aria-label="Dismiss" onClick={() => setDismissedQuotaLevel('80')}>&times;</button>
+        </div>
+      </Show>
+      <Show when={usageWarning() === '95' && getDismissedQuotaLevel() !== '95'}>
+        <div class="layout-auth-banner layout-usage-critical" data-testid="usage-warning-95">
+          <span>You've used 95% of your monthly compute quota. <a href="/app/subscribe">Upgrade now</a></span>
+          <button type="button" class="layout-banner-dismiss" aria-label="Dismiss" onClick={() => setDismissedQuotaLevel('95')}>&times;</button>
+        </div>
+      </Show>
       <Show when={usageWarning() === '100'}>
         <div class="layout-auth-banner layout-usage-exceeded" data-testid="usage-warning-100">
           <span>Monthly compute quota exceeded. Sessions cannot start until quota resets. <a href="/app/subscribe">Upgrade plan</a></span>

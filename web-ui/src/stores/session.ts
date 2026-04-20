@@ -62,6 +62,8 @@ export {
   getUsageState,
   isAtUsageQuota,
   getUsageWarningLevel,
+  getDismissedQuotaLevel,
+  setDismissedQuotaLevel,
 } from './session-usage';
 export type { UsageWarningLevel, UsageState } from './session-usage';
 

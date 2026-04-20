@@ -5,6 +5,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 ## 2026-04-20
 - Added REQ-SUB-021: new paid subscriptions are anchored to the 1st of UTC month so billing dates match the monthly quota reset. Existing subscriptions keep their original anniversary billing. First charge is prorated for the partial period.
 - Clarified REQ-SUB-021 AC2 and AC6: on trial subscriptions the billing cycle anchor falls after trial end, and the first charge's prorated period begins at trial end rather than subscription start.
+- Updated REQ-SUB-018 AC4: quota warning banner dismissal is now persisted per UTC month in localStorage instead of session-scoped. Users no longer see the banner on every page reload; dismissal resets naturally when the monthly quota resets.
 
 ## 2026-04-18
 - Free tier idle timeout changed from 5 minutes to 15 minutes. Onboarding page now includes idle timeout selector as section 1 with billing explanation.
