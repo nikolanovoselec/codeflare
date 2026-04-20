@@ -526,11 +526,11 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 1. When a user starts a Stripe checkout for a paid tier, the resulting subscription is anchored so that all recurring charges occur on the 1st of UTC month at 00:00:00.
-2. The first charge is prorated for the partial period between subscription start and the next 1st of month (e.g., subscribing on the 15th of a 30-day month results in a roughly 50% prorated first charge).
+2. The first charge is prorated for the partial period between the subscription's effective start (subscription creation for non-trial subscriptions, or trial end for trial subscriptions) and the next 1st of UTC month (e.g., subscribing on the 15th of a 30-day month with no trial results in a roughly 50% prorated first charge).
 3. Subsequent monthly charges occur on the 1st of each UTC month.
 4. Monthly quota reset and billing cycle both roll over on the same calendar date.
 5. Existing subscriptions created before this behavior are not migrated — they retain their original billing anniversary.
-6. Trial period behavior is unaffected — trial runs independently and billing begins on the anchor date after the trial ends (or is ended early by quota consumption).
+6. When a free trial is active, the billing cycle anchor is the first 1st of UTC month strictly after the trial ends, so billing begins on that anchor date once the trial completes (or is ended early by quota consumption). Trial length itself is unaffected.
 
 **Applies To:** User
 **Priority:** P1
