@@ -111,3 +111,10 @@
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* Mobile: keep tighter metric row padding */
+@media (max-width: 640px) {
+  .stat-card__metric {
+    padding: 2px 0;
+  }
+}
