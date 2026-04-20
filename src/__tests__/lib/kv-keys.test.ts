@@ -11,6 +11,7 @@ import {
   getTimekeeperKey,
   getUtcDateString,
   getUtcMonthString,
+  getNextUtcMonthStart,
   getIsoWeekStart,
   SETUP_KEYS,
   buildSessionMetadata,
@@ -243,6 +244,27 @@ describe('getUtcMonthString', () => {
   it('handles December correctly', () => {
     const date = new Date('2026-12-31T23:59:59Z');
     expect(getUtcMonthString(date)).toBe('2026-12');
+  });
+});
+
+describe('getNextUtcMonthStart', () => {
+  // Implements REQ-SUB-021
+  it('returns unix timestamp for 1st of next UTC month', () => {
+    const date = new Date('2026-04-20T14:30:00Z');
+    const expected = Math.floor(Date.UTC(2026, 4, 1, 0, 0, 0) / 1000); // May 1 2026
+    expect(getNextUtcMonthStart(date)).toBe(expected);
+  });
+
+  it('handles last day of month', () => {
+    const date = new Date('2026-04-30T23:59:59Z');
+    const expected = Math.floor(Date.UTC(2026, 4, 1, 0, 0, 0) / 1000); // May 1 2026
+    expect(getNextUtcMonthStart(date)).toBe(expected);
+  });
+
+  it('rolls year boundary on December', () => {
+    const date = new Date('2026-12-31T23:59:59Z');
+    const expected = Math.floor(Date.UTC(2027, 0, 1, 0, 0, 0) / 1000); // Jan 1 2027
+    expect(getNextUtcMonthStart(date)).toBe(expected);
   });
 });
 

@@ -335,6 +335,56 @@ describe('createCheckoutSession with trial', () => {
   });
 });
 
+describe('createCheckoutSession with billing_cycle_anchor', () => {
+  // Implements REQ-SUB-021
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('includes billing_cycle_anchor when billingCycleAnchor is set', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'cs_anchor', url: 'https://checkout.stripe.com/anchor' }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await createCheckoutSession({
+      priceId: 'price_test',
+      customerEmail: 'anchor@example.com',
+      successUrl: 'https://example.com/success',
+      cancelUrl: 'https://example.com/cancel',
+      secretKey: 'sk_test_key',
+      billingCycleAnchor: 1777593600,
+    });
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = fetchCall[1].body as string;
+    expect(body).toContain('subscription_data%5Bbilling_cycle_anchor%5D=1777593600');
+  });
+
+  it('does NOT include billing_cycle_anchor when omitted', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: 'cs_noanchor', url: 'https://checkout.stripe.com/noanchor' }), { status: 200 }),
+    ) as typeof globalThis.fetch;
+
+    await createCheckoutSession({
+      priceId: 'price_test',
+      customerEmail: 'noanchor@example.com',
+      successUrl: 'https://example.com/success',
+      cancelUrl: 'https://example.com/cancel',
+      secretKey: 'sk_test_key',
+    });
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = fetchCall[1].body as string;
+    expect(body).not.toContain('billing_cycle_anchor');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // fetchSubscription — Signal and Sync: fetch subscription snapshot from Stripe API
 // ---------------------------------------------------------------------------

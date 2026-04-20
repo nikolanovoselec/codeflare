@@ -192,6 +192,8 @@ interface CheckoutSessionOptions {
   trialQuotaHours?: number;
   /** ISO 4217 currency code (lowercase). Selects from Price's currency_options. */
   currency?: string;
+  /** Unix timestamp (seconds) for subscription billing_cycle_anchor. Implements REQ-SUB-021. */
+  billingCycleAnchor?: number;
 }
 
 interface CheckoutSessionResult {
@@ -223,6 +225,11 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
   if (opts.trialDays != null && opts.trialDays > 0) {
     params['subscription_data[trial_period_days]'] = String(opts.trialDays);
     params['custom_text[submit][message]'] = `Your trial includes ${opts.trialQuotaHours ?? 4} hours of compute. Full billing begins after usage or ${opts.trialDays} days, whichever comes first.`;
+  }
+
+  // Implements REQ-SUB-021: anchor subscription to 1st of UTC month
+  if (opts.billingCycleAnchor != null) {
+    params['subscription_data[billing_cycle_anchor]'] = String(opts.billingCycleAnchor);
   }
 
   // CF-030: Derive idempotency key to prevent duplicate checkout sessions on retry

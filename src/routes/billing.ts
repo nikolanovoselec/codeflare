@@ -14,7 +14,7 @@ import { ValidationError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { parseUserRecord, updateUserRecord } from '../lib/user-record';
 import { getTierConfig, countPaidSlots } from '../lib/subscription';
-import { getBaseUrl, SETUP_KEYS } from '../lib/kv-keys';
+import { getBaseUrl, getNextUtcMonthStart, SETUP_KEYS } from '../lib/kv-keys';
 import { getAllUsers } from '../lib/access-policy';
 import {
   getStripePriceId,
@@ -99,6 +99,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   const country = c.req.header('CF-IPCountry') || '';
   const currency = getCurrencyForCountry(country);
 
+  // Implements REQ-SUB-021: anchor billing cycle to 1st of UTC month
   const session = await createCheckoutSession({
     priceId,
     customerEmail: user.email,
@@ -109,6 +110,7 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
     trialDays: trialUsed ? undefined : 7,
     trialQuotaHours: trialUsed ? undefined : trialQuotaHours,
     currency,
+    billingCycleAnchor: getNextUtcMonthStart(),
   });
 
   // Store checkoutSessionId on user KV (non-fatal)

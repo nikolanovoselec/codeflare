@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-20
+- Added REQ-SUB-021: new paid subscriptions are anchored to the 1st of UTC month so billing dates match the monthly quota reset. Existing subscriptions keep their original anniversary billing. First charge is prorated for the partial period.
+
 ## 2026-04-18
 - Free tier idle timeout changed from 5 minutes to 15 minutes. Onboarding page now includes idle timeout selector as section 1 with billing explanation.
 - Removed claude-unleashed dependency. Claude Code now runs directly via `claude --dangerously-skip-permissions` with `IS_SANDBOX=1`. Anthropic shipped Claude Code as a native binary (v2.1.102+), breaking the JavaScript patcher.

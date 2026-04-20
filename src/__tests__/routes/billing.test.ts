@@ -108,6 +108,22 @@ describe('POST /billing/checkout', () => {
     expect(createCheckoutSession).toHaveBeenCalled();
   });
 
+  it('passes billingCycleAnchor for future 1st of UTC month (REQ-SUB-021)', async () => {
+    const { app } = createApp();
+    await app.request('/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: 'standard', mode: 'default' }),
+    });
+
+    const mockedFn = createCheckoutSession as ReturnType<typeof vi.fn>;
+    expect(mockedFn).toHaveBeenCalled();
+    const opts = mockedFn.mock.calls[0][0] as { billingCycleAnchor?: number };
+    expect(opts.billingCycleAnchor).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    // Anchor must be at or before 32 days from now (1st of next month is within ~31 days)
+    expect(opts.billingCycleAnchor!).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 32 * 86400);
+  });
+
   it('rejects free tier', async () => {
     const { app } = createApp();
     const res = await app.request('/billing/checkout', {

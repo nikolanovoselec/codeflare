@@ -214,6 +214,18 @@ export function getUtcMonthString(date: Date): string {
 }
 
 /**
+ * Return Unix timestamp (seconds) for the next 1st of UTC month at 00:00:00.
+ * Used to anchor Stripe subscriptions so the billing cycle matches the monthly
+ * quota reset boundary.
+ *
+ * Implements REQ-SUB-021
+ */
+export function getNextUtcMonthStart(now: Date = new Date()): number {
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0));
+  return Math.floor(next.getTime() / 1000);
+}
+
+/**
  * Get the ISO week start (Monday) date string for a given date.
  * ISO weeks start on Monday. Returns YYYY-MM-DD of the Monday.
  */
