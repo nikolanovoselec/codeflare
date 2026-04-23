@@ -74,8 +74,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && ln -s "$(which nvim)" /usr/local/bin/vim
 
 # Install rclone (pinned version — unpinned install.sh broke bisync, see documentation/storage-and-sync.md)
-RUN curl -fsSL https://downloads.rclone.org/v1.73.2/rclone-v1.73.2-linux-amd64.deb -o /tmp/rclone.deb \
-    && echo "2c6bc8e6ee23493907bdae2c599b00b9fcc2def7d1346211ce371323d14ac9d6  /tmp/rclone.deb" | sha256sum -c - \
+RUN curl -fsSL https://downloads.rclone.org/v1.73.5/rclone-v1.73.5-linux-amd64.deb -o /tmp/rclone.deb \
+    && echo "c4de165467dd9066a72931ea2bee616e43eccf36f6f1c06a34757d0f6f25c7f1  /tmp/rclone.deb" | sha256sum -c - \
     && dpkg -i /tmp/rclone.deb \
     && rm /tmp/rclone.deb
 
