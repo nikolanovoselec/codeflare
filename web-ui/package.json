@@ -27,7 +27,7 @@
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^25.6.0",
-    "fast-check": "^4.6.0",
+    "fast-check": "^4.7.0",
     "jsdom": "^29.0.2",
     "knip": "^6.6.1",
     "oxlint": "^1.59.0",
