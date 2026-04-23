@@ -178,7 +178,7 @@ When `enforce_tdd: true`, spec-reviewer runs three classification passes on ever
 
 When `enforce_tdd: false`, spec-reviewer writes `sdd/.coverage-report.md` without modifying the spec. Opt out per project if the product domain genuinely does not admit automated testing (e.g., pure visual design systems).
 
-In `unleashed` mode, `enforce_tdd: true` is forced — the PR review is the safety net.
+In `unleashed` mode, `enforce_tdd: true` is forced — the commits on the current branch are fully autonomous, so TDD enforcement is non-negotiable.
 
 ## Source code ↔ REQ annotations
 
