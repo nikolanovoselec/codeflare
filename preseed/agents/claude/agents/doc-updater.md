@@ -122,11 +122,11 @@ For each finding (HIGH first):
 
 ### Mode: unleashed
 
-1. Use the same branch `spec-reviewer` created (`sdd-cleanup-{date}-{shortsha}`), or create one if it doesn't exist
+1. Stay on the current branch. Refuse to run on `main`/`master` without `--branch-confirmed`.
 2. Auto-fix all findings including LOW
 3. Auto-resolve doc-vs-spec conflicts conservatively: mark both sides as needing review (mark the doc with a warning block, mark the REQ via spec-reviewer's mechanism). **Never overwrite intent on either side.**
 4. Commit per category with `[unleashed] [doc-updater]` prefix
-5. If spec-reviewer already opened a PR, append commits to its branch. If not, push the branch and open one.
+5. Push commits directly to the current branch. No new branch, no PR.
 
 ## Phase 4: Report
 

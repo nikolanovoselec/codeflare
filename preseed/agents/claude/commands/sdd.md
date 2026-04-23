@@ -52,11 +52,13 @@ truth for what the product does and why.
     Recommended for solo developers in steady-state.
 
   unleashed
-    Walk-away mode. /sdd clean creates a new branch, applies SAFE +
-    RISKY + JUDGMENT fixes (using conservative defaults that preserve
-    information without overwriting intent), commits per category,
-    opens a PR. You walk away. You come back to a PR — review and
-    merge or close.
+    Walk-away autopilot. /sdd clean applies SAFE + RISKY + JUDGMENT
+    fixes on the current branch (using conservative defaults that
+    preserve information without overwriting intent), commits per
+    category, pushes. No new branch, no PR. enforce_tdd is forced true.
+    You walk away. You come back to per-category commits and
+    sdd/.review-needed.md — git revert <sha> per-category if anything
+    needs undoing.
 
   /sdd autonomous on            → set mode = auto
   /sdd autonomous unleashed on  → set mode = unleashed
@@ -330,7 +332,7 @@ Refactor a rotted spec. Mode-aware.
 2. **Apply per-command flags**: `--interactive`, `--auto`, `--unleashed` override the config setting for this run
 3. **Validate working tree**: refuse if `git status --porcelain` is non-empty
 4. **In `auto` mode**: refuse if current branch is `main` or `master` without `--branch-confirmed`
-5. **In `unleashed` mode**: create a new branch `sdd-cleanup-{YYYY-MM-DD}-{shortsha}` regardless of current branch
+5. **In `unleashed` mode**: push directly to the current branch (no new branch, no PR); refuse to run on `main`/`master` without `--branch-confirmed`
 6. **Scan `sdd/` for findings**:
    - Strikethrough text in REQs (LOW)
    - Prose Status fields (LOW)
@@ -345,11 +347,11 @@ Refactor a rotted spec. Mode-aware.
 7. **Apply per mode**:
    - **interactive**: report findings batch by batch, ask confirmation
    - **auto**: apply SAFE + RISKY silently, escalate JUDGMENT to `sdd/.review-needed.md`
-   - **unleashed**: apply SAFE + RISKY + JUDGMENT (conservative defaults), commit per category, push branch, open PR
+   - **unleashed**: apply SAFE + RISKY + JUDGMENT (conservative defaults), commit per category, push directly to current branch
 8. **All commits tagged `[sdd-clean]`** to bypass spec-reviewer's round-detection
 9. **Backup before destructive ops**: archive `changes.md` to `changes-archive-YYYY-MM.md` before truncating
 10. **Write `sdd/.last-clean-run.md`** with full audit log
-11. **In unleashed mode**, the PR description includes the full audit log so the user can review when they return
+11. **In unleashed mode**, each commit message includes its audit log excerpt so the user can review per-category when they return (also see `sdd/.last-clean-run.md`)
 
 ### Conservative JUDGMENT auto-resolution (unleashed only)
 

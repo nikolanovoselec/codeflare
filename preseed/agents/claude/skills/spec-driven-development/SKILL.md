@@ -86,14 +86,14 @@ pending.md         # In-flight work and known gaps (NOT requirements)
 
 | Behavior | interactive | auto | unleashed |
 |---|---|---|---|
-| Where work lands | Current branch | Current branch | New branch `sdd-cleanup-{date}` + PR |
+| Where work lands | Current branch | Current branch | Current branch |
 | SAFE fixes (strip strikethrough, truncate prose Status, generate backlinks, move forbidden content) | Confirm → apply | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves, bulk operations) | Confirm + backup + apply | Backup + apply | Backup + apply |
 | JUDGMENT calls (doc-vs-spec conflict, oversized REQ, fake-Deprecated) | Escalate to user, pause | Escalate to `sdd/.review-needed.md`, continue | **Auto-resolve conservatively** (rules below), continue |
-| `enforce_tdd` default | per `sdd/config.yml` (default true) | per `sdd/config.yml` (default true) | **Forced true** (PR review is the safety net) |
-| Output | Inline confirmations | Inline reports | **Pull request with full description** |
+| `enforce_tdd` default | per `sdd/config.yml` (default true) | per `sdd/config.yml` (default true) | **Forced true** |
+| Output | Inline confirmations | Inline reports | Inline reports; per-category commits |
 
-The fundamental difference: **where the work lands and how JUDGMENT is handled**, nothing else. No artificial change limits in any mode.
+The fundamental difference: **how JUDGMENT is handled**, nothing else. All modes push to the current branch. No PR, no new branch, no artificial change limits.
 
 ### Conservative JUDGMENT auto-resolution (unleashed only)
 
@@ -106,7 +106,7 @@ When unleashed mode encounters a JUDGMENT call, it never picks a winner that ove
 | Fake-Deprecated REQ (no Replaced By) | Move REQ definition to README's `## Out of Scope` section, remove from domain file. Content preserved. |
 | Truly ambiguous content | Mark as `Partial` with `Notes:`, log to `sdd/.review-needed.md`. |
 
-The user comes back to a PR. They review the changes, see the JUDGMENT items in `sdd/.review-needed.md`, and decide whether to merge or close the PR.
+The user comes back to new commits on the current branch. They inspect the per-category commits and `sdd/.review-needed.md`, and can `git revert <sha>` per-category if any change is unwanted. No PR, no merge step — commits land directly where the user pushed from.
 
 ## Sub-commands
 
@@ -180,6 +180,30 @@ The agent does not need internet access — all templates are bundled in `refere
 
 If `sdd/` already exists, `/sdd init` aborts with an error. Use `--force` to overwrite (destructive — confirm with user first).
 
+### Dependency version resolution
+
+When `/sdd init` generates a package manifest (`package.json`, `Cargo.toml`, `requirements.txt`, `go.mod`, etc.), NEVER emit memorized version ranges. Resolve each top-level dependency to its current latest stable via the ecosystem's metadata query tool:
+
+| Ecosystem | Version query | Lockfile generation (scaffold-only carveout) |
+|---|---|---|
+| npm | `npm view <pkg> version` + `npm view <pkg> peerDependencies` | `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` |
+| Cargo | `cargo search <crate> --limit 1` | `cargo generate-lockfile` |
+| Python | `pip index versions <pkg>` or `uv pip compile` | `uv lock` or `pip-compile` |
+| Go | `go list -m -versions <module>` | `go mod tidy` |
+
+Process (npm example):
+1. For each proposed dependency, run `npm view <pkg> version` → capture latest
+2. Run `npm view <pkg> peerDependencies` → capture peer constraints
+3. Cross-check peer ranges: if two packages disagree, drop one to the highest co-compatible version rather than picking the latest of both
+4. Emit specific caret ranges: `^5.14.0`, never `^5.0.0` from memory
+5. Write `package.json`
+6. Run the lockfile generator ONCE (scaffold-only carveout — see below)
+7. Commit both manifest and lockfile
+
+**Local CPU carveout (`/sdd init` scaffold only):** the `no-local-builds` rule forbids local installs/builds/tests on this 1-vCPU container. The lockfile generator is a one-time exception because (a) CI's `npm ci` requires a committed lockfile, (b) Dependabot baseline needs a deterministic starting point, and (c) the operation is resolution-only with `--ignore-scripts` (no module downloads, no script execution, no build). This carveout applies ONLY during `/sdd init`. Every other local install/build/test remains forbidden.
+
+**Forbidden at scaffold time:** `npm install` (full), `npm test`, `npm run build`, `tsc`, `cargo build`, `cargo test`, any test runner, any bundler.
+
 ## /sdd clean — rescuing a rotted spec
 
 `/sdd clean` is the rescue command for projects whose spec has accumulated implementation leakage, fake deprecations, prose Status fields, oversized REQs, and bloated changelogs.
@@ -190,7 +214,7 @@ In **interactive** mode: reports findings batch-by-batch, asks for confirmation 
 
 In **auto** mode: applies SAFE and RISKY fixes silently on the current branch. JUDGMENT items go to `sdd/.review-needed.md`.
 
-In **unleashed** mode: creates a new branch (`sdd-cleanup-{YYYY-MM-DD-shortsha}`), applies SAFE + RISKY + JUDGMENT fixes (using conservative defaults), commits per category, opens a pull request. The user walks away and reviews the PR when they return.
+In **unleashed** mode: applies SAFE + RISKY + JUDGMENT fixes on the current branch (using conservative defaults for JUDGMENT), commits per category, pushes directly. No new branch, no PR. `enforce_tdd: true` is forced. The commits land where the user pushed from.
 
 ### Safety nets
 
@@ -205,9 +229,10 @@ In `auto` mode specifically:
 - Refuses to run on `main` or `master` without `--branch-confirmed`
 
 In `unleashed` mode specifically:
-- Always creates a new branch regardless of current branch
-- Always opens a PR with full audit log in the description
-- The PR is the rollback surface — close to discard, merge to accept
+- Pushes commits directly to the current branch (no new branch, no PR)
+- Refuses to run on `main`/`master` without `--branch-confirmed`
+- Each commit is per-category and tagged `[sdd-clean]` — `git revert <sha>` is the rollback surface
+- Full audit log lives in `sdd/.last-clean-run.md` + the per-category commit messages
 
 ### What gets cleaned
 

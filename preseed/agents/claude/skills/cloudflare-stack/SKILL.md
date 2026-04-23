@@ -83,6 +83,27 @@ Use these for new projects:
 - Cloudflare D1 — SQLite database
 - Cloudflare Durable Objects — stateful coordination
 
+### Cloudflare cohort pinning
+
+Four npm packages in the Cloudflare Workers stack drift together and break together — pin them as one cohort resolved at scaffold time:
+
+- `wrangler`
+- `@cloudflare/workers-types`
+- `@cloudflare/vitest-pool-workers`
+- `vitest`
+
+Process during `/sdd init` for any Cloudflare Workers project:
+
+1. Run `npm view wrangler version` → latest wrangler (e.g. `4.x.y`)
+2. Run `npm view @cloudflare/vitest-pool-workers peerDependencies` → read the `wrangler` peer range and the `vitest` peer range
+3. If the wrangler peer range excludes the latest, step down wrangler to the highest satisfying version. Do NOT upgrade `@cloudflare/vitest-pool-workers` to a newer major that hasn't shipped yet.
+4. Read `@cloudflare/workers-types` latest — usually date-stamped; use the newest that predates the wrangler major's deprecation date
+5. Emit all four as specific carets in `package.json`
+
+Rationale: the 1-vCPU container (no-local-builds rule) means peer-resolution surprises surface only in CI. Pinning the cohort at scaffold time prevents Dependabot from opening upgrade PRs that immediately break type checking or the vitest pool worker.
+
+Record the resolved cohort in `documentation/decisions/` as an ADR so future upgrades know what was co-tested together.
+
 ### NOT Supported — Do Not Use
 
 Never use these technologies for new projects:

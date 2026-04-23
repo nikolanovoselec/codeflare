@@ -166,17 +166,16 @@ For each finding (HIGH first, then MEDIUM, then LOW):
 
 ### Mode: unleashed
 
-1. Create a new branch `sdd-cleanup-{YYYY-MM-DD}-{shortsha}` (or reuse if one already exists for today)
+1. Stay on the current branch. Refuse to run on `main`/`master` without `--branch-confirmed`.
 2. Auto-fix all findings including LOW
 3. Auto-resolve JUDGMENT items conservatively:
    - **Doc-vs-spec conflict**: mark REQ as `Partial`, add `Notes:`, log to `sdd/.review-needed.md`. **Never overwrite intent.**
    - **Oversized REQ**: extract implementation prose to relevant `documentation/` file, leave Intent + AC verbatim. **Never split into multiple REQs.**
    - **Fake-Deprecated REQ**: move definition to `## Out of Scope` section in domain README, remove from domain file. **Never delete.**
 4. `enforce_tdd` is forced true in unleashed mode
-5. Commit per category with `[unleashed] [spec-reviewer]` prefix
-6. Push the branch
-7. Open a PR with full audit log in the description (use `gh pr create`)
-8. Write `sdd/.last-clean-run.md` summarizing what happened
+5. Commit per category with `[unleashed] [spec-reviewer]` prefix. Each commit message includes its audit log excerpt.
+6. Push commits directly to the current branch. No new branch, no PR.
+7. Write `sdd/.last-clean-run.md` summarizing what happened (full audit log lives here + in the per-category commit messages)
 
 ### Severity guarantees
 

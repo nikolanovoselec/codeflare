@@ -158,7 +158,7 @@ Both `spec-reviewer` and `doc-updater` agents tag every finding with severity:
 **Mode-dependent action** (see modes section below):
 - `interactive`: confirm before applying any finding's fix
 - `auto`: auto-fix CRITICAL + HIGH + MEDIUM, defer LOW to `/sdd clean`
-- `unleashed`: auto-fix everything including LOW, on a new branch
+- `unleashed`: auto-fix everything including LOW, on the current branch
 
 ## Test coverage and enforce_tdd
 
@@ -269,14 +269,14 @@ forbidden_content_overrides: []  # explicit REQ IDs that opt out of forbidden ch
 
 | Behavior | interactive | auto | unleashed |
 |---|---|---|---|
-| Where work lands | Current branch | Current branch | New branch `sdd-cleanup-{date}` + PR |
+| Where work lands | Current branch | Current branch | Current branch |
 | SAFE fixes | Confirm before applying | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves) | Confirm + backup | Backup + apply | Backup + apply |
 | JUDGMENT calls | Escalate to user, pause | Escalate to `sdd/.review-needed.md`, continue | **Auto-resolve conservatively** (rules below), continue |
 | enforce_tdd default | per config (default true) | per config (default true) | **forced true** |
-| Output | Inline confirmations | Inline reports | **Pull request with full description** |
+| Output | Inline confirmations | Inline reports | Inline reports; per-category commits |
 
-The fundamental difference between modes is **where the work lands and how JUDGMENT is handled**, not what gets done.
+The fundamental difference between modes is **how JUDGMENT is handled**. All modes push to the current branch; unleashed does not create branches or PRs.
 
 ## Conservative JUDGMENT auto-resolution rules (unleashed mode only)
 
@@ -307,7 +307,7 @@ Falls back gracefully when there's no upstream.
 Before any agent-driven write to `sdd/` or `documentation/`:
 
 1. **Working tree must be clean**: refuse to run if `git status --porcelain` is non-empty (avoids mixing the user's WIP edits with agent commits)
-2. **Branch protection**: in `auto` mode, refuse to run on `main` or `master` without `--branch-confirmed`. In `unleashed` mode, automatically create a new branch `sdd-cleanup-{YYYY-MM-DD-shortsha}` regardless of current branch.
+2. **Branch protection**: in `auto` and `unleashed` modes, refuse to run on `main` or `master` without `--branch-confirmed`. Neither mode creates a new branch; both push to the current branch.
 
 ## Files that live alongside `sdd/`
 
