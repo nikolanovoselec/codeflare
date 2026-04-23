@@ -173,3 +173,11 @@ CVE-2026-40164
 # cpython 3.11: arbitrary code execution or information disclosure
 # python3 is used for ECC observe hooks only (stdlib, no network, no untrusted input). No fix in bookworm.
 CVE-2026-6100
+
+# Go stdlib in rclone v1.73.2 / lazygit v0.60.0: crypto/x509 DoS via inefficient cert chain validation
+# These are CLI tools in sandboxed container, not exposed to untrusted certificate chains.
+CVE-2026-32281
+
+# Go stdlib in rclone v1.73.2 / lazygit v0.60.0: TLS DoS via multiple key update messages
+# Container doesn't expose TLS endpoints; these tools make outbound TLS only to trusted services.
+CVE-2026-32283
