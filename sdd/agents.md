@@ -551,11 +551,12 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 1. Pro mode preseeds the `spec-driven-development` skill, the `/sdd` command, the `spec-discipline` rule (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
-2. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects; in import mode it derives a spec from existing source code.
-3. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via `sdd/config.yml`; auto and unleashed apply fixes silently with the PR-based safety net in unleashed mode.
+2. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects; in import mode it derives a spec from existing source code. When a package manifest is generated, top-level dependency versions are resolved at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) rather than emitted from memory; the Cloudflare Workers stack pins `wrangler`, `@cloudflare/workers-types`, `@cloudflare/vitest-pool-workers`, and `vitest` as a single co-resolved cohort. Lockfile generation during `/sdd init` is a scoped carveout to the no-local-builds rule (resolution only, with `--ignore-scripts` on npm; no installs, tests, or builds).
+3. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via `sdd/config.yml`. Interactive and auto modes apply fixes on the current branch (auto silently, interactive after confirmation). Unleashed mode is the walk-away autopilot: it applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits, forces `enforce_tdd: true`, and uses conservative JUDGMENT auto-resolution that never overwrites intent. Unleashed does not create a new branch and does not open a pull request; `git revert <sha>` on a per-category commit is the rollback surface, and `sdd/.last-clean-run.md` plus each commit message carry the audit log.
 4. After every push, `spec-reviewer` runs first then `doc-updater` runs second (sequential, never parallel) on any project containing `sdd/`; on non-SDD projects (no `sdd/` folder) no review agents run at all — the `git-push-review-reminder` hook exits silently and the push proceeds friction-free (vibe-coding mode).
 5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
 6. The workflow is project-agnostic and self-limits to 2 fix rounds per commit cycle to prevent micro-fix spirals.
+7. In `auto` and `unleashed` modes, spec-reviewer and doc-updater refuse to run on `main`/`master` without an explicit `--branch-confirmed` flag.
 
 **Constraints:**
 - Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.

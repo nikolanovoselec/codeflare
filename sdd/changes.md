@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-23
+- Updated REQ-AGENT-021 AC3: unleashed mode now applies all fixes (SAFE + RISKY + JUDGMENT) as per-category `[sdd-clean]` commits on the current branch. No new branch is created and no pull request is opened; `git revert <sha>` is the rollback surface and `sdd/.last-clean-run.md` carries the audit log. Interactive and auto modes are unchanged. Added AC7 to make the `auto`/`unleashed` `main`/`master` refusal explicit.
+- Updated REQ-AGENT-021 AC2: `/sdd init` now resolves top-level dependency versions at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) instead of emitting memorized ranges, generates a lockfile once as a scoped carveout to no-local-builds, and pins `wrangler` + `@cloudflare/workers-types` + `@cloudflare/vitest-pool-workers` + `vitest` as a single co-resolved cohort on Cloudflare Workers projects.
+
 ## 2026-04-20
 - Added REQ-SUB-021: new paid subscriptions are anchored to the 1st of UTC month so billing dates match the monthly quota reset. Existing subscriptions keep their original anniversary billing. First charge is prorated for the partial period.
 - Clarified REQ-SUB-021 AC2 and AC6: on trial subscriptions the billing cycle anchor falls after trial end, and the first charge's prorated period begins at trial end rather than subscription start.
