@@ -188,8 +188,10 @@ When `/sdd init` generates a package manifest (`package.json`, `Cargo.toml`, `re
 |---|---|---|
 | npm | `npm view <pkg> version` + `npm view <pkg> peerDependencies` | `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` |
 | Cargo | `cargo search <crate> --limit 1` | `cargo generate-lockfile` |
-| Python | `pip index versions <pkg>` or `uv pip compile` | `uv lock` or `pip-compile` |
+| Python | `pip index versions <pkg>` | `uv lock` or `pip-compile` |
 | Go | `go list -m -versions <module>` | `go mod tidy` |
+
+For Cloudflare Workers projects, see `cloudflare-stack` SKILL → § Cloudflare cohort pinning — the 4-pack (wrangler + workers-types + vitest-pool-workers + vitest) must be resolved together before writing `package.json`.
 
 Process (npm example):
 1. For each proposed dependency, run `npm view <pkg> version` → capture latest
@@ -200,7 +202,7 @@ Process (npm example):
 6. Run the lockfile generator ONCE (scaffold-only carveout — see below)
 7. Commit both manifest and lockfile
 
-**Local CPU carveout (`/sdd init` scaffold only):** the `no-local-builds` rule forbids local installs/builds/tests on this 1-vCPU container. The lockfile generator is a one-time exception because (a) CI's `npm ci` requires a committed lockfile, (b) Dependabot baseline needs a deterministic starting point, and (c) the operation is resolution-only with `--ignore-scripts` (no module downloads, no script execution, no build). This carveout applies ONLY during `/sdd init`. Every other local install/build/test remains forbidden.
+**Local CPU carveout (`/sdd init` scaffold only):** the `no-local-builds` rule forbids local installs/builds/tests on this 1-vCPU container. The lockfile generator is a one-time exception because (a) CI's `npm ci` requires a committed lockfile, (b) Dependabot baseline needs a deterministic starting point, and (c) the operation is resolution-only with `--ignore-scripts` (no `node_modules` population, no script execution, no build step; the npm cache may fetch tarballs for integrity hashing). This carveout applies ONLY during `/sdd init`. Every other local install/build/test remains forbidden.
 
 **Forbidden at scaffold time:** `npm install` (full), `npm test`, `npm run build`, `tsc`, `cargo build`, `cargo test`, any test runner, any bundler.
 

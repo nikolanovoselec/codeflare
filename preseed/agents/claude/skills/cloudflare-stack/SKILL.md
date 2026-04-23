@@ -97,12 +97,14 @@ Process during `/sdd init` for any Cloudflare Workers project:
 1. Run `npm view wrangler version` → latest wrangler (e.g. `4.x.y`)
 2. Run `npm view @cloudflare/vitest-pool-workers peerDependencies` → read the `wrangler` peer range and the `vitest` peer range
 3. If the wrangler peer range excludes the latest, step down wrangler to the highest satisfying version. Do NOT upgrade `@cloudflare/vitest-pool-workers` to a newer major that hasn't shipped yet.
-4. Read `@cloudflare/workers-types` latest — usually date-stamped; use the newest that predates the wrangler major's deprecation date
+4. Read `@cloudflare/workers-types` latest — versions are date-stamped (e.g. `4.20260401.0`); pick the newest release that targets the same wrangler major as chosen above
 5. Emit all four as specific carets in `package.json`
 
 Rationale: the 1-vCPU container (no-local-builds rule) means peer-resolution surprises surface only in CI. Pinning the cohort at scaffold time prevents Dependabot from opening upgrade PRs that immediately break type checking or the vitest pool worker.
 
 Record the resolved cohort in `documentation/decisions/` as an ADR so future upgrades know what was co-tested together.
+
+The generic version-resolution flow (registry queries, peer-dep cross-check, scaffold-only lockfile carveout) lives in the `spec-driven-development` SKILL → § Dependency version resolution — the cohort pinning above is the Cloudflare-specific addendum.
 
 ### NOT Supported — Do Not Use
 
