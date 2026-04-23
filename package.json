@@ -38,7 +38,7 @@
     "@cloudflare/vitest-pool-workers": "^0.14.2",
     "@cloudflare/workers-types": "4.20260405.1",
     "@types/node": "^25.6.0",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^4.1.5",
     "fast-check": "^4.6.0",
     "knip": "^6.4.1",
     "oxlint": "^1.59.0",
