@@ -35,8 +35,8 @@
     "glob": ">=11.0.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.14.2",
-    "@cloudflare/workers-types": "4.20260405.1",
+    "@cloudflare/vitest-pool-workers": "^0.14.9",
+    "@cloudflare/workers-types": "4.20260423.1",
     "@types/node": "^25.6.0",
     "@vitest/coverage-v8": "^4.1.5",
     "fast-check": "^4.7.0",
