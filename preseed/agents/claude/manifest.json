@@ -14,6 +14,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/enforce-review-spawn.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"

@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-25
+- SDD review-agent sequential discipline (REQ-AGENT-021 AC4) is now hard-enforced via a Stop hook. After git push on an SDD-bootstrapped project, the main session cannot end its turn until code-reviewer + spec-reviewer are spawned in parallel and doc-updater is spawned after spec-reviewer's task-notification arrives. Three bypass methods preserve user agency: `sdd/.skip-next-review` sentinel file (one-shot), "skip review" / "skip verification" magic phrase in a user message, or 3-strike circuit breaker per push.
+
 ## 2026-04-23
 - Updated REQ-AGENT-021 AC3: unleashed mode now applies all fixes (SAFE + RISKY + JUDGMENT) as per-category `[sdd-clean]` commits on the current branch. No new branch is created and no pull request is opened; `git revert <sha>` is the rollback surface and `sdd/.last-clean-run.md` carries the audit log. Interactive and auto modes are unchanged. Added AC7 to make the `auto`/`unleashed` `main`/`master` refusal explicit.
 - Updated REQ-AGENT-021 AC2: `/sdd init` now resolves top-level dependency versions at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) instead of emitting memorized ranges, generates a lockfile once as a scoped carveout to no-local-builds, and pins `wrangler` + `@cloudflare/workers-types` + `@cloudflare/vitest-pool-workers` + `vitest` as a single co-resolved cohort on Cloudflare Workers projects.
