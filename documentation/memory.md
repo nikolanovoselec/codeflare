@@ -112,7 +112,7 @@ Users can choose between **Default** and **Advanced** session modes via Settings
 | CI monitoring, environment, no-local-builds, deploy-credentials rules | Yes | Yes |
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes |
-| `block-attributed-commits` hook (CC only) | No | Yes |
+| CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes |
 | Language rules (23 files: common, TS, Python, Go, Swift) | No | Yes |
 | Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes |
 | Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes |
@@ -160,12 +160,12 @@ All preseed content is deployed via the manifest pipeline:
 5. On "Recreate skills & rules" button: `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })` overwrites in R2 and deletes files not in current mode
 6. Bisync pulls from R2 to container config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`)
 
-**Manifest structure (73 total entries)**:
+**Manifest structure (74 total entries)**:
 - `rules/` (25): core (4 default+advanced: ci-monitoring, cloudflare-environment, no-local-builds, deploy-credentials; + 2 advanced-only: memory, spec-discipline), common (3), typescript (4), python (4), golang (4), swift (4)
 - `agents/` (8): architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, spec-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, review, sdd (advanced only)
 - `skills/` (27): cloudflare-stack, ship (+2 refs), consult-llm, api-design, backend-patterns, content-hash-cache-pattern, database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval, search-first, spec-driven-development (+13 reference templates for /sdd init scaffolding)
-- `plugins/` (8): known_marketplaces.json (default+advanced), codeflare-memory plugin (4 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md, memory-compact-prompt.md), codeflare-hooks plugin (3 files, advanced only: plugin.json, block-attributed-commits.sh, git-push-review-reminder.sh)
+- `plugins/` (9): known_marketplaces.json (default+advanced), codeflare-memory plugin (4 files, advanced only: plugin.json, memory-capture.sh, memory-agent-prompt.md, memory-compact-prompt.md), codeflare-hooks plugin (4 files, advanced only: plugin.json, block-attributed-commits.sh, git-push-review-reminder.sh, enforce-review-spawn.sh)
 
 ### Multi-Agent Preseed
 
@@ -207,7 +207,7 @@ The generator produces adapted config files for all supported agents from CC's p
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1) concatenates applicable rules into a single instructions file, (2) remaps tool names in agent definition frontmatter, (3) removes `model` field from frontmatter, (4) replaces `~/.claude/` path references with agent-specific config paths, (5) uses correct file extensions (e.g., `.agent.md` for Copilot agents).
 
-**Per-mode counts**: Default mode seeds 25 files, advanced mode seeds 180 files. Total array size is 184 (includes variant-per-mode duplicates for instructions files).
+**Per-mode counts**: Default mode seeds 25 files, advanced mode seeds 181 files. Total array size is 184 (includes variant-per-mode duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the generated array -- once for default mode (3 rules) and once for advanced mode (all rules including memory, ECC), with the same R2 key but different content. `getPreseedKeysNotInMode()` handles this correctly by excluding keys that have a variant in the target mode.
 
@@ -226,7 +226,7 @@ Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3–AC5.
 `entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable both the `codeflare-memory` and `codeflare-hooks` plugins. This is permanent (not mode-gated) because missing plugins are silently skipped by Claude Code -- when the plugin files are absent in default mode, the plugins simply don't load. Plugins are used for file organization and delivery via R2 sync only -- hook registration is done via `settings.json` (see above).
 
 - **codeflare-memory**: Scripts for memory capture (hook registered in settings.json, scripts delivered via plugin)
-- **codeflare-hooks**: Scripts for commit attribution blocking and git-push review reminders (hooks registered in settings.json, scripts delivered via plugin)
+- **codeflare-hooks**: Scripts for commit attribution blocking, git-push review reminders, and SDD review-agent sequential enforcement (hooks registered in settings.json, scripts delivered via plugin)
 
 ## Troubleshooting
 
@@ -234,6 +234,7 @@ Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3–AC5.
 - **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only).
 - **Compaction not running**: Compaction triggers when the sonnet capture agent writes a `.compact` marker file (total observations >1000). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
 - **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entry pointing to `block-attributed-commits.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
+- **Review-spawn enforcement not firing after push**: Check `~/.claude/settings.json` has a `Stop` hook entry pointing to `enforce-review-spawn.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh`. Only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Three bypass methods if blocking is unwanted: delete `sdd/.skip-next-review` (sentinel was consumed), say "skip review" in a user message, or let the 3-strike circuit breaker clear after 3 blocks on the same push.
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint SESSION_MODE gating may have failed. Remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 
 ---

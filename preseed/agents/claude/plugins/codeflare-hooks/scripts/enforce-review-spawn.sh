@@ -47,8 +47,11 @@ fi
 
 # ---------------------------------------------------------------------------
 # Find most recent push line in transcript
+# Require co-occurrence of "name":"Bash" + "command":"git push on the SAME
+# JSONL line so we don't false-positive on pasted text or doc snippets that
+# happen to contain "git push" as a string.
 # ---------------------------------------------------------------------------
-PUSH_LINE=$(grep -n '"command":"git push' "$TRANSCRIPT" 2>/dev/null | tail -1 | cut -d: -f1)
+PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /"command"[[:space:]]*:[[:space:]]*"git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No push, no enforcement
 
 PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT")
@@ -74,8 +77,11 @@ spawned() {
 
 # ---------------------------------------------------------------------------
 # Bypass 3: 3-strike circuit breaker (per-push counter)
+# Resolve git common dir for worktree/submodule compatibility — `.git` may
+# be a file (gitlink) instead of a directory in those contexts.
 # ---------------------------------------------------------------------------
-COUNT_FILE=".git/sdd-review-block-count"
+GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null)
+COUNT_FILE="${GIT_COMMON_DIR:-.git}/sdd-review-block-count"
 PUSH_HASH=$(echo -n "$PUSH_LINE_CONTENT" | sha256sum 2>/dev/null | cut -c1-12)
 
 read_count() {
@@ -125,16 +131,37 @@ fi
 
 # ---------------------------------------------------------------------------
 # Check 2: if spec-reviewer task-notification is in transcript, doc-updater
-# must be spawned after that completion line (sequential discipline)
+# must be spawned after that completion line (sequential discipline).
+#
+# Detection: correlate via tool_use_id. The spec-reviewer Agent tool_use has
+# an id like "toolu_xxx". The completion arrives later as a task-notification
+# block containing <tool-use-id>toolu_xxx</tool-use-id> + <status>completed</status>
+# on the same JSONL line. This avoids relying on the `description` field text
+# (which the assistant phrases freely, e.g. "Validate spec update", "SDD review",
+# etc. — the literal "Spec" prefix is not guaranteed).
 # ---------------------------------------------------------------------------
-# task-notification format: <summary>Agent "Spec ..." completed</summary>
-SPEC_DONE_LINE=$(echo "$SINCE_PUSH" | grep -nE 'summary>Agent \\"Spec[^<]*completed</summary>|summary>Agent "Spec[^<]*completed</summary>' | tail -1 | cut -d: -f1)
+# Find the most recent spec-reviewer spawn line and capture its tool_use_id
+SPEC_SPAWN_LINE=$(echo "$SINCE_PUSH" | grep -nE '"subagent_type"[[:space:]]*:[[:space:]]*"spec-reviewer"' | tail -1 | cut -d: -f1)
 
-if [ -n "$SPEC_DONE_LINE" ]; then
-  SINCE_SPEC=$(echo "$SINCE_PUSH" | tail -n +"$SPEC_DONE_LINE")
-  if ! echo "$SINCE_SPEC" | grep -q '"subagent_type"[[:space:]]*:[[:space:]]*"doc-updater"'; then
-    REASON="spec-reviewer completed but doc-updater has not been spawned. Spawn NOW via the Agent tool with subagent_type=\"doc-updater\" (sequential after spec-reviewer per SDD discipline — they would race on shared filesystem state if parallel). Bypass options: type 'skip review' / 'skip verification', or 'touch sdd/.skip-next-review' (one-shot)."
-    emit_block "$REASON"
+if [ -n "$SPEC_SPAWN_LINE" ]; then
+  SPEC_LINE_CONTENT=$(echo "$SINCE_PUSH" | sed -n "${SPEC_SPAWN_LINE}p")
+  SPEC_TOOL_USE_ID=$(echo "$SPEC_LINE_CONTENT" | grep -oE '"id"[[:space:]]*:[[:space:]]*"toolu_[^"]+"' | head -1 | grep -oE 'toolu_[^"]+')
+
+  if [ -n "$SPEC_TOOL_USE_ID" ]; then
+    SINCE_SPAWN=$(echo "$SINCE_PUSH" | tail -n +"$SPEC_SPAWN_LINE")
+    # Match a task-notification line correlating to this tool_use_id with
+    # completed status. Both must appear on the same JSONL line (which they
+    # do since each task-notification is a single user-message line).
+    SPEC_DONE_LINE=$(echo "$SINCE_SPAWN" | grep -nF "tool-use-id>${SPEC_TOOL_USE_ID}<" | grep -F 'completed</status>' | tail -1 | cut -d: -f1)
+
+    if [ -n "$SPEC_DONE_LINE" ]; then
+      # spec-reviewer completed — doc-updater must have been spawned AFTER
+      SINCE_SPEC_DONE=$(echo "$SINCE_SPAWN" | tail -n +"$SPEC_DONE_LINE")
+      if ! echo "$SINCE_SPEC_DONE" | grep -q '"subagent_type"[[:space:]]*:[[:space:]]*"doc-updater"'; then
+        REASON="spec-reviewer completed but doc-updater has not been spawned. Spawn NOW via the Agent tool with subagent_type=\"doc-updater\" (sequential after spec-reviewer per SDD discipline — they would race on shared filesystem state if parallel). Bypass options: type 'skip review' / 'skip verification', or 'touch sdd/.skip-next-review' (one-shot)."
+        emit_block "$REASON"
+      fi
+    fi
   fi
 fi
 
