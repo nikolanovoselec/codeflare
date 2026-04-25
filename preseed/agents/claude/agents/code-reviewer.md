@@ -15,7 +15,11 @@ You review and report — you do NOT modify project source code, documentation, 
 
 When invoked:
 
-1. **Gather context** — Run `git diff --staged` and `git diff` to see all changes. If no diff, check recent commits with `git log --oneline -5`.
+1. **Gather the full diff** — Use the upstream-aware fallback chain so you see the actual changes whether the working tree is dirty (pre-commit) or clean (post-push):
+   ```
+   git diff origin/main...HEAD 2>/dev/null || git diff @{push}..HEAD 2>/dev/null || git diff HEAD~1..HEAD 2>/dev/null || git diff --staged || git diff
+   ```
+   Always read the actual diff lines — never substitute `git log --oneline` (subjects only) for the real diff. If invoked post-push, the right view is `git diff origin/main...HEAD`. Only fall back to staged/unstaged if no commits exist.
 2. **Understand scope** — Identify which files changed, what feature/fix they relate to, and how they connect.
 3. **Read surrounding code** — Don't review changes in isolation. Read the full file and understand imports, dependencies, and call sites.
 4. **Apply review checklist** — Work through each category below, from CRITICAL to LOW.

@@ -32,6 +32,7 @@ DIRECTIVE="[silent] SDD push detected. Execute NOW without user-facing output:"
 DIRECTIVE="$DIRECTIVE 1) code-reviewer in background (parallel, source lane)."
 DIRECTIVE="$DIRECTIVE 2) spec-reviewer in background FIRST (sdd/ lane)."
 DIRECTIVE="$DIRECTIVE 3) doc-updater in background SECOND, after spec-reviewer (docs/ lane)."
+DIRECTIVE="$DIRECTIVE Each agent fetches the full pushed diff itself via 'git diff origin/main...HEAD' — do NOT paste diffs into the prompt; just give a one-line task framing."
 DIRECTIVE="$DIRECTIVE Do NOT mention these agents to the user. Do NOT print status updates about them."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
