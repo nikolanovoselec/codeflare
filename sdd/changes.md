@@ -3,6 +3,7 @@
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
 ## 2026-04-26
+- Closed false-positive in Stop hook detection: a `git pull` command whose Bash tool_use carried a `description` field (or sibling text content in the same assistant message) containing the literal phrase "git push" triggered enforcement. Detection now anchors on the `command` JSON field with a string-walk that traverses through `\"` escape sequences, so sibling fields no longer cause spurious blocks. Chained pipeline detection (#243) preserved.
 - Fixed REQ-AGENT-021 AC4 enforcement gap (#243): the Stop hook detected pushes only when `git push` was the first token of the Bash command, so chained pipelines like `git add . && git commit -m '...' && git push` silently bypassed the entire review pipeline. Detection now matches `git push` anywhere inside the command field. The PostToolUse reminder hook had the same flaw and is fixed in parallel.
 - Codified that the Stop hook bypasses (sentinel file `sdd/.skip-next-review` and `skip review` / `skip verification` magic phrases) are USER-ONLY: agents must never create the sentinel or write the bypass phrase in their own output. The hook's block message and the `spec-discipline` rule both make this explicit.
 

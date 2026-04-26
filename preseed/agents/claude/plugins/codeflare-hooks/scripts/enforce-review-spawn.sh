@@ -51,17 +51,30 @@ fi
 
 # ---------------------------------------------------------------------------
 # Find most recent push line in transcript
-# Match "name":"Bash" co-occurring with literal "git push" on the SAME JSONL
-# line. We deliberately do NOT anchor the second clause to the JSON "command"
-# field opener — JSON-encoded chained commits embed escaped quotes (e.g.
-# `git add . && git commit -m \"fix: x\" && git push`), and a `[^"]*` negated
-# class would halt at the first `\"` byte, silently bypassing enforcement
-# for the canonical `commit -m "..." && push` form (#243 follow-up).
-# False-positive surface (Bash tool_use lines containing the literal string
-# "git push" in arguments, e.g. `echo 'run git push later'`) is acceptable —
-# user has the sentinel-file escape hatch.
+#
+# Strategy: anchor on `"command":"...git push` where the `...` is a JSON-string
+# walk that consumes either a 2-char backslash escape (`\X`, including `\"`)
+# or any non-quote-non-backslash char, halting at the unescaped closing `"`
+# of the command field value.
+#
+# Why this exact regex:
+#   - Loose `/git push/` over-matches: a sibling `description` field on the
+#     same JSON object (or sibling text content in the same assistant
+#     message) containing the phrase "git push" triggers a false positive
+#     when the actual command is `git pull`.
+#   - Tight `"command":"[^"]*git push` halts at the first `\"` byte and
+#     silently bypasses the canonical chained pipeline
+#     `git commit -m "fix" && git push` (#243 follow-up).
+#   - The `(\\.|[^"\\])*` group walks a JSON-encoded string value
+#     correctly: traverses through `\"` (and any `\X` escape) as a single
+#     unit, and halts at the unescaped closing `"`. (`\\.` = regex
+#     `\` + any char; `[^"\\]` = anything except `"` and `\`.)
+#
+# Residual false positives: a literal "git push" substring inside the
+# command value itself (e.g. `echo 'remember to git push'`) still triggers.
+# Acceptable — the user has the sentinel-file escape hatch.
 # ---------------------------------------------------------------------------
-PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
+PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /"command"[[:space:]]*:[[:space:]]*"(\\.|[^"\\])*git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No push, no enforcement
 
 PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT")
