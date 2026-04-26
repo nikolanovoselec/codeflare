@@ -195,6 +195,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
   };
 
   return (
+    <div class="user-mgmt-page">
     <div class="user-mgmt">
       {/* Header */}
       <div class="user-mgmt-header">
@@ -384,6 +385,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
           }}
         </For>
       </Show>
+    </div>
     </div>
   );
 };
