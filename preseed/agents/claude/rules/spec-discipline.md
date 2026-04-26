@@ -144,6 +144,20 @@ A REQ may opt out of length warnings with an HTML comment: `<!-- sdd-allow-large
 
 **Sequential execution after every push**: spec-reviewer runs FIRST (it's the source of truth and may move REQs), doc-updater runs SECOND (it consumes the post-edit spec to generate cross-references). Never in parallel — they would race on shared filesystem state.
 
+## User-only enforcement bypasses (Stop hook)
+
+The Stop hook (`enforce-review-spawn.sh`) supports three bypass methods so the **user** can choose to skip review on a specific push (trivial doc edits, emergencies, post-mortem). All three are USER-ONLY — agents must never use them:
+
+| Bypass | Who may use it | Why |
+|---|---|---|
+| `sdd/.skip-next-review` sentinel file (auto-deleted on use) | User only | If the assistant could `touch` it, the entire enforcement layer would be trivially defeatable |
+| `skip review` / `skip verification` magic phrase in a user message | User only (USER message text, not assistant text) | Same reason — assistant-written phrases must not bypass the gate |
+| 3-strike circuit breaker (per-push counter) | Triggered by the hook itself, not invokable | After 3 blocks for the same push, assume something is genuinely stuck and let the user unblock manually |
+
+**Hard rule for all agents**: do NOT create `sdd/.skip-next-review`, do NOT write the bypass phrase in your own output, do NOT instruct the user to add it. The hook exists to enforce SDD discipline; routing around it from inside the agent is the failure mode the hook was built to prevent.
+
+If the review pipeline is genuinely blocking legitimate work (e.g., the hook is misfiring on a chained-pipeline detection bug), fix the hook in a separate commit rather than bypassing it.
+
 ## Severity classification on findings
 
 Both `spec-reviewer` and `doc-updater` agents tag every finding with severity:

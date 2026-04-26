@@ -52,7 +52,8 @@ describe('settings.json configuration', () => {
 
   it('hooks use if-gates to filter by command pattern', () => {
     // PreToolUse: block-attributed-commits gated on git * and gh *.
-    // PostToolUse: git-push-review-reminder gated on git push*.
+    // PreToolUse block-attributed-commits keeps its `if:` gates because
+    // commit/PR-create commands always lead with `git`/`gh`.
     assert.ok(
       entrypoint.includes('"if":"Bash(git *)"'),
       'block-attributed-commits should be if-gated on Bash(git *)'
@@ -61,9 +62,12 @@ describe('settings.json configuration', () => {
       entrypoint.includes('"if":"Bash(gh *)"'),
       'block-attributed-commits should also be if-gated on Bash(gh *)'
     );
+    // PostToolUse git-push-review-reminder must NOT carry a prefix `if:` gate —
+    // it would silently skip chained pipelines (`git add . && git push`),
+    // see #243. The script's in-process case statement is the canonical filter.
     assert.ok(
-      entrypoint.includes('"if":"Bash(git push*)"'),
-      'git-push-review-reminder should be if-gated on Bash(git push*)'
+      !entrypoint.includes('"if":"Bash(git push*)"'),
+      'git-push-review-reminder must NOT be if-gated on Bash(git push*) — chained pushes would be silently bypassed (#243)'
     );
   });
 

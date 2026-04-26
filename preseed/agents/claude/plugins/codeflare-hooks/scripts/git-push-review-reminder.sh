@@ -6,7 +6,9 @@
 # push result, not one turn late. The assistant acts on it immediately without
 # needing to announce or acknowledge it to the user.
 #
-# Gated by `"if": "Bash(git push*)"` in settings.json — only runs for pushes.
+# Fires on every Bash call (no settings.json `if:` prefix gate — that would
+# silently skip chained pipelines like `git add . && git push`, see #243).
+# The case statement below is the canonical command-pattern filter.
 #
 # Vibe-coding mode: if sdd/ does not exist, emits nothing. Zero friction.
 set -e
@@ -17,10 +19,18 @@ set -e
 # pipelines like `git add . && git commit -m '...' && git push` trigger
 # enforcement too — they were silently bypassed by the prefix-only match (#243).
 INPUT=$(cat)
+# Cheap pre-filter: if the raw input doesn't even mention "git push" as a
+# substring, skip without forking jq. PostToolUse fires on every Bash call,
+# so avoiding the jq cold-start (~30-80ms on a 1-vCPU container) here saves
+# seconds of cumulative blocking time over a long session.
+case "$INPUT" in
+  *"git push"*) ;; # candidate — fall through to precise jq parse
+  *) exit 0 ;;     # not a push — skip
+esac
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null) || true
 case "$COMMAND" in
-  *"git push"*) ;; # match — continue
-  *) exit 0 ;;     # not a push — skip
+  *"git push"*) ;; # confirmed — continue
+  *) exit 0 ;;     # raw match was inside a different field — skip
 esac
 
 # Vibe-coding gate.

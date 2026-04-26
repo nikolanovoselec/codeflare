@@ -5,9 +5,13 @@
 #   1. After git push, code-reviewer + spec-reviewer must be spawned in parallel
 #   2. doc-updater must be spawned AFTER spec-reviewer task-notification arrives
 #
-# Bypass methods (any one bypasses enforcement):
-#   1. Sentinel file: sdd/.skip-next-review (one-shot, auto-deleted on use)
-#   2. Magic phrase: most recent user message after push contains
+# Bypass methods (USER-ONLY — the assistant must NEVER create the sentinel
+# or write the magic phrase in its own output to suppress this hook. Both
+# bypasses exist so the *user* can decide to skip review on a specific push.
+# An assistant that creates its own bypass defeats the entire enforcement layer.):
+#   1. Sentinel file: sdd/.skip-next-review — created BY THE USER only,
+#      one-shot, auto-deleted on use
+#   2. Magic phrase: most recent USER MESSAGE after push contains
 #      "skip review" or "skip verification" (case-insensitive, word-bounded)
 #   3. 3-strike circuit breaker: after 3 blocks for the same push, give up
 #
@@ -47,13 +51,17 @@ fi
 
 # ---------------------------------------------------------------------------
 # Find most recent push line in transcript
-# Require co-occurrence of "name":"Bash" + "git push" inside the JSON
-# "command" string value on the SAME JSONL line. The [^"]* between the
-# field-name anchor and the literal "git push" lets it match chained pipelines
-# like `git add . && git commit -m '...' && git push` (the common case), not
-# only commands that start with `git push`.
+# Match "name":"Bash" co-occurring with literal "git push" on the SAME JSONL
+# line. We deliberately do NOT anchor the second clause to the JSON "command"
+# field opener — JSON-encoded chained commits embed escaped quotes (e.g.
+# `git add . && git commit -m \"fix: x\" && git push`), and a `[^"]*` negated
+# class would halt at the first `\"` byte, silently bypassing enforcement
+# for the canonical `commit -m "..." && push` form (#243 follow-up).
+# False-positive surface (Bash tool_use lines containing the literal string
+# "git push" in arguments, e.g. `echo 'run git push later'`) is acceptable —
+# user has the sentinel-file escape hatch.
 # ---------------------------------------------------------------------------
-PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /"command"[[:space:]]*:[[:space:]]*"[^"]*git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
+PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No push, no enforcement
 
 PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT")
@@ -127,7 +135,7 @@ spawned "code-reviewer" || MISSING="$MISSING code-reviewer"
 spawned "spec-reviewer" || MISSING="$MISSING spec-reviewer"
 
 if [ -n "$MISSING" ]; then
-  REASON="Push detected, missing SDD review agents:$MISSING. Spawn NOW via the Agent tool with subagent_type=\"code-reviewer\" and subagent_type=\"spec-reviewer\" in parallel (per spec-discipline.md). Do NOT end the turn until both are spawned. Bypass options: type 'skip review' / 'skip verification', or 'touch sdd/.skip-next-review' (one-shot)."
+  REASON="Push detected, missing SDD review agents:$MISSING. Spawn NOW via the Agent tool with subagent_type=\"code-reviewer\" and subagent_type=\"spec-reviewer\" in parallel (per spec-discipline.md). Do NOT end the turn until both are spawned. The bypasses (sentinel file, magic phrase) are USER-ONLY — do NOT create the sentinel or write the phrase yourself; that defeats the entire enforcement layer. Only the user is allowed to choose to skip review."
   emit_block "$REASON"
 fi
 
@@ -160,7 +168,7 @@ if [ -n "$SPEC_SPAWN_LINE" ]; then
       # spec-reviewer completed — doc-updater must have been spawned AFTER
       SINCE_SPEC_DONE=$(echo "$SINCE_SPAWN" | tail -n +"$SPEC_DONE_LINE")
       if ! echo "$SINCE_SPEC_DONE" | grep -q '"subagent_type"[[:space:]]*:[[:space:]]*"doc-updater"'; then
-        REASON="spec-reviewer completed but doc-updater has not been spawned. Spawn NOW via the Agent tool with subagent_type=\"doc-updater\" (sequential after spec-reviewer per SDD discipline — they would race on shared filesystem state if parallel). Bypass options: type 'skip review' / 'skip verification', or 'touch sdd/.skip-next-review' (one-shot)."
+        REASON="spec-reviewer completed but doc-updater has not been spawned. Spawn NOW via the Agent tool with subagent_type=\"doc-updater\" (sequential after spec-reviewer per SDD discipline — they would race on shared filesystem state if parallel). The bypasses (sentinel file, magic phrase) are USER-ONLY — do NOT create the sentinel or write the phrase yourself; that defeats the entire enforcement layer."
         emit_block "$REASON"
       fi
     fi
