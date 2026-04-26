@@ -47,11 +47,13 @@ fi
 
 # ---------------------------------------------------------------------------
 # Find most recent push line in transcript
-# Require co-occurrence of "name":"Bash" + "command":"git push on the SAME
-# JSONL line so we don't false-positive on pasted text or doc snippets that
-# happen to contain "git push" as a string.
+# Require co-occurrence of "name":"Bash" + "git push" inside the JSON
+# "command" string value on the SAME JSONL line. The [^"]* between the
+# field-name anchor and the literal "git push" lets it match chained pipelines
+# like `git add . && git commit -m '...' && git push` (the common case), not
+# only commands that start with `git push`.
 # ---------------------------------------------------------------------------
-PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /"command"[[:space:]]*:[[:space:]]*"git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
+PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /"command"[[:space:]]*:[[:space:]]*"[^"]*git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No push, no enforcement
 
 PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT")

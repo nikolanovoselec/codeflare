@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-04-26
+- Fixed REQ-AGENT-021 AC4 enforcement gap (#243): the Stop hook detected pushes only when `git push` was the first token of the Bash command, so chained pipelines like `git add . && git commit -m '...' && git push` silently bypassed the entire review pipeline. Detection now matches `git push` anywhere inside the command field. The PostToolUse reminder hook had the same flaw and is fixed in parallel.
+
 ## 2026-04-25
 - SDD review-agent sequential discipline (REQ-AGENT-021 AC4) is now hard-enforced via a Stop hook. After git push on an SDD-bootstrapped project, the main session cannot end its turn until code-reviewer + spec-reviewer are spawned in parallel and doc-updater is spawned after spec-reviewer's task-notification arrives. Three bypass methods preserve user agency: `sdd/.skip-next-review` sentinel file (one-shot), "skip review" / "skip verification" magic phrase in a user message, or 3-strike circuit breaker per push.
 

@@ -13,11 +13,14 @@ set -e
 
 # Command gate — settings.json if-gate has a known bug (#20334) where
 # PostToolUse matcher fires for unrelated tools. Filter in-script as workaround.
+# Match `git push` anywhere in the command (not only at the start) so chained
+# pipelines like `git add . && git commit -m '...' && git push` trigger
+# enforcement too — they were silently bypassed by the prefix-only match (#243).
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null) || true
 case "$COMMAND" in
-  "git push"*) ;; # match — continue
-  *) exit 0 ;;    # not a push — skip
+  *"git push"*) ;; # match — continue
+  *) exit 0 ;;     # not a push — skip
 esac
 
 # Vibe-coding gate.
