@@ -107,6 +107,10 @@ Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, s
 - Setup complete, onboarding mode -> authenticated users to `/app/`, unauthenticated to public landing
 - Setup complete, SaaS mode -> `/` shows login page with "Sign in with GitHub" button
 
+### Social-Share Preview Metadata
+
+Implements [REQ-SETUP-010](../sdd/setup.md#req-setup-010). When the public `codeflare.ch` URL is shared on social platforms or chat apps (Slack, iMessage, WhatsApp, Signal, Twitter/X), the unfurl renders a branded preview card. The home page exposes Open Graph (`og:type`, `og:title`, `og:description`, `og:image` at `https://codeflare.ch/og.png`, `og:image:width=1200`, `og:image:height=630`, `og:locale`) and Twitter Card (`twitter:card=summary_large_image`) meta tags. The preview image is a 1200×630 PNG at `web-ui/public/og.png`. The `<meta name="description">` value matches `og:description` so search-engine snippets stay in sync with social cards.
+
 ### Auth Flow
 
 ```mermaid

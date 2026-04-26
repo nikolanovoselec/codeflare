@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Codeflare — your new ephemeral cloud IDE.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#09090b"/>
+      <stop offset="1" stop-color="#18181b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.4" r="0.8">
+      <stop offset="0" stop-color="#3B82F6" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#3B82F6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <image href="logo-original-transparent.png" x="80" y="155" width="240" height="209" preserveAspectRatio="xMidYMid meet"/>
+  <g font-family="JetBrains Mono, monospace">
+    <text x="360" y="276" font-size="96" font-weight="700" letter-spacing="-2">
+      <tspan fill="#3B82F6">code</tspan><tspan fill="#fafafa">flare</tspan>
+    </text>
+    <text x="360" y="335" font-size="28" font-weight="400" fill="#a1a1aa" letter-spacing="-0.5">Ideas don't care where you are.</text>
+    <text x="360" y="378" font-size="28" font-weight="400" fill="#a1a1aa" letter-spacing="-0.5">Neither does your new ephemeral IDE.</text>
+  </g>
+  <line x1="96" y1="530" x2="1104" y2="530" stroke="#27272a" stroke-width="1"/>
+  <g font-family="JetBrains Mono, monospace">
+    <text x="96" y="580" font-size="20" font-weight="600" fill="#fafafa" letter-spacing="4">CODEFLARE.CH</text>
+    <text x="1104" y="580" text-anchor="end" font-size="16" font-weight="400" fill="#71717a" letter-spacing="2">GRAY MATTER GMBH</text>
+  </g>
+</svg>
