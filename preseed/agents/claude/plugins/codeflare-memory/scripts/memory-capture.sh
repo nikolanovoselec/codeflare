@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # UserPromptSubmit hook — triggers main agent to summarize conversation into MCP memory.
-# Injects additionalContext when 30+ new user messages since last summary.
+# Injects additionalContext when 15+ new user messages since last summary.
 # The main agent spawns a background Task agent to do the actual work.
 set -e
 
@@ -67,7 +67,7 @@ else
 fi
 
 DELTA=$((CURRENT_COUNT - last_count))
-if [[ $DELTA -lt 30 ]]; then
+if [[ $DELTA -lt 15 ]]; then
     # No capture needed, but still emit memory scan directive if set
     if [[ -n "$MEMORY_SCAN" ]]; then
         jq -n --arg ctx "$MEMORY_SCAN" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
@@ -91,7 +91,7 @@ jq -n \
   '{transcript:$transcript,last_line:$last_line,today:$today,current_count:$current_count,total_lines:$total_lines,counter_file:$counter_file,vars_file:$vars_file}' \
   > "$VARS_FILE"
 
-# Update counter so subsequent hook invocations see delta < 30.
+# Update counter so subsequent hook invocations see delta < 15.
 # Agent reads line range from .vars, not from the counter file.
 printf '%s\n%s\n' "$CURRENT_COUNT" "$TOTAL_LINES" > "$COUNTER_FILE"
 
