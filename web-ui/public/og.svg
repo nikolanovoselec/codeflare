@@ -12,7 +12,7 @@
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect width="1200" height="630" fill="url(#glow)"/>
-  <image href="/logo-original-transparent.png" x="80" y="155" width="240" height="209" preserveAspectRatio="xMidYMid meet"/>
+  <image href="logo-original-transparent.png" x="80" y="155" width="240" height="209" preserveAspectRatio="xMidYMid meet"/>
   <g font-family="JetBrains Mono, monospace">
     <text x="360" y="276" font-size="96" font-weight="700" letter-spacing="-2">
       <tspan fill="#3B82F6">code</tspan><tspan fill="#fafafa">flare</tspan>

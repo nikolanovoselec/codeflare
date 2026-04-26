@@ -252,3 +252,27 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Dependencies:** REQ-SUB-001
 **Verification:** Integration test
 **Status:** Implemented
+
+---
+
+## REQ-SETUP-010: Social-share preview metadata on the public landing page
+
+**Intent:** When the public-facing URL is shared on social platforms or chat apps, the unfurl renders a branded preview card with the product tagline and a 1200×630 preview image so the link communicates what Codeflare is before the visitor clicks.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. The home page exposes Open Graph metadata: `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image`, `og:image:width=1200`, `og:image:height=630`, `og:image:alt`, `og:locale`.
+2. Twitter Card metadata is set with `twitter:card="summary_large_image"` plus title, description, image, and image:alt.
+3. The preview image is a 1200×630 PNG that includes the Codeflare wordmark, the product tagline, and a CODEFLARE.CH wordmark footer.
+4. The `<meta name="description">` matches the `og:description` so search-engine snippets and social-share cards stay in sync.
+5. The tagline copy in `og:description` and the meta description follows the brand voice ("Ideas don't care where you are. Neither does your new ephemeral IDE.") and is the canonical external description of the product.
+
+**Constraints:**
+- The preview image must remain ≤1MB so platforms cache it inline.
+- og:image dimensions are 1200×630 (the dual standard for Open Graph and Twitter `summary_large_image` cards).
+
+**Priority:** P2
+**Dependencies:** None
+**Verification:** Manual (paste the apex URL into Slack, iMessage, WhatsApp, Signal, and Twitter; confirm the unfurl renders the preview card)
+**Status:** Implemented
