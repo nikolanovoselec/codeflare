@@ -23,7 +23,7 @@ Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persist
 
 ## Automatic Memory Capture
 
-Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 15 user messages. Zero manual intervention required.
+Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 15 user messages. Zero manual intervention required. Implements [REQ-MEM-001](../sdd/memory.md#req-mem-001-conversation-context-automatically-captured-to-mcp-memory), [REQ-MEM-002](../sdd/memory.md#req-mem-002-capture-triggers-every-15-user-messages).
 
 ### Architecture -- Two-Phase Memory (Capture + Compact)
 
@@ -33,7 +33,7 @@ The memory system uses two phases with different models optimized for their task
 Meaningful observation capture into daily `chat-{TODAY}` entities. Sonnet extracts 3-5 quality observations per window -- decisions, insights, and context useful for future sessions. This is the "write-ahead log."
 
 **Phase 2 -- Compact (opus, thorough, triggered at 5000 observations):**
-When the capture agent detects the graph has grown past 5000 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: ~2000 total observations.
+When the capture agent detects the graph has grown past 5000 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: ~2000 total observations. Implements [REQ-MEM-003](../sdd/memory.md#req-mem-003-two-phase-memory-fast-capture--periodic-compaction), [REQ-MEM-007](../sdd/memory.md#req-mem-007-compaction-triggered-at-5000-observations).
 
 ```
 UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: sonnet capture    Phase 2: opus compact
