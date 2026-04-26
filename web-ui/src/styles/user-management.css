@@ -2,6 +2,18 @@
    User Management — admin panel for access tiers
    ========================================================================== */
 
+/* Outer page shell — fixed-viewport scroll container, mirrors .setup-wizard
+   so the page itself scrolls when the user list overflows the viewport. */
+.user-mgmt-page {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--color-bg-gradient);
+  overflow-y: auto;
+}
+
 .user-mgmt {
   width: 100%;
   max-width: 800px;
