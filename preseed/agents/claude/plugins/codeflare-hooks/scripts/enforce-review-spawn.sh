@@ -28,6 +28,12 @@
 # spec-reviewer + doc-updater after spec completion) is observed for the
 # latest un-acknowledged push.
 #
+# Multi-push coalescing: only LATEST_PUSH_TS is tracked, so multiple
+# un-acked pushes that accumulate before any review pipeline completes
+# are reviewed as a single unit (the agents see the cumulative diff via
+# `git diff origin/main...HEAD` regardless). This is intentional — a
+# single review covers all newly-pushed commits.
+#
 # Bypass methods (USER-ONLY — the assistant must NEVER create the sentinel
 # or write the magic phrase in its own output. An assistant that creates
 # its own bypass defeats the entire enforcement layer.):
@@ -110,15 +116,15 @@ COUNT_FILE="$GIT_COMMON_DIR/sdd-review-block-count"
 # ---------------------------------------------------------------------------
 LOG_BASE="$GIT_COMMON_DIR/logs/refs"
 LATEST_PUSH_TS=$(
-  { [ -d "$LOG_BASE/remotes" ] && find "$LOG_BASE/remotes" -type f -print0 2>/dev/null
-    [ -d "$LOG_BASE/tags" ] && find "$LOG_BASE/tags" -type f -print0 2>/dev/null
-  } | xargs -0 -r grep -hE 'update by push$' 2>/dev/null \
-    | awk '{ sub(/^[a-f0-9]+ [a-f0-9]+ .*> /, ""); print $1 }' \
+  { [ -d "$LOG_BASE/remotes" ] && find "$LOG_BASE/remotes" -type f -exec grep -hE 'update by push$' {} + 2>/dev/null
+    [ -d "$LOG_BASE/tags" ] && find "$LOG_BASE/tags" -type f -exec grep -hE 'update by push$' {} + 2>/dev/null
+  } | awk '{ sub(/^[a-f0-9]+ [a-f0-9]+ .*> /, ""); print $1 }' \
     | sort -n | tail -1
 )
-
-# No real push has ever happened in this repo — nothing to enforce
-[ -n "$LATEST_PUSH_TS" ] || exit 0
+# Validate: must be all digits (defend against malformed reflog lines)
+case "$LATEST_PUSH_TS" in
+  ''|*[!0-9]*) exit 0 ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Layer 3 (CHECKPOINT) — read the high-water mark of acknowledged pushes
@@ -146,8 +152,12 @@ fi
 # timestamps are UTC, fixed-width, identical shape NNNN-NN-NNTNN:NN:NN.NNNZ
 # so string > comparison is correct chronologically.
 # ---------------------------------------------------------------------------
-LATEST_PUSH_ISO=$(date -u -d "@$LATEST_PUSH_TS" +'%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null)
-[ -n "$LATEST_PUSH_ISO" ] || exit 0  # date conversion failed → fail-safe
+# GNU date (Linux): `-d "@TS"`. BSD date (macOS): `-r TS`. Try both.
+# Fall back to awk strftime for environments where neither works.
+LATEST_PUSH_ISO=$(date -u -d "@$LATEST_PUSH_TS" +'%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null \
+  || date -u -r "$LATEST_PUSH_TS" +'%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null \
+  || awk -v t="$LATEST_PUSH_TS" 'BEGIN { print strftime("%Y-%m-%dT%H:%M:%S.000Z", t, 1) }' 2>/dev/null)
+[ -n "$LATEST_PUSH_ISO" ] || exit 0  # all conversions failed → fail-safe
 
 # Helper: was this subagent_type spawned with transcript timestamp > push?
 spawned_after_push() {
@@ -170,6 +180,10 @@ read_count() {
     stored=$(cat "$COUNT_FILE" 2>/dev/null)
     hash="${stored%%:*}"
     count="${stored#*:}"
+    # Validate count is numeric (defend against corrupt file)
+    case "$count" in
+      ''|*[!0-9]*) count=0 ;;
+    esac
     if [ "$hash" = "$LATEST_PUSH_TS" ]; then
       echo "$count"
       return
