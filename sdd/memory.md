@@ -9,7 +9,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 - **MCP Memory** -- The Model Context Protocol memory server (`server-memory`) that provides a knowledge graph API. Reads and writes `session-{SESSION_ID}.jsonl` files containing entities, observations, and relations.
 - **Knowledge Graph** -- The in-memory graph structure (entities with observations, plus inter-entity relations) that persists as JSONL. Each entity has a name, type, and list of observations. Relations connect entities with labeled edges.
 - **Capture** -- Phase 1 of the two-phase memory system. A sonnet agent extracts 3-5 observations from the recent conversation transcript and appends them to `chat-{TODAY}` entities. Triggered every 15 user messages via a `UserPromptSubmit` hook.
-- **Compaction** -- Phase 2 of the two-phase memory system. An opus agent restructures the knowledge graph when it exceeds 2000 observations, distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `user-preferences`). Targets ~500 total observations across all entities.
+- **Compaction** -- Phase 2 of the two-phase memory system. An opus agent restructures the knowledge graph when it exceeds 5000 observations, distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `user-preferences`). Targets ~2000 total observations across all entities.
 - **Session Mode** -- Controls whether memory features are active. Advanced (Pro) mode enables R2 sync of memory files, capture hooks, and compaction. Default (Standard) mode provides in-session-only memory with no persistence.
 
 ### Out of Scope
@@ -47,7 +47,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 **Applies To:** User
 **Priority:** P0
 **Dependencies:** REQ-MEM-006
-**Verification:** Integration test (E2E verifies observations appear in knowledge graph after 30 messages)
+**Verification:** Integration test (E2E verifies observations appear in knowledge graph after 15 messages)
 
 **Status:** Implemented
 
@@ -84,13 +84,13 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 
 **Acceptance Criteria:**
 1. **Phase 1 (Capture):** Sonnet agent runs every 15 user messages, extracts 3-5 meaningful observations into `chat-{TODAY}` entities. Serves as a "write-ahead log."
-2. **Phase 2 (Compaction):** Opus agent is triggered when the capture agent detects the graph has grown past 2000 total observations.
-3. The capture agent writes a marker file (`{COUNTER_FILE}.compact`) when observations exceed 2000.
+2. **Phase 2 (Compaction):** Opus agent is triggered when the capture agent detects the graph has grown past 5000 total observations.
+3. The capture agent writes a marker file (`{COUNTER_FILE}.compact`) when observations exceed 5000.
 4. The main agent detects the marker file and spawns a background opus agent.
 5. The opus agent reads the full graph, distills `chat-*` entities older than 3 days into semantic entities (`project-*`, `*-architecture`, `*-session-archive`, `user-preferences`, `reference-*`).
 6. Recent `chat-*` entities (last 3 days) are kept as raw buffer.
 7. Compaction deduplicates, prunes stale data, and builds relations.
-8. Target: ~500 total observations across all entities after compaction.
+8. Target: ~2000 total observations across all entities after compaction.
 9. The graph grows over time as projects accumulate; compaction manages the total across all entities.
 10. The opus agent removes the `.compact` marker file when done.
 
@@ -102,7 +102,7 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 **Applies To:** User
 **Priority:** P1
 **Dependencies:** REQ-MEM-001, REQ-MEM-007
-**Verification:** Integration test (verify graph restructuring after 1000+ observations accumulate)
+**Verification:** Integration test (verify graph restructuring after 5000+ observations accumulate)
 
 **Status:** Implemented
 
@@ -188,28 +188,28 @@ Knowledge graph persistence, automatic capture, compaction, and session-mode gat
 
 ---
 
-## REQ-MEM-007: Compaction triggered at 2000 observations
+## REQ-MEM-007: Compaction triggered at 5000 observations
 
 **Intent:** Graph compaction must be triggered automatically when the knowledge graph grows large enough to benefit from restructuring.
 
 **Acceptance Criteria:**
 1. After each capture run, the sonnet agent counts total observations in the graph.
-2. If the total exceeds 2000, the agent writes a `.compact` marker file at `{COUNTER_FILE}.compact`.
+2. If the total exceeds 5000, the agent writes a `.compact` marker file at `{COUNTER_FILE}.compact`.
 3. The main agent detects the marker file and spawns a background opus agent (not sonnet).
 4. The opus agent reads `memory-compact-prompt.md` for instructions.
-5. The prompt instructs the agent to: read the full graph, identify entity structure by domain, distill old `chat-*` entities into semantic entities, keep recent `chat-*` (last 3 days), deduplicate, prune stale data, build relations, target ~500 total observations.
+5. The prompt instructs the agent to: read the full graph, identify entity structure by domain, distill old `chat-*` entities into semantic entities, keep recent `chat-*` (last 3 days), deduplicate, prune stale data, build relations, target ~2000 total observations.
 6. The opus agent removes the `.compact` marker file when compaction is complete.
 7. The marker file is the gate: if it does not exist, no compaction runs.
 
 **Constraints:**
-- The 2000-observation threshold allows the graph to accumulate substantial context before triggering restructuring.
-- Compaction targets ~500 total observations across all entities.
+- The 5000-observation threshold allows the graph to accumulate substantial context before triggering restructuring.
+- Compaction targets ~2000 total observations across all entities.
 - Counter storage: `~/.memory/counter/{session_id}` (counter), `{session_id}.vars` (hook variables), `{session_id}.compact` (compaction marker).
 
 **Applies To:** User
 **Priority:** P2
 **Dependencies:** REQ-MEM-003
-**Verification:** Integration test (verify marker file creation at 2000+ observations and opus agent invocation)
+**Verification:** Integration test (verify marker file creation at 5000+ observations and opus agent invocation)
 
 **Status:** Implemented
 

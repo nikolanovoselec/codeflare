@@ -39,7 +39,7 @@ When the user says "check memory", "update memory", "optimize memory", "compact 
 
 ## Hook-Triggered Summarization
 
-The memory-capture hook fires every 30 user messages and injects
+The memory-capture hook fires every 15 user messages and injects
 `additionalContext` into the system-reminder with instructions to spawn
 a background sonnet agent. The hook handles all counting and gating —
 it only emits when it's time.
