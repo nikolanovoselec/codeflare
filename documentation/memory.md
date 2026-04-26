@@ -23,23 +23,23 @@ Agent memory (knowledge graph via `@modelcontextprotocol/server-memory`) persist
 
 ## Automatic Memory Capture
 
-Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 30 user messages. Zero manual intervention required.
+Conversation context (decisions, debugging insights, solutions) is automatically summarized into MCP memory every 15 user messages. Zero manual intervention required.
 
 ### Architecture -- Two-Phase Memory (Capture + Compact)
 
 The memory system uses two phases with different models optimized for their task:
 
-**Phase 1 -- Capture (sonnet, quality, every 30 messages):**
+**Phase 1 -- Capture (sonnet, quality, every 15 messages):**
 Meaningful observation capture into daily `chat-{TODAY}` entities. Sonnet extracts 3-5 quality observations per window -- decisions, insights, and context useful for future sessions. This is the "write-ahead log."
 
-**Phase 2 -- Compact (opus, thorough, triggered at 1000 observations):**
-When the capture agent detects the graph has grown past 1000 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: ~500 total observations.
+**Phase 2 -- Compact (opus, thorough, triggered at 5000 observations):**
+When the capture agent detects the graph has grown past 5000 total observations, it writes a marker file (`{COUNTER_FILE}.compact`). The main agent detects this marker and spawns a background **opus** agent that restructures the entire graph: distilling raw `chat-*` entities into semantic entities (`project-*`, `*-architecture`, `*-session-archive`), building relations, deduplicating, and pruning stale data. Target: ~2000 total observations.
 
 ```
 UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: sonnet capture    Phase 2: opus compact
     |                                    |                            |                          |
     +-- count user msgs                  |                            |                          |
-    +-- delta < 30? -> exit              |                            |                          |
+    +-- delta < 15? -> exit              |                            |                          |
     +-- check lock -> exit               |                            |                          |
     +-- write .vars JSON                 |                            |                          |
     +-- output JSON + exit 0 -------> check .vars freshness           |                          |
@@ -48,14 +48,14 @@ UserPromptSubmit hook (~150ms)       Main agent                  Phase 1: sonnet
                                     spawn sonnet agent -----------> read prompt + vars           |
                                          |                       read transcript                 |
                                     (continues normally)         save 3-5 obs to chat-{TODAY}    |
-                                         |                       if obs >1000: write .compact    |
+                                         |                       if obs >5000: write .compact    |
                                          |                       write counter, rm lock          |
                                     check .compact marker             |                          |
                                     if exists: spawn opus ----------------------------------> read full graph
                                                                                            distill chat-* -> semantic entities
                                                                                            build relations
                                                                                            deduplicate + prune
-                                                                                           target ~500 obs
+                                                                                           target ~2000 obs
                                                                                            rm .compact marker
 ```
 
@@ -65,9 +65,9 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook** that uses the
 
 1. **Tilde expansion**: Expands `~` in `transcript_path` to `$HOME` (Claude Code may send tilde-prefixed paths).
 2. **Message counting**: `grep -c '"role":"user","content":"[^<]' "$TRANSCRIPT"` counts real human prompts in the JSONL transcript. A plain `grep` is used instead of `jq` because `jq` silently fails on sidechain/agent JSONL entries (nested JSON). Two layers of synthetic messages are excluded: tool_result wrappers (content is an array, excluded by the trailing `"` requiring a string) and slash-command/task-notification wrappers (string content starting with `<`, excluded by `[^<]`). A second pass subtracts any remaining records with `isMeta:true`. The old pattern `'"type":"user"'` over-counted by ~17x on a live transcript (1451 vs 83 real prompts).
-3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If no counter file exists (first run after container recycle or `/resume`), the hook baselines from the current transcript count and **writes the counter file immediately** -- this establishes the baseline so subsequent invocations can calculate the delta. If the delta is < 30, exits silently.
+3. **Counter check**: Reads `~/.memory/counter/{session_id}` (line 1: last summarized count, line 2: last line offset). If no counter file exists (first run after container recycle or `/resume`), the hook baselines from the current transcript count and **writes the counter file immediately** -- this establishes the baseline so subsequent invocations can calculate the delta. If the delta is < 15, exits silently.
 4. **Vars file**: Writes all variables (transcript path, line offset, date, counts, counter file path) to `~/.memory/counter/{session_id}.vars` as JSON -- keeps the context string short.
-5. **Counter update**: Writes current count and total lines to the counter file before emitting. This prevents re-triggering: subsequent hook invocations see delta < 30 and exit silently. The agent reads its line range from the vars file, not from the counter.
+5. **Counter update**: Writes current count and total lines to the counter file before emitting. This prevents re-triggering: subsequent hook invocations see delta < 15 and exit silently. The agent reads its line range from the vars file, not from the counter.
 6. **JSON output + exit 0**: Outputs `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}` with a short instruction pointing to the prompt file and vars file. `additionalContext` only appears on the turn where the hook fired -- no stale replays. The main agent spawns the capture agent immediately with no additional checks.
 
 ### Prompt Files
@@ -78,7 +78,7 @@ Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/` (preseede
 - Reads transcript from line offset, extracts 3-5 observations
 - Saves to `chat-{TODAY}` entity (daily raw capture bucket)
 - Writes counter as first step (before reading transcript)
-- Checks total observations -- if >1000, writes `.compact` marker file
+- Checks total observations -- if >5000, writes `.compact` marker file
 - Does NOT attempt compaction itself
 
 **`memory-compact-prompt.md`** (opus compaction):
@@ -86,8 +86,8 @@ Two prompt files live in `~/.claude/plugins/codeflare-memory/scripts/` (preseede
 - Distills `chat-*` entities older than 3 days into semantic entities (`project-*`, `*-architecture`, `*-session-archive`, `user-preferences`, `reference-*`)
 - Keeps recent `chat-*` (last 3 days) as raw buffer
 - Deduplicates, prunes stale data, builds relations
-- Target: ~500 total observations
-- Graph designed to grow over time as projects accumulate -- compaction targets ~500 total observations across all entities
+- Target: ~2000 total observations
+- Graph designed to grow over time as projects accumulate -- compaction targets ~2000 total observations across all entities
 
 ### Counter Storage
 
@@ -231,8 +231,8 @@ Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3–AC5.
 ## Troubleshooting
 
 - **Counter reset**: Delete `~/.memory/counter/{session_id}` to force re-summarization from the beginning of the transcript.
-- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 30+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only).
-- **Compaction not running**: Compaction triggers when the sonnet capture agent writes a `.compact` marker file (total observations >1000). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
+- **Agent not firing**: Check `~/.claude/settings.json` has `UserPromptSubmit` hook entry pointing to `memory-capture.sh`. Verify the script exists at `~/.claude/plugins/codeflare-memory/scripts/memory-capture.sh`. Verify the transcript has 15+ user messages since last capture. Check `rules/memory.md` is loaded (advanced mode only).
+- **Compaction not running**: Compaction triggers when the sonnet capture agent writes a `.compact` marker file (total observations >5000). The main agent detects this and spawns an opus agent. Check `~/.memory/counter/{session_id}.compact` exists. The opus agent reads `memory-compact-prompt.md` and removes the marker when done.
 - **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entry pointing to `block-attributed-commits.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
 - **Review-spawn enforcement not firing after push**: Check `~/.claude/settings.json` has a `Stop` hook entry pointing to `enforce-review-spawn.sh`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh`. Only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Three bypass methods are USER-ONLY actions (the agent must never invoke these autonomously): the user deletes `sdd/.skip-next-review` (sentinel was consumed), the user says "skip review" in a message, or the user waits for the 3-strike circuit breaker to clear after 3 blocks on the same push.
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint SESSION_MODE gating may have failed. Remove them: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.

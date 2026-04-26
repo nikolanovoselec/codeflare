@@ -65,7 +65,7 @@ Skip relations that are obvious from entity naming.
 
 ### 6. Verify
 
-Count total observations. Target: **~500 total** across all entities.
+Count total observations. Target: **~2000 total** across all entities.
 
 If still over target, prioritize keeping:
 1. Active project facts and features (most useful)

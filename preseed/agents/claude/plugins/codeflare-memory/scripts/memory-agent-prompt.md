@@ -50,7 +50,7 @@ with only NEW observations. If not, use `create_entities` with entityType
 ### 5. Check if compaction needed
 
 Call `read_graph` and count total observations across ALL entities.
-If total exceeds **1000**, signal compaction by creating a marker file:
+If total exceeds **5000**, signal compaction by creating a marker file:
 
 ```
 echo "compact" > {COUNTER_FILE}.compact
