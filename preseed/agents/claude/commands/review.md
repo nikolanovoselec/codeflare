@@ -249,6 +249,12 @@ ALL findings batched into a single prompt with all relevant source files attache
 via the `files` parameter. Do NOT call consult_llm once per finding.
 
 1. Read [REVIEW_DIR]/08-active-findings.md — extract ALL HIGH and CRITICAL findings.
+   If the extracted set is empty (zero HIGH/CRITICAL findings), write
+   "Phase 5 skipped — no HIGH/CRITICAL findings to verify" to stdout and EXIT.
+   Do NOT call consult_llm. The Phase 4 orchestrator gate counts total active
+   findings, not just HIGH/CRITICAL, so this case can reach Phase 5 (e.g. a
+   review with only MEDIUM+LOW findings) and would otherwise burn 2 LLM calls
+   on an empty findings list.
 
 2. Build the unique source-file set:
    - Walk every finding's `location` field, collect distinct file paths
@@ -281,10 +287,15 @@ via the `files` parameter. Do NOT call consult_llm once per finding.
    ```
 
 4. Write that prompt to disk. Then call consult_llm TWICE — once per provider family — passing:
-   - `prompt`: the file contents (read via Read tool, or — if very large — pass
-     the file path via the `files` parameter and a short directive like
-     "Read .llm-verify-prompt.md and respond per its instructions")
-   - `files`: the deduplicated source-file paths from step 2 + the prompt file
+   - `prompt`: a short directive only, e.g. *"Read .llm-verify-prompt.md (the
+     first file in the files array) and verify each listed finding against the
+     source files that follow. Return the JSON array specified in the prompt
+     file."* The consult_llm schema explicitly forbids pasting file contents
+     into the prompt field — file content goes via the `files` parameter and is
+     loaded server-side. Inlining the prompt-file body here would duplicate
+     content the server will already attach.
+   - `files`: `[REVIEW_DIR]/.llm-verify-prompt.md` FIRST, then the deduplicated
+     source-file paths from step 2.
    - `task_mode`: "review"
    - Model selector — use **family names**, never pin specific versions:
      - Call 1: `model: "openai"` (resolves server-side to the latest GPT)
