@@ -71,6 +71,14 @@ describe('documentation-discipline.md (issue #252)', () => {
     assert.match(content, /dual.narrative/i, 'pattern 13 — dual-narrative ADRs');
   });
 
+  it('documents pattern 15 (big-O jargon in narrative)', () => {
+    const content = read(path);
+    assert.match(content, /pattern\s*15|big.O\s+jargon/i, 'pattern 15 — big-O jargon');
+    assert.match(content, /O\(n[^)]*\)/, 'should reference Big-O notation form');
+    assert.match(content, /logarithmic|amortized|quadratic/i,
+      'should call out plain-language complexity terms too');
+  });
+
   it('provides escape hatch for legitimate exceptions', () => {
     const content = read(path);
     assert.match(content, /<!--\s*doc-allow-large/i, 'should declare <!-- doc-allow-large --> opt-out');

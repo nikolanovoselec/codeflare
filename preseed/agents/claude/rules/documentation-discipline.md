@@ -24,6 +24,7 @@ The reader of `documentation/` is a developer who already knows what the product
 | TODO bullets, "coming soon" sections, "planned but not built" | GitHub issue or `pending.md` at repo root |
 | Future-tense roadmap items | `sdd/{domain}.md` as `Status: Planned` REQs |
 | Any content that duplicates a REQ instead of cross-referencing it | A backlink to the REQ ID — never copy-paste |
+| Big-O jargon in narrative prose (`O(n log n)`, "logarithmic time", "amortized constant") | If a real performance target exists, write it as a measurable number ("p95 < 200ms", "linear in input size up to N records"); otherwise drop the prose. Big-O notation is academic implementation detail, not user-observable behavior. |
 
 ## Allowlist (these ARE acceptable in documentation/)
 
@@ -78,6 +79,24 @@ Each documentation file owns one lane. Cross-lane content is a MEDIUM finding an
 | `documentation/decisions/<adr>.md` | One ADR each — context, decision, consequences | Anything not specific to that one decision |
 
 When a cell or paragraph in `architecture.md` describes an HTTP route's contract, it's a lane violation — the content belongs in `api-reference.md` and `architecture.md` should reference the route by name only.
+
+## Pattern 15 — Big-O jargon in narrative documentation
+
+A documentation file should describe what the system does in observable terms, not analyze its theoretical complexity. Big-O notation in narrative prose is a flag that the writer reached for academic shorthand instead of stating either (a) a real, measurable performance target or (b) a plain-language description of scaling behavior.
+
+Detection signals:
+
+- `\bO\([^)]+\)` — any `O(n)`, `O(n log n)`, `O(n^2)`, `O(1)`, etc., in body prose (allowed inside fenced code blocks where it documents an algorithm's actual implementation)
+- "logarithmic time", "amortized constant", "polynomial-time", "quadratic", "linear-time" as load-bearing nouns in a sentence describing system behavior
+- Hand-wavy complexity claims ("scales gracefully", "performs well") with no measurable backing
+
+The fix:
+
+- If a real performance contract exists, write it as a target number: `"p95 < 200ms for inputs up to 10k rows"`, `"loads in < 2s on 4G mobile"`. Targets belong in the relevant performance REQ, doc backlinks point there.
+- If the contract is qualitative, write plain English: `"the index is rebuilt incrementally so adding a record stays cheap as the dataset grows"` instead of `"amortized O(log n) insertions"`.
+- If neither applies, the prose was filler — delete it.
+
+Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: if a target exists in a related performance REQ, replace the big-O prose with a backlink. Otherwise flag and let the user decide.
 
 ## Pattern 13 — Dual-narrative ADRs
 
