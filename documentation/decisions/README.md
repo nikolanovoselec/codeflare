@@ -548,7 +548,7 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 **Migration:**
 
-- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `^Overrides:` instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
+- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `**Overrides:**` (regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` — tolerates plain and bold-wrapped) instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
 - doc-updater Step 0c: same change.
 - spec-discipline.md: drops `## User overrides` section, replaces with `## User overrides via ADRs` documenting the `Overrides:` header pattern.
 - `/sdd clean` step 6/6a: auto-migrates legacy entries to ADRs.

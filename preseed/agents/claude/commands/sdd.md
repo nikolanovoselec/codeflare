@@ -375,7 +375,7 @@ Refactor a rotted spec. Mode-aware.
       ```markdown
       ### AD{N}: {Decision title derived from `{rule_id}` + `{target_id}`}
 
-      **Status:** Accepted ({YYYY-MM-DD from the legacy `Date:` field. If the legacy entry has no parseable Date or the value is malformed, write `Accepted (date unknown)` — never substitute today's date, as that would silently re-stamp the decision and lose the audit trail.})
+      **Status:** {Accepted (YYYY-MM-DD from the legacy `Date:` field). If the legacy entry has no parseable Date or the value is malformed, emit `Accepted (date unknown)` instead — never substitute today's date, as that would silently re-stamp the decision and lose the audit trail.}
       **Overrides:** {rule_id}:{target_id}
 
       **Context:** {Auto-filled placeholder explaining what `{rule_id}` flagged on `{target_id}`. Reference the rule by name from `~/.claude/rules/spec-discipline.md`.}
