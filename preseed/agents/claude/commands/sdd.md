@@ -11,115 +11,90 @@ The structure, format, modes, and workflow are documented in the `spec-driven-de
 Print this help screen and exit. Do not invoke any sub-command unless the user provides one.
 
 ```
-# Spec-Driven Development
+sdd — spec-driven development for Claude Code projects
 
-SDD turns rough product ideas into structured specifications, then keeps them
-honest as the project grows. The spec (sdd/ folder) is the single source of
-truth for what the product does and why.
+  Turn rough product ideas into structured specifications.
+  Keep the spec honest as the project grows.
 
-## Sub-commands
+USAGE
+  /sdd                              Show this help
+  /sdd <subcommand> [arguments]     Run a subcommand
 
-  /sdd init [idea]      Bootstrap a new project from a product idea.
-                        Creates sdd/, documentation/, root README, tests/,
-                        and sdd/config.yml. Always interactive (you confirm
-                        the vision and domains).
+SUBCOMMANDS
+  init [idea]            Bootstrap a new project (interactive). Creates
+                         sdd/, documentation/, root README, tests/,
+                         sdd/config.yml. Detects existing codebases and
+                         imports a derived spec instead of greenfield.
+  edit <domain>          Add or modify requirements in an existing
+                         domain. Always interactive.
+  add <domain>           Create a new domain in an existing spec.
+                         Always interactive.
+  clean                  Refactor a rotted spec. Detects implementation
+                         leakage, fake-Deprecated REQs, oversized REQs,
+                         bloated changelogs. Mode-aware.
+  autonomous <action>    Set autonomy mode. Actions: on | off |
+                         unleashed | status
 
-  /sdd edit {domain}    Add or modify requirements in an existing domain.
-                        Always interactive — adding requirements requires
-                        user input, even in auto/unleashed mode.
+AUTONOMY MODES
+  interactive  (default)   Confirm every change before applying. Safe
+                           for new users and high-stakes specs.
+  auto                     SAFE/RISKY fixes auto-applied on current
+                           branch. JUDGMENT items logged to
+                           sdd/.review-needed.md.
+  unleashed                Walk-away autopilot. Applies SAFE/RISKY/
+                           JUDGMENT with conservative defaults, commits
+                           per category, pushes. enforce_tdd forced
+                           true. Revert per-category SHA to undo.
 
-  /sdd add {domain}     Create a new domain in an existing spec.
-                        Always interactive.
+AUTO-RUN  (no /sdd invocation needed)
+  Once sdd/ exists, the SDD workflow runs automatically after every
+  push: spec-reviewer updates sdd/ to match the code, then doc-updater
+  updates documentation/. Both honor sdd/config.yml mode and
+  sdd/.user-overrides.md skip list. Vibe-code without sdd/ works
+  too — agents stay silent until you /sdd init.
 
-  /sdd clean            Refactor a rotted spec. Detects implementation
-                        leakage, fake-Deprecated REQs, prose Status fields,
-                        oversized REQs, bloated changelogs. Mode-aware.
+CONFIG  (sdd/config.yml)
+  mode                              interactive | auto | unleashed
+  enforce_tdd                       true | false  (default: true)
+  test_globs                        [...]         (test-file patterns)
+  src_globs                         [...]         (optional override)
+  forbidden_content_allowlist       {...}
 
-  /sdd autonomous       Set the autonomy mode in sdd/config.yml.
-                        Subcommands: on | off | unleashed | status
+FILES
+  sdd/.user-overrides.md      Findings the agent skips (committed)
+  sdd/.review-needed.md       Findings escalated for human review
+  sdd/.coverage-report.md     Output when enforce_tdd: false
+  sdd/.last-clean-run.md      Audit log of the last /sdd clean
 
-  /sdd                  This help screen.
+DISCIPLINE TRIAD  (loaded into all agents)
+  spec-discipline           What counts as a real requirement.
+                            Enforced by spec-reviewer.
+  documentation-discipline  What counts as real documentation
+                            (line/word budgets, lane separation).
+                            Enforced by doc-updater.
+  tdd-discipline            What counts as a real test (no text-
+                            matching theater, no tautology, no
+                            mock-only). Enforced by code-reviewer.
+                            Gated by enforce_tdd above.
 
-## Three autonomy modes
+EXAMPLES
+  /sdd init "vacation rental site for Pasman"
+                                    Bootstrap a new project from idea
+  /sdd init                         Bootstrap; agent prompts for idea
+  /sdd edit authentication          Add or modify auth requirements
+  /sdd add notifications            Create a new domain
+  /sdd clean                        Rescue a rotted spec
+  /sdd clean --unleashed            Force unleashed mode for one run
+  /sdd autonomous on                Switch to auto mode
+  /sdd autonomous unleashed on      Switch to walk-away autopilot
+  /sdd autonomous status            Show current mode + overrides
 
-  interactive  (default)
-    Confirm every change before applying. Safe for new SDD users and
-    high-stakes specs. /sdd clean reports findings and asks per-batch.
-
-  auto
-    SAFE and RISKY fixes auto-applied silently on the current branch.
-    JUDGMENT items escalate to sdd/.review-needed.md for later review.
-    Recommended for solo developers in steady-state.
-
-  unleashed
-    Walk-away autopilot. /sdd clean applies SAFE + RISKY + JUDGMENT
-    fixes on the current branch (using conservative defaults that
-    preserve information without overwriting intent), commits per
-    category, pushes. No new branch, no PR. enforce_tdd is forced true.
-    You walk away. You come back to per-category commits and
-    sdd/.review-needed.md — git revert <sha> per-category if anything
-    needs undoing.
-
-  /sdd autonomous on            → set mode = auto
-  /sdd autonomous unleashed on  → set mode = unleashed
-  /sdd autonomous off           → set mode = interactive
-  /sdd autonomous status        → show current mode + recent overrides
-
-## Auto-detection (no /sdd invocation needed)
-
-Once a project has an sdd/ folder, the workflow runs automatically.
-After every git push:
-  • spec-reviewer agent updates sdd/ to match the code
-  • doc-updater agent updates documentation/ to match the code
-  • Both agents read sdd/config.yml to know the autonomy level
-  • Both agents respect sdd/.user-overrides.md to skip findings you
-    explicitly told them to ignore
-
-If sdd/ doesn't exist, spec-reviewer exits silently and doc-updater
-runs in docs-only mode (project-agnostic doc maintenance).
-
-## Quick start
-
-  New project from an idea     /sdd init "vacation rental site for Pasman"
-  Existing rotted spec         /sdd clean
-  Vibe code on a project       (just write code — agents handle SDD)
-  Switch off interactive mode  /sdd autonomous on
-  Walk-away cleanup            /sdd autonomous unleashed on; /sdd clean
-
-## Where settings live
-
-  sdd/config.yml         mode: interactive | auto | unleashed
-                         enforce_tdd: true | false     (default: true)
-                         test_globs: [...]
-                         src_globs: [...]              (optional override)
-                         forbidden_content_allowlist: {...}
-
-  sdd/.user-overrides.md Findings you told the agent to skip (committed)
-  sdd/.review-needed.md  Findings escalated for human review (committed)
-  sdd/.coverage-report.md Output of enforce_tdd: false runs (committed)
-  sdd/.last-clean-run.md Audit log of the most recent /sdd clean run
-
-## The discipline triad
-
-Three sibling rule files define what counts as real spec / docs / tests:
-
-  spec-discipline.md          What counts as a real requirement.
-                              Enforced by spec-reviewer.
-  documentation-discipline.md What counts as real documentation
-                              (line/word budgets, lane separation).
-                              Enforced by doc-updater.
-  tdd-discipline.md           What counts as a real test (no text-
-                              matching theater, no tautology, no
-                              mock-only). Enforced by code-reviewer.
-                              Gated by enforce_tdd in sdd/config.yml.
-
-## Reference
-
-  Skill:    ~/.claude/skills/spec-driven-development/SKILL.md
-  Rules:    ~/.claude/rules/spec-discipline.md
-            ~/.claude/rules/documentation-discipline.md
-            ~/.claude/rules/tdd-discipline.md
-  Templates: ~/.claude/skills/spec-driven-development/references/templates/
+LEARN MORE
+  Skill         ~/.claude/skills/spec-driven-development/SKILL.md
+  Rules         ~/.claude/rules/spec-discipline.md
+                ~/.claude/rules/documentation-discipline.md
+                ~/.claude/rules/tdd-discipline.md
+  Templates     ~/.claude/skills/spec-driven-development/references/templates/
 ```
 
 ---
