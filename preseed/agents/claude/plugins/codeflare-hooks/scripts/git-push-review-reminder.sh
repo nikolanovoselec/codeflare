@@ -12,6 +12,13 @@
 #   - `git push` runs AND current branch has no open PR → DEFERRED →
 #     skip silently (review will fire when the PR opens later)
 #
+# DRAFT PRs are treated as OPEN (gh returns state=OPEN for drafts). This
+# is intentional: drafts often want early feedback, and silent skip
+# would surprise users whose draft is the de-facto review target. Users
+# who want a review-free WIP branch should defer the PR open until they
+# are ready, OR use the sentinel/magic-phrase USER bypasses on a per-push
+# basis.
+#
 # This switches the cost model from per-push (every commit + push pair
 # burned a full review) to per-PR (one review at PR-open + one per push
 # while the PR is open). Across a typical session: ~1264 review spawns

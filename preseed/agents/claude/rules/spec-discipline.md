@@ -116,7 +116,7 @@ A REQ may opt out of length warnings with an HTML comment: `<!-- sdd-allow-large
 - Avoid "should" — use "must" or describe the observable outcome
 - Avoid vague terms like "responsive", "fast", "user-friendly" — specify the criterion (e.g., "loads in under 2 seconds on 4G mobile")
 
-## Pattern 11 — Run-on AC bullets
+## Run-on AC bullets
 
 A single AC bullet that runs longer than ~150 words almost always conjoins multiple observable behaviors with semicolons or commas. Each observable behavior should be its own bullet so tests can target it individually.
 
@@ -128,7 +128,7 @@ Note: a bare "5+ ands" rule false-positives on enumeration patterns ("supports C
 
 Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: split at conjunctions, preserving every clause as a separate bullet under the same AC heading. Never silently drop a clause.
 
-## Pattern 12 — Mechanism leakage in AC bullets
+## Mechanism leakage in AC bullets
 
 An AC bullet describes WHAT the user observes, not HOW it's implemented. The following are mechanism tokens that leak into ACs and should move to `documentation/`:
 
@@ -144,7 +144,7 @@ A user does not observe `HttpOnly`. They observe "JavaScript on the page cannot 
 
 Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: rewrite the AC bullet to describe the user-observable consequence; move the mechanism description to `documentation/security.md` (or the relevant lane file) with a backlink to the REQ.
 
-## Pattern 14 — Changelog drift (no AC change → no changelog entry)
+## Changelog drift (no AC change → no changelog entry)
 
 `sdd/changes.md` is a product changelog. An entry is justified only when an AC changed in a user-observable way OR a REQ was added/deprecated/moved. The drift pattern: changelog entries appearing for spec format fixes, prose tightening, or implementation-leakage cleanup with no corresponding AC delta.
 
@@ -221,6 +221,16 @@ git branch --set-upstream-to=origin/<branch> <branch>
 ```
 
 The hook is fail-safe (any unexpected error → exit 0), so missing upstream or missing gh just means the optimization or enforcement is skipped — never a hard lock-out.
+
+### Known under-block conditions
+
+The Stop hook deliberately under-blocks (lets a push through unreviewed) rather than over-blocks (locks the user out) in three cases:
+
+1. **PR HEAD changed via the GitHub web UI** (amend from the UI, branch reset via API, force-push from another machine): the current Claude session has no `git push` line in its transcript, so PUSH_LINE detection exits 0 and no enforcement fires this turn. Review fires on the next local push to the branch — the new PR HEAD is still un-acked, so the next push correctly re-triggers the pipeline.
+2. **Spec-reviewer subagent errored** before writing `completed</status>` for its tool-use id: doc-updater is not required and the push is allowed to proceed. The user sees the spec-reviewer failure in the agent's own report; rerunning spec-reviewer manually then satisfies the gate on the next Stop.
+3. **Transcript file rotated or truncated mid-session**: PUSH_LINE detection silently exits 0. Review fires on the next push.
+
+DRAFT PRs (`gh pr view` reports `state: OPEN` for drafts) are treated as fully open. Drafts often want early feedback, and silently skipping review on them would surprise users whose draft is the de-facto review target. Users who want a review-free WIP should defer the PR open until ready, or use a per-push USER bypass.
 
 ## Severity classification on findings
 

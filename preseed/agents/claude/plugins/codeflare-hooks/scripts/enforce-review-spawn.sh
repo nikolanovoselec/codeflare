@@ -48,6 +48,19 @@
 # Vibe-coding gate: no enforcement if sdd/ is missing.
 # Fail-safe: any unexpected error → exit 0 (never lock users out).
 #
+# Known under-block conditions (all fail-safe by design — review fires
+# on the next eligible push instead of locking the user out):
+#   1. Web-UI driven PR HEAD changes (amend from GitHub UI, branch
+#      reset via API): the current Claude session has no `git push`
+#      line in its transcript, so PUSH_LINE detection exits 0. Review
+#      fires on the next local push to the branch.
+#   2. Spec-reviewer subagent errored without writing
+#      `completed</status>` for its tool-use id: doc-updater is not
+#      required → push proceeds. The user sees the spec-reviewer
+#      failure in the agent's own report; rerun manually.
+#   3. Transcript file rotated or truncated mid-session: PUSH_LINE
+#      detection silently returns 0. Review fires on the next push.
+#
 # Operational requirements (see rules/spec-discipline.md →
 #   "Operational requirements for the Stop hook"):
 #   - Current branch must have upstream tracking (`git rev-parse @{u}`

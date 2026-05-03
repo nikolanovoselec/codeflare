@@ -33,7 +33,8 @@ SUBCOMMANDS
                          leakage, fake-Deprecated REQs, oversized REQs,
                          bloated changelogs. Mode-aware.
   autonomous <action>    Set autonomy mode. Actions: on | off |
-                         unleashed | status
+                         unleashed | unleashed off | status
+                         (off resets to interactive from any mode)
 
 AUTONOMY MODES
   interactive  (default)   Confirm every change before applying. Safe
@@ -76,6 +77,24 @@ DISCIPLINE TRIAD  (loaded into all agents)
                             matching theater, no tautology, no
                             mock-only). Enforced by code-reviewer.
                             Gated by enforce_tdd above.
+
+BYPASSING REVIEW  (USER-only — agents must never use these)
+  When the post-push review pipeline is genuinely blocking
+  legitimate work (trivial doc edit, emergency hotfix, post-mortem
+  push), three escape hatches preserve user agency:
+
+    touch sdd/.skip-next-review     One-shot sentinel; auto-deleted
+                                    on use.
+    "skip review"                   Magic phrase in any USER message
+    "skip verification"             after the candidate push line.
+    3-strike circuit breaker        Built-in: after 3 blocks for the
+                                    same un-acked PR HEAD SHA, the
+                                    hook gives up automatically.
+
+  These are USER-only. The assistant must never create the sentinel
+  or write the magic phrase in its own output — that would defeat
+  the entire enforcement layer. Hook misfires get fixed in code,
+  not bypassed inline.
 
 EXAMPLES
   /sdd init "vacation rental site for Pasman"
@@ -363,7 +382,8 @@ Set the autonomy mode.
 ```
 /sdd autonomous on              → write `mode: auto` to sdd/config.yml
 /sdd autonomous unleashed on    → write `mode: unleashed` to sdd/config.yml
-/sdd autonomous off             → write `mode: interactive` to sdd/config.yml
+/sdd autonomous off             → write `mode: interactive` (resets from auto OR unleashed)
+/sdd autonomous unleashed off   → alias for `off` (same behavior)
 /sdd autonomous status          → print current mode + last 5 overrides from .user-overrides.md
 ```
 

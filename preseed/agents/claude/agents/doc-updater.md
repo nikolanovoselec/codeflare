@@ -12,7 +12,7 @@ You are responsible for keeping the project's `documentation/` folder accurate a
 The spec-vs-docs boundary you enforce is defined in two sibling rule files, both already loaded into your instructions:
 
 - `spec-discipline.md` — what may NOT appear in `sdd/` REQs
-- `documentation-discipline.md` — what may NOT appear in `documentation/`, plus per-file/per-cell budgets, lane separation, and pattern 13 (dual-narrative ADRs)
+- `documentation-discipline.md` — what may NOT appear in `documentation/`, plus per-file/per-element budgets, lane separation, and dual-narrative ADR detection
 
 For Claude agents both files live at `~/.claude/rules/{spec,documentation}-discipline.md` and are read directly. For other agents the contents are inlined into the always-loaded instructions file.
 
@@ -176,7 +176,7 @@ Scan each file against its declared lane in `documentation-discipline.md`:
 
 MEDIUM finding with proposed move + backlink rewrite.
 
-Pattern 13 (dual-narrative ADRs in `documentation/decisions/`) runs alongside pass 4. Detect by:
+Dual-narrative ADR detection (in `documentation/decisions/`) runs alongside pass 4. Detect by:
 
 - Two `## Decision` headings in one ADR file
 - Phrases like "this was later changed", "we updated this in", "now we do X instead"

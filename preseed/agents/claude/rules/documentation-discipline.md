@@ -80,7 +80,7 @@ Each documentation file owns one lane. Cross-lane content is a MEDIUM finding an
 
 When a cell or paragraph in `architecture.md` describes an HTTP route's contract, it's a lane violation — the content belongs in `api-reference.md` and `architecture.md` should reference the route by name only.
 
-## Pattern 15 — Big-O jargon in narrative documentation
+## Big-O jargon in narrative documentation
 
 A documentation file should describe what the system does in observable terms, not analyze its theoretical complexity. Big-O notation in narrative prose is a flag that the writer reached for academic shorthand instead of stating either (a) a real, measurable performance target or (b) a plain-language description of scaling behavior.
 
@@ -98,7 +98,7 @@ The fix:
 
 Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: if a target exists in a related performance REQ, replace the big-O prose with a backlink. Otherwise flag and let the user decide.
 
-## Pattern 13 — Dual-narrative ADRs
+## Dual-narrative ADRs
 
 An ADR (`documentation/decisions/<adr>.md`) describes ONE decision. The dual-narrative anti-pattern is an ADR that tells two competing stories — usually because someone updated it after the decision was reversed instead of writing a new ADR that supersedes it.
 
@@ -117,9 +117,15 @@ This is enforced as a HIGH finding by doc-updater because dual-narrative ADRs co
 
 doc-updater runs four passes on every PR-boundary trigger:
 
-### Pass 1 — Per-cell budget enforcement
+### Pass 1 — Per-element budget enforcement
 
-For each table in every `documentation/*.md` file, count words in each cell. Cells over 50 words get flagged as MEDIUM with a suggested rewrite: extract the long content to a body paragraph below the table and replace the cell with a one-line summary plus a link.
+Walks each `documentation/*.md` file and applies every cap from the per-element table above:
+
+- **Table cells**: count words in each cell; flag cells over 50 words as MEDIUM with a suggested rewrite (extract the long content to a body paragraph below the table and replace the cell with a one-line summary plus a link).
+- **List items**: count words in each `-`/`*`/numbered list bullet; flag items over 40 words as MEDIUM (split into multiple bullets or promote to body prose).
+- **Code snippets**: count lines inside fenced code blocks; flag blocks over 15 lines as MEDIUM (link to source file with line range instead).
+- **Heading nesting**: track the deepest `#` count; flag any heading at level 5+ as LOW (promote section to a sibling page).
+- **Single paragraphs**: count words between blank lines outside code fences; flag paragraphs over 120 words as LOW (break for emphasis — walls of prose hide the load-bearing sentence).
 
 ### Pass 2 — File-level budget enforcement
 
@@ -135,7 +141,7 @@ Scan each `documentation/` file for paragraphs that read like AC text (`must`, `
 
 Scan each file against its lane in the table above. If `architecture.md` contains a section titled `## API Endpoints` with route+method+status-code content, it's a lane violation — flag as MEDIUM and propose moving the section to `api-reference.md` with a backlink in `architecture.md`.
 
-Pattern 13 (dual-narrative ADRs) runs alongside pass 4 against `documentation/decisions/`.
+Dual-narrative ADR detection runs alongside pass 4 against `documentation/decisions/`.
 
 ## Severity classification on doc findings
 
