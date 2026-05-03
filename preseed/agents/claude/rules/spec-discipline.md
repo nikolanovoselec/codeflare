@@ -4,7 +4,11 @@ These rules apply to any project that has an `sdd/` folder. They are loaded into
 
 The full SDD workflow lives in the `spec-driven-development` skill. These rules are the non-negotiable enforcement layer that runs even when the skill is not explicitly invoked.
 
-**Sibling rule file**: `documentation-discipline.md` covers what may NOT appear in `documentation/` plus per-file/per-cell budgets and lane separation. The two files together define the spec/docs/code lane discipline. spec-reviewer enforces this file. doc-updater enforces `documentation-discipline.md`.
+**Sibling rule files**:
+- `documentation-discipline.md` — what may NOT appear in `documentation/`, per-file/per-cell budgets, lane separation. Enforced by doc-updater.
+- `tdd-discipline.md` — what counts as a real test (no text-matching theater, no tautology, no mock-only theater). Enforced by code-reviewer.
+
+Together the three files define the spec / docs / tests lane discipline. spec-reviewer enforces this file.
 
 ## What the spec is
 

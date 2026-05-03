@@ -221,28 +221,83 @@ jq -c 'select(.name == "Bash" and
 - **Unoptimized images** — Large images without compression or lazy loading
 - **Synchronous I/O** — Blocking operations in async contexts
 
-### Test Quality (MEDIUM)
+### Test Quality (HIGH)
 
-When reviewing test files (`*.test.*`, `*.spec.*`, `test_*.py`, etc.), the test passing is necessary but not sufficient — assertions can pass while failing to pin the contract:
+> The full rule lives in `tdd-discipline.md` — the sibling of
+> `spec-discipline.md` and `documentation-discipline.md`. This section
+> is the code-reviewer enforcement entry point.
 
-- **Negative-only assertions** — `expect(x).not.toMatch(/foo/)` or `assert.doesNotMatch(content, ...)` without a paired positive assertion fails to pin the contract. An empty file or a renamed feature passes. Pair every negative with a positive that says what SHOULD be present.
-- **Brittle regexes against rendered content** — `assert.match(content, /file\.md.*350/)` breaks on whitespace changes, line wrapping, or markdown table reformatting. Prefer structural extraction (parse the table row, assert the cell value) or anchor on stable boundaries (`\bfile\.md\b` AND `\b350\b` separately).
-- **Sequential numbering integrity** — When tests use `// Test N)` or `S1, S2, ...` numbering in section comments, gaps (1-6, **8**-14 missing 7) signal lost edits during refactor. Either renumber or drop the numbers.
-- **Tautology and skipped tests** — `expect(true).toBe(true)`, `assert.ok(1)`, empty test bodies, or `it.skip(...)` without a tracking issue are weight without weight-bearing.
+When reviewing test files (`*.test.*`, `*.spec.*`, `test_*.py`,
+`*_test.go`, etc.), the test passing is necessary but not sufficient —
+assertions can pass while failing to pin any contract. Apply the
+"if I delete or break the implementation, will this test fail?"
+gut-check to every test you read.
+
+Flag at HIGH severity:
+
+- **Text-matching theater** — test reads a file (markdown, source,
+  prompt, config) via `readFileSync` / `fs.readFile` / a `read(path)`
+  helper, then `assert.match` / `expect(content).toMatch` /
+  `expect(content).toContain` against its contents. The "system under
+  test" is the file's prose, not behavior. Replace with a real
+  fixture-driven exercise of the code (spawn the script and check
+  exit code + stdout, send a real Request and check the Response,
+  call the function with real input and check the return value).
+- **Tautology** — assertions whose truth is given by the test setup.
+  `expect(literal.length).toBeGreaterThan(0)` on a destructured
+  fixture, `expect(constA).toBe(constB)` where both are local
+  hardcoded values, `expect(Array.isArray([1,2,3])).toBe(true)`.
+  Derive expected values from a source of truth outside the test
+  (the filesystem, a database, a real API response).
+- **Mock-only theater** — test mocks function X to return V, calls
+  X, asserts V was returned. Production code being tested lives
+  inside the mock setup. Only mock external dependencies (third-party
+  APIs, the platform, the network); exercise your own code.
+- **Call-count without output** — `expect(spy).toHaveBeenCalledTimes(N)`
+  without a paired assertion on observable output. Refactor-fragile
+  and regression-blind. Pair with a check on the actual return value
+  or side effect.
+
+Flag at MEDIUM severity:
+
+- **Skipped tests without justification** — `it.skip` / `xit` /
+  `describe.skip` without an inline comment naming the blocker
+  (issue link, upstream bug, environment limitation).
+- **Empty bodies** — `it('does X', () => {})` or test bodies with no
+  `expect`/`assert` call at all.
+- **Negative-only assertions** — `expect(x).not.toMatch(/foo/)` or
+  `assert.doesNotMatch(content, ...)` without a paired positive
+  assertion. An empty file passes. Pair every negative with a
+  positive that says what SHOULD be present.
+- **Brittle regexes against rendered content** —
+  `assert.match(content, /file\.md.*350/)` breaks on whitespace
+  changes, table reformatting. Prefer structural extraction or
+  anchor on stable boundaries separately.
 
 ```javascript
-// BAD: negative-only assertion — empty file passes
-it('uses PR-boundary trigger language', () => {
-  assert.doesNotMatch(content, /post.push|after every push/i);
-});
+// BAD: text-matching theater — passes on any file containing the word
+const content = readFileSync(rulePath, 'utf-8');
+assert.match(content, /forbidden|banned/i, 'should ban forbidden content');
 
-// GOOD: pair the negative with a positive that pins the contract
-it('uses PR-boundary trigger language', () => {
-  assert.doesNotMatch(content, /post.push|after every push/i);
-  assert.match(content, /PR open|PR.sync|pull.request/i,
-    'must describe PR-boundary trigger');
-});
+// GOOD: run the actual code, check the actual output
+const result = await runSpecReviewer({ reqText: 'AC: response uses #1A6B8F' });
+assert.equal(result.findings[0].rule, 'forbidden:hex-color');
+assert.match(result.findings[0].message, /hex color/i);
 ```
+
+```javascript
+// BAD: tautology — destructured fixture compared to itself
+expect(doc.modes.length).toBeGreaterThan(0);  // doc was a literal
+expect(commonRules.length).toBe(ECC_FILES_PER_SUBDIR.common);  // both hardcoded
+
+// GOOD: derive expected from the source of truth
+const onDisk = readdirSync('preseed/.../rules/common').filter(f => f.endsWith('.md'));
+expect(commonRules.map(r => basename(r.key)).sort()).toEqual(onDisk.sort());
+```
+
+A test author may opt out per-test with a comment line beginning
+`// tdd-allow: <reason>`. Use sparingly — overuse signals the test
+should be deleted, not allowed.
 
 ### Best Practices (LOW)
 

@@ -78,6 +78,12 @@
       "advanced"
     ]
   },
+  "rules/tdd-discipline.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "rules/common/coding-style.md": {
     "modes": [
       "advanced"
