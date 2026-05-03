@@ -246,7 +246,8 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
 
   it('cheap path: stale ack file (>5 min old) → falls through to gh', () => {
     // Pins the mtime bound on the cheap path. If a future refactor
-    // raises the bound to 24h or drops it, this test fails.
+    // raises the bound to 24h or drops it, this test fails because
+    // the marker file (only written when gh runs) won't exist.
     const cwd = makeFixture();
     withSdd(cwd);
     const headSha = spawnSync('git', ['rev-parse', 'HEAD'], {
@@ -261,17 +262,34 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     // Backdate ack file mtime to 10 minutes ago — past the 5-min bound
     const tenMinAgo = (Date.now() - 10 * 60 * 1000) / 1000;
     utimesSync(ackFile, tenMinAgo, tenMinAgo);
-    // Real fakeGh — must be called because cheap path's mtime guard fails
-    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    // Custom fakeGh that writes a marker file when invoked. The
+    // marker is the unfakeable signal "gh was actually called" —
+    // distinguishes "cheap-path short-circuited (no gh call)" from
+    // "gh-path took it (gh call happened, returned matching SHA)".
+    const markerFile = join(cwd, 'gh-invoked-marker');
+    const binDir = join(cwd, 'fake-bin');
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(
+      join(binDir, 'gh'),
+      `#!/usr/bin/env bash
+ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid" ]]; then
+  echo invoked > "${markerFile}"
+  echo '{"state":"OPEN","headRefOid":"${headSha}"}'
+  exit 0
+fi
+echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
+exit 99
+`,
+    );
+    chmodSync(join(binDir, 'gh'), 0o755);
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    // gh confirmed match → exits silently (authoritative path)
     assert.equal(r.stdout, '',
       'stale ack should fall through to gh, which then matches the SHA and exits 0');
-    // The path that took us here was gh, not cheap. Verify by checking
-    // gh was actually invoked — no FAKE_GH_UNEXPECTED_ARGS noise.
-    assert.doesNotMatch(r.stderr, /FAKE_GH_UNEXPECTED_ARGS/);
+    assert.equal(existsSync(markerFile), true,
+      'stale ack must invoke gh — cheap path silent short-circuit would leave marker missing');
   });
 
   it('cheap path: HEAD ahead of @{u} → falls through to gh (force-push guard)', () => {
