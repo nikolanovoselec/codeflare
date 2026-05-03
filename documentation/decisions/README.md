@@ -1,5 +1,5 @@
 <!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. All 45 ADRs currently live here as a single file rather than one-file-per-ADR. The combined file is over the implicit 100×45 budget but each individual ADR is under the per-ADR cap. Splitting into 45 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 45 ADR slots exist (AD1-AD45); 6 slots are merge-redirect stubs (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18) that preserve inbound AD-N references after their content was consolidated into a sibling ADR on 2026-05-03. 39 ADRs carry active content. The combined file is over the implicit 100×45 budget but each individual active ADR is under the per-ADR cap. Splitting into 45 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
 
 # Architecture Decisions
 
@@ -18,36 +18,36 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD3](#ad3-per-user-r2-buckets) | Per-user R2 buckets | Architecture |
 | [AD4](#ad4-periodic-rclone-bisync) | Periodic rclone bisync | Architecture |
 | [AD5](#ad5-login-shell-autostart) | Login shell autostart | Architecture |
-| [AD6](#ad6-kv-read-modify-write-races) | KV read-modify-write races | Architecture |
-| [AD7](#ad7-pre-setup-public-endpoints) | Pre-setup public endpoints | Security |
+| [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | KV read-modify-write races and `collectMetrics` atomicity | Architecture |
+| [AD7](#ad7-merged-into-ad10) | _merged into AD10 — pre-setup public endpoints_ | Security |
 | [AD8](#ad8-root-container-no-internal-auth) | Root container, no internal auth | Architecture |
 | [AD9](#ad9-ressource_tier-spelling) | RESSOURCE_TIER spelling | UI/Frontend |
-| [AD10](#ad10-open-setup-endpoint-before-first-configure) | Open setup endpoint before first configure | Security |
+| [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation | Security |
 | [AD11](#ad11-suffix-pattern-cors-with-credentials) | Suffix-pattern CORS with credentials | Security |
 | [AD12](#ad12-kv-based-setup-lock-non-atomic) | KV-based setup lock (non-atomic) | Security |
 | [AD13](#ad13-per-user-scoped-r2-tokens) | Per-user scoped R2 tokens | Security |
 | [AD14](#ad14-never-auto---resync-on-bisync-failure) | Never auto-`--resync` on bisync failure | Storage |
 | [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | TabConfigSchema allows arbitrary command strings | UI/Frontend |
 | [AD16](#ad16-entrypointsh-1090-lines-complexity) | entrypoint.sh ~1090 lines complexity | Architecture |
-| [AD17](#ad17-collectmetrics-density) | collectMetrics density | Architecture |
-| [AD18](#ad18-webgl-any-types-in-webgl-utilsts) | WebGL `any` types in webgl-utils.ts | UI/Frontend |
-| [AD19](#ad19-splash-cursor-logicts-as-any-casts) | splash-cursor-logic.ts `as any` casts | UI/Frontend |
+| [AD17](#ad17-merged-into-ad6) | _merged into AD6 — `collectMetrics` atomicity_ | Architecture |
+| [AD18](#ad18-vendored-creative-webgl-code-uses-untyped-patterns) | Vendored creative/WebGL code uses untyped patterns | UI/Frontend |
+| [AD19](#ad19-merged-into-ad18) | _merged into AD18 — splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
 | [AD20](#ad20-toctou-in-containerlifecyclets) | TOCTOU in container/lifecycle.ts | Architecture |
 | [AD21](#ad21-inconsistent-function-signatures) | Inconsistent function signatures | Architecture |
 | [AD22](#ad22-jwks-30s-cache-staleness) | JWKS 30s cache staleness | Security |
 | [AD23](#ad23-cors-origin-pattern-validation) | CORS origin pattern validation | Security |
 | [AD24](#ad24-predictable-session-ids) | Predictable session IDs | Security |
 | [AD25](#ad25-e2e-service-email-hardcoded) | E2E service email hardcoded | Security |
-| [AD26](#ad26-stress-test-rate-limit-bypass) | Stress test rate-limit bypass | Security |
+| [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Stress test rate-limit bypass (integration-only) | Security |
 | [AD27](#ad27-server-side-prefix-delete) | Server-side prefix delete | Storage |
-| [AD28](#ad28-stress-test-bypass-is-integration-only) | Stress test bypass is integration-only | Security |
+| [AD28](#ad28-merged-into-ad26) | _merged into AD26 — integration-only environment scoping_ | Security |
 | [AD29](#ad29-container-secrets-as-env-vars) | Container secrets as env vars | Security |
 | [AD30](#ad30-worker-name-from-host-header) | Worker name from Host header | Security |
 | [AD31](#ad31-root-container-is-intentional) | Root container is intentional | Architecture |
 | [AD32](#ad32-encryption_key-is-optional) | ENCRYPTION_KEY is optional | Security |
-| [AD33](#ad33-pre-setup-csrf-risk-accepted) | Pre-setup CSRF risk accepted | Security |
+| [AD33](#ad33-merged-into-ad10) | _merged into AD10 — pre-setup CSRF risk_ | Security |
 | [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | WebSocket auth bypass of Hono middleware | Security |
-| [AD35](#ad35-splash-cursor-logicts-old-style-constructor-with-any-types) | splash-cursor-logic.ts old-style constructor with any types | UI/Frontend |
+| [AD35](#ad35-merged-into-ad18) | _merged into AD18 — splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
 | [AD36](#ad36-websocket-origin-check-is-optional-for-non-browser-clients) | WebSocket Origin check is optional for non-browser clients | Security |
 | [AD37](#ad37-kv-as-billing-read-cache--signal-and-sync-cf-015) | KV as billing read cache -- Signal and Sync (CF-015) | Billing |
 | [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | GitHub OIDC replaces CF Access in SaaS mode | Billing |
@@ -103,21 +103,21 @@ PTY spawns `bash -l` (login shell). `.bashrc` reads `TAB_CONFIG` env var and lau
 
 ---
 
-### AD6: KV read-modify-write races
+### AD6: KV read-modify-write races and `collectMetrics` atomicity
 
-**Decision:** Last-writer-wins is acceptable; collectMetrics race mitigated.
+**Decision:** Last-writer-wins is acceptable for KV state; `collectMetrics` keeps activity, health, and KV updates inside a single `alarm()` callback for natural atomicity.
 
 Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccessedAt` is best-effort. KV doesn't support atomic read-modify-write. Durable Objects would add latency for negligible consistency gain in this use case.
 
 `collectMetrics` KV read-modify-write can revert session status. Mitigated: session status changes are only observed from the Dashboard, not during active terminal use. Sessions are never interrupted while in Terminal view.
 
+**`collectMetrics` density** (formerly AD17): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations — same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
+
 ---
 
-### AD7: Pre-setup public endpoints
+### AD7: Merged into AD10
 
-**Decision:** Short exposure window is acceptable risk.
-
-Setup runs once during initial deploy. Pre-setup auth trusts spoofable email header -- bootstrap problem (can't require CF Access auth when CF Access isn't configured yet). Mitigated by rate limiting and short exposure window. See AD10 for full trade-off analysis.
+**Status:** Merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) on 2026-05-03. Pre-setup public-endpoint risk acceptance is now consolidated under the bootstrap-window ADR alongside the related CSRF trade-off. Inbound `AD7` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
@@ -137,17 +137,21 @@ Consistent across all config (wrangler.toml, GitHub variables, TypeScript types)
 
 ---
 
-### AD10: Open setup endpoint before first configure
+### AD10: Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation
 
-**Decision:** Bootstrap problem -- no auth before auth is configured.
+**Decision:** A narrow pre-setup window (seconds to minutes) is the unavoidable shape of a self-hosted bootstrap; auth and CSRF protections are intentionally relaxed during it, mitigated by short exposure, rate limiting, and the `setup:complete` KV flag.
 
-`/api/setup/configure` is public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet -- that's what setup configures).
+`/api/setup/configure` is public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet — that's what setup configures).
 
 **Trade-off**: A narrow window (seconds to minutes) exists where any actor could claim the deployment. Accepted because the target audience is self-hosted single-user/small-team deployments where the deployer is watching the process.
 
 **Mitigation**: `setup:complete` KV flag prevents re-configuration. Rate limiting applies to setup routes.
 
 **Future**: A one-time bootstrap secret injected at deploy time would close this window entirely.
+
+**Pre-setup public endpoints** (formerly AD7): the same risk acceptance covers all pre-setup endpoints, not just `/configure`. Setup runs once during initial deploy. Pre-setup auth trusts a spoofable email header — bootstrap problem (can't require CF Access auth when CF Access isn't configured yet). Mitigated by rate limiting and the same short exposure window.
+
+**Pre-setup CSRF** (formerly AD33): `createConditionalSetupAuth()` calls `next()` directly when setup is not complete, bypassing the `X-Requested-With` CSRF check. The pre-setup CSRF risk is accepted under the same rationale as above: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact `workers.dev` URL during its unconfigured window. Adding `Origin` validation to the pre-setup path is a low-cost future hardening that complements the bootstrap-secret idea above.
 
 ---
 
@@ -221,27 +225,29 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 ---
 
-### AD17: collectMetrics density
+### AD17: Merged into AD6
 
-**Decision:** Extends AD6 scope -- alarm() context needs atomicity.
-
-`collectMetrics` performs activity checking, health probing, and KV status updates in a single alarm callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The alarm() context provides natural atomicity across these tightly coupled operations.
+**Status:** Merged into [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) on 2026-05-03. The `collectMetrics` `alarm()`-context atomicity rationale is now part of the consolidated KV-races ADR. Inbound `AD17` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
-### AD18: WebGL `any` types in webgl-utils.ts
+### AD18: Vendored creative/WebGL code uses untyped patterns
 
-**Decision:** No standard TS definitions for WebGL extensions.
+**Decision:** Both isolated WebGL utilities and adapted creative-coding modules use `any` types where upstream TS definitions don't exist; refactoring offers no runtime benefit and risks regressing battle-tested visual code.
 
-Extensions like `OES_texture_half_float`, `WEBGL_lose_context`, etc. have no official TypeScript definitions. The `any` casts are isolated to this single utility file and the WebGL API surface is stable. Adding custom type definitions would be maintenance burden with no runtime benefit.
+**`webgl-utils.ts`**: extensions like `OES_texture_half_float`, `WEBGL_lose_context`, etc. have no official TypeScript definitions. The `any` casts are isolated to this single utility file and the WebGL API surface is stable. Adding custom type definitions would be maintenance burden with no runtime benefit.
+
+**`splash-cursor-logic.ts` `as any` casts** (formerly AD19): pointer-tracking objects and WebGL shader uniforms in this creative-coding module have no typed definitions upstream. The code is adapted from a visual-effect library; type assertions are confined to this isolated module.
+
+**`splash-cursor-logic.ts` old-style constructor with `any` types** (formerly AD35): an old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types — it's the root cause of the casts above. The constructor is adapted from the same visual-effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.
+
+**Common rationale across all three surfaces**: vendored creative/WebGL code is type-foreign by design. The boundary at the module's import surface is what matters; internal `any` is acceptable when the module is small, isolated, and has no production data path.
 
 ---
 
-### AD19: splash-cursor-logic.ts `as any` casts
+### AD19: Merged into AD18
 
-**Decision:** Creative-coding adapted code with no upstream TS types.
-
-Pointer tracking objects and WebGL shader uniforms in this creative-coding module have no typed definitions upstream. The code is adapted from a visual effect library. Type assertions are confined to this isolated module.
+**Status:** Merged into [AD18](#ad18-vendored-creative-webgl-code-uses-untyped-patterns) on 2026-05-03. The `splash-cursor-logic.ts` `as any` rationale is now part of the consolidated vendored-creative-code ADR. Inbound `AD19` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
@@ -293,11 +299,13 @@ The `.local` TLD is RFC 6762 reserved and obviously non-production. The email is
 
 ---
 
-### AD26: Stress test rate-limit bypass
+### AD26: Stress test rate-limit bypass (integration-only)
 
-**Decision:** `STRESS_TEST_MODE=active` skips all rate limiting.
+**Decision:** `STRESS_TEST_MODE=active` skips all rate limiting; the variable is scoped to the GitHub Actions `integration` environment only.
 
-k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` -- any other value (including `"true"`) keeps limits enforced. Only set on integration; production must never have this variable.
+k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` — any other value (including `"true"`) keeps limits enforced.
+
+**Integration-only scoping** (formerly AD28): no CI-level guard is needed because GitHub Actions environment separation controls it. The variable is only set via the workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but that requires deliberate action — the same trust model that already governs every other production secret.
 
 ---
 
@@ -309,11 +317,9 @@ Frontend folder deletion was subject to API rate limits (30/min browse, 20/min d
 
 ---
 
-### AD28: Stress test bypass is integration-only
+### AD28: Merged into AD26
 
-**Decision:** No CI guard needed -- GitHub Actions environment separation controls it.
-
-`STRESS_TEST_MODE=active` disables all rate limiting. Only set via GitHub Actions workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but this requires deliberate action.
+**Status:** Merged into [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) on 2026-05-03. The integration-only environment-scoping rationale is now part of the consolidated `STRESS_TEST_MODE` ADR. Inbound `AD28` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
@@ -349,11 +355,9 @@ When ENCRYPTION_KEY is absent, LLM API keys, GitHub tokens, and Cloudflare API t
 
 ---
 
-### AD33: Pre-setup CSRF risk accepted
+### AD33: Merged into AD10
 
-**Decision:** Bootstrap window is seconds to minutes; AD10 trade-off applies.
-
-createConditionalSetupAuth() calls next() directly when setup is not complete, bypassing the X-Requested-With CSRF check. AD10 accepts the open pre-setup endpoint as a bootstrap necessity. The pre-setup CSRF risk is accepted under the same rationale: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact workers.dev URL during its unconfigured window. Adding Origin validation to the pre-setup path is a low-cost future hardening.
+**Status:** Merged into [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) on 2026-05-03. Pre-setup CSRF risk acceptance is now consolidated under the bootstrap-window ADR. Inbound `AD33` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
@@ -365,11 +369,9 @@ WebSocket upgrades must be intercepted before the Hono middleware chain (documen
 
 ---
 
-### AD35: splash-cursor-logic.ts old-style constructor with any types
+### AD35: Merged into AD18
 
-**Decision:** Vendored creative/WebGL code -- TypeScript coverage not worth the refactoring effort.
-
-An old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types. AD19 covers `as any` casts in this module. The constructor is adapted from a visual effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.
+**Status:** Merged into [AD18](#ad18-vendored-creative-webgl-code-uses-untyped-patterns) on 2026-05-03. The old-style-constructor `this: any` rationale is now part of the consolidated vendored-creative-code ADR. Inbound `AD35` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
