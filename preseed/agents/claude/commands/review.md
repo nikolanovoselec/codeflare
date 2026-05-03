@@ -238,34 +238,77 @@ If `--verify-high` is NOT in $ARGUMENTS, skip Phase 5 and proceed to Phase 6.
 
 ## Phase 5: LLM Verification (Task agent — only when --verify-high is present)
 
-Launch a single Task agent (`code-reviewer` type) to verify HIGH and CRITICAL findings with external LLMs.
+Launch a single Task agent (`code-reviewer` type) to verify ALL HIGH and CRITICAL findings with external LLMs in **2 batched calls total** (one per LLM, ALL findings in a single prompt). Never one-call-per-finding — the cost scales linearly with finding count and burns the orchestrator's context with N×2 LLM responses when one batched response per LLM carries the same information.
 
 Task agent prompt:
 
 ```
 You are verifying HIGH and CRITICAL review findings using external LLMs.
+Your goal: 2 consult_llm calls TOTAL (one to GPT, one to Gemini), each containing
+ALL findings batched into a single prompt with all relevant source files attached
+via the `files` parameter. Do NOT call consult_llm once per finding.
 
-1. Read [REVIEW_DIR]/08-active-findings.md — the Active Findings section.
-2. For each HIGH and CRITICAL finding:
-   a. Read the relevant source file and extract the minimal relevant code section.
-   b. Call consult_llm MCP tool for both models. Execute concurrently if the environment permits, otherwise sequentially:
-      - Model 1: gpt-5.4 with task_mode: "review"
-      - Model 2: gemini-3.1-pro-preview with task_mode: "review"
-   c. Include in each prompt: the finding details (canonical ID, severity, location, description) and the relevant source code.
-   d. Ask each LLM to: confirm or refute the finding, provide a concrete fix if confirmed, explain why it's a false positive if refuted.
+1. Read [REVIEW_DIR]/08-active-findings.md — extract ALL HIGH and CRITICAL findings.
 
-3. Process results for each finding:
-   - If BOTH LLMs refute → mark as LLM-REFUTED and remove from active list
-   - If BOTH confirm → enrich finding with their fix proposals
-   - If they disagree → keep the finding, note the disagreement
-   - If one LLM call fails → mark as LLM-PARTIAL, keep the finding active
-   - If both LLM calls fail → mark as LLM-UNAVAILABLE, keep the finding active
+2. Build the unique source-file set:
+   - Walk every finding's `location` field, collect distinct file paths
+   - These will be passed as the `files` parameter to consult_llm so the LLM has
+     the actual source — do NOT inline code in the prompt body, only cite
+     file:line references.
 
-4. Rewrite [REVIEW_DIR]/08-active-findings.md with updated findings:
-   - Remove LLM-REFUTED findings from the Active Findings section
-   - Add LLM verdicts and fix proposals to confirmed findings
+3. Build a single batched prompt at [REVIEW_DIR]/.llm-verify-prompt.md with:
+   ```
+   # Verify N HIGH/CRITICAL code review findings
+
+   For each finding below, return one of three verdicts:
+     - CONFIRMED: agree the finding is real; provide a concrete code-level fix
+     - REFUTED: explain why this is a false positive (cite specific code or context)
+     - UNCERTAIN: state what additional context you'd need
+
+   Output as a JSON array, one object per finding:
+     [{"id": "<canonical-id>", "verdict": "CONFIRMED|REFUTED|UNCERTAIN",
+       "reason": "<≤3 sentences>", "fix": "<diff or null if refuted>"}]
+
+   ## Findings
+
+   ### <canonical-id-1>: <one-line title>
+   - Severity: HIGH|CRITICAL
+   - Location: path/to/file.ts:123
+   - Description: <2-4 sentences from 08-active-findings.md>
+
+   ### <canonical-id-2>: ...
+   ...
+   ```
+
+4. Write that prompt to disk. Then call consult_llm TWICE — once per model — passing:
+   - `prompt`: the file contents (read via Read tool, or — if very large — pass
+     the file path via the `files` parameter and a short directive like
+     "Read .llm-verify-prompt.md and respond per its instructions")
+   - `files`: the deduplicated source-file paths from step 2 + the prompt file
+   - `task_mode`: "review"
+   - Model 1: gpt-5.4
+   - Model 2: gemini-3.1-pro-preview
+   Run the two calls concurrently if the environment permits.
+
+5. Parse each LLM's JSON response. For each finding, combine the two verdicts:
+   - BOTH refute → LLM-REFUTED; remove from Active Findings
+   - BOTH confirm → enrich finding with the better of the two fix proposals
+   - DISAGREE → keep finding active, note both verdicts
+   - One call fails → LLM-PARTIAL on those findings, keep active
+   - Both calls fail → LLM-UNAVAILABLE on all findings, keep active
+
+6. Rewrite [REVIEW_DIR]/08-active-findings.md:
+   - Drop LLM-REFUTED findings from the Active Findings section
+   - Add LLM verdicts and fix proposals to surviving findings
    - Update the Summary table — add a Verified column
-   - Add a new section: "## LLM-Refuted Findings (removed)" listing removed findings with refutation reasoning
+   - Append a "## LLM-Refuted Findings (removed)" section listing removed
+     findings with the refutation reasoning from each LLM
+
+7. Delete [REVIEW_DIR]/.llm-verify-prompt.md (it was scratch).
+
+Cost contract: this whole phase MUST be exactly 2 consult_llm calls regardless of
+how many findings there are. If you find yourself about to call consult_llm a 3rd
+time, stop and re-batch.
 ```
 
 After the Task agent completes, use Bash to run `head -n 20 "$REVIEW_DIR/08-active-findings.md"` and print the output to the user.
