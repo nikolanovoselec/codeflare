@@ -1,5 +1,11 @@
 # Agent Preseed System
 
+<!-- doc-allow-large: dense reference document — manifest structure,
+     per-agent document counts, hook script roles, deployment paths
+     and troubleshooting recipes are all load-bearing reference
+     material that needs to live in one navigable file. Splitting
+     would force readers between sibling pages mid-lookup. -->
+
 **Audience:** Developers
 
 How AI agent rules, agents, commands, skills, and plugins are deployed
