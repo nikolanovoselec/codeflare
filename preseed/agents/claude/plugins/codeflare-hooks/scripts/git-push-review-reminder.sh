@@ -114,6 +114,14 @@ if [ "$TRIGGER" = "git-push" ]; then
     fi
   fi
 
+  # If we don't have a definitive answer from either cache or gh, exit
+  # silently rather than risk spuriously emitting on main/master when gh
+  # was actually transiently down. The Stop hook (enforce-review-spawn.sh)
+  # re-checks gh pr view at turn end, so a real PR push won't be missed.
+  if [ "$CACHE_VALID" = "0" ] && [ "$GH_OK" = "0" ]; then
+    exit 0
+  fi
+
   # Deferred: no open PR on this branch → review will fire when PR opens.
   # Special-case: direct push to main/master with no PR. When GitHub branch
   # protection is enabled (recommended), the push never lands here — it's
