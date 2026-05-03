@@ -11,30 +11,63 @@ Types: feat, fix, refactor, docs, test, chore, perf, ci
 
 Note: Attribution disabled globally via ~/.claude/settings.json.
 
-## Pre-Push: Review workflow is gated on SDD bootstrap
+## Review workflow is gated on SDD bootstrap AND PR boundary
 
 **SDD opt-in is binary.** Two modes:
 
 - **Vibe-coding mode** (no `sdd/` folder in the project) — `git push`
-  proceeds with **no review agents**. Nothing fires. No code-reviewer,
-  no spec-reviewer, no doc-updater, no auto-generated documentation.
-  Pure friction-free push. This is intentional: projects that haven't
-  run `/sdd init` are telling you they don't want the workflow.
-- **SDD mode** (`sdd/` + `sdd/README.md` exist) — all three review
-  agents run in the background alongside the push per the execution
-  order below. Push immediately — do not wait for reviews to complete.
-  When they return, fix any HIGH or CRITICAL findings in a follow-up
-  commit.
+  and `gh pr create` proceed with **no review agents**. Nothing fires.
+  No code-reviewer, no spec-reviewer, no doc-updater, no auto-generated
+  documentation. Pure friction-free workflow. This is intentional:
+  projects that haven't run `/sdd init` are telling you they don't
+  want the workflow.
+- **SDD mode** (`sdd/` + `sdd/README.md` exist) — review agents fire
+  on PR-boundary events only, not on every push.
 
-The `git-push-review-reminder.sh` PreToolUse hook enforces this: it
-checks for `sdd/` + `sdd/README.md` and emits the three-agent reminder
-only when both exist. On non-SDD projects the hook exits silently and
-no reminder is injected, so no agents are spawned.
+### PR-boundary trigger semantics (SDD mode)
+
+| Action | What fires |
+|---|---|
+| `gh pr create` (PR open) | code-reviewer + spec-reviewer + doc-updater (full pipeline) |
+| `git push` to a branch with an open PR | full pipeline (PR-sync) |
+| `git push` to a branch with no open PR | nothing (deferred until PR opens) |
+| `git push` to a protected branch (default `main`) directly | non-blocking warning via `warn-direct-push-to-shared.sh`; no review pipeline |
+| `git push` to `develop` directly | nothing (caught by the develop→main PR later) |
+
+The cost model shifts from per-push (every commit pair burned a full
+review) to per-PR (one review at PR open + one per push while the PR
+is open). Same coverage, ~10× fewer review tokens.
+
+### Recommended workflow
+
+```
+feature ──► PR ──► develop ──► PR ──► main
+   ↑                  ↑                 ↑
+   you push           review fires      review fires
+                      at PR open        at PR open
+```
+
+Direct push to `main` is the only true bypass of the review pipeline.
+The `warn-direct-push-to-shared.sh` hook surfaces a non-blocking
+informational reminder when it happens — the push still succeeds.
+Direct push to `develop` is fine, because the develop→main PR will
+trigger reviews on the cumulative diff.
+
+`sdd_review.protected_branches` in `sdd/config.yml` (default `[main, master]`)
+controls which branches surface the warning. `sdd_review.warn_on_direct_push`
+(default `true`) toggles the warning on/off.
+
+The `git-push-review-reminder.sh` PostToolUse hook enforces this:
+checks for `sdd/` + `sdd/README.md`, classifies the trigger
+(`gh pr create` → PR-OPEN; `git push` + `gh pr view` returns OPEN →
+PR-SYNC; otherwise deferred), and emits the three-agent directive
+only when the trigger fires. On non-SDD projects the hook exits
+silently and no agents are spawned.
 
 To manually invoke code-reviewer or doc-updater on a non-SDD project
 (e.g., to audit code quality or maintain a `documentation/` folder by
 hand), use the Task tool directly with the agent name. The automatic
-post-push workflow is the only thing that's gated.
+PR-boundary workflow is the only thing that's gated.
 
 ### Execution order when SDD is bootstrapped — partial parallelism
 
@@ -71,6 +104,24 @@ separation" section) makes this explicit.
    env vars, auth flows, configuration, or architecture change without
    a corresponding doc update. Generates cross-references from docs to
    REQ IDs. Never runs on non-SDD projects — manual invocation only.
+
+### When the user pushes directly to a protected branch
+
+The `warn-direct-push-to-shared.sh` PostToolUse hook fires when
+`git push` runs on a branch in `sdd_review.protected_branches`
+(default `main`, `master`). It emits a non-blocking informational
+directive — the push still succeeds. The user can:
+
+1. Treat it as a reminder and continue (reviews will fire on the
+   next PR that touches the branch)
+2. Manually spawn the three review agents themselves if the direct
+   push needs immediate review
+3. Silence the warning permanently by setting
+   `sdd_review.warn_on_direct_push: false` in `sdd/config.yml`
+
+The hook does NOT surface for direct pushes to `develop`, because
+the recommended flow is feature → PR → develop → PR → main and the
+develop→main PR will catch the cumulative diff.
 
 ## Post-Push: CI Monitoring
 
