@@ -1,3 +1,5 @@
+<!-- doc-discipline: 200 lines max, one-line table cells (≤50 words), env var entries only — no API contracts, no deploy commands. Long descriptions go in body paragraphs below the variables table. -->
+
 # Configuration
 
 **Audience:** Operators, Developers

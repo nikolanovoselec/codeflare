@@ -1,3 +1,5 @@
+<!-- doc-discipline: 350 lines max, one-line table cells (≤50 words), no implementation prose, no API endpoint contracts (those go in api-reference.md). Add <!-- doc-allow-large --> on the line below this comment if the soft budget is genuinely insufficient. -->
+
 # Architecture
 
 System overview, component map, and data flow.
