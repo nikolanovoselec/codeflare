@@ -73,6 +73,11 @@
       "advanced"
     ]
   },
+  "rules/documentation-discipline.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/common/coding-style.md": {
     "modes": [
       "advanced"

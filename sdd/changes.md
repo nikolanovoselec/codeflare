@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-03
+- SDD review pipeline switched from per-push to per-PR-boundary triggers (REQ-AGENT-021 AC4): code-reviewer + spec-reviewer + doc-updater now fire on PR open or on push to a branch with an open PR; pushes to feature branches without an open PR defer review until the PR opens. Direct-push-to-main bypass is left to GitHub branch protection (require PR before merge) rather than handled in-session, so the spec describes the workflow without engineering a hook-level workaround.
+
 ## 2026-04-26
 - Added REQ-SETUP-010: pasting the codeflare.ch URL into Slack, iMessage, WhatsApp, Signal, Twitter, and other unfurl-capable surfaces now renders a branded preview card with the product tagline ("Ideas don't care where you are. Neither does your new ephemeral IDE.") and a 1200×630 preview image instead of a bare link.
 - Memory capture trigger lowered from every 30 user messages to every 15 (REQ-MEM-001, REQ-MEM-002, REQ-MEM-003) so insights from shorter exchanges aren't lost when the conversation ends before the threshold. Compaction threshold raised from 1000 to 5000 observations and compaction target raised from ~500 to ~2000 (REQ-MEM-003, REQ-MEM-007) so the graph retains more long-lived context before and after restructuring.

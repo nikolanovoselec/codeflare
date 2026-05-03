@@ -1,3 +1,6 @@
+<!-- doc-allow-large -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. All 44 ADRs currently live here as a single file rather than one-file-per-ADR. The combined file is over the implicit 100×44 budget but each individual ADR is under the per-ADR cap. Splitting into 44 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+
 # Architecture Decisions
 
 Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD44 throughout the codebase and documentation.

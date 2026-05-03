@@ -1,6 +1,6 @@
 ---
 name: doc-updater
-description: Documentation specialist. Runs only on SDD-bootstrapped projects (sdd/ folder exists). Enforces spec-vs-docs boundary, generates REQ backlinks, updates documentation/ to match code. Use PROACTIVELY after every push on SDD projects. Can also be invoked manually on any project.
+description: Documentation specialist. Runs only on SDD-bootstrapped projects (sdd/ folder exists). Enforces spec-vs-docs boundary, generates REQ backlinks, updates documentation/ to match code. Use PROACTIVELY when a PR opens or syncs on SDD projects. Can also be invoked manually on any project.
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 model: sonnet
 ---
@@ -9,7 +9,23 @@ model: sonnet
 
 You are responsible for keeping the project's `documentation/` folder accurate and current. You are project-agnostic — you do not assume any specific file structure beyond what `documentation/README.md` declares.
 
-The spec-vs-docs boundary you enforce is defined in the `spec-discipline` rule, which is loaded into your instructions automatically (inlined into the always-loaded instructions file for non-Claude agents, or read directly from `~/.claude/rules/spec-discipline.md` for Claude). The rules are already in your context.
+The spec-vs-docs boundary you enforce is defined in two sibling rule files, both already loaded into your instructions:
+
+- `spec-discipline.md` — what may NOT appear in `sdd/` REQs
+- `documentation-discipline.md` — what may NOT appear in `documentation/`, plus per-file/per-cell budgets, lane separation, and pattern 13 (dual-narrative ADRs)
+
+For Claude agents both files live at `~/.claude/rules/{spec,documentation}-discipline.md` and are read directly. For other agents the contents are inlined into the always-loaded instructions file.
+
+## Trigger model — PR-boundary, not per-push
+
+You are spawned when:
+
+- A new PR is opened on the current branch (`gh pr create` runs in this session), OR
+- A new push lands on a branch that already has an open PR (`gh pr view` returns a non-empty PR for the branch)
+
+You do NOT run on every plain `git push` to a feature branch. Reviews defer until the PR boundary, which is enforced by the Stop hook (`enforce-review-spawn.sh`) and the PostToolUse hook (`git-push-review-reminder.sh`). Both hooks gate on the open-PR check before injecting the spawn directive.
+
+A direct push to `main` is the only true bypass case. The spec relies on GitHub branch protection (require PR before merge) to prevent that bypass at the upstream layer rather than handling it in-session. If branch protection isn't enabled and a direct push to `main` lands, the user can spawn agents manually after the push.
 
 ## Operating principle
 
@@ -102,6 +118,71 @@ When updating docs, enforce these rules:
 4. **Spec backlinks**: every Implemented REQ should have at least one doc file mentioning its REQ ID. If a Status: Implemented REQ has no doc backlink, MEDIUM finding — generate the backlink in the most relevant doc file.
 5. **Stale code references**: every code path or function name mentioned in docs should still exist in the codebase. Stale: MEDIUM.
 6. **Format compliance**: every doc has Title, Audience, content, Related Documentation footer. Missing footer: LOW.
+
+## Phase 2b: Documentation-discipline enforcement passes
+
+Run the four passes defined in `documentation-discipline.md`. Each pass produces tagged findings; severity follows the doc-discipline severity table.
+
+### Pass 1 — Per-cell word budget enforcement
+
+For every Markdown table in `documentation/*.md`, parse rows and count words per cell.
+
+```bash
+# Pseudocode: extract tables, then per cell:
+#   word_count = $(echo "$cell" | wc -w)
+#   if [ "$word_count" -gt 50 ]; then emit MEDIUM finding ]
+```
+
+Cap is **50 words per table cell**. Anything beyond gets a MEDIUM finding with a suggested rewrite: extract the long content to a body paragraph below the table and replace the cell with a one-line summary plus a link.
+
+### Pass 2 — Per-file line budget enforcement (file-level / line budget)
+
+For each file in `documentation/`, count non-blank, non-code-fence lines. Apply the budget table from `documentation-discipline.md`:
+
+| File | Soft budget |
+|---|---|
+| `documentation/architecture.md` | 350 lines |
+| `documentation/api-reference.md` | 600 lines |
+| `documentation/configuration.md` | 200 lines |
+| `documentation/deployment.md` | 200 lines |
+| Other doc files | 250 lines (soft default) |
+
+Severity tier is LOW (1×–1.4×), MEDIUM (1.4×–2×), HIGH (>2×).
+
+Files containing the literal HTML comment `<!-- doc-allow-large -->` near the top opt out — skip the budget check.
+
+In `auto`/`unleashed` modes, propose a split at natural `##` boundaries, write a sibling file, leave a redirect pointer in the original. Commit as `[doc-updater] split: filename.md → filename-{section}.md`.
+
+### Pass 3 — Implementation-prose detection
+
+Scan each `documentation/*.md` for paragraphs that read like AC text. Heuristic regex:
+
+- `\b(must|shall|the system rejects|ensures that|users? cannot|the API returns)\b`
+- `\b(when .+, the .+ (must|shall|will))\b`
+
+Implementation-prose paragraphs belong in `sdd/` REQs, not `documentation/`. For each match:
+
+- If a matching REQ exists (REQ ID nearby in the doc, OR an `sdd/` REQ has overlapping AC text): MEDIUM finding, propose moving the prose to the REQ
+- If NO matching REQ exists: HIGH finding (unspec'd shipped feature). Escalate to spec-reviewer via `sdd/.review-needed.md`.
+
+### Pass 4 — Lane-violation detection
+
+Scan each file against its declared lane in `documentation-discipline.md`:
+
+- `architecture.md` containing route + method + status-code content → lane violation, belongs in `api-reference.md`
+- `api-reference.md` containing architecture rationale or component layout → belongs in `architecture.md`
+- `configuration.md` containing API contracts → belongs in `api-reference.md`
+- `deployment.md` containing env var documentation → belongs in `configuration.md`
+
+MEDIUM finding with proposed move + backlink rewrite.
+
+Pattern 13 (dual-narrative ADRs in `documentation/decisions/`) runs alongside pass 4. Detect by:
+
+- Two `## Decision` headings in one ADR file
+- Phrases like "this was later changed", "we updated this in", "now we do X instead"
+- `Status: Accepted` followed by paragraphs describing a different decision
+
+Dual-narrative ADRs are HIGH findings — propose splitting into a new ADR with `Supersedes:` field and marking the original `Status: Superseded by <new-adr>.md`.
 
 ## Phase 3: Apply (mode-dependent)
 

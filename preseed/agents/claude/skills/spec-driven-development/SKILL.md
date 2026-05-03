@@ -338,6 +338,18 @@ The plan must:
 - **Build environment quirks** → `documentation/troubleshooting.md`. Operational notes, not requirements.
 - **Out-of-scope ideas** → `## Out of Scope` section in the relevant README. Decisions, not requirements.
 
+## Template conventions (issue #253)
+
+Templates follow `documentation-discipline.md` from the first commit. Conventions baked into every `documentation-*.md` template:
+
+- **One-line table cells**: every cell stays on a single line. The 50-word per-cell budget enforced by `doc-updater` Pass 1 begins at scaffolding. If a row needs more than ~50 words, write the long form as a body paragraph below the table and replace the cell with a one-line summary plus a link.
+- **Embedded doc-discipline directive comments**: each template starts with an HTML comment `<!-- doc-discipline: <budget> lines, one-line table cells, no implementation prose -->` so the user editing the file sees the budget and the cell convention before they expand sections beyond the soft cap.
+- **Per-file budgets** match `documentation-discipline.md`: architecture.md template targets ≤350 lines, api-reference.md ≤600 lines, configuration.md ≤200 lines, deployment.md ≤200 lines.
+- **REQ backlinks pre-wired**: the `Implements` column in `Source Modules` table and equivalents elsewhere are scaffolded with the exact `[REQ-X-N](../sdd/{domain}.md#req-x-n)` form so doc-updater finds them on the first PR.
+- **Lane-correct content placeholders**: `architecture.md` template never has an "API endpoints" section (that's `api-reference.md`'s lane). Templates enforce lane separation by example.
+
+These conventions are why the architecture.md template is the shortest template by line count — it should stay that way.
+
 ## Templates location
 
 All scaffolding templates are in `references/templates/` within this skill. The agent reads them on demand during `/sdd init`. They are bundled with the skill — no external dependencies.

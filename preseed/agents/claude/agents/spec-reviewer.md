@@ -17,7 +17,12 @@ If the spec says X and the code does Y, one of them is wrong. Figure out which, 
 
 ## When you run
 
-Triggered after every push (via the git-workflow rule), but **only when `sdd/` exists**. If no `sdd/` folder, exit silently. Do not modify any files. Do not write reports.
+Triggered at PR-boundary events (via the git-workflow rule), but **only when `sdd/` exists**:
+
+- A new pull request opens for the current branch (`gh pr create` runs in this session)
+- A new push lands on a branch that already has an open PR (the PR HEAD SHA advances)
+
+A plain push to a branch with no open PR does NOT trigger you — that case is deferred until the PR opens. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the spec does not engineer a hook-level workaround for that bypass. If no `sdd/` folder, exit silently. Do not modify any files. Do not write reports.
 
 ## Lane discipline
 
@@ -26,7 +31,7 @@ You own `sdd/` and only `sdd/`. You never touch:
 - Source code (that's the developer's or `code-reviewer`'s lane)
 - Root `README.md` (that's `doc-updater`'s lane)
 
-You run **before** `doc-updater` after every push, sequentially. Never in parallel — that races on shared filesystem state.
+You run **before** `doc-updater` at every PR-boundary trigger, sequentially. Never in parallel — that races on shared filesystem state.
 
 ## Phase 0: Triage (run first, decide whether to continue)
 
@@ -142,6 +147,9 @@ Run these checks against the post-Phase-1 spec:
 10. **No duplicate REQs**: same REQ doesn't appear in multiple domains. Duplicates: HIGH.
 11. **Strikethrough text in REQs**: any `~~text~~`. Severity: LOW.
 12. **"Current implementation:" / "Planned (not implemented):"** branches inside AC. Severity: LOW.
+13. **Pattern 11 — run-on AC bullets**: any AC bullet exceeding 150 words OR containing 3+ semicolons OR containing the word "and" 5+ times. Each conjoined clause should be its own AC bullet so tests can target it individually. Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: split at conjunctions, preserve every clause as a separate bullet — never silently drop a clause.
+14. **Pattern 12 — mechanism leakage in AC bullets**: any AC bullet containing cookie attributes (`HttpOnly`, `SameSite`, `Secure`, `Path=/`, `Max-Age=`), header names with vendor prefix (`Cf-Access-Jwt-Assertion`, `X-Forwarded-For`, `X-Request-Id`), internal middleware names (`csrfMiddleware`, `rateLimiter`, `requireAuth`), query parameter internal names (`?_t=`, `?nonce=`), or crypto algorithm choice (`RS256`, `HS512`, `AES-256-GCM`). The AC must describe what the user observes; the mechanism description belongs in `documentation/security.md` (or relevant lane file) with a backlink to the REQ. Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: rewrite the AC bullet to the user-observable consequence, move the mechanism prose to docs.
+15. **Pattern 14 — changelog drift**: scan the diff for new entries in `sdd/changes.md`. For each new entry, scan the same diff for any AC change in the REQ the entry references. If the entry references no REQ OR the diff shows no AC delta in the referenced REQ, the entry is drift. Severity: LOW (cleanup). Auto-fix in `unleashed`: delete the drift entry. In `auto`: list under deferred LOW. In `interactive`: confirm before deletion. Pattern 14 enforces the existing changelog-discipline rules at the per-commit level.
 
 ## Phase 3: Apply (mode-dependent)
 

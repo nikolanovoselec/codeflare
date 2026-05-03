@@ -1,3 +1,6 @@
+<!-- doc-allow-large -->
+<!-- doc-discipline note: this file currently exceeds the 350-line soft budget defined in documentation-discipline.md. Two known follow-ups (tracked separately) would shrink it: (1) move the Container DO internal-method documentation (collectMetrics / destroy / setBucketName) into container.md, where the operational details actually live; (2) move the Backend Libraries error-class status-code mapping to api-reference.md#error-response-format and replace the Route Registration list with a one-line link to api-reference.md. Until that surgery happens, this opt-out is honest about the current state. -->
+
 # Architecture
 
 System architecture, components, data flow, and design rationale for Codeflare.

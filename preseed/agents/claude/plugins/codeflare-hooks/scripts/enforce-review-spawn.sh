@@ -1,47 +1,46 @@
 #!/usr/bin/env bash
-# Stop hook — enforces SDD review-agent spawning after git push.
+# Stop hook — enforces SDD review-agent spawning at the PR boundary.
 #
-# Architecture (v4): reflog as source-of-truth + per-repo checkpoint.
+# Architecture (v5): PR HEAD SHA checkpoint + open-PR gate.
 #
 #   Layer 1 (CANDIDATE) — loose regex finds any "git push" mention in the
-#     transcript. Accepts false positives (echo "git push", `gh pr create`
-#     bodies, sibling fields, doc snippets) — they get filtered below.
+#     transcript. Accepts false positives — they get filtered below.
 #
-#   Layer 2 (TRUTH) — `git reflog` is the unfakeable signal. A successful
-#     `git push` writes an `update by push` entry on a refs/remotes/* ref
-#     via git itself; no text-emitting command (echo, cat, gh, grep) can
-#     produce that entry. We read the latest such timestamp.
+#   Layer 2 (TRUTH) — `gh pr view <branch>` returns the current PR HEAD
+#     SHA. The PR HEAD SHA is the unfakeable signal at PR-boundary
+#     scope: it changes only when a real push lands on the PR's source
+#     branch. The legacy reflog `update by push` truth layer is kept as
+#     a comment-anchored documentation reference (search "update by
+#     push" or "reflog" in this file) and is no longer read at runtime,
+#     because PR HEAD SHA is a stricter signal that already requires a
+#     real push to advance.
 #
-#   Layer 3 (CHECKPOINT) — `.git/sdd-last-ack-push` stores the unix
-#     timestamp of the most recent push whose review pipeline completed.
-#     A push is un-acknowledged iff LATEST_PUSH_TS > LAST_ACK_TS.
+#   Layer 3 (CHECKPOINT) — `.git/sdd-last-ack-pr-head` stores the PR
+#     HEAD SHA whose review pipeline completed. A PR is un-acknowledged
+#     iff CURRENT_PR_HEAD ≠ LAST_ACK_PR_HEAD.
 #
-# Enforcement fires iff ALL of:
-#   1. Reflog shows an un-acknowledged push (LATEST > LAST_ACK)
-#   2. Transcript shows assistant push intent (loose candidate match)
-#   3. Required agents have NOT been spawned with transcript timestamp
-#      strictly greater than LATEST_PUSH_TS
+# Trigger semantics (PR-boundary):
 #
-# The connection between push and review is the temporal ordering: each
-# new push raises the bar so that prior reviews cannot satisfy it. The
-# checkpoint advances only when the full pipeline (code-reviewer +
-# spec-reviewer + doc-updater after spec completion) is observed for the
-# latest un-acknowledged push.
+#   - No open PR for current branch → exit 0 (deferred; the review
+#     fires when the PR opens)
+#   - Open PR + CURRENT_PR_HEAD == LAST_ACK → exit 0 (already reviewed
+#     at this state)
+#   - Open PR + CURRENT_PR_HEAD ≠ LAST_ACK → enforce: require
+#     code-reviewer + spec-reviewer + doc-updater spawned with
+#     transcript timestamps after the PR HEAD landed
 #
-# Multi-push coalescing: only LATEST_PUSH_TS is tracked, so multiple
-# un-acked pushes that accumulate before any review pipeline completes
-# are reviewed as a single unit (the agents see the cumulative diff via
-# `git diff origin/main...HEAD` regardless). This is intentional — a
-# single review covers all newly-pushed commits.
+# Migration from v4: if .git/sdd-last-ack-push (timestamp checkpoint)
+# exists, it is deleted on first v5 invocation. The PR HEAD SHA
+# checkpoint takes over.
 #
-# Bypass methods (USER-ONLY — the assistant must NEVER create the sentinel
-# or write the magic phrase in its own output. An assistant that creates
-# its own bypass defeats the entire enforcement layer.):
-#   1. Sentinel file: sdd/.skip-next-review (one-shot, auto-deleted on use)
+# Bypass methods (USER-ONLY — the assistant must NEVER create the
+# sentinel or write the magic phrase in its own output. An assistant
+# that creates its own bypass defeats the entire enforcement layer.):
+#   1. Sentinel file: sdd/.skip-next-review (one-shot, auto-deleted)
 #   2. Magic phrase: USER MESSAGE since the candidate push line contains
 #      "skip review" or "skip verification" (case-insensitive, word-bounded)
-#   3. 3-strike circuit breaker: after 3 blocks for the same un-acked push,
-#      give up and let the user proceed
+#   3. 3-strike circuit breaker: after 3 blocks for the same un-acked
+#      PR HEAD SHA, give up and let the user proceed
 #
 # Scope: only fires on main session Stop event (not SubagentStop).
 # Vibe-coding gate: no enforcement if sdd/ is missing.
@@ -77,13 +76,11 @@ fi
 # ---------------------------------------------------------------------------
 # Layer 1 (CANDIDATE) — loose regex finds any Bash tool_use line that
 # mentions `git push` literally. Accepts false positives intentionally;
-# Layer 2 filters them via reflog state.
+# Layer 2 filters them via PR HEAD SHA state.
 # ---------------------------------------------------------------------------
 PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
 
-# Slice transcript from candidate line forward (used for magic-phrase scan
-# and the legacy SINCE_PUSH-based helpers below)
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
 
 # ---------------------------------------------------------------------------
@@ -94,75 +91,68 @@ if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -q
 fi
 
 # ---------------------------------------------------------------------------
-# Resolve git common dir for worktree/submodule compatibility (`.git`
-# may be a file pointing into the common dir in those contexts).
+# Resolve git common dir for worktree/submodule compatibility
 # ---------------------------------------------------------------------------
 GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null)
 [ -n "$GIT_COMMON_DIR" ] || exit 0  # not in a git repo → silent exit
-ACK_FILE="$GIT_COMMON_DIR/sdd-last-ack-push"
+ACK_FILE="$GIT_COMMON_DIR/sdd-last-ack-pr-head"
 COUNT_FILE="$GIT_COMMON_DIR/sdd-review-block-count"
 
-# ---------------------------------------------------------------------------
-# Layer 2 (TRUTH) — read reflog files directly for `update by push` entries.
-# We read .git/logs/refs/{remotes,tags}/** rather than `git reflog --all`
-# because it's faster (no git fork + ref enumeration), portable across
-# git versions, and immune to "ambiguous argument" errors in unusual
-# repo states (worktrees, freshly-cloned, etc).
-#
-# Reflog line format: `<old-sha> <new-sha> <ident> <ts> <tz>\t<reason>`
-# where <ident> is "Name <email>" (name may contain spaces). The
-# awk strip-up-to-`> ` pattern locates the field boundary robustly
-# regardless of name spacing.
-# ---------------------------------------------------------------------------
-LOG_BASE="$GIT_COMMON_DIR/logs/refs"
-LATEST_PUSH_TS=$(
-  { [ -d "$LOG_BASE/remotes" ] && find "$LOG_BASE/remotes" -type f -exec grep -hE 'update by push$' {} + 2>/dev/null
-    [ -d "$LOG_BASE/tags" ] && find "$LOG_BASE/tags" -type f -exec grep -hE 'update by push$' {} + 2>/dev/null
-  } | awk '{ sub(/^[a-f0-9]+ [a-f0-9]+ .*> /, ""); print $1 }' \
-    | sort -n | tail -1
-)
-# Validate: must be all digits (defend against malformed reflog lines)
-case "$LATEST_PUSH_TS" in
-  ''|*[!0-9]*) exit 0 ;;
-esac
+# Migration: clean up v4 timestamp checkpoint on first v5 run
+LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
+[ -f "$LEGACY_ACK" ] && rm -f "$LEGACY_ACK" 2>/dev/null
 
 # ---------------------------------------------------------------------------
-# Layer 3 (CHECKPOINT) — read the high-water mark of acknowledged pushes
+# Layer 2 (TRUTH) — PR HEAD SHA via gh pr view
+#
+# If the current branch has no open PR, exit 0 (deferred). The review
+# pipeline fires when the PR opens (handled by git-push-review-reminder.sh
+# at PR-OPEN time). No open PR → no enforcement here.
 # ---------------------------------------------------------------------------
-LAST_ACK_TS=0
-if [ -f "$ACK_FILE" ]; then
-  raw=$(cat "$ACK_FILE" 2>/dev/null)
-  # Validate: must be all digits (defend against corrupt file)
-  case "$raw" in
-    ''|*[!0-9]*) LAST_ACK_TS=0 ;;
-    *) LAST_ACK_TS="$raw" ;;
-  esac
+CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+[ -n "$CURRENT" ] || exit 0
+[ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD — skip
+
+if ! command -v gh >/dev/null 2>&1; then
+  exit 0  # gh missing → can't verify PR state → fail-safe exit
 fi
 
-# All real pushes already acknowledged → nothing to do
-if [ "$LATEST_PUSH_TS" -le "$LAST_ACK_TS" ] 2>/dev/null; then
+PR_INFO=$(gh pr view "$CURRENT" --json state,headRefOid 2>/dev/null) || exit 0
+[ -n "$PR_INFO" ] || exit 0
+
+PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
+CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+
+# No open PR for current branch → exit 0 (deferred review)
+[ "$PR_STATE" = "OPEN" ] || exit 0
+[ -n "$CURRENT_PR_HEAD" ] || exit 0
+
+# ---------------------------------------------------------------------------
+# Layer 3 (CHECKPOINT) — read the high-water mark of acknowledged PR HEADs
+# ---------------------------------------------------------------------------
+LAST_ACK_PR_HEAD=""
+if [ -f "$ACK_FILE" ]; then
+  LAST_ACK_PR_HEAD=$(cat "$ACK_FILE" 2>/dev/null)
+fi
+
+# PR HEAD already reviewed → exit 0
+if [ -n "$LAST_ACK_PR_HEAD" ] && [ "$LAST_ACK_PR_HEAD" = "$CURRENT_PR_HEAD" ]; then
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Real un-acknowledged push exists. Enforce.
+# Real un-acknowledged PR HEAD exists. Enforce.
 #
-# Convert LATEST_PUSH_TS (unix epoch) to ISO 8601 for direct lexicographic
-# comparison against transcript "timestamp" fields. All transcript
-# timestamps are UTC, fixed-width, identical shape NNNN-NN-NNTNN:NN:NN.NNNZ
-# so string > comparison is correct chronologically.
+# Find the timestamp of the candidate push line — agents must be spawned
+# with timestamps strictly after the push to count as a fresh review.
 # ---------------------------------------------------------------------------
-# GNU date (Linux): `-d "@TS"`. BSD date (macOS): `-r TS`. Try both.
-# Fall back to awk strftime for environments where neither works.
-LATEST_PUSH_ISO=$(date -u -d "@$LATEST_PUSH_TS" +'%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null \
-  || date -u -r "$LATEST_PUSH_TS" +'%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null \
-  || awk -v t="$LATEST_PUSH_TS" 'BEGIN { print strftime("%Y-%m-%dT%H:%M:%S.000Z", t, 1) }' 2>/dev/null)
-[ -n "$LATEST_PUSH_ISO" ] || exit 0  # all conversions failed → fail-safe
+PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT" 2>/dev/null)
+PUSH_TS=$(echo "$PUSH_LINE_CONTENT" | grep -oE '"timestamp":"[^"]+"' | head -1 | sed -E 's/.*"timestamp":"([^"]+)"/\1/')
 
-# Helper: was this subagent_type spawned with transcript timestamp > push?
+# Helper: was this subagent_type spawned with transcript timestamp > push ts?
 spawned_after_push() {
   local agent="$1"
-  awk -v t="$LATEST_PUSH_ISO" -v a="$agent" '
+  awk -v t="$PUSH_TS" -v a="$agent" '
     index($0, "\"subagent_type\":\"" a "\"") {
       if (match($0, /"timestamp":"[^"]+"/)) {
         ts = substr($0, RSTART+13, RLENGTH-14)
@@ -173,18 +163,17 @@ spawned_after_push() {
   ' "$TRANSCRIPT"
 }
 
-# 3-strike circuit breaker (keyed by LATEST_PUSH_TS — unique per push)
+# 3-strike circuit breaker (keyed by CURRENT_PR_HEAD — unique per PR state)
 read_count() {
   if [ -f "$COUNT_FILE" ]; then
     local stored hash count
     stored=$(cat "$COUNT_FILE" 2>/dev/null)
     hash="${stored%%:*}"
     count="${stored#*:}"
-    # Validate count is numeric (defend against corrupt file)
     case "$count" in
       ''|*[!0-9]*) count=0 ;;
     esac
-    if [ "$hash" = "$LATEST_PUSH_TS" ]; then
+    if [ "$hash" = "$CURRENT_PR_HEAD" ]; then
       echo "$count"
       return
     fi
@@ -205,31 +194,27 @@ emit_block() {
     exit 0
   fi
   local new=$((current + 1))
-  echo "$LATEST_PUSH_TS:$new" > "$COUNT_FILE" 2>/dev/null || true
+  echo "$CURRENT_PR_HEAD:$new" > "$COUNT_FILE" 2>/dev/null || true
   jq -n --arg r "$reason" '{decision:"block", reason:$r}' 2>/dev/null
   exit 0
 }
 
 # ---------------------------------------------------------------------------
-# Check 1: code-reviewer + spec-reviewer must be spawned after LATEST push
+# Check 1: code-reviewer + spec-reviewer must be spawned after the push
 # ---------------------------------------------------------------------------
 MISSING=""
 spawned_after_push "code-reviewer" || MISSING="$MISSING code-reviewer"
 spawned_after_push "spec-reviewer" || MISSING="$MISSING spec-reviewer"
 
 if [ -n "$MISSING" ]; then
-  REASON="Push detected (reflog confirms real push at $LATEST_PUSH_ISO), missing SDD review agents:$MISSING. Spawn NOW via the Agent tool with subagent_type=\"code-reviewer\" and subagent_type=\"spec-reviewer\" in parallel (per spec-discipline.md). Do NOT end the turn until both are spawned. The bypasses (sentinel file, magic phrase) are USER-ONLY — do NOT create the sentinel or write the phrase yourself; that defeats the entire enforcement layer. Only the user is allowed to choose to skip review."
+  REASON="PR-boundary push detected (PR #$CURRENT, head $CURRENT_PR_HEAD), missing SDD review agents:$MISSING. Spawn NOW via the Agent tool with subagent_type=\"code-reviewer\" and subagent_type=\"spec-reviewer\" in parallel (per spec-discipline.md). Do NOT end the turn until both are spawned. The bypasses (sentinel file, magic phrase) are USER-ONLY — do NOT create the sentinel or write the phrase yourself; that defeats the entire enforcement layer. Only the user is allowed to choose to skip review."
   emit_block "$REASON"
 fi
 
 # ---------------------------------------------------------------------------
-# Check 2: if a spec-reviewer spawn after the push has a completion
-# task-notification, doc-updater must be spawned AFTER that completion
-# line (sequential discipline).
+# Check 2: spec-reviewer completion → doc-updater must follow
 # ---------------------------------------------------------------------------
-# Find the most recent spec-reviewer spawn line whose timestamp > LATEST push,
-# and extract its tool_use_id.
-SPEC_SPAWN_LINE=$(awk -v t="$LATEST_PUSH_ISO" '
+SPEC_SPAWN_LINE=$(awk -v t="$PUSH_TS" '
   /"subagent_type":"spec-reviewer"/ {
     if (match($0, /"timestamp":"[^"]+"/)) {
       ts = substr($0, RSTART+13, RLENGTH-14)
@@ -253,20 +238,18 @@ if [ -n "$SPEC_SPAWN_LINE" ]; then
         REASON="spec-reviewer completed but doc-updater has not been spawned. Spawn NOW via the Agent tool with subagent_type=\"doc-updater\" (sequential after spec-reviewer per SDD discipline — they would race on shared filesystem state if parallel). The bypasses (sentinel file, magic phrase) are USER-ONLY — do NOT create the sentinel or write the phrase yourself; that defeats the entire enforcement layer."
         emit_block "$REASON"
       fi
-      # spec completed AND doc-updater present → full pipeline reviewed
       PIPELINE_COMPLETE=1
     fi
-    # else: spec still running → don't ack yet, next Stop will re-check
   fi
 fi
 
 # ---------------------------------------------------------------------------
-# Advance checkpoint only when the FULL pipeline (incl. doc-updater after
-# spec completion) is observed. This is conservative: if spec is still
-# running, we exit 0 without ack and the next Stop re-evaluates.
+# Advance checkpoint only when the FULL pipeline completed for this PR HEAD.
+# Conservative: if spec is still running, exit 0 without ack and the next
+# Stop re-evaluates.
 # ---------------------------------------------------------------------------
 if [ "$PIPELINE_COMPLETE" = "1" ]; then
-  echo "$LATEST_PUSH_TS" > "$ACK_FILE" 2>/dev/null || true
+  echo "$CURRENT_PR_HEAD" > "$ACK_FILE" 2>/dev/null || true
   clear_counter
 fi
 
