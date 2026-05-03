@@ -318,25 +318,38 @@ git log --since="7 days ago" --grep="\[autonomous\]" --grep="\[unleashed\]" --fo
 
 If the last 100 agent commits are >80% the same fix category (parsed from the commit subject's `fix(spec): {category}` portion), pause that category for 24 hours and write a note to `sdd/.review-needed.md`. Other categories continue normally. The user can resume by pushing a commit that touches the relevant REQ themselves (manual override).
 
-## User overrides
+## User overrides via ADRs
 
-When a user reverts an automated fix or explicitly tells the agent "don't do that", the override is recorded in `sdd/.user-overrides.md` (committed to git). Format:
+When the user reverts an automated fix or tells the agent "don't do that for this REQ — that mechanism IS the contract", the resolution is an architectural decision and is recorded as an ADR in `documentation/decisions/`, NOT in any skip-list file. The ADR carries an `Overrides:` header that spec-reviewer and doc-updater grep at the start of every run.
 
 ```markdown
-# User Overrides
+### AD-N: {Decision title}
 
-## auto-demote:REQ-VD-1
-- Date: 2026-04-07
-- User note: Visual design REQs don't have unit tests by nature; manual verification only.
-- Skip: yes
+**Status:** Accepted ({YYYY-MM-DD})
+**Overrides:** mechanism-leakage:REQ-AUTH-002, mechanism-leakage:REQ-AUTH-003
 
-## move-to-out-of-scope:REQ-AP-7
-- Date: 2026-04-07
-- User note: Keep as Deprecated history, don't move to Out of Scope.
-- Skip: yes
+**Context:** {What the agent flagged and why the rule normally fires.}
+
+**Decision:** {What the user decided — keep current behavior, treat
+the mechanism as the contract, etc.}
+
+**Rationale:** {Why this choice over rewriting to user-observable language.}
+
+**Consequences:** {What downstream code/docs must keep in lockstep.}
+
+**Related requirements:** REQ-AUTH-002, REQ-AUTH-003
 ```
 
-Each entry is keyed by `{rule_id}:{target_id}`. Spec-reviewer reads this file at the start of every run and skips any finding whose key matches an override entry. Once an override exists, the agent never re-attempts the same change.
+The `Overrides:` line is the parser anchor. Each entry is `{rule_id}:{target_id}` — same key shape spec-reviewer used for the legacy skip list. `target_id` is a REQ ID like `REQ-X-NNN` or `*` for "all REQs in scope of the rule". Multiple keys are comma-separated.
+
+Why ADRs and not a skip-list file:
+
+- Discoverable from the project's docs index (`documentation/decisions/README.md`) instead of buried in `sdd/.user-overrides.md`.
+- Structured (Context / Decision / Rationale / Consequences) — a future contributor reading the auth REQs sees the prior reasoning instead of re-litigating the same call.
+- Backlinks REQs in a parseable form, can be revised with full Status history (`Accepted` → `Superseded by AD-M`).
+- Same machine behavior (skippable by spec-reviewer via the same `{rule}:{target}` key) but the *decision* is now first-class architecture.
+
+The legacy `sdd/.user-overrides.md` file is removed (issue codeflare#266). When `/sdd clean` encounters one, it converts each entry to an ADR with the `User note:` field expanded into the Context/Rationale fields, then deletes the file in the same commit.
 
 ## Modes (set via `sdd/config.yml`)
 
@@ -402,7 +415,6 @@ Before any agent-driven write to `sdd/` or `documentation/`:
 | File | Committed to git | Purpose |
 |---|---|---|
 | `sdd/config.yml` | Yes | Mode, enforce_tdd, test_globs, src_globs (optional), allowlists |
-| `sdd/.user-overrides.md` | Yes | User decisions to skip specific findings |
 | `sdd/.review-needed.md` | Yes | Findings escalated for human review (cleared on resolution) |
 | `sdd/.coverage-report.md` | Yes | Output of enforce_tdd: false runs |
 | `sdd/.last-clean-run.md` | Yes | Audit log of the most recent /sdd clean run |

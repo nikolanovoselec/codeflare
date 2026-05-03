@@ -3,6 +3,7 @@
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
 ## 2026-05-03
+- Removed `sdd/.user-overrides.md` (issue codeflare#266). When the user resolves an automated finding as "keep current behavior — this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` with an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header instead of reading the legacy skip list. Same machine behavior, but the architectural decision is now first-class — discoverable, structured (Context/Decision/Rationale/Consequences), and indexed in `documentation/decisions/README.md` instead of buried in a config-shaped file. Existing entries auto-migrate to ADRs on the next `/sdd clean` run.
 - SDD review pipeline switched from per-push to per-PR-boundary triggers (REQ-AGENT-021 AC4): code-reviewer + spec-reviewer + doc-updater now fire on PR open or on push to a branch with an open PR; pushes to feature branches without an open PR defer review until the PR opens. Direct-push-to-main bypass is left to GitHub branch protection (require PR before merge) rather than handled in-session, so the spec describes the workflow without engineering a hook-level workaround.
 
 ## 2026-04-26
