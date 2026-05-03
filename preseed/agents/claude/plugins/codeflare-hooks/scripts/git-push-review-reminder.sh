@@ -114,37 +114,14 @@ if [ "$TRIGGER" = "git-push" ]; then
     fi
   fi
 
-  # If we don't have a definitive answer from either cache or gh, exit
-  # silently rather than risk spuriously emitting on main/master when gh
-  # was actually transiently down. The Stop hook (enforce-review-spawn.sh)
-  # re-checks gh pr view at turn end, so a real PR push won't be missed.
-  if [ "$CACHE_VALID" = "0" ] && [ "$GH_OK" = "0" ]; then
-    exit 0
-  fi
-
   # Deferred: no open PR on this branch → review will fire when PR opens.
-  # Special-case: direct push to main/master with no PR. When GitHub branch
-  # protection is enabled (recommended), the push never lands here — it's
-  # rejected at the upstream layer. When branch protection is off (user's
-  # choice), the push succeeds but no PR boundary will ever fire reviews.
-  # In that case, surface manual-verification option to the agent so it
-  # can offer it to the user. Hardcoded list (main, master) — no config
-  # to over-engineer.
+  # Direct push to main/master without an open PR is the user's workflow
+  # choice (branch protection should normally prevent this; if it's off,
+  # that's deliberate). The hook does not prompt the user to spawn agents
+  # — they invoke verification manually if they want it.
   case "$PR_STATE" in
     OPEN) ;;       # PR-SYNC trigger — fall through to full directive emission
-    *)
-      case "$CURRENT" in
-        main|master)
-          DIRECTIVE="[informational] Direct push to '$CURRENT' detected with no open PR."
-          DIRECTIVE="$DIRECTIVE The SDD review pipeline did not auto-fire (PR-boundary triggers require a PR)."
-          DIRECTIVE="$DIRECTIVE If GitHub branch protection on '$CURRENT' is intentionally off, this is the user's workflow choice — but the pushed diff has not been reviewed."
-          DIRECTIVE="$DIRECTIVE Ask the user (one short question, do NOT auto-spawn): 'No PR boundary fired on that push. Want me to spawn code-reviewer + spec-reviewer + doc-updater on the pushed diff?'"
-          DIRECTIVE="$DIRECTIVE If yes, spawn code-reviewer + spec-reviewer in parallel, then doc-updater after spec-reviewer completes (sequential discipline). If no, drop it — the user has agency."
-          jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}' 2>/dev/null
-          ;;
-      esac
-      exit 0   # feature-branch push without PR → deferred (no directive)
-      ;;
+    *) exit 0 ;;   # deferred (any branch, including main with no PR)
   esac
 fi
 

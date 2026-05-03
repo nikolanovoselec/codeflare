@@ -32,7 +32,7 @@ Note: Attribution disabled globally via ~/.claude/settings.json.
 | `git push` to a branch with an open PR | full pipeline (PR-sync) |
 | `git push` to a branch with no open PR | nothing (deferred until PR opens) |
 | `git push` to `develop` directly | nothing (caught by the develop→main PR later) |
-| `git push` to `main`/`master` with no PR (branch protection off) | informational directive: agent asks user once whether to spawn the three review agents on the pushed diff |
+| `git push` to `main`/`master` with no PR | nothing (the user is expected to have branch protection on; if off, manual verification is on the user) |
 
 The cost model shifts from per-push (every commit pair burned a full
 review) to per-PR (one review at PR open + one per push while the PR
@@ -108,25 +108,6 @@ workflow decision (ADR or `documentation/decisions/`) so future
 contributors know the protection is intentionally off, not just
 forgotten.
 
-### When the user pushes directly to main without branch protection
-
-If branch protection is off (the user's choice) and a `git push`
-lands directly on `main`/`master`, the PR-boundary trigger model
-will not fire reviews — there's no PR boundary to detect. The
-`git-push-review-reminder.sh` PostToolUse hook surfaces an
-informational directive in this case asking the agent to offer
-manual verification.
-
-**Agent behavior on receiving that directive**: ask the user one
-short question — "No PR boundary fired on that push. Want me to
-spawn code-reviewer + spec-reviewer + doc-updater on the pushed
-diff?" — and act on the answer. Do **not** auto-spawn. The user
-chose the no-protection workflow; respect that the manual
-verification is opt-in per push, not implicit.
-
-If the user says yes, spawn code-reviewer + spec-reviewer in
-parallel, then doc-updater after spec-reviewer completes (the
-same sequential discipline as the auto-fire path).
 
 ### Execution order when SDD is bootstrapped — partial parallelism
 

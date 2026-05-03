@@ -245,27 +245,12 @@ describe('git-push-review-reminder.sh PR-aware detection', () => {
     assert.match(content, /git push.*\)|gh pr create.*\)/, 'pre-filter on raw input');
   });
 
-  it('emits an informational directive on direct push to main/master with no open PR', () => {
+  it('does NOT emit any directive on direct push to main without open PR', () => {
     const content = read(path);
-    assert.match(content, /informational/i,
-      'should label the no-PR-on-main case as informational, not silent');
-    assert.match(content, /main\|master/,
-      'should hardcode the main/master case (no over-engineered config)');
-    assert.match(content, /Ask the user|do NOT auto-spawn/,
-      'directive must require asking, not auto-spawning');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 6b) git-workflow.md — direct-push-to-main agent behavior guidance
-// ---------------------------------------------------------------------------
-describe('git-workflow.md direct-push-to-main without branch protection', () => {
-  const path = 'preseed/agents/claude/rules/common/git-workflow.md';
-
-  it('documents the agent asks (not auto-spawns) on direct push to main', () => {
-    const content = read(path);
-    assert.match(content, /ask the user|one short question/i);
-    assert.match(content, /not auto.spawn|Do \*\*not\*\* auto-spawn/i);
+    assert.doesNotMatch(content, /Ask the user/i,
+      'hook must not prompt the user — manual verification is on the user, not via directive');
+    assert.doesNotMatch(content, /informational.*direct push/i,
+      'no informational directive on direct main pushes either');
   });
 });
 
