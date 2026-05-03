@@ -1,5 +1,7 @@
 # Agent Preseed System
 
+**Audience:** Developers
+
 How AI agent rules, agents, commands, skills, and plugins are deployed
 to per-user containers. This file owns the "what gets seeded" and "how
 it gets there" content. Memory-system specifics live in
@@ -126,7 +128,7 @@ All preseed content is deployed via the manifest pipeline:
 3. `scripts/generate-agent-seed.mjs` reads manifest + files
    (manifest-driven, ignores non-manifest files like
    `plugins/cache/`), generates `src/lib/agent-seed.generated.ts`
-   with `AGENTS_SEEDED_CONFIGS` array (186 documents across all
+   with `AGENTS_SEEDED_CONFIGS` array (187 documents across all
    agents)
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
@@ -138,7 +140,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`)
 
-**Manifest structure (76 total entries)**:
+**Manifest structure (77 total entries)**:
 - `rules/` (27): core (4 default+advanced: ci-monitoring,
   cloudflare-environment, no-local-builds, deploy-credentials; +
   4 advanced-only: memory, spec-discipline,
@@ -154,12 +156,13 @@ All preseed content is deployed via the manifest pipeline:
   database-migrations, deployment-patterns, frontend-patterns,
   iterative-retrieval, search-first, spec-driven-development (+13
   reference templates for /sdd init scaffolding)
-- `plugins/` (9): known_marketplaces.json (default+advanced),
+- `plugins/` (10): known_marketplaces.json (default+advanced),
   codeflare-memory plugin (4 files, advanced only: plugin.json,
   memory-capture.sh, memory-agent-prompt.md,
-  memory-compact-prompt.md), codeflare-hooks plugin (4 files,
+  memory-compact-prompt.md), codeflare-hooks plugin (5 files,
   advanced only: plugin.json, block-attributed-commits.sh,
-  git-push-review-reminder.sh, enforce-review-spawn.sh)
+  git-push-review-reminder.sh, enforce-review-spawn.sh,
+  lib/gh-pr-state.sh — shared helper sourced by both PR-aware hooks)
 
 ## Multi-Agent Preseed
 
@@ -192,12 +195,12 @@ files exist on disk.
 
 | Agent | Total Documents |
 |-------|-----------------|
-| CC | 76 |
+| CC | 77 |
 | Codex | 28 |
 | Gemini | 36 |
 | Copilot | 10 |
 | OpenCode | 36 |
-| **Total** | **186** |
+| **Total** | **187** |
 
 **Excluded from non-CC agents**: hooks (CC hook system), commands (CC
 slash commands), plugins (CC plugin system, including
@@ -212,7 +215,7 @@ references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents).
 
 **Per-mode counts**: Default mode seeds 25 files, advanced mode
-seeds 183 files. Total array size is 186 (includes variant-per-mode
+seeds 184 files. Total array size is 187 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
@@ -270,37 +273,47 @@ is done via `settings.json` (see above).
   `~/.claude/settings.json` has a `PreToolUse` hook entry pointing
   to `block-attributed-commits.sh`. Verify the script exists at
   `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
-- **Review-spawn enforcement not firing on push**: Check
-  `~/.claude/settings.json` has a `Stop` hook entry pointing to
-  `enforce-review-spawn.sh`. Verify the script exists at
-  `~/.claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh`.
-  Only fires in advanced mode when `sdd/` and `sdd/README.md` are
-  present. The hook fires at PR-boundary events: `gh pr create` runs
-  in the session, OR a push lands on a branch that already has an
-  open PR (the hook reads `gh pr view` to check). A plain push to a
-  branch with no open PR intentionally does NOT trigger enforcement
-  — reviews are deferred until the PR opens. Direct pushes to `main`
-  are expected to be blocked by GitHub branch protection (require PR
-  before merge); if branch protection is off and a direct push
-  lands, spawn the agents manually after the push. The hook tracks
-  the most recently acknowledged PR HEAD SHA in
-  `.git/sdd-last-ack-pr-head`; acknowledgment advances only when the
-  full pipeline (code-reviewer + spec-reviewer + doc-updater) is
-  observed for the current PR HEAD. Three bypass methods are
-  USER-ONLY actions (the agent must never invoke these
-  autonomously): the user deletes `sdd/.skip-next-review` (sentinel
-  was consumed), the user says "skip review" in a message, or the
-  user waits for the 3-strike circuit breaker to clear after 3
-  blocks on the same un-acknowledged PR HEAD. If enforcement fires
-  spuriously after a legitimate pipeline completed: delete
-  `.git/sdd-last-ack-pr-head` and `.git/sdd-review-block-count` to
-  reset both checkpoints. The legacy v4 timestamp file
-  `.git/sdd-last-ack-push` (if present from a prior install) is
-  auto-deleted on the first v5 invocation.
+- **Review-spawn enforcement not firing on push**: see
+  [Resetting the review-spawn checkpoint](#resetting-the-review-spawn-checkpoint)
+  below.
 - **Default mode has hooks**: If `settings.json` has hook entries in
   default mode, the entrypoint SESSION_MODE gating may have failed.
   Remove them:
   `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
+
+### Resetting the review-spawn checkpoint
+
+The `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode
+when `sdd/` and `sdd/README.md` are present. It triggers at PR-boundary
+events: `gh pr create` runs in the session, OR a push lands on a
+branch that already has an open PR (the hook calls `gh pr view` to
+check). A plain push to a branch with no open PR intentionally does
+NOT trigger enforcement — reviews are deferred until the PR opens.
+Direct pushes to `main` are expected to be blocked by GitHub branch
+protection; if branch protection is off and a direct push lands,
+spawn the review agents manually after the push.
+
+The hook tracks the most recently acknowledged PR HEAD SHA in
+`.git/sdd-last-ack-pr-head`. Acknowledgment advances only when the
+full pipeline (code-reviewer + spec-reviewer + doc-updater) is
+observed for the current PR HEAD.
+
+Three USER-ONLY bypass methods exist (the agent must never invoke
+these autonomously): the user deletes `sdd/.skip-next-review`
+(sentinel was consumed), the user says "skip review" in a message,
+or the user waits for the 3-strike circuit breaker to clear after
+3 blocks on the same un-acknowledged PR HEAD.
+
+If enforcement fires spuriously after a legitimate pipeline
+completed, reset both checkpoints:
+
+```bash
+rm .git/sdd-last-ack-pr-head .git/sdd-review-block-count
+```
+
+The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present
+from a prior install) is auto-deleted on the first v5 invocation,
+so no manual cleanup is needed for the v4 → v5 migration path.
 
 ---
 

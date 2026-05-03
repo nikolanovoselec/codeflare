@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Implements REQ-AGENT-007
+# Implements REQ-AGENT-004
 # Implements REQ-AGENT-021
 # PostToolUse hook — silently triggers review agents at the PR boundary.
 # ONLY on projects that have opted into SDD by running /sdd init.
@@ -117,8 +117,11 @@ if [ "$TRIGGER" = "git-push" ]; then
       # turn end and blocks if a real PR push goes un-reviewed, so a
       # transient gh failure here only delays a silent-spawn directive
       # by one push — it does not bypass enforcement.
-      PR_STATE=$(gh pr view "$CURRENT" --json state -q .state 2>/dev/null)
+      # Shared CLI invocation; see lib/gh-pr-state.sh for the contract
+      . "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || true
+      PR_INFO=$(gh_pr_state "$CURRENT")
       gh_exit=$?
+      PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
       if [ -n "$PR_STATE" ] || [ "$gh_exit" -eq 1 ]; then
         GH_OK=1
       fi

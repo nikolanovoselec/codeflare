@@ -19,6 +19,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"

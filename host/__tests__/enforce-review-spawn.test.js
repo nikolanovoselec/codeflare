@@ -11,7 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -242,6 +242,36 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     assert.equal(r.stdout, '');
     assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/,
       'cheap @{u} pre-check must short-circuit before any gh invocation');
+  });
+
+  it('cheap path: stale ack file (>5 min old) → falls through to gh', () => {
+    // Pins the mtime bound on the cheap path. If a future refactor
+    // raises the bound to 24h or drops it, this test fails.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    setupUpstreamTracking(cwd, headSha);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const ackFile = join(cwd, gitCommonDir, 'sdd-last-ack-pr-head');
+    writeFileSync(ackFile, headSha);
+    // Backdate ack file mtime to 10 minutes ago — past the 5-min bound
+    const tenMinAgo = (Date.now() - 10 * 60 * 1000) / 1000;
+    utimesSync(ackFile, tenMinAgo, tenMinAgo);
+    // Real fakeGh — must be called because cheap path's mtime guard fails
+    const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    // gh confirmed match → exits silently (authoritative path)
+    assert.equal(r.stdout, '',
+      'stale ack should fall through to gh, which then matches the SHA and exits 0');
+    // The path that took us here was gh, not cheap. Verify by checking
+    // gh was actually invoked — no FAKE_GH_UNEXPECTED_ARGS noise.
+    assert.doesNotMatch(r.stderr, /FAKE_GH_UNEXPECTED_ARGS/);
   });
 
   it('cheap path: HEAD ahead of @{u} → falls through to gh (force-push guard)', () => {

@@ -207,15 +207,20 @@ If the review pipeline is genuinely blocking legitimate work (e.g., the hook is 
 
 ## Operational requirements for the Stop hook
 
-The Stop hook needs the current branch to have proper upstream tracking — `git rev-parse @{u}` must resolve to the remote-tracking ref, and `git push` must record an `update by push` reflog entry on `refs/remotes/origin/<branch>`. A vanilla `git clone https://github.com/owner/repo.git` sets this up automatically. The hook silently fails-safe (exit 0) if tracking is missing, which is what you want at runtime but means real un-reviewed pushes can sneak through.
+The v5 Stop hook (`enforce-review-spawn.sh`) uses `gh pr view` as its authoritative truth signal — it queries the current branch for an open PR and the PR HEAD SHA on every Stop event (with a cheap `@{u}`-based short-circuit when the local remote-tracking ref is fresh and matches the last ack). Reflog is no longer read at runtime in v5; the v4 reflog mention in the script header is preserved as a documentation reference only.
 
-If you cloned with `-b <branch>` and later checked out a different branch, or used `git checkout -B <branch> origin/<branch>` without `--track`, repair tracking once with:
+This means the hook needs:
+- `gh` on PATH and authenticated for the project's GitHub remote.
+- `sdd/README.md` to exist (vibe-coding gate).
+- For the cheap-path optimization to fire (~200-500ms saved per Stop event in the post-review tail of a session): `git rev-parse @{u}` must resolve to a remote-tracking ref. A vanilla `git clone https://github.com/owner/repo.git` sets this up automatically.
+
+If you cloned with `-b <branch>` and later checked out a different branch, or used `git checkout -B <branch> origin/<branch>` without `--track`, the cheap path silently won't fire and every Stop event will pay the gh round-trip. Repair tracking once with:
 
 ```bash
 git branch --set-upstream-to=origin/<branch> <branch>
 ```
 
-The hook also requires `gh` on PATH (for `gh pr view`) and `sdd/README.md` to exist (vibe-coding gate). Both are present in any project that ran `/sdd init` and any container started by codeflare's normal flow.
+The hook is fail-safe (any unexpected error → exit 0), so missing upstream or missing gh just means the optimization or enforcement is skipped — never a hard lock-out.
 
 ## Severity classification on findings
 

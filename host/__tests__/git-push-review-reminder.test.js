@@ -35,14 +35,15 @@ function withSdd(cwd) {
 function fakeGh(cwd, { state = '', exitCode = 0 } = {}) {
   const binDir = join(cwd, 'fake-bin');
   mkdirSync(binDir, { recursive: true });
-  // Exact-match fixture (not substring): the production hook calls
-  // `gh pr view <branch> --json state -q .state`. Anything else gets
-  // exit 99 + stderr noise so an unintended invocation in a future
-  // refactor surfaces loudly instead of silently passing.
+  // Exact-match fixture (not substring): both hooks now share the
+  // gh CLI shape via lib/gh-pr-state.sh — `gh pr view <branch>
+  // --json state,headRefOid`. Anything else gets exit 99 + stderr
+  // noise so an unintended invocation in a future refactor surfaces
+  // loudly instead of silently passing.
   const body = `#!/usr/bin/env bash
 ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json state -q .state" ]]; then
-  ${state ? `echo "${state}"` : ''}
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid" ]]; then
+  ${state ? `echo '{"state":"${state}","headRefOid":"fakehead"}'` : ''}
   exit ${exitCode}
 fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2

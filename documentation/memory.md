@@ -1,6 +1,8 @@
-# Memory & Preseed
+# Memory
 
-Memory persistence system, automatic memory capture, session modes, and preseed deployment.
+MCP memory server, automatic memory capture, two-phase
+capture/compact, and R2 sync of memory files. Agent-config preseed
+content lives in [preseed.md](preseed.md).
 
 **Audience:** Developers
 

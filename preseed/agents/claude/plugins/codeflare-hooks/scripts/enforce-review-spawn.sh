@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Implements REQ-AGENT-007
+# Implements REQ-AGENT-004
 # Implements REQ-AGENT-021
 # Stop hook — enforces SDD review-agent spawning at the PR boundary.
 #
@@ -110,7 +110,14 @@ PUSH_LINE=$(awk '
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
 
 # ---------------------------------------------------------------------------
-# Bypass 2: magic phrase in user messages since candidate push line
+# Bypass 2: magic phrase in user messages since candidate push line.
+#
+# Ordering note: SINCE_PUSH only includes transcript content from the
+# push line forward. A user message saying "skip review for the next
+# push" sent BEFORE the assistant ran git push won't bypass — only
+# messages between the push line and the Stop event are scanned.
+# Users who need pre-emptive bypass should use the sentinel file
+# (`touch sdd/.skip-next-review`), which fires first via Bypass 1.
 # ---------------------------------------------------------------------------
 if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
   exit 0
@@ -180,7 +187,9 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 0  # gh missing → can't verify PR state → fail-safe exit
 fi
 
-PR_INFO=$(gh pr view "$CURRENT" --json state,headRefOid 2>/dev/null) || exit 0
+# Shared CLI invocation; see lib/gh-pr-state.sh for the contract
+. "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || exit 0
+PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
 [ -n "$PR_INFO" ] || exit 0
 
 PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
