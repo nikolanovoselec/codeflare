@@ -199,3 +199,27 @@ CVE-2026-41179
 # System library transitive dep; container does not process untrusted ECDH ciphertext.
 # No fix available in Debian bookworm.
 CVE-2026-41989
+
+# libcap2 1:2.66-4+deb12u2+b2: privilege escalation via TOCTOU race in
+# cap_set_file(). System library used during container init only — no
+# application code path passes untrusted paths to cap_set_file. The race
+# requires local file-access on the same filesystem, which doesn't exist
+# as a multi-tenant boundary in the sandboxed container model.
+# No fix available in Debian bookworm.
+CVE-2026-4878
+
+# libgnutls30 3.7.9-2+deb12u6: DTLS DoS via zero-length fragment.
+# Container does not expose any DTLS/UDP TLS service; GnuTLS is linked
+# by CLI tools (curl, wget) for outbound HTTPS only. The vulnerable
+# DTLS server path is never reached.
+# No fix available in Debian bookworm.
+CVE-2026-33845
+
+# openssh-client 1:9.2p1-2+deb12u9: arbitrary command execution via shell
+# metacharacters in username. Codeflare uses git-over-HTTPS exclusively
+# (rules/cloudflare-environment.md: "Git over HTTPS only, no SSH keys"),
+# so the openssh-client binary is installed but not invoked. The exploit
+# path requires the user to ssh somewhere with attacker-controlled
+# username, which doesn't happen in the codeflare workflow.
+# No fix available in Debian bookworm.
+CVE-2026-35386
