@@ -58,7 +58,7 @@ test -f documentation/README.md
 
 ### Step 0c: Read decision-recorded overrides
 
-Scan `documentation/decisions/**/*.md` for `Overrides: {rule_id}:{target_id}` headers (same parser spec-reviewer uses — see its Step 0d). Build the skip set from those entries. The legacy `sdd/.user-overrides.md` file is no longer read; if it still exists, leave the migration to spec-reviewer (which will surface a HIGH finding asking the user to migrate via `/sdd clean`).
+Scan `documentation/decisions/**/*.md` for `**Overrides:** {rule_id}:{target_id}` headers using the regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (same parser spec-reviewer uses — see its Step 0d; the regex tolerates both plain `Overrides:` and the project's universal bold-wrapped `**Overrides:**` field convention). Build the skip set from those entries. The legacy `sdd/.user-overrides.md` file is no longer read; if it still exists, leave the migration to spec-reviewer (which will surface a HIGH finding asking the user to migrate via `/sdd clean`).
 
 ### Step 0d: Round counter (anti-spiral)
 

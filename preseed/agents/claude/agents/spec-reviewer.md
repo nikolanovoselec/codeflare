@@ -67,10 +67,12 @@ The counter resets when a non-agent commit lands.
 Override entries live in ADRs, not in a config-shaped skip list. Scan `documentation/decisions/**/*.md` for any line matching:
 
 ```
-^Overrides:\s*(.+)$
+^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$
 ```
 
-Parse the right-hand side as a comma-separated list of `{rule_id}:{target_id}` entries (target_id is a `REQ-X-NNN` ID or `*` to apply to all REQs in the rule's scope). Build an in-memory skip set. Any finding whose key matches an override is silently skipped this run and all future runs — same skip semantics as the legacy `sdd/.user-overrides.md`, new source.
+This tolerates both plain (`Overrides: rule:REQ-X-001`) and the project's universal bold-wrapped ADR field convention (`**Overrides:** rule:REQ-X-001`). Every existing ADR field in `documentation/decisions/README.md` uses `**Field:**` formatting, so the parser must match the bold variant or the migration is dead-on-arrival.
+
+Parse the captured right-hand side as a comma-separated list of `{rule_id}:{target_id}` entries (target_id is a `REQ-X-NNN` ID or `*` to apply to all REQs in the rule's scope). Trim whitespace. Strip any trailing `**` if the LLM wrote the closing bold marker on the same line. Build an in-memory skip set. Any finding whose key matches an override is silently skipped this run and all future runs — same skip semantics as the legacy `sdd/.user-overrides.md`, new source.
 
 If `documentation/decisions/` does not exist, the skip set is empty.
 
