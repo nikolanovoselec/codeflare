@@ -4,6 +4,8 @@ These rules apply to any project that has an `sdd/` folder. They are loaded into
 
 The full SDD workflow lives in the `spec-driven-development` skill. These rules are the non-negotiable enforcement layer that runs even when the skill is not explicitly invoked.
 
+**Sibling rule file**: `documentation-discipline.md` covers what may NOT appear in `documentation/` plus per-file/per-cell budgets and lane separation. The two files together define the spec/docs/code lane discipline. spec-reviewer enforces this file. doc-updater enforces `documentation-discipline.md`.
+
 ## What the spec is
 
 `sdd/` is the single source of truth for **what the product does and why**. It is not a record of what the code currently does. It is not a bug tracker. It is not a changelog of every commit. It is the target state the product is trying to reach.
@@ -109,6 +111,43 @@ A REQ may opt out of length warnings with an HTML comment: `<!-- sdd-allow-large
 - 3–7 bullets is typical; >10 is a smell that the REQ should be split
 - Avoid "should" — use "must" or describe the observable outcome
 - Avoid vague terms like "responsive", "fast", "user-friendly" — specify the criterion (e.g., "loads in under 2 seconds on 4G mobile")
+
+## Pattern 11 — Run-on AC bullets
+
+A single AC bullet that runs longer than ~150 words almost always conjoins multiple observable behaviors with semicolons or commas. Each observable behavior should be its own bullet so tests can target it individually.
+
+Detection: any AC bullet exceeding 150 words OR containing 3+ semicolons OR containing the word "and" 5+ times.
+
+Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: split at conjunctions, preserving every clause as a separate bullet under the same AC heading. Never silently drop a clause.
+
+## Pattern 12 — Mechanism leakage in AC bullets
+
+An AC bullet describes WHAT the user observes, not HOW it's implemented. The following are mechanism tokens that leak into ACs and should move to `documentation/`:
+
+- Cookie attributes: `HttpOnly`, `SameSite=Lax`, `Secure`, `Path=/`, `Max-Age=…`
+- Header names with vendor prefix: `Cf-Access-Jwt-Assertion`, `X-Forwarded-For`, `X-Request-Id`
+- Internal middleware names: `csrfMiddleware`, `rateLimiter`, `requireAuth`
+- HTTP method + path enumerations inside non-API REQs (the path goes in the AC for an API REQ — but not in a UI REQ)
+- Query parameter internal names: `?_t=`, `?nonce=`
+- Cache directive strings: `s-maxage=60, stale-while-revalidate=300`
+- Crypto algorithm names: `RS256`, `HS512`, `AES-256-GCM` (the standard reference is fine; the algorithm choice is implementation)
+
+A user does not observe `HttpOnly`. They observe "JavaScript on the page cannot read the session token." The first goes in `documentation/security.md`, the second goes in the AC.
+
+Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: rewrite the AC bullet to describe the user-observable consequence; move the mechanism description to `documentation/security.md` (or the relevant lane file) with a backlink to the REQ.
+
+## Pattern 14 — Changelog drift (no AC change → no changelog entry)
+
+`sdd/changes.md` is a product changelog. An entry is justified only when an AC changed in a user-observable way OR a REQ was added/deprecated/moved. The drift pattern: changelog entries appearing for spec format fixes, prose tightening, or implementation-leakage cleanup with no corresponding AC delta.
+
+Detection on every spec-reviewer run:
+
+1. For each new entry in `sdd/changes.md` (added in the diff): scan the same diff for any AC change in the REQ the entry references
+2. If the entry references no REQ, OR the diff shows no AC delta in the referenced REQ → the entry is drift
+
+Severity: LOW (cleanup). Auto-fix in `unleashed`: delete the drift entry. In `auto`: list under deferred LOW. In `interactive`: confirm before deletion.
+
+This pattern enforces the changelog-discipline rules already in this file ("When NOT to add a changelog entry") at the per-commit level instead of relying on humans to remember.
 
 ## Changelog discipline
 
