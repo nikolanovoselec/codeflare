@@ -54,14 +54,58 @@ PROTECTED_BRANCHES="main master"
 WARN_ENABLED="true"
 
 if [ -f "$CONFIG" ]; then
-  # Cheap awk parse — pull the sdd_review block. No yq dependency.
+  # Cheap awk-style parse — pull values from the sdd_review block.
+  # No yq dependency.
+  #
+  # Block detection: a top-level key starts at column 0 with a non-space
+  # character followed by a colon. Any line that begins with whitespace
+  # is treated as inside the current block (preserves nested keys and
+  # list items). A new top-level key ends the block.
+  #
+  # Supports both inline list form:    protected_branches: [main, master]
+  # and multi-line list form:          protected_branches:
+  #                                      - main
+  #                                      - master
   IN_BLOCK=0
+  COLLECTING_LIST=0
+  COLLECTED_LIST=""
   while IFS= read -r line; do
     case "$line" in
-      "sdd_review:"*) IN_BLOCK=1; continue ;;
-      [a-zA-Z]*:*) IN_BLOCK=0 ;;
+      "sdd_review:"*)
+        IN_BLOCK=1
+        COLLECTING_LIST=0
+        continue
+        ;;
+      [!\ \	]*:*)
+        # Top-level key (no leading whitespace) — closes the block
+        IN_BLOCK=0
+        if [ "$COLLECTING_LIST" = "1" ] && [ -n "$COLLECTED_LIST" ]; then
+          PROTECTED_BRANCHES="$COLLECTED_LIST"
+        fi
+        COLLECTING_LIST=0
+        ;;
     esac
     [ "$IN_BLOCK" = "1" ] || continue
+
+    # Multi-line list item under protected_branches:
+    case "$line" in
+      [\ \	]*-\ *)
+        if [ "$COLLECTING_LIST" = "1" ]; then
+          item=$(echo "$line" | sed -E 's/^[[:space:]]*-[[:space:]]*//; s/[[:space:]#].*$//; s/^["'"'"']//; s/["'"'"']$//')
+          [ -n "$item" ] && COLLECTED_LIST="$COLLECTED_LIST $item"
+          continue
+        fi
+        ;;
+    esac
+
+    # Closing the multi-line list when a sibling key appears
+    if [ "$COLLECTING_LIST" = "1" ]; then
+      case "$line" in
+        *:*) COLLECTING_LIST=0
+             [ -n "$COLLECTED_LIST" ] && PROTECTED_BRANCHES="$COLLECTED_LIST"
+             ;;
+      esac
+    fi
 
     case "$line" in
       *"warn_on_direct_push:"*)
@@ -73,8 +117,18 @@ if [ -f "$CONFIG" ]; then
         list=$(echo "$line" | sed -E 's/.*\[//; s/\].*//; s/[",]/ /g')
         [ -n "$list" ] && PROTECTED_BRANCHES="$list"
         ;;
+      *"protected_branches:"*)
+        # multi-line list form opener — start collecting following list items
+        COLLECTING_LIST=1
+        COLLECTED_LIST=""
+        ;;
     esac
   done < "$CONFIG"
+
+  # Flush any in-progress list at EOF
+  if [ "$COLLECTING_LIST" = "1" ] && [ -n "$COLLECTED_LIST" ]; then
+    PROTECTED_BRANCHES="$COLLECTED_LIST"
+  fi
 fi
 
 [ "$WARN_ENABLED" = "true" ] || exit 0

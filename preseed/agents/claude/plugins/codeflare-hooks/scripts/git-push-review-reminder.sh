@@ -23,9 +23,11 @@
 # without needing to announce it to the user.
 #
 # Vibe-coding mode: if sdd/ does not exist, emits nothing. Zero friction.
-set -e
+#
+# Fail-safe: any unexpected error → exit 0 (never lock users out).
+set +e
 
-INPUT=$(cat)
+INPUT=$(cat 2>/dev/null) || exit 0
 
 # ---------------------------------------------------------------------------
 # Cheap pre-filter — skip if raw input doesn't even mention the trigger
@@ -82,10 +84,30 @@ if [ "$TRIGGER" = "git-push" ]; then
   fi
 
   if [ "$CACHE_VALID" = "0" ]; then
+    GH_OK=0
     if command -v gh >/dev/null 2>&1; then
-      PR_STATE=$(gh pr view "$CURRENT" --json state -q .state 2>/dev/null) || PR_STATE=""
+      # Capture both exit status and output. gh exits non-zero when no
+      # PR exists for the branch — we treat that as a successful
+      # "definitely no PR" answer (cache it). Only failures from
+      # auth/network/rate-limit (no usable response) are treated as
+      # transient and skipped from the cache.
+      PR_STATE=$(gh pr view "$CURRENT" --json state -q .state 2>/dev/null)
+      gh_exit=$?
+      # Either non-empty state, OR exit 1 with empty output ("no PR
+      # for branch" signal) → result is trustworthy; cache it.
+      if [ -n "$PR_STATE" ] || [ "$gh_exit" -eq 1 ]; then
+        GH_OK=1
+      fi
     fi
-    printf '%s\n%s\n' "$CURRENT" "$PR_STATE" > "$PR_CACHE" 2>/dev/null || true
+    if [ "$GH_OK" = "1" ]; then
+      printf '%s\n%s\n' "$CURRENT" "$PR_STATE" > "$PR_CACHE" 2>/dev/null || true
+    fi
+    # Transient failure (gh missing, auth lapse, network blip): leave
+    # the previous cache entry intact OR fall through to deferred —
+    # erring toward fewer spurious review spawns is OK because the
+    # Stop hook (enforce-review-spawn.sh) re-checks gh pr view at
+    # turn end and blocks if the user actually pushed to a PR-tracked
+    # branch.
   fi
 
   # Deferred: no open PR on this branch → review will fire when PR opens
