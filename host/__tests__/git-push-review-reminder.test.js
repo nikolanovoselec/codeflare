@@ -80,6 +80,46 @@ describe('git-push-review-reminder.sh — pre-filter', () => {
   });
 });
 
+describe('git-push-review-reminder.sh — substring false-positive guard', () => {
+  // Regression for the bug class shared with enforce-review-spawn.sh
+  // PUSH_LINE: substring match `*"git push"*` triggers on commit
+  // messages or echo strings that mention `git push` as text. The
+  // fix anchors `git push` to start-of-command or after a shell
+  // separator. Without this guard, `git commit -m "...git push..."`
+  // emits a spurious PR-SYNC directive.
+  it('does NOT classify a git commit whose message body mentions "git push"', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
+    const r = runHook(
+      cwd,
+      'git commit -m "fix: integration findings — git push hardening"',
+      binDir,
+    );
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'commit message containing "git push" must not classify as a push trigger');
+  });
+
+  it('does NOT classify an echo whose argument mentions "git push"', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
+    const r = runHook(cwd, 'echo "I will git push later"', binDir);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+
+  it('does NOT classify "git pushy" or "git push-something" as git push', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
+    const r = runHook(cwd, 'echo git pushy', binDir);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+});
+
 describe('git-push-review-reminder.sh — vibe-coding gate', () => {
   it('exits 0 silently on git push when sdd/ is missing', () => {
     const cwd = makeFixture();

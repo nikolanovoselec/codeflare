@@ -44,12 +44,23 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null) || t
 
 # Classify the command. Direct gh pr create is unambiguous (PR-OPEN).
 # git push is conditional on open-PR detection (PR-SYNC vs DEFERRED).
+#
+# Anchored regex (not substring): `git push` and `gh pr create` must
+# appear as actual command tokens, not as substrings inside echo
+# strings or quoted commit message bodies. Allowed positions:
+#   1. Start of the command:           git push origin develop
+#   2. After a shell separator:        git add . && git push
+#   3. After && / || / | / ; / &      git status; git push
+# Anything else (e.g. `git commit -m "...git push..."`) does not match.
+# This mirrors the awk fix in enforce-review-spawn.sh PUSH_LINE.
 TRIGGER=""
-case "$COMMAND" in
-  *"gh pr create"*) TRIGGER="pr-open" ;;
-  *"git push"*)     TRIGGER="git-push" ;;
-  *)                exit 0 ;;
-esac
+if [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]; then
+  TRIGGER="pr-open"
+elif [[ "$COMMAND" =~ (^|[[:space:]]*[\;\&\|]+[[:space:]]*)git[[:space:]]+push([[:space:]]|$) ]]; then
+  TRIGGER="git-push"
+else
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Vibe-coding gate
