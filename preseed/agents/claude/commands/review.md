@@ -298,8 +298,10 @@ via the `files` parameter. Do NOT call consult_llm once per finding.
    - BOTH refute → LLM-REFUTED; remove from Active Findings
    - BOTH confirm → enrich finding with the better of the two fix proposals
    - DISAGREE → keep finding active, note both verdicts
-   - One call fails → LLM-PARTIAL on those findings, keep active
-   - Both calls fail → LLM-UNAVAILABLE on all findings, keep active
+   - One call fails → LLM-PARTIAL on all findings, keep active. **Do NOT retry the
+     failed call.** The 2-call budget is a hard cap that includes failures; a
+     retry would re-introduce the N×2 cost regression this phase exists to prevent.
+   - Both calls fail → LLM-UNAVAILABLE on all findings, keep active. **Do NOT retry.**
 
 6. Rewrite [REVIEW_DIR]/08-active-findings.md:
    - Drop LLM-REFUTED findings from the Active Findings section
@@ -372,7 +374,7 @@ Category: Missing input validation
 Confidence: high
 Description: The route handler accepts user input without sanitization...
 Suggestion: Add zod schema validation at the route boundary
-[LLM Verdict: Confirmed by GPT-5.4 and Gemini — both suggest zod schema]
+[LLM Verdict: Confirmed by GPT and Gemini — both suggest zod schema]
 ```
 
 After all triage questions are answered, collect the decisions into a strict JSON mapping and proceed to Phase 7:
