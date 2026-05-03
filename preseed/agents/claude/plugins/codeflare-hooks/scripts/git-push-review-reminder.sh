@@ -74,10 +74,19 @@ if [ "$TRIGGER" = "git-push" ]; then
   CACHE_VALID=0
   if [ -f "$PR_CACHE" ]; then
     cache_age=$(( $(date +%s) - $(stat -c %Y "$PR_CACHE" 2>/dev/null || stat -f %m "$PR_CACHE" 2>/dev/null || echo 0) ))
-    if [ "$cache_age" -lt 60 ] 2>/dev/null; then
-      cached_branch=$(head -1 "$PR_CACHE" 2>/dev/null)
-      if [ "$cached_branch" = "$CURRENT" ]; then
-        PR_STATE=$(sed -n '2p' "$PR_CACHE" 2>/dev/null)
+    cached_branch=$(head -1 "$PR_CACHE" 2>/dev/null)
+    if [ "$cached_branch" = "$CURRENT" ]; then
+      cached_state=$(sed -n '2p' "$PR_CACHE" 2>/dev/null)
+      # Asymmetric TTL: positive (OPEN) results stay valid for 60s, but
+      # negative (empty) results expire after 10s. gh exits 1 both for
+      # "no PR found" AND for transient errors (network blip, rate
+      # limit), which are indistinguishable from this script. Shorter
+      # negative TTL bounds the worst-case window where a transient
+      # failure suppresses PR-SYNC reminders.
+      max_age=10
+      [ "$cached_state" = "OPEN" ] && max_age=60
+      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null; then
+        PR_STATE="$cached_state"
         CACHE_VALID=1
       fi
     fi
@@ -86,15 +95,16 @@ if [ "$TRIGGER" = "git-push" ]; then
   if [ "$CACHE_VALID" = "0" ]; then
     GH_OK=0
     if command -v gh >/dev/null 2>&1; then
-      # Capture both exit status and output. gh exits non-zero when no
-      # PR exists for the branch — we treat that as a successful
-      # "definitely no PR" answer (cache it). Only failures from
-      # auth/network/rate-limit (no usable response) are treated as
-      # transient and skipped from the cache.
+      # Capture exit status. gh exits non-zero both when no PR exists
+      # AND on transient errors (network, rate limit, auth lapse).
+      # Cache the result so the next 60s of pushes don't re-query, but
+      # use the asymmetric TTL above so a transient failure expires
+      # quickly. The Stop hook (enforce-review-spawn.sh) re-checks gh
+      # pr view at turn end and blocks if a real PR push goes
+      # un-reviewed, so the worst case is a brief window of missing
+      # silent-spawn directives — not a missed enforcement.
       PR_STATE=$(gh pr view "$CURRENT" --json state -q .state 2>/dev/null)
       gh_exit=$?
-      # Either non-empty state, OR exit 1 with empty output ("no PR
-      # for branch" signal) → result is trustworthy; cache it.
       if [ -n "$PR_STATE" ] || [ "$gh_exit" -eq 1 ]; then
         GH_OK=1
       fi
@@ -102,12 +112,6 @@ if [ "$TRIGGER" = "git-push" ]; then
     if [ "$GH_OK" = "1" ]; then
       printf '%s\n%s\n' "$CURRENT" "$PR_STATE" > "$PR_CACHE" 2>/dev/null || true
     fi
-    # Transient failure (gh missing, auth lapse, network blip): leave
-    # the previous cache entry intact OR fall through to deferred —
-    # erring toward fewer spurious review spawns is OK because the
-    # Stop hook (enforce-review-spawn.sh) re-checks gh pr view at
-    # turn end and blocks if the user actually pushed to a PR-tracked
-    # branch.
   fi
 
   # Deferred: no open PR on this branch → review will fire when PR opens
@@ -129,7 +133,7 @@ DIRECTIVE="[silent] SDD $CONTEXT detected. Execute NOW without user-facing outpu
 DIRECTIVE="$DIRECTIVE 1) code-reviewer in background (parallel, source lane)."
 DIRECTIVE="$DIRECTIVE 2) spec-reviewer in background FIRST (sdd/ lane)."
 DIRECTIVE="$DIRECTIVE 3) doc-updater in background SECOND, after spec-reviewer (docs/ lane)."
-DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff itself via 'git diff \$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) — do NOT paste diffs into the prompt; just give a one-line task framing."
+DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff itself via 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) — the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
 DIRECTIVE="$DIRECTIVE Do NOT mention these agents to the user. Do NOT print status updates about them."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
