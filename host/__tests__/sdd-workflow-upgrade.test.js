@@ -1,0 +1,433 @@
+// Static-assertion test scaffold for the workflow-upgrade branch.
+//
+// Asserts every change in the v3.1 plan as a content-presence check
+// against the actual preseed files + entrypoint + agent prompts.
+//
+// At commit 1 this file is RED (every implementation is still pending).
+// As commits 2-11 land, individual asserts turn green. Final state on
+// merge: all asserts pass.
+//
+// Lives alongside entrypoint-hooks-merge.test.js — same node:test style,
+// same static-grep approach.
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, '../..');
+const read = (p) => readFileSync(resolve(repoRoot, p), 'utf8');
+const exists = (p) => existsSync(resolve(repoRoot, p));
+
+// ---------------------------------------------------------------------------
+// 1) documentation-discipline.md (#252) — new sibling rule file
+// ---------------------------------------------------------------------------
+describe('documentation-discipline.md (issue #252)', () => {
+  const path = 'preseed/agents/claude/rules/documentation-discipline.md';
+
+  it('exists in the preseed', () => {
+    assert.ok(exists(path), `expected ${path} to exist`);
+  });
+
+  it('declares forbidden content list', () => {
+    const content = read(path);
+    assert.match(content, /forbidden|banned/i, 'should define forbidden/banned content list');
+    assert.match(content, /implementation rationale/i, 'should ban implementation rationale');
+    assert.match(content, /regex/i, 'should ban regex internals in cells');
+    assert.match(content, /magic constant/i, 'should ban magic-constant prose');
+  });
+
+  it('declares per-file line budgets', () => {
+    const content = read(path);
+    assert.match(content, /architecture\.md.*350/, 'architecture.md budget 350 lines');
+    assert.match(content, /api-reference\.md.*600/, 'api-reference.md budget 600 lines');
+    assert.match(content, /configuration\.md.*200/, 'configuration.md budget 200 lines');
+    assert.match(content, /deployment\.md.*200/, 'deployment.md budget 200 lines');
+  });
+
+  it('declares per-element budgets (≤50 word table cells)', () => {
+    const content = read(path);
+    assert.match(content, /50 words?/i, 'table cell ≤50 words');
+  });
+
+  it('reinforces lane separation between architecture/api-reference/configuration/deployment', () => {
+    const content = read(path);
+    assert.match(content, /lane separation/i);
+    assert.match(content, /api-reference\.md/);
+    assert.match(content, /configuration\.md/);
+  });
+
+  it('documents enforcement passes for doc-updater', () => {
+    const content = read(path);
+    assert.match(content, /enforcement pass/i, 'should describe enforcement passes');
+    assert.match(content, /per-cell/i);
+    assert.match(content, /file-level/i);
+  });
+
+  it('documents pattern 13 (dual-narrative ADR detection)', () => {
+    const content = read(path);
+    assert.match(content, /dual.narrative/i, 'pattern 13 — dual-narrative ADRs');
+  });
+
+  it('provides escape hatch for legitimate exceptions', () => {
+    const content = read(path);
+    assert.match(content, /<!--\s*doc-allow-large/i, 'should declare <!-- doc-allow-large --> opt-out');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2) doc-updater.md (#251) — per-cell + per-file budget enforcement
+// ---------------------------------------------------------------------------
+describe('doc-updater.md per-cell + per-file budget enforcement (issue #251)', () => {
+  const path = 'preseed/agents/claude/agents/doc-updater.md';
+
+  it('references documentation-discipline.md', () => {
+    const content = read(path);
+    assert.match(content, /documentation-discipline\.md/, 'should load the new rule file');
+  });
+
+  it('describes per-cell word budget enforcement', () => {
+    const content = read(path);
+    assert.match(content, /per-cell|table cell|cell budget/i);
+    assert.match(content, /50/, 'should reference the 50-word threshold');
+  });
+
+  it('describes per-file line budget enforcement', () => {
+    const content = read(path);
+    assert.match(content, /file.level|file budget|line budget/i);
+  });
+
+  it('describes implementation-prose detection heuristics', () => {
+    const content = read(path);
+    assert.match(content, /implementation.prose|prose detection/i);
+  });
+
+  it('describes lane-violation detection (API contracts in architecture.md)', () => {
+    const content = read(path);
+    assert.match(content, /lane.violation|lane separation/i);
+  });
+
+  it('uses PR-boundary trigger language (not "after every push")', () => {
+    const content = read(path);
+    assert.doesNotMatch(content, /after every push/i, 'should drop "after every push" language');
+    assert.match(content, /PR open|pull.request|PR.boundary/i, 'should describe PR-boundary trigger');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3) spec-discipline.md additions (patterns 11, 12, 14)
+// ---------------------------------------------------------------------------
+describe('spec-discipline.md patterns 11/12/14 (issue #252 extensions)', () => {
+  const path = 'preseed/agents/claude/rules/spec-discipline.md';
+
+  it('declares pattern 11 — run-on AC bullets', () => {
+    const content = read(path);
+    assert.match(content, /run.on AC|AC.bullet.*word|150 word/i, 'pattern 11 — long AC bullets');
+  });
+
+  it('declares pattern 12 — mechanism leakage in AC bullets', () => {
+    const content = read(path);
+    assert.match(content, /mechanism leakage|cookie attribute|HttpOnly|Cf-Access/i,
+      'pattern 12 — mechanism tokens in AC bullets');
+  });
+
+  it('declares pattern 14 — changelog-entry-discipline drift', () => {
+    const content = read(path);
+    assert.match(content, /changelog.*discipline|no AC change/i, 'pattern 14 — changelog drift');
+  });
+
+  it('references documentation-discipline.md as a sibling', () => {
+    const content = read(path);
+    assert.match(content, /documentation-discipline\.md/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4) spec-reviewer.md — pattern enforcement + PR-boundary triggers
+// ---------------------------------------------------------------------------
+describe('spec-reviewer.md trigger + pattern updates', () => {
+  const path = 'preseed/agents/claude/agents/spec-reviewer.md';
+
+  it('uses PR-boundary trigger language', () => {
+    const content = read(path);
+    assert.doesNotMatch(content, /Triggered after every push/i,
+      'should not say "Triggered after every push"');
+    assert.match(content, /PR open|PR.sync|pull.request/i,
+      'should describe PR-boundary trigger');
+  });
+
+  it('references patterns 11/12/14 enforcement', () => {
+    const content = read(path);
+    assert.match(content, /pattern\s*11|run.on AC/i);
+    assert.match(content, /pattern\s*12|mechanism leakage/i);
+    assert.match(content, /pattern\s*14|changelog.*drift/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5) code-reviewer.md — diff source for PR context
+// ---------------------------------------------------------------------------
+describe('code-reviewer.md PR-aware diff source', () => {
+  const path = 'preseed/agents/claude/agents/code-reviewer.md';
+
+  it('uses PR-boundary trigger language', () => {
+    const content = read(path);
+    assert.doesNotMatch(content, /post.push|after every push/i);
+  });
+
+  it('describes PR-base-aware diff resolution', () => {
+    const content = read(path);
+    assert.match(content, /baseRefName|gh pr view.*base|PR.base/i,
+      'should resolve diff source from the PR base, not just origin/main');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6) git-workflow.md — PR-boundary semantics + recommended workflow
+// ---------------------------------------------------------------------------
+describe('git-workflow.md PR-boundary semantics', () => {
+  const path = 'preseed/agents/claude/rules/common/git-workflow.md';
+
+  it('declares PR-boundary as the review trigger', () => {
+    const content = read(path);
+    assert.match(content, /PR open|pull.request|PR.boundary/i);
+  });
+
+  it('documents the recommended feature → develop → main workflow', () => {
+    const content = read(path);
+    assert.match(content, /feature.*develop.*main/i, 'should show the recommended workflow');
+  });
+
+  it('explains direct-push-to-main warning is non-blocking', () => {
+    const content = read(path);
+    assert.match(content, /direct push.*main|push.*main.*bypass|main.*warn/i);
+  });
+
+  it('clarifies direct push to develop is fine (deferred review)', () => {
+    const content = read(path);
+    assert.match(content, /direct push.*develop|develop.*fine|caught.*develop.main PR/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7) warn-direct-push-to-shared.sh — new soft-warning hook
+// ---------------------------------------------------------------------------
+describe('warn-direct-push-to-shared.sh (new hook)', () => {
+  const path = 'preseed/agents/claude/plugins/codeflare-hooks/scripts/warn-direct-push-to-shared.sh';
+
+  it('exists in the preseed', () => {
+    assert.ok(exists(path), `expected ${path} to exist`);
+  });
+
+  it('reads protected_branches from sdd/config.yml', () => {
+    const content = read(path);
+    assert.match(content, /protected_branches/);
+    assert.match(content, /config\.yml/);
+  });
+
+  it('checks for open PR via gh pr view before warning', () => {
+    const content = read(path);
+    assert.match(content, /gh pr view/);
+  });
+
+  it('emits a non-blocking informational directive (no decision:block)', () => {
+    const content = read(path);
+    assert.doesNotMatch(content, /decision.*block/i,
+      'should not emit a blocking decision');
+    assert.match(content, /additionalContext/);
+  });
+
+  it('is fail-safe (any error → exit 0)', () => {
+    const content = read(path);
+    assert.match(content, /set\s+\+e|exit 0/);
+  });
+
+  it('respects warn_on_direct_push opt-out', () => {
+    const content = read(path);
+    assert.match(content, /warn_on_direct_push/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8) git-push-review-reminder.sh — PR-aware detection
+// ---------------------------------------------------------------------------
+describe('git-push-review-reminder.sh PR-aware detection', () => {
+  const path = 'preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh';
+
+  it('detects gh pr create as PR-open trigger', () => {
+    const content = read(path);
+    assert.match(content, /gh pr create/);
+  });
+
+  it('checks gh pr view for current branch before emitting on git push', () => {
+    const content = read(path);
+    assert.match(content, /gh pr view/);
+  });
+
+  it('uses cache file with TTL to avoid hammering gh on every push', () => {
+    const content = read(path);
+    assert.match(content, /sdd-pr-cache|pr.cache/);
+  });
+
+  it('still has the cheap raw-input pre-filter for non-push Bash calls', () => {
+    const content = read(path);
+    assert.match(content, /git push.*\)|gh pr create.*\)/, 'pre-filter on raw input');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9) enforce-review-spawn.sh v5 — PR HEAD SHA checkpoint
+// ---------------------------------------------------------------------------
+describe('enforce-review-spawn.sh v5 PR HEAD SHA checkpoint', () => {
+  const path = 'preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh';
+
+  it('uses PR HEAD SHA checkpoint key', () => {
+    const content = read(path);
+    assert.match(content, /sdd-last-ack-pr-head/, 'new checkpoint key');
+  });
+
+  it('queries gh pr view for current branch', () => {
+    const content = read(path);
+    assert.match(content, /gh pr view/);
+  });
+
+  it('exits silently if no open PR for current branch', () => {
+    const content = read(path);
+    assert.match(content, /open PR|no.*PR.*exit|no.*pull.request.*exit/i);
+  });
+
+  it('keeps reflog as truth layer (v4 carryover)', () => {
+    const content = read(path);
+    assert.match(content, /reflog|update by push/i, 'reflog detection preserved');
+  });
+
+  it('keeps three USER-ONLY bypasses', () => {
+    const content = read(path);
+    assert.match(content, /sdd\/\.skip-next-review/);
+    assert.match(content, /skip review/i);
+    assert.match(content, /3.strike|strike.*3|circuit breaker/i);
+  });
+
+  it('keeps vibe-coding gate', () => {
+    const content = read(path);
+    assert.match(content, /sdd\/README\.md/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10) entrypoint.sh — registers warn-direct-push-to-shared
+// ---------------------------------------------------------------------------
+describe('entrypoint.sh hook registration', () => {
+  const path = 'entrypoint.sh';
+
+  it('registers warn-direct-push-to-shared.sh in PostToolUse', () => {
+    const content = read(path);
+    assert.match(content, /warn-direct-push-to-shared\.sh/);
+  });
+
+  it('still registers all existing hooks', () => {
+    const content = read(path);
+    assert.match(content, /block-attributed-commits\.sh/);
+    assert.match(content, /git-push-review-reminder\.sh/);
+    assert.match(content, /enforce-review-spawn\.sh/);
+    assert.match(content, /memory-capture\.sh/);
+  });
+
+  it('keeps SESSION_MODE=advanced gating', () => {
+    const content = read(path);
+    assert.match(content, /SESSION_MODE.*advanced/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11) sdd/config.yml — protected_branches + warn_on_direct_push schema
+// ---------------------------------------------------------------------------
+describe('sdd/config.yml schema', () => {
+  const path = 'sdd/config.yml';
+
+  it('declares sdd_review section', () => {
+    const content = read(path);
+    assert.match(content, /sdd_review:/);
+  });
+
+  it('defaults protected_branches to [main, master]', () => {
+    const content = read(path);
+    assert.match(content, /protected_branches:/);
+    assert.match(content, /main/);
+  });
+
+  it('defaults warn_on_direct_push to true', () => {
+    const content = read(path);
+    assert.match(content, /warn_on_direct_push:\s*true/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12) sdd/agents.md — REQ-AGENT-021 AC#4 + REQ-AGENT-005 updates
+// ---------------------------------------------------------------------------
+describe('sdd/agents.md REQ updates', () => {
+  const path = 'sdd/agents.md';
+
+  it('REQ-AGENT-021 AC#4 uses PR-boundary semantics', () => {
+    const content = read(path);
+    // Find the REQ-AGENT-021 block
+    const reqStart = content.indexOf('## REQ-AGENT-021:');
+    const reqEnd = content.indexOf('---', reqStart);
+    const reqBlock = content.slice(reqStart, reqEnd);
+    assert.doesNotMatch(reqBlock, /After every push/i,
+      'AC#4 should not say "after every push"');
+    assert.match(reqBlock, /PR open|pull.request|PR.boundary/i,
+      'AC#4 should reference PR-boundary trigger');
+  });
+
+  it('mentions warn-direct-push-to-shared hook', () => {
+    const content = read(path);
+    assert.match(content, /warn-direct-push-to-shared|protected_branches/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13) sdd/changes.md — 2026-05-03 changelog entry
+// ---------------------------------------------------------------------------
+describe('sdd/changes.md changelog entry', () => {
+  const path = 'sdd/changes.md';
+
+  it('has a 2026-05-03 entry summarizing the workflow shift', () => {
+    const content = read(path);
+    assert.match(content, /2026-05-03/);
+  });
+
+  it('mentions PR-boundary trigger semantics', () => {
+    const content = read(path);
+    const date = '2026-05-03';
+    const idx = content.indexOf(`## ${date}`);
+    if (idx === -1) return;
+    const next = content.indexOf('## ', idx + 3);
+    const entry = content.slice(idx, next === -1 ? undefined : next);
+    assert.match(entry, /PR.boundary|per.PR|PR open|pull.request/i,
+      'entry should reference PR-boundary trigger');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14) /sdd init template — one-line tables (issue #253)
+// ---------------------------------------------------------------------------
+describe('/sdd init architecture.md template (issue #253)', () => {
+  const skillPath = 'preseed/agents/claude/skills/spec-driven-development/SKILL.md';
+
+  it('SKILL.md exists', () => {
+    assert.ok(exists(skillPath));
+  });
+
+  it('declares one-line table cell convention for architecture.md', () => {
+    const content = read(skillPath);
+    assert.match(content, /one.line|≤\s*50 words?|architecture\.md.*template/i);
+  });
+
+  it('embeds doc-discipline directive comments in template', () => {
+    const content = read(skillPath);
+    assert.match(content, /<!--\s*doc-discipline/);
+  });
+});
