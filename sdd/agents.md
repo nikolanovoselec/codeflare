@@ -127,6 +127,11 @@ Multi-agent support, preseed system, and session modes.
 
 ## REQ-AGENT-005: Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers
 
+<!-- sdd-allow-large: the 11-row Standard/Pro content matrix IS the
+     contract of this REQ. The matrix and the four numbered AC
+     bullets below are the minimum surface needed to specify what
+     Pro mode means. Splitting would fragment a single decision. -->
+
 **Intent:** Pro mode must provide a significantly enhanced agent experience with more rules, skills, agent definitions, commands, hooks, and memory persistence.
 
 **Acceptance Criteria:**
