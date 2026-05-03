@@ -201,6 +201,18 @@ The Stop hook (`enforce-review-spawn.sh`) supports three bypass methods so the *
 
 If the review pipeline is genuinely blocking legitimate work (e.g., the hook is misfiring on a chained-pipeline detection bug), fix the hook in a separate commit rather than bypassing it.
 
+## Operational requirements for the Stop hook
+
+The Stop hook needs the current branch to have proper upstream tracking — `git rev-parse @{u}` must resolve to the remote-tracking ref, and `git push` must record an `update by push` reflog entry on `refs/remotes/origin/<branch>`. A vanilla `git clone https://github.com/owner/repo.git` sets this up automatically. The hook silently fails-safe (exit 0) if tracking is missing, which is what you want at runtime but means real un-reviewed pushes can sneak through.
+
+If you cloned with `-b <branch>` and later checked out a different branch, or used `git checkout -B <branch> origin/<branch>` without `--track`, repair tracking once with:
+
+```bash
+git branch --set-upstream-to=origin/<branch> <branch>
+```
+
+The hook also requires `gh` on PATH (for `gh pr view`) and `sdd/README.md` to exist (vibe-coding gate). Both are present in any project that ran `/sdd init` and any container started by codeflare's normal flow.
+
 ## Severity classification on findings
 
 Both `spec-reviewer` and `doc-updater` agents tag every finding with severity:

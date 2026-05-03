@@ -45,6 +45,14 @@
 # Scope: only fires on main session Stop event (not SubagentStop).
 # Vibe-coding gate: no enforcement if sdd/ is missing.
 # Fail-safe: any unexpected error → exit 0 (never lock users out).
+#
+# Operational requirements (see rules/spec-discipline.md →
+#   "Operational requirements for the Stop hook"):
+#   - Current branch must have upstream tracking (`git rev-parse @{u}`
+#     must resolve). The cheap @{u} short-circuit relies on it; without
+#     it the hook still works via gh pr view but loses the fast path.
+#   - `gh` on PATH for the authoritative PR HEAD SHA check.
+#   - sdd/README.md present (vibe-coding gate).
 
 set +e
 
