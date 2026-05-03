@@ -295,9 +295,11 @@ const onDisk = readdirSync('preseed/.../rules/common').filter(f => f.endsWith('.
 expect(commonRules.map(r => basename(r.key)).sort()).toEqual(onDisk.sort());
 ```
 
-A test author may opt out per-test with a comment line beginning
-`// tdd-allow: <reason>`. Use sparingly — overuse signals the test
-should be deleted, not allowed.
+There is no per-test opt-out for any of the above. The only project-
+level lever is `enforce_tdd: true | false` in `sdd/config.yml`
+(defaults to `true`). If a test can't fit the discipline, delete it
+— the absence of a useless test is more honest than a flagged-and-
+allowed one.
 
 ### Best Practices (LOW)
 

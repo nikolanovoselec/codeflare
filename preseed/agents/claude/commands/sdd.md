@@ -99,10 +99,26 @@ runs in docs-only mode (project-agnostic doc maintenance).
   sdd/.coverage-report.md Output of enforce_tdd: false runs (committed)
   sdd/.last-clean-run.md Audit log of the most recent /sdd clean run
 
+## The discipline triad
+
+Three sibling rule files define what counts as real spec / docs / tests:
+
+  spec-discipline.md          What counts as a real requirement.
+                              Enforced by spec-reviewer.
+  documentation-discipline.md What counts as real documentation
+                              (line/word budgets, lane separation).
+                              Enforced by doc-updater.
+  tdd-discipline.md           What counts as a real test (no text-
+                              matching theater, no tautology, no
+                              mock-only). Enforced by code-reviewer.
+                              Gated by enforce_tdd in sdd/config.yml.
+
 ## Reference
 
   Skill:    ~/.claude/skills/spec-driven-development/SKILL.md
-  Rules:    ~/.claude/rules/spec-discipline.md (loaded into all agents)
+  Rules:    ~/.claude/rules/spec-discipline.md
+            ~/.claude/rules/documentation-discipline.md
+            ~/.claude/rules/tdd-discipline.md
   Templates: ~/.claude/skills/spec-driven-development/references/templates/
 ```
 

@@ -298,12 +298,20 @@ on transcript with no push line`.
 `tdd-guide` agent writes tests in this style by default and refuses
 to produce text-matching theater.
 
-A test author may opt out of the rule for one specific test by adding
-an inline comment line beginning `// tdd-allow: <reason>`. Use
-sparingly — overuse is a signal the test should be deleted, not
-allowed. Examples of legitimate uses: a smoke test that confirms a
-schema migration ran (the existence of the migration table IS the
-contract), a snapshot test on canonical fixtures.
+The only user-controlled lever is `enforce_tdd: true | false` in
+`sdd/config.yml`. With `enforce_tdd: true` (default), code-reviewer
+flags antipatterns at HIGH and spec-reviewer auto-demotes Implemented
+REQs without test coverage. With `enforce_tdd: false`, both report
+findings to `sdd/.coverage-report.md` without modifying the spec —
+project-level opt-out only, intended for domains that genuinely don't
+admit automated testing (pure visual design systems, etc.).
+
+There is **no per-test opt-out**. Inline comment shortcuts like
+`// tdd-allow:` are explicitly NOT supported, by design. Per-test
+opt-outs are agent-writable bypasses — they degrade into "every test
+the agent doesn't want to fix" markers and defeat the rule. If a
+test legitimately can't fit the discipline, delete it; the absence
+of a useless test is more honest than a flagged-and-allowed one.
 
 ## Migration policy
 
