@@ -19,6 +19,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/warn-direct-push-to-shared.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"
@@ -69,6 +74,11 @@
     ]
   },
   "rules/spec-discipline.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/documentation-discipline.md": {
     "modes": [
       "advanced"
     ]
