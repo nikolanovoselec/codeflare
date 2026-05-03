@@ -62,9 +62,21 @@ Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-re
 
 The counter resets when a non-agent commit lands.
 
-### Step 0d: Read user overrides
+### Step 0d: Read decision-recorded overrides
 
-Read `sdd/.user-overrides.md`. Parse entries by `{rule_id}:{target_id}` keys. Build an in-memory skip set. Any finding whose key matches an override is silently skipped this run and all future runs.
+Override entries live in ADRs, not in a config-shaped skip list. Scan `documentation/decisions/**/*.md` for any line matching:
+
+```
+^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$
+```
+
+This tolerates both plain (`Overrides: rule:REQ-X-001`) and the project's universal bold-wrapped ADR field convention (`**Overrides:** rule:REQ-X-001`). Every existing ADR field in `documentation/decisions/README.md` uses `**Field:**` formatting, so the parser must match the bold variant or the migration is dead-on-arrival.
+
+Parse the captured right-hand side as a comma-separated list of `{rule_id}:{target_id}` entries (target_id is a `REQ-X-NNN` ID or `*` to apply to all REQs in the rule's scope). Trim whitespace. Strip any trailing `**` if the LLM wrote the closing bold marker on the same line. Build an in-memory skip set. Any finding whose key matches an override is silently skipped this run and all future runs — same skip semantics as the legacy `sdd/.user-overrides.md`, new source.
+
+If `documentation/decisions/` does not exist, the skip set is empty.
+
+**Migration of legacy `sdd/.user-overrides.md`**: if the file exists, do NOT read it for skip semantics. Instead, escalate to `.review-needed.md` with a HIGH finding asking the user to migrate via `/sdd clean` (which converts each entry to a real ADR with `Overrides:` header and deletes the legacy file). Until migration completes, the entries are inert — the user can re-issue any JUDGMENT and resolve it as an ADR. Rationale: a one-line override entry hides an architectural decision; ADRs are the project-wide first-class lane for that decision (see issue #266).
 
 ### Step 0e: Diff classification
 
@@ -160,7 +172,7 @@ Group findings by severity and category. Then:
 For each finding (HIGH first, then MEDIUM, then LOW):
 1. Show the finding with file/line/proposed fix
 2. Ask: apply, skip, or override permanently?
-3. If override: append to `sdd/.user-overrides.md`
+3. If override: do NOT write to any skip file. The user is recording an architectural decision — escalate to `.review-needed.md` with a draft ADR for the user to fill in (Context / Decision / Rationale / Consequences) and an `Overrides: {rule_id}:{REQ-ID}` header. The next `/sdd clean` (or the user manually) lands the ADR in `documentation/decisions/`. Until then the finding remains open — but the user said "no" once, so do not re-prompt this run.
 4. If apply: edit the file
 5. After all findings handled: commit per category with `[spec-reviewer]` prefix
 
@@ -227,7 +239,8 @@ spec-reviewer report — mode: {mode}
 - **Never delete REQs** (move to "Out of Scope" section instead)
 - **Never auto-resolve JUDGMENT findings outside unleashed mode** (escalate)
 - **Never write changelog entries for cleanup work** (Phase 2 findings)
-- **Never re-attempt a finding listed in `.user-overrides.md`** (the user said no)
+- **Never re-attempt a finding covered by an `Overrides:` header in any ADR under `documentation/decisions/`** (the user recorded the decision; respect it)
+- **Never write to `sdd/.user-overrides.md`** (legacy skip-list file, removed in issue #266 — overrides are now ADRs)
 - **Never run on a non-SDD project** (Phase 0a exits silently)
 
 ## Domain mapping (project-agnostic)

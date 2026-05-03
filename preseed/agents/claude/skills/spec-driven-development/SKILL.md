@@ -29,7 +29,6 @@ sdd/
 ├── constraints.md       # Technology stack, cross-cutting CON-* constraints
 ├── changes.md           # Semantic changelog (≤2 sentences per entry, user-facing only)
 ├── config.yml           # mode, enforce_tdd, test_globs, src_globs (optional), allowlists
-├── .user-overrides.md   # Findings the user explicitly told the agent to skip (committed)
 ├── .review-needed.md    # Findings escalated for human review (committed, cleared on resolution)
 ├── .coverage-report.md  # Output of enforce_tdd: false runs (committed)
 ├── .last-clean-run.md   # Audit log of the most recent /sdd clean run (committed)
@@ -278,7 +277,7 @@ Same as `/sdd edit` but creates a new domain file. The agent:
 /sdd autonomous on              # mode = auto (writes to sdd/config.yml)
 /sdd autonomous unleashed on    # mode = unleashed
 /sdd autonomous off             # mode = interactive
-/sdd autonomous status          # show current mode + recent overrides
+/sdd autonomous status          # show current mode + recent ADRs with Overrides: headers
 ```
 
 The setting is persistent (committed to git as `sdd/config.yml`) and travels with the project. Per-command overrides via `--interactive`, `--auto`, `--unleashed` flags on `/sdd clean`.

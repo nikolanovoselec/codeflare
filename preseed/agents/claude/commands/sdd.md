@@ -50,9 +50,10 @@ AUTONOMY MODES
 AUTO-RUN  (no /sdd invocation needed)
   Once sdd/ exists, the SDD workflow runs automatically after every
   push: spec-reviewer updates sdd/ to match the code, then doc-updater
-  updates documentation/. Both honor sdd/config.yml mode and
-  sdd/.user-overrides.md skip list. Vibe-code without sdd/ works
-  too — agents stay silent until you /sdd init.
+  updates documentation/. Both honor sdd/config.yml mode and any
+  ADRs in documentation/decisions/ that carry an Overrides: header
+  (skip list — see "USER OVERRIDES" below). Vibe-code without sdd/
+  works too — agents stay silent until you /sdd init.
 
 CONFIG  (sdd/config.yml)
   mode                              interactive | auto | unleashed
@@ -62,10 +63,23 @@ CONFIG  (sdd/config.yml)
   forbidden_content_allowlist       {...}
 
 FILES
-  sdd/.user-overrides.md      Findings the agent skips (committed)
   sdd/.review-needed.md       Findings escalated for human review
   sdd/.coverage-report.md     Output when enforce_tdd: false
   sdd/.last-clean-run.md      Audit log of the last /sdd clean
+  documentation/decisions/    ADRs (any with `Overrides:` header act
+                              as the agent skip list — see USER
+                              OVERRIDES below)
+
+USER OVERRIDES
+  When an automated finding is wrong for a specific REQ ("this
+  mechanism IS the contract"), the resolution is an architectural
+  decision and is recorded as an ADR — not a one-line skip entry.
+  Each ADR carries an `Overrides: {rule_id}:{REQ-ID}` header that
+  spec-reviewer and doc-updater grep at the start of every run.
+  See ~/.claude/rules/spec-discipline.md "User overrides via ADRs".
+
+  Legacy sdd/.user-overrides.md is removed (issue codeflare#266).
+  Existing entries auto-migrate to ADRs on the next /sdd clean.
 
 DISCIPLINE TRIAD  (loaded into all agents)
   spec-discipline           What counts as a real requirement.
@@ -354,6 +368,30 @@ Refactor a rotted spec. Mode-aware.
    - Status: Planned/Partial REQs with source code but no test (HIGH if `enforce_tdd: true`)
    - Test quality findings: tautologies, skipped tests, AC-count mismatch (HIGH/MEDIUM if `enforce_tdd: true`)
    - Doc-vs-spec conflicts (MEDIUM, JUDGMENT)
+   - Legacy `sdd/.user-overrides.md` exists (HIGH, AUTO-MIGRATE — see step 6a)
+6a. **Migrate legacy `sdd/.user-overrides.md` to ADRs** (one-time, runs before any other apply step):
+    - For each entry block keyed by `## {rule_id}:{target_id}`, generate a new ADR file at `documentation/decisions/AD{N}-{slug-of-rule-id}-{lowercased-target-id}.md` where `{N}` is the next available AD number (read `documentation/decisions/README.md` for the highest existing AD ID and increment).
+    - ADR template:
+      ```markdown
+      ### AD{N}: {Decision title derived from `{rule_id}` + `{target_id}`}
+
+      **Status:** {Accepted (YYYY-MM-DD from the legacy `Date:` field). If the legacy entry has no parseable Date or the value is malformed, emit `Accepted (date unknown)` instead — never substitute today's date, as that would silently re-stamp the decision and lose the audit trail.}
+      **Overrides:** {rule_id}:{target_id}
+
+      **Context:** {Auto-filled placeholder explaining what `{rule_id}` flagged on `{target_id}`. Reference the rule by name from `~/.claude/rules/spec-discipline.md`.}
+
+      **Decision:** {The legacy `User note:` field, verbatim.}
+
+      **Rationale:** {Auto-filled placeholder asking the user to expand the legacy note into the original reasoning. Mark with `<!-- TODO: expand from legacy override note -->` so the user notices on first read of the new ADR.}
+
+      **Consequences:** {Auto-filled placeholder asking the user to list downstream code/docs that must keep in lockstep.}
+
+      **Related requirements:** {target_id if it parses as REQ-X-NNN, else leave blank}
+      ```
+    - Append a row to `documentation/decisions/README.md`'s decision index for each new ADR.
+    - Delete `sdd/.user-overrides.md` in the same commit.
+    - Tag the commit `[sdd-clean] migrate user-overrides to ADRs (issue codeflare#266)` so spec-reviewer's round-counter excludes it.
+    - The TODO placeholders in the ADRs are intentional — the user fills them on first review. Until then, the `Overrides:` header is fully active and spec-reviewer/doc-updater respect it.
 7. **Apply per mode**:
    - **interactive**: report findings batch by batch, ask confirmation
    - **auto**: apply SAFE + RISKY silently, escalate JUDGMENT to `sdd/.review-needed.md`
@@ -384,7 +422,7 @@ Set the autonomy mode.
 /sdd autonomous unleashed on    → write `mode: unleashed` to sdd/config.yml
 /sdd autonomous off             → write `mode: interactive` (resets from auto OR unleashed)
 /sdd autonomous unleashed off   → alias for `off` (same behavior)
-/sdd autonomous status          → print current mode + last 5 overrides from .user-overrides.md
+/sdd autonomous status          → print current mode + last 5 ADRs in documentation/decisions/ that carry an `Overrides:` header
 ```
 
 If `sdd/config.yml` doesn't exist, create it from the template first. If `sdd/` doesn't exist, error out: "No SDD project here. Run `/sdd init` first."

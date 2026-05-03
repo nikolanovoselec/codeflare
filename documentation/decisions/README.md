@@ -3,7 +3,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD44 throughout the codebase and documentation.
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD45 throughout the codebase and documentation.
 
 **Audience:** Developers
 
@@ -57,6 +57,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD42](#ad42-unauthenticated-first-setbucketname-call-cf-010) | Unauthenticated first setBucketName call (CF-010) | Security |
 | [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Parse-and-exclude vanishing files before escalating to nuke | Storage |
 | [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | SDD three-mode autonomy with conservative JUDGMENT resolution | Architecture |
+| [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | User overrides recorded as ADRs, not skip-list | Architecture |
 
 ---
 
@@ -488,7 +489,7 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 **Trade-offs accepted:**
 
-- The unleashed mode's conservative defaults will sometimes mark a REQ as `Partial` when the user knows it's `Implemented` (e.g., visual design REQs without unit tests). The user adds an entry to `sdd/.user-overrides.md` and it's not re-attempted.
+- The unleashed mode's conservative defaults will sometimes mark a REQ as `Partial` when the user knows it's `Implemented` (e.g., visual design REQs without unit tests). The user records the override as a new ADR with an `Overrides: {rule_id}:{REQ-ID}` header and it's not re-attempted.
 - The PR-based safety net adds friction for users who want true zero-touch (the PR has to be merged manually). Acceptable trade-off for the rollback story.
 - The forbidden-content allowlist requires per-project tuning for projects that legitimately use vendor names, protocol names, or HTTP status codes in their REQs. Configurable via `sdd/config.yml`.
 
@@ -508,6 +509,65 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 - `preseed/agents/claude/agents/spec-reviewer.md` (project-agnostic spec-reviewer agent)
 - `preseed/agents/claude/agents/doc-updater.md` (project-agnostic doc-updater agent)
 - `preseed/agents/claude/commands/sdd.md` (sub-command dispatcher with help screen)
+
+---
+
+### AD45: User overrides recorded as ADRs, not skip-list
+
+**Category:** Architecture
+
+**Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior — this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings — same machine behavior as the legacy skip list, but the architectural decision is now first-class.
+
+**Context:** AD44 introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in REQ-AUTH-002 AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract — security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
+
+- The override file is invisible to anyone reading the codebase. It doesn't appear in any index, isn't referenced from `documentation/decisions/README.md`.
+- Each entry is a load-bearing architectural choice ("we treat cookie attributes as the security contract") buried in a config-shaped file alongside test-skip notes.
+- "Rationale" lives in a free-text User note field with no structure — no Context/Decision/Rationale/Consequences scaffolding, no link to the affected REQ, no date the decision was revisited.
+- Six months later, nobody remembers what's in `.user-overrides.md` and re-litigates the same call because they couldn't find prior context.
+
+**Alternatives considered:**
+
+1. **Keep `sdd/.user-overrides.md` and just cross-link from `documentation/decisions/README.md`.** Rejected: still bifurcates decision storage. The cross-link rots.
+2. **Keep the file but require structured fields (Context/Decision/Rationale/Consequences).** Rejected: this is the ADR template — at that point we are reinventing ADRs in `sdd/`, in the wrong lane.
+3. **Move overrides into REQ frontmatter as a per-REQ `OverridesRules:` field.** Rejected: scatters the decision. Reading the REQ doesn't tell you *why* the rule was overridden — that's an architectural decision, not a REQ attribute. Future REQ refactors might drop the field unintentionally.
+4. **The chosen approach: ADRs with `Overrides:` headers.** Same skip semantics, decision now lives where decisions live.
+
+**Rationale:**
+
+- ADRs already exist for this exact purpose in `documentation/decisions/`: structured, indexed, discoverable, treated as first-class history.
+- The `**Overrides:**` line is a one-line parser anchor — spec-reviewer's grep pattern is `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (tolerates both plain and the project's universal bold-wrapped ADR field convention), splitting on commas — same skip key shape (`{rule_id}:{target_id}`) the legacy file used.
+- Decisions can be revised with full Status history (`Accepted` → `Superseded by AD-M`) following existing ADR patterns. The legacy skip list had no such notion.
+- ADRs are listed in `documentation/decisions/README.md`'s decision index, surfacing the override decisions in the same place where every other architectural call lives. Future contributors find them on first reading.
+- `/sdd clean` migrates existing entries automatically: each line in any project's existing `sdd/.user-overrides.md` becomes a new ADR (Context/Decision/Rationale/Consequences scaffold pre-filled with the legacy `User note:` field; TODO placeholders in Rationale/Consequences asking the user to expand on first read), and the legacy file is deleted in the same commit. Tagged `[sdd-clean] migrate user-overrides to ADRs (issue codeflare#266)` so spec-reviewer's round-counter excludes it.
+
+**Trade-offs accepted:**
+
+- Migration adds one extra commit on the next `/sdd clean` for any project with existing override entries. Acceptable: it's a one-time cost, the migration is fully automatic, and each migrated ADR carries a TODO marker so the user knows to expand the rationale.
+- ADRs are slightly heavier-weight than a one-line skip entry. Intentional: the friction is the point. If an override is "easy" to add, it gets added thoughtlessly. If it requires writing a real ADR, it gets thought about, which is what we want for an architectural decision.
+- The `Overrides:` header is a soft contract — projects that hand-edit ADRs to remove the header silently lose the skip behavior. Acceptable: same shape as every other markdown-based agent contract in the project.
+
+**Migration:**
+
+- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `**Overrides:**` (regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` — tolerates plain and bold-wrapped) instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
+- doc-updater Step 0c: same change.
+- spec-discipline.md: drops `## User overrides` section, replaces with `## User overrides via ADRs` documenting the `Overrides:` header pattern.
+- `/sdd clean` step 6/6a: auto-migrates legacy entries to ADRs.
+- `/sdd init`: was never scaffolding `.user-overrides.md`; no change needed.
+- SKILL.md, /sdd command help, and `documentation/decisions/README.md` AD44 trade-off bullet: drop references to the legacy file.
+
+**Related requirements:**
+
+- REQ-AGENT-021 (SDD workflow as Pro feature)
+
+**Implementation references:**
+
+- `preseed/agents/claude/rules/spec-discipline.md` (User overrides via ADRs section)
+- `preseed/agents/claude/agents/spec-reviewer.md` (Step 0d, Phase 3 interactive override flow)
+- `preseed/agents/claude/agents/doc-updater.md` (Step 0c)
+- `preseed/agents/claude/commands/sdd.md` (USER OVERRIDES help section, /sdd clean step 6a migration)
+- `preseed/agents/claude/skills/spec-driven-development/SKILL.md` (spec structure diagram)
+
+**Issue:** [codeflare#266](https://github.com/nikolanovoselec/codeflare/issues/266)
 
 ---
 

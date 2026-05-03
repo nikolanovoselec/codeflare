@@ -56,9 +56,9 @@ test -f documentation/README.md
 - If false: HIGH gap. **Do NOT auto-create** the file. Report the missing index and exit — the user must scaffold `documentation/` deliberately (via `/sdd init` or manually). Auto-creating files on push is too aggressive.
 - If true: read `documentation/README.md` to learn the project's actual doc structure. This index is the routing table — do NOT hardcode any file names.
 
-### Step 0c: Read user overrides
+### Step 0c: Read decision-recorded overrides
 
-Read `sdd/.user-overrides.md` and build the skip set (same format spec-reviewer uses).
+Scan `documentation/decisions/**/*.md` for `**Overrides:** {rule_id}:{target_id}` headers using the regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (same parser spec-reviewer uses — see its Step 0d; the regex tolerates both plain `Overrides:` and the project's universal bold-wrapped `**Overrides:**` field convention). Build the skip set from those entries. The legacy `sdd/.user-overrides.md` file is no longer read; if it still exists, leave the migration to spec-reviewer (which will surface a HIGH finding asking the user to migrate via `/sdd clean`).
 
 ### Step 0d: Round counter (anti-spiral)
 
