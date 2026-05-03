@@ -280,14 +280,18 @@ via the `files` parameter. Do NOT call consult_llm once per finding.
    ...
    ```
 
-4. Write that prompt to disk. Then call consult_llm TWICE — once per model — passing:
+4. Write that prompt to disk. Then call consult_llm TWICE — once per provider family — passing:
    - `prompt`: the file contents (read via Read tool, or — if very large — pass
      the file path via the `files` parameter and a short directive like
      "Read .llm-verify-prompt.md and respond per its instructions")
    - `files`: the deduplicated source-file paths from step 2 + the prompt file
    - `task_mode`: "review"
-   - Model 1: gpt-5.4
-   - Model 2: gemini-3.1-pro-preview
+   - Model selector — use **family names**, never pin specific versions:
+     - Call 1: `model: "openai"` (resolves server-side to the latest GPT)
+     - Call 2: `model: "gemini"` (resolves server-side to the latest Gemini)
+     Pinning concrete model IDs (e.g. `gpt-5.4`, `gemini-3.1-pro-preview`) is
+     wrong — they go stale within weeks of release. The `consult_llm` server
+     already maintains the "latest per family" mapping; let it do its job.
    Run the two calls concurrently if the environment permits.
 
 5. Parse each LLM's JSON response. For each finding, combine the two verdicts:
