@@ -150,14 +150,14 @@ When `OPENAI_API_KEY` or `GEMINI_API_KEY` env vars are present, `entrypoint.sh` 
 
 **Skill trigger phrases:** "discuss with llms", "consult llms", "ask llms", "get a second opinion", "ask ChatGPT", "consult Gemini", "ask GPT", "ask another AI".
 
-**Default model pair** (skill sends to both models in parallel):
+**Default model pair** (skill sends to both providers in parallel, latest flagship per family):
 
-| Provider | Model ID |
-|----------|----------|
-| OpenAI | `gpt-5.4` |
-| Google | `gemini-3.1-pro-preview` |
+| Provider | Resolved by |
+|----------|-------------|
+| OpenAI | `consult_llm` server-side mapping — latest GPT |
+| Google | `consult_llm` server-side mapping — latest Gemini |
 
-If the user names a specific model, only that model is queried. All supported models: `gpt-5.4`, `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gemini-3.1-pro-preview`, `gemini-3-pro-preview`, `gemini-2.5-pro`.
+Pass family selectors (`model: "openai"` / `model: "gemini"`) to let the MCP server pick the current flagship; pinning concrete IDs (e.g. `gpt-5.4`, `gemini-3.1-pro-preview`) goes stale within weeks of the next release. Specific model IDs are still accepted as advanced overrides when the user names one explicitly.
 
 Skill definition: `preseed/agents/claude/skills/consult-llm/SKILL.md`.
 
