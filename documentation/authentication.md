@@ -1,3 +1,6 @@
+<!-- doc-allow-large -->
+<!-- doc-discipline note: ~900 lines covering dual auth, SaaS mode, subscriptions, Stripe webhooks, and provisioning in one file. A future split could extract billing/Stripe into a sibling file, but the cross-references between auth flow and billing tier checks are dense enough that the single file is currently the most navigable shape. -->
+
 # Authentication & Billing
 
 Dual authentication (Cloudflare Access and GitHub OIDC), SaaS mode, subscription tiers, Stripe billing, and user provisioning.

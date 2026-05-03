@@ -18,7 +18,8 @@ Technical reference documentation for Codeflare.
 | [Troubleshooting](troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |
 | [Mobile Terminal](mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
 | [Memory & Preseed](memory.md) | Memory capture, session modes, preseed system | Developers |
-| [Architecture Decisions](decisions/README.md) | 42 ADRs with rationale and trade-offs | Developers |
+| [Token Scopes](token-scopes.md) | GitHub PAT and Cloudflare API token scope guidance | Operators |
+| [Architecture Decisions](decisions/README.md) | 44 ADRs with rationale and trade-offs | Developers |
 | [Penetration Testing](PENTEST.md) | Security scan results | Security |
 | [Stress Testing](STRESS_TEST.md) | Load testing guide | Operators |
 
