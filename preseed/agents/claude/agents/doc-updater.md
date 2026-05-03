@@ -130,7 +130,7 @@ For every Markdown table in `documentation/*.md`, parse rows and count words per
 ```bash
 # Pseudocode: extract tables, then per cell:
 #   word_count = $(echo "$cell" | wc -w)
-#   if [ "$word_count" -gt 50 ]; then emit MEDIUM finding ]
+#   if [ "$word_count" -gt 50 ]; then emit MEDIUM finding; fi
 ```
 
 Cap is **50 words per table cell**. Anything beyond gets a MEDIUM finding with a suggested rewrite: extract the long content to a body paragraph below the table and replace the cell with a one-line summary plus a link.

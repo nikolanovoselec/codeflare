@@ -182,6 +182,36 @@ const usersWithPosts = await db.query(`
 `);
 ```
 
+### Shell Scripts and Comments (HIGH)
+
+When reviewing bash, sh, or other shell scripts (especially hooks, build steps, CI scripts), apply two passes that static review skips by default:
+
+- **Comment-as-claim audit** — Read every `# explanation` as a verifiable claim, not narration. For each non-trivial comment, check the code below confirms it. Flag drift (comment says X, code does Y) even if neither is wrong on its own — the gap is where bugs live.
+- **Empty/missing-input walk** — For every conditional, ask: what happens if this variable is empty, the regex didn't match, or the external command failed? Identify whether the script fails *open* (skips enforcement) or fails *closed* (blocks). Awk string comparisons are the classic trap: `ts > ""` is TRUE for any non-empty `ts`, so an unset threshold silently disables a filter.
+- **Substring vs structural matching** — `grep "git push"` matches `echo "I will git push later"`. For tools parsing JSON or structured output, prefer `jq` queries on shape over substring grep on lines.
+- **Error-swallowing audit** — `2>/dev/null`, `|| true`, `set +e`, and `command || exit 0` are all legitimate, but each is a place where a real failure becomes silent. Confirm every one is intentional.
+- **External-tool guards** — `command -v gh >/dev/null 2>&1 || exit 0` handles missing tools gracefully. Hard calls fail loudly when the tool isn't installed.
+
+```bash
+# BAD: empty PUSH_TS makes (ts > "") always true → fails open silently
+PUSH_TS=$(grep -oE '...' | sed -E 's/.../\1/')
+awk -v t="$PUSH_TS" '{ if (ts > t) ... }' transcript
+
+# GOOD: explicit validity check before use
+PUSH_TS=$(grep -oE '...' | sed -E 's/.../\1/')
+[ -n "$PUSH_TS" ] || exit 0  # fail closed if extraction failed
+awk -v t="$PUSH_TS" '{ if (ts > t) ... }' transcript
+```
+
+```bash
+# BAD: substring match — false positive on echo "git push later"
+awk '/"name":"Bash"/ && /git push/'
+
+# GOOD: structural query on the input field
+jq -c 'select(.name == "Bash" and
+              (.input.command | test("(^|&&\\s*)git\\s+push\\b")))'
+```
+
 ### Performance (MEDIUM)
 
 - **Inefficient algorithms** — O(n^2) when O(n log n) or O(n) is possible
@@ -190,6 +220,29 @@ const usersWithPosts = await db.query(`
 - **Missing caching** — Repeated expensive computations without memoization
 - **Unoptimized images** — Large images without compression or lazy loading
 - **Synchronous I/O** — Blocking operations in async contexts
+
+### Test Quality (MEDIUM)
+
+When reviewing test files (`*.test.*`, `*.spec.*`, `test_*.py`, etc.), the test passing is necessary but not sufficient — assertions can pass while failing to pin the contract:
+
+- **Negative-only assertions** — `expect(x).not.toMatch(/foo/)` or `assert.doesNotMatch(content, ...)` without a paired positive assertion fails to pin the contract. An empty file or a renamed feature passes. Pair every negative with a positive that says what SHOULD be present.
+- **Brittle regexes against rendered content** — `assert.match(content, /file\.md.*350/)` breaks on whitespace changes, line wrapping, or markdown table reformatting. Prefer structural extraction (parse the table row, assert the cell value) or anchor on stable boundaries (`\bfile\.md\b` AND `\b350\b` separately).
+- **Sequential numbering integrity** — When tests use `// Test N)` or `S1, S2, ...` numbering in section comments, gaps (1-6, **8**-14 missing 7) signal lost edits during refactor. Either renumber or drop the numbers.
+- **Tautology and skipped tests** — `expect(true).toBe(true)`, `assert.ok(1)`, empty test bodies, or `it.skip(...)` without a tracking issue are weight without weight-bearing.
+
+```javascript
+// BAD: negative-only assertion — empty file passes
+it('uses PR-boundary trigger language', () => {
+  assert.doesNotMatch(content, /post.push|after every push/i);
+});
+
+// GOOD: pair the negative with a positive that pins the contract
+it('uses PR-boundary trigger language', () => {
+  assert.doesNotMatch(content, /post.push|after every push/i);
+  assert.match(content, /PR open|PR.sync|pull.request/i,
+    'must describe PR-boundary trigger');
+});
+```
 
 ### Best Practices (LOW)
 

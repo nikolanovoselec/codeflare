@@ -77,12 +77,13 @@ if [ "$TRIGGER" = "git-push" ]; then
     cached_branch=$(head -1 "$PR_CACHE" 2>/dev/null)
     if [ "$cached_branch" = "$CURRENT" ]; then
       cached_state=$(sed -n '2p' "$PR_CACHE" 2>/dev/null)
-      # Asymmetric TTL: positive (OPEN) results stay valid for 60s, but
-      # negative (empty) results expire after 10s. gh exits 1 both for
-      # "no PR found" AND for transient errors (network blip, rate
-      # limit), which are indistinguishable from this script. Shorter
-      # negative TTL bounds the worst-case window where a transient
-      # failure suppresses PR-SYNC reminders.
+      # Asymmetric TTL: positive (OPEN) results cached for 60s; legitimate
+      # empty results (gh exit 1 = "no PR found") cached for only 10s. The
+      # short negative TTL bounds the staleness of the "no PR" case so a
+      # PR opened during a quiet period is picked up quickly. Transient
+      # failures (gh exit 2 = network/auth, exit 4 = no token) are NOT
+      # cached at all — see the GH_OK gate below — so they never poison
+      # the cache; they re-query on the next push.
       max_age=10
       [ "$cached_state" = "OPEN" ] && max_age=60
       if [ "$cache_age" -lt "$max_age" ] 2>/dev/null; then
@@ -95,14 +96,14 @@ if [ "$TRIGGER" = "git-push" ]; then
   if [ "$CACHE_VALID" = "0" ]; then
     GH_OK=0
     if command -v gh >/dev/null 2>&1; then
-      # Capture exit status. gh exits non-zero both when no PR exists
-      # AND on transient errors (network, rate limit, auth lapse).
-      # Cache the result so the next 60s of pushes don't re-query, but
-      # use the asymmetric TTL above so a transient failure expires
-      # quickly. The Stop hook (enforce-review-spawn.sh) re-checks gh
-      # pr view at turn end and blocks if a real PR push goes
-      # un-reviewed, so the worst case is a brief window of missing
-      # silent-spawn directives — not a missed enforcement.
+      # Distinguish three gh exit modes by the (PR_STATE, gh_exit) pair:
+      #   1. PR exists  → PR_STATE non-empty, exit 0  → cache 60s (OPEN/MERGED)
+      #   2. No PR      → PR_STATE empty,    exit 1  → cache 10s (negative)
+      #   3. Transient  → PR_STATE empty,    exit 2/4 → DO NOT cache; re-query
+      # The Stop hook (enforce-review-spawn.sh) re-checks gh pr view at
+      # turn end and blocks if a real PR push goes un-reviewed, so a
+      # transient gh failure here only delays a silent-spawn directive
+      # by one push — it does not bypass enforcement.
       PR_STATE=$(gh pr view "$CURRENT" --json state -q .state 2>/dev/null)
       gh_exit=$?
       if [ -n "$PR_STATE" ] || [ "$gh_exit" -eq 1 ]; then

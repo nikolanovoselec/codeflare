@@ -41,10 +41,20 @@ describe('documentation-discipline.md (issue #252)', () => {
 
   it('declares per-file line budgets', () => {
     const content = read(path);
-    assert.match(content, /architecture\.md.*350/, 'architecture.md budget 350 lines');
-    assert.match(content, /api-reference\.md.*600/, 'api-reference.md budget 600 lines');
-    assert.match(content, /configuration\.md.*200/, 'configuration.md budget 200 lines');
-    assert.match(content, /deployment\.md.*200/, 'deployment.md budget 200 lines');
+    // Assert filename and budget separately. The original `/file\.md.*350/`
+    // single-line regex broke on table reformatting, line wrapping, and
+    // column re-padding. Decoupled assertions survive cosmetic edits.
+    for (const [file, budget] of [
+      ['architecture.md', 350],
+      ['api-reference.md', 600],
+      ['configuration.md', 200],
+      ['deployment.md', 200],
+    ]) {
+      assert.match(content, new RegExp(`\\b${file.replace('.', '\\.')}\\b`),
+        `${file} mentioned`);
+      assert.match(content, new RegExp(`\\b${budget}\\b\\s*lines?`, 'i'),
+        `${budget}-line budget present`);
+    }
   });
 
   it('declares per-element budgets (≤50 word table cells)', () => {
@@ -182,7 +192,10 @@ describe('code-reviewer.md PR-aware diff source', () => {
 
   it('uses PR-boundary trigger language', () => {
     const content = read(path);
-    assert.doesNotMatch(content, /post.push|after every push/i);
+    assert.doesNotMatch(content, /post.push|after every push/i,
+      'should drop "post-push" / "after every push" language');
+    assert.match(content, /PR open|PR.sync|pull.request|PR.boundary/i,
+      'must describe PR-boundary trigger');
   });
 
   it('describes PR-base-aware diff resolution', () => {
@@ -228,7 +241,7 @@ describe('git-workflow.md PR-boundary semantics', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8) git-push-review-reminder.sh — PR-aware detection
+// 7) git-push-review-reminder.sh — PR-aware detection
 // ---------------------------------------------------------------------------
 describe('git-push-review-reminder.sh PR-aware detection', () => {
   const path = 'preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh';
@@ -259,11 +272,17 @@ describe('git-push-review-reminder.sh PR-aware detection', () => {
       'hook must not prompt the user — manual verification is on the user, not via directive');
     assert.doesNotMatch(content, /informational.*direct push/i,
       'no informational directive on direct main pushes either');
+    // Positive companion: confirm the deferred-exit path actually exists.
+    // Without this, an empty file or a hook that emits nothing at all
+    // would also pass — we want to pin "exits silently on no-PR" as a
+    // real code path, not just absence of forbidden phrases.
+    assert.match(content, /exit\s+0|deferred/i,
+      'must contain a deferred/exit-silently path for no-open-PR case');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 9) enforce-review-spawn.sh v5 — PR HEAD SHA checkpoint
+// 8) enforce-review-spawn.sh v5 — PR HEAD SHA checkpoint
 // ---------------------------------------------------------------------------
 describe('enforce-review-spawn.sh v5 PR HEAD SHA checkpoint', () => {
   const path = 'preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh';
@@ -302,7 +321,7 @@ describe('enforce-review-spawn.sh v5 PR HEAD SHA checkpoint', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 10) entrypoint.sh — hook registration
+// 9) entrypoint.sh — hook registration
 // ---------------------------------------------------------------------------
 describe('entrypoint.sh hook registration', () => {
   const path = 'entrypoint.sh';
@@ -328,7 +347,7 @@ describe('entrypoint.sh hook registration', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 11) sdd/config.yml — sdd_review section was removed (over-engineered)
+// 10) sdd/config.yml — sdd_review section was removed (over-engineered)
 // ---------------------------------------------------------------------------
 describe('sdd/config.yml schema', () => {
   const path = 'sdd/config.yml';
@@ -343,7 +362,7 @@ describe('sdd/config.yml schema', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 12) sdd/agents.md — REQ-AGENT-021 AC#4 + REQ-AGENT-005 updates
+// 11) sdd/agents.md — REQ-AGENT-021 AC#4 + REQ-AGENT-005 updates
 // ---------------------------------------------------------------------------
 describe('sdd/agents.md REQ updates', () => {
   const path = 'sdd/agents.md';
@@ -372,7 +391,7 @@ describe('sdd/agents.md REQ updates', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 13) sdd/changes.md — 2026-05-03 changelog entry
+// 12) sdd/changes.md — 2026-05-03 changelog entry
 // ---------------------------------------------------------------------------
 describe('sdd/changes.md changelog entry', () => {
   const path = 'sdd/changes.md';
@@ -395,7 +414,7 @@ describe('sdd/changes.md changelog entry', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 14) /sdd init template — one-line tables (issue #253)
+// 13) /sdd init template — one-line tables (issue #253)
 // ---------------------------------------------------------------------------
 describe('/sdd init architecture.md template (issue #253)', () => {
   const skillPath = 'preseed/agents/claude/skills/spec-driven-development/SKILL.md';

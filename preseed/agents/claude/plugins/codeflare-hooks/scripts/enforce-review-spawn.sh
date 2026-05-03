@@ -74,11 +74,27 @@ if [ -f "sdd/.skip-next-review" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Layer 1 (CANDIDATE) — loose regex finds any Bash tool_use line that
-# mentions `git push` literally. Accepts false positives intentionally;
-# Layer 2 filters them via PR HEAD SHA state.
+# Layer 1 (CANDIDATE) — find Bash tool_use lines whose .input.command
+# field actually runs `git push` (not just mentions it inside an echo or
+# narration). Match either:
+#   1. command starts with `git push` — e.g. `"command":"git push origin..."`
+#   2. command has a shell separator (;&|) before `git push` — chained
+#      pipelines like `git add . && git push` or `git status; git push`
+# Acceptable false-negative: heredoc/multi-line commands that JSON-encode
+# newlines as `\n` and put `git push` after that. Rare in practice.
+# Acceptable false-positive: still possible if a quoted string ends in a
+# separator, but Layer 2 (PR HEAD SHA) filters these.
 # ---------------------------------------------------------------------------
-PUSH_LINE=$(awk '/"name"[[:space:]]*:[[:space:]]*"Bash"/ && /git push/ { print NR }' "$TRANSCRIPT" 2>/dev/null | tail -1)
+PUSH_LINE=$(awk '
+  /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
+      print NR; next
+    }
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\]/) {
+      print NR; next
+    }
+  }
+' "$TRANSCRIPT" 2>/dev/null | tail -1)
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
 
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
@@ -113,6 +129,27 @@ CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
 [ -n "$CURRENT" ] || exit 0
 [ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD — skip
 
+# ---------------------------------------------------------------------------
+# Cheap pre-check: if last-ack matches the local remote-tracking ref
+# (`@{u}`), no new push has been observed since the last successful
+# review — skip the gh network call entirely. `@{u}` reflects whatever
+# the most recent fetch saw, so this is stale only if someone pushed
+# without us fetching; the next git op (or the Stop hook on the next
+# turn after a fetch) catches that. Saves a 200-500ms gh round-trip on
+# every Stop event during the post-review tail of a session.
+# ---------------------------------------------------------------------------
+LAST_ACK_PR_HEAD=""
+if [ -f "$ACK_FILE" ]; then
+  LAST_ACK_PR_HEAD=$(cat "$ACK_FILE" 2>/dev/null)
+fi
+
+if [ -n "$LAST_ACK_PR_HEAD" ]; then
+  REMOTE_HEAD=$(git rev-parse "@{u}" 2>/dev/null)
+  if [ -n "$REMOTE_HEAD" ] && [ "$REMOTE_HEAD" = "$LAST_ACK_PR_HEAD" ]; then
+    exit 0
+  fi
+fi
+
 if ! command -v gh >/dev/null 2>&1; then
   exit 0  # gh missing → can't verify PR state → fail-safe exit
 fi
@@ -127,15 +164,8 @@ CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
 [ "$PR_STATE" = "OPEN" ] || exit 0
 [ -n "$CURRENT_PR_HEAD" ] || exit 0
 
-# ---------------------------------------------------------------------------
-# Layer 3 (CHECKPOINT) — read the high-water mark of acknowledged PR HEADs
-# ---------------------------------------------------------------------------
-LAST_ACK_PR_HEAD=""
-if [ -f "$ACK_FILE" ]; then
-  LAST_ACK_PR_HEAD=$(cat "$ACK_FILE" 2>/dev/null)
-fi
-
-# PR HEAD already reviewed → exit 0
+# Authoritative PR HEAD check (network result may differ from @{u} if
+# the local-tracking ref is stale): bail if already acked.
 if [ -n "$LAST_ACK_PR_HEAD" ] && [ "$LAST_ACK_PR_HEAD" = "$CURRENT_PR_HEAD" ]; then
   exit 0
 fi
@@ -148,6 +178,15 @@ fi
 # ---------------------------------------------------------------------------
 PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT" 2>/dev/null)
 PUSH_TS=$(echo "$PUSH_LINE_CONTENT" | grep -oE '"timestamp":"[^"]+"' | head -1 | sed -E 's/.*"timestamp":"([^"]+)"/\1/')
+
+# Fail-safe: if timestamp extraction failed (transcript schema drift,
+# missing field, etc.) the awk comparison `ts > "$PUSH_TS"` would become
+# `ts > ""` — TRUE for any non-empty string — making spawned_after_push
+# return true for any historical agent invocation and silently disabling
+# enforcement. Exit 0 here makes the failure mode explicit (consistent
+# with the rest of the hook) instead of relying on awk's string-compare
+# semantics happening to do the right thing.
+[ -n "$PUSH_TS" ] || exit 0
 
 # Helper: was this subagent_type spawned with transcript timestamp > push ts?
 spawned_after_push() {
@@ -207,7 +246,7 @@ spawned_after_push "code-reviewer" || MISSING="$MISSING code-reviewer"
 spawned_after_push "spec-reviewer" || MISSING="$MISSING spec-reviewer"
 
 if [ -n "$MISSING" ]; then
-  REASON="PR-boundary push detected (PR #$CURRENT, head $CURRENT_PR_HEAD), missing SDD review agents:$MISSING. Spawn NOW via the Agent tool with subagent_type=\"code-reviewer\" and subagent_type=\"spec-reviewer\" in parallel (per spec-discipline.md). Do NOT end the turn until both are spawned. The bypasses (sentinel file, magic phrase) are USER-ONLY — do NOT create the sentinel or write the phrase yourself; that defeats the entire enforcement layer. Only the user is allowed to choose to skip review."
+  REASON="PR #$CURRENT (head ${CURRENT_PR_HEAD:0:7}) needs SDD review. Spawn missing:$MISSING in parallel via Agent tool. USER bypass only: type 'skip review' or 'touch sdd/.skip-next-review'."
   emit_block "$REASON"
 fi
 
@@ -235,7 +274,7 @@ if [ -n "$SPEC_SPAWN_LINE" ]; then
     if [ -n "$SPEC_DONE_LINE" ]; then
       SINCE_SPEC_DONE=$(echo "$SINCE_SPEC" | tail -n +"$SPEC_DONE_LINE")
       if ! echo "$SINCE_SPEC_DONE" | grep -q '"subagent_type"[[:space:]]*:[[:space:]]*"doc-updater"'; then
-        REASON="spec-reviewer completed but doc-updater has not been spawned. Spawn NOW via the Agent tool with subagent_type=\"doc-updater\" (sequential after spec-reviewer per SDD discipline — they would race on shared filesystem state if parallel). The bypasses (sentinel file, magic phrase) are USER-ONLY — do NOT create the sentinel or write the phrase yourself; that defeats the entire enforcement layer."
+        REASON="spec-reviewer done; doc-updater missing. Spawn doc-updater via Agent tool (sequential — shared filesystem). USER bypass only: type 'skip review' or 'touch sdd/.skip-next-review'."
         emit_block "$REASON"
       fi
       PIPELINE_COMPLETE=1
