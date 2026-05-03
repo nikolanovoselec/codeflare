@@ -193,4 +193,5 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 - [Architecture](architecture.md#container-do) - Container Durable Object
 - [Storage & Sync](storage-and-sync.md) - R2 sync during startup
 - [Configuration](configuration.md#container-environment) - Container environment variables
-- [Memory](memory.md) - Memory persistence and preseed system
+- [Memory](memory.md) - MCP memory server and capture/compact
+- [Preseed System](preseed.md) - Session modes, manifest pipeline, multi-agent adaptation, hooks

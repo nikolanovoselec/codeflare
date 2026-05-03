@@ -45,21 +45,59 @@ function fakeGh(cwd, body) {
   return binDir;
 }
 
+// Exact-match fixtures (not substring): production hook calls
+// `gh pr view <branch> --json state,headRefOid`. Anything else gets
+// exit 99 + stderr noise so future refactors that change the CLI
+// shape surface loudly instead of silently passing.
 function ghReturning(state, headSha) {
-  return `case "$*" in
-  *"pr view"*"--json state,headRefOid"*)
-    echo '{"state":"${state}","headRefOid":"${headSha}"}'
-    exit 0
-    ;;
-  *) exit 0 ;;
-esac`;
+  return `ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid" ]]; then
+  echo '{"state":"${state}","headRefOid":"${headSha}"}'
+  exit 0
+fi
+echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
+exit 99`;
 }
 
 function ghNoPR() {
-  return `case "$*" in
-  *"pr view"*) exit 1 ;;
-  *) exit 0 ;;
-esac`;
+  return `ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid" ]]; then
+  exit 1
+fi
+echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
+exit 99`;
+}
+
+function ghPoison(cwd) {
+  // Poison gh: any invocation fails loudly with exit 99 and stderr.
+  // Use to assert that the cheap @{u} pre-check actually short-
+  // circuited the gh round-trip.
+  const binDir = join(cwd, 'fake-bin');
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(
+    join(binDir, 'gh'),
+    `#!/usr/bin/env bash\necho "POISON_GH_CALLED: $*" >&2\nexit 99\n`,
+  );
+  chmodSync(join(binDir, 'gh'), 0o755);
+  return binDir;
+}
+
+function setupUpstreamTracking(cwd, sha) {
+  // Configure the test repo so `git rev-parse @{u}` resolves to `sha`.
+  // Sets branch.<branch>.remote/merge config and writes the remote-
+  // tracking ref directly. This avoids needing a real second repo.
+  const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd,
+    encoding: 'utf-8',
+  }).stdout.trim();
+  const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+    cwd,
+    encoding: 'utf-8',
+  }).stdout.trim();
+  spawnSync('git', ['config', `branch.${branch}.remote`, 'origin'], { cwd });
+  spawnSync('git', ['config', `branch.${branch}.merge`, `refs/heads/${branch}`], { cwd });
+  mkdirSync(join(cwd, gitCommonDir, 'refs/remotes/origin'), { recursive: true });
+  writeFileSync(join(cwd, gitCommonDir, `refs/remotes/origin/${branch}`), sha + '\n');
 }
 
 function writeTranscript(cwd, lines) {
@@ -164,19 +202,127 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     assert.equal(r.stdout, '');
   });
 
-  it('exits 0 silently when PR HEAD matches LAST_ACK checkpoint', () => {
+  it('exits 0 silently when gh confirms PR HEAD matches LAST_ACK (no @{u})', () => {
+    // No upstream tracking → cheap @{u} pre-check skipped → falls
+    // through to gh → gh returns matching SHA → authoritative-path
+    // exit 0. Pins the gh-path branch of the matched-ack semantics.
     const cwd = makeFixture();
     withSdd(cwd);
     const headSha = 'abc123def456';
     const binDir = fakeGh(cwd, ghReturning('OPEN', headSha));
-    // Pre-seed the checkpoint so the cheap pre-check OR the gh-result check matches
-    const r1 = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf-8' });
-    const ackFile = join(cwd, r1.stdout.trim(), 'sdd-last-ack-pr-head');
-    writeFileSync(ackFile, headSha);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-last-ack-pr-head'), headSha);
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+
+  it('cheap path: @{u} matches LAST_ACK + fresh ack → gh is NOT called', () => {
+    // Pins the optimization actually fires. Poison-gh exits 99 if
+    // invoked; the cheap @{u} short-circuit must take the path
+    // before gh is reached. Requires upstream tracking configured
+    // to satisfy `git rev-parse @{u}`.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const headSha = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    setupUpstreamTracking(cwd, headSha);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-last-ack-pr-head'), headSha);
+    const binDir = ghPoison(cwd);
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.doesNotMatch(r.stderr, /POISON_GH_CALLED/,
+      'cheap @{u} pre-check must short-circuit before any gh invocation');
+  });
+
+  it('cheap path: HEAD ahead of @{u} → falls through to gh (force-push guard)', () => {
+    // Regression for the force-push / git reset --hard fail-open class.
+    // If local HEAD has diverged from @{u} (unpushed commits, or
+    // reset-then-add), the cheap path must NOT short-circuit even
+    // when @{u} happens to match LAST_ACK_PR_HEAD — the upstream
+    // PR HEAD might be different from what @{u} reflects.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const oldSha = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    setupUpstreamTracking(cwd, oldSha);  // @{u} = oldSha
+    // Make a local commit so HEAD diverges from @{u}
+    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'local'], { cwd });
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-last-ack-pr-head'), oldSha);
+    // Real fakeGh — must be called because cheap path should NOT short-circuit
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'realnewsha'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    // gh returned a different SHA → enforcement fires (no agents spawned)
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+});
+
+describe('enforce-review-spawn.sh — 3-strike circuit breaker', () => {
+  it('blocks 3 times then exits silently on the 4th attempt for same PR HEAD', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'newsha'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    // First three runs: block (no agents spawned)
+    for (let i = 1; i <= 3; i++) {
+      const r = runHook(cwd, { transcriptPath: t, binDir });
+      assert.equal(r.status, 0, `run ${i} exit code`);
+      assert.match(r.stdout, /"decision"\s*:\s*"block"/, `run ${i} must block`);
+    }
+    // Fourth run: counter exceeded, hook gives up and exits silently
+    const r4 = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r4.status, 0);
+    assert.equal(r4.stdout, '',
+      '4th attempt for same un-acked PR HEAD must release the user (3-strike breaker)');
+  });
+
+  it('counter resets when PR HEAD advances (different SHA = new attempt window)', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    // First push: block 3x, give up on 4th
+    let binDir = fakeGh(cwd, ghReturning('OPEN', 'firstsha'));
+    for (let i = 0; i < 4; i++) {
+      runHook(cwd, { transcriptPath: t, binDir });
+    }
+    // New PR HEAD: counter resets, blocks again
+    binDir = fakeGh(cwd, ghReturning('OPEN', 'secondsha'));
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'new PR HEAD must reset the strike counter');
+  });
+});
+
+describe('enforce-review-spawn.sh — v4 → v5 migration', () => {
+  it('removes the legacy v4 timestamp checkpoint on first v5 run', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghNoPR());
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const legacyAck = join(cwd, gitCommonDir, 'sdd-last-ack-push');
+    writeFileSync(legacyAck, '1730000000');  // legacy v4 timestamp
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(existsSync(legacyAck), false,
+      'legacy .git/sdd-last-ack-push must be deleted on first v5 run');
   });
 });
 

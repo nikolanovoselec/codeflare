@@ -120,7 +120,11 @@ A REQ may opt out of length warnings with an HTML comment: `<!-- sdd-allow-large
 
 A single AC bullet that runs longer than ~150 words almost always conjoins multiple observable behaviors with semicolons or commas. Each observable behavior should be its own bullet so tests can target it individually.
 
-Detection: any AC bullet exceeding 150 words OR containing 3+ semicolons OR containing the word "and" 5+ times.
+Detection: any AC bullet matching either of:
+- exceeding 150 words, OR
+- containing 3+ semicolons not inside a comma-separated enumeration
+
+Note: a bare "5+ ands" rule false-positives on enumeration patterns ("supports CSV, TSV, JSON, XML, YAML, and Parquet") which describe a single observable behavior across a list. Ignore the conjunction count when the conjunctions appear inside a comma-separated list — focus instead on semicolons (which usually mark separate behaviors) and total bullet length.
 
 Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: split at conjunctions, preserving every clause as a separate bullet under the same AC heading. Never silently drop a clause.
 

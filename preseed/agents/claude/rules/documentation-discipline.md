@@ -86,7 +86,7 @@ A documentation file should describe what the system does in observable terms, n
 
 Detection signals:
 
-- `\bO\([^)]+\)` — any `O(n)`, `O(n log n)`, `O(n^2)`, `O(1)`, etc., in body prose (allowed inside fenced code blocks where it documents an algorithm's actual implementation)
+- `\bO\([^)]+\)` — any `O(n)`, `O(n log n)`, `O(n^2)`, `O(1)`, etc., **in body prose AND inline backticks**. Allowed only in (a) fenced code blocks documenting an algorithm's actual implementation, (b) headings that explicitly title an algorithm or analysis section. Inline backticks (`` `O(n)` ``) are NOT a free pass — wrapping the jargon in backticks doesn't make it a measurable contract; writers will reach for backticks defensively to silence the linter without rewriting, and the rule is supposed to make them rewrite.
 - "logarithmic time", "amortized constant", "polynomial-time", "quadratic", "linear-time" as load-bearing nouns in a sentence describing system behavior
 - Hand-wavy complexity claims ("scales gracefully", "performs well") with no measurable backing
 

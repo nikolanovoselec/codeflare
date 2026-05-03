@@ -80,7 +80,6 @@
   },
   "rules/tdd-discipline.md": {
     "modes": [
-      "default",
       "advanced"
     ]
   },

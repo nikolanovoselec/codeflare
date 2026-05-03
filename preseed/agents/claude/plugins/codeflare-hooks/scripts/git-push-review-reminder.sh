@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Implements REQ-AGENT-007
+# Implements REQ-AGENT-021
 # PostToolUse hook — silently triggers review agents at the PR boundary.
 # ONLY on projects that have opted into SDD by running /sdd init.
 #
@@ -122,7 +124,20 @@ if [ "$TRIGGER" = "git-push" ]; then
       fi
     fi
     if [ "$GH_OK" = "1" ]; then
-      printf '%s\n%s\n' "$CURRENT" "$PR_STATE" > "$PR_CACHE" 2>/dev/null || true
+      # Atomic write: two concurrent hook invocations (rare but possible
+      # in chained-pipeline turns like `git status; git push; git push
+      # --tags`) would otherwise race on the file and a reader between
+      # truncate and write would see a partial 1-line file. mktemp + mv
+      # guarantees readers see either the old contents or the full new
+      # contents, never a torn write.
+      TMP_CACHE=$(mktemp "$PR_CACHE.XXXXXX" 2>/dev/null)
+      if [ -n "$TMP_CACHE" ]; then
+        if printf '%s\n%s\n' "$CURRENT" "$PR_STATE" > "$TMP_CACHE" 2>/dev/null; then
+          mv "$TMP_CACHE" "$PR_CACHE" 2>/dev/null || rm -f "$TMP_CACHE" 2>/dev/null
+        else
+          rm -f "$TMP_CACHE" 2>/dev/null
+        fi
+      fi
     fi
   fi
 

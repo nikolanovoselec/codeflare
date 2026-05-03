@@ -99,10 +99,14 @@ describe('ECC rules in agent-seed', () => {
   // spec-discipline.md is part of the Pro-mode SDD workflow (REQ-AGENT-021).
   // documentation-discipline.md is the doc-updater enforcement layer (sibling
   //   to spec-discipline.md, same Pro-mode SDD workflow).
+  // tdd-discipline.md is the third sibling in the discipline triad — Pro-mode
+  //   only because default-mode users are vibe-coding and didn't opt into
+  //   rigorous TDD enforcement.
   const ADVANCED_ONLY_CODEFLARE_RULES = [
     '.claude/rules/memory.md',
     '.claude/rules/spec-discipline.md',
     '.claude/rules/documentation-discipline.md',
+    '.claude/rules/tdd-discipline.md',
   ];
 
   it('non-memory codeflare rules have default+advanced modes', () => {
@@ -138,6 +142,14 @@ describe('ECC rules in agent-seed', () => {
     );
     expect(docDisciplineRule).toBeDefined();
     expect(docDisciplineRule!.modes).toEqual(['advanced']);
+  });
+
+  it('tdd-discipline rule is advanced-only (Pro-mode SDD workflow)', () => {
+    const tddDisciplineRule = codeflareRules().find(
+      (doc) => doc.key === '.claude/rules/tdd-discipline.md'
+    );
+    expect(tddDisciplineRule).toBeDefined();
+    expect(tddDisciplineRule!.modes).toEqual(['advanced']);
   });
 
   it('total ECC rules count is 19', () => {

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Implements REQ-AGENT-007
+# Implements REQ-AGENT-021
 # Stop hook — enforces SDD review-agent spawning at the PR boundary.
 #
 # Architecture (v5): PR HEAD SHA checkpoint + open-PR gate.
@@ -138,13 +140,23 @@ CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
 [ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD — skip
 
 # ---------------------------------------------------------------------------
-# Cheap pre-check: if last-ack matches the local remote-tracking ref
-# (`@{u}`), no new push has been observed since the last successful
-# review — skip the gh network call entirely. `@{u}` reflects whatever
-# the most recent fetch saw, so this is stale only if someone pushed
-# without us fetching; the next git op (or the Stop hook on the next
-# turn after a fetch) catches that. Saves a 200-500ms gh round-trip on
-# every Stop event during the post-review tail of a session.
+# Cheap pre-check: skip the gh network call if all four conditions hold,
+# falling through to the authoritative gh check otherwise.
+#
+#   1. last-ack matches the local remote-tracking ref (@{u})
+#   2. local HEAD matches @{u} (no local commits ahead — guards against
+#      `git reset --hard` regressing HEAD to an old acked SHA while a
+#      newer un-acked SHA exists upstream that the next push would
+#      promote)
+#   3. ack file mtime is within 5 minutes (bounds the staleness of
+#      @{u}: if the user hasn't fetched recently, @{u} could be stale
+#      and an upstream push from elsewhere would go un-reviewed)
+#   4. @{u} resolves at all
+#
+# Without all four, fall through. The cheap path saves a 200-500ms
+# gh round-trip in the steady-state post-review tail of a session;
+# the constraints above ensure we never short-circuit on a stale
+# signal that hides a real un-acked PR HEAD.
 # ---------------------------------------------------------------------------
 LAST_ACK_PR_HEAD=""
 if [ -f "$ACK_FILE" ]; then
@@ -153,8 +165,14 @@ fi
 
 if [ -n "$LAST_ACK_PR_HEAD" ]; then
   REMOTE_HEAD=$(git rev-parse "@{u}" 2>/dev/null)
-  if [ -n "$REMOTE_HEAD" ] && [ "$REMOTE_HEAD" = "$LAST_ACK_PR_HEAD" ]; then
-    exit 0
+  LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
+  if [ -n "$REMOTE_HEAD" ] \
+     && [ "$REMOTE_HEAD" = "$LAST_ACK_PR_HEAD" ] \
+     && [ "$LOCAL_HEAD" = "$REMOTE_HEAD" ]; then
+    ack_age=$(( $(date +%s) - $(stat -c %Y "$ACK_FILE" 2>/dev/null || stat -f %m "$ACK_FILE" 2>/dev/null || echo 0) ))
+    if [ "$ack_age" -lt 300 ] 2>/dev/null; then
+      exit 0
+    fi
   fi
 fi
 

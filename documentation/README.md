@@ -17,7 +17,8 @@ Technical reference documentation for Codeflare.
 | [Development & Deployment](deployment.md) | Dev setup, file structure, cost analysis | Developers |
 | [Troubleshooting](troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |
 | [Mobile Terminal](mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
-| [Memory & Preseed](memory.md) | Memory capture, session modes, preseed system | Developers |
+| [Memory](memory.md) | MCP memory server, automatic capture, two-phase compaction | Developers |
+| [Preseed System](preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks | Developers |
 | [Token Scopes](token-scopes.md) | GitHub PAT and Cloudflare API token scope guidance | Operators |
 | [Architecture Decisions](decisions/README.md) | 44 ADRs with rationale and trade-offs | Developers |
 | [Penetration Testing](PENTEST.md) | Security scan results | Security |
