@@ -1,5 +1,5 @@
 <!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. All 44 ADRs currently live here as a single file rather than one-file-per-ADR. The combined file is over the implicit 100×44 budget but each individual ADR is under the per-ADR cap. Splitting into 44 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. All 45 ADRs currently live here as a single file rather than one-file-per-ADR. The combined file is over the implicit 100×45 budget but each individual ADR is under the per-ADR cap. Splitting into 45 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
 
 # Architecture Decisions
 
