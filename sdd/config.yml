@@ -63,17 +63,3 @@ req_length:
   warn: 25
   medium: 50
   high: 100
-
-# SDD review-pipeline triggers (introduced 2026-05-03 with PR-boundary shift).
-#
-# protected_branches:    branches whose direct push surfaces the
-#                        warn-direct-push-to-shared.sh non-blocking warning.
-#                        Pushing directly to one of these branches bypasses
-#                        the PR-boundary review pipeline. develop is
-#                        intentionally NOT here — develop pushes get caught
-#                        by the develop→main PR later.
-# warn_on_direct_push:   master toggle for the warning. Set to false to
-#                        silence the directive entirely.
-sdd_review:
-  protected_branches: [main, master]
-  warn_on_direct_push: true

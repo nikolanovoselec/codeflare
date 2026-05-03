@@ -185,7 +185,7 @@ describe('code-reviewer.md PR-aware diff source', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6) git-workflow.md — PR-boundary semantics + recommended workflow
+// 6) git-workflow.md — PR-boundary semantics + branch-protection guidance
 // ---------------------------------------------------------------------------
 describe('git-workflow.md PR-boundary semantics', () => {
   const path = 'preseed/agents/claude/rules/common/git-workflow.md';
@@ -200,53 +200,22 @@ describe('git-workflow.md PR-boundary semantics', () => {
     assert.match(content, /feature.*develop.*main/i, 'should show the recommended workflow');
   });
 
-  it('explains direct-push-to-main warning is non-blocking', () => {
-    const content = read(path);
-    assert.match(content, /direct push.*main|push.*main.*bypass|main.*warn/i);
-  });
-
   it('clarifies direct push to develop is fine (deferred review)', () => {
     const content = read(path);
     assert.match(content, /direct push.*develop|develop.*fine|caught.*develop.main PR/i);
   });
-});
 
-// ---------------------------------------------------------------------------
-// 7) warn-direct-push-to-shared.sh — new soft-warning hook
-// ---------------------------------------------------------------------------
-describe('warn-direct-push-to-shared.sh (new hook)', () => {
-  const path = 'preseed/agents/claude/plugins/codeflare-hooks/scripts/warn-direct-push-to-shared.sh';
-
-  it('exists in the preseed', () => {
-    assert.ok(exists(path), `expected ${path} to exist`);
+  it('surfaces branch protection on main when setting up CI', () => {
+    const content = read(path);
+    assert.match(content, /branch protection/i,
+      'should explain GitHub branch protection on main');
+    assert.match(content, /proactively|surface|don.t wait/i,
+      'should instruct the agent to surface this proactively, not passively');
   });
 
-  it('reads protected_branches from sdd/config.yml', () => {
+  it('provides a concrete gh api command for branch protection', () => {
     const content = read(path);
-    assert.match(content, /protected_branches/);
-    assert.match(content, /config\.yml/);
-  });
-
-  it('checks for open PR via gh pr view before warning', () => {
-    const content = read(path);
-    assert.match(content, /gh pr view/);
-  });
-
-  it('emits a non-blocking informational directive (no decision:block)', () => {
-    const content = read(path);
-    assert.doesNotMatch(content, /decision.*block/i,
-      'should not emit a blocking decision');
-    assert.match(content, /additionalContext/);
-  });
-
-  it('is fail-safe (any error → exit 0)', () => {
-    const content = read(path);
-    assert.match(content, /set\s+\+e|exit 0/);
-  });
-
-  it('respects warn_on_direct_push opt-out', () => {
-    const content = read(path);
-    assert.match(content, /warn_on_direct_push/);
+    assert.match(content, /gh api.*branches\/main\/protection/);
   });
 });
 
@@ -274,6 +243,29 @@ describe('git-push-review-reminder.sh PR-aware detection', () => {
   it('still has the cheap raw-input pre-filter for non-push Bash calls', () => {
     const content = read(path);
     assert.match(content, /git push.*\)|gh pr create.*\)/, 'pre-filter on raw input');
+  });
+
+  it('emits an informational directive on direct push to main/master with no open PR', () => {
+    const content = read(path);
+    assert.match(content, /informational/i,
+      'should label the no-PR-on-main case as informational, not silent');
+    assert.match(content, /main\|master/,
+      'should hardcode the main/master case (no over-engineered config)');
+    assert.match(content, /Ask the user|do NOT auto-spawn/,
+      'directive must require asking, not auto-spawning');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b) git-workflow.md — direct-push-to-main agent behavior guidance
+// ---------------------------------------------------------------------------
+describe('git-workflow.md direct-push-to-main without branch protection', () => {
+  const path = 'preseed/agents/claude/rules/common/git-workflow.md';
+
+  it('documents the agent asks (not auto-spawns) on direct push to main', () => {
+    const content = read(path);
+    assert.match(content, /ask the user|one short question/i);
+    assert.match(content, /not auto.spawn|Do \*\*not\*\* auto-spawn/i);
   });
 });
 
@@ -317,17 +309,18 @@ describe('enforce-review-spawn.sh v5 PR HEAD SHA checkpoint', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 10) entrypoint.sh — registers warn-direct-push-to-shared
+// 10) entrypoint.sh — hook registration
 // ---------------------------------------------------------------------------
 describe('entrypoint.sh hook registration', () => {
   const path = 'entrypoint.sh';
 
-  it('registers warn-direct-push-to-shared.sh in PostToolUse', () => {
+  it('does NOT register the deleted warn-direct-push-to-shared.sh', () => {
     const content = read(path);
-    assert.match(content, /warn-direct-push-to-shared\.sh/);
+    assert.doesNotMatch(content, /warn-direct-push-to-shared\.sh/,
+      'hook script was deleted; entrypoint must not register it');
   });
 
-  it('still registers all existing hooks', () => {
+  it('still registers all retained hooks', () => {
     const content = read(path);
     assert.match(content, /block-attributed-commits\.sh/);
     assert.match(content, /git-push-review-reminder\.sh/);
@@ -342,25 +335,17 @@ describe('entrypoint.sh hook registration', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 11) sdd/config.yml — protected_branches + warn_on_direct_push schema
+// 11) sdd/config.yml — sdd_review section was removed (over-engineered)
 // ---------------------------------------------------------------------------
 describe('sdd/config.yml schema', () => {
   const path = 'sdd/config.yml';
 
-  it('declares sdd_review section', () => {
+  it('does NOT contain the removed sdd_review section', () => {
     const content = read(path);
-    assert.match(content, /sdd_review:/);
-  });
-
-  it('defaults protected_branches to [main, master]', () => {
-    const content = read(path);
-    assert.match(content, /protected_branches:/);
-    assert.match(content, /main/);
-  });
-
-  it('defaults warn_on_direct_push to true', () => {
-    const content = read(path);
-    assert.match(content, /warn_on_direct_push:\s*true/);
+    assert.doesNotMatch(content, /sdd_review:/,
+      'sdd_review was over-engineered and removed; branch protection is the enforcement');
+    assert.doesNotMatch(content, /protected_branches:/);
+    assert.doesNotMatch(content, /warn_on_direct_push:/);
   });
 });
 
@@ -372,7 +357,6 @@ describe('sdd/agents.md REQ updates', () => {
 
   it('REQ-AGENT-021 AC#4 uses PR-boundary semantics', () => {
     const content = read(path);
-    // Find the REQ-AGENT-021 block
     const reqStart = content.indexOf('## REQ-AGENT-021:');
     const reqEnd = content.indexOf('---', reqStart);
     const reqBlock = content.slice(reqStart, reqEnd);
@@ -382,9 +366,15 @@ describe('sdd/agents.md REQ updates', () => {
       'AC#4 should reference PR-boundary trigger');
   });
 
-  it('mentions warn-direct-push-to-shared hook', () => {
+  it('REQ-AGENT-021 AC#4 references branch protection (not the deleted hook)', () => {
     const content = read(path);
-    assert.match(content, /warn-direct-push-to-shared|protected_branches/);
+    const reqStart = content.indexOf('## REQ-AGENT-021:');
+    const reqEnd = content.indexOf('---', reqStart);
+    const reqBlock = content.slice(reqStart, reqEnd);
+    assert.match(reqBlock, /branch protection/i,
+      'AC#4 should defer direct-push-to-main bypass to GitHub branch protection');
+    assert.doesNotMatch(reqBlock, /warn-direct-push-to-shared/,
+      'AC#4 must not reference the deleted hook');
   });
 });
 

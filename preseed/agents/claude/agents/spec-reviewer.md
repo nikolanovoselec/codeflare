@@ -22,7 +22,7 @@ Triggered at PR-boundary events (via the git-workflow rule), but **only when `sd
 - A new pull request opens for the current branch (`gh pr create` runs in this session)
 - A new push lands on a branch that already has an open PR (the PR HEAD SHA advances)
 
-A plain push to a branch with no open PR does NOT trigger you — that case is deferred until the PR opens. Direct pushes to a protected branch (default `main`) surface a non-blocking warning via `warn-direct-push-to-shared.sh` instead of running you. If no `sdd/` folder, exit silently. Do not modify any files. Do not write reports.
+A plain push to a branch with no open PR does NOT trigger you — that case is deferred until the PR opens. Direct pushes to `main` are expected to be prevented by GitHub branch protection (require PR before merge); the spec does not engineer a hook-level workaround for that bypass. If no `sdd/` folder, exit silently. Do not modify any files. Do not write reports.
 
 ## Lane discipline
 

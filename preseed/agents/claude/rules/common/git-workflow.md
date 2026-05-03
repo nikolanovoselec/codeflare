@@ -31,8 +31,8 @@ Note: Attribution disabled globally via ~/.claude/settings.json.
 | `gh pr create` (PR open) | code-reviewer + spec-reviewer + doc-updater (full pipeline) |
 | `git push` to a branch with an open PR | full pipeline (PR-sync) |
 | `git push` to a branch with no open PR | nothing (deferred until PR opens) |
-| `git push` to a protected branch (default `main`) directly | non-blocking warning via `warn-direct-push-to-shared.sh`; no review pipeline |
 | `git push` to `develop` directly | nothing (caught by the develop→main PR later) |
+| `git push` to `main`/`master` with no PR (branch protection off) | informational directive: agent asks user once whether to spawn the three review agents on the pushed diff |
 
 The cost model shifts from per-push (every commit pair burned a full
 review) to per-PR (one review at PR open + one per push while the PR
@@ -47,15 +47,10 @@ feature ──► PR ──► develop ──► PR ──► main
                       at PR open        at PR open
 ```
 
-Direct push to `main` is the only true bypass of the review pipeline.
-The `warn-direct-push-to-shared.sh` hook surfaces a non-blocking
-informational reminder when it happens — the push still succeeds.
-Direct push to `develop` is fine, because the develop→main PR will
-trigger reviews on the cumulative diff.
-
-`sdd_review.protected_branches` in `sdd/config.yml` (default `[main, master]`)
-controls which branches surface the warning. `sdd_review.warn_on_direct_push`
-(default `true`) toggles the warning on/off.
+Direct push to `develop` is fine — the develop→main PR catches the
+cumulative diff. Direct push to `main` should be prevented at the
+GitHub layer (see "Branch protection on main" below) rather than
+worked around in-session.
 
 The `git-push-review-reminder.sh` PostToolUse hook enforces this:
 checks for `sdd/` + `sdd/README.md`, classifies the trigger
@@ -68,6 +63,70 @@ To manually invoke code-reviewer or doc-updater on a non-SDD project
 (e.g., to audit code quality or maintain a `documentation/` folder by
 hand), use the Task tool directly with the agent name. The automatic
 PR-boundary workflow is the only thing that's gated.
+
+### Branch protection on main (proactive surfacing during CI setup)
+
+When you (the agent) are helping the user set up CI for a new
+repository — adding `.github/workflows/`, configuring required
+checks, drafting a release process, or auditing an existing repo's
+CI — **proactively surface the branch-protection conversation**.
+Don't wait for the user to ask. The protection is the **actual
+enforcement** that makes the PR-boundary trigger model complete;
+without it, direct pushes to `main` silently bypass both the review
+pipeline and the GitHub Actions checks that gate merges.
+
+Surface it as a one-paragraph explanation followed by a concrete
+proposal. Example phrasing the agent should use:
+
+> "Before this CI is meaningful, `main` needs branch protection
+> turned on. Right now anyone with push access can land code on
+> `main` without a PR — which means CI never runs on the change and
+> the SDD review pipeline never sees it. Want me to enable branch
+> protection on `main` (require PR before merge, require these CI
+> checks to pass, require branch up-to-date before merge)?"
+
+If the user says yes, configure it via `gh api`:
+
+```bash
+gh api -X PUT "repos/{owner}/{repo}/branches/main/protection" \
+  --input branch-protection.json
+```
+
+Recommended `branch-protection.json` settings (adjust the
+`required_status_checks.contexts` array to match the actual workflow
+job names from `.github/workflows/`):
+
+- **Require a pull request before merging** — `required_pull_request_reviews`: enabled, `required_approving_review_count: 0` (the SDD review pipeline does the substantive review; this just enforces the PR gate)
+- **Require status checks to pass before merging** — list each required CI workflow's job name in `contexts`
+- **Require branches to be up to date before merging** — `strict: true` (forces rebase-on-main before merge so CI reflects the merged state, not the pre-merge state)
+- **Enforce for administrators** — `enforce_admins: true` (otherwise you'll quietly bypass it yourself when convenient)
+- **Restrict pushes that create files** — optional, project-specific
+
+The PR-boundary trigger model assumes branch protection is in
+place. If the user declines, document it as a project-level
+workflow decision (ADR or `documentation/decisions/`) so future
+contributors know the protection is intentionally off, not just
+forgotten.
+
+### When the user pushes directly to main without branch protection
+
+If branch protection is off (the user's choice) and a `git push`
+lands directly on `main`/`master`, the PR-boundary trigger model
+will not fire reviews — there's no PR boundary to detect. The
+`git-push-review-reminder.sh` PostToolUse hook surfaces an
+informational directive in this case asking the agent to offer
+manual verification.
+
+**Agent behavior on receiving that directive**: ask the user one
+short question — "No PR boundary fired on that push. Want me to
+spawn code-reviewer + spec-reviewer + doc-updater on the pushed
+diff?" — and act on the answer. Do **not** auto-spawn. The user
+chose the no-protection workflow; respect that the manual
+verification is opt-in per push, not implicit.
+
+If the user says yes, spawn code-reviewer + spec-reviewer in
+parallel, then doc-updater after spec-reviewer completes (the
+same sequential discipline as the auto-fire path).
 
 ### Execution order when SDD is bootstrapped — partial parallelism
 
@@ -105,23 +164,6 @@ separation" section) makes this explicit.
    a corresponding doc update. Generates cross-references from docs to
    REQ IDs. Never runs on non-SDD projects — manual invocation only.
 
-### When the user pushes directly to a protected branch
-
-The `warn-direct-push-to-shared.sh` PostToolUse hook fires when
-`git push` runs on a branch in `sdd_review.protected_branches`
-(default `main`, `master`). It emits a non-blocking informational
-directive — the push still succeeds. The user can:
-
-1. Treat it as a reminder and continue (reviews will fire on the
-   next PR that touches the branch)
-2. Manually spawn the three review agents themselves if the direct
-   push needs immediate review
-3. Silence the warning permanently by setting
-   `sdd_review.warn_on_direct_push: false` in `sdd/config.yml`
-
-The hook does NOT surface for direct pushes to `develop`, because
-the recommended flow is feature → PR → develop → PR → main and the
-develop→main PR will catch the cumulative diff.
 
 ## Post-Push: CI Monitoring
 

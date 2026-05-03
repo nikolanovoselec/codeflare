@@ -114,10 +114,29 @@ if [ "$TRIGGER" = "git-push" ]; then
     fi
   fi
 
-  # Deferred: no open PR on this branch → review will fire when PR opens
+  # Deferred: no open PR on this branch → review will fire when PR opens.
+  # Special-case: direct push to main/master with no PR. When GitHub branch
+  # protection is enabled (recommended), the push never lands here — it's
+  # rejected at the upstream layer. When branch protection is off (user's
+  # choice), the push succeeds but no PR boundary will ever fire reviews.
+  # In that case, surface manual-verification option to the agent so it
+  # can offer it to the user. Hardcoded list (main, master) — no config
+  # to over-engineer.
   case "$PR_STATE" in
-    OPEN) ;;       # PR-SYNC trigger — fall through
-    *) exit 0 ;;   # deferred
+    OPEN) ;;       # PR-SYNC trigger — fall through to full directive emission
+    *)
+      case "$CURRENT" in
+        main|master)
+          DIRECTIVE="[informational] Direct push to '$CURRENT' detected with no open PR."
+          DIRECTIVE="$DIRECTIVE The SDD review pipeline did not auto-fire (PR-boundary triggers require a PR)."
+          DIRECTIVE="$DIRECTIVE If GitHub branch protection on '$CURRENT' is intentionally off, this is the user's workflow choice — but the pushed diff has not been reviewed."
+          DIRECTIVE="$DIRECTIVE Ask the user (one short question, do NOT auto-spawn): 'No PR boundary fired on that push. Want me to spawn code-reviewer + spec-reviewer + doc-updater on the pushed diff?'"
+          DIRECTIVE="$DIRECTIVE If yes, spawn code-reviewer + spec-reviewer in parallel, then doc-updater after spec-reviewer completes (sequential discipline). If no, drop it — the user has agency."
+          jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}' 2>/dev/null
+          ;;
+      esac
+      exit 0   # feature-branch push without PR → deferred (no directive)
+      ;;
   esac
 fi
 
