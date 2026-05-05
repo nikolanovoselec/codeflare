@@ -215,6 +215,14 @@ CVE-2026-4878
 # No fix available in Debian bookworm.
 CVE-2026-33845
 
+# libgnutls30 3.7.9-2+deb12u6: GnuTLS DoS via heap buffer overflow.
+# Same package and exposure profile as CVE-2026-33845: GnuTLS is linked
+# by CLI tools (curl, wget) for outbound HTTPS only — no DTLS/UDP TLS
+# service is exposed and the vulnerable code path requires server-side
+# TLS handling that the container never performs.
+# No fix available in Debian bookworm.
+CVE-2026-33846
+
 # openssh-client 1:9.2p1-2+deb12u9: arbitrary command execution via shell
 # metacharacters in username. Codeflare uses git-over-HTTPS exclusively
 # (rules/cloudflare-environment.md: "Git over HTTPS only, no SSH keys"),
