@@ -624,7 +624,7 @@ A new persistent file `sdd/.review-decisions.md` is committed to the repo and ap
 
 **Related requirements:**
 
-- None directly. `/review` is a developer-facing meta-command, not a product REQ. The Reality Filter is a workflow improvement on the command itself.
+- REQ-AGENT-015 (`/review` command for multi-perspective codebase review) - AC1 and AC5 updated to reflect the Reality Filter pass and persistent `.review-decisions.md`.
 
 **Implementation references:**
 

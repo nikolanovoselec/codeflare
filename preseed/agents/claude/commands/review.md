@@ -254,7 +254,11 @@ the questions, surface all N.
 
 ## Inputs to read
 
-1. Active findings: [REVIEW_DIR]/08-active-findings.md
+1. Active findings: [REVIEW_DIR]/08-active-findings.md - read the `## Active Findings`
+   section ONLY. Ignore the `## AD-Guarded Findings (removed from active list)`
+   section above it: those findings are settled by ADR and must not re-enter the
+   pipeline. Pulling them back in would re-surface findings the user already
+   resolved via an architecture decision.
 2. Persistent triage history: [PROJECT_ROOT]/sdd/.review-decisions.md
    - If the file does not exist, treat as empty (first run). Q1 will produce no drops on first run.
    - This file is the primary source of triage history. It is committed to git, so prior decisions follow the repo, not the developer's machine.
@@ -302,7 +306,13 @@ Group surviving (post-Q1, post-Q2) findings by category. If a category has 3 or 
 findings, AND none of them have a Q1 match in sdd/.review-decisions.md (i.e. this is
 the first cycle this rule is producing violations):
   -> COLLAPSE the group into ONE cluster finding listing all locations.
-  -> Cluster finding gets a new canonical ID like CF-NNN-cluster.
+  -> Cluster finding ID: take the lowest CF-ID in the absorbed group and append
+     "-cluster" (e.g., absorbing CF-005, CF-018, CF-031 -> CF-005-cluster). If
+     that combined ID would collide with another cluster created in this same
+     run, use the next-lowest absorbed CF-ID instead. Cluster IDs are within-run
+     identifiers only - they are NOT stored in sdd/.review-decisions.md (Phase 8
+     expands clusters to per-location entries keyed by (file:line, category)),
+     so cross-cycle stability is not required.
   -> Severity = max severity in the group.
   -> Description: "<rule short name>: <count> instances. <one-line shared description>"
   -> Suggestion: "Sweep PR. Or AD-justify the pattern."
@@ -378,7 +388,7 @@ Format:
 
 # Real Findings (Reality-Filtered)
 **Source:** [REVIEW_DIR]
-**Cycle:** N (read the cycle counter from sdd/.review-decisions.md if it exists; if missing, this is cycle 1)
+**Cycle:** N+1 (read `Last cycle: N` from sdd/.review-decisions.md if it exists - this run is cycle N+1; if file is missing, this is cycle 1)
 **Active findings (Phase 4 input):** X
 **Real findings (after Q1-Q5):** Y
 **Tech-Debt surfaced:** W
@@ -463,12 +473,18 @@ via the `files` parameter. Do NOT call consult_llm once per finding.
 
 1. Read [REVIEW_DIR]/09-real-findings.md - extract ALL HIGH and CRITICAL findings
    from the "## Real Findings" section (NOT Tech-Debt-Surfaced; those are deliberately
-   demoted). If the extracted set is empty (zero HIGH/CRITICAL findings), write
-   "Phase 6 skipped - no HIGH/CRITICAL findings to verify" to
-   [REVIEW_DIR]/10-llm-verified.md and EXIT.
-   Do NOT call consult_llm. The Phase 5 orchestrator gate already short-circuits the
-   total-zero case, but a Reality-Filtered list of MEDIUM+Tech-Debt only would still
-   reach this phase and would otherwise burn 2 LLM calls on an empty list.
+   demoted). If the extracted set is empty (zero HIGH/CRITICAL findings):
+     a. Copy [REVIEW_DIR]/09-real-findings.md verbatim to [REVIEW_DIR]/10-llm-verified.md
+        so MEDIUM Real Findings and Tech-Debt-Surfaced sections survive into Phase 7.
+     b. Append a "## LLM Verification" section at the end with the line:
+        "Skipped - no HIGH/CRITICAL findings to verify."
+     c. EXIT. Do NOT call consult_llm.
+   The Phase 5 orchestrator gate already short-circuits the total-zero case, but a
+   Reality-Filtered list of MEDIUM+Tech-Debt only would still reach this phase and
+   would otherwise burn 2 LLM calls on an empty list. The verbatim copy preserves the
+   Phase 7 single-input contract: Phase 7 reads 10-llm-verified.md unconditionally
+   when Phase 6 ran, and finds the same Real Findings + Tech-Debt-Surfaced sections
+   it expects.
 
 2. Build the unique source-file set:
    - Walk every finding's `location` field, collect distinct file paths
@@ -757,9 +773,12 @@ Future Q1 lookups read the most recent matching entry.
 
 ## Step 3: Update the cycle counter
 
-Update the file's "Last cycle: N" line near the top of the file to reflect the
-current cycle number and date. This is the source for the cycle number used in
-09-real-findings.md and 10-llm-verified.md headers.
+Update the file's "Last cycle: N" line near the top of the file to the cycle
+number used in this run's 09-real-findings.md (and 10-llm-verified.md if Phase 6
+ran) header - i.e. one greater than the value the file showed before this run.
+Append the run date as "Last cycle: M (YYYY-MM-DD)". The next `/review` invocation
+will read this M, treat its run as M+1, and the cycle counter advances
+monotonically across cycles.
 ```
 
 ## Phase 9: Update Architecture Decisions + Create Tech Debt Issues (Task agent)

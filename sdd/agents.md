@@ -416,11 +416,11 @@ Multi-agent support, preseed system, and session modes.
 **Intent:** Comprehensive code review using specialized AI agents catches issues a single reviewer would miss.
 
 **Acceptance Criteria:**
-1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation).
+1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation), followed by a sequential Reality Filter pass that re-evaluates findings against repeat-offender, memory, cluster-aggregation, user-impact, and spec-vs-shipped questions.
 2. Results cross-referenced and deduplicated.
 3. Findings filtered against architecture decisions.
 4. Optional LLM verification of HIGH/CRITICAL findings.
-5. Interactive triage with fix/AD/defer/ignore options.
+5. Interactive triage with fix/AD/defer/ignore options. Defer/Ignore/Tech-Debt decisions persist to `sdd/.review-decisions.md` so subsequent runs do not re-surface the same noise.
 
 **Applies To:** User
 
