@@ -4,6 +4,7 @@ import type { TerminalConnectionState } from '../types';
 import { getTerminalWebSocketUrl } from '../api/client';
 import type { Terminal } from '@xterm/xterm';
 import { logger } from '../lib/logger';
+import { recordFrame, recordFlush } from '../lib/ws-debug';
 import {
   WS_RETRY_DELAY_MS,
   WS_RETRYABLE_CLOSE_CODES,
@@ -122,6 +123,8 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   const beforeDistFromBottom = beforeBaseY - beforeY;
   const data = buffer.join('');
   buffer.length = 0;
+
+  recordFlush(key, data.length);
 
   // Fix 19: Bottom-following correction moved to onScroll handler (useTerminal.ts)
   // where it runs synchronously BEFORE render, eliminating one-frame jitter.
@@ -355,6 +358,8 @@ function connect(
         logger.warn('Unknown message type:', typeof event.data);
         return;
       }
+
+      recordFrame(key, messageData.length);
 
       // Check for JSON control messages from server (restore, process-name)
       // Server control messages always start with {"type": — raw PTY output never does
