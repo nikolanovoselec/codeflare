@@ -1,9 +1,9 @@
 <!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 45 ADR slots exist (AD1-AD45); 6 slots are merge-redirect stubs (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18) that preserve inbound AD-N references after their content was consolidated into a sibling ADR on 2026-05-03. 39 ADRs carry active content. The combined file is over the implicit 100×45 budget but each individual active ADR is under the per-ADR cap. Splitting into 45 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 46 ADR slots exist (AD1-AD46); 6 slots are merge-redirect stubs (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18) that preserve inbound AD-N references after their content was consolidated into a sibling ADR on 2026-05-03. 40 ADRs carry active content. The combined file is over the implicit 100×46 budget but each individual active ADR is under the per-ADR cap. Splitting into 46 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD45 throughout the codebase and documentation.
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD46 throughout the codebase and documentation.
 
 **Audience:** Developers
 
@@ -58,6 +58,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Parse-and-exclude vanishing files before escalating to nuke | Storage |
 | [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | SDD three-mode autonomy with conservative JUDGMENT resolution | Architecture |
 | [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | User overrides recorded as ADRs, not skip-list | Architecture |
+| [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
 
 ---
 
@@ -570,6 +571,69 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 - `preseed/agents/claude/skills/spec-driven-development/SKILL.md` (spec structure diagram)
 
 **Issue:** [codeflare#266](https://github.com/nikolanovoselec/codeflare/issues/266)
+
+---
+
+### AD46: `/review` Reality Filter as Phase 5
+
+**Status:** Accepted (2026-05-05)
+
+**Context:** Empirical data from 5 successive `/review` cycles on the `ai-news-digest` codebase showed that finding count does not decrease as the codebase improves: cycle 4 fixed 67 real issues; cycle 5 still produced 71 active findings of which only 10 were real. Repeat-offender churn (`processOneChunk too long` flagged 3 cycles, `Date.now() lacks Clock seam` flagged 4 cycles), aspirational-rule clusters (15 `?raw` text-match files persisting after the rule was added), and severity inflation (HIGH used as the agent's internal scale, not user-impact) accounted for ~85% of cycle 5's noise. Triage cost was ~45 minutes for findings that should have taken 5 minutes. The pipeline's only memory was Phase 4's AD filter, which only catches findings that have an explicit ADR justifying the exact pattern - too narrow to absorb the long tail of "decided not to fix" calls.
+
+**Decision:** Insert a new Phase 5 (Reality Filter) between Phase 4 (AD filtering) and the LLM verification + interactive triage phases. Phase 5 is a single Task agent that reads the AD-active findings, prior triage history (`sdd/.review-decisions.md`), full ADR bodies, MCP memory, recent git log, and `sdd/changes.md`, and re-evaluates every finding against five questions:
+
+- **Q1** repeat-offender drop (location+category match in `.review-decisions` with no commits since)
+- **Q2** memory-says-no drop (contradicts an MCP feedback memory)
+- **Q3** cluster aggregation (≥3 same-category findings collapse into ONE cluster finding triaged once)
+- **Q4** user-impact bar (re-evaluate severity against data-loss / money / access / security / CI-break - below-bar findings demote to a "Tech-Debt Surfaced" section, still triaged)
+- **Q5** spec-vs-shipped truth-test (doc-drift findings must be verified by reading cited source)
+
+Phase 5 produces a single output file `09-real-findings.md` with three sections: Real Findings, Tech-Debt Surfaced, and an Auto-Filtered audit log. The audit log is mandatory - every drop has a one-line reason keyed by which question dropped it. The orchestrator early-stops if Real + Tech-Debt totals are zero.
+
+A new persistent file `sdd/.review-decisions.md` is committed to the repo and append-written by Phase 8 with every Defer/Ignore/Tech-Debt decision. Cluster-finding triage decisions expand to one entry per location at write time so Q1's per-location lookup remains a literal-string match in cycle N+1. The file is the **primary** source of triage history; the local-only `/home/user/Temporary/Review/` corpus is no longer load-bearing.
+
+**Alternatives considered:**
+
+1. **Inject memory into the 6 Phase 2 reviewers.** Rejected as the v1 approach: bigger blast radius (modifies 6 agent prompts), harder to measure, doesn't address repeat-offender churn or aspirational-rule clusters. Phase 5 is the incremental win; memory injection is a possible follow-up if Phase 5 doesn't shrink output enough.
+2. **Extend Phase 4 AD filter to also drop findings whose REQ-X-NNN backlinks have a recent triage decision.** Rejected: AD filter's job is categorical ("this pattern is intentional"), not per-finding instance triage. Conflating the two muddies both filters and makes future debugging harder.
+3. **Tighten the 6 reviewer agents' severity rubrics so they produce fewer findings.** Rejected: agents have an implicit incentive to produce findings (zero findings reads as "didn't try"). Tightening the rubric is a reasonable follow-up but doesn't solve the stateful-memory problem - cycle N still has no memory of cycle N-1's decisions. Phase 5 solves both.
+4. **Write triage decisions into the existing `sdd/.review-needed.md`.** Rejected: `.review-needed.md` is for findings escalated for human review (cleared on resolution) - mixing it with permanent triage history blurs the file's purpose and breaks the "cleared on resolution" semantics.
+5. **Promote durable `.review-decisions` patterns to ADRs automatically after N cycles.** Rejected: turns ADRs into "anything I deferred 3 times" instead of intentional design choices. User manually promotes when a pattern proves durable; the manual step preserves the architectural-decision concept.
+
+**Rationale:**
+
+- The proposal is empirically grounded: a hand-run of the Phase 5 prompt on cycle-5 data filtered 71 active findings to 10 real findings (14% pass rate) - the 4 source-bug fixes that actually mattered all survived. The fixture is publicly available at `https://gist.github.com/nikolanovoselec/060f6d3cbebe889864360835ee375a41` for regression testing.
+- ADR vs `.review-decisions` is a clean lane separation: ADRs document permanent design choices (categorical, by rule, via `Overrides:` headers); `.review-decisions` records per-cycle, per-finding triage history (instance-level, by location+category). The two are complementary, not alternatives. Combining both as filter inputs is what makes 71 → 10 achievable.
+- Single-file output (`09-real-findings.md` with three sections) keeps the cycle self-contained for debugging. The audit log lives next to the surviving findings so spot-checking a drop is one read, not two.
+- Phase 5 is a single Task agent, mirroring the existing single-agent shape of Phases 3, 4, 6, 8, 9. No new architectural pattern.
+- MCP knowledge graph is the primary memory system; `code-reviewer`'s tool allowlist is extended with `mcp__memory__search_nodes` and `mcp__memory__open_nodes` so the Reality Filter agent can query it directly. File-based `~/.claude/projects/.../memory/MEMORY.md` is a fallback when MCP is unreachable.
+- Q3's cluster-aggregation threshold of 3 is the smallest "this is a pattern, not individual issues" count. Below 3 the user fixes the violations one by one; at 3+ the user wants a sweep PR. This replaces an earlier proposal of a magic ≥5 threshold with binary drop-to-appendix - the magic number was unjustified and the appendix had no sunset, so aspirational rules would stay quarantined forever.
+
+**Trade-offs accepted:**
+
+- Phase 5 adds one Task agent per `/review` invocation. On the cycle-5 fixture the agent ran in ~7 minutes and consumed ~150K tokens with ~47 file reads. Treated as "a 7th reviewer that synthesizes the other 6," the per-cycle cost increase is ~17%; the saving on triage time is ~40 minutes per cycle. Net positive after the first cycle.
+- File renames are not tracked (literal path matching in Q1). Renames are rare; if one happens, the prior decision will not match and the finding gets surfaced fresh. The audit log makes this visible and the user can re-defer if appropriate. `git log --follow` was considered and rejected as overengineering for a rare event.
+- The 3-cycle expectation (active CRITICAL/HIGH/MEDIUM trends to zero by the third successive run) is informational only - shown in the Phase 5 Cycle Health header. It is not a hard gate; cycle 3 with non-zero CRITICAL/HIGH/MEDIUM still completes normally. The user uses the metric to decide whether the filter needs re-tuning or new code is genuinely introducing real bugs faster than they get fixed.
+- Phase numbering shifts: old phases 5-9 become 6-10. File numbering shifts: old `08-active-findings.md` stays as Phase 4's output, new `09-real-findings.md` is Phase 5, LLM-verified is `10-llm-verified.md`, triage is `11-triage-results.md`. One-time documentation churn; the new numbering is monotonic and each phase produces exactly one output number.
+
+**Migration:**
+
+- Existing projects with prior `/review` runs do not auto-migrate the local `/home/user/Temporary/Review/2026*/09-triage-results.md` corpus into `sdd/.review-decisions.md`. First run in the new pipeline starts the persistent log fresh; cycle 1 will produce no Q1 drops. The user can backfill manually if desired by hand-converting the most relevant prior decisions.
+- The Reality Filter agent uses the `code-reviewer` subagent type with extended MCP memory tools. No new agent type is introduced.
+- `/review` Phase 5 is mandatory; the orchestrator-level "Active = 0 → STOP" gate moves from Phase 4's tail to Phase 5's tail (so the cycle counter and audit log are always written, even on clean cycles).
+
+**Related requirements:**
+
+- None directly. `/review` is a developer-facing meta-command, not a product REQ. The Reality Filter is a workflow improvement on the command itself.
+
+**Implementation references:**
+
+- `preseed/agents/claude/commands/review.md` (Phase 5 Reality Filter)
+- `preseed/agents/claude/agents/code-reviewer.md` (MCP memory tools added to allowlist)
+- `preseed/agents/claude/rules/spec-discipline.md` (`sdd/.review-decisions.md` added to "Files alongside sdd/")
+- `preseed/agents/claude/skills/spec-driven-development/SKILL.md` (spec structure diagram)
+
+**Issue:** [codeflare#271](https://github.com/nikolanovoselec/codeflare/issues/271)
 
 ---
 

@@ -1,26 +1,31 @@
 # Comprehensive Multi-Perspective Codebase Review
 
-Run a full codebase review from 6 specialized perspectives using parallel agents, cross-reference findings, filter against architecture decisions, optionally verify with external LLMs, then triage interactively with the user.
+Run a full codebase review from 6 specialized perspectives using parallel agents, cross-reference findings, filter against architecture decisions and prior triage history, optionally verify with external LLMs, then triage interactively with the user.
 
-**Review mode:** static analysis only — no runtime, build, or test validation performed.
+**Review mode:** static analysis only - no runtime, build, or test validation performed.
 
 ## Context Preservation
 
-**CRITICAL:** The main session agent is primarily an orchestrator. All source-code analysis and all reading of files `01-07` and `documentation/decisions/README.md` MUST be delegated to Task agents.
+**CRITICAL:** The main session agent is primarily an orchestrator. All source-code analysis and all reading of files `01-11` and `documentation/decisions/README.md` MUST be delegated to Task agents.
 
 The main agent may read only:
-- After Phase 4: summary via `head -n 20` (Bash tool)
-- After Phase 5: summary via `head -n 20` (Bash tool)
-- Phase 6: the `## Active Findings` section of `08-active-findings.md` for triage
-- Phase 9: the `## Fix` section of `09-triage-results.md` to enter plan mode
+- After Phase 4: summary via `head -n 20` (Bash tool) on `08-active-findings.md`
+- After Phase 5: summary via `head -n 30` (Bash tool) on `09-real-findings.md`
+- After Phase 6: summary via `head -n 30` (Bash tool) on `10-llm-verified.md`
+- Phase 7: the `## Real Findings` and `## Tech-Debt Surfaced` sections of `09-real-findings.md` (or `10-llm-verified.md` if Phase 6 ran) for triage
+- Phase 10: the `## Fix` section of `11-triage-results.md` to enter plan mode
 
 The main agent must never read source files, `01-07`, or `documentation/decisions/README.md` directly.
 
 ## Arguments
 
 $ARGUMENTS can include:
-- `--verify-high` — after AD filtering, send HIGH and CRITICAL findings to external code LLMs for verification and fix proposals
+- `--verify-high` - after Reality Filter, send HIGH and CRITICAL findings to external code LLMs for verification and fix proposals
 - Any other text is passed as additional context/scope to all review agents (e.g., "focus on src/routes/" or "review the auth system")
+
+## A note on cycle counts
+
+`/review` is calibrated so that, on a stable codebase, the count of active CRITICAL/HIGH/MEDIUM findings drops materially each cycle and is typically near-zero by the third successive run. The Phase 5 header surfaces this metric for visibility - it is an expectation, not a gate. Cycle 3 with non-zero active CRITICAL/HIGH/MEDIUM still completes normally; the number is informational so the user can decide whether the Reality Filter needs re-tuning or whether new code is genuinely introducing real bugs faster than they get fixed.
 
 ## Phase 1: Create Run Directory (main agent)
 
@@ -107,16 +112,16 @@ Launch a single Task agent (`code-reviewer` type). The agent:
 
 1. Discovers available report files dynamically (some agents may have failed)
 2. **Deduplicates**: when 2+ agents flag the same underlying issue, produces one canonical finding with merged title, union of source agent IDs, highest severity from any agent, and combined suggestions. Preserves original finding IDs as references.
-3. Identifies **cross-domain findings** — issues flagged by 2+ agents from different angles (elevate confidence)
-4. Identifies **false positives** — findings that contradict each other or are explained by context in other reports
-5. Identifies **emergent patterns** — systemic issues only visible when combining perspectives
+3. Identifies **cross-domain findings** - issues flagged by 2+ agents from different angles (elevate confidence)
+4. Identifies **false positives** - findings that contradict each other or are explained by context in other reports
+5. Identifies **emergent patterns** - systemic issues only visible when combining perspectives
 6. Writes consolidated output to `$REVIEW_DIR/07-cross-reference.md`
 
 Task agent prompt:
 
 ```
 Use Bash to run: ls [REVIEW_DIR]/0*.md
-Read ONLY the files that actually exist. Some review agents may have failed — do not attempt to read missing files.
+Read ONLY the files that actually exist. Some review agents may have failed - do not attempt to read missing files.
 
 Perform cross-referencing analysis:
 
@@ -173,7 +178,7 @@ Task agent prompt:
 ```
 You are filtering codebase review findings against documented architecture decisions.
 
-1. Read [REVIEW_DIR]/07-cross-reference.md — canonical findings are the primary source of truth.
+1. Read [REVIEW_DIR]/07-cross-reference.md - canonical findings are the primary source of truth.
 2. Search documentation/decisions/README.md in the project root for architecture decisions. If documentation/decisions/README.md does not exist or contains no architecture decision entries, write [REVIEW_DIR]/08-active-findings.md with ALL canonical findings marked active (zero AD-guarded) and stop.
 3. You may read CLAUDE.md files for implementation context, but ONLY documentation/decisions/README.md has authority to justify AD-guarding. Do not AD-guard a finding based solely on CLAUDE.md.
 4. For each canonical finding, check if an architecture decision in documentation/decisions/README.md explicitly justifies the flagged pattern.
@@ -214,7 +219,7 @@ AD refs checked: documentation/decisions/README.md (X decisions)
 Review mode: static analysis only
 
 ## AD-Guarded Findings (removed from active list)
-### CF-NNN: Title — AD-GUARDED
+### CF-NNN: Title - AD-GUARDED
 - **AD ref:** "AD title" from documentation/decisions/README.md
 - **Quote:** "relevant AD text"
 
@@ -230,36 +235,246 @@ Review mode: static analysis only
 - **Suggestion:** ...
 ```
 
-After the Task agent completes, use Bash to run `head -n 20 "$REVIEW_DIR/08-active-findings.md"` and print the output to the user.
+After the Task agent completes, use Bash to run `head -n 20 "$REVIEW_DIR/08-active-findings.md"` and print the output to the user. Phase 5 still runs even if Active = 0 - the cycle counter and audit log are useful artifacts even on clean cycles.
 
-**Orchestrator check:** If the Active column totals are all 0, output "Clean review - no actionable findings" and STOP. Do not proceed to Phase 5 or beyond.
+## Phase 5: Reality Filter (Task agent)
 
-If `--verify-high` is NOT in $ARGUMENTS, skip Phase 5 and proceed to Phase 6.
+The Reality Filter re-evaluates every Phase-4-active finding against five questions, using prior triage history (`sdd/.review-decisions.md`), ADR bodies, MCP memory, recent git log, and `sdd/changes.md`. It produces a SHORT list of real findings the user actually triages, an audit log of every drop, and a Tech-Debt-Surfaced section for findings that don't clear the user-impact bar.
 
-## Phase 5: LLM Verification (Task agent — only when --verify-high is present)
-
-Launch a single Task agent (`code-reviewer` type) to verify ALL HIGH and CRITICAL findings with external LLMs in **2 batched calls total** (one per LLM, ALL findings in a single prompt). Never one-call-per-finding — the cost scales linearly with finding count and burns the orchestrator's context with N×2 LLM responses when one batched response per LLM carries the same information.
+Launch a single Task agent (`code-reviewer` type). The agent has access to MCP memory tools (`mcp__memory__search_nodes`, `mcp__memory__open_nodes`).
 
 Task agent prompt:
 
 ```
-You are verifying HIGH and CRITICAL review findings using external LLMs.
+You are the REALITY FILTER stage of a multi-cycle codebase review. Your job is to take
+the AD-filtered list of N active findings and produce the SHORT list of REAL findings
+worth surfacing to the user, plus an audit log of every drop. Filter ruthfully against
+questions Q1-Q5 below. Do NOT filter to hit a target count - if all N findings survive
+the questions, surface all N.
+
+## Inputs to read
+
+1. Active findings: [REVIEW_DIR]/08-active-findings.md
+2. Persistent triage history: [PROJECT_ROOT]/sdd/.review-decisions.md
+   - If the file does not exist, treat as empty (first run). Q1 will produce no drops on first run.
+   - This file is the primary source of triage history. It is committed to git, so prior decisions follow the repo, not the developer's machine.
+3. Full ADR bodies: [PROJECT_ROOT]/documentation/decisions/README.md
+4. Recent git activity: cd [PROJECT_ROOT] && git log --since="30 days ago" --oneline --no-merges
+5. Spec changes: [PROJECT_ROOT]/sdd/changes.md and [PROJECT_ROOT]/sdd/README.md
+6. MCP memory: call mcp__memory__search_nodes with each of these queries and read the
+   relevant entities returned:
+     - "code review feedback"
+     - "user preferences"
+     - "<project name> conventions" (substitute the project's actual name)
+   For findings whose category triggers a memory hit, read the full entity via
+   mcp__memory__open_nodes. The MCP knowledge graph is the primary memory system;
+   ~/.claude/projects/.../memory/MEMORY.md is a secondary file-based fallback - read
+   it ONLY if MCP memory is unreachable.
+7. (Optional) [PROJECT_ROOT]/pending.md if present - explains in-flight work that may
+   make a "missing feature" finding actually a known gap.
+
+## The five questions, applied per finding (DROP, KEEP, or DEMOTE-to-Tech-Debt)
+
+### Q1: Repeat-offender drop
+
+Match the finding's (location, category) tuple against entries in
+sdd/.review-decisions.md. If a prior entry exists with decision Defer / Ignore /
+Tech-Debt AND no commit has touched the file since that entry's date:
+  -> DROP. Audit reason: "Q1: prior <decision> recorded <date>, no commits since."
+
+If the file has been touched since the prior entry, the prior decision is invalidated
+(the code may now have a real bug). Re-evaluate via Q2-Q5.
+
+Use literal file path matching. Renames are rare; if a file was renamed, the prior
+decision will simply not match and the finding gets surfaced fresh - the audit log
+makes this visible and the user can re-defer if appropriate.
+
+### Q2: Memory-says-no drop
+
+If the finding contradicts an MCP memory entry (e.g. user feedback says "prefer
+concrete duplication over premature abstraction" and the finding says "extract this
+into a helper"):
+  -> DROP. Audit reason: "Q2: contradicts memory entry <entity name>: <one-line summary>."
+
+### Q3: Cluster aggregation
+
+Group surviving (post-Q1, post-Q2) findings by category. If a category has 3 or more
+findings, AND none of them have a Q1 match in sdd/.review-decisions.md (i.e. this is
+the first cycle this rule is producing violations):
+  -> COLLAPSE the group into ONE cluster finding listing all locations.
+  -> Cluster finding gets a new canonical ID like CF-NNN-cluster.
+  -> Severity = max severity in the group.
+  -> Description: "<rule short name>: <count> instances. <one-line shared description>"
+  -> Suggestion: "Sweep PR. Or AD-justify the pattern."
+  -> Audit reason per absorbed finding: "Q3: clustered into CF-NNN-cluster."
+
+The user triages the cluster ONCE. The triage decision (Phase 8) writes ONE
+.review-decisions entry PER LOCATION in the cluster, so Q1's per-location lookup
+works in cycle N+1.
+
+Threshold rationale: 3 is the smallest "this is a pattern, not individual issues"
+count. 1 or 2 instances are individual problems; 3+ deserves a sweep decision.
+
+### Q4: User-impact bar (DEMOTE to Tech-Debt-Surfaced)
+
+Re-evaluate severity against user-visible impact, not the producing agent's internal
+scale. Findings that do not clear the bar move to the Tech-Debt-Surfaced section
+(NOT dropped from output - Tech-Debt is still surfaced for triage):
+
+CRITICAL must be:
+  - Data loss / corruption risk
+  - Money / billing risk
+  - Access control bypass
+  - Production crash / availability loss
+  - Security mistake (exploitable)
+
+HIGH must be:
+  - Real bug that produces wrong observable behavior
+  - Spec-vs-shipped contradiction in load-bearing area
+  - CI / deploy gate that breaks
+  - Significant doc-vs-code drift in user-facing API or auth
+
+MEDIUM must be:
+  - Real bug class with low blast radius
+  - User-facing API doc lie
+  - Test gap on a real bug class
+
+Below MEDIUM bar: move to "## Tech-Debt Surfaced" section. Audit reason per moved
+finding: "Q4: <agent severity> -> Tech-Debt; reason: <which bar failed>."
+
+Anything that even after re-evaluation clears the bar: KEEP at the (possibly
+adjusted) severity in "## Real Findings".
+
+### Q5: Spec-vs-shipped truth-test
+
+For doc-vs-code drift findings (DOCS-* raw IDs, or any finding whose category
+mentions "documentation" or "doc drift"): Read the cited source file and verify
+that the claimed mismatch actually exists.
+
+If source contradicts finding's premise:
+  -> DROP. Audit reason: "Q5: source verification failed. Cited <file:line>; actual code <quote>."
+
+If source confirms finding:
+  -> KEEP at the original severity (often HIGH or CRITICAL for doc drift on
+     security or billing). Add evidence: "Verified at <file:line>: <quote>."
+
+## Hard rules
+
+- Be ruthful, not aggressive. The point is to drop findings that ARE noise. Erring
+  on the side of dropping is correct because anything mistakenly dropped resurfaces
+  next cycle if it's real.
+- Every KEEP must cite at least one piece of concrete evidence: file:line, commit
+  SHA, AD ref, .review-decisions entry, MCP memory entity name, or sdd/changes.md
+  date.
+- Every DROP and DEMOTE must have a one-line reason in the audit log keyed by which
+  question dropped it.
+- Read actual source for any finding you keep with severity HIGH or CRITICAL.
+- Do not retry MCP memory calls if they fail; fall back to the file-based memory and
+  log "memory: file-based fallback used" in the summary.
+
+## Output: ONE file at [REVIEW_DIR]/09-real-findings.md
+
+Format:
+
+# Real Findings (Reality-Filtered)
+**Source:** [REVIEW_DIR]
+**Cycle:** N (read the cycle counter from sdd/.review-decisions.md if it exists; if missing, this is cycle 1)
+**Active findings (Phase 4 input):** X
+**Real findings (after Q1-Q5):** Y
+**Tech-Debt surfaced:** W
+**Auto-filtered (dropped):** X - Y - W
+
+## Cycle Health
+
+Active CRITICAL/HIGH/MEDIUM going into this cycle: A
+Surviving CRITICAL/HIGH/MEDIUM after Reality Filter: B
+
+(Surfaced for visibility. The expectation, on a stable codebase, is that B trends
+toward zero by the third successive run. Cycle 3 with B>0 may indicate filter
+calibration to revisit, or genuinely new bugs introduced between cycles.)
+
+## Real Findings
+
+### CF-NNN: Title
+- **Severity:** HIGH
+- **Why this is real:** <one or two sentences citing concrete evidence>
+- **Location:** path/to/file.ts:123
+- **Category:** ...
+- **Description:** ...
+- **Suggestion:** ...
+
+[For cluster findings:]
+### CF-NNN-cluster: <rule short name> - 15 instances
+- **Severity:** MEDIUM (max from group)
+- **Why this is real:** First cycle of <rule>; 15 violations call for a sweep PR.
+- **Locations:** [bulleted list of all 15 file:line]
+- **Description:** ...
+- **Suggestion:** Sweep PR, or AD-justify the pattern.
+
+## Tech-Debt Surfaced
+
+[Findings demoted by Q4. Same format as Real Findings, but appear here. Triage
+will treat these as Tech-Debt by default unless the user upgrades them.]
+
+## Auto-Filtered (audit log)
+
+### Q1: Repeat-offender drops (X)
+- CF-NNN at <location> (<category>): prior <Defer|Ignore|Tech-Debt> recorded <date>, no commits since.
+
+### Q2: Memory-says-no drops (X)
+- CF-NNN at <location> (<category>): contradicts memory entry "<entity>".
+
+### Q3: Cluster collapses (X absorbed into Y clusters)
+- CF-NNN-cluster covers: CF-A, CF-B, CF-C, ... at <locations>.
+
+### Q4: Severity downgraded to Tech-Debt (X) [also listed in Tech-Debt Surfaced above]
+- CF-NNN at <location>: <original severity> -> Tech-Debt. Reason: <which bar failed>.
+
+### Q5: Spec-vs-shipped truth-test failures (X)
+- CF-NNN at <location>: cited <file:line>; actual code <quote>; finding's premise contradicted.
+
+## Memory mode
+
+Used: MCP knowledge graph (primary) | File-based fallback (~/.claude/projects/.../memory/MEMORY.md).
+
+Cost contract: this whole phase MUST be ONE Task agent. Do not spawn additional
+sub-agents. Read files directly via Read; query MCP memory directly via the granted
+tools. The Auto-Filtered audit section is mandatory output - if it is missing or empty
+when DROP/DEMOTE counts are non-zero, the phase failed.
+```
+
+After the Task agent completes, use Bash to run `head -n 30 "$REVIEW_DIR/09-real-findings.md"` and print the output to the user.
+
+**Orchestrator check:** Parse the "Real findings (after Q1-Q5)" count and the "Tech-Debt surfaced" count from the header. If both are 0, output "Clean review - no actionable findings after Reality Filter" and STOP. Do not proceed to Phase 6 or beyond.
+
+If `--verify-high` is NOT in $ARGUMENTS, skip Phase 6 and proceed to Phase 7.
+
+## Phase 6: LLM Verification (Task agent - only when --verify-high is present)
+
+Launch a single Task agent (`code-reviewer` type) to verify ALL HIGH and CRITICAL findings with external LLMs in **2 batched calls total** (one per LLM, ALL findings in a single prompt). Never one-call-per-finding - the cost scales linearly with finding count and burns the orchestrator's context with N×2 LLM responses when one batched response per LLM carries the same information.
+
+Task agent prompt:
+
+```
+You are verifying HIGH and CRITICAL real findings using external LLMs.
 Your goal: 2 consult_llm calls TOTAL (one to GPT, one to Gemini), each containing
 ALL findings batched into a single prompt with all relevant source files attached
 via the `files` parameter. Do NOT call consult_llm once per finding.
 
-1. Read [REVIEW_DIR]/08-active-findings.md — extract ALL HIGH and CRITICAL findings.
-   If the extracted set is empty (zero HIGH/CRITICAL findings), write
-   "Phase 5 skipped — no HIGH/CRITICAL findings to verify" to stdout and EXIT.
-   Do NOT call consult_llm. The Phase 4 orchestrator gate counts total active
-   findings, not just HIGH/CRITICAL, so this case can reach Phase 5 (e.g. a
-   review with only MEDIUM+LOW findings) and would otherwise burn 2 LLM calls
-   on an empty findings list.
+1. Read [REVIEW_DIR]/09-real-findings.md - extract ALL HIGH and CRITICAL findings
+   from the "## Real Findings" section (NOT Tech-Debt-Surfaced; those are deliberately
+   demoted). If the extracted set is empty (zero HIGH/CRITICAL findings), write
+   "Phase 6 skipped - no HIGH/CRITICAL findings to verify" to
+   [REVIEW_DIR]/10-llm-verified.md and EXIT.
+   Do NOT call consult_llm. The Phase 5 orchestrator gate already short-circuits the
+   total-zero case, but a Reality-Filtered list of MEDIUM+Tech-Debt only would still
+   reach this phase and would otherwise burn 2 LLM calls on an empty list.
 
 2. Build the unique source-file set:
    - Walk every finding's `location` field, collect distinct file paths
+   - For cluster findings, take ALL locations in the cluster
    - These will be passed as the `files` parameter to consult_llm so the LLM has
-     the actual source — do NOT inline code in the prompt body, only cite
+     the actual source - do NOT inline code in the prompt body, only cite
      file:line references.
 
 3. Build a single batched prompt at [REVIEW_DIR]/.llm-verify-prompt.md with:
@@ -280,44 +495,45 @@ via the `files` parameter. Do NOT call consult_llm once per finding.
    ### <canonical-id-1>: <one-line title>
    - Severity: HIGH|CRITICAL
    - Location: path/to/file.ts:123
-   - Description: <2-4 sentences from 08-active-findings.md>
+   - Description: <2-4 sentences from 09-real-findings.md>
 
    ### <canonical-id-2>: ...
    ...
    ```
 
-4. Write that prompt to disk. Then call consult_llm TWICE — once per provider family — passing:
-   - `prompt`: a short directive only, e.g. *"Read .llm-verify-prompt.md (the
+4. Write that prompt to disk. Then call consult_llm TWICE - once per provider family - passing:
+   - `prompt`: a short directive only, e.g. "Read .llm-verify-prompt.md (the
      first file in the files array) and verify each listed finding against the
      source files that follow. Return the JSON array specified in the prompt
-     file."* The consult_llm schema explicitly forbids pasting file contents
-     into the prompt field — file content goes via the `files` parameter and is
+     file." The consult_llm schema explicitly forbids pasting file contents
+     into the prompt field - file content goes via the `files` parameter and is
      loaded server-side. Inlining the prompt-file body here would duplicate
      content the server will already attach.
-   - `files`: `[REVIEW_DIR]/.llm-verify-prompt.md` FIRST, then the deduplicated
+   - `files`: [REVIEW_DIR]/.llm-verify-prompt.md FIRST, then the deduplicated
      source-file paths from step 2.
    - `task_mode`: "review"
-   - Model selector — use **family names**, never pin specific versions:
+   - Model selector - use **family names**, never pin specific versions:
      - Call 1: `model: "openai"` (resolves server-side to the latest GPT)
      - Call 2: `model: "gemini"` (resolves server-side to the latest Gemini)
      Pinning concrete model IDs (e.g. `gpt-5.4`, `gemini-3.1-pro-preview`) is
-     wrong — they go stale within weeks of release. The `consult_llm` server
+     wrong - they go stale within weeks of release. The `consult_llm` server
      already maintains the "latest per family" mapping; let it do its job.
    Run the two calls concurrently if the environment permits.
 
 5. Parse each LLM's JSON response. For each finding, combine the two verdicts:
-   - BOTH refute → LLM-REFUTED; remove from Active Findings
-   - BOTH confirm → enrich finding with the better of the two fix proposals
-   - DISAGREE → keep finding active, note both verdicts
-   - One call fails → LLM-PARTIAL on all findings, keep active. **Do NOT retry the
+   - BOTH refute -> LLM-REFUTED; remove from the verified list
+   - BOTH confirm -> enrich finding with the better of the two fix proposals
+   - DISAGREE -> keep finding active, note both verdicts
+   - One call fails -> LLM-PARTIAL on all findings, keep active. **Do NOT retry the
      failed call.** The 2-call budget is a hard cap that includes failures; a
      retry would re-introduce the N×2 cost regression this phase exists to prevent.
-   - Both calls fail → LLM-UNAVAILABLE on all findings, keep active. **Do NOT retry.**
+   - Both calls fail -> LLM-UNAVAILABLE on all findings, keep active. **Do NOT retry.**
 
-6. Rewrite [REVIEW_DIR]/08-active-findings.md:
-   - Drop LLM-REFUTED findings from the Active Findings section
+6. Write [REVIEW_DIR]/10-llm-verified.md (its OWN file - do NOT rewrite 09-real-findings.md):
+   - Copy 09-real-findings.md's header verbatim, plus the Tech-Debt-Surfaced section verbatim (Tech-Debt is not LLM-verified)
+   - Replace the "## Real Findings" section with the LLM-verified list
+   - Drop LLM-REFUTED findings entirely
    - Add LLM verdicts and fix proposals to surviving findings
-   - Update the Summary table — add a Verified column
    - Append a "## LLM-Refuted Findings (removed)" section listing removed
      findings with the refutation reasoning from each LLM
 
@@ -328,54 +544,63 @@ how many findings there are. If you find yourself about to call consult_llm a 3r
 time, stop and re-batch.
 ```
 
-After the Task agent completes, use Bash to run `head -n 20 "$REVIEW_DIR/08-active-findings.md"` and print the output to the user.
+After the Task agent completes, use Bash to run `head -n 30 "$REVIEW_DIR/10-llm-verified.md"` and print the output to the user.
 
-**Orchestrator check:** If the Active column totals are all 0, output "Clean review - no actionable findings after LLM verification" and STOP.
+**Orchestrator check:** If the surviving Real Findings count is 0 AND Tech-Debt-Surfaced is 0, output "Clean review - no actionable findings after LLM verification" and STOP.
 
-## Phase 6: Interactive Triage (main agent)
+## Phase 7: Interactive Triage (main agent)
 
 This is the ONLY phase that runs in the main session context.
 
-Read `$REVIEW_DIR/08-active-findings.md` — specifically the `## Active Findings` section.
+Read the appropriate input file:
+- If Phase 6 ran: `$REVIEW_DIR/10-llm-verified.md`
+- Otherwise: `$REVIEW_DIR/09-real-findings.md`
+
+Specifically the `## Real Findings` and `## Tech-Debt Surfaced` sections.
 
 ### Pre-Triage Summary
 
 Before asking per-finding questions, present a triage summary showing:
-- Counts by severity
+- Counts by severity (Real Findings + Tech-Debt-Surfaced)
 - Top modules/directories affected
 - Top repeated categories
+- Cycle Health line (cycle N, surviving CRITICAL/HIGH/MEDIUM count)
 
 Then ask one setup question via `AskUserQuestion`:
-- **Triage all severities** — walk through every finding interactively
-- **CRITICAL/HIGH only** — triage CRITICAL and HIGH interactively; auto-defer MEDIUM and LOW
-- **CRITICAL/HIGH interactive, batch MEDIUM/LOW by module** — triage top severities individually, group lower severities by module
+- **Triage all severities** - walk through every finding interactively
+- **CRITICAL/HIGH only** - triage CRITICAL and HIGH interactively; auto-defer MEDIUM and LOW
+- **CRITICAL/HIGH interactive, batch MEDIUM/LOW by module** - triage top severities individually, group lower severities by module
 
 ### Triage Options
 
 For each finding or batch of related findings, use `AskUserQuestion` with these options:
 
 **For CRITICAL findings and security/correctness defects:**
-- **Fix** — include in the implementation plan (Phase 9)
-- **Technical debt** — add to the GitHub issue with `technical-debt` label for future resolution
-- **Defer** — needs more investigation before deciding; carry forward to next review
-- **Ignore** — requires explicit reason
+- **Fix** - include in the implementation plan (Phase 10)
+- **Technical debt** - add to the GitHub issue with `technical-debt` label for future resolution
+- **Defer** - needs more investigation before deciding; carry forward to next review
+- **Ignore** - requires explicit reason
 
-**For all other findings:**
-- **Fix** — include in the implementation plan (Phase 9)
-- **Record as AD** — record as an architecture decision in documentation/decisions/README.md that justifies this pattern going forward (only valid for intentional tradeoffs, not bugs or security issues)
-- **Technical debt** — add to the GitHub issue with `technical-debt` label for future resolution
-- **Defer** — needs more investigation before deciding; carry forward to next review
-- **Ignore** — dismiss as false positive or acceptable
+**For all other findings (including Tech-Debt-Surfaced):**
+- **Fix** - include in the implementation plan (Phase 10)
+- **Record as AD** - record as an architecture decision in documentation/decisions/README.md that justifies this pattern going forward (only valid for intentional tradeoffs, not bugs or security issues)
+- **Technical debt** - add to the GitHub issue with `technical-debt` label for future resolution
+- **Defer** - needs more investigation before deciding; carry forward to next review
+- **Ignore** - dismiss as false positive or acceptable
+
+**For cluster findings (CF-NNN-cluster):**
+The default options are presented for the cluster as a whole. The user's decision applies to ALL locations in the cluster. A "Split" option breaks the cluster into individual findings if the user wants per-location decisions.
 
 ### Batching Rules
 
 - **CRITICAL**: ask individually unless exact duplicates
 - **HIGH**: batch by root cause or module
 - **MEDIUM/LOW**: batch aggressively by module or remediation pattern
+- Cluster findings (Q3 output): ask once per cluster
 - Never ask one question per LOW finding unless it is uniquely important
-- Example: "5 dead-code findings in src/lib/legacy/" → single question
+- Example: "5 dead-code findings in src/lib/legacy/" -> single question
 - For batched questions, include a **Split** option so the user can break the batch and decide per-finding
-- Show: canonical ID, severity, location, description, suggestion (and LLM verdict if Phase 5 ran)
+- Show: canonical ID, severity, location, description, suggestion (and LLM verdict if Phase 6 ran)
 
 ### Question Format
 ```
@@ -385,36 +610,45 @@ Category: Missing input validation
 Confidence: high
 Description: The route handler accepts user input without sanitization...
 Suggestion: Add zod schema validation at the route boundary
-[LLM Verdict: Confirmed by GPT and Gemini — both suggest zod schema]
+[LLM Verdict: Confirmed by GPT and Gemini - both suggest zod schema]
 ```
 
-After all triage questions are answered, collect the decisions into a strict JSON mapping and proceed to Phase 7:
+After all triage questions are answered, collect the decisions into a strict JSON mapping and proceed to Phase 8:
 ```json
 {"CF-001": "fix", "CF-002": "ad", "CF-003": "debt", "CF-004": "defer", "CF-005": "ignore"}
 ```
 
-Pass this EXACT JSON string as the decisions mapping to the Phase 7 Task agent.
+For cluster findings whose decision is NOT Split, the cluster ID maps to a single decision; Phase 8 expands it to one entry per location when writing `sdd/.review-decisions.md`.
 
-## Phase 7: Save Triage Results (Task agent)
+Pass this EXACT JSON string as the decisions mapping to the Phase 8 Task agent.
 
-Launch a single Task agent (`code-reviewer` type) to write the consolidated triage results.
+## Phase 8: Save Triage Results + Append to .review-decisions (Task agent)
+
+Launch a single Task agent (`code-reviewer` type) to write the consolidated triage results AND append per-finding triage history to `sdd/.review-decisions.md`.
 
 Pass the triage decisions JSON mapping and `$REVIEW_DIR` path in the prompt.
 
 Task agent prompt:
 
 ```
-You are saving triage results from a codebase review.
+You are saving triage results from a codebase review AND updating the persistent
+triage history file used by future Reality Filter runs.
 
 Triage decisions (JSON): [DECISIONS_JSON]
 
-1. Read [REVIEW_DIR]/08-active-findings.md to get full finding details.
-2. Write [REVIEW_DIR]/09-triage-results.md with findings sorted into sections by triage decision.
+## Step 1: Write the cycle's triage report
+
+Read [REVIEW_DIR]/10-llm-verified.md if it exists, else [REVIEW_DIR]/09-real-findings.md,
+to get full finding details.
+
+Write [REVIEW_DIR]/11-triage-results.md with findings sorted into sections by
+triage decision. For cluster findings, expand to per-location triage entries.
 
 Format:
 
 # Triage Results
 **Run:** [REVIEW_DIR]
+**Cycle:** N
 **Review mode:** static analysis only
 
 ## Fix (X findings)
@@ -427,13 +661,13 @@ Format:
 - **Description:** What the issue is
 - **Suggestion:** How to fix it
 - **Source agents:** security-reviewer, code-reviewer
-- **LLM verdict:** [if Phase 5 ran]
+- **LLM verdict:** [if Phase 6 ran]
 
 [...repeat for each Fix finding]
 
 ## Record as AD (X findings)
 
-### CF-NNN: [SEVERITY] Finding Title — AD
+### CF-NNN: [SEVERITY] Finding Title - AD
 - **Location:** path/to/file.ts:456
 - **Pattern:** The pattern being justified
 - **Rationale:** Why this is an intentional architecture decision
@@ -448,7 +682,7 @@ Format:
 
 ## Technical Debt (X findings)
 
-### CF-NNN: [SEVERITY] Finding Title — TECH DEBT
+### CF-NNN: [SEVERITY] Finding Title - TECH DEBT
 - **Location:** path/to/file.ts:789
 - **Category:** e.g., "Dead code"
 - **Description:** What the issue is
@@ -464,7 +698,7 @@ Format:
 
 ## Deferred (X findings)
 
-### CF-NNN: [SEVERITY] Finding Title — DEFERRED
+### CF-NNN: [SEVERITY] Finding Title - DEFERRED
 - **Location:** path/to/file.ts:345
 - **Reason:** Needs further investigation
 
@@ -472,14 +706,63 @@ Format:
 
 ## Ignored (X findings)
 
-### CF-NNN: [SEVERITY] Finding Title — IGNORED
+### CF-NNN: [SEVERITY] Finding Title - IGNORED
 - **Location:** path/to/file.ts:012
 - **Reason:** [reason provided by user]
 
 [...repeat for each Ignored finding]
+
+## Step 2: Append to sdd/.review-decisions.md
+
+Read [PROJECT_ROOT]/sdd/.review-decisions.md if it exists. If it does not exist,
+create it with this header:
+
+# Review Decisions
+
+Cumulative per-finding triage history. Each entry records a Defer/Ignore/Tech-Debt
+decision from a `/review` cycle. Used by `/review` Phase 5 Reality Filter Q1
+(repeat-offender check) on subsequent runs.
+
+This file is NOT a substitute for ADRs. ADRs document permanent design choices
+(`documentation/decisions/README.md`); entries here document per-cycle triage
+calls that may evolve. When an entry's reasoning proves durable across multiple
+cycles, the user may promote it to an ADR manually.
+
+Last cycle: 0 (initial)
+
+---
+
+For each Defer / Ignore / Tech-Debt decision in the triage JSON (NOT Fix or AD),
+append a section like:
+
+## Cycle N - YYYY-MM-DD
+
+### CF-NNN at path/to/file.ts:123 (Category)
+- **Decision:** Defer
+- **Reason:** <user-provided reason from triage>
+- **Suggested action:** <suggestion from finding>
+- **Sunset hint:** If 3 cycles in a row see this same decision, consider promoting to ADR.
+
+For cluster findings (CF-NNN-cluster) whose decision was NOT Split: expand to one
+entry per location in the cluster. Each entry shares the same Reason. This makes
+Q1's per-location lookup trivial in cycle N+1.
+
+For Fix and AD decisions: do NOT write entries here. Fix decisions are resolved
+when the implementation lands; AD decisions are recorded in
+documentation/decisions/README.md by Phase 9.
+
+If the same (file:line, Category) tuple already has an entry from a prior cycle,
+APPEND a new entry rather than overwriting - the file is a log, not a snapshot.
+Future Q1 lookups read the most recent matching entry.
+
+## Step 3: Update the cycle counter
+
+Update the file's "Last cycle: N" line near the top of the file to reflect the
+current cycle number and date. This is the source for the cycle number used in
+09-real-findings.md and 10-llm-verified.md headers.
 ```
 
-## Phase 8: Update Architecture Decisions + Create Tech Debt Issues (Task agent)
+## Phase 9: Update Architecture Decisions + Create Tech Debt Issues (Task agent)
 
 Launch a single Task agent (`code-reviewer` type) to update documentation/decisions/README.md with AD entries and create GitHub issues for tech debt.
 
@@ -488,7 +771,7 @@ Task agent prompt:
 ```
 You are updating architecture decisions and creating GitHub issues from a codebase review.
 
-1. Read [REVIEW_DIR]/09-triage-results.md — specifically the "Record as AD" and "Technical Debt" sections.
+1. Read [REVIEW_DIR]/11-triage-results.md - specifically the "Record as AD" and "Technical Debt" sections.
    If both sections are empty (0 findings each), write "No updates needed" and stop.
 
 2. For each "Record as AD" entry:
@@ -504,12 +787,12 @@ You are updating architecture decisions and creating GitHub issues from a codeba
 IMPORTANT: Read documentation/decisions/README.md fully before editing. Use the Edit tool for AD insertions.
 ```
 
-## Phase 9: Enter Plan Mode (main agent)
+## Phase 10: Enter Plan Mode (main agent)
 
-After Phase 8 Task agent completes:
+After Phase 9 Task agent completes:
 
-1. Read ONLY the `## Fix` section from `$REVIEW_DIR/09-triage-results.md`
-2. If there are zero Fix findings, report "No fixes requested — review complete" and stop
+1. Read ONLY the `## Fix` section from `$REVIEW_DIR/11-triage-results.md`
+2. If there are zero Fix findings, report "No fixes requested - review complete" and stop
 3. Enter plan mode with `EnterPlanMode`
 4. Create an implementation plan organized by:
    - **Priority**: Security fixes first, then architecture, then code quality, then others
@@ -519,15 +802,15 @@ After Phase 8 Task agent completes:
      - File paths and line numbers
      - Proposed changes (from agent suggestions and LLM proposals if available)
      - Severity and category
-5. Note: AD entries were written to documentation/decisions/README.md and Tech Debt items were created as GitHub issues in Phase 8
+5. Note: AD entries were written to documentation/decisions/README.md, Tech Debt items were created as GitHub issues, and Defer/Ignore/Tech-Debt decisions were appended to sdd/.review-decisions.md by Phase 8.
 
 ## Important Notes
 
-- **NEVER run builds, tests, or linters locally** — the container has 1 vCPU
+- **NEVER run builds, tests, or linters locally** - the container has 1 vCPU
 - All 6 Phase 2 agents MUST launch in a single message (parallel Task calls)
-- Phases 3, 4, 5, 7, 8 each run as a single Task agent — main agent waits for completion before proceeding
-- Phase 6 is the ONLY phase that runs in the main session context (requires AskUserQuestion)
-- Phase 5 is opt-in via `--verify-high` flag
-- After Phase 4 and Phase 5: check if Active totals are 0 — if so, STOP and report clean review
-- Each phase MUST complete fully before proceeding to the next — no phase is optional except Phase 5
+- Phases 3, 4, 5, 6, 8, 9 each run as a single Task agent - main agent waits for completion before proceeding
+- Phase 7 is the ONLY phase that runs in the main session context (requires AskUserQuestion)
+- Phase 6 is opt-in via `--verify-high` flag
+- After Phase 5: check if Real Findings + Tech-Debt-Surfaced totals are 0 - if so, STOP and report clean review. After Phase 6: re-check the LLM-verified totals.
+- Each phase MUST complete fully before proceeding to the next - no phase is optional except Phase 6
 - Findings directory persists at `$REVIEW_DIR` for later reference; `/home/user/Temporary/Review/latest` always points to the most recent run

@@ -416,6 +416,7 @@ Before any agent-driven write to `sdd/` or `documentation/`:
 |---|---|---|
 | `sdd/config.yml` | Yes | Mode, enforce_tdd, test_globs, src_globs (optional), allowlists |
 | `sdd/.review-needed.md` | Yes | Findings escalated for human review (cleared on resolution) |
+| `sdd/.review-decisions.md` | Yes | Cumulative per-finding triage history (Defer/Ignore/Tech-Debt). Read by `/review` Phase 5 Reality Filter for repeat-offender detection. Append-only by Phase 8 of `/review`. |
 | `sdd/.coverage-report.md` | Yes | Output of enforce_tdd: false runs |
 | `sdd/.last-clean-run.md` | Yes | Audit log of the most recent /sdd clean run |
 | `sdd/changes-archive-*.md` | Yes | Archived old changelogs from /sdd clean runs |

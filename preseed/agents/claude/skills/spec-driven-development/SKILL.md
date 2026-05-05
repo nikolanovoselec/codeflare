@@ -30,6 +30,7 @@ sdd/
 ├── changes.md           # Semantic changelog (≤2 sentences per entry, user-facing only)
 ├── config.yml           # mode, enforce_tdd, test_globs, src_globs (optional), allowlists
 ├── .review-needed.md    # Findings escalated for human review (committed, cleared on resolution)
+├── .review-decisions.md # Cumulative per-finding triage history from /review (committed, append-only)
 ├── .coverage-report.md  # Output of enforce_tdd: false runs (committed)
 ├── .last-clean-run.md   # Audit log of the most recent /sdd clean run (committed)
 └── {domain}.md          # Requirements per feature area
