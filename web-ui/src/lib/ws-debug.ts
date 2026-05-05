@@ -9,7 +9,8 @@
 // functions return immediately and no DOM element is created. Permanent in
 // the codebase, gated solely by the URL parameter.
 //
-// Implements REQ-AGENT-015 diagnostic instrumentation.
+// Diagnostic-only — observes the WS-receive path and the xterm write-batch
+// flush path without implementing any AC. No REQ annotation.
 
 const enabled =
   typeof window !== 'undefined' &&
