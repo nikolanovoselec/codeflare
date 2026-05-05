@@ -45,6 +45,7 @@ describe('Terminal Store', () => {
       rows: 24,
       onData: vi.fn(() => ({ dispose: vi.fn() })),
       write: vi.fn((_data: string, cb?: () => void) => { if (cb) cb(); }),
+      clear: vi.fn(),
       reset: vi.fn(),
       scrollToBottom: vi.fn(),
       refresh: vi.fn(),
@@ -463,6 +464,7 @@ describe('Terminal Store', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       // Clear mocks to isolate restore behavior
+      (terminal.clear as ReturnType<typeof vi.fn>).mockClear();
       (terminal.reset as ReturnType<typeof vi.fn>).mockClear();
       (terminal.write as ReturnType<typeof vi.fn>).mockClear();
       (terminal.scrollToBottom as ReturnType<typeof vi.fn>).mockClear();
@@ -472,6 +474,11 @@ describe('Terminal Store', () => {
       const serializedState = '\x1b[?1049h\x1b[H\x1b[2Jhtop output here';
       wsInstance._simulateMessage(JSON.stringify({ type: 'restore', state: serializedState }));
 
+      // ANSI clear-screen + clear-scrollback + cursor-home should be the
+      // first write (synchronous PTY-level clear before xterm.clear/reset)
+      expect(terminal.write).toHaveBeenCalledWith('\x1b[2J\x1b[3J\x1b[H');
+      // xterm.clear() should have been called (viewport clear)
+      expect(terminal.clear).toHaveBeenCalled();
       // terminal.reset should have been called to clear existing state
       expect(terminal.reset).toHaveBeenCalled();
       // terminal.write should have been called with the serialized state
