@@ -4,7 +4,7 @@ import type { TerminalConnectionState } from '../types';
 import { getTerminalWebSocketUrl } from '../api/client';
 import type { Terminal } from '@xterm/xterm';
 import { logger } from '../lib/logger';
-import { recordFrame, recordFlush } from '../lib/ws-debug';
+import { recordFrame, recordFlush, recordRestore } from '../lib/ws-debug';
 import {
   WS_RETRY_DELAY_MS,
   WS_RETRYABLE_CLOSE_CODES,
@@ -368,6 +368,25 @@ function connect(
           const msg = JSON.parse(messageData);
           if (msg.type === 'restore') {
             if (msg.state) {
+              // Diagnostic: capture restore frame size + a "duplication
+              // signature" — the count of "Claude Code v" substrings inside
+              // the saved state. Single-copy = 1; >1 means the server's
+              // saved state already contains duplicated content (server-
+              // side render bug). Single-copy here while client still
+              // shows duplication = client-side render bug
+              // (terminal.reset() not synchronously clearing).
+              const claudeSignatureCount = (msg.state.match(/Claude Code v/g) || []).length;
+              recordRestore(key, msg.state.length, claudeSignatureCount);
+
+              // Belt-and-suspenders clear: xterm's terminal.reset() has
+              // had async-renderer quirks where the buffer wasn't
+              // synchronously zeroed before the next write landed. Issue
+              // ANSI clear-screen + clear-scrollback + cursor-home FIRST
+              // (synchronous PTY-level clear), then call .clear() (xterm
+              // viewport clear), then .reset() (full terminal state
+              // reset), and only then write the restored state.
+              terminal.write('\x1b[2J\x1b[3J\x1b[H');
+              terminal.clear();
               terminal.reset();
               terminal.write(msg.state);
               terminal.scrollToBottom();

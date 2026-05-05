@@ -22,6 +22,15 @@ interface PerKeyCounters {
   writeUnits: number;      // length of strings passed to terminal.write()
   writeFlushes: number;    // number of flush cycles
   recentRecvTimestamps: number[]; // for frames/sec rate display
+  // Restore-frame diagnostics. A `restore` is the JSON control message
+  // the host sends on every WS attach to repaint the saved scrollback.
+  // restoreCount scales with how often the WS reconnects in the session.
+  // claudeSig in the most recent restore is the "duplication signature":
+  //   1  = server's saved state has one Claude Code session header
+  //  >1  = server's saved state already contains duplicated content
+  restoreCount: number;
+  lastRestoreSize: number;
+  lastRestoreClaudeSig: number;
 }
 
 const counters = new Map<string, PerKeyCounters>();
@@ -35,6 +44,9 @@ function getCounters(key: string): PerKeyCounters {
       writeUnits: 0,
       writeFlushes: 0,
       recentRecvTimestamps: [],
+      restoreCount: 0,
+      lastRestoreSize: 0,
+      lastRestoreClaudeSig: 0,
     };
     counters.set(key, c);
   }
@@ -60,6 +72,18 @@ export function recordFlush(key: string, length: number): void {
   const c = getCounters(key);
   c.writeUnits += length;
   c.writeFlushes += 1;
+}
+
+// Records a restore JSON control message arriving on the WS.
+// claudeSig is the count of "Claude Code v" substrings in the saved state —
+// a 1 means the server's state has a single (correct) Claude Code session
+// header; >1 means the server is shipping already-duplicated content.
+export function recordRestore(key: string, stateLength: number, claudeSig: number): void {
+  if (!enabled) return;
+  const c = getCounters(key);
+  c.restoreCount += 1;
+  c.lastRestoreSize = stateLength;
+  c.lastRestoreClaudeSig = claudeSig;
 }
 
 if (enabled && typeof document !== 'undefined') {
@@ -97,6 +121,9 @@ if (enabled && typeof document !== 'undefined') {
     let totalFrames = 0;
     let totalFlushes = 0;
     let totalRateLast10s = 0;
+    let totalRestores = 0;
+    let lastRestoreSize = 0;
+    let lastRestoreClaudeSig = 0;
     const lines: string[] = [];
 
     for (const [key, c] of counters) {
@@ -105,11 +132,18 @@ if (enabled && typeof document !== 'undefined') {
       totalFrames += c.recvFrames;
       totalFlushes += c.writeFlushes;
       totalRateLast10s += c.recentRecvTimestamps.length;
+      totalRestores += c.restoreCount;
+      // For "last restore" surface across all keys, take the largest seen
+      // since the most recent restore is the most diagnostic signal.
+      if (c.lastRestoreSize > lastRestoreSize) {
+        lastRestoreSize = c.lastRestoreSize;
+        lastRestoreClaudeSig = c.lastRestoreClaudeSig;
+      }
       const drift = c.recvUnits - c.writeUnits;
       const rate = c.recentRecvTimestamps.length / 10;
       const shortKey = key.split(':').map((s) => s.slice(0, 6)).join(':');
       lines.push(
-        `${shortKey} f=${c.recvFrames} fl=${c.writeFlushes} d=${drift >= 0 ? '+' + drift : drift} r=${rate.toFixed(1)}/s`
+        `${shortKey} f=${c.recvFrames} fl=${c.writeFlushes} d=${drift >= 0 ? '+' + drift : drift} r=${rate.toFixed(1)}/s rst=${c.restoreCount}/sig=${c.lastRestoreClaudeSig}`
       );
     }
 
@@ -121,6 +155,7 @@ if (enabled && typeof document !== 'undefined') {
       `written: ${totalWriteUnits} units / ${totalFlushes} flushes\n` +
       `drift:   ${overallDrift >= 0 ? '+' + overallDrift : overallDrift}\n` +
       `rate:    ${overallRate.toFixed(1)} frames/sec (last 10s)\n` +
+      `restores:${totalRestores} (last ${lastRestoreSize}B, claude-sig=${lastRestoreClaudeSig})\n` +
       `\nper-terminal:\n` +
       (lines.length > 0 ? lines.join('\n') : '(none yet)');
   }
