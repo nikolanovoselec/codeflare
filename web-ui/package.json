@@ -30,7 +30,7 @@
     "fast-check": "^4.7.0",
     "jsdom": "^29.1.0",
     "knip": "^6.11.0",
-    "oxlint": "^1.62.0",
+    "oxlint": "^1.63.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.10",
     "vite-plugin-solid": "^2.11.12",
