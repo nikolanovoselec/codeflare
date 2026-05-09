@@ -226,6 +226,32 @@ describe('git-push-review-reminder.sh — PR-SYNC trigger (base-gated)', () => {
     assert.match(r.stdout, /additionalContext/);
   });
 
+  it('fires on git push when gh returns OPEN with empty baseRefName (fail-open)', () => {
+    // Regression test for parity with enforce-review-spawn.sh 7580b15
+    // fix: when the live gh call returns state=OPEN but baseRefName is
+    // empty (jq parse edge case), the case statement must match `""`
+    // and fall through to enforcement rather than silently exit.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = join(cwd, 'fake-bin');
+    mkdirSync(binDir, { recursive: true });
+    // Hand-rolled fixture: state present, baseRefName field absent.
+    writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
+ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
+  echo '{"state":"OPEN","headRefOid":"fakehead"}'
+  exit 0
+fi
+echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
+exit 99
+`);
+    chmodSync(join(binDir, 'gh'), 0o755);
+    const r = runHook(cwd, 'git push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'empty baseRefName must fail open and fire review (parity with Stop hook)');
+  });
+
   it('exits 0 silently on detached HEAD', () => {
     const cwd = makeFixture();
     withSdd(cwd);
@@ -288,6 +314,29 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+
+  it('uses cached OPEN+empty-base result and fires (fail-open parity with Stop hook)', () => {
+    // 3-line cache where line 3 is empty (gh returned state OPEN but
+    // jq couldn't extract baseRefName on the previous push). Should
+    // be treated as a valid cache hit (no gh re-query) and PR_BASE=""
+    // should fall through the main|master|"" case and fire review.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\n\n`);
+    const binDir = fakeGhFails(cwd);  // gh exits 99 — proves cache was used
+    const r = runHook(cwd, 'git push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'OPEN+empty-base cache must fail open and fire review');
+    assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/,
+      '3-line cache (even with empty base) must short-circuit gh');
   });
 
   it('legacy 2-line OPEN cache (no base) re-queries gh and rewrites in 3-line schema', () => {

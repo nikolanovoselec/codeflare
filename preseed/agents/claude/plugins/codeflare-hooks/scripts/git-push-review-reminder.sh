@@ -112,20 +112,19 @@ if [ "$TRIGGER" = "git-push" ]; then
       # the cache; they re-query on the next push.
       #
       # Cache schema is 3 lines: branch, state, baseRefName. Older
-      # 2-line caches (pre-base-gating) miss line 3 and fall through
-      # via the empty-cached_base check below — the next request
-      # re-queries gh and rewrites in the new schema.
+      # 2-line caches (pre-base-gating) lack line 3. Legacy detection
+      # is by *line count*, NOT by empty-base heuristic, so an
+      # OPEN PR with a transiently-empty base (gh returned state but
+      # jq couldn't extract baseRefName) caches as `branch\nOPEN\n\n`
+      # (3 lines, last empty) and is treated as a valid empty-base
+      # cache hit instead of looping back to gh on every push.
       max_age=10
       [ "$cached_state" = "OPEN" ] && max_age=60
-      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null; then
-        # OPEN cache must include base; empty PR cache (state="") does not.
-        if [ "$cached_state" = "OPEN" ] && [ -z "$cached_base" ]; then
-          : # legacy 2-line cache — fall through to re-query
-        else
-          PR_STATE="$cached_state"
-          PR_BASE="$cached_base"
-          CACHE_VALID=1
-        fi
+      cache_lines=$(wc -l < "$PR_CACHE" 2>/dev/null | tr -d ' ')
+      if [ "$cache_age" -lt "$max_age" ] 2>/dev/null && [ "$cache_lines" -ge 3 ] 2>/dev/null; then
+        PR_STATE="$cached_state"
+        PR_BASE="$cached_base"
+        CACHE_VALID=1
       fi
     fi
   fi
@@ -181,8 +180,13 @@ if [ "$TRIGGER" = "git-push" ]; then
 
   # Gate on PR target: only PRs landing on main/master fire review.
   # feature → develop defers; develop → main fires.
+  # Empty PR_BASE (transient gh quirk where state was parsed but
+  # baseRefName wasn't) fails open to enforcement — parity with
+  # enforce-review-spawn.sh, where the same fail-open policy was
+  # added in 7580b15. Better to over-review than silently let an
+  # unreviewed PR-to-main slip through on a parsing edge case.
   case "$PR_BASE" in
-    main|master) ;;
+    main|master|"") ;;
     *) exit 0 ;;
   esac
 fi

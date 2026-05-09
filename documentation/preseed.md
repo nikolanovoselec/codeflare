@@ -293,11 +293,16 @@ The `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode
 when `sdd/` and `sdd/README.md` are present. It triggers at PR-boundary
 events: `gh pr create` runs in the session, OR a push lands on a
 branch that already has an open PR (the hook calls `gh pr view` to
-check). A plain push to a branch with no open PR intentionally does
-NOT trigger enforcement — reviews are deferred until the PR opens.
-Direct pushes to `main` are expected to be blocked by GitHub branch
-protection; if branch protection is off and a direct push lands,
-spawn the review agents manually after the push.
+check). Enforcement only fires when the open PR targets `main` or
+`master`. PRs into intermediate branches (`develop`, `staging`) are
+silently deferred until that branch's own PR-to-`main` opens. If `gh`
+returns an open PR but `baseRefName` is unexpectedly empty (a
+transient `gh` quirk), the hook fails open and enforcement fires
+rather than silently skipping. A plain push to a branch with no open
+PR intentionally does NOT trigger enforcement: reviews are deferred
+until the PR opens. Direct pushes to `main` are expected to be blocked
+by GitHub branch protection; if branch protection is off and a direct
+push lands, spawn the review agents manually after the push.
 
 The hook tracks the most recently acknowledged PR HEAD SHA in
 `.git/sdd-last-ack-pr-head`. Acknowledgment advances only when the
