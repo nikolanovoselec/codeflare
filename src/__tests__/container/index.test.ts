@@ -388,6 +388,13 @@ describe('container DO class', () => {
   });
 
   describe('destroy', () => {
+    // Most existing tests in this block assert storage cleanup, not the new
+    // graceful-shutdown polling. Default to !running so the override skips the
+    // 25 s SIGTERM-and-poll branch; tests that need the graceful path opt in.
+    beforeEach(() => {
+      mockContainerRuntime.running = false;
+    });
+
     it('calls super.destroy() and cleans up operational storage', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';
@@ -449,6 +456,90 @@ describe('container DO class', () => {
       // Give async work time to complete
       await new Promise(resolve => setTimeout(resolve, 50));
       expect(mockKvPut).not.toHaveBeenCalled();
+    });
+
+    it('graceful shutdown: sends SIGTERM and exits the polling loop once the container reports !running', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+      mockContainerRuntime.running = true;
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+      // SIGTERM simulation: the trap exits, container.running flips to false
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockImplementation(async () => {
+        mockContainerRuntime.running = false;
+      });
+
+      await instance.destroy();
+
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+      expect(mockContainerRuntime.running).toBe(false);
+      // Storage cleanup also happened
+      expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
+    });
+
+    it('graceful shutdown: falls back to SIGKILL when the container is still running after the 25 s timeout', async () => {
+      vi.useFakeTimers();
+      try {
+        mockStorage.get.mockImplementation(async (key: string) => {
+          if (key === 'bucketName') return 'test-bucket';
+          return null;
+        });
+        mockContainerRuntime.running = true;
+
+        const instance = new ContainerClass(mockCtx as any, mockEnv);
+
+        // SIGTERM is delivered but the container never exits
+        const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+
+        const destroyPromise = instance.destroy();
+        // Advance just past the 25s timeout so the polling loop exits via the
+        // wall-clock branch, not the running=false branch.
+        await vi.advanceTimersByTimeAsync(26_000);
+        await destroyPromise;
+
+        expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+        // Container is still "running" — polling timed out, super.destroy() ran anyway
+        expect(mockContainerRuntime.running).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('graceful shutdown: still calls super.destroy() if stop() rejects', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+      mockContainerRuntime.running = true;
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockRejectedValue(new Error('signal delivery failed'));
+
+      // The override must catch the throw; the route depends on destroy() always returning
+      await expect(instance.destroy()).resolves.toBeUndefined();
+      expect(stopSpy).toHaveBeenCalledWith('SIGTERM');
+      // Storage cleanup still ran
+      expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
+    });
+
+    it('graceful shutdown: skips SIGTERM when ctx.container is already not running', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        return null;
+      });
+      mockContainerRuntime.running = false;
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const stopSpy = vi.spyOn(instance, 'stop' as any).mockResolvedValue(undefined);
+
+      await instance.destroy();
+
+      // No need to send SIGTERM if the container is already gone
+      expect(stopSpy).not.toHaveBeenCalled();
+      expect(mockStorage.delete).toHaveBeenCalledWith('bucketName');
     });
   });
 

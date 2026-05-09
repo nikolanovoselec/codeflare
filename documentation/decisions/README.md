@@ -673,9 +673,9 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Implementation references:**
 
-- `host/src/server.ts:62` (`PTY_KEEPALIVE_MS` default)
+- `host/src/server.ts:64` (`PTY_KEEPALIVE_MS` default)
 - `host/src/session.ts:146` (`_ptyKeepaliveMs` fallback)
-- `host/src/session.ts:300-318` (`detach()` arms the timer; `keepAliveTimeout` fires `kill()`)
+- `host/src/session.ts:296-319` (`detach()` arms the timer; `keepAliveTimeout` fires `kill()`)
 
 ---
 
