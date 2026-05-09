@@ -26,6 +26,38 @@ describe('oauth-state', () => {
     expect(await verifyOauthState(forged, SECRET)).toBe(false);
   });
 
+  it('rejects forged signatures of various invalid lengths', async () => {
+    const token = await signOauthState(SECRET);
+    const [nonce, iat] = token.split('.');
+    expect(await verifyOauthState(`${nonce}.${iat}.AA`, SECRET)).toBe(false);
+    expect(await verifyOauthState(`${nonce}.${iat}.${'A'.repeat(128)}`, SECRET)).toBe(false);
+  });
+
+  it('rejects sig segments containing non-base64url characters', async () => {
+    const token = await signOauthState(SECRET);
+    const [nonce, iat] = token.split('.');
+    // '!' and '@' are outside the base64url alphabet — must be rejected
+    expect(await verifyOauthState(`${nonce}.${iat}.abc!def`, SECRET)).toBe(false);
+    expect(await verifyOauthState(`${nonce}.${iat}.abc@def`, SECRET)).toBe(false);
+  });
+
+  it('domain-separates state from session JWT (cross-protocol confusion resistance)', async () => {
+    // A pure HMAC over `nonce:iat` (no DOMAIN prefix) must NOT verify as a state token,
+    // even though it's signed with the same secret. This is the cross-protocol guard.
+    const nonce = 'cross-protocol-nonce';
+    const iat = Math.floor(Date.now() / 1000);
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', enc.encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+    );
+    // Sign WITHOUT the DOMAIN prefix — simulates a session JWT-style signature
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${nonce}:${iat}`));
+    const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const naive = `${nonce}.${iat}.${sigB64}`;
+    expect(await verifyOauthState(naive, SECRET)).toBe(false);
+  });
+
   it('rejects malformed input (not three segments)', async () => {
     expect(await verifyOauthState('only.two', SECRET)).toBe(false);
     expect(await verifyOauthState('one', SECRET)).toBe(false);
@@ -33,32 +65,28 @@ describe('oauth-state', () => {
     expect(await verifyOauthState('a.b.c.d', SECRET)).toBe(false);
   });
 
-  it('rejects tokens older than maxAgeSec', async () => {
-    // Hand-craft a token with a stale iat — sign it correctly so only the age check fails
-    const nonce = 'fixed-nonce';
-    const iat = Math.floor(Date.now() / 1000) - 7200; // 2h ago
-    const enc = new TextEncoder();
+  // Mirror the production DOMAIN prefix so age-only and skew-only tests
+  // exercise their intended code path (signature passes, age/skew fails).
+  const DOMAIN = 'oauth-state:v1';
+
+  async function signWithIat(nonce: string, iat: number, secret: string): Promise<string> {
+    const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
-      'raw', enc.encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+      'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
     );
-    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${nonce}:${iat}`));
+    const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(`${DOMAIN}:${nonce}:${iat}`));
     const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    const stale = `${nonce}.${iat}.${sigB64}`;
+    return `${nonce}.${iat}.${sigB64}`;
+  }
+
+  it('rejects tokens older than maxAgeSec', async () => {
+    const stale = await signWithIat('fixed-nonce', Math.floor(Date.now() / 1000) - 7200, SECRET);
     expect(await verifyOauthState(stale, SECRET, 1800)).toBe(false);
   });
 
   it('rejects tokens with iat in the far future (beyond clock skew)', async () => {
-    const nonce = 'fixed-nonce';
-    const iat = Math.floor(Date.now() / 1000) + 600; // 10min in the future, well beyond skew
-    const enc = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw', enc.encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-    );
-    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${nonce}:${iat}`));
-    const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    const futureToken = `${nonce}.${iat}.${sigB64}`;
+    const futureToken = await signWithIat('fixed-nonce', Math.floor(Date.now() / 1000) + 600, SECRET);
     expect(await verifyOauthState(futureToken, SECRET)).toBe(false);
   });
 

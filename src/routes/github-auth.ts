@@ -1,6 +1,8 @@
 /**
  * GitHub OAuth routes for SaaS mode authentication.
  *
+ * Implements REQ-AUTH-002.
+ *
  * Replaces Cloudflare Access when SAAS_MODE=active and OAUTH_CLIENT_ID is set.
  * Mounts at /auth/github — login, callback, and logout.
  */
@@ -26,10 +28,22 @@ const callbackRateLimiter = createRateLimiter({
   keyPrefix: 'github-auth',
 });
 
+/**
+ * Rate limit /login. Each call now performs an HMAC sign + redirect
+ * response, so an unauthenticated attacker could otherwise drive
+ * arbitrary HMAC ops. 30/min/IP is generous for legitimate retries
+ * during 2FA setup or first-time GitHub registration.
+ */
+const loginRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 30,
+  keyPrefix: 'github-login',
+});
+
 // ---------------------------------------------------------------------------
 // GET /login — Redirect to GitHub OAuth authorize
 // ---------------------------------------------------------------------------
-app.get('/login', async (c) => {
+app.get('/login', loginRateLimiter, async (c) => {
   const clientId = c.env.OAUTH_CLIENT_ID;
   if (!clientId || !c.env.OAUTH_CLIENT_SECRET || !c.env.OAUTH_JWT_SECRET) {
     logger.error('GitHub OAuth not configured — missing secrets');

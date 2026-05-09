@@ -1,6 +1,8 @@
 /**
  * Stateless OAuth state token (HMAC-signed nonce + timestamp).
  *
+ * Implements REQ-AUTH-002 (state validation portion).
+ *
  * Replaces the cookie-based double-submit pattern. Cookie state was
  * unreliable on iOS WebKit (Safari + Brave), where ITP suppressed the
  * SameSite=Lax cookie on the github.com -> codeflare.ch bounce-back
@@ -8,11 +10,20 @@
  * has no cookie dependency, so the OAuth handshake works identically
  * in private browsing, ITP-aggressive engines, and ephemeral storage.
  *
- * Format: `nonce.iat.sig` where sig = HMAC-SHA256(secret, `nonce:iat`).
+ * Format: `nonce.iat.sig` where sig = HMAC-SHA256(secret, DOMAIN || `:${nonce}:${iat}`).
+ *
+ * The DOMAIN prefix is a tag that prevents cross-protocol confusion
+ * with session JWTs (signed with the same OAUTH_JWT_SECRET). Without
+ * it, a future change to either signed format could let one signature
+ * verify in the other context. Bumping the version segment invalidates
+ * all in-flight tokens — only do that under intentional rotation.
  *
  * CSRF protection: attacker cannot forge a state without OAUTH_JWT_SECRET,
  * and the iat timestamp bounds the replay window.
  */
+
+const DOMAIN = 'oauth-state:v1';
+const B64URL_RE = /^[A-Za-z0-9_-]*$/;
 
 const enc = new TextEncoder();
 
@@ -24,6 +35,7 @@ function b64url(bytes: ArrayBuffer | Uint8Array): string {
 }
 
 function b64urlDecode(s: string): Uint8Array {
+  if (!B64URL_RE.test(s)) throw new Error('invalid base64url');
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + pad;
   const bin = atob(b64);
@@ -46,7 +58,7 @@ async function hmacKey(secret: string, usage: 'sign' | 'verify'): Promise<Crypto
 export async function signOauthState(secret: string): Promise<string> {
   const nonce = crypto.randomUUID();
   const iat = Math.floor(Date.now() / 1000);
-  const payload = `${nonce}:${iat}`;
+  const payload = `${DOMAIN}:${nonce}:${iat}`;
   const key = await hmacKey(secret, 'sign');
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
   return `${nonce}.${iat}.${b64url(sig)}`;
@@ -73,7 +85,7 @@ export async function verifyOauthState(state: string, secret: string, maxAgeSec 
   const now = Math.floor(Date.now() / 1000);
   const age = now - iat;
   if (age < -CLOCK_SKEW_SEC || age > maxAgeSec) return false;
-  const payload = `${nonce}:${iat}`;
+  const payload = `${DOMAIN}:${nonce}:${iat}`;
   let sigBytes: Uint8Array;
   try {
     sigBytes = b64urlDecode(sigB64);

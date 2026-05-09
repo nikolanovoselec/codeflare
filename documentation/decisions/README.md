@@ -1,9 +1,9 @@
 <!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 47 ADR slots exist (AD1-AD47). 11 slots are redirect stubs that preserve inbound AD-N references: 6 merged into a canonical sibling on 2026-05-03 (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18), and 5 reclassified out of the decision log on 2026-05-09 per the "What is NOT an ADR" rule (AD9→configuration.md, AD23→inline+security.md, AD24→inline+security.md, AD25→inline+security.md, AD31→inline+security.md). 36 ADRs carry active content. The combined file is over the implicit 100×47 budget but each individual active ADR is under the per-ADR cap. Splitting into 47 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 48 ADR slots exist (AD1-AD48). 11 slots are redirect stubs that preserve inbound AD-N references: 6 merged into a canonical sibling on 2026-05-03 (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18), and 5 reclassified out of the decision log on 2026-05-09 per the "What is NOT an ADR" rule (AD9→configuration.md, AD23→inline+security.md, AD24→inline+security.md, AD25→inline+security.md, AD31→inline+security.md). 37 ADRs carry active content (AD38 is superseded but preserved per the immutability rule). The combined file is over the implicit 100×48 budget but each individual active ADR is under the per-ADR cap. Splitting into 48 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD47 throughout the codebase and documentation. 36 active ADRs; 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD48 throughout the codebase and documentation. 37 ADRs carry active content (AD38 superseded by AD48); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -60,6 +60,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | User overrides recorded as ADRs, not skip-list | Architecture |
 | [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
 | [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | PTY keepalive as safety net only, not the idle policy | Architecture |
+| [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | OAuth state replaced by HMAC-signed stateless token | Security |
 
 ---
 
@@ -385,6 +386,8 @@ Previous design had 6 webhook handlers incrementally patching KV fields, causing
 
 ### AD38: GitHub OIDC replaces CF Access in SaaS mode
 
+**Status:** Superseded by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) (2026-05-09) - oauth_state mechanism replaced
+
 **Decision:** CF Access costs $3/user/month beyond 50 users -- GitHub OIDC is free.
 
 When `OAUTH_CLIENT_ID` is configured in SaaS mode, the Worker handles authentication directly via GitHub OAuth with HMAC-SHA256 session cookies. CF Access is bypassed at runtime. OAuth state uses HttpOnly cookies (not KV) to avoid eventual consistency issues. Only verified GitHub emails are accepted. The `codeflare_session` cookie is HttpOnly, Secure, SameSite=Lax with 1-hour TTL. Middleware in `index.ts` auto-refreshes when < 15 minutes remain -- active users stay logged in indefinitely. Expired cookie triggers frontend auto-redirect to `/` for re-authentication.
@@ -666,6 +669,42 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 - `host/src/server.ts:64` (`PTY_KEEPALIVE_MS` default)
 - `host/src/session.ts:146` (`_ptyKeepaliveMs` fallback)
 - `host/src/session.ts:296-319` (`detach()` arms the timer; `keepAliveTimeout` fires `kill()`)
+
+---
+
+### AD48: OAuth state replaced by HMAC-signed stateless token
+
+**Status:** Accepted (2026-05-09)
+
+**Supersedes:** [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) (oauth_state mechanism only; the broader GitHub OIDC-over-CF-Access decision in AD38 remains valid)
+
+**Context:** AD38 specified that the OAuth CSRF state parameter was carried as an HttpOnly cookie (a random UUID, 5-minute TTL). The cookie was validated server-side by comparing the query-param value returned by GitHub against the stored cookie value. iOS WebKit's Intelligent Tracking Prevention (ITP) and third-party cookie restrictions in private-browsing modes silently drop the state cookie before the GitHub callback completes, breaking the OAuth flow for a meaningful fraction of mobile and privacy-conscious users.
+
+**Decision:** Replace the HttpOnly state cookie with a stateless HMAC-signed token. The token is structured as `nonce.iat.sig` where `nonce` is a random value, `iat` is the issued-at Unix timestamp, and `sig` is an HMAC-SHA256 signature over `nonce.iat` using `OAUTH_JWT_SECRET`. The callback handler recomputes the signature and rejects tokens whose `iat` is outside a 30-minute window. No server-side state is stored; no cookie is required for the CSRF check.
+
+**Alternatives considered:**
+
+1. **Keep the cookie, add `SameSite=None; Secure`** to survive cross-site redirects. Rejected: does not help on iOS ITP, which drops third-party cookies regardless of SameSite attribute on the state-checking round-trip.
+2. **Store state in KV with a 5-min TTL.** Rejected: AD38 explicitly chose cookies over KV to avoid eventual consistency lag on the Cloudflare edge. HMAC-signed tokens remove the need for any server-side state and are strictly better on both axes.
+3. **State in the `state` query param only, validated by nonce replay prevention in KV.** Rejected: same KV consistency concern as option 2.
+
+**Rationale:**
+
+- Stateless HMAC tokens are immune to ITP and private-browsing cookie restrictions because they carry no server-side state -- nothing to look up, nothing to lose on a blocked cookie jar.
+- The `iat`-window bound (30 min) gives the same CSRF protection as a short-lived cookie: a state token cannot be replayed after it expires.
+- `OAUTH_JWT_SECRET` is already required for `codeflare_session` signing (AD38); reusing it for state signing adds no new secret-management surface.
+- Failure path is explicit: state verification failure redirects to `/?error=session-expired` rather than a generic 500.
+
+**Trade-offs accepted:**
+
+- A compromised `OAUTH_JWT_SECRET` now also allows forging state tokens (not just session cookies). The attack surface increase is minimal -- an attacker with the secret could already forge sessions, which is the higher-value target.
+- The 30-min window is longer than the previous 5-min cookie TTL. The trade-off is intentional: the broader window accommodates slow mobile networks and interrupted OAuth flows that previously forced re-login.
+
+**Related requirements:** REQ-AUTH-005 (GitHub OAuth CSRF protection)
+
+**Implementation references:**
+
+- `src/routes/github-oauth.ts` (`generateState()`, `verifyState()`)
 
 ---
 
