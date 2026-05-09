@@ -1,6 +1,16 @@
 name: Deploy
+# main is the protected production branch; the only push that reaches
+# it is a merged PR. workflow_run waits for that PR's "PR Checks" to
+# finish on the merge commit and only deploys when it ended green.
+# This closes the "we shipped a broken main" window that plain
+# `push: [main]` left open when the checks and deploy triggered in
+# parallel off the same SHA. workflow_dispatch stays so a stuck
+# deploy can be re-run manually, and so integration deploys from
+# develop (or any other branch) can still be triggered on demand.
 on:
-  push:
+  workflow_run:
+    workflows: ['PR Checks']
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -13,32 +23,49 @@ on:
         default: integration
 
 concurrency:
-  group: deploy-${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
+  group: deploy-${{ (github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production') || 'integration' }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  guard:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Block production deploys from non-main branches
-        if: github.ref != 'refs/heads/main' && inputs.environment == 'production'
-        run: |
-          echo "::error::Production deploys are only allowed from main. Got branch: ${{ github.ref }}"
-          exit 1
-
   deploy:
-    needs: guard
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    # On workflow_run: only deploy when PR Checks ended green.
+    # On workflow_dispatch (manual): always run; the inner production-
+    # only-from-main step still rejects bad input.
+    #
+    # The if: lives on the deploy job itself (not on a separate guard
+    # job with `needs: guard`) because GitHub Actions treats a job
+    # skipped via if: as success() for `needs:` resolution. A failed
+    # PR Checks would skip the guard but the deploy job's needs:
+    # would still be satisfied — the gate must be on the job that
+    # actually performs the deploy.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     environment: ${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
     timeout-minutes: 20
     env:
       WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
+      - name: Block production deploys from non-main branches
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.environment == 'production'
+        run: |
+          echo "::error::Production deploys are only allowed from main. Got branch: ${{ github.ref }}"
+          exit 1
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # On workflow_run: pin to the SHA whose PR Checks just ended
+          # green. Without this, actions/checkout falls back to default-
+          # branch HEAD at deploy-job start time, which can drift if a
+          # second push lands on main between the green check and the
+          # deploy. On workflow_dispatch / push: github.ref is the
+          # dispatched ref; head_sha is empty so the OR falls through.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

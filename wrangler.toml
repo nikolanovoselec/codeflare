@@ -1,6 +1,9 @@
 # Codeflare - Browser-based cloud IDE on Cloudflare
 name = "codeflare"
-workers_dev = true
+# Locked down to the custom domain only (codeflare.ch). The workers.dev
+# fallback URL is disabled because it created OAuth host-mismatch risk
+# and enlarged the auth surface unnecessarily.
+workers_dev = false
 main = "src/index.ts"
 compatibility_date = "2026-02-05"
 compatibility_flags = ["nodejs_compat"]

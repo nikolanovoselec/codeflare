@@ -10,9 +10,9 @@ import { signSessionJWT } from '../lib/session-jwt';
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
 import { parseUserRecord } from '../lib/user-record';
-import { getCookieValue } from '../lib/access';
 import { getBaseUrl } from '../lib/kv-keys';
 import { isActiveTier } from '../lib/subscription';
+import { signOauthState, verifyOauthState } from '../lib/oauth-state';
 import { createRateLimiter } from '../middleware/rate-limit';
 
 const logger = createLogger('github-auth');
@@ -36,7 +36,10 @@ app.get('/login', async (c) => {
     return c.json({ error: 'OAuth not configured' }, 500);
   }
 
-  const state = crypto.randomUUID();
+  // Stateless HMAC-signed state. No cookie -> works on iOS WebKit
+  // (Safari + Brave) where ITP suppressed the SameSite=Lax oauth_state
+  // cookie on the github.com -> codeflare.ch redirect bounce-back.
+  const state = await signOauthState(c.env.OAUTH_JWT_SECRET);
   const origin = await getBaseUrl(c.env.KV, c.req.url);
   const redirectUri = `${origin}/auth/github/callback`;
 
@@ -47,7 +50,6 @@ app.get('/login', async (c) => {
     state,
   });
 
-  c.header('Set-Cookie', `oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=300`);
   return c.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`);
 });
 
@@ -74,15 +76,13 @@ app.get('/callback', callbackRateLimiter, async (c) => {
     return c.redirect(`${base}/?error=${encodeURIComponent(safeError)}`);
   }
 
-  // Validate state — cookie vs query param (CSRF protection)
+  // Validate state — HMAC signature + 30-minute iat window (CSRF protection).
+  // On failure, redirect to the login page with an error param so the user
+  // gets a clean retry path instead of a raw JSON 403.
   const queryState = url.searchParams.get('state');
-  const cookieState = getCookieValue(c.req.header('Cookie') ?? null, 'oauth_state');
-  if (!cookieState || !queryState || cookieState !== queryState) {
-    return c.json({ error: 'Invalid OAuth state' }, 403);
+  if (!queryState || !(await verifyOauthState(queryState, c.env.OAUTH_JWT_SECRET))) {
+    return c.redirect(`${base}/?error=session-expired`);
   }
-
-  // Clear state cookie
-  c.header('Set-Cookie', `oauth_state=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
 
   const code = url.searchParams.get('code');
   if (!code) {

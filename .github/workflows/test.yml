@@ -1,7 +1,23 @@
 name: PR Checks
+# Fires on:
+#   - push to develop (fast feedback on integration-branch work)
+#   - push to main (post-merge regression gate; Deploy fires only on green)
+#   - pull_request targeting main OR develop (pre-merge gate; develop
+#     is included so the feature → develop step of the canonical flow
+#     gets the same pre-merge signal as feature → main does)
+#   - workflow_dispatch (manual re-run)
+#
+# Cost note: per merge to main this fires twice — once pre-merge on
+# the PR head (pull_request) and once post-merge on the merge commit
+# (push). The post-merge run is the one Deploy gates on via
+# workflow_run; the pre-merge run is what blocks the merge button.
+# The doubled run is the explicit cost of closing the parallel-
+# trigger race that the old `push: [main]` deploy left open.
 on:
+  push:
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 concurrency:

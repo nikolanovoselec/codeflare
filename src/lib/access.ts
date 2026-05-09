@@ -42,7 +42,7 @@ export function resetAuthConfigCache(): void {
   pendingAuthConfigFetch = null;
 }
 
-export function getCookieValue(cookieHeader: string | null, key: string): string | null {
+function getCookieValue(cookieHeader: string | null, key: string): string | null {
   if (!cookieHeader) return null;
   const pairs = cookieHeader.split(';');
   for (const pair of pairs) {
