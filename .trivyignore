@@ -231,3 +231,30 @@ CVE-2026-33846
 # username, which doesn't happen in the codeflare workflow.
 # No fix available in Debian bookworm.
 CVE-2026-35386
+
+# libgnutls30 3.7.9-2+deb12u6: policy bypass via case-sensitive nameConstraints
+# comparison. GnuTLS is linked by CLI tools (curl, wget) for outbound HTTPS
+# only; the container does not act as a TLS server validating client certs
+# against name constraints. No fix available in Debian bookworm.
+CVE-2026-3833
+
+# libgnutls30 3.7.9-2+deb12u6: authentication bypass via NUL character in
+# username. Container does not run any authenticator that reads usernames
+# through GnuTLS APIs; outbound HTTPS only. No fix available in Debian bookworm.
+CVE-2026-42010
+
+# libgnutls30 3.7.9-2+deb12u6: security bypass via incorrect name constraint
+# handling. Same exposure as CVE-2026-3833 — outbound HTTPS only, no TLS
+# server role. No fix available in Debian bookworm.
+CVE-2026-42011
+
+# libmbedcrypto7 / libmbedtls14 / libmbedx509-1 (mbedtls 2.28.3): seed misuse
+# in HMAC_DRBG / CTR_DRBG. Container does not use mbedtls directly; transitive
+# dep of rclone/curl. No DRBG-derived material is exposed. No fix in bookworm.
+CVE-2026-25835
+
+# libssh2-1 1.10.0-3+b1: integer overflow via large username/password.
+# Container uses git-over-HTTPS exclusively (no SSH); libssh2 is linked but
+# never invoked with user-controlled credentials. No fix available in Debian
+# bookworm.
+CVE-2026-7598
