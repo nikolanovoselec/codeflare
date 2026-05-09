@@ -244,7 +244,7 @@ CVE-2026-3833
 CVE-2026-42010
 
 # libgnutls30 3.7.9-2+deb12u6: security bypass via incorrect name constraint
-# handling. Same exposure as CVE-2026-3833 — outbound HTTPS only, no TLS
+# handling. Same exposure as CVE-2026-3833 - outbound HTTPS only, no TLS
 # server role. No fix available in Debian bookworm.
 CVE-2026-42011
 

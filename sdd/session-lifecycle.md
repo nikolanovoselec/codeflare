@@ -106,7 +106,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. The `sleepAfter` value is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h.
 2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference.
 3. The idle timer resets only when new user input is detected (not on heartbeats, reconnections, or protocol chatter).
-4. `collectMetrics()` is the sole enforcer of the container-level idle timeout: it polls the in-container `/activity` endpoint every 60 seconds, computes idle time from `lastInputAt`, and explicitly calls `this.stop('SIGTERM')` once the user-configured threshold is exceeded. (The host-side per-PTY keepalive in `host/src/server.ts` is a separate safety net for stuck `lastInputAt`, floor-clamped at the maximum `sleepAfter` so it cannot fire first — see AD47.)
+4. `collectMetrics()` is the sole enforcer of the container-level idle timeout: it polls the in-container `/activity` endpoint every 60 seconds, computes idle time from `lastInputAt`, and explicitly calls `this.stop('SIGTERM')` once the user-configured threshold is exceeded. (The host-side per-PTY keepalive in `host/src/server.ts` is a separate safety net for stuck `lastInputAt`, floor-clamped at the maximum `sleepAfter` so it cannot fire first; see AD47.)
 5. The Container SDK's own `sleepAfter` timer is pinned to a 24h sentinel so it never fires in normal operation; idle policy is owned exclusively by `collectMetrics()`. The user-facing preference is held in the `idleTimeoutPref` field.
 6. Admins can always change their own `sleepAfter`; non-subscribed users have the dropdown disabled.
 
@@ -155,9 +155,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Intent:** Users have explicit control over session lifecycle: stop a running session, restart a stopped session, or permanently delete a session.
 
 **Acceptance Criteria:**
-1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'` and calls `container.destroy()`. The `destroy()` override first clears `SESSION_ID_KEY`, `bucketName` and other identifiers from DO storage (preventing session resurrection), then performs a graceful shutdown — sends `SIGTERM` to the container, polls `ctx.container.running` for up to 25 s while the entrypoint trap runs the final `rclone bisync`, and only then calls `super.destroy()` to teardown. If the trap does not exit within the timeout the DO falls back to SIGKILL via `super.destroy()` so the route always returns.
+1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'` and calls `container.destroy()`. The `destroy()` override first clears `SESSION_ID_KEY`, `bucketName` and other identifiers from DO storage (preventing session resurrection via the asynchronous `onStop()` writeback), then performs a graceful shutdown: sends `SIGTERM` to the container, polls `ctx.container.running` for up to 25 s while the entrypoint trap runs the final `rclone bisync` (the trap reads R2 credentials from process env vars baked in at container start, so clearing DO storage first does not affect bisync), and only then calls `super.destroy()` to teardown. If the trap does not exit within the timeout the DO falls back to SIGKILL via `super.destroy()` so the route always returns.
 2. **Restart:** `POST /api/container/start` on a stopped session. Same-bucket restart receives 409 from `setBucketName` (bucket already set) but still updates sessionId, preferences, and tab config. Different-bucket restart calls `destroy()` then re-calls `setBucketName`.
-3. **Delete:** `DELETE /api/sessions/:id` calls `container.destroy()` (same graceful-shutdown path as Stop, so the final bisync runs before R2 credentials are wiped) and then removes the KV record.
+3. **Delete:** `DELETE /api/sessions/:id` calls `container.destroy()` (same graceful-shutdown path as Stop, so the final bisync runs before SDK teardown) and then removes the KV record.
 4. Frontend transitions: `stopped` -> `initializing` -> `running` (start); `running` -> `stopping` -> `stopped` (stop).
 
 **Constraints:**

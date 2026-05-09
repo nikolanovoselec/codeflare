@@ -445,7 +445,7 @@ export class container extends Container<Env> {
           this.logger.info('Graceful shutdown complete', { elapsed });
         }
       } catch (err) {
-        this.logger.warn('Graceful shutdown failed, falling back to SIGKILL', toError(err));
+        this.logger.warn('Graceful shutdown failed, falling back to SIGKILL', { error: toError(err).message });
       }
     }
 
