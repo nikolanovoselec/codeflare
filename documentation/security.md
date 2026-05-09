@@ -96,12 +96,12 @@ Codeflare's threat model places several patterns in scope for static-analysis to
 
 | Pattern | Site | Why it's not a finding |
 |---|---|---|
-| Container runs as root (no `USER` directive) | `Dockerfile:200` | Network isolation via Durable Object proxy is the security boundary; only the DO can reach port 8080, and the per-DO container auth token validates every proxied request. Root is required for FUSE mount and runtime tool installation throughout the lifetime, not just init. |
-| KV-stored CORS origin patterns not re-validated per request | `src/lib/cors-cache.ts:121` | Admin already has full worker access (deploy code, modify secrets). Per-request re-validation adds overhead for zero benefit. |
-| Predictable-looking session ID pattern | `src/lib/constants.ts:6` | Session IDs are namespace keys, not auth tokens. JWT is the auth gate. |
-| Hardcoded test email `e2e-service@codeflare.local` | `src/lib/access.ts:166` | Test fixture using RFC 6762 reserved `.local` TLD. Auth gate is the worker secret, not the email string. |
+| Container runs as root (no `USER` directive) | `Dockerfile` (near `STOPSIGNAL`) | Network isolation via Durable Object proxy is the security boundary; only the DO can reach port 8080, and the per-DO container auth token validates every proxied request. Root is required for FUSE mount and runtime tool installation throughout the lifetime, not just init. |
+| KV-stored CORS origin patterns not re-validated per request | `src/lib/cors-cache.ts` (`isAllowedOrigin`) | Admin already has full worker access (deploy code, modify secrets). Per-request re-validation adds overhead for zero benefit. |
+| Predictable-looking session ID pattern | `src/lib/constants.ts` (`SESSION_ID_PATTERN`) | Session IDs are namespace keys, not auth tokens. JWT is the auth gate. |
+| Hardcoded test email `e2e-service@codeflare.local` | `src/lib/access.ts` (service-token branch) | Test fixture using RFC 6762 reserved `.local` TLD. Auth gate is the worker secret, not the email string. |
 
-Each row's rationale is also captured at the source site as an inline comment. New SAST findings that match one of these patterns can be silenced via the inline-comment convention rather than escalating to an ADR.
+Each row's rationale is also captured at the source site as an inline comment. To find every entry: `grep -rn "SAST-false-positive" .` — the literal token is the durable anchor, not the line numbers. New SAST findings that match one of these patterns can be silenced via the inline-comment convention rather than escalating to an ADR.
 
 ## Body Limit
 

@@ -335,7 +335,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 ### AD31: Root container is intentional
 
-**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (missing `USER` directive flagged as privilege issue) accepted with network-isolation rationale; documented inline at `Dockerfile:200` and summarized in [security.md "Static-Analyzer False Positives"](../security.md#static-analyzer-false-positives). Inbound `AD31` references in the codebase remain valid; this entry preserves the anchor.
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (missing `USER` directive flagged as privilege issue) accepted with network-isolation rationale; documented inline in `Dockerfile` (search `SAST-false-positive`) and summarized in [security.md "Static-Analyzer False Positives"](../security.md#static-analyzer-false-positives). Inbound `AD31` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
