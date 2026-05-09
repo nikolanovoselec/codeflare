@@ -1,9 +1,9 @@
 <!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 46 ADR slots exist (AD1-AD46); 6 slots are merge-redirect stubs (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18) that preserve inbound AD-N references after their content was consolidated into a sibling ADR on 2026-05-03. 40 ADRs carry active content. The combined file is over the implicit 100×46 budget but each individual active ADR is under the per-ADR cap. Splitting into 46 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 47 ADR slots exist (AD1-AD47); 6 slots are merge-redirect stubs (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18) that preserve inbound AD-N references after their content was consolidated into a sibling ADR on 2026-05-03. 41 ADRs carry active content. The combined file is over the implicit 100×47 budget but each individual active ADR is under the per-ADR cap. Splitting into 47 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD46 throughout the codebase and documentation.
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD47 throughout the codebase and documentation.
 
 **Audience:** Developers
 
@@ -59,6 +59,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | SDD three-mode autonomy with conservative JUDGMENT resolution | Architecture |
 | [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | User overrides recorded as ADRs, not skip-list | Architecture |
 | [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
+| [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | PTY keepalive as safety net only, not the idle policy | Architecture |
 
 ---
 
@@ -634,6 +635,47 @@ A new persistent file `sdd/.review-decisions.md` is committed to the repo and ap
 - `preseed/agents/claude/skills/spec-driven-development/SKILL.md` (spec structure diagram)
 
 **Issue:** [codeflare#271](https://github.com/nikolanovoselec/codeflare/issues/271)
+
+---
+
+### AD47: PTY keepalive as safety net only, not the idle policy
+
+**Status:** Accepted (2026-05-09)
+
+**Context:** The host process inside each container ran a per-PTY reaper at `PTY_KEEPALIVE_MS = 2700000` (45 min). When a session's WebSocket clients all disconnected (dashboard navigation 60s grace, backgrounded mobile tab dropping WS, network blip, laptop sleep), `Session.detach()` armed a 45-min `setTimeout`; on expiry the PTY was SIGTERMed, killing the `bash -l` and the child `claude` process. On reconnect, `Session.start()` re-spawned `bash -l` which re-launched `claude` from `.bashrc` — a fresh process with empty in-memory state, forcing the user to `/resume` from the on-disk JSONL transcript. Users with `sleepAfter` set to 2h experienced what felt like "Claude Code restarted" after roughly an hour of idle, even though the container itself was nowhere near the configured timeout. The reaper was unspec'd (no REQ, no prior ADR), introduced at initial release and never tuned.
+
+The original justification considered was per-PTY RAM cleanup when one tab in a multi-tab session went idle while sibling tabs kept the container hot. That premise does not hold in codeflare: each tab is its own session with its own container DO and its own `lastInputAt`, so there is no "sibling tabs keep container alive while orphan PTY hoards RAM" case. Per-tab orphaning cannot occur because the container's `collectMetrics` reaches its idle threshold whenever no input is happening — at which point the entire container is stopped and every PTY in it dies along with it.
+
+**Decision:** Keep the per-PTY reaper but reframe its role as a pure **safety net** for the case where `lastInputAt` tracking gets stuck (terminal server bug, stuck activity polling, broken `/activity` endpoint), and raise the floor to 120 minutes — equal to the maximum user-configurable `sleepAfter`. Concretely, change `PTY_KEEPALIVE_MS` default from `2700000` (45 min) to `7200000` (120 min) in `host/src/server.ts` and `host/src/session.ts`.
+
+**Alternatives considered:**
+
+1. **Remove the reaper entirely.** Rejected: leaves no recourse if `collectMetrics` ever silently fails to stop a container with a stuck `lastInputAt`. The cost of keeping the reaper is one `setTimeout` per orphaned session.
+2. **Make `PTY_KEEPALIVE_MS` track the user's `sleepAfter` preference dynamically.** Rejected: requires plumbing `sleepAfter` from the container DO through `buildEnvVars` into the host process and re-arming the timer on preference change. The 120-min floor matches the maximum `sleepAfter` and saves the plumbing — a user with `sleepAfter=15m` whose container has stuck `lastInputAt` gets a slightly longer-lived orphan PTY than ideal, but the tradeoff is acceptable for a safety net that is not expected to fire in normal operation.
+3. **Make the reaper kill only the agent process while keeping the shell alive, so context persists.** Rejected: the agent's in-memory state (conversation history, tool-use cache) is what `/resume` reloads from JSONL; killing only the agent and re-spawning still loses in-memory state. The user-facing symptom is identical to today's behavior, with extra plumbing for no gain.
+4. **Bump to a smaller floor (e.g. 90 min).** Rejected: arbitrary midpoint with no principled basis. 120 min has a clear justification: it equals the maximum `sleepAfter` so the reaper is guaranteed not to fire before the container's authoritative idle-stop has had a chance to run.
+
+**Rationale:**
+
+- The user-facing idle contract is REQ-SESSION-004's `sleepAfter` (5m / 15m / 30m / 1h / 2h). The PTY reaper sits *below* that contract and must never undercut it. Setting the floor at the maximum `sleepAfter` ensures it cannot fire before the authoritative policy.
+- The reaper's value is purely defensive: it prevents a single orphaned PTY from outliving its container forever in pathological scenarios (e.g., `lastInputAt` polling dies but the container DO doesn't notice). With a 120-min floor it still does that job — it just doesn't fire on the happy path.
+- The change is one constant in two files; risk is bounded.
+
+**Trade-offs accepted:**
+
+- Users with `sleepAfter` < 2h will, in the rare case of stuck `lastInputAt`, see PTY orphans last up to 120 min instead of 45 min. The container would also be stuck (because `collectMetrics` is the trigger for both stop paths), so the practical impact is "container survives 75 extra minutes when something is broken" — acceptable because the user can manually stop the session from the dashboard.
+- The default is hardcoded; a future operator who hits memory pressure on a long-orphaned PTY can still override via `PTY_KEEPALIVE_MS` env var. No new user-facing setting is added.
+
+**Related requirements:**
+
+- REQ-SESSION-004 (idle containers sleep after configurable timeout) — the authoritative idle policy. AD47 documents that the PTY-level reaper is subordinate to and must never undercut this REQ.
+- REQ-SESSION-005 (input-based idle detection via `lastInputAt`) — the signal `collectMetrics` uses; the reaper is the safety net for cases where this signal gets stuck.
+
+**Implementation references:**
+
+- `host/src/server.ts:62` (`PTY_KEEPALIVE_MS` default)
+- `host/src/session.ts:146` (`_ptyKeepaliveMs` fallback)
+- `host/src/session.ts:300-318` (`detach()` arms the timer; `keepAliveTimeout` fires `kill()`)
 
 ---
 

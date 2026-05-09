@@ -143,7 +143,7 @@ export class Session {
     this._log = options.log ?? (() => {});
     this._logWsEvent = options.logWsEvent ?? (() => {});
     this._activityTracker = options.activityTracker ?? null;
-    this._ptyKeepaliveMs = options.ptyKeepaliveMs ?? 2700000;
+    this._ptyKeepaliveMs = options.ptyKeepaliveMs ?? 7200000;
   }
 
   /**
