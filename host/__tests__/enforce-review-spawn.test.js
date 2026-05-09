@@ -241,6 +241,32 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     assert.match(r.stdout, /"decision":"block"/);
   });
 
+  it('fail-open: blocks when gh returns OPEN but baseRefName field is empty', () => {
+    // Regression for the fail-closed bug surfaced in external review:
+    // if jq parses `state` successfully but `baseRefName` extracts to
+    // empty (transient gh / jq quirk between successful state parse
+    // and base parse), the hook must fall to enforcement, NOT exit 0.
+    // Otherwise an un-acked PR-to-main with malformed gh output silently
+    // skips review.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd,
+      // Custom gh fixture: returns OPEN + headRefOid but omits
+      // baseRefName field entirely.
+      `ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
+  echo '{"state":"OPEN","headRefOid":"unackedSHA"}'
+  exit 0
+fi
+echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
+exit 99`);
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision":"block"/,
+      'empty BASE_REF must fail-open to enforcement, not silently exit 0');
+  });
+
   it('exits 0 silently when gh confirms PR HEAD matches LAST_ACK (no @{u})', () => {
     // No upstream tracking → cheap @{u} pre-check skipped → falls
     // through to gh → gh returns matching SHA → authoritative-path

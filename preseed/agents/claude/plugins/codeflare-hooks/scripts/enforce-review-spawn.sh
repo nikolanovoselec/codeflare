@@ -219,8 +219,13 @@ BASE_REF=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
 
 # Gate on PR target: only PRs landing on main/master trigger the review
 # pipeline. Feature → develop defers until the develop → main PR.
+#
+# Empty BASE_REF (transient gh / jq failure between successful state
+# parse and base parse — rare but possible) is treated as fail-open:
+# enforcement still runs. Better to over-block when truth is uncertain
+# than to silently let an unreviewed PR-to-main slip through.
 case "$BASE_REF" in
-  main|master) ;;
+  main|master|"") ;;
   *) exit 0 ;;
 esac
 

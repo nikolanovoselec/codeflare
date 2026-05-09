@@ -125,12 +125,26 @@ The full command syntax is documented in the `/sdd` command file.
 
 Once `sdd/` exists in a project, the workflow runs automatically without explicit `/sdd` invocation:
 
-- After every git push, the `spec-reviewer` agent runs (sequentially, then `doc-updater`)
-- Both agents detect `sdd/` exists → enter SDD-strict mode
+- At PR-boundary events for PRs targeting `main` or `master` (PR open or push to a branch with such a PR open), `code-reviewer` runs in parallel; `spec-reviewer` runs first then `doc-updater` runs second (sequential, never parallel)
+- Both `sdd/`-lane agents detect `sdd/` exists → enter SDD-strict mode
 - Both agents read `sdd/config.yml` → know whether to be interactive/auto/unleashed
 - Findings are auto-fixed per the mode
 
 If `sdd/` doesn't exist, `spec-reviewer` exits silently. `doc-updater` runs in `docs-only` mode (project-agnostic doc maintenance, no spec coordination).
+
+### SDLC requirements for autonomous review
+
+The review pipeline is gated on **PR base = `main` or `master`**. PRs into intermediate integration branches (`develop`, `staging`, etc.) are deferred until the integration branch's own PR-to-`main` opens or syncs, where a single cumulative review covers everything that landed.
+
+To get autonomous review on a project, ensure:
+
+1. The repo has a `main` (or `master`) branch as the eventual merge target. Trunk-based projects using a different default branch name (e.g., `trunk`) get **no review**: the hardcoded gate is a v1 trade-off, configurable later if real demand surfaces.
+2. PRs are opened against `main`/`master`, either directly (`feature → main`) or transitively (`feature → develop → main`, where the `develop → main` PR is what triggers review).
+3. `gh` CLI is installed and authenticated for the GitHub remote (the hooks call `gh pr view <branch> --json state,headRefOid,baseRefName`).
+4. Upstream tracking is set on the working branch — `git rev-parse @{u}` must resolve. Vanilla `git clone <url>` sets this up automatically. Manual `git checkout -B <branch>` without `--track` does not; repair once with `git branch --set-upstream-to=origin/<branch> <branch>`.
+5. Strongly recommended: GitHub branch protection on `main` requiring PR before merge. Direct pushes to `main` are silently outside the trigger model — the platform layer is the only structural defense.
+
+The hooks fail-safe in the right direction: if `gh` is missing or transiently fails, the Stop hook errs toward enforcement (better to over-block on uncertain truth than miss an unreviewed PR-to-main); the PostToolUse directive errs toward emission. Either way, the user can always invoke review agents manually via the `Task` tool.
 
 ## /sdd init — bootstrapping a project (greenfield OR existing codebase)
 

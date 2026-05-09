@@ -48,12 +48,39 @@ AUTONOMY MODES
                            true. Revert per-category SHA to undo.
 
 AUTO-RUN  (no /sdd invocation needed)
-  Once sdd/ exists, the SDD workflow runs automatically after every
-  push: spec-reviewer updates sdd/ to match the code, then doc-updater
-  updates documentation/. Both honor sdd/config.yml mode and any
-  ADRs in documentation/decisions/ that carry an Overrides: header
-  (skip list — see "USER OVERRIDES" below). Vibe-code without sdd/
-  works too — agents stay silent until you /sdd init.
+  Once sdd/ exists, the SDD workflow runs automatically at PR-boundary
+  events for PRs targeting main/master: code-reviewer + spec-reviewer
+  + doc-updater fire on PR open or on push to a branch with such a
+  PR open. Both honor sdd/config.yml mode and any ADRs in
+  documentation/decisions/ that carry an Overrides: header (skip
+  list — see "USER OVERRIDES" below). Vibe-code without sdd/ works
+  too — agents stay silent until you /sdd init.
+
+REQUIRED SDLC FOR AUTONOMOUS REVIEW
+  The review pipeline only fires for PRs whose base is `main` or
+  `master`. To get autonomous code review, your repo needs:
+
+  1. A `main` (or `master`) branch as the eventual merge target.
+  2. PRs opened with that base — either directly (feature → main)
+     or transitively (feature → develop → main, where the
+     develop → main PR is what triggers review).
+  3. `gh` CLI installed and authenticated for the GitHub remote
+     (the hooks call `gh pr view <branch> --json
+     state,headRefOid,baseRefName`).
+  4. Upstream tracking on the working branch (`git rev-parse @{u}`
+     resolves). Vanilla `git clone <url>` sets this up. If you
+     used `git checkout -B <branch>` without `--track`, repair
+     once: `git branch --set-upstream-to=origin/<branch> <branch>`.
+  5. Recommended: GitHub branch protection on main requiring PR
+     before merge — the only structural defense against direct
+     pushes that bypass review.
+
+  PRs into intermediate branches (develop, staging, etc.) are
+  silently deferred. The cumulative review at the develop → main
+  PR covers everything that landed. If your project has no main/
+  master branch — e.g., trunk-based with `trunk` as the default
+  branch — review will silently never fire; either rename to main
+  or open an issue (the hardcoded gate is a deliberate v1 trade-off).
 
 CONFIG  (sdd/config.yml)
   mode                              interactive | auto | unleashed
