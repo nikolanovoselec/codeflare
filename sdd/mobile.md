@@ -121,7 +121,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Constraints:**
 - The `isCorrectingScroll` flag prevents recursion when `scrollToBottom()` inside corrections triggers synchronous `onScroll` events.
 - Recent user intent (wheel/pointerdown/keydown) is checked before forcing bottom-following users to the bottom.
-- Scrollback is limited to 400 lines (frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`).
+- Scrollback is limited to 1000 lines (frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`).
 
 **Priority:** P0
 **Dependencies:** REQ-TERM-008

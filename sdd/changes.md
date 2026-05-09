@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-09
+- Terminal scrollback buffer increased from 400 to 1000 lines (REQ-MOB-004). Users can scroll back roughly 2.5x further through command output history before older lines are trimmed. Both browser xterm.js and host headless serialize buffer were bumped together so reconnect-restore stays in sync.
+
 ## 2026-05-05
 - `/review` gains a new Phase 5 (Reality Filter) and a persistent triage history file `sdd/.review-decisions.md` (REQ-AGENT-015 AC1 and AC5 updated). The Reality Filter re-evaluates AD-active findings against five questions (repeat-offender, memory-says-no, cluster aggregation, user-impact bar, spec-vs-shipped truth-test) and produces a short list of real findings the user actually triages, with a mandatory audit log of every drop. Empirically the filter takes 71 active findings down to ~10 real findings on a stable codebase. Phases 5-9 of the old pipeline shift to 6-10; output files renumber accordingly (AD46, issue codeflare#271).
 
