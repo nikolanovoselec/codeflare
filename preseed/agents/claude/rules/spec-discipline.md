@@ -207,11 +207,12 @@ If the review pipeline is genuinely blocking legitimate work (e.g., the hook is 
 
 ## Operational requirements for the Stop hook
 
-The v5 Stop hook (`enforce-review-spawn.sh`) uses `gh pr view` as its authoritative truth signal — it queries the current branch for an open PR and the PR HEAD SHA on every Stop event (with a cheap `@{u}`-based short-circuit when the local remote-tracking ref is fresh and matches the last ack). Reflog is no longer read at runtime in v5; the v4 reflog mention in the script header is preserved as a documentation reference only.
+The v5 Stop hook (`enforce-review-spawn.sh`) uses `gh pr view` as its authoritative truth signal — it queries the current branch for an open PR, the PR HEAD SHA, and the PR base branch on every Stop event (with a cheap `@{u}`-based short-circuit when the local remote-tracking ref is fresh and matches the last ack). Enforcement only fires when the PR base is `main` or `master` — feature → develop PRs defer until the develop → main PR opens, mirroring the PostToolUse trigger model. Reflog is no longer read at runtime in v5; the v4 reflog mention in the script header is preserved as a documentation reference only.
 
 This means the hook needs:
 - `gh` on PATH and authenticated for the project's GitHub remote.
 - `sdd/README.md` to exist (vibe-coding gate).
+- The current branch's open PR (if any) must target `main` or `master` for the gate to fire. PRs into intermediate integration branches (`develop`, `staging`) are silently deferred.
 - For the cheap-path optimization to fire (~200-500ms saved per Stop event in the post-review tail of a session): `git rev-parse @{u}` must resolve to a remote-tracking ref. A vanilla `git clone https://github.com/owner/repo.git` sets this up automatically.
 
 If you cloned with `-b <branch>` and later checked out a different branch, or used `git checkout -B <branch> origin/<branch>` without `--track`, the cheap path silently won't fire and every Stop event will pay the gh round-trip. Repair tracking once with:

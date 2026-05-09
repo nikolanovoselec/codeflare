@@ -46,13 +46,13 @@ function fakeGh(cwd, body) {
 }
 
 // Exact-match fixtures (not substring): production hook calls
-// `gh pr view <branch> --json state,headRefOid`. Anything else gets
-// exit 99 + stderr noise so future refactors that change the CLI
-// shape surface loudly instead of silently passing.
-function ghReturning(state, headSha) {
+// `gh pr view <branch> --json state,headRefOid,baseRefName`. Anything
+// else gets exit 99 + stderr noise so future refactors that change
+// the CLI shape surface loudly instead of silently passing.
+function ghReturning(state, headSha, base = 'main') {
   return `ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json state,headRefOid" ]]; then
-  echo '{"state":"${state}","headRefOid":"${headSha}"}'
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
+  echo '{"state":"${state}","headRefOid":"${headSha}","baseRefName":"${base}"}'
   exit 0
 fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
@@ -61,7 +61,7 @@ exit 99`;
 
 function ghNoPR() {
   return `ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json state,headRefOid" ]]; then
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
   exit 1
 fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
@@ -202,6 +202,71 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     assert.equal(r.stdout, '');
   });
 
+  it('exits 0 silently when open PR targets develop (not main/master)', () => {
+    // Base gating: feature → develop PRs defer review until the
+    // develop → main PR opens. Even with un-acked PR HEAD and no
+    // agents spawned, this branch must not block.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'develop'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'feature → develop PR must not trigger Stop-hook enforcement');
+  });
+
+  it('blocks when open PR targets main with un-acked HEAD and no agents spawned', () => {
+    // Pins the positive-direction half of base gating: PR-to-main
+    // with an un-acked HEAD continues to enforce as before.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision":"block"/);
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /spec-reviewer/);
+  });
+
+  it('blocks when open PR targets master with un-acked HEAD and no agents spawned', () => {
+    // master is treated identically to main.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'master'));
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision":"block"/);
+  });
+
+  it('fail-open: blocks when gh returns OPEN but baseRefName field is empty', () => {
+    // Regression for the fail-closed bug surfaced in external review:
+    // if jq parses `state` successfully but `baseRefName` extracts to
+    // empty (transient gh / jq quirk between successful state parse
+    // and base parse), the hook must fall to enforcement, NOT exit 0.
+    // Otherwise an un-acked PR-to-main with malformed gh output silently
+    // skips review.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd,
+      // Custom gh fixture: returns OPEN + headRefOid but omits
+      // baseRefName field entirely.
+      `ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
+  echo '{"state":"OPEN","headRefOid":"unackedSHA"}'
+  exit 0
+fi
+echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
+exit 99`);
+    const t = writeTranscript(cwd, [PUSH_LINE()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision":"block"/,
+      'empty BASE_REF must fail-open to enforcement, not silently exit 0');
+  });
+
   it('exits 0 silently when gh confirms PR HEAD matches LAST_ACK (no @{u})', () => {
     // No upstream tracking → cheap @{u} pre-check skipped → falls
     // through to gh → gh returns matching SHA → authoritative-path
@@ -273,9 +338,9 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
       join(binDir, 'gh'),
       `#!/usr/bin/env bash
 ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json state,headRefOid" ]]; then
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
   echo invoked > "${markerFile}"
-  echo '{"state":"OPEN","headRefOid":"${headSha}"}'
+  echo '{"state":"OPEN","headRefOid":"${headSha}","baseRefName":"main"}'
   exit 0
 fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2

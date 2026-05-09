@@ -21,10 +21,14 @@
 #     HEAD SHA whose review pipeline completed. A PR is un-acknowledged
 #     iff CURRENT_PR_HEAD ≠ LAST_ACK_PR_HEAD.
 #
-# Trigger semantics (PR-boundary):
+# Trigger semantics (PR-boundary, gated on PR target = main/master):
 #
 #   - No open PR for current branch → exit 0 (deferred; the review
 #     fires when the PR opens)
+#   - Open PR + base ∉ (main, master) → exit 0 (deferred; the
+#     integration branch's own PR-to-main carries the cumulative
+#     review). Feature → develop PRs do not fire; develop → main
+#     PRs do.
 #   - Open PR + CURRENT_PR_HEAD == LAST_ACK → exit 0 (already reviewed
 #     at this state)
 #   - Open PR + CURRENT_PR_HEAD ≠ LAST_ACK → enforce: require
@@ -207,10 +211,23 @@ PR_INFO=$(gh_pr_state "$CURRENT") || exit 0
 
 PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
 CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
+BASE_REF=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
 
 # No open PR for current branch → exit 0 (deferred review)
 [ "$PR_STATE" = "OPEN" ] || exit 0
 [ -n "$CURRENT_PR_HEAD" ] || exit 0
+
+# Gate on PR target: only PRs landing on main/master trigger the review
+# pipeline. Feature → develop defers until the develop → main PR.
+#
+# Empty BASE_REF (transient gh / jq failure between successful state
+# parse and base parse — rare but possible) is treated as fail-open:
+# enforcement still runs. Better to over-block when truth is uncertain
+# than to silently let an unreviewed PR-to-main slip through.
+case "$BASE_REF" in
+  main|master|"") ;;
+  *) exit 0 ;;
+esac
 
 # Authoritative PR HEAD check (network result may differ from @{u} if
 # the local-tracking ref is stale): bail if already acked.

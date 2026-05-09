@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,18 +32,18 @@ function withSdd(cwd) {
   writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
 }
 
-function fakeGh(cwd, { state = '', exitCode = 0 } = {}) {
+function fakeGh(cwd, { state = '', base = 'main', exitCode = 0 } = {}) {
   const binDir = join(cwd, 'fake-bin');
   mkdirSync(binDir, { recursive: true });
   // Exact-match fixture (not substring): both hooks now share the
   // gh CLI shape via lib/gh-pr-state.sh — `gh pr view <branch>
-  // --json state,headRefOid`. Anything else gets exit 99 + stderr
-  // noise so an unintended invocation in a future refactor surfaces
-  // loudly instead of silently passing.
+  // --json state,headRefOid,baseRefName`. Anything else gets exit
+  // 99 + stderr noise so an unintended invocation in a future
+  // refactor surfaces loudly instead of silently passing.
   const body = `#!/usr/bin/env bash
 ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json state,headRefOid" ]]; then
-  ${state ? `echo '{"state":"${state}","headRefOid":"fakehead"}'` : ''}
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
+  ${state ? `echo '{"state":"${state}","headRefOid":"fakehead","baseRefName":"${base}"}'` : ''}
   exit ${exitCode}
 fi
 echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
@@ -134,27 +134,78 @@ describe('git-push-review-reminder.sh — vibe-coding gate', () => {
   });
 });
 
-describe('git-push-review-reminder.sh — PR-OPEN trigger', () => {
-  it('emits silent directive on `gh pr create` in SDD project', () => {
+describe('git-push-review-reminder.sh — PR-OPEN trigger (base-gated)', () => {
+  it('emits silent directive when gh pr create lands a PR targeting main', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: '', exitCode: 0 });
-    const r = runHook(cwd, 'gh pr create --base develop --head feature', binDir);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHook(cwd, 'gh pr create --base main --head feature', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/);
     assert.match(r.stdout, /PR open/);
   });
-});
 
-describe('git-push-review-reminder.sh — PR-SYNC trigger', () => {
-  it('emits silent directive on git push when current branch has open PR', () => {
+  it('emits silent directive when gh pr create lands a PR targeting master', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'master', exitCode: 0 });
+    const r = runHook(cwd, 'gh pr create --base master --head feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/);
+  });
+
+  it('exits silently when gh pr create lands a PR targeting develop', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'develop', exitCode: 0 });
+    const r = runHook(cwd, 'gh pr create --base develop --head feature', binDir);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'PR targeting develop must defer until the develop → main PR opens');
+  });
+
+  it('falls open and emits directive when gh transient-fails on PR-OPEN', () => {
+    // Fail-open direction: a transient gh failure right after PR creation
+    // should not skip review. The Stop hook re-checks at turn end and
+    // would silently exit 0 if base is actually develop, so this is
+    // safe over-emission.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: '', exitCode: 0 });
+    const r = runHook(cwd, 'gh pr create --base main --head feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/);
+  });
+});
+
+describe('git-push-review-reminder.sh — PR-SYNC trigger (base-gated)', () => {
+  it('emits silent directive on git push when current branch has open PR to main', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/);
     assert.match(r.stdout, /PR-sync/);
+  });
+
+  it('emits silent directive when current branch has open PR to master', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'master', exitCode: 0 });
+    const r = runHook(cwd, 'git push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/);
+  });
+
+  it('exits silently on git push when open PR targets develop (not main)', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'develop', exitCode: 0 });
+    const r = runHook(cwd, 'git push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'feature → develop must defer until the develop → main PR opens');
   });
 
   it('exits 0 silently on git push when no open PR exists (deferred)', () => {
@@ -166,28 +217,54 @@ describe('git-push-review-reminder.sh — PR-SYNC trigger', () => {
     assert.equal(r.stdout, '');
   });
 
-  it('detects chained pipelines like `git add && git push`', () => {
+  it('detects chained pipelines like `git add && git push` and gates on base', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
     const r = runHook(cwd, 'git add . && git commit -m x && git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/);
+  });
+
+  it('fires on git push when gh returns OPEN with empty baseRefName (fail-open)', () => {
+    // Regression test for parity with enforce-review-spawn.sh 7580b15
+    // fix: when the live gh call returns state=OPEN but baseRefName is
+    // empty (jq parse edge case), the case statement must match `""`
+    // and fall through to enforcement rather than silently exit.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = join(cwd, 'fake-bin');
+    mkdirSync(binDir, { recursive: true });
+    // Hand-rolled fixture: state present, baseRefName field absent.
+    writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
+ARGS="$*"
+if [[ "$ARGS" == "pr view "*" --json state,headRefOid,baseRefName" ]]; then
+  echo '{"state":"OPEN","headRefOid":"fakehead"}'
+  exit 0
+fi
+echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
+exit 99
+`);
+    chmodSync(join(binDir, 'gh'), 0o755);
+    const r = runHook(cwd, 'git push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'empty baseRefName must fail open and fire review (parity with Stop hook)');
   });
 
   it('exits 0 silently on detached HEAD', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     spawnSync('git', ['checkout', '--detach', '-q'], { cwd });
-    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
     const r = runHook(cwd, 'git push origin HEAD', binDir);
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
   });
 });
 
-describe('git-push-review-reminder.sh — cache behavior', () => {
-  it('uses cached OPEN result without calling gh', () => {
+describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () => {
+  it('uses cached OPEN+main result without calling gh', () => {
     const cwd = makeFixture();
     withSdd(cwd);
     const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
@@ -196,13 +273,31 @@ describe('git-push-review-reminder.sh — cache behavior', () => {
     const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
-    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\n`);
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\nmain\n`);
     const binDir = fakeGhFails(cwd);  // gh exits 99 — proves cache was used
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.match(r.stdout, /additionalContext/);
     assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/,
-      'fresh OPEN cache must short-circuit the gh call');
+      'fresh OPEN+main cache must short-circuit the gh call');
+  });
+
+  it('uses cached OPEN+develop result to skip silently without calling gh', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\ndevelop\n`);
+    const binDir = fakeGhFails(cwd);
+    const r = runHook(cwd, 'git push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'cached develop-base PR must defer without firing review');
+    assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
   });
 
   it('uses cached empty-PR result to skip silently without calling gh', () => {
@@ -214,10 +309,54 @@ describe('git-push-review-reminder.sh — cache behavior', () => {
     const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd, encoding: 'utf-8',
     }).stdout.trim();
-    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\n\n`);
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\n\n\n`);
     const binDir = fakeGhFails(cwd);
     const r = runHook(cwd, 'git push origin feature', binDir);
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+
+  it('uses cached OPEN+empty-base result and fires (fail-open parity with Stop hook)', () => {
+    // 3-line cache where line 3 is empty (gh returned state OPEN but
+    // jq couldn't extract baseRefName on the previous push). Should
+    // be treated as a valid cache hit (no gh re-query) and PR_BASE=""
+    // should fall through the main|master|"" case and fire review.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    writeFileSync(join(cwd, gitCommonDir, 'sdd-pr-cache'), `${branch}\nOPEN\n\n`);
+    const binDir = fakeGhFails(cwd);  // gh exits 99 — proves cache was used
+    const r = runHook(cwd, 'git push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'OPEN+empty-base cache must fail open and fire review');
+    assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/,
+      '3-line cache (even with empty base) must short-circuit gh');
+  });
+
+  it('legacy 2-line OPEN cache (no base) re-queries gh and rewrites in 3-line schema', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const gitCommonDir = spawnSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd, encoding: 'utf-8',
+    }).stdout.trim();
+    const cachePath = join(cwd, gitCommonDir, 'sdd-pr-cache');
+    writeFileSync(cachePath, `${branch}\nOPEN\n`);  // legacy 2-line
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHook(cwd, 'git push origin feature', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'legacy 2-line OPEN cache must fall through to gh and re-evaluate');
+    const rewritten = readFileSync(cachePath, 'utf-8');
+    assert.match(rewritten, /^[^\n]+\nOPEN\nmain\n$/,
+      'cache must be rewritten in 3-line schema');
   });
 });

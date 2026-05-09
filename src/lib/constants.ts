@@ -2,7 +2,10 @@
 // Terminal server handles all endpoints: WebSocket, health, metrics
 export const TERMINAL_SERVER_PORT = 8080;
 
-// Session ID validation
+// Session ID validation.
+// SAST-false-positive: session IDs are KV namespace keys, NOT auth tokens.
+// Authentication is JWT-based; knowing a session ID without a valid JWT
+// grants zero access. The pattern validates format only, not entropy.
 export const SESSION_ID_PATTERN = /^[a-z0-9]{8,24}$/;
 
 // Default allowed origin patterns for CORS

@@ -26,38 +26,62 @@ Note: Attribution disabled globally via ~/.claude/settings.json.
 
 ### PR-boundary trigger semantics (SDD mode)
 
-| Action | What fires |
-|---|---|
-| `gh pr create` (PR open) | code-reviewer + spec-reviewer + doc-updater (full pipeline) |
-| `git push` to a branch with an open PR | full pipeline (PR-sync) |
-| `git push` to a branch with no open PR | nothing (deferred until PR opens) |
-| `git push` to `develop` directly | nothing (caught by the develop→main PR later) |
-| `git push` to `main`/`master` with no PR | nothing (the user is expected to have branch protection on; if off, manual verification is on the user) |
+Review fires only on PRs that target `main` or `master`. PRs into an
+integration branch (`develop`, `staging`, etc.) are deferred until
+the integration branch's own PR-to-main opens or syncs — the
+cumulative review at that point covers everything that landed.
+
+| Action | PR base | What fires |
+|---|---|---|
+| `gh pr create --base main` | main | code-reviewer + spec-reviewer + doc-updater (full pipeline) |
+| `gh pr create --base develop` | develop | nothing (deferred) |
+| `git push` to a branch with open PR → main | main | full pipeline (PR-sync) |
+| `git push` to a branch with open PR → master | master | full pipeline (PR-sync) |
+| `git push` to a branch with open PR → develop | develop | nothing (deferred — review fires when develop → main PR opens or syncs) |
+| `git push` to a branch with no open PR | — | nothing (deferred until PR opens) |
+| `git push` to `develop` directly | — | nothing (caught by the develop → main PR later) |
+| `git push` to `main`/`master` with no PR | — | nothing (the user is expected to have branch protection on; if off, manual verification is on the user) |
 
 The cost model shifts from per-push (every commit pair burned a full
-review) to per-PR (one review at PR open + one per push while the PR
-is open). Same coverage, ~10× fewer review tokens.
+review) to **per-main-bound PR** (one review at the moment the
+change is destined for `main`, one per push while that PR is open).
+Same coverage, ~10× fewer review tokens than per-push, ~2× fewer
+than per-any-PR.
 
 ### Recommended workflow
 
 ```
 feature ──► PR ──► develop ──► PR ──► main
-   ↑                  ↑                 ↑
-   you push           review fires      review fires
-                      at PR open        at PR open
+   ↑                              ↑
+   you push                       review fires
+   (no review yet)                at PR open + each sync push
 ```
 
-Direct push to `develop` is fine — the develop→main PR catches the
+Direct push to `develop` is fine — the develop → main PR catches the
 cumulative diff. Direct push to `main` should be prevented at the
 GitHub layer (see "Branch protection on main" below) rather than
 worked around in-session.
 
 The `git-push-review-reminder.sh` PostToolUse hook enforces this:
 checks for `sdd/` + `sdd/README.md`, classifies the trigger
-(`gh pr create` → PR-OPEN; `git push` + `gh pr view` returns OPEN →
-PR-SYNC; otherwise deferred), and emits the three-agent directive
-only when the trigger fires. On non-SDD projects the hook exits
-silently and no agents are spawned.
+(`gh pr create` → poll gh for the just-created PR's base; `git push`
+→ `gh pr view` → check state OPEN AND base IN (main, master)), and
+emits the three-agent directive only when the trigger fires. On
+non-SDD projects the hook exits silently and no agents are spawned.
+
+The `enforce-review-spawn.sh` Stop hook is the safety net: it calls
+`gh pr view` at turn end and blocks the turn from ending only if a
+PR-to-main has an un-acked HEAD with the required agents not spawned.
+Same base gate (main/master only). Branch-tracking note:
+
+> The hook's cheap-path `@{u}` short-circuit relies on the current
+> branch having upstream tracking (`git rev-parse @{u}` must
+> resolve). Vanilla `git clone https://github.com/owner/repo.git`
+> sets this up automatically. If you manually create a branch with
+> `git checkout -B <branch>` (no `--track`), repair tracking once
+> with `git branch --set-upstream-to=origin/<branch> <branch>`. The
+> hook still works without it (falls back to `gh pr view`), just
+> pays an extra 200-500ms per Stop event.
 
 To manually invoke code-reviewer or doc-updater on a non-SDD project
 (e.g., to audit code quality or maintain a `documentation/` folder by

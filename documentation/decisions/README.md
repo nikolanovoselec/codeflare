@@ -1,9 +1,9 @@
 <!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 47 ADR slots exist (AD1-AD47); 6 slots are merge-redirect stubs (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18) that preserve inbound AD-N references after their content was consolidated into a sibling ADR on 2026-05-03. 41 ADRs carry active content. The combined file is over the implicit 100×47 budget but each individual active ADR is under the per-ADR cap. Splitting into 47 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 47 ADR slots exist (AD1-AD47). 11 slots are redirect stubs that preserve inbound AD-N references: 6 merged into a canonical sibling on 2026-05-03 (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18), and 5 reclassified out of the decision log on 2026-05-09 per the "What is NOT an ADR" rule (AD9→configuration.md, AD23→inline+security.md, AD24→inline+security.md, AD25→inline+security.md, AD31→inline+security.md). 36 ADRs carry active content. The combined file is over the implicit 100×47 budget but each individual active ADR is under the per-ADR cap. Splitting into 47 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD47 throughout the codebase and documentation.
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD47 throughout the codebase and documentation. 36 active ADRs; 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -21,7 +21,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | KV read-modify-write races and `collectMetrics` atomicity | Architecture |
 | [AD7](#ad7-merged-into-ad10) | _merged into AD10 — pre-setup public endpoints_ | Security |
 | [AD8](#ad8-root-container-no-internal-auth) | Root container, no internal auth | Architecture |
-| [AD9](#ad9-ressource_tier-spelling) | RESSOURCE_TIER spelling | UI/Frontend |
+| [AD9](#ad9-ressource_tier-spelling) | _reclassified - RESSOURCE_TIER spelling moved to configuration.md_ | (redirect) |
 | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation | Security |
 | [AD11](#ad11-suffix-pattern-cors-with-credentials) | Suffix-pattern CORS with credentials | Security |
 | [AD12](#ad12-kv-based-setup-lock-non-atomic) | KV-based setup lock (non-atomic) | Security |
@@ -35,15 +35,15 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD20](#ad20-toctou-in-containerlifecyclets) | TOCTOU in container/lifecycle.ts | Architecture |
 | [AD21](#ad21-inconsistent-function-signatures) | Inconsistent function signatures | Architecture |
 | [AD22](#ad22-jwks-30s-cache-staleness) | JWKS 30s cache staleness | Security |
-| [AD23](#ad23-cors-origin-pattern-validation) | CORS origin pattern validation | Security |
-| [AD24](#ad24-predictable-session-ids) | Predictable session IDs | Security |
-| [AD25](#ad25-e2e-service-email-hardcoded) | E2E service email hardcoded | Security |
+| [AD23](#ad23-cors-origin-pattern-validation) | _reclassified - CORS admin-trust moved to inline + security.md_ | (redirect) |
+| [AD24](#ad24-predictable-session-ids) | _reclassified - session ID rationale moved to inline + security.md_ | (redirect) |
+| [AD25](#ad25-e2e-service-email-hardcoded) | _reclassified - E2E test fixture moved to inline + security.md_ | (redirect) |
 | [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Stress test rate-limit bypass (integration-only) | Security |
 | [AD27](#ad27-server-side-prefix-delete) | Server-side prefix delete | Storage |
 | [AD28](#ad28-merged-into-ad26) | _merged into AD26 — integration-only environment scoping_ | Security |
 | [AD29](#ad29-container-secrets-as-env-vars) | Container secrets as env vars | Security |
 | [AD30](#ad30-worker-name-from-host-header) | Worker name from Host header | Security |
-| [AD31](#ad31-root-container-is-intentional) | Root container is intentional | Architecture |
+| [AD31](#ad31-root-container-is-intentional) | _reclassified - root-container rationale moved to inline + security.md_ | (redirect) |
 | [AD32](#ad32-encryption_key-is-optional) | ENCRYPTION_KEY is optional | Security |
 | [AD33](#ad33-merged-into-ad10) | _merged into AD10 — pre-setup CSRF risk_ | Security |
 | [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | WebSocket auth bypass of Hono middleware | Security |
@@ -133,9 +133,7 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 ### AD9: RESSOURCE_TIER spelling
 
-**Decision:** French/German "ressource" is intentional.
-
-Consistent across all config (wrangler.toml, GitHub variables, TypeScript types). Changing would be a breaking API change affecting deployed instances. The spelling is a deliberate nod to the developer's language background.
+**Status:** Reclassified on 2026-05-09. Naming/spelling preserved for backward compatibility is not an architectural decision; documentation lives at [configuration.md "Container Specs"](../configuration.md#container-specs) with a do-not-rename note. Inbound `AD9` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
@@ -279,25 +277,19 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 ### AD23: CORS origin pattern validation
 
-**Decision:** Admin is trusted -- has full worker access.
-
-Admin-configured CORS origin patterns stored in KV are not re-validated on every request read. The admin already has full worker access (can deploy code, modify secrets). Validating every KV-sourced pattern adds request overhead for zero additional security.
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive accepted with admin-trust rationale; documented inline at `src/lib/cors-cache.ts` (the `isAllowedOrigin` docstring) and summarized in [security.md "Static-Analyzer False Positives"](../security.md#static-analyzer-false-positives). Inbound `AD23` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD24: Predictable session IDs
 
-**Decision:** Session IDs are namespace keys, not secrets.
-
-Session IDs are user-provided identifiers for KV namespacing, not authentication tokens. Security is JWT-based -- knowing a session ID without a valid JWT grants zero access. The `SESSION_ID_PATTERN` validates format, not entropy. Randomizing IDs would break user-friendly naming.
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (analyzer treats session IDs as auth tokens, but they are KV namespace keys; JWT is the auth gate); documented inline at `src/lib/constants.ts:6` and summarized in [security.md "Session ID Validation"](../security.md#session-id-validation). Inbound `AD24` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
 ### AD25: E2E service email hardcoded
 
-**Decision:** `e2e-service@codeflare.local` is a test identifier.
-
-The `.local` TLD is RFC 6762 reserved and obviously non-production. The email is a test fixture seeded into KV for E2E authentication, not a secret. Extracting it to an environment variable adds configuration complexity for zero security benefit.
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (test fixture flagged as hardcoded credential); documented inline at `src/lib/access.ts:166` and summarized in [security.md "Static-Analyzer False Positives"](../security.md#static-analyzer-false-positives). Inbound `AD25` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 
@@ -343,9 +335,7 @@ Worker name derived from Host header for `.workers.dev` subdomains during first-
 
 ### AD31: Root container is intentional
 
-**Decision:** rclone mount, tool installation, and user workspace access all require root.
-
-The Dockerfile has no USER directive; all container processes run as root. Dropping privileges post-init via gosu was evaluated and rejected because tool installation (user-initiated npm install -g, etc.) and rclone FUSE mount operations continue throughout the container lifetime, not just during init. The security boundary is network isolation via the Durable Object proxy -- only the DO can reach the container's port 8080. Container auth token (random UUID per DO lifecycle) validates all proxied requests. User note: "this is by design."
+**Status:** Reclassified on 2026-05-09. Static-analyzer false positive (missing `USER` directive flagged as privilege issue) accepted with network-isolation rationale; documented inline in `Dockerfile` (search `SAST-false-positive`) and summarized in [security.md "Static-Analyzer False Positives"](../security.md#static-analyzer-false-positives). Inbound `AD31` references in the codebase remain valid; this entry preserves the anchor.
 
 ---
 

@@ -202,5 +202,10 @@ EXPOSE 8080
 # Graceful shutdown
 STOPSIGNAL SIGINT
 
-# Run as root for rclone mount and tool installation
+# Run as root by design. SAST-false-positive: rclone FUSE mount, runtime tool
+# installation (npm install -g, agent CLIs), and user workspace access all
+# require root throughout the container lifetime, not just during init. The
+# security boundary is network isolation via the Durable Object proxy: only
+# the DO can reach port 8080, and the per-DO container auth token validates
+# every proxied request.
 ENTRYPOINT ["/entrypoint.sh"]
