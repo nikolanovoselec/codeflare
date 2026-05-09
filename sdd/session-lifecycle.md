@@ -106,7 +106,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. The `sleepAfter` value is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h.
 2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference.
 3. The idle timer resets only when new user input is detected (not on heartbeats, reconnections, or protocol chatter).
-4. `collectMetrics()` is the sole enforcer of the idle timeout: it polls the in-container `/activity` endpoint every 60 seconds, computes idle time from `lastInputAt`, and explicitly calls `this.stop('SIGTERM')` once the user-configured threshold is exceeded.
+4. `collectMetrics()` is the sole enforcer of the container-level idle timeout: it polls the in-container `/activity` endpoint every 60 seconds, computes idle time from `lastInputAt`, and explicitly calls `this.stop('SIGTERM')` once the user-configured threshold is exceeded. (The host-side per-PTY keepalive in `host/src/server.ts` is a separate safety net for stuck `lastInputAt`, floor-clamped at the maximum `sleepAfter` so it cannot fire first — see AD47.)
 5. The Container SDK's own `sleepAfter` timer is pinned to a 24h sentinel so it never fires in normal operation; idle policy is owned exclusively by `collectMetrics()`. The user-facing preference is held in the `idleTimeoutPref` field.
 6. Admins can always change their own `sleepAfter`; non-subscribed users have the dropdown disabled.
 
