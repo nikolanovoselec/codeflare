@@ -76,12 +76,9 @@ export async function signOauthState(secret: string): Promise<string> {
 const CLOCK_SKEW_SEC = 60;
 
 export async function verifyOauthState(state: string, secret: string, maxAgeSec = 1800): Promise<boolean> {
-  const parts = state.split('.');
-  if (parts.length !== 3) return false;
-  const [nonce, iatStr, sigB64] = parts;
-  if (!nonce || !iatStr || !sigB64) return false;
-  const iat = Number(iatStr);
-  if (!Number.isFinite(iat) || iat < 0) return false;
+  const parsed = parseOauthState(state);
+  if (!parsed) return false;
+  const { nonce, iat, sigB64 } = parsed;
   const now = Math.floor(Date.now() / 1000);
   const age = now - iat;
   if (age < -CLOCK_SKEW_SEC || age > maxAgeSec) return false;
@@ -94,4 +91,52 @@ export async function verifyOauthState(state: string, secret: string, maxAgeSec 
   }
   const key = await hmacKey(secret, 'verify');
   return crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(payload));
+}
+
+/**
+ * Parse a state token without verifying the signature.
+ * Returns null on any structural problem. The caller MUST still call
+ * verifyOauthState — this helper exists only so the caller can extract
+ * the nonce for replay-tracking after verification has succeeded.
+ */
+export function parseOauthState(state: string): { nonce: string; iat: number; sigB64: string } | null {
+  const parts = state.split('.');
+  if (parts.length !== 3) return null;
+  const [nonce, iatStr, sigB64] = parts;
+  if (!nonce || !iatStr || !sigB64) return null;
+  const iat = Number(iatStr);
+  if (!Number.isFinite(iat) || iat < 0) return null;
+  return { nonce, iat, sigB64 };
+}
+
+/**
+ * KV-backed single-use enforcement for OAuth state nonces.
+ *
+ * Closes the replay window: even within the 30-minute iat validity,
+ * a state token can only be redeemed once. This prevents OAuth-CSRF
+ * attacks that rely on capturing a state token (browser history,
+ * referrer leak, server log) and racing the legitimate user to
+ * /callback with the attacker's own GitHub authorization code.
+ *
+ * Returns true on first claim, false on replay. Uses KV's atomic
+ * `expirationTtl` for automatic cleanup.
+ *
+ * Race window: KV reads have eventual-consistency (~60s), so two
+ * concurrent /callback requests with the same state could theoretically
+ * both pass the get() check before either put() lands. In practice the
+ * GitHub authorization code is single-use at GitHub's end, so a true
+ * concurrent double-redeem is bounded by GitHub rejecting the second
+ * code-exchange. The state nonce check raises the bar from "no replay
+ * defense" to "replay defense up to KV propagation latency".
+ */
+export async function claimOauthNonce(kv: KVNamespace, nonce: string, ttlSec: number): Promise<boolean> {
+  const key = `oauth-nonce:${nonce}`;
+  const seen = await kv.get(key);
+  if (seen !== null) return false;
+  // Floor at the minimum TTL KV accepts (60s) to avoid put() rejection
+  // for tiny windows. Doesn't apply at our 1800s default but defends
+  // against future callers passing small windows.
+  const ttl = Math.max(60, Math.ceil(ttlSec));
+  await kv.put(key, '1', { expirationTtl: ttl });
+  return true;
 }

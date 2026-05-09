@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { signOauthState, verifyOauthState } from '../../lib/oauth-state';
+import { signOauthState, verifyOauthState, parseOauthState, claimOauthNonce } from '../../lib/oauth-state';
+import { createMockKV } from '../helpers/mock-kv';
 
 const SECRET = 'test-secret-min-32-bytes-long-padding';
 
@@ -104,5 +105,58 @@ describe('oauth-state', () => {
     const a = await signOauthState(SECRET);
     const b = await signOauthState(SECRET);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('parseOauthState', () => {
+  it('returns parsed segments for a well-formed token', async () => {
+    const token = await signOauthState(SECRET);
+    const parsed = parseOauthState(token);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.nonce).toBeTruthy();
+    expect(parsed!.iat).toBeGreaterThan(0);
+    expect(parsed!.sigB64).toBeTruthy();
+  });
+
+  it('returns null for malformed input', () => {
+    expect(parseOauthState('only.two')).toBeNull();
+    expect(parseOauthState('')).toBeNull();
+    expect(parseOauthState('a.b.c.d')).toBeNull();
+    expect(parseOauthState('nonce..sig')).toBeNull();
+    expect(parseOauthState('nonce.notanumber.sig')).toBeNull();
+    expect(parseOauthState('nonce.-1.sig')).toBeNull();
+  });
+});
+
+describe('claimOauthNonce', () => {
+  it('returns true on first claim, false on replay', async () => {
+    const kv = createMockKV();
+    expect(await claimOauthNonce(kv as unknown as KVNamespace, 'nonce-1', 1800)).toBe(true);
+    expect(await claimOauthNonce(kv as unknown as KVNamespace, 'nonce-1', 1800)).toBe(false);
+  });
+
+  it('different nonces are independent', async () => {
+    const kv = createMockKV();
+    expect(await claimOauthNonce(kv as unknown as KVNamespace, 'nonce-a', 1800)).toBe(true);
+    expect(await claimOauthNonce(kv as unknown as KVNamespace, 'nonce-b', 1800)).toBe(true);
+  });
+
+  it('writes under the oauth-nonce: namespace', async () => {
+    const kv = createMockKV();
+    await claimOauthNonce(kv as unknown as KVNamespace, 'nonce-x', 1800);
+    expect(await kv.get('oauth-nonce:nonce-x')).toBe('1');
+  });
+
+  it('floors TTL at 60s for tiny windows (KV minimum)', async () => {
+    const kv = createMockKV();
+    await claimOauthNonce(kv as unknown as KVNamespace, 'nonce-tiny', 5);
+    // kv.put is a vitest Mock — inspect the third argument it was called with
+    expect(kv.put).toHaveBeenCalledWith('oauth-nonce:nonce-tiny', '1', { expirationTtl: 60 });
+  });
+
+  it('passes through ceil-rounded TTL for windows above the floor', async () => {
+    const kv = createMockKV();
+    await claimOauthNonce(kv as unknown as KVNamespace, 'nonce-1800', 1800);
+    expect(kv.put).toHaveBeenCalledWith('oauth-nonce:nonce-1800', '1', { expirationTtl: 1800 });
   });
 });

@@ -14,7 +14,7 @@ import { toError } from '../lib/error-types';
 import { parseUserRecord } from '../lib/user-record';
 import { getBaseUrl } from '../lib/kv-keys';
 import { isActiveTier } from '../lib/subscription';
-import { signOauthState, verifyOauthState } from '../lib/oauth-state';
+import { signOauthState, verifyOauthState, parseOauthState, claimOauthNonce } from '../lib/oauth-state';
 import { createRateLimiter } from '../middleware/rate-limit';
 
 const logger = createLogger('github-auth');
@@ -46,8 +46,10 @@ const loginRateLimiter = createRateLimiter({
 app.get('/login', loginRateLimiter, async (c) => {
   const clientId = c.env.OAUTH_CLIENT_ID;
   if (!clientId || !c.env.OAUTH_CLIENT_SECRET || !c.env.OAUTH_JWT_SECRET) {
-    logger.error('GitHub OAuth not configured — missing secrets');
-    return c.json({ error: 'OAuth not configured' }, 500);
+    // Return 404 instead of 500 on non-SaaS deployments so the route
+    // looks unmounted to outside callers (no information disclosure
+    // about misconfiguration).
+    return c.notFound();
   }
 
   // Stateless HMAC-signed state. No cookie -> works on iOS WebKit
@@ -72,8 +74,8 @@ app.get('/login', loginRateLimiter, async (c) => {
 // ---------------------------------------------------------------------------
 app.get('/callback', callbackRateLimiter, async (c) => {
   if (!c.env.OAUTH_CLIENT_ID || !c.env.OAUTH_CLIENT_SECRET || !c.env.OAUTH_JWT_SECRET) {
-    logger.error('GitHub OAuth not configured — missing secrets');
-    return c.json({ error: 'OAuth not configured' }, 500);
+    // See /login: 404 instead of 500 on non-SaaS deployments.
+    return c.notFound();
   }
 
   const url = new URL(c.req.url);
@@ -95,6 +97,18 @@ app.get('/callback', callbackRateLimiter, async (c) => {
   // gets a clean retry path instead of a raw JSON 403.
   const queryState = url.searchParams.get('state');
   if (!queryState || !(await verifyOauthState(queryState, c.env.OAUTH_JWT_SECRET))) {
+    return c.redirect(`${base}/?error=session-expired`);
+  }
+
+  // Single-use enforcement: the nonce inside the verified state must not
+  // have been redeemed before. Closes the OAuth-CSRF replay window where
+  // an attacker who captures a state token (browser history, referrer
+  // leak, server log) could otherwise race the legitimate user to
+  // /callback within the 30-minute window using the attacker's own
+  // GitHub authorization code. parseOauthState returns the nonce only
+  // after verifyOauthState has already succeeded above, so we trust it.
+  const parsed = parseOauthState(queryState);
+  if (!parsed || !(await claimOauthNonce(c.env.KV, parsed.nonce, 1800))) {
     return c.redirect(`${base}/?error=session-expired`);
   }
 

@@ -90,10 +90,10 @@ describe('GitHub OAuth Routes', () => {
       expect(state.split('.')).toHaveLength(3);
     });
 
-    it('returns 500 when OAUTH_CLIENT_ID missing', async () => {
+    it('returns 404 (looks unmounted) when OAUTH_CLIENT_ID missing', async () => {
       const app = createApp({ OAUTH_CLIENT_ID: undefined } as unknown as Partial<Env>);
       const res = await app.request('/login');
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -120,11 +120,11 @@ describe('GitHub OAuth Routes', () => {
       }) as typeof globalThis.fetch;
     }
 
-    it('returns 500 when OAUTH_JWT_SECRET missing', async () => {
+    it('returns 404 (looks unmounted) when OAUTH_JWT_SECRET missing', async () => {
       const app = createApp({ OAUTH_JWT_SECRET: undefined } as unknown as Partial<Env>);
       const state = await signOauthState(TEST_SECRET);
       const res = await app.request(`/callback?code=test-code&state=${encodeURIComponent(state)}`);
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(404);
     });
 
     it('redirects to /?error=access_denied when GitHub returns error', async () => {
@@ -173,6 +173,29 @@ describe('GitHub OAuth Routes', () => {
       expect(setCookie).toContain('HttpOnly');
       expect(setCookie).toContain('Secure');
       expect(setCookie).toContain('SameSite=Lax');
+    });
+
+    it('rejects replay of a previously-redeemed state token (single-use enforcement)', async () => {
+      mockGitHubSuccess();
+      const app = createApp();
+      const state = await signOauthState(TEST_SECRET);
+
+      // First redemption succeeds
+      const first = await app.request(`/callback?code=test-code&state=${encodeURIComponent(state)}`);
+      expect(first.status).toBe(302);
+      expect(first.headers.get('Location')).toContain('/app/');
+
+      // Second redemption with the SAME state must be rejected as a replay,
+      // even though the HMAC signature still verifies and the iat is fresh
+      const second = await app.request(`/callback?code=test-code&state=${encodeURIComponent(state)}`);
+      expect(second.status).toBe(302);
+      expect(second.headers.get('Location')).toContain('error=session-expired');
+    });
+
+    it('returns 404 (looks unmounted) when OAUTH_CLIENT_ID missing', async () => {
+      const app = createApp({ OAUTH_CLIENT_ID: undefined } as unknown as Partial<Env>);
+      const res = await app.request(`/callback?code=x&state=y`);
+      expect(res.status).toBe(404);
     });
 
     it('returns 400 when code is missing but state is valid', async () => {

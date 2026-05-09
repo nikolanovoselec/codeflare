@@ -41,6 +41,13 @@ function getProviderIcon(provider: AuthProvider) {
 }
 
 
+// Error code naming convention:
+// - hyphens (kebab-case) for codes emitted by our Worker (session-expired, no-verified-email)
+// - underscores (snake_case) for codes passed through verbatim from GitHub
+//   (access_denied, redirect_uri_mismatch, application_suspended) — these match
+//   GitHub's OAuth error codes documented at
+//   https://docs.github.com/en/apps/oauth-apps/maintaining-oauth-apps/troubleshooting-authorization-request-errors
+// New Worker-emitted codes should follow the hyphen convention.
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   'session-expired': 'Your sign-in took too long. Please try again.',
   'no-verified-email': 'Your GitHub account has no verified primary email. Verify your email on GitHub and try again.',
