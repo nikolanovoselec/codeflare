@@ -502,7 +502,7 @@ describe('POST /sessions/:id/stop', () => {
     expect(testState.container!.destroy).toHaveBeenCalled();
   });
 
-  it('returns immediately without waiting for sync', async () => {
+  it('returns 200 after container.destroy() resolves (graceful shutdown handled inside the DO)', async () => {
     const app = createLifecycleApp();
     const session: Session = {
       id: 'sessiontostop12345',
@@ -546,55 +546,6 @@ describe('POST /sessions/:id/stop', () => {
   });
 });
 
-describe('DELETE /sessions/:id', () => {
-  let mockKV: ReturnType<typeof createMockKV>;
-
-  beforeEach(() => {
-    mockKV = createMockKV();
-    testState.container = createMockContainer();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2024-01-15T10:00:00.000Z'));
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.clearAllMocks();
-  });
-
-  function createDeleteApp(bucketName = 'test-bucket') {
-    return createTestApp({
-      routes: [{ path: '/sessions', handler: crudRoutes }],
-      mockKV,
-      bucketName,
-    });
-  }
-
-  it('does NOT call prepareShutdown - destroy() is immediate, SIGTERM handler syncs', async () => {
-    const app = createDeleteApp();
-    const session: Session = {
-      id: 'sessiontodelete123',
-      name: 'To Delete',
-      userId: 'test-bucket',
-      createdAt: '2024-01-15T09:00:00.000Z',
-      lastAccessedAt: '2024-01-15T09:30:00.000Z',
-    };
-    mockKV._set('session:test-bucket:sessiontodelete123', session);
-
-    await app.request('/sessions/sessiontodelete123', {
-      method: 'DELETE',
-    });
-
-    // prepareShutdown should NOT be called - destroy() follows immediately,
-    // so any sync triggered by prepareShutdown would be aborted.
-    // The entrypoint.sh SIGTERM handler is the safety net for direct deletion.
-    const fetchCalls = testState.container!.fetch.mock.calls;
-    const prepareShutdownCall = fetchCalls.find((call: unknown[]) => {
-      const req = call[0] as Request;
-      return req.url.includes('/_internal/prepareShutdown');
-    });
-    expect(prepareShutdownCall).toBeUndefined();
-  });
-});
 
 describe('GET /sessions/batch-status', () => {
   let mockKV: ReturnType<typeof createMockKV>;

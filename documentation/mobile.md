@@ -265,7 +265,7 @@ Earlier iterations (git: Fixes 9-12) introduced three overlapping scroll-correct
 
 6. **Reduced grace window** from 250ms to 150ms for tighter intent tracking.
 
-7. **Reduced scrollback** from 10,000 to 400 lines (both frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`), so xterm's scrollback buffer is the only history cap.
+7. **Reduced scrollback** from 10,000 to 1,000 lines (both frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`), so xterm's scrollback buffer is the only history cap.
 
 ## WebSocket Recovery
 

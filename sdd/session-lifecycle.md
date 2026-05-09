@@ -155,9 +155,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Intent:** Users have explicit control over session lifecycle: stop a running session, restart a stopped session, or permanently delete a session.
 
 **Acceptance Criteria:**
-1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'`, calls `container.destroy()`. The `destroy()` override clears `SESSION_ID_KEY` and `bucketName` from DO storage before `super.destroy()` to prevent session resurrection. `entrypoint.sh` runs a final `rclone bisync` on SIGINT/SIGTERM.
+1. **Stop (user-initiated):** `POST /api/sessions/:id/stop` sets KV status to `'stopped'` and calls `container.destroy()`. The `destroy()` override first clears `SESSION_ID_KEY`, `bucketName` and other identifiers from DO storage (preventing session resurrection), then performs a graceful shutdown — sends `SIGTERM` to the container, polls `ctx.container.running` for up to 25 s while the entrypoint trap runs the final `rclone bisync`, and only then calls `super.destroy()` to teardown. If the trap does not exit within the timeout the DO falls back to SIGKILL via `super.destroy()` so the route always returns.
 2. **Restart:** `POST /api/container/start` on a stopped session. Same-bucket restart receives 409 from `setBucketName` (bucket already set) but still updates sessionId, preferences, and tab config. Different-bucket restart calls `destroy()` then re-calls `setBucketName`.
-3. **Delete:** `DELETE /api/sessions/:id` removes the KV record and calls `container.destroy()`. The `destroy()` override clears identifiers so `onStop()` cannot resurrect the deleted session in KV.
+3. **Delete:** `DELETE /api/sessions/:id` calls `container.destroy()` (same graceful-shutdown path as Stop, so the final bisync runs before R2 credentials are wiped) and then removes the KV record.
 4. Frontend transitions: `stopped` -> `initializing` -> `running` (start); `running` -> `stopping` -> `stopped` (stop).
 
 **Constraints:**
@@ -281,6 +281,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 3. A final `rclone bisync` with `--ignore-checksum --max-delete 100` runs before the terminal server is killed.
 4. The bisync-initialized flag is touched on the timeout path to ensure final bisync runs even when initial sync timed out.
 5. Dockerfile uses `STOPSIGNAL SIGINT` so the container runtime sends a trappable signal.
+6. User-initiated Stop and Delete both reach the trap via the DO's `destroy()` override, which sends `SIGTERM` and polls `ctx.container.running` for up to 25 s before falling back to `super.destroy()`'s SIGKILL. Idle-timeout and quota-eviction paths reach the trap via `collectMetrics`'s `stop('SIGTERM')` call. There is no path that goes straight to SIGKILL while the container is still running.
 
 **Constraints:**
 - PID file is the sole mechanism for killing the sync daemon (no in-memory PID variable fallback).

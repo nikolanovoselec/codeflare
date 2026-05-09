@@ -397,13 +397,15 @@ export class container extends Container<Env> {
     await doCollectMetrics(this.metricsState, this.ctx, this.env, callbacks);
   }
 
-  /** Override destroy to clean up operational storage before SDK teardown. */
+  /**
+   * Override destroy to do a graceful SIGTERM shutdown so the entrypoint trap
+   * runs final R2 bisync (REQ-SESSION-011) before SDK teardown SIGKILLs the
+   * container. Storage identifiers are cleared first so any onStop() racing
+   * with the trap-driven exit cannot resurrect the KV entry (REQ-SESSION-009).
+   */
   override async destroy(): Promise<void> {
     this.logger.info('Destroying container, clearing operational storage');
     try {
-      // Delete SESSION_ID_KEY and null _bucketName so that onStop()
-      // (triggered by super.destroy() killing the container process)
-      // bails out early and does NOT resurrect the KV entry.
       await this.ctx.storage.delete(SESSION_ID_KEY);
       await this.ctx.storage.delete('bucketName');
       await this.ctx.storage.delete('workspaceSyncEnabled');
@@ -426,6 +428,27 @@ export class container extends Container<Env> {
     } catch (err) {
       this.logger.error('Failed to clear storage', toError(err));
     }
+
+    if (this.ctx.container?.running) {
+      const timeoutMs = 25_000;
+      const pollMs = 250;
+      const start = Date.now();
+      try {
+        await this.stop('SIGTERM');
+        while (this.ctx.container?.running && Date.now() - start < timeoutMs) {
+          await new Promise((resolve) => setTimeout(resolve, pollMs));
+        }
+        const elapsed = Date.now() - start;
+        if (this.ctx.container?.running) {
+          this.logger.warn('Graceful shutdown timeout, escalating to SIGKILL', { timeoutMs, elapsed });
+        } else {
+          this.logger.info('Graceful shutdown complete', { elapsed });
+        }
+      } catch (err) {
+        this.logger.warn('Graceful shutdown failed, falling back to SIGKILL', toError(err));
+      }
+    }
+
     return super.destroy();
   }
 
