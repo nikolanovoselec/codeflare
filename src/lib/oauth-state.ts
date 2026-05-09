@@ -1,0 +1,85 @@
+/**
+ * Stateless OAuth state token (HMAC-signed nonce + timestamp).
+ *
+ * Replaces the cookie-based double-submit pattern. Cookie state was
+ * unreliable on iOS WebKit (Safari + Brave), where ITP suppressed the
+ * SameSite=Lax cookie on the github.com -> codeflare.ch bounce-back
+ * for first-time first-party visitors. The signed-state-in-URL pattern
+ * has no cookie dependency, so the OAuth handshake works identically
+ * in private browsing, ITP-aggressive engines, and ephemeral storage.
+ *
+ * Format: `nonce.iat.sig` where sig = HMAC-SHA256(secret, `nonce:iat`).
+ *
+ * CSRF protection: attacker cannot forge a state without OAUTH_JWT_SECRET,
+ * and the iat timestamp bounds the replay window.
+ */
+
+const enc = new TextEncoder();
+
+function b64url(bytes: ArrayBuffer | Uint8Array): string {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let bin = '';
+  for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64urlDecode(s: string): Uint8Array {
+  const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + pad;
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function hmacKey(secret: string, usage: 'sign' | 'verify'): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    [usage],
+  );
+}
+
+/** Sign a fresh OAuth state token. */
+export async function signOauthState(secret: string): Promise<string> {
+  const nonce = crypto.randomUUID();
+  const iat = Math.floor(Date.now() / 1000);
+  const payload = `${nonce}:${iat}`;
+  const key = await hmacKey(secret, 'sign');
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  return `${nonce}.${iat}.${b64url(sig)}`;
+}
+
+/**
+ * Verify an OAuth state token.
+ *
+ * Returns true iff: parses cleanly, iat is non-negative and not in the future
+ * by more than CLOCK_SKEW_SEC, age <= maxAgeSec, and HMAC signature matches.
+ *
+ * Default window of 30 minutes (1800s) covers slow first-time GitHub
+ * registrations including email verification + 2FA setup.
+ */
+const CLOCK_SKEW_SEC = 60;
+
+export async function verifyOauthState(state: string, secret: string, maxAgeSec = 1800): Promise<boolean> {
+  const parts = state.split('.');
+  if (parts.length !== 3) return false;
+  const [nonce, iatStr, sigB64] = parts;
+  if (!nonce || !iatStr || !sigB64) return false;
+  const iat = Number(iatStr);
+  if (!Number.isFinite(iat) || iat < 0) return false;
+  const now = Math.floor(Date.now() / 1000);
+  const age = now - iat;
+  if (age < -CLOCK_SKEW_SEC || age > maxAgeSec) return false;
+  const payload = `${nonce}:${iat}`;
+  let sigBytes: Uint8Array;
+  try {
+    sigBytes = b64urlDecode(sigB64);
+  } catch {
+    return false;
+  }
+  const key = await hmacKey(secret, 'verify');
+  return crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(payload));
+}

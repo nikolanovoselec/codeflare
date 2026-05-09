@@ -47,16 +47,18 @@ When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is configured, the Worker handles 
 ```
 User clicks "Sign in with GitHub" on /login
   → GET /auth/github/login
-  → Set oauth_state cookie (random UUID, 5-min TTL)
-  → 302 to github.com/login/oauth/authorize?client_id=...&scope=user:email
+  → Generate HMAC-signed state token (nonce.iat.sig, signed with OAUTH_JWT_SECRET, 30-min iat window)
+  → 302 to github.com/login/oauth/authorize?client_id=...&scope=user:email&state=<signed>
   → User authorizes on GitHub
   → GitHub redirects to /auth/github/callback?code=...&state=...
-  → Worker validates state (cookie vs query param, not KV — avoids eventual consistency)
+  → Worker verifies HMAC signature on state and checks iat is within window
+    (stateless — no cookie required, works on iOS WebKit / ITP / private browsing)
   → Worker exchanges code for access token via GitHub API
   → Worker fetches verified email from /user + /user/emails
   → Worker signs HMAC-SHA256 JWT with OAUTH_JWT_SECRET
   → Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, Max-Age=3600)
   → Redirect to /app/ (active user) or /app/subscribe (pending user)
+  → On state verification failure: redirect to /?error=session-expired
 ```
 
 - GitHub access token used ephemerally during callback, then discarded (not stored)

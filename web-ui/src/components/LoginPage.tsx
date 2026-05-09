@@ -41,13 +41,29 @@ function getProviderIcon(provider: AuthProvider) {
 }
 
 
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  'session-expired': 'Your sign-in took too long. Please try again.',
+  'no-verified-email': 'Your GitHub account has no verified primary email. Verify your email on GitHub and try again.',
+  'access_denied': 'Sign-in was cancelled.',
+  'redirect_uri_mismatch': 'OAuth configuration error. Please contact support.',
+  'application_suspended': 'OAuth application is suspended. Please contact support.',
+};
+
 const LoginPage: Component = () => {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal('');
+  // OAuth-flow errors from ?error=<code> redirects. Distinct from the fatal
+  // `error` signal so the user still sees the provider button to retry.
+  const [oauthError, setOauthError] = createSignal('');
   const [providers, setProviders] = createSignal<AuthProvider[]>([]);
   const [blocked, setBlocked] = createSignal(false);
 
   onMount(async () => {
+    const errParam = new URLSearchParams(window.location.search).get('error');
+    if (errParam) {
+      setOauthError(OAUTH_ERROR_MESSAGES[errParam] ?? 'Sign-in failed. Please try again.');
+    }
+
     try {
       const status = await getAuthStatus();
       const tier = status.subscriptionTier ?? status.accessTier;
@@ -135,6 +151,10 @@ const LoginPage: Component = () => {
 
         <Show when={error()}>
           <div class="login-error">{error()}</div>
+        </Show>
+
+        <Show when={oauthError()}>
+          <div class="login-error">{oauthError()}</div>
         </Show>
 
         <Show when={!loading() && !blocked() && !error() && providers().length > 0}>
