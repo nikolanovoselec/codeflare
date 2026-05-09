@@ -1,6 +1,16 @@
 name: Deploy
+# main is the protected production branch; the only push that reaches
+# it is a merged PR. workflow_run waits for that PR's "PR Checks" to
+# finish on the merge commit and only deploys when it ended green.
+# This closes the "we shipped a broken main" window that plain
+# `push: [main]` left open when the checks and deploy triggered in
+# parallel off the same SHA. workflow_dispatch stays so a stuck
+# deploy can be re-run manually, and so integration deploys from
+# develop (or any other branch) can still be triggered on demand.
 on:
-  push:
+  workflow_run:
+    workflows: ['PR Checks']
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -13,7 +23,7 @@ on:
         default: integration
 
 concurrency:
-  group: deploy-${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
+  group: deploy-${{ (github.event_name == 'workflow_run' || github.ref == 'refs/heads/main') && (inputs.environment || 'production') || 'integration' }}
   cancel-in-progress: true
 
 permissions:
@@ -22,9 +32,16 @@ permissions:
 jobs:
   guard:
     runs-on: ubuntu-latest
+    # On workflow_run: only proceed when PR Checks ended green.
+    # On workflow_dispatch (manual): always proceed (the dispatch
+    # itself is the operator's intent; the guard step below still
+    # rejects production deploys from non-main branches).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     steps:
       - name: Block production deploys from non-main branches
-        if: github.ref != 'refs/heads/main' && inputs.environment == 'production'
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.environment == 'production'
         run: |
           echo "::error::Production deploys are only allowed from main. Got branch: ${{ github.ref }}"
           exit 1
