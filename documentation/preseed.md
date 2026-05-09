@@ -270,7 +270,7 @@ is done via `settings.json` (see above).
   enforcement — `spec-reviewer` runs first, then `doc-updater`
   sequentially; on non-SDD projects (no `sdd/`) no agents fire and
   the push is friction-free (vibe-coding mode). Implements
-  [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC4. Hooks
+  [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC4, AC8. Hooks
   registered in settings.json, scripts delivered via plugin.
 
 ## Troubleshooting
