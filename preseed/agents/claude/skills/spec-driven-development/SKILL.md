@@ -248,6 +248,7 @@ In `unleashed` mode specifically:
 - **Status: Planned/Partial REQs with source code but no test** → if `enforce_tdd: true`, HIGH finding + auto-promote `Planned → Partial` with `Notes:` (requires the `Implements REQ-X-NNN` annotation convention in source files — see `spec-discipline.md` → Source code ↔ REQ annotations)
 - **Test quality heuristics** → AC-count vs test-count check, tautology detection, skipped-test detection (all run when `enforce_tdd: true`)
 - **Missing doc→spec backlinks** → generated automatically (links from `documentation/` files to relevant REQ IDs)
+- **False-positive ADRs** in `documentation/decisions/` (static-analyzer accommodations, naming-compat notes, risk acceptance with no alternative considered, implementation notes framed as decisions) → reclassified to their canonical home (inline source comment, `troubleshooting.md`, `configuration.md`, or `security.md`). The original `### AD-N:` heading is preserved as a `Status: Reclassified` stub so inbound `AD-N` references keep resolving. See `documentation-discipline.md` "What is NOT an ADR" — runs as `doc-updater` Pass 5
 
 ## /sdd edit — adding or modifying requirements
 
@@ -347,6 +348,7 @@ Templates follow `documentation-discipline.md` from the first commit. Convention
 - **Per-file budgets** match `documentation-discipline.md`: architecture.md template targets ≤350 lines, api-reference.md ≤600 lines, configuration.md ≤200 lines, deployment.md ≤200 lines.
 - **REQ backlinks pre-wired**: the `Implements` column in `Source Modules` table and equivalents elsewhere are scaffolded with the exact `[REQ-X-N](../sdd/{domain}.md#req-x-n)` form so doc-updater finds them on the first PR.
 - **Lane-correct content placeholders**: `architecture.md` template never has an "API endpoints" section (that's `api-reference.md`'s lane). Templates enforce lane separation by example.
+- **ADR template carries the "What is NOT an ADR" guardrail**: `documentation-decisions-readme.md` opens with the four-shape table (SAST false positive / naming-compat / risk acceptance with no alternative / implementation note framed as a decision) so the first ADR a user writes already passes Pass 5. The AD1 example includes `Alternatives considered:` and `Consequences:` fields — both load-bearing for the "real alternatives" test.
 
 These conventions are why the architecture.md template is the shortest template by line count — it should stay that way.
 
