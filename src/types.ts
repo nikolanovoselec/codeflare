@@ -273,7 +273,7 @@ export interface ContainerConfigPayload {
   deployKeys?: DeployKeys;
 }
 
-export interface StorageObject {
+interface StorageObject {
   key: string;
   size: number;
   lastModified: string;
