@@ -117,6 +117,11 @@ function matchesPattern(hostname: string, pattern: string): boolean {
  * against patterns with domain-boundary enforcement. This prevents attacks
  * like `evilclaude.example.com` matching a `claude.example.com` pattern.
  * Cloudflare Access JWT serves as the primary authentication gate regardless.
+ *
+ * SAST-false-positive: KV-stored origin patterns are not re-validated on every
+ * read. Admin already has full worker access (deploy code, modify secrets);
+ * an admin who can write a malicious pattern can also disable the check
+ * entirely. Per-request validation adds overhead for zero security benefit.
  */
 export async function isAllowedOrigin(origin: string, env: Env): Promise<boolean> {
   let hostname: string;

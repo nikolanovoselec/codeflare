@@ -161,8 +161,11 @@ export async function getUserFromRequest(request: Request, env?: Env): Promise<A
       if (match) {
         // Use SERVICE_TOKEN_EMAIL or fixed e2e identity.
         // CF Access may strip CF-Access-Client-Id, so we don't rely on it here.
-        // Role is set to 'admin' — the caller proved they have the worker secret,
+        // Role is set to 'admin' - the caller proved they have the worker secret,
         // so they're trusted without a KV allowlist lookup.
+        // SAST-false-positive: 'e2e-service@codeflare.local' is a test fixture,
+        // not a hardcoded secret. The .local TLD is RFC 6762 reserved and
+        // obviously non-production; the actual auth gate is the worker secret.
         const serviceEmail = env.SERVICE_TOKEN_EMAIL || 'e2e-service@codeflare.local';
         return { email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin'};
       }

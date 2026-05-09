@@ -20,7 +20,7 @@ Technical reference documentation for Codeflare.
 | [Memory](memory.md) | MCP memory server, automatic capture, two-phase compaction | Developers |
 | [Preseed System](preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks | Developers |
 | [Token Scopes](token-scopes.md) | GitHub PAT and Cloudflare API token scope guidance | Operators |
-| [Architecture Decisions](decisions/README.md) | 47 ADRs (41 active) with rationale and trade-offs | Developers |
+| [Architecture Decisions](decisions/README.md) | 47 ADRs (36 active) with rationale and trade-offs | Developers |
 | [Penetration Testing](PENTEST.md) | Security scan results | Security |
 | [Stress Testing](STRESS_TEST.md) | Load testing guide | Operators |
 
