@@ -109,7 +109,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
       allowProposedApi: true,
       convertEol: true,
-      scrollback: 400,
+      scrollback: 1000,
     });
 
     fitAddon = new FitAddon();
