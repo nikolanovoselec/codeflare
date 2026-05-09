@@ -4,13 +4,17 @@
 # PostToolUse hook — silently triggers review agents at the PR boundary.
 # ONLY on projects that have opted into SDD by running /sdd init.
 #
-# Trigger model (PR-boundary, not per-push):
+# Trigger model (PR-boundary, gated on PR target = main/master):
 #
-#   - `gh pr create ...` runs → PR-OPEN trigger → fire review pipeline
-#   - `git push` runs AND current branch already has an open PR → PR-SYNC
-#     trigger → fire review pipeline
+#   - `gh pr create ...` runs → PR-OPEN candidate → query gh for the
+#     just-created PR's base; fire review only if base is main/master
+#   - `git push` runs AND current branch has an open PR with base in
+#     (main, master) → PR-SYNC trigger → fire review pipeline
+#   - `git push` runs AND open PR base is NOT main/master (e.g.
+#     feature → develop) → DEFERRED → skip silently. Review fires
+#     when the integration branch's own PR-to-main is open and pushed.
 #   - `git push` runs AND current branch has no open PR → DEFERRED →
-#     skip silently (review will fire when the PR opens later)
+#     skip silently
 #
 # DRAFT PRs are treated as OPEN (gh returns state=OPEN for drafts). This
 # is intentional: drafts often want early feedback, and silent skip
@@ -91,12 +95,14 @@ if [ "$TRIGGER" = "git-push" ]; then
   PR_CACHE="$GIT_COMMON_DIR/sdd-pr-cache"
 
   PR_STATE=""
+  PR_BASE=""
   CACHE_VALID=0
   if [ -f "$PR_CACHE" ]; then
     cache_age=$(( $(date +%s) - $(stat -c %Y "$PR_CACHE" 2>/dev/null || stat -f %m "$PR_CACHE" 2>/dev/null || echo 0) ))
     cached_branch=$(head -1 "$PR_CACHE" 2>/dev/null)
     if [ "$cached_branch" = "$CURRENT" ]; then
       cached_state=$(sed -n '2p' "$PR_CACHE" 2>/dev/null)
+      cached_base=$(sed -n '3p' "$PR_CACHE" 2>/dev/null)
       # Asymmetric TTL: positive (OPEN) results cached for 60s; legitimate
       # empty results (gh exit 1 = "no PR found") cached for only 10s. The
       # short negative TTL bounds the staleness of the "no PR" case so a
@@ -104,11 +110,22 @@ if [ "$TRIGGER" = "git-push" ]; then
       # failures (gh exit 2 = network/auth, exit 4 = no token) are NOT
       # cached at all — see the GH_OK gate below — so they never poison
       # the cache; they re-query on the next push.
+      #
+      # Cache schema is 3 lines: branch, state, baseRefName. Older
+      # 2-line caches (pre-base-gating) miss line 3 and fall through
+      # via the empty-cached_base check below — the next request
+      # re-queries gh and rewrites in the new schema.
       max_age=10
       [ "$cached_state" = "OPEN" ] && max_age=60
       if [ "$cache_age" -lt "$max_age" ] 2>/dev/null; then
-        PR_STATE="$cached_state"
-        CACHE_VALID=1
+        # OPEN cache must include base; empty PR cache (state="") does not.
+        if [ "$cached_state" = "OPEN" ] && [ -z "$cached_base" ]; then
+          : # legacy 2-line cache — fall through to re-query
+        else
+          PR_STATE="$cached_state"
+          PR_BASE="$cached_base"
+          CACHE_VALID=1
+        fi
       fi
     fi
   fi
@@ -129,6 +146,7 @@ if [ "$TRIGGER" = "git-push" ]; then
       PR_INFO=$(gh_pr_state "$CURRENT")
       gh_exit=$?
       PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
+      PR_BASE=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
       if [ -n "$PR_STATE" ] || [ "$gh_exit" -eq 1 ]; then
         GH_OK=1
       fi
@@ -142,7 +160,7 @@ if [ "$TRIGGER" = "git-push" ]; then
       # contents, never a torn write.
       TMP_CACHE=$(mktemp "$PR_CACHE.XXXXXX" 2>/dev/null)
       if [ -n "$TMP_CACHE" ]; then
-        if printf '%s\n%s\n' "$CURRENT" "$PR_STATE" > "$TMP_CACHE" 2>/dev/null; then
+        if printf '%s\n%s\n%s\n' "$CURRENT" "$PR_STATE" "$PR_BASE" > "$TMP_CACHE" 2>/dev/null; then
           mv "$TMP_CACHE" "$PR_CACHE" 2>/dev/null || rm -f "$TMP_CACHE" 2>/dev/null
         else
           rm -f "$TMP_CACHE" 2>/dev/null
@@ -157,9 +175,59 @@ if [ "$TRIGGER" = "git-push" ]; then
   # that's deliberate). The hook does not prompt the user to spawn agents
   # — they invoke verification manually if they want it.
   case "$PR_STATE" in
-    OPEN) ;;       # PR-SYNC trigger — fall through to full directive emission
+    OPEN) ;;       # candidate — still needs base check
     *) exit 0 ;;   # deferred (any branch, including main with no PR)
   esac
+
+  # Gate on PR target: only PRs landing on main/master fire review.
+  # feature → develop defers; develop → main fires.
+  case "$PR_BASE" in
+    main|master) ;;
+    *) exit 0 ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
+# PR-OPEN base gate — `gh pr create` just landed; query gh to learn the
+# new PR's base branch. If base is not main/master, defer (the PR's own
+# next push will hit PR-SYNC and re-evaluate; if the user merges
+# feature → develop without further pushes, review fires later when
+# the develop → main PR opens or syncs).
+#
+# One-time 200-500ms cost per PR creation; not on the per-push hot path.
+# Fail-safe: if gh missing or transient failure, default to firing
+# (preserves prior behavior — better to over-review on PR open than
+# miss it).
+# ---------------------------------------------------------------------------
+#
+# This branch only fires for PRs opened via `gh pr create` from inside
+# the Claude session. PRs opened by other means (gh in another
+# terminal, GitHub web UI, GitHub API, etc.) will be picked up by
+# the PR-SYNC path on the next `git push` to the branch — gh_pr_state
+# returns the now-existing PR's state and base regardless of how it
+# was opened. Stop hook (enforce-review-spawn.sh) is the universal
+# safety net: it runs `gh pr view` at turn end and enforces on any
+# un-acked PR HEAD with a main/master base.
+if [ "$TRIGGER" = "pr-open" ]; then
+  CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+  [ -n "$CURRENT" ] || exit 0
+  [ "$CURRENT" = "HEAD" ] && exit 0
+
+  if command -v gh >/dev/null 2>&1; then
+    . "$(dirname "$0")/lib/gh-pr-state.sh" 2>/dev/null || true
+    PR_INFO_OPEN=$(gh_pr_state "$CURRENT")
+    PR_BASE_OPEN=$(echo "$PR_INFO_OPEN" | jq -r '.baseRefName // empty' 2>/dev/null)
+    if [ -n "$PR_BASE_OPEN" ]; then
+      case "$PR_BASE_OPEN" in
+        main|master) ;;
+        *) exit 0 ;;
+      esac
+    fi
+    # If base couldn't be determined (transient gh failure), fall
+    # through and emit. The Stop hook re-checks at turn end with the
+    # authoritative gh call and will under-block if the base is
+    # actually develop, so this is fail-open in the right direction.
+  fi
 fi
 
 # ---------------------------------------------------------------------------
