@@ -54,7 +54,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 | `RUNNER` | `ubuntu-latest` | All workflows | GitHub Actions runner label (self-hosted support) | Hardcoded fallback in workflow |
 | `E2E_BASE_URL` | - | `e2e.yml` | Base URL of deployed worker for E2E tests | Set per environment |
 | `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` | Enables public waitlist landing page via `--var` | Hardcoded fallback in workflow |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 6 GB) | `deploy.yml` | Container instance size (low/default/high/saas). All tiers default to 10 max instances | Defaults to `default` in deploy step |
+| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 8 GB) | `deploy.yml` | Container instance size (low/default/high/saas). All tiers default to 10 max instances | Defaults to `default` in deploy step |
 | `MAX_INSTANCES` | unset (10) | `deploy.yml` | Override container max_instances. Must be a positive integer | Passed via env to avoid shell injection |
 | `CLAUDE_CODE_CACHE_BUSTER` | `inactive` | `deploy.yml` | When `active`, writes `.cache-bust` to invalidate AI agent Docker layer | Not set by default |
 | `MAX_SESSIONS_USER` | `3` | `deploy.yml` | Per-user session cap passed via `--var` | Omitted if unset (backend default applies) |
@@ -67,7 +67,7 @@ Dependabot runs weekly against the `develop` branch for three npm package direct
 1. Install dependencies (cached via `actions/cache`)
 2. Build frontend, run backend + frontend tests, typecheck both
 3. Resolve/create KV namespace, patch `wrangler.toml` with KV ID
-4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB). All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set
+4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/8GB, high=2vCPU/6GiB/8GB). All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set
 5. Optionally generate `.cache-bust` for AI agent layer
 6. Build Docker image locally (base image pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` — AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits on shared runners)
 7. Scan with Trivy (HIGH/CRITICAL severity, `.trivyignore` for exceptions)

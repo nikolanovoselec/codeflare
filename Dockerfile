@@ -159,7 +159,7 @@ RUN npm install -g @modelcontextprotocol/server-memory && \
 # Note: Bun is NOT a fix for the dynamic-require bug in #309 - that bug
 # reproduces under both Node and Bun ESM loaders. The shim patch in the
 # context-mode block below is the durable fix; Bun is purely a perf win.
-RUN npm install -g bun && \
+RUN npm install -g bun@1.3.13 && \
     bun --version && \
     npm cache clean --force && rm -rf /root/.npm
 

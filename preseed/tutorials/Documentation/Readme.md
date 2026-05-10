@@ -71,7 +71,7 @@ Containers scale to zero when idle (no sessions = no bill). Auth is handled auto
 | Tier | vCPU | Memory | Disk |
 |------|------|--------|------|
 | Low | 0.25 vCPU | 1 GiB RAM | 4 GB |
-| Default | 1 vCPU | 3 GiB RAM | 6 GB |
+| Default | 1 vCPU | 3 GiB RAM | 8 GB |
 | High | 2 vCPU | 6 GiB RAM | 8 GB |
 
 Low tier handles light editing and AI agents fine. Default covers most dev workflows. High is for when your build process has ambitions.
@@ -86,7 +86,7 @@ Runs on Cloudflare Containers - usage-based pricing on the Workers Paid plan ($5
 |----------|-------|---------------|---------|------|------|
 | vCPU | 0.20 x 1 vCPU x 576,000s = 115,200 vCPU-s | 22,500 vCPU-s | 92,700 vCPU-s | $0.000020/vCPU-s | $1.85 |
 | Memory | 3 GiB x 576,000s = 1,728,000 GiB-s | 90,000 GiB-s | 1,638,000 GiB-s | $0.0000025/GiB-s | $4.10 |
-| Disk | 6 GB x 576,000s = 3,456,000 GB-s | 720,000 GB-s | 2,736,000 GB-s | $0.00000007/GB-s | $0.19 |
+| Disk | 8 GB x 576,000s = 4,608,000 GB-s | 720,000 GB-s | 3,888,000 GB-s | $0.00000007/GB-s | $0.27 |
 | **Workers Paid plan** | | | | | **$5.00** |
 | **Total** | | | | | **~$11/month** |
 
