@@ -145,6 +145,24 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
 RUN npm install -g @modelcontextprotocol/server-memory && \
     npm cache clean --force && rm -rf /root/.npm
 
+# Install Bun for faster context-mode ctx_execute / ctx_batch_execute subprocess
+# starts. Measured on this image's stack (Node 24, debian-slim, 1 vCPU): a
+# representative ctx_execute workload (file I/O + JSON parse + regex + arrays)
+# averages 78ms cold-start under Node and 38ms under Bun, a 2.05x speedup per
+# call. Adds up across an interactive session that fires hooks on every
+# Bash/Read/WebFetch/Grep/Glob/Agent tool call.
+#
+# Bun is autodetected by context-mode at first invocation; no entrypoint
+# wiring needed. The Bun binary is a single self-contained executable
+# (~50MB on disk) installed by `npm install -g bun`.
+#
+# Note: Bun is NOT a fix for the dynamic-require bug in #309 — that bug
+# reproduces under both Node and Bun ESM loaders. The shim patch in the
+# context-mode block below is the durable fix; Bun is purely a perf win.
+RUN npm install -g bun && \
+    bun --version && \
+    npm cache clean --force && rm -rf /root/.npm
+
 # Install context-mode globally and patch the esbuild ESM bundles.
 # Implements REQ-AGENT-005. See codeflare#309 for the bug report.
 #

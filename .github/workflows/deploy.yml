@@ -165,7 +165,7 @@ jobs:
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 2\nmemory_mib = 6144\ndisk_mb = 8000'
               ;;
             saas|default)
-              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'
+              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 8000'
               ;;
             *)
               echo "::error::Invalid RESSOURCE_TIER=\"$TIER\". Allowed values: low, high, saas. Leave unset for default."
