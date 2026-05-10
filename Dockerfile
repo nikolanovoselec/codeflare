@@ -156,7 +156,7 @@ RUN npm install -g @modelcontextprotocol/server-memory && \
 # wiring needed. The Bun binary is a single self-contained executable
 # (~50MB on disk) installed by `npm install -g bun`.
 #
-# Note: Bun is NOT a fix for the dynamic-require bug in #309 — that bug
+# Note: Bun is NOT a fix for the dynamic-require bug in #309 - that bug
 # reproduces under both Node and Bun ESM loaders. The shim patch in the
 # context-mode block below is the durable fix; Bun is purely a perf win.
 RUN npm install -g bun && \
