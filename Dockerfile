@@ -146,11 +146,11 @@ RUN npm install -g @modelcontextprotocol/server-memory && \
     npm cache clean --force && rm -rf /root/.npm
 
 # Install Bun for faster context-mode ctx_execute / ctx_batch_execute subprocess
-# starts. Measured on this image's stack (Node 24, debian-slim, 1 vCPU): a
-# representative ctx_execute workload (file I/O + JSON parse + regex + arrays)
-# averages 78ms cold-start under Node and 38ms under Bun, a 2.05x speedup per
-# call. Adds up across an interactive session that fires hooks on every
-# Bash/Read/WebFetch/Grep/Glob/Agent tool call.
+# starts. Bun is faster than Node for short-lived JS subprocess starts; the
+# improvement adds up across an interactive session that fires hooks on every
+# Bash/Read/WebFetch/Grep/Glob/Agent tool call. No spec contract on the perf
+# delta - if a Bun release regresses, the runtime falls back to Node and
+# nothing breaks (perf-only optimization).
 #
 # Bun is autodetected by context-mode at first invocation; no entrypoint
 # wiring needed. The Bun binary is a single self-contained executable
