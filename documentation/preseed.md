@@ -16,12 +16,12 @@ it gets there" content. Memory-system specifics live in
 
 ## Session Modes
 
-Users choose between **Default** and **Advanced** session modes via
+Users choose between **Standard** and **Pro** session modes via
 Settings > Session Defaults. The mode controls which preseed files are
 deployed on Recreate or new bucket creation.
 
-| Content | Default | Advanced |
-|---------|---------|----------|
+| Content | Standard | Pro |
+|---------|----------|-----|
 | Memory plugin & rule | No | Yes |
 | CI monitoring, environment, no-local-builds, deploy-credentials rules | Yes | Yes |
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
