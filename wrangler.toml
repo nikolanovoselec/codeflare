@@ -36,7 +36,7 @@ binding = "KV"
 id = "placeholder"
 
 # Container configuration (default tier)
-# Default: 1 vCPU, 3 GiB memory, 6 GB disk
+# Default: 1 vCPU, 3 GiB memory, 8 GB disk
 # GitHub Actions deploy can override this via repo variable RESSOURCE_TIER.
 # Required baseline for node-pty + agent CLIs + npm operations.
 # RESSOURCE_TIER spelling is intentional (French/German "ressource"); preserved
@@ -50,7 +50,7 @@ max_instances = 10
 [containers.instance_type]
 vcpu = 1
 memory_mib = 3072
-disk_mb = 6000
+disk_mb = 8000
 
 # Durable Objects binding for the container
 [[durable_objects.bindings]]
