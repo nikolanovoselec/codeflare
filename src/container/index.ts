@@ -84,9 +84,10 @@ export class container extends Container<Env> {
   // skipped the setBucketName flow that writes the user pref. In either
   // case, defaulting LOW would kill the container before the pref could be
   // applied, destroying user work. Defaulting HIGH only lets the container
-  // live longer than expected — a strictly safer failure mode. The
+  // live longer than expected, which is a strictly safer failure mode. The
   // collectMetrics tick re-reads storage as the authoritative source on
   // every fire (60s cadence) so any drift is corrected within one tick.
+  // Implements REQ-OPS-006 AC8.
   idleTimeoutPref: string = '2h';
 
   // Environment variables - set via property assignment in updateEnvVars()

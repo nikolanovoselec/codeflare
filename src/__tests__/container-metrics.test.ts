@@ -269,7 +269,7 @@ describe('Container Metrics', () => {
     });
   });
 
-  describe('idle timeout resolution (REQ-CONT-014)', () => {
+  describe('idle timeout resolution (REQ-OPS-006 AC8/AC9)', () => {
     it('uses fail-safe 2h default when storage has no sleepAfter', async () => {
       // Storage returns undefined for 'sleepAfter'.
       // Class-field default is '2h' (max safe). Container has been idle for 1 hour.

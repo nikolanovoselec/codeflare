@@ -37,7 +37,7 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
  * and passes it explicitly. A missing sleepAfter at this layer would mean the
  * resolution skipped a code path and we should fail loudly rather than ship a
  * silent '30m' default that lies to the user about their configured 2h pref.
- * (Implements REQ-CONT-014)
+ * Implements REQ-OPS-006 AC10.
  */
 function buildSetBucketNameBody(params: ContainerConfigPayload): string {
   if (!params.sleepAfter) {

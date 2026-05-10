@@ -173,9 +173,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. The DO constructor loads `sleepAfter` from storage with validation on startup.
 6. `destroy()` cleans up the persisted `sleepAfter` value.
 7. Cost per active container (default tier: 1 vCPU, 3 GiB, 6 GB) at 160h/month active usage with 20% average CPU is approximately $11.14/user/month including the Workers Paid plan.
-8. The idle-detection layer fails safe in the direction of preserving user work, not minimizing compute. When the configured `sleepAfter` cannot be resolved (storage corrupted, schema-validated value missing, parser fed garbage, code path skipped the user-pref resolution), the system falls back to the maximum supported value (2h) rather than the minimum. The class-field default on the Container DO instance is the maximum supported value (2h), not the minimum (5m).
-9. The metrics-collection tick re-reads `sleepAfter` from Durable Object storage on every fire (60-second cadence) rather than trusting the in-memory class-field cache. This corrects any drift introduced by hibernation, race conditions, or code paths that wrote storage without updating the cache, within one tick of the discrepancy.
-10. The worker route that builds the `setBucketName` request body refuses to silently default `sleepAfter` to a fallback value. If the caller fails to resolve the user preference, the request fails loudly so the bug is observable, not hidden behind a 30m default that misrepresents the user's configured 2h timer.
+8. The idle-detection layer fails safe in the direction of preserving user work, not minimizing compute. When the configured `sleepAfter` cannot be resolved (storage corrupted, schema-validated value missing, parser fed garbage, code path skipped the user-pref resolution), the system falls back to the maximum supported value (2h) rather than the minimum.
+9. A change to the persisted `sleepAfter` preference takes effect within one 60-second idle-check cycle, regardless of which code path wrote it. Stale in-memory copies of the preference cannot outlive a single cycle.
+10. Any code path that hands the resolved `sleepAfter` to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer (e.g., 2h) is never silently replaced by a shorter default.
 
 **Constraints:**
 - CPU is billed on active usage only. Memory and disk are billed on provisioned resources during active time.

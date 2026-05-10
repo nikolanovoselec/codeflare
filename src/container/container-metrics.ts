@@ -54,8 +54,10 @@ export interface MetricsCallbacks {
  * expected. Errs on the side of preserving user work over saving compute.
  *
  * The validated regex `/^(5m|15m|30m|1h|2h)$/` at the storage write site means
- * this fallback should only ever fire on truly broken input — log it loudly
+ * this fallback should only ever fire on truly broken input. Log it loudly
  * (caller logs).
+ *
+ * Implements REQ-OPS-006 AC8.
  */
 export const SLEEP_AFTER_FALLBACK_MS = 7_200_000; // 2h
 export function parseSleepAfterMs(s: string): number {
@@ -146,7 +148,8 @@ export async function collectMetrics(
   // cache may be stale if (a) the DO instance was hibernated and re-loaded
   // and the construction's storage read raced with a setBucketName write, or
   // (b) some code path wrote 'sleepAfter' to storage without updating the
-  // cache. Storage is the authoritative source. (Implements REQ-CONT-014)
+  // cache. Storage is the authoritative source.
+  // Implements REQ-OPS-006 AC9.
   let idleTimeoutPref = callbacks.idleTimeoutPref;
   try {
     const stored = await ctx.storage.get<string>('sleepAfter');
