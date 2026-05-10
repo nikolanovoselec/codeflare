@@ -2,3 +2,13 @@
 !host/
 !entrypoint.sh
 !.cache-bust
+# Whitelist the context-mode plugin manifest so the Dockerfile can read
+# the pinned version at build time (codeflare#309). Each parent directory
+# must be un-ignored explicitly because un-ignore does not recurse upward.
+!preseed/
+!preseed/agents/
+!preseed/agents/claude/
+!preseed/agents/claude/plugins/
+!preseed/agents/claude/plugins/context-mode/
+!preseed/agents/claude/plugins/context-mode/.claude-plugin/
+!preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json
