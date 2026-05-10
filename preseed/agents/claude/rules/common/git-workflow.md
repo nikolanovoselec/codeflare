@@ -15,20 +15,20 @@ Note: Attribution disabled globally via ~/.claude/settings.json.
 
 **SDD opt-in is binary.** Two modes:
 
-- **Vibe-coding mode** (no `sdd/` folder in the project) — `git push`
+- **Vibe-coding mode** (no `sdd/` folder in the project) - `git push`
   and `gh pr create` proceed with **no review agents**. Nothing fires.
   No code-reviewer, no spec-reviewer, no doc-updater, no auto-generated
   documentation. Pure friction-free workflow. This is intentional:
   projects that haven't run `/sdd init` are telling you they don't
   want the workflow.
-- **SDD mode** (`sdd/` + `sdd/README.md` exist) — review agents fire
+- **SDD mode** (`sdd/` + `sdd/README.md` exist) - review agents fire
   on PR-boundary events only, not on every push.
 
 ### PR-boundary trigger semantics (SDD mode)
 
 Review fires only on PRs that target `main` or `master`. PRs into an
 integration branch (`develop`, `staging`, etc.) are deferred until
-the integration branch's own PR-to-main opens or syncs — the
+the integration branch's own PR-to-main opens or syncs - the
 cumulative review at that point covers everything that landed.
 
 | Action | PR base | What fires |
@@ -37,10 +37,10 @@ cumulative review at that point covers everything that landed.
 | `gh pr create --base develop` | develop | nothing (deferred) |
 | `git push` to a branch with open PR → main | main | full pipeline (PR-sync) |
 | `git push` to a branch with open PR → master | master | full pipeline (PR-sync) |
-| `git push` to a branch with open PR → develop | develop | nothing (deferred — review fires when develop → main PR opens or syncs) |
-| `git push` to a branch with no open PR | — | nothing (deferred until PR opens) |
-| `git push` to `develop` directly | — | nothing (caught by the develop → main PR later) |
-| `git push` to `main`/`master` with no PR | — | nothing (the user is expected to have branch protection on; if off, manual verification is on the user) |
+| `git push` to a branch with open PR → develop | develop | nothing (deferred - review fires when develop → main PR opens or syncs) |
+| `git push` to a branch with no open PR | - | nothing (deferred until PR opens) |
+| `git push` to `develop` directly | - | nothing (caught by the develop → main PR later) |
+| `git push` to `main`/`master` with no PR | - | nothing (the user is expected to have branch protection on; if off, manual verification is on the user) |
 
 The cost model shifts from per-push (every commit pair burned a full
 review) to **per-main-bound PR** (one review at the moment the
@@ -57,7 +57,7 @@ feature ──► PR ──► develop ──► PR ──► main
    (no review yet)                at PR open + each sync push
 ```
 
-Direct push to `develop` is fine — the develop → main PR catches the
+Direct push to `develop` is fine - the develop → main PR catches the
 cumulative diff. Direct push to `main` should be prevented at the
 GitHub layer (see "Branch protection on main" below) rather than
 worked around in-session.
@@ -84,9 +84,9 @@ PR-boundary workflow is the only thing that's gated.
 ### Branch protection on main (proactive surfacing during CI setup)
 
 When you (the agent) are helping the user set up CI for a new
-repository — adding `.github/workflows/`, configuring required
+repository - adding `.github/workflows/`, configuring required
 checks, drafting a release process, or auditing an existing repo's
-CI — **proactively surface the branch-protection conversation**.
+CI - **proactively surface the branch-protection conversation**.
 Don't wait for the user to ask. The protection is the **actual
 enforcement** that makes the PR-boundary trigger model complete;
 without it, direct pushes to `main` silently bypass both the review
@@ -97,7 +97,7 @@ proposal. Example phrasing the agent should use:
 
 > "Before this CI is meaningful, `main` needs branch protection
 > turned on. Right now anyone with push access can land code on
-> `main` without a PR — which means CI never runs on the change and
+> `main` without a PR - which means CI never runs on the change and
 > the SDD review pipeline never sees it. Want me to enable branch
 > protection on `main` (require PR before merge, require these CI
 > checks to pass, require branch up-to-date before merge)?"
@@ -113,11 +113,11 @@ Recommended `branch-protection.json` settings (adjust the
 `required_status_checks.contexts` array to match the actual workflow
 job names from `.github/workflows/`):
 
-- **Require a pull request before merging** — `required_pull_request_reviews`: enabled, `required_approving_review_count: 0` (the SDD review pipeline does the substantive review; this just enforces the PR gate)
-- **Require status checks to pass before merging** — list each required CI workflow's job name in `contexts`
-- **Require branches to be up to date before merging** — `strict: true` (forces rebase-on-main before merge so CI reflects the merged state, not the pre-merge state)
-- **Enforce for administrators** — `enforce_admins: true` (otherwise you'll quietly bypass it yourself when convenient)
-- **Restrict pushes that create files** — optional, project-specific
+- **Require a pull request before merging** - `required_pull_request_reviews`: enabled, `required_approving_review_count: 0` (the SDD review pipeline does the substantive review; this just enforces the PR gate)
+- **Require status checks to pass before merging** - list each required CI workflow's job name in `contexts`
+- **Require branches to be up to date before merging** - `strict: true` (forces rebase-on-main before merge so CI reflects the merged state, not the pre-merge state)
+- **Enforce for administrators** - `enforce_admins: true` (otherwise you'll quietly bypass it yourself when convenient)
+- **Restrict pushes that create files** - optional, project-specific
 
 The PR-boundary trigger model assumes branch protection is in
 place. If the user declines, document it as a project-level
@@ -126,7 +126,7 @@ contributors know the protection is intentionally off, not just
 forgotten.
 
 
-### Execution order when SDD is bootstrapped — partial parallelism
+### Execution order when SDD is bootstrapped - partial parallelism
 
 1. **code-reviewer** runs in parallel with the others (it touches
    source code only, not `sdd/` or `documentation/`)
@@ -146,21 +146,21 @@ separation" section) makes this explicit.
 
 ### The three agents (SDD mode only)
 
-1. **code-reviewer** — reviews code quality, security, correctness.
+1. **code-reviewer** - reviews code quality, security, correctness.
    When `sdd/` exists, it also checks that new source files implementing
    observable behavior include the `// Implements REQ-X-NNN` annotation.
-2. **spec-reviewer** — keeps `sdd/` as the single source of truth.
+2. **spec-reviewer** - keeps `sdd/` as the single source of truth.
    When code changes introduce new features, modify behavior, or change
    APIs without a corresponding spec update, this agent updates `sdd/`
    to match: adds new REQ-* entries for unspec'd features, updates
    acceptance criteria for changed behavior, marks deprecated
    requirements, adds changelog entries to `sdd/changes.md`, runs
    TDD coverage checks (per `enforce_tdd` in `sdd/config.yml`).
-3. **doc-updater** — reads the post-edit spec from spec-reviewer and
+3. **doc-updater** - reads the post-edit spec from spec-reviewer and
    updates `documentation/` to match the code. Flags when API routes,
    env vars, auth flows, configuration, or architecture change without
    a corresponding doc update. Generates cross-references from docs to
-   REQ IDs. Never runs on non-SDD projects — manual invocation only.
+   REQ IDs. Never runs on non-SDD projects - manual invocation only.
 
 
 ## Post-Push: CI Monitoring
@@ -169,8 +169,8 @@ After every `git push`, monitor CI in the background so the user can
 continue working:
 1. Spawn a background Bash command that polls `gh run list` every 15s
 2. Wait for ALL runs on the pushed commit to complete
-3. If ALL GREEN — report to user
-4. If ANY FAILED — check `gh run view <id> --log-failed`, fix the issue,
+3. If ALL GREEN - report to user
+4. If ANY FAILED - check `gh run view <id> --log-failed`, fix the issue,
    commit, push, and repeat from step 1
 5. Continue this loop until CI is green
 

@@ -5,8 +5,8 @@
 // that build CONTEXT_MODE_MCP_CONFIG and SETTINGS_CONFIG (with stub
 // PLUGIN_DIR / CONTEXT_MODE_VERSION env vars), capture the JSON
 // produced by jq -n, and assert on the parsed shape. If the bash
-// construction is broken — quoting bug, missing variable, jq filter
-// typo — the test fails because $SETTINGS_CONFIG comes back malformed
+// construction is broken - quoting bug, missing variable, jq filter
+// typo - the test fails because $SETTINGS_CONFIG comes back malformed
 // or empty.
 
 import { describe, it, before } from 'node:test';
@@ -255,7 +255,7 @@ describe('managed-hook regex classification (anchored, not substring)', () => {
   }
 
   function classify(cmd, regex) {
-    // Use jq's test() directly — same engine entrypoint uses.
+    // Use jq's test() directly - same engine entrypoint uses.
     const result = spawnSync('jq', ['-rn', '--arg', 'cmd', cmd, '--arg', 're', regex,
       '$cmd | test($re) | tostring'], { encoding: 'utf8' });
     if (result.status !== 0) throw new Error(`jq failed: ${result.stderr}`);
@@ -323,7 +323,7 @@ describe('managed-hook regex classification (anchored, not substring)', () => {
     assert.strictEqual(
       classify('npx -y context-mode hook claude-code pretooluse', regex),
       false,
-      'unpinned context-mode (no @ver) must NOT match — entrypoint always pins version',
+      'unpinned context-mode (no @ver) must NOT match - entrypoint always pins version',
     );
   });
 

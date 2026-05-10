@@ -3,9 +3,33 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
+const ENTRYPOINT_PATH = resolve(__dirname, '../../entrypoint.sh');
+const entrypoint = readFileSync(ENTRYPOINT_PATH, 'utf8');
+
+// Run the SESSION_MODE-gated settings block from entrypoint.sh in a
+// subshell with stub PLUGIN_DIR + CONTEXT_MODE_VERSION + SESSION_MODE,
+// capture and parse the resulting SETTINGS_CONFIG. Same pattern as
+// entrypoint-context-mode.test.js (see tdd-discipline.md "Run the
+// real thing"): exercise the actual jq filter that ships rather than
+// text-matching the bash source.
+function runSettingsBlock(sessionMode) {
+  const result = spawnSync('bash', ['-c', `
+    set -e
+    PLUGIN_DIR=/test-stub/plugins
+    CONTEXT_MODE_VERSION=$(grep '^CONTEXT_MODE_VERSION=' ${ENTRYPOINT_PATH} | head -1 | cut -d'"' -f2)
+    SESSION_MODE=${sessionMode}
+    START=$(grep -n '^if \\[ "\\\${SESSION_MODE:-default}" = "advanced"' ${ENTRYPOINT_PATH} | head -1 | cut -d: -f1)
+    END=$(awk -v s="$START" 'NR>s && /^fi$/ {print NR; exit}' ${ENTRYPOINT_PATH})
+    BLOCK=$(sed -n "$START,$END"p ${ENTRYPOINT_PATH})
+    eval "$BLOCK" >/dev/null 2>&1
+    printf '%s' "$SETTINGS_CONFIG"
+  `], { encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(`bash failed: ${result.stderr}`);
+  return JSON.parse(result.stdout);
+}
 
 // Helper: extract the MAIN EXECUTION section
 function extractMainExecution() {
@@ -53,33 +77,49 @@ describe('settings.json configuration', () => {
     );
   });
 
-  it('hooks use if-gates to filter by command pattern', () => {
-    // PreToolUse: block-attributed-commits keeps its if-gates because
-    // commit/PR-create commands always lead with git/gh.
-    assert.ok(
-      entrypoint.includes('"if":"Bash(git *)"'),
-      'block-attributed-commits should be if-gated on Bash(git *)'
+  it('PreToolUse if-gates filter block-attributed-commits by git/gh command pattern', () => {
+    // commit/PR-create commands always lead with git/gh; the if-gate is
+    // what keeps block-attributed-commits from running on every Bash call.
+    // The retired git-push-review-reminder.sh used to live in PostToolUse
+    // without an if-gate, so chained pipelines like
+    // `git add . && git push` silently bypassed it (issue #243).
+    const settings = runSettingsBlock('advanced');
+    const pre = settings.hooks.PreToolUse;
+    const block = pre.find((e) =>
+      e.hooks.some((h) => h.command && h.command.includes('block-attributed-commits.sh')),
     );
-    assert.ok(
-      entrypoint.includes('"if":"Bash(gh *)"'),
-      'block-attributed-commits should also be if-gated on Bash(gh *)'
-    );
-    // The retired git-push-review-reminder.sh used to be PostToolUse here.
-    // It carried no prefix if-gate (chained pipelines like
-    // `git add . && git push` would have silently bypassed it, see #243).
-    // The retired hook must not reappear: assert there is no PostToolUse
-    // entry pointing at the deleted script.
-    assert.ok(
-      !entrypoint.includes('git-push-review-reminder.sh'),
-      'git-push-review-reminder.sh is retired (AD49) and must not be referenced'
-    );
+    assert.ok(block, 'block-attributed-commits PreToolUse entry must exist');
+    const gates = block.hooks.map((h) => h.if).filter(Boolean);
+    assert.ok(gates.includes('Bash(git *)'),
+      `block-attributed-commits should be if-gated on Bash(git *), got: ${gates.join(',')}`);
+    assert.ok(gates.includes('Bash(gh *)'),
+      `block-attributed-commits should be if-gated on Bash(gh *), got: ${gates.join(',')}`);
+
+    // The retired hook must not reappear in any hook event.
+    for (const arr of Object.values(settings.hooks)) {
+      for (const entry of arr) {
+        for (const hook of entry.hooks || []) {
+          assert.ok(
+            !(hook.command && hook.command.includes('git-push-review-reminder.sh')),
+            'git-push-review-reminder.sh is retired (AD49) and must not be referenced',
+          );
+        }
+      }
+    }
   });
 
-  it('SESSION_MODE gates hook registration', () => {
-    assert.ok(
-      entrypoint.includes('SESSION_MODE:-default') && entrypoint.includes('"hooks"'),
-      'hook registration should be gated on SESSION_MODE'
-    );
+  it('SESSION_MODE gates hook registration: advanced wires hooks, default does not', () => {
+    // Pro mode (SESSION_MODE=advanced) emits a hooks key; Standard mode
+    // (default) emits ONLY skipDangerousModePermissionPrompt. This is
+    // the gate that keeps Codeflare's full hook stack from being applied
+    // to non-Pro sessions.
+    const advanced = runSettingsBlock('advanced');
+    assert.ok(advanced.hooks && Object.keys(advanced.hooks).length > 0,
+      'advanced mode must produce hooks');
+
+    const standard = runSettingsBlock('default');
+    assert.strictEqual(standard.hooks, undefined,
+      'default (Standard) mode must not produce hooks');
   });
 
   it('uses jq recursive merge to preserve existing settings', () => {

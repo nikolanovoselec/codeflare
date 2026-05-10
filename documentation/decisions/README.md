@@ -19,7 +19,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD4](#ad4-periodic-rclone-bisync) | Periodic rclone bisync | Architecture |
 | [AD5](#ad5-login-shell-autostart) | Login shell autostart | Architecture |
 | [AD6](#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity) | KV read-modify-write races and `collectMetrics` atomicity | Architecture |
-| [AD7](#ad7-merged-into-ad10) | _merged into AD10 — pre-setup public endpoints_ | Security |
+| [AD7](#ad7-merged-into-ad10) | _merged into AD10 - pre-setup public endpoints_ | Security |
 | [AD8](#ad8-root-container-no-internal-auth) | Root container, no internal auth | Architecture |
 | [AD9](#ad9-ressource_tier-spelling) | _reclassified - RESSOURCE_TIER spelling moved to configuration.md_ | (redirect) |
 | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation | Security |
@@ -29,9 +29,9 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD14](#ad14-never-auto---resync-on-bisync-failure) | Never auto-`--resync` on bisync failure | Storage |
 | [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | TabConfigSchema allows arbitrary command strings | UI/Frontend |
 | [AD16](#ad16-entrypointsh-1090-lines-complexity) | entrypoint.sh ~1090 lines complexity | Architecture |
-| [AD17](#ad17-merged-into-ad6) | _merged into AD6 — `collectMetrics` atomicity_ | Architecture |
+| [AD17](#ad17-merged-into-ad6) | _merged into AD6 - `collectMetrics` atomicity_ | Architecture |
 | [AD18](#ad18-vendored-creative-webgl-code-uses-untyped-patterns) | Vendored creative/WebGL code uses untyped patterns | UI/Frontend |
-| [AD19](#ad19-merged-into-ad18) | _merged into AD18 — splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
+| [AD19](#ad19-merged-into-ad18) | _merged into AD18 - splash-cursor-logic.ts `as any` casts_ | UI/Frontend |
 | [AD20](#ad20-toctou-in-containerlifecyclets) | TOCTOU in container/lifecycle.ts | Architecture |
 | [AD21](#ad21-inconsistent-function-signatures) | Inconsistent function signatures | Architecture |
 | [AD22](#ad22-jwks-30s-cache-staleness) | JWKS 30s cache staleness | Security |
@@ -40,14 +40,14 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD25](#ad25-e2e-service-email-hardcoded) | _reclassified - E2E test fixture moved to inline + security.md_ | (redirect) |
 | [AD26](#ad26-stress-test-rate-limit-bypass-integration-only) | Stress test rate-limit bypass (integration-only) | Security |
 | [AD27](#ad27-server-side-prefix-delete) | Server-side prefix delete | Storage |
-| [AD28](#ad28-merged-into-ad26) | _merged into AD26 — integration-only environment scoping_ | Security |
+| [AD28](#ad28-merged-into-ad26) | _merged into AD26 - integration-only environment scoping_ | Security |
 | [AD29](#ad29-container-secrets-as-env-vars) | Container secrets as env vars | Security |
 | [AD30](#ad30-worker-name-from-host-header) | Worker name from Host header | Security |
 | [AD31](#ad31-root-container-is-intentional) | _reclassified - root-container rationale moved to inline + security.md_ | (redirect) |
 | [AD32](#ad32-encryption_key-is-optional) | ENCRYPTION_KEY is optional | Security |
-| [AD33](#ad33-merged-into-ad10) | _merged into AD10 — pre-setup CSRF risk_ | Security |
+| [AD33](#ad33-merged-into-ad10) | _merged into AD10 - pre-setup CSRF risk_ | Security |
 | [AD34](#ad34-websocket-auth-bypass-of-hono-middleware) | WebSocket auth bypass of Hono middleware | Security |
-| [AD35](#ad35-merged-into-ad18) | _merged into AD18 — splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
+| [AD35](#ad35-merged-into-ad18) | _merged into AD18 - splash-cursor-logic.ts old-style constructor_ | UI/Frontend |
 | [AD36](#ad36-websocket-origin-check-is-optional-for-non-browser-clients) | WebSocket Origin check is optional for non-browser clients | Security |
 | [AD37](#ad37-kv-as-billing-read-cache--signal-and-sync-cf-015) | KV as billing read cache -- Signal and Sync (CF-015) | Billing |
 | [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) | GitHub OIDC replaces CF Access in SaaS mode | Billing |
@@ -115,7 +115,7 @@ Session PATCH/stop overlap is rare, rate limit off-by-one is minor, `lastAccesse
 
 `collectMetrics` KV read-modify-write can revert session status. Mitigated: session status changes are only observed from the Dashboard, not during active terminal use. Sessions are never interrupted while in Terminal view.
 
-**`collectMetrics` density** (formerly AD17): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations — same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
+**`collectMetrics` density** (formerly AD17): the function performs activity checking, health probing, and KV status updates in a single `alarm()` callback. Splitting into separate alarms would require coordination logic more complex than the current monolithic approach. The `alarm()` context provides natural atomicity across these tightly coupled operations - same theme as the KV race trade-off above (accept the cheap option until evidence forces change).
 
 ---
 
@@ -143,7 +143,7 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 **Decision:** A narrow pre-setup window (seconds to minutes) is the unavoidable shape of a self-hosted bootstrap; auth and CSRF protections are intentionally relaxed during it, mitigated by short exposure, rate limiting, and the `setup:complete` KV flag.
 
-`/api/setup/configure` is public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet — that's what setup configures).
+`/api/setup/configure` is public before `setup:complete` is written to KV. This allows the deployer to configure their instance without pre-existing auth infrastructure (Cloudflare Access isn't set up yet - that's what setup configures).
 
 **Trade-off**: A narrow window (seconds to minutes) exists where any actor could claim the deployment. Accepted because the target audience is self-hosted single-user/small-team deployments where the deployer is watching the process.
 
@@ -151,7 +151,7 @@ Root needed for rclone mount. Container auth token (random UUID per DO lifecycle
 
 **Future**: A one-time bootstrap secret injected at deploy time would close this window entirely.
 
-**Pre-setup public endpoints** (formerly AD7): the same risk acceptance covers all pre-setup endpoints, not just `/configure`. Setup runs once during initial deploy. Pre-setup auth trusts a spoofable email header — bootstrap problem (can't require CF Access auth when CF Access isn't configured yet). Mitigated by rate limiting and the same short exposure window.
+**Pre-setup public endpoints** (formerly AD7): the same risk acceptance covers all pre-setup endpoints, not just `/configure`. Setup runs once during initial deploy. Pre-setup auth trusts a spoofable email header - bootstrap problem (can't require CF Access auth when CF Access isn't configured yet). Mitigated by rate limiting and the same short exposure window.
 
 **Pre-setup CSRF** (formerly AD33): `createConditionalSetupAuth()` calls `next()` directly when setup is not complete, bypassing the `X-Requested-With` CSRF check. The pre-setup CSRF risk is accepted under the same rationale as above: the window is seconds to minutes, the self-hosted audience makes a drive-by CSRF attack from a third-party origin implausible, and the attacker would need to know the exact `workers.dev` URL during its unconfigured window. Adding `Origin` validation to the pre-setup path is a low-cost future hardening that complements the bootstrap-secret idea above.
 
@@ -241,7 +241,7 @@ Handles Alpine->Debian migration, PTY pre-warm, rclone sync orchestration, tab a
 
 **`splash-cursor-logic.ts` `as any` casts** (formerly AD19): pointer-tracking objects and WebGL shader uniforms in this creative-coding module have no typed definitions upstream. The code is adapted from a visual-effect library; type assertions are confined to this isolated module.
 
-**`splash-cursor-logic.ts` old-style constructor with `any` types** (formerly AD35): an old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types — it's the root cause of the casts above. The constructor is adapted from the same visual-effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.
+**`splash-cursor-logic.ts` old-style constructor with `any` types** (formerly AD35): an old-style constructor function with `this: any` causes all downstream pointer/rendering functions to use `any` types - it's the root cause of the casts above. The constructor is adapted from the same visual-effect library. The entire module is isolated, has no production data path, and is invoked once per canvas element (not in a hot loop). Refactoring to a typed factory function would require significant rework of adapted code for marginal benefit.
 
 **Common rationale across all three surfaces**: vendored creative/WebGL code is type-foreign by design. The boundary at the module's import surface is what matters; internal `any` is acceptable when the module is small, isolated, and has no production data path.
 
@@ -299,9 +299,9 @@ The 30-second JWKS cache in `jwt.ts` means a rotated key might not be recognized
 
 **Decision:** `STRESS_TEST_MODE=active` skips all rate limiting; the variable is scoped to the GitHub Actions `integration` environment only.
 
-k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` — any other value (including `"true"`) keeps limits enforced.
+k6 stress tests share a single CF Access service token (single identity), so per-user rate limits (10/min sessions, 5/min containers, 30/min WebSocket) block meaningful load testing above ~5 VUs. Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-limit KV reads/writes at the top of the middleware, before any I/O. The value must be exactly `"active"` - any other value (including `"true"`) keeps limits enforced.
 
-**Integration-only scoping** (formerly AD28): no CI-level guard is needed because GitHub Actions environment separation controls it. The variable is only set via the workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but that requires deliberate action — the same trust model that already governs every other production secret.
+**Integration-only scoping** (formerly AD28): no CI-level guard is needed because GitHub Actions environment separation controls it. The variable is only set via the workflow scoped to the `integration` environment. Production deployments use `environment: production` and never receive this variable. A repo admin could theoretically set it for production, but that requires deliberate action - the same trust model that already governs every other production secret.
 
 ---
 
@@ -431,16 +431,16 @@ The first `/_internal/setBucketName` request is unauthenticated because the cont
 
 **Category:** Storage
 
-**Decision:** When bisync fails with `lstat: no such file or directory`, parse the error output to identify the vanishing file, add it to a session-scoped exclusion filter, and retry — before escalating to `nuke_corrupted_r2_files`.
+**Decision:** When bisync fails with `lstat: no such file or directory`, parse the error output to identify the vanishing file, add it to a session-scoped exclusion filter, and retry - before escalating to `nuke_corrupted_r2_files`.
 
-The race condition is: rclone lists a file at path X, then the file is deleted (by an agent, MCP auth cache cleanup, or any ephemeral write) before rclone can copy it. The file is gone; there is nothing to recover or repair. Nuking R2 objects is the wrong response — it targets corruption (wrong encryption key, size mismatch, bad object metadata), not transience. Retrying the exact same bisync command without excluding the file would hit the same error. The correct response is:
+The race condition is: rclone lists a file at path X, then the file is deleted (by an agent, MCP auth cache cleanup, or any ephemeral write) before rclone can copy it. The file is gone; there is nothing to recover or repair. Nuking R2 objects is the wrong response - it targets corruption (wrong encryption key, size mismatch, bad object metadata), not transience. Retrying the exact same bisync command without excluding the file would hit the same error. The correct response is:
 
 1. Parse `failed to open source object.*no such file` from rclone output.
 2. Append `- <path>` to `/tmp/rclone-recovery-filters.txt` (session-scoped, never synced to R2).
 3. Clear bisync lock files.
 4. Retry the same operation (max 3 attempts per call site).
 
-Non-workspace files are auto-excluded because they are config/cache files that will regenerate. Workspace files (user code) are not auto-excluded — they get a plain retry on the assumption the file reappeared after a save completed. Known ephemeral files (`.claude/mcp-*.json` — MCP auth cache with millisecond lifetime) are statically excluded from `RCLONE_FILTERS_COMMON` to prevent the race from occurring at all.
+Non-workspace files are auto-excluded because they are config/cache files that will regenerate. Workspace files (user code) are not auto-excluded - they get a plain retry on the assumption the file reappeared after a save completed. Known ephemeral files (`.claude/mcp-*.json` - MCP auth cache with millisecond lifetime) are statically excluded from `RCLONE_FILTERS_COMMON` to prevent the race from occurring at all.
 
 The recovery applies at both call sites: `establish_bisync_baseline()` (startup) and `bisync_with_r2()` (daemon). The filter file is initialized empty on every container start via `init_recovery_filters()`.
 
@@ -475,13 +475,13 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 - **Three modes** map to three user types: new SDD users (interactive), solo developers in steady-state (auto), trusting power users with PR review habits (unleashed).
 - **Conservative JUDGMENT auto-resolution in unleashed**: doc-vs-spec conflicts mark BOTH sides as `Partial` with `Notes:` (never overwrite intent); oversized REQs shrink in place by extracting implementation prose to docs (never split, since LLMs cannot reliably preserve meaning when splitting); fake-Deprecated REQs move to README "Out of Scope" section (never delete, satisfying the existing "never delete" rule).
-- **PR-based safety net** for unleashed mode: walk-away users get reviewable surface (PR description has full audit log), and rollback is "close the PR" — the working branch is never touched.
+- **PR-based safety net** for unleashed mode: walk-away users get reviewable surface (PR description has full audit log), and rollback is "close the PR" - the working branch is never touched.
 - **Universal enforcement layer** (`rules/spec-discipline.md`) inlined into every agent's instructions file ensures Codex (no agent files) and Copilot (no skill loading) get the same discipline as Claude.
-- **Project-agnostic agent refactor**: spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read `documentation/README.md` to discover the project's actual file structure. Both agents gate on `sdd/` existence — on non-SDD projects (vibe-coding mode) they exit silently and the post-push `git-push-review-reminder` hook also emits no reminder, so `git push` proceeds with zero review agents. `doc-updater` no longer auto-scaffolds `documentation/README.md` on non-SDD projects (previous behavior was too aggressive). Opt-in to the full workflow is binary: run `/sdd init` and all three review agents (code-reviewer, spec-reviewer, doc-updater) fire on every push; don't, and none do.
+- **Project-agnostic agent refactor**: spec-reviewer and doc-updater drop hardcoded Codeflare domain mappings and read `documentation/README.md` to discover the project's actual file structure. Both agents gate on `sdd/` existence - on non-SDD projects (vibe-coding mode) they exit silently and the post-push `git-push-review-reminder` hook also emits no reminder, so `git push` proceeds with zero review agents. `doc-updater` no longer auto-scaffolds `documentation/README.md` on non-SDD projects (previous behavior was too aggressive). Opt-in to the full workflow is binary: run `/sdd init` and all three review agents (code-reviewer, spec-reviewer, doc-updater) fire on every push; don't, and none do.
 - **Sequential execution** (spec-reviewer first, doc-updater second) prevents race conditions on shared files.
 - **2-round commit-cycle limit** with `[sdd-clean]` tag exclusion catches micro-fix spirals without crashing the rescue command itself.
 - **`enforce_tdd` rule** (renamed from `auto_demote`, default `true`): spec-reviewer auto-demotes `Implemented` REQs without test coverage to `Partial`, detects `Planned`/`Partial` REQs whose source code exists but has no corresponding test (code-without-test finding), and runs test-quality heuristics (AC-count vs test-count ratio, tautology detection, skipped-test detection) on every push. Forced `true` in unleashed mode where the PR review is the safety net.
-- **Plan Mode mandate**: `/sdd init`, `/sdd edit`, and `/sdd add` emit `EnterPlanMode` directives so spec-to-code transitions always go through Plan Mode (a built-in Claude Code primitive). The `/plan` custom slash command is removed — Plan Mode replaces it.
+- **Plan Mode mandate**: `/sdd init`, `/sdd edit`, and `/sdd add` emit `EnterPlanMode` directives so spec-to-code transitions always go through Plan Mode (a built-in Claude Code primitive). The `/plan` custom slash command is removed - Plan Mode replaces it.
 - **`Implements REQ-X-NNN` annotation convention**: source files must carry a comment naming the REQ they implement (e.g., `// Implements REQ-AUTH-001`). spec-reviewer greps for these annotations when running coverage checks; they are the bridge between source code and the spec.
 - **Template scaffolding** in `references/templates/` lets `/sdd init` bootstrap any project with no external dependencies.
 
@@ -497,7 +497,7 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 - REQ-AGENT-006 (preseed bundle generation)
 - REQ-AGENT-007 (per-agent adaptation pipeline)
 - REQ-AGENT-014 (manifest as single source of truth)
-- REQ-AGENT-021 (SDD workflow as Pro feature) — added in this overhaul
+- REQ-AGENT-021 (SDD workflow as Pro feature) - added in this overhaul
 
 **Implementation references:**
 
@@ -514,26 +514,26 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 **Category:** Architecture
 
-**Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior — this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings — same machine behavior as the legacy skip list, but the architectural decision is now first-class.
+**Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior - this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings - same machine behavior as the legacy skip list, but the architectural decision is now first-class.
 
-**Context:** AD44 introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in REQ-AUTH-002 AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract — security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
+**Context:** AD44 introduced the SDD review pipeline with `sdd/.user-overrides.md` as the place to record JUDGMENT resolutions ("don't re-attempt this fix; the user said no"). On a downstream `ai-news-digest` session, spec-reviewer flagged cookie-attribute mechanism leakage in REQ-AUTH-002 AC 1 (`__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`). The clean resolution was "the cookie attributes ARE the security contract - security reviewers grep these strings; rewriting to user-observable language loses the contract surface". Recording that as a one-line `User note:` field in `sdd/.user-overrides.md` worked for the agent but failed the human:
 
 - The override file is invisible to anyone reading the codebase. It doesn't appear in any index, isn't referenced from `documentation/decisions/README.md`.
 - Each entry is a load-bearing architectural choice ("we treat cookie attributes as the security contract") buried in a config-shaped file alongside test-skip notes.
-- "Rationale" lives in a free-text User note field with no structure — no Context/Decision/Rationale/Consequences scaffolding, no link to the affected REQ, no date the decision was revisited.
+- "Rationale" lives in a free-text User note field with no structure - no Context/Decision/Rationale/Consequences scaffolding, no link to the affected REQ, no date the decision was revisited.
 - Six months later, nobody remembers what's in `.user-overrides.md` and re-litigates the same call because they couldn't find prior context.
 
 **Alternatives considered:**
 
 1. **Keep `sdd/.user-overrides.md` and just cross-link from `documentation/decisions/README.md`.** Rejected: still bifurcates decision storage. The cross-link rots.
-2. **Keep the file but require structured fields (Context/Decision/Rationale/Consequences).** Rejected: this is the ADR template — at that point we are reinventing ADRs in `sdd/`, in the wrong lane.
-3. **Move overrides into REQ frontmatter as a per-REQ `OverridesRules:` field.** Rejected: scatters the decision. Reading the REQ doesn't tell you *why* the rule was overridden — that's an architectural decision, not a REQ attribute. Future REQ refactors might drop the field unintentionally.
+2. **Keep the file but require structured fields (Context/Decision/Rationale/Consequences).** Rejected: this is the ADR template - at that point we are reinventing ADRs in `sdd/`, in the wrong lane.
+3. **Move overrides into REQ frontmatter as a per-REQ `OverridesRules:` field.** Rejected: scatters the decision. Reading the REQ doesn't tell you *why* the rule was overridden - that's an architectural decision, not a REQ attribute. Future REQ refactors might drop the field unintentionally.
 4. **The chosen approach: ADRs with `Overrides:` headers.** Same skip semantics, decision now lives where decisions live.
 
 **Rationale:**
 
 - ADRs already exist for this exact purpose in `documentation/decisions/`: structured, indexed, discoverable, treated as first-class history.
-- The `**Overrides:**` line is a one-line parser anchor — spec-reviewer's grep pattern is `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (tolerates both plain and the project's universal bold-wrapped ADR field convention), splitting on commas — same skip key shape (`{rule_id}:{target_id}`) the legacy file used.
+- The `**Overrides:**` line is a one-line parser anchor - spec-reviewer's grep pattern is `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (tolerates both plain and the project's universal bold-wrapped ADR field convention), splitting on commas - same skip key shape (`{rule_id}:{target_id}`) the legacy file used.
 - Decisions can be revised with full Status history (`Accepted` → `Superseded by AD-M`) following existing ADR patterns. The legacy skip list had no such notion.
 - ADRs are listed in `documentation/decisions/README.md`'s decision index, surfacing the override decisions in the same place where every other architectural call lives. Future contributors find them on first reading.
 - `/sdd clean` migrates existing entries automatically: each line in any project's existing `sdd/.user-overrides.md` becomes a new ADR (Context/Decision/Rationale/Consequences scaffold pre-filled with the legacy `User note:` field; TODO placeholders in Rationale/Consequences asking the user to expand on first read), and the legacy file is deleted in the same commit. Tagged `[sdd-clean] migrate user-overrides to ADRs (issue codeflare#266)` so spec-reviewer's round-counter excludes it.
@@ -542,11 +542,11 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 - Migration adds one extra commit on the next `/sdd clean` for any project with existing override entries. Acceptable: it's a one-time cost, the migration is fully automatic, and each migrated ADR carries a TODO marker so the user knows to expand the rationale.
 - ADRs are slightly heavier-weight than a one-line skip entry. Intentional: the friction is the point. If an override is "easy" to add, it gets added thoughtlessly. If it requires writing a real ADR, it gets thought about, which is what we want for an architectural decision.
-- The `Overrides:` header is a soft contract — projects that hand-edit ADRs to remove the header silently lose the skip behavior. Acceptable: same shape as every other markdown-based agent contract in the project.
+- The `Overrides:` header is a soft contract - projects that hand-edit ADRs to remove the header silently lose the skip behavior. Acceptable: same shape as every other markdown-based agent contract in the project.
 
 **Migration:**
 
-- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `**Overrides:**` (regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` — tolerates plain and bold-wrapped) instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
+- spec-reviewer Step 0d: greps `documentation/decisions/**/*.md` for `**Overrides:**` (regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` - tolerates plain and bold-wrapped) instead of reading `sdd/.user-overrides.md`. Legacy file (if present) triggers a HIGH finding asking for migration.
 - doc-updater Step 0c: same change.
 - spec-discipline.md: drops `## User overrides` section, replaces with `## User overrides via ADRs` documenting the `Overrides:` header pattern.
 - `/sdd clean` step 6/6a: auto-migrates legacy entries to ADRs.
@@ -713,54 +713,55 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Status:** Accepted (2026-05-10)
 
-**Context:** Heavy data-gathering sessions burn input tokens reading raw tool output across many turns: a 56 KB Bash result on turn 3 is in turn 4's input, turn 5's input, turn N's input, billed every turn until compaction. Cumulative cost on a long session can reach 40-70% of input billing. Separately, the advisory PostToolUse `git-push-review-reminder.sh` hook emitted `additionalContext` after `git push` with instructions to spawn the SDD review agents, but agents frequently ignored the directive — which is exactly why `enforce-review-spawn.sh` (Stop hook) was added as the actual gate. The advisory hook is theater alongside the gate.
+**Context:** Heavy data-gathering sessions burn input tokens reading raw tool output across many turns: a 56 KB Bash result on turn 3 is in turn 4's input, turn 5's input, turn N's input, billed every turn until compaction. Cumulative cost on a long session can reach 40-70% of input billing. Separately, the advisory PostToolUse `git-push-review-reminder.sh` hook emitted `additionalContext` after `git push` with instructions to spawn the SDD review agents, but agents frequently ignored the directive - which is exactly why `enforce-review-spawn.sh` (Stop hook) was added as the actual gate. The advisory hook is theater alongside the gate.
 
-**Decision:** Adopt context-mode (https://github.com/mksglu/context-mode) as the in-session context-window discipline mechanism. Register the MCP server via `npx -y context-mode@<pinned-version>` in `.claude.json` (both Standard and Pro modes). In Pro mode, wire four hooks via the same pinned `npx -y context-mode@<ver> hook claude-code <event>` shape: PreToolUse (matcher `Bash|Read|WebFetch|Grep|Glob|Agent`), PostToolUse (matcher `Bash|Read|WebFetch|Grep|Glob`), PreCompact, and SessionStart. The version pin is a single shell variable in `entrypoint.sh` (`CONTEXT_MODE_VERSION`); upgrade by bumping the variable and following the Upgrade procedure below. Retire the advisory `git-push-review-reminder.sh` PostToolUse hook in the same change; `enforce-review-spawn.sh` (Stop) remains the sole SDD review-pipeline gate.
+**Decision:** Adopt context-mode (https://github.com/mksglu/context-mode) as the in-session context-window discipline mechanism. Register the MCP server via `npx -y context-mode@<pinned-version>` in `.claude.json` (both Standard and Pro modes). In Pro mode, wire four context-mode-specific hooks via the same pinned `npx -y context-mode@<ver> hook claude-code <event>` shape: PreToolUse (matcher `Bash|Read|WebFetch|Grep|Glob|Agent`), PostToolUse (matcher `Bash|Read|WebFetch|Grep|Glob`), PreCompact, and SessionStart. (The full Pro-mode stack is six events: these four context-mode hooks plus the pre-existing Stop and UserPromptSubmit hooks owned by codeflare-hooks and codeflare-memory.) The version pin is a single shell variable in `entrypoint.sh` (`CONTEXT_MODE_VERSION`); upgrade by bumping the variable and following the Upgrade procedure below. Retire the advisory `git-push-review-reminder.sh` PostToolUse hook in the same change; `enforce-review-spawn.sh` (Stop) remains the sole SDD review-pipeline gate.
 
 **Alternatives considered:**
 
-1. **B-MCP-only (no hooks).** Reachable via `claude mcp add context-mode -- npx -y context-mode` with no hook wiring. Rejected: without SessionStart's routing block teaching the agent to prefer ctx_* tools, savings collapse to the narrow PreToolUse deterministic band (curl/wget/build-tool rewrites + WebFetch deny) — a small fraction of the headline 40-70%.
-2. **B-Selective with filter.** Wire PreToolUse + PostToolUse but skip SessionStart, using a pipe filter to strip the verbose-output rules from SessionStart's routing block. Rejected after empirical validation in `/home/user/Temporary/context-mode-integration/07-selective-hook-validation.md`: PreToolUse re-injects the unfiltered routing block into subagent prompts via the Agent branch (`routing.mjs:342-356`), so the filter is incomplete by design. The verbose-output rules also do not materially hurt SDD review agents — spec-reviewer and doc-updater write to files, not chat; code-reviewer's findings are already structured.
+1. **B-MCP-only (no hooks).** Reachable via `claude mcp add context-mode -- npx -y context-mode` with no hook wiring. Rejected: without SessionStart's routing block teaching the agent to prefer ctx_* tools, savings collapse to the narrow PreToolUse deterministic band (curl/wget/build-tool rewrites + WebFetch deny) - a small fraction of the headline 40-70%.
+2. **B-Selective with filter.** Wire PreToolUse + PostToolUse but skip SessionStart, using a pipe filter to strip the verbose-output rules from SessionStart's routing block. Rejected after empirical validation in `/home/user/Temporary/context-mode-integration/07-selective-hook-validation.md`: PreToolUse re-injects the unfiltered routing block into subagent prompts via the Agent branch (the `handleSubagentBranch` path in upstream `routing.mjs`), so the filter is incomplete by design. The verbose-output rules also do not materially hurt SDD review agents - spec-reviewer and doc-updater write to files, not chat; code-reviewer's findings are already structured.
 3. **Posture C (vendor + fork).** Vendor context-mode source into `preseed/agents/claude/plugins/context-mode/` with a forked routing block. Rejected: 1-2 weeks engineering plus ongoing fork maintenance; the `npx -y` approach gives upstream updates for free and the fork divergence costs more than the routing-block conflict it would avoid.
 4. **Posture D (native reimplementation).** 3-4 weeks of engineering for parity with what context-mode already does. Deferred until E proves out.
 5. **Keep `git-push-review-reminder.sh` as guidance.** Rejected: the Stop hook does its own `gh pr view` PR-base classification and does not depend on the PostToolUse hook firing first. The advisory hook adds 200-500 tokens of advisory `additionalContext` per push and is empirically often ignored. Removing it costs at most one extra Stop-block-and-respawn cycle per push.
 
 **Rationale:**
 
-- Marquee context savings (~40-70% on heavy data sessions) come from the agent voluntarily routing to ctx_batch_execute / ctx_search / ctx_execute_file, which requires SessionStart's routing block to teach. Wiring all four hooks captures this value deterministically.
-- `npx -y` keeps Codeflare on the latest upstream context-mode without vendoring. Cold-start adds 1-2 seconds on the first MCP call after npx cache eviction — acceptable.
+- Marquee context savings (~40-70% on heavy data sessions) come from the agent voluntarily routing to ctx_batch_execute / ctx_search / ctx_execute_file, which requires SessionStart's routing block to teach. Wiring all four context-mode hooks captures this value deterministically.
+- `npx -y` keeps Codeflare on the latest upstream context-mode without vendoring. Cold-start adds 1-2 seconds on the first MCP call after npx cache eviction - acceptable.
 - The Stop hook (`enforce-review-spawn.sh`) is the actual SDD enforcement; the advisory PostToolUse hook was always belt-and-suspenders where the suspenders did not hold. Retiring it simplifies the hook stack without weakening enforcement.
 - Subagent prompts receive context-mode's routing rules via the PreToolUse Agent branch. Per Phase 7 reasoning, file-editing review agents (spec-reviewer, doc-updater) are not materially affected; code-reviewer chat findings may compress slightly but remain structurally complete.
 
 **Trade-offs accepted:**
 
-- Codeflare gains an external dependency on the `context-mode` npm package — single-maintainer (`mksglu`), executed unsandboxed inside every Pro-mode session before tool calls. Mitigation 1: pinning to a specific version (`CONTEXT_MODE_VERSION`) means `npx -y` cannot silently pick up a malicious patch; an upgrade is an explicit codeflare commit. Mitigation 2: `npx -y` falls back gracefully when the package cannot be reached (the hook silently no-ops, the MCP server fails to start). Hook errors are not surfaced; supply-chain compromises that crash the hook are invisible at the session level.
+- Codeflare gains an external dependency on the `context-mode` npm package - single-maintainer (`mksglu`), executed unsandboxed inside every Pro-mode session before tool calls. Mitigation 1: pinning to a specific version (`CONTEXT_MODE_VERSION`) means `npx -y` cannot silently pick up a malicious patch; an upgrade is an explicit codeflare commit. Mitigation 2: `npx -y` falls back gracefully when the package cannot be reached (the hook silently no-ops, the MCP server fails to start). Hook errors are not surfaced; supply-chain compromises that crash the hook are invisible at the session level.
 - WebFetch behavior changes: requests are intercepted with a tip pointing at `ctx_fetch_and_index`. Existing user workflows that relied on raw WebFetch must learn the new path.
-- **MCP-ready sentinel race / cold-start cost.** PreToolUse deterministic decisions (curl/wget rewrites, WebFetch deny) are gated on `/tmp/context-mode-mcp-ready-*` sentinels. Until the MCP server boots and writes the sentinel, every PreToolUse `modify` and `deny` collapses to passthrough — the first N tool calls in a fresh session do NOT get the rewrite even when the hook fires. Cold start on a fresh container with no npm cache: 5-15 seconds (network fetch + extract + boot). On a warm cache: 1-2 seconds. Mitigation: accept as cold-start cost; SessionStart routing-block injection (the bulk of the savings) is unaffected — it runs synchronously and does not depend on the MCP server.
+- **MCP-ready sentinel race / cold-start cost.** PreToolUse deterministic decisions (curl/wget rewrites, WebFetch deny) are gated on `/tmp/context-mode-mcp-ready-*` sentinels. Until the MCP server boots and writes the sentinel, every PreToolUse `modify` and `deny` collapses to passthrough - the first N tool calls in a fresh session do NOT get the rewrite even when the hook fires. Cold start on a fresh container with no npm cache: 5-15 seconds (network fetch + extract + boot). On a warm cache: 1-2 seconds. Mitigation: accept as cold-start cost; SessionStart routing-block injection (the bulk of the savings) is unaffected - it runs synchronously and does not depend on the MCP server.
 
 **Upgrade procedure:**
 
 1. Bump `CONTEXT_MODE_VERSION` in `entrypoint.sh` (search the file for the variable name; do NOT pin in multiple places).
 2. Verify the new version on npm: `npm view context-mode@<new> version`.
-3. Re-run `host/__tests__/entrypoint-context-mode.test.js` — the version-pin tests assert the new value flows through both the MCP config and all four hook commands.
-4. Deploy to integration; smoke-test that ctx_* tools resolve and the four hook events fire (`/mcp`, then trigger Bash/WebFetch/etc).
+3. Re-run `host/__tests__/entrypoint-context-mode.test.js` - the version-pin tests assert the new value flows through both the MCP config and all four context-mode hook commands.
+4. Deploy to integration; smoke-test that ctx_* tools resolve and the four context-mode hook events fire (`/mcp`, then trigger Bash/WebFetch/etc).
 5. The `entrypoint.sh` managed-hook regex matches `context-mode@[0-9.]+` so older versions still in user `settings.json` are correctly stripped on the first rerun after an upgrade.
+6. If the new context-mode release adds new hook events (e.g., a future `userpromptsubmit` event), update the event enumeration in the managed-hook regex (`(pretooluse|posttooluse|precompact|sessionstart)` in the SETTINGS_FILE merge block) AND wire the new event into `SETTINGS_CONFIG`. Without both updates, the new event will be classified as user-managed and not stripped on rerun.
 
-**Related requirements:** REQ-AGENT-005 (Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers — AC4-AC6 updated)
+**Related requirements:** REQ-AGENT-005 (Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers - AC4-AC6 updated)
 
 **Implementation references:**
 
-- `entrypoint.sh` — `# Configure context-mode MCP server for Claude Code` block (MCP server registration).
-- `entrypoint.sh` — `# Configure Claude Code settings.json with hooks` block (six-event hook stack, built via `jq -n`).
-- `preseed/agents/claude/manifest.json` — `git-push-review-reminder.sh` entry removed.
+- `entrypoint.sh` - `# Configure context-mode MCP server for Claude Code` block (MCP server registration).
+- `entrypoint.sh` - `# Configure Claude Code settings.json with hooks` block (six-event hook stack, built via `jq -n`).
+- `preseed/agents/claude/manifest.json` - `git-push-review-reminder.sh` entry removed.
 - Pre-decision integration analysis: `/home/user/Temporary/context-mode-integration/` (8 files).
 
 ---
 
 ## Related Documentation
 
-- [Architecture — System Components](../architecture.md#system-components) - Component overview
-- [Architecture — Design Rationale](../architecture.md#design-rationale) - Architectural principles
-- [Security — Authentication Gate](../security.md#authentication-gate) - Security model
-- [Authentication — Auth Modes](../authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
-- [Mobile — Scroll Stability](../mobile.md#scroll-stability) - Mobile terminal design decisions
+- [Architecture - System Components](../architecture.md#system-components) - Component overview
+- [Architecture - Design Rationale](../architecture.md#design-rationale) - Architectural principles
+- [Security - Authentication Gate](../security.md#authentication-gate) - Security model
+- [Authentication - Auth Modes](../authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Mobile - Scroll Stability](../mobile.md#scroll-stability) - Mobile terminal design decisions

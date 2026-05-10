@@ -15,7 +15,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 - `/review` gains a new Phase 5 (Reality Filter) and a persistent triage history file `sdd/.review-decisions.md` (REQ-AGENT-015 AC1 and AC5 updated). The Reality Filter re-evaluates AD-active findings against five questions (repeat-offender, memory-says-no, cluster aggregation, user-impact bar, spec-vs-shipped truth-test) and produces a short list of real findings the user actually triages, with a mandatory audit log of every drop. Empirically the filter takes 71 active findings down to ~10 real findings on a stable codebase. Phases 5-9 of the old pipeline shift to 6-10; output files renumber accordingly (AD46, issue codeflare#271).
 
 ## 2026-05-03
-- Removed `sdd/.user-overrides.md` (issue codeflare#266). When the user resolves an automated finding as "keep current behavior — this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` with an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header instead of reading the legacy skip list. Same machine behavior, but the architectural decision is now first-class — discoverable, structured (Context/Decision/Rationale/Consequences), and indexed in `documentation/decisions/README.md` instead of buried in a config-shaped file. Existing entries auto-migrate to ADRs on the next `/sdd clean` run.
+- Removed `sdd/.user-overrides.md` (issue codeflare#266). When the user resolves an automated finding as "keep current behavior - this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` with an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header instead of reading the legacy skip list. Same machine behavior, but the architectural decision is now first-class - discoverable, structured (Context/Decision/Rationale/Consequences), and indexed in `documentation/decisions/README.md` instead of buried in a config-shaped file. Existing entries auto-migrate to ADRs on the next `/sdd clean` run.
 - SDD review pipeline switched from per-push to per-PR-boundary triggers (REQ-AGENT-021 AC4): code-reviewer + spec-reviewer + doc-updater now fire on PR open or on push to a branch with an open PR; pushes to feature branches without an open PR defer review until the PR opens. Direct-push-to-main bypass is left to GitHub branch protection (require PR before merge) rather than handled in-session, so the spec describes the workflow without engineering a hook-level workaround.
 
 ## 2026-04-26
@@ -64,7 +64,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 ## 2026-04-07
 - Setup wizard now honors REQ-AUTH-002 constraint by skipping the `create_access_app` step in SaaS+OIDC mode (issue #140)
 - Dockerfile base image now pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror) instead of Docker Hub to avoid anonymous pull rate limits in CI; image digest preserved, REQ-OPS-011 unaffected (still bookworm-slim Node 24)
-- Added REQ-AGENT-021: Spec-Driven Development Workflow (Pro) — three autonomy modes, `/sdd clean` rescue, project-agnostic operation, import mode for existing codebases
+- Added REQ-AGENT-021: Spec-Driven Development Workflow (Pro) - three autonomy modes, `/sdd clean` rescue, project-agnostic operation, import mode for existing codebases
 - Updated REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007, REQ-AGENT-014: preseed bundle expanded to include the `spec-discipline` enforcement rule and 13 SDD scaffolding templates
 - Updated REQ-SESSION-004 AC4-AC5 and REQ-SESSION-005 AC5-AC6: idle detection consolidated to a single mechanism. `collectMetrics()` is now the sole enforcer of the user-configured idle timeout; the Container SDK's `sleepAfter` timer is pinned to 24h and the `onActivityExpired` override has been removed. Motivation: @cloudflare/containers v0.2.3 refreshes the SDK timer on any WebSocket message in either direction, which would keep containers alive whenever background processes (`tail -f`, log streams) emit output. Codeflare needs "no user input" semantics, not "no traffic" semantics. Wire protocol and DO storage key remain `sleepAfter` for backwards compatibility; the in-memory field is now `idleTimeoutPref`.
 
@@ -79,7 +79,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 - Added glossary term: Recovery Filter
 
 ## 2026-03-31
-- Updated REQ-AUTH-002 AC3: post-login redirect uses subscription tier check (isActiveTier) instead of subscribedAt timestamp — subscribed users skip /app/subscribe
+- Updated REQ-AUTH-002 AC3: post-login redirect uses subscription tier check (isActiveTier) instead of subscribedAt timestamp - subscribed users skip /app/subscribe
 - Added spec-reviewer agent (opus) for continuous spec maintenance
 - Added git-push-review-reminder PreToolUse hook
 - Added Pro mode features: spec-driven development workflow, continuous improvement
@@ -176,12 +176,12 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 - Added storage domain (REQ-STOR-001 through REQ-STOR-006): per-user R2 buckets, file persistence, bisync, initial sync, shutdown sync, storage quotas
 - Updated REQ-SESSION-001: scoped R2 credentials per container
 - Added REQ-TERM-005 (agent auto-start with pre-warming)
-- Migrated container base from Alpine to Debian bookworm-slim (Node 24) — fixed CLI crashes for Copilot and Gemini
+- Migrated container base from Alpine to Debian bookworm-slim (Node 24) - fixed CLI crashes for Copilot and Gemini
 - Added Fast Start toggle (disables agent CLI auto-updaters for instant startup)
 
 ## 2026-02-26
 - Added GitHub Copilot as supported agent
-- Added REQ-AGENT-001 (initial multi-agent support — Claude Code, Codex, Gemini CLI, Copilot)
+- Added REQ-AGENT-001 (initial multi-agent support - Claude Code, Codex, Gemini CLI, Copilot)
 - Added mobile domain (REQ-MOB-001 through REQ-MOB-005): mobile usability, virtual keyboard, Samsung quirks, scroll stability, swipe gestures
 
 ## 2026-02-25

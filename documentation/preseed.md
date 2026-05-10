@@ -1,6 +1,6 @@
 # Agent Preseed System
 
-<!-- doc-allow-large: dense reference document — manifest structure,
+<!-- doc-allow-large: dense reference document - manifest structure,
      per-agent document counts, hook script roles, deployment paths
      and troubleshooting recipes are all load-bearing reference
      material that needs to live in one navigable file. Splitting
@@ -56,7 +56,7 @@ separate Recreate click is required; the UI shows a confirmation
 when the toggle completes. On Stripe-driven or Settings-driven
 reconciliation, preseed files are overwritten to match the new mode;
 user-created files are never deleted. Implements
-[REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4–AC5 and
+[REQ-AGENT-004](../sdd/agents.md#req-agent-004) AC4-AC5 and
 [REQ-AGENT-005](../sdd/agents.md#req-agent-005).
 
 **Cleanup on Recreate**: `reconcileAgentConfigs()` seeds
@@ -105,8 +105,8 @@ MCP tool).
 **Rules (27 files, 4 in both modes + 23 advanced-only)**: Core
 environment rules (`ci-monitoring`, `cloudflare-environment`,
 `no-local-builds`, `deploy-credentials`) in both modes. The
-discipline triad — `spec-discipline`, `documentation-discipline`,
-`tdd-discipline` — is advanced-only (Pro-mode SDD workflow opt-in:
+discipline triad - `spec-discipline`, `documentation-discipline`,
+`tdd-discipline` - is advanced-only (Pro-mode SDD workflow opt-in:
 spec-discipline is the universal enforcement layer inlined into all
 5 agents' instructions; documentation-discipline defines per-file
 line budgets, per-cell word budgets, and lane separation for
@@ -168,7 +168,7 @@ All preseed content is deployed via the manifest pipeline:
   memory-capture.sh, memory-agent-prompt.md,
   memory-compact-prompt.md), codeflare-hooks plugin (4 files,
   advanced only: plugin.json, block-attributed-commits.sh,
-  enforce-review-spawn.sh, lib/gh-pr-state.sh — shared helper
+  enforce-review-spawn.sh, lib/gh-pr-state.sh - shared helper
   for the Stop-hook PR state lookup)
 
 ## Multi-Agent Preseed
@@ -221,19 +221,19 @@ remaps tool names in agent definition frontmatter, (3) removes
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents).
 
-**Per-mode counts**: Default mode seeds 25 files, advanced mode
+**Per-mode counts**: Standard mode seeds 25 files, Pro mode
 seeds 184 files. Total array size is 187 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
-generated array -- once for default mode (3 rules) and once for
-advanced mode (all rules including memory, ECC), with the same R2
+generated array -- once for Standard mode (3 rules) and once for
+Pro mode (all rules including memory, ECC), with the same R2
 key but different content. `getPreseedKeysNotInMode()` handles this
 correctly by excluding keys that have a variant in the target mode.
 
 ## Settings.json Merge
 
-Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3–AC5.
+Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3-AC5.
 
 `entrypoint.sh` merges settings into `~/.claude/settings.json`
 using a two-phase strategy. Non-hooks settings (statusLine,
@@ -260,19 +260,19 @@ customizations. Handles three cases:
 to enable both the `codeflare-memory` and `codeflare-hooks` plugins.
 This is permanent (not mode-gated) because missing plugins are
 silently skipped by Claude Code -- when the plugin files are absent
-in default mode, the plugins simply don't load. Plugins are used for
+in Standard mode, the plugins simply don't load. Plugins are used for
 file organization and delivery via R2 sync only -- hook registration
 is done via `settings.json` (see above).
 
 - **codeflare-memory**: Scripts for memory capture (hook registered
   in settings.json, scripts delivered via plugin)
-- **codeflare-hooks**: Scripts for commit attribution blocking,
-  git-push review reminders, and SDD review-agent sequential
-  enforcement — `spec-reviewer` runs first, then `doc-updater`
-  sequentially; on non-SDD projects (no `sdd/`) no agents fire and
-  the push is friction-free (vibe-coding mode). Implements
-  [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC4, AC8. Hooks
-  registered in settings.json, scripts delivered via plugin.
+- **codeflare-hooks**: Scripts for commit attribution blocking and
+  SDD review-agent sequential enforcement - `spec-reviewer` runs
+  first, then `doc-updater` sequentially; on non-SDD projects (no
+  `sdd/`) no agents fire and the push is friction-free (vibe-coding
+  mode). Implements [REQ-AGENT-021](../sdd/agents.md#req-agent-021)
+  AC4, AC8. Hooks registered in settings.json, scripts delivered via
+  plugin.
 
 ## Troubleshooting
 
@@ -283,14 +283,14 @@ is done via `settings.json` (see above).
 - **Review-spawn enforcement not firing on push**: see
   [Resetting the review-spawn checkpoint](#resetting-the-review-spawn-checkpoint)
   below.
-- **Default mode has hooks**: If `settings.json` has hook entries in
-  default mode, the entrypoint SESSION_MODE gating may have failed.
+- **Standard mode has hooks**: If `settings.json` has hook entries in
+  Standard mode, the entrypoint SESSION_MODE gating may have failed.
   Remove them:
   `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 
 ### Resetting the review-spawn checkpoint
 
-The `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode
+The `Stop` hook (`enforce-review-spawn.sh`) only fires in Pro mode
 when `sdd/` and `sdd/README.md` are present. It triggers at PR-boundary
 events: `gh pr create` runs in the session, OR a push lands on a
 branch that already has an open PR (the hook calls `gh pr view` to
@@ -331,9 +331,9 @@ so no manual cleanup is needed for the v4 → v5 migration path.
 
 ## Related Documentation
 
-- [Memory](memory.md) — MCP memory server, capture/compact, R2 sync
+- [Memory](memory.md) - MCP memory server, capture/compact, R2 sync
   of memory files
-- [Container](container.md#claude-code-integration) — Claude Code
+- [Container](container.md#claude-code-integration) - Claude Code
   configuration
-- [Storage & Sync](storage-and-sync.md) — R2 sync internals
-- [Decisions](decisions/README.md) — Architecture decisions
+- [Storage & Sync](storage-and-sync.md) - R2 sync internals
+- [Decisions](decisions/README.md) - Architecture decisions

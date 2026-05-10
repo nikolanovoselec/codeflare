@@ -55,7 +55,7 @@ expect(parseFloat(cssContent.match(/alpha:\s*([\d.]+)/)[1])).toBe(0.9);
 These pass if someone types the right string anywhere in the file.
 They pass if the rest of the file is gibberish. They fail only if the
 file is deleted or someone renames "forbidden" to "prohibited" in
-prose. Implementation can be entirely broken — test stays green.
+prose. Implementation can be entirely broken - test stays green.
 
 ```js
 // GOOD: run the actual code with input, assert on output
@@ -70,7 +70,7 @@ expect(result.stdout).toContain('code-reviewer');  // names the missing agent
 ```
 
 Now the test fails if the hook's exit code, stdout shape, or
-agent-naming logic regresses — not if someone reformats prose.
+agent-naming logic regresses - not if someone reformats prose.
 
 ### 2. Tautology
 
@@ -86,7 +86,7 @@ expect(Array.isArray(doc.modes)).toBe(true);
 // BAD: two hardcoded constants compared
 expect(commonRules.length).toBe(ECC_FILES_PER_SUBDIR.common);
 //                                ^^^^^^^^^^^^^^^^^^^^^^^^^
-// hardcoded {common:3} — if production drifts to 4, this test
+// hardcoded {common:3} - if production drifts to 4, this test
 // passes if-and-only-if someone manually updates the constant.
 // The check has no anchor to ground truth.
 ```
@@ -100,7 +100,7 @@ expect(commonRules.map((r) => basename(r.key))).toEqual(filesOnDisk);
 ```
 
 Now the test fails if files are added/removed without updating the
-generator — which is the regression we care about.
+generator - which is the regression we care about.
 
 ### 3. Mock-only theater
 
@@ -134,7 +134,7 @@ expect(result.isTruncated).toBe(false);  // last page
 ```
 
 The rule: **only mock what's outside YOUR code** (third-party APIs,
-network, the platform). Don't mock your own helpers — exercise them.
+network, the platform). Don't mock your own helpers - exercise them.
 
 ### 4. Implementation-coupled call counts
 
@@ -170,7 +170,7 @@ checked. Linter usually catches these; sometimes they slip in via
 `it('does X', () => { someCode(); /* assertion forgotten */ })`.
 
 ```js
-// BAD: no assertion — calling code without checking anything
+// BAD: no assertion - calling code without checking anything
 it('handles edge case', async () => {
   const result = await processInput(edgeCase);
   // ... and nothing
@@ -190,7 +190,7 @@ it('handles edge case', async () => {
 
 `it.skip(...)`, `xit(...)`, `describe.skip(...)` without an inline
 comment naming the blocker (issue link, upstream bug, environment
-limitation). Skipped tests rot — without a removal trigger, they
+limitation). Skipped tests rot - without a removal trigger, they
 stay skipped forever and the coverage they were supposed to provide
 is silently lost.
 
@@ -210,7 +210,7 @@ it.skip(
 ### 7. Trivial assertions on trivial values
 
 `expect(Array.isArray([1,2,3])).toBe(true)`,
-`expect(typeof 'foo').toBe('string')` — the truth is given by the
+`expect(typeof 'foo').toBe('string')` - the truth is given by the
 literal. The assertion adds nothing.
 
 ```js
@@ -231,7 +231,7 @@ expect(body.users[0]).toHaveProperty('id');
 For shell scripts and hooks: spawn the script with stdin/argv/env,
 assert exit code + stdout/stderr. The shape used in
 `host/__tests__/enforce-review-spawn.test.js` is the canonical
-example — that test caught real bugs (PUSH_TS empty-string fail-open,
+example - that test caught real bugs (PUSH_TS empty-string fail-open,
 PUSH_LINE substring false-positives) that text-matching tests did not.
 
 ```js
@@ -274,7 +274,7 @@ internals.
 
 For agents/prompts: extract the testable kernels (helper functions,
 parsers, formatters) into normal modules and test those. The prompt
-itself is human/LLM contract — exercise it via end-to-end runs in
+itself is human/LLM contract - exercise it via end-to-end runs in
 integration tests, not by regex-matching the prompt text.
 
 ### One bug-class per test
@@ -301,13 +301,13 @@ The only user-controlled lever is `enforce_tdd: true | false` in
 `sdd/config.yml`. With `enforce_tdd: true` (default), code-reviewer
 flags antipatterns at HIGH and spec-reviewer auto-demotes Implemented
 REQs without test coverage. With `enforce_tdd: false`, both report
-findings to `sdd/.coverage-report.md` without modifying the spec —
+findings to `sdd/.coverage-report.md` without modifying the spec -
 project-level opt-out only, intended for domains that genuinely don't
 admit automated testing (pure visual design systems, etc.).
 
 There is **no per-test opt-out**. Inline comment shortcuts like
 `// tdd-allow:` are explicitly NOT supported, by design. Per-test
-opt-outs are agent-writable bypasses — they degrade into "every test
+opt-outs are agent-writable bypasses - they degrade into "every test
 the agent doesn't want to fix" markers and defeat the rule. If a
 test legitimately can't fit the discipline, delete it; the absence
 of a useless test is more honest than a flagged-and-allowed one.
@@ -315,7 +315,7 @@ of a useless test is more honest than a flagged-and-allowed one.
 ## Migration policy
 
 Existing tests that predate this rule are migrated as the surrounding
-production code changes — not rewritten speculatively. The most
+production code changes - not rewritten speculatively. The most
 egregious cluster (`host/__tests__/sdd-workflow-upgrade.test.js`,
 416 lines of pure text-matching theater) is the anchor example
 removed in the same commit that introduces this rule.

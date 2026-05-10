@@ -165,7 +165,7 @@ Multi-agent support, preseed system, and session modes.
    g. Captures the user's prompts to the memory store on a periodic schedule.
 6. Standard mode receives only `skipDangerousModePermissionPrompt` and the context-mode MCP registration; no hooks are wired.
 
-Internal mechanism for the items above (settings.json layout, hook event names, matcher patterns, MCP config file path, SQLite store): `documentation/architecture.md` and AD49.
+Internal mechanism for the items above (settings.json layout, hook event names, matcher patterns, MCP config file path, SQLite store): see AD49 in `documentation/decisions/README.md`.
 
 **Constraints:**
 - Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.
@@ -306,7 +306,7 @@ Internal mechanism for the items above (settings.json layout, hook event names, 
 **Constraints:**
 - GitHub Minimal: 1 scope (contents). Recommended: 6 scopes (contents, PRs, actions, workflows, administration, secrets). Advanced: all 19 scopes including Copilot.
 - Cloudflare: "Edit Cloudflare Workers" template covers Workers, KV, R2, Pages, Containers, Routes. Users add extra scopes (D1, DNS, Access, Turnstile) when their agent requests them.
-- Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`; auth fails silently if the token lacks Copilot scope — requires Advanced tier.
+- Copilot CLI checks env vars in order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`; auth fails silently if the token lacks Copilot scope - requires Advanced tier.
 
 **Applies To:** User
 **Priority:** P1

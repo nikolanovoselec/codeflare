@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Implements REQ-AGENT-004
 # Implements REQ-AGENT-021
-# Stop hook — enforces SDD review-agent spawning at the PR boundary.
+# Stop hook - enforces SDD review-agent spawning at the PR boundary.
 #
 # Architecture (v5): PR HEAD SHA checkpoint + open-PR gate.
 #
-#   Layer 1 (CANDIDATE) — loose regex finds any "git push" mention in the
-#     transcript. Accepts false positives — they get filtered below.
+#   Layer 1 (CANDIDATE) - loose regex finds any "git push" mention in the
+#     transcript. Accepts false positives - they get filtered below.
 #
-#   Layer 2 (TRUTH) — `gh pr view <branch>` returns the current PR HEAD
+#   Layer 2 (TRUTH) - `gh pr view <branch>` returns the current PR HEAD
 #     SHA. The PR HEAD SHA is the unfakeable signal at PR-boundary
 #     scope: it changes only when a real push lands on the PR's source
 #     branch. The legacy reflog `update by push` truth layer is kept as
@@ -17,7 +17,7 @@
 #     because PR HEAD SHA is a stricter signal that already requires a
 #     real push to advance.
 #
-#   Layer 3 (CHECKPOINT) — `.git/sdd-last-ack-pr-head` stores the PR
+#   Layer 3 (CHECKPOINT) - `.git/sdd-last-ack-pr-head` stores the PR
 #     HEAD SHA whose review pipeline completed. A PR is un-acknowledged
 #     iff CURRENT_PR_HEAD ≠ LAST_ACK_PR_HEAD.
 #
@@ -39,7 +39,7 @@
 # exists, it is deleted on first v5 invocation. The PR HEAD SHA
 # checkpoint takes over.
 #
-# Bypass methods (USER-ONLY — the assistant must NEVER create the
+# Bypass methods (USER-ONLY - the assistant must NEVER create the
 # sentinel or write the magic phrase in its own output. An assistant
 # that creates its own bypass defeats the entire enforcement layer.):
 #   1. Sentinel file: sdd/.skip-next-review (one-shot, auto-deleted)
@@ -52,7 +52,7 @@
 # Vibe-coding gate: no enforcement if sdd/ is missing.
 # Fail-safe: any unexpected error → exit 0 (never lock users out).
 #
-# Known under-block conditions (all fail-safe by design — review fires
+# Known under-block conditions (all fail-safe by design - review fires
 # on the next eligible push instead of locking the user out):
 #   1. Web-UI driven PR HEAD changes (amend from GitHub UI, branch
 #      reset via API): the current Claude session has no `git push`
@@ -101,11 +101,11 @@ if [ -f "sdd/.skip-next-review" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Layer 1 (CANDIDATE) — find Bash tool_use lines whose .input.command
+# Layer 1 (CANDIDATE) - find Bash tool_use lines whose .input.command
 # field actually runs `git push` (not just mentions it inside an echo or
 # narration). Match either:
-#   1. command starts with `git push` — e.g. `"command":"git push origin..."`
-#   2. command has a shell separator (;&|) before `git push` — chained
+#   1. command starts with `git push` - e.g. `"command":"git push origin..."`
+#   2. command has a shell separator (;&|) before `git push` - chained
 #      pipelines like `git add . && git push` or `git status; git push`
 # Acceptable false-negative: heredoc/multi-line commands that JSON-encode
 # newlines as `\n` and put `git push` after that. Rare in practice.
@@ -131,7 +131,7 @@ SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
 #
 # Ordering note: SINCE_PUSH only includes transcript content from the
 # push line forward. A user message saying "skip review for the next
-# push" sent BEFORE the assistant ran git push won't bypass — only
+# push" sent BEFORE the assistant ran git push won't bypass - only
 # messages between the push line and the Stop event are scanned.
 # Users who need pre-emptive bypass should use the sentinel file
 # (`touch sdd/.skip-next-review`), which fires first via Bypass 1.
@@ -153,7 +153,7 @@ LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
 [ -f "$LEGACY_ACK" ] && rm -f "$LEGACY_ACK" 2>/dev/null
 
 # ---------------------------------------------------------------------------
-# Layer 2 (TRUTH) — PR HEAD SHA via gh pr view
+# Layer 2 (TRUTH) - PR HEAD SHA via gh pr view
 #
 # If the current branch has no open PR, exit 0 (deferred). The review
 # pipeline fires when this hook re-runs after the PR opens. No open
@@ -161,14 +161,14 @@ LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
 # ---------------------------------------------------------------------------
 CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
 [ -n "$CURRENT" ] || exit 0
-[ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD — skip
+[ "$CURRENT" = "HEAD" ] && exit 0  # detached HEAD - skip
 
 # ---------------------------------------------------------------------------
 # Cheap pre-check: skip the gh network call if all four conditions hold,
 # falling through to the authoritative gh check otherwise.
 #
 #   1. last-ack matches the local remote-tracking ref (@{u})
-#   2. local HEAD matches @{u} (no local commits ahead — guards against
+#   2. local HEAD matches @{u} (no local commits ahead - guards against
 #      `git reset --hard` regressing HEAD to an old acked SHA while a
 #      newer un-acked SHA exists upstream that the next push would
 #      promote)
@@ -221,7 +221,7 @@ BASE_REF=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
 # pipeline. Feature → develop defers until the develop → main PR.
 #
 # Empty BASE_REF (transient gh / jq failure between successful state
-# parse and base parse — rare but possible) is treated as fail-open:
+# parse and base parse - rare but possible) is treated as fail-open:
 # enforcement still runs. Better to over-block when truth is uncertain
 # than to silently let an unreviewed PR-to-main slip through.
 case "$BASE_REF" in
@@ -238,7 +238,7 @@ fi
 # ---------------------------------------------------------------------------
 # Real un-acknowledged PR HEAD exists. Enforce.
 #
-# Find the timestamp of the candidate push line — agents must be spawned
+# Find the timestamp of the candidate push line - agents must be spawned
 # with timestamps strictly after the push to count as a fresh review.
 # ---------------------------------------------------------------------------
 PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT" 2>/dev/null)
@@ -246,7 +246,7 @@ PUSH_TS=$(echo "$PUSH_LINE_CONTENT" | grep -oE '"timestamp":"[^"]+"' | head -1 |
 
 # Fail-safe: if timestamp extraction failed (transcript schema drift,
 # missing field, etc.) the awk comparison `ts > "$PUSH_TS"` would become
-# `ts > ""` — TRUE for any non-empty string — making spawned_after_push
+# `ts > ""` - TRUE for any non-empty string - making spawned_after_push
 # return true for any historical agent invocation and silently disabling
 # enforcement. Exit 0 here makes the failure mode explicit (consistent
 # with the rest of the hook) instead of relying on awk's string-compare
@@ -267,7 +267,7 @@ spawned_after_push() {
   ' "$TRANSCRIPT"
 }
 
-# 3-strike circuit breaker (keyed by CURRENT_PR_HEAD — unique per PR state)
+# 3-strike circuit breaker (keyed by CURRENT_PR_HEAD - unique per PR state)
 read_count() {
   if [ -f "$COUNT_FILE" ]; then
     local stored hash count
@@ -339,7 +339,7 @@ if [ -n "$SPEC_SPAWN_LINE" ]; then
     if [ -n "$SPEC_DONE_LINE" ]; then
       SINCE_SPEC_DONE=$(echo "$SINCE_SPEC" | tail -n +"$SPEC_DONE_LINE")
       if ! echo "$SINCE_SPEC_DONE" | grep -q '"subagent_type"[[:space:]]*:[[:space:]]*"doc-updater"'; then
-        REASON="spec-reviewer done; doc-updater missing. Spawn doc-updater via Agent tool (sequential — shared filesystem). USER bypass only: type 'skip review' or 'touch sdd/.skip-next-review'."
+        REASON="spec-reviewer done; doc-updater missing. Spawn doc-updater via Agent tool (sequential - shared filesystem). USER bypass only: type 'skip review' or 'touch sdd/.skip-next-review'."
         emit_block "$REASON"
       fi
       PIPELINE_COMPLETE=1

@@ -6,7 +6,7 @@
 # shape so test fixtures pin the same exact-match args and future
 # field additions are a one-place change.
 #
-# This file is sourced, not executed — it defines a function and
+# This file is sourced, not executed - it defines a function and
 # exits without side effects when imported.
 
 # gh_pr_state <branch>
@@ -14,7 +14,7 @@
 #           on success; empty when no PR exists for the branch.
 #   Exit:   0 if a PR was found and JSON was emitted.
 #           1 if no PR found (gh's standard "not found" exit).
-#           2/4 on transient errors (network, auth) — caller should
+#           2/4 on transient errors (network, auth) - caller should
 #           treat these as "unknown, don't cache".
 #
 # baseRefName is the bare branch name the PR targets (e.g. "main",
