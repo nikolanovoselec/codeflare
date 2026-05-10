@@ -402,5 +402,10 @@
     "modes": [
       "advanced"
     ]
+  },
+  "plugins/context-mode/scripts/enforce-ctx-mode.sh": {
+    "modes": [
+      "advanced"
+    ]
   }
 }
