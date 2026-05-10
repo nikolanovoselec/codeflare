@@ -31,7 +31,7 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
         {
           key: '.claude/plugins/context-mode/.claude-plugin/plugin.json',
           contentType: 'application/json; charset=utf-8',
-          content: '{"name":"context-mode","version":"1.0.111"}',
+          content: '{"name":"context-mode","version":"1.0.118"}',
           modes: ['advanced'] as ('default' | 'advanced')[],
         },
         {

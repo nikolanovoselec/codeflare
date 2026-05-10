@@ -44,7 +44,7 @@ function buildHarness(cwd, claudeJsonInitial, manifestPresent) {
     mkdirSync(manifestDir, { recursive: true });
     writeFileSync(
       join(manifestDir, 'plugin.json'),
-      JSON.stringify({ name: 'context-mode', version: '1.0.111' })
+      JSON.stringify({ name: 'context-mode', version: '1.0.118' })
     );
   }
 
@@ -86,7 +86,7 @@ describe('entrypoint context-mode preseed gate', () => {
     assert.ok(claudeJson.mcpServers, 'mcpServers key should exist');
     assert.ok(claudeJson.mcpServers['context-mode'], 'context-mode entry should exist');
     assert.equal(claudeJson.mcpServers['context-mode'].command, 'npx');
-    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['-y', 'context-mode@1.0.111']);
+    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['-y', 'context-mode@1.0.118']);
   });
 
   it('manifest absent: mcpServers["context-mode"] is STILL registered (universal MCP)', () => {
@@ -100,7 +100,7 @@ describe('entrypoint context-mode preseed gate', () => {
     assert.equal(claudeJson.mcpServers['context-mode'].command, 'npx');
     assert.deepEqual(
       claudeJson.mcpServers['context-mode'].args,
-      ['-y', 'context-mode@1.0.111'],
+      ['-y', 'context-mode@1.0.118'],
       'falls back to entrypoint-pinned version when preseed manifest is absent'
     );
   });

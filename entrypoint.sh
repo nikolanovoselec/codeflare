@@ -1080,12 +1080,12 @@ fi
 # A future contributor who adds a SessionStart-style ctx_* nudge for
 # commercial users would push us over the ELv2 line. Don't do that
 # without revisiting AD49 first.
-CONTEXT_MODE_VERSION="1.0.111"
+CONTEXT_MODE_VERSION="1.0.118"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # Custom+Pro: defer to the preseed manifest's pinned version so version
     # bumps land via Dependabot on the preseed source rather than entrypoint.
-    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.111"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.111")
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.118"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.118")
 fi
 # MCP server registration: always register the context-mode MCP server in
 # ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).
