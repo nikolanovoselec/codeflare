@@ -13,6 +13,7 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
 import { reconcileAgentConfigs } from '../lib/r2-seed';
 import { getR2Config } from '../lib/r2-config';
+import { getEffectiveTier } from '../lib/subscription';
 import { createLogger } from '../lib/logger';
 
 const logger = createLogger('preferences');
@@ -82,15 +83,20 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   // picks up the correct skills/agents/rules without manual Recreate click.
   if (parsed.data.sessionMode && parsed.data.sessionMode !== existing.sessionMode) {
     try {
+      const user = c.get('user');
+      const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+      const contextModeEnabled = effectiveTier === 'unlimited' && parsed.data.sessionMode === 'advanced';
       const { endpoint } = await getR2Config(c.env);
       const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, parsed.data.sessionMode, {
         overwrite: true,
         cleanup: true,
+        contextModeEnabled,
       });
       logger.info('Auto-reconciled agent configs on preferences change', {
         bucketName,
         previousMode: existing.sessionMode ?? 'default',
         newMode: parsed.data.sessionMode,
+        contextModeEnabled,
         written: result.written.length,
         deleted: result.deleted.length,
       });

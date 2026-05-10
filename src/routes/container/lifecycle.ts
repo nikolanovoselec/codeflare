@@ -179,9 +179,10 @@ export async function ensureBucketAndSeed(params: {
   env: Env;
   bucketName: string;
   sessionMode: SessionMode;
+  contextModeEnabled?: boolean;
   logger: Logger;
 }): Promise<{ r2Config: { accountId: string; endpoint: string } }> {
-  const { env, bucketName, sessionMode, logger } = params;
+  const { env, bucketName, sessionMode, contextModeEnabled, logger } = params;
 
   const r2Config = await getR2Config(env);
   const bucketResult = await createBucketIfNotExists(
@@ -216,10 +217,12 @@ export async function ensureBucketAndSeed(params: {
       const agentResult = await reconcileAgentConfigs(env, bucketName, r2Config.endpoint, sessionMode, {
         overwrite: false,
         cleanup: false,
+        contextModeEnabled,
       });
       logger.info('Seeded initial agent configs', {
         bucketName,
         mode: sessionMode,
+        contextModeEnabled,
         writtenCount: agentResult.written.length,
         skippedCount: agentResult.skipped.length,
       });
@@ -430,6 +433,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       } catch { /* non-SaaS or KV unavailable — allow the stored mode */ }
     }
     const sleepAfter = effectiveTier === 'free' ? '15m' : (preferences.sleepAfter || '30m');
+    // Implements REQ-AGENT-005
+    // context-mode preseed plugin: hard-gated to the unlimited (Custom) tier
+    // in Pro session mode. Any other combination strips the context-mode
+    // subtree from the R2 seed before bisync touches the bucket, so the
+    // plugin folder simply never appears in the user's ~/.claude/plugins/.
+    const contextModeEnabled = effectiveTier === 'unlimited' && sessionMode === 'advanced';
 
     // Read LLM API keys and deploy credentials (if any) to inject into container env vars
     const cryptoKey = await getOrImportKey(c.env);
@@ -443,6 +452,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       env: c.env,
       bucketName,
       sessionMode,
+      contextModeEnabled,
       logger: reqLogger,
     });
 

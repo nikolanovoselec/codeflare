@@ -1054,6 +1054,31 @@ if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
     echo "[entrypoint] consult-llm MCP server configured for Claude Code"
 fi
 
+# Configure context-mode MCP server when the preseed plugin is present.
+# (Implements REQ-AGENT-005)
+# context-mode (https://github.com/mksglu/context-mode) is shipped as a
+# preseed plugin under ~/.claude/plugins/context-mode/. The R2 seed filter
+# in src/lib/r2-seed.ts only deploys the plugin folder when the user is on
+# the unlimited (Custom) tier in Pro session mode, so the existence of
+# this manifest is the entrypoint-level gate. No env-var lookup required.
+CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
+if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.111"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.111")
+    CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
+    if [ -f "$USER_CLAUDE_JSON" ]; then
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+        else
+            echo "[entrypoint] WARNING: Could not merge context-mode MCP config (malformed .claude.json?)"
+            rm -f "$TMP_JSON"
+        fi
+    else
+        echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+    fi
+    echo "[entrypoint] context-mode MCP server configured for Claude Code (version $CONTEXT_MODE_VERSION)"
+fi
+
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
@@ -1122,8 +1147,14 @@ else
     echo "$SETTINGS_CONFIG" | jq '.' > "$SETTINGS_FILE"
 fi
 
-# Enable plugins (silently skipped if plugin files absent in default mode)
-PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true}}'
+# Enable plugins (silently skipped if plugin files absent in default mode).
+# context-mode is conditionally enabled via the preseed-plugin gate below.
+if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+    PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true,"context-mode":true}}'
+    echo "[entrypoint] context-mode plugin enabled (preseed manifest present)"
+else
+    PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true}}'
+fi
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_PLUGINS=$(mktemp)
     if jq --argjson cfg "$PLUGINS_CONFIG" '. * $cfg' "$USER_CLAUDE_JSON" > "$TMP_PLUGINS" 2>/dev/null; then

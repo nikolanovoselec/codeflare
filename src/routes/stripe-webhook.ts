@@ -275,9 +275,15 @@ async function handleSubscriptionDeleted(
   try {
     const bucketName = getBucketName(email);
     const { endpoint } = await getR2Config(env);
+    // Implements REQ-AGENT-005 (subscription-deletion path strips context-mode subtree)
+    // Subscription is gone, user is no longer Custom-tier, so the gate is
+    // explicitly closed. cleanup: true also removes any context-mode files
+    // already in the bucket via the mode filter (advanced-only keys), but
+    // we make the gate explicit at every reconcile call site for consistency.
     await reconcileAgentConfigs(env, bucketName, endpoint, 'default', {
       overwrite: true,
       cleanup: true,
+      contextModeEnabled: false,
     });
     const prefsKey = getPreferencesKey(bucketName);
     const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;
@@ -373,9 +379,18 @@ export async function syncSubscriptionState(
     try {
       const bucketName = getBucketName(email);
       const { endpoint } = await getR2Config(env);
+      // Implements REQ-AGENT-005
+      // Tier-gate context-mode preseed: unlimited (Custom) tier in Pro mode only.
+      // Reads tier from the patch when present, falling back to the existing record.
+      const effectiveTierForGate = (patch.subscriptionTier as string | undefined)
+        ?? (patch.accessTier as string | undefined)
+        ?? existing?.subscriptionTier
+        ?? existing?.accessTier;
+      const contextModeEnabled = effectiveTierForGate === 'unlimited' && newMode === 'advanced';
       await reconcileAgentConfigs(env, bucketName, endpoint, newMode as 'default' | 'advanced', {
         overwrite: true,
         cleanup: true,
+        contextModeEnabled,
       });
       const prefsKey = getPreferencesKey(bucketName);
       const prefs = await env.KV.get(prefsKey, 'json') as Record<string, unknown> | null;

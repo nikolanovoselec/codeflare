@@ -444,7 +444,7 @@ describe('auto-recreate on downgrade', () => {
       expect.stringContaining('pro-example-com'), // bucketName
       'https://r2.test',
       'default',
-      { overwrite: true, cleanup: true },
+      { overwrite: true, cleanup: true, contextModeEnabled: false },
     );
   });
 
@@ -477,7 +477,7 @@ describe('auto-recreate on downgrade', () => {
       expect.stringContaining('upgrade-example-com'),
       'https://r2.test',
       'advanced',
-      { overwrite: true, cleanup: true },
+      { overwrite: true, cleanup: true, contextModeEnabled: false },
     );
   });
 
@@ -527,7 +527,7 @@ describe('auto-reconcile on subscription.deleted', () => {
       expect.stringContaining('deleted-example-com'),
       'https://r2.test',
       'default',
-      { overwrite: true, cleanup: true },
+      { overwrite: true, cleanup: true, contextModeEnabled: false },
     );
   });
 

@@ -1,9 +1,9 @@
 <!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 48 ADR slots exist (AD1-AD48). 11 slots are redirect stubs that preserve inbound AD-N references: 6 merged into a canonical sibling on 2026-05-03 (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18), and 5 reclassified out of the decision log on 2026-05-09 per the "What is NOT an ADR" rule (AD9→configuration.md, AD23→inline+security.md, AD24→inline+security.md, AD25→inline+security.md, AD31→inline+security.md). 37 ADRs carry active content (AD38 is superseded but preserved per the immutability rule). The combined file is over the implicit 100×48 budget but each individual active ADR is under the per-ADR cap. Splitting into 48 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 49 ADR slots exist (AD1-AD49). 11 slots are redirect stubs that preserve inbound AD-N references: 6 merged into a canonical sibling on 2026-05-03 (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18), and 5 reclassified out of the decision log on 2026-05-09 per the "What is NOT an ADR" rule (AD9→configuration.md, AD23→inline+security.md, AD24→inline+security.md, AD25→inline+security.md, AD31→inline+security.md). 38 ADRs carry active content (AD38 is superseded but preserved per the immutability rule). The combined file is over the implicit 100×49 budget but each individual active ADR is under the per-ADR cap. Splitting into 49 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD48 throughout the codebase and documentation. 37 ADRs carry active content (AD38 superseded by AD48); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD49 throughout the codebase and documentation. 38 ADRs carry active content (AD38 superseded by AD48); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -705,6 +705,48 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 **Implementation references:**
 
 - `src/routes/github-oauth.ts` (`generateState()`, `verifyState()`)
+
+---
+
+### AD49: context-mode delivered as preseed plugin, not runtime install
+
+**Status:** Accepted (2026-05-10)
+
+**Context:** [context-mode](https://github.com/mksglu/context-mode) reduces Claude Code's context-window pressure by routing tool calls through hooks that summarize before content lands in the conversation. It ships as an npm package whose Claude Code plugin metadata is normally written into the user's `~/.claude/plugins/` and `~/.claude/settings.json` by `claude plugin install context-mode`. During the first integration attempt (PR codeflare#293, since closed), a research subagent invoked that installer in the host's session and the upstream installer wrote `"matcher": null` for the SessionStart hook entry, which Claude Code 2.1.138 rejects with "Expected string, but received null", silently disabling every other hook in the file. The bug is recoverable for a single user but unacceptable as default behavior delivered to all paid users.
+
+**Decision:** Ship context-mode as a preseed plugin (R2-bisync'd into `~/.claude/plugins/context-mode/`), tier-gated to the `unlimited` (Custom) tier in `advanced` (Pro) session mode. The plugin manifest, hook config, and README live under `preseed/agents/claude/plugins/context-mode/` like any other preseed asset. The R2 seed filter in `src/lib/r2-seed.ts:getConfigsForMode` strips the entire `.claude/plugins/context-mode/` subtree from the deploy set when the user's tier or mode does not qualify. The container's `entrypoint.sh` detects the preseeded `~/.claude/plugins/context-mode/.claude-plugin/plugin.json` manifest and, when present, registers the `context-mode` MCP server in `~/.claude.json` and adds `context-mode: true` to `enabledPlugins`. The presence of the manifest is the authoritative gate at the container layer; no env-var lookup is required.
+
+**Alternatives considered:**
+
+1. Runtime install via `claude plugin install context-mode`. Rejected: triggers the upstream `matcher: null` self-registration bug, breaks every other hook on session start, and ties Codeflare's hook config integrity to upstream release timing.
+2. Runtime jq-merge of mcpServers + SETTINGS_CONFIG hooks in `entrypoint.sh` (PR codeflare#293's approach, closed). Rejected: configuration-as-shell-heredoc is harder to review than configuration-as-data, and doesn't match the operational model already used for `codeflare-hooks` and `codeflare-memory` (preseed plugins).
+3. Use the upstream `claude-plugins-official` marketplace. Rejected: relies on an out-of-Codeflare registry path; we want plugin updates to land via Dependabot bumps to a single version pin reviewed and CI-tested before deploy.
+4. Ship the npm package contents under preseed instead of relying on `npx`. Rejected: bloats R2 per user and offers no operational benefit since `npx -y context-mode@<pinned>` cache-resolves after first invocation.
+
+**Rationale:**
+
+- The preseed model is identical to how `codeflare-hooks` and `codeflare-memory` already ship: plugin-shaped data delivered via R2 bisync, enabled in `~/.claude.json`'s `enabledPlugins`, discovered by Claude Code on session start. Symmetry across all three plugins reduces operational surprise.
+- Tier-gating at the seed-filter layer (worker-side) means the plugin folder never appears on disk for non-qualifying users. There is no need to sanitize a user's settings.json after the fact, and there is no reachable code path through which a non-qualifying user receives the plugin.
+- The matcher-null bug (the entrypoint registered hooks correctly, but the upstream installer corrupted `~/.claude/settings.json` for the host user) is structurally impossible under this model: we never call `claude plugin install`, and the entrypoint never writes `matcher: null`.
+- Plugin updates are a Dependabot PR bumping the version pin in `hooks/hooks.json` (mechanical four-line diff), reviewed and CI-gated like any other dependency.
+
+**Trade-offs accepted:**
+
+- The preseed plugin's `hooks/hooks.json` carries the pinned version four times (one per event command string). A future generator could fan this out from a single pin.
+- First-call latency: `npx -y context-mode@<pinned>` downloads the package from npm on first invocation per session. Subsequent invocations are cache-served. Baking `npm install -g context-mode@<pinned>` into the Dockerfile would eliminate this; deferred until measured cost justifies it.
+- A tier downgrade requires a reconcile pass (already triggered by `/api/preferences` PATCH and Stripe webhook handlers) to remove the plugin folder from R2. Until reconcile fires, a freshly-downgraded user could still load context-mode on next session, bounded to the next PATCH or webhook event.
+
+**Related requirements:** REQ-AGENT-005 (Pro mode skills/rules/agents/MCP, now also covers tier-gated context-mode delivery)
+
+**Implementation references:**
+
+- Preseed assets: `preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json`, `preseed/agents/claude/plugins/context-mode/hooks/hooks.json`, `preseed/agents/claude/plugins/context-mode/README.md`
+- Manifest: `preseed/agents/claude/manifest.json` (three new entries with `modes: ["advanced"]`)
+- R2 seed tier filter: `src/lib/r2-seed.ts` (`getConfigsForMode(mode, contextModeEnabled)`, `getPreseedKeysNotInMode`, `reconcileAgentConfigs`)
+- Worker-side tier gate: `src/routes/container/lifecycle.ts` (`contextModeEnabled = effectiveTier === 'unlimited' && sessionMode === 'advanced'`)
+- Worker-side reconcile call sites: `src/routes/preferences.ts`, `src/routes/storage/seed.ts`, `src/routes/stripe-webhook.ts`
+- Container-side detection: `entrypoint.sh` (`CONTEXT_MODE_MANIFEST` existence check; conditional `mcpServers["context-mode"]` jq merge; conditional `enabledPlugins["context-mode"]: true`)
+- Tests: `src/__tests__/lib/r2-seed-context-mode.test.ts`, `host/__tests__/entrypoint-context-mode.test.js`
 
 ---
 

@@ -2269,12 +2269,16 @@ describe('Session mode config filtering', () => {
     );
   });
 
-  it('getPreseedKeysNotInMode("advanced") is always empty', () => {
+  it('getPreseedKeysNotInMode("advanced", true) is always empty', () => {
+    // contextModeEnabled=true: full advanced set is in scope, nothing to clean up.
+    // The default for the optional flag is false (fail-closed for tier gating),
+    // so omitting it would correctly flag context-mode keys for cleanup; pass
+    // true here to assert the "advanced superset" property explicitly.
     fc.assert(
       fc.property(
         fc.constant(null),
         () => {
-          expect(getPreseedKeysNotInMode('advanced')).toEqual([]);
+          expect(getPreseedKeysNotInMode('advanced', true)).toEqual([]);
         },
       ),
       { numRuns: 10 },
