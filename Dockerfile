@@ -145,18 +145,69 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
 RUN npm install -g @modelcontextprotocol/server-memory && \
     npm cache clean --force && rm -rf /root/.npm
 
-# Install Bun for context-mode plugin execution sandbox.
-# Implements REQ-AGENT-005: ctx_execute / ctx_batch_execute fail under
-# Node's ESM loader with "Dynamic require of node:fs is not supported"
-# because context-mode's bundled executor uses dynamic CJS-of-node:
-# requires that Node's ESM loader rejects. Bun handles dynamic require
-# of node: builtins natively, which is why the plugin docs flag Bun as
-# the recommended runtime ("install Bun for a 3-5× speed improvement").
-# Wired via `bunx context-mode@<ver>` in entrypoint.sh; npm fallback is
-# preserved for ctx_doctor / ctx_stats which work under either runtime.
-RUN npm install -g bun && \
-    bun --version && \
-    npm cache clean --force && rm -rf /root/.npm
+# Install context-mode globally and patch the esbuild ESM bundles.
+# Implements REQ-AGENT-005. See codeflare#309 for the bug report.
+#
+# context-mode ships an esbuild ESM bundle (cli.bundle.mjs +
+# server.bundle.mjs) whose CJS-require shim throws on every dynamic
+# require('node:*') call because esbuild does not inject a
+# createRequire polyfill in --format=esm output. The shim's
+# `typeof require < "u"` check evaluates to "undefined" in BOTH Node
+# and Bun ESM modules, so ctx_execute / ctx_batch_execute fail with
+# `Dynamic require of "node:fs" is not supported` regardless of which
+# runtime invokes the bundle. The verified-working fix (issue #309)
+# is a 2-line createRequire shim prepended to both bundles after
+# extraction.
+#
+# We do that here at build time so the patched bundles ship in the
+# container image — no runtime extraction, no per-session bunx
+# download, no first-call delay. Hooks and the MCP server invoke
+# `context-mode` directly from /usr/local/bin (the global install).
+#
+# License posture (ELv2): we do NOT redistribute context-mode source.
+# npm pulls the package from the public registry at build time
+# exactly as `npx -y context-mode` would at runtime.
+ARG CONTEXT_MODE_VERSION=1.0.118
+COPY preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json /tmp/context-mode-plugin.json
+RUN <<'EOF'
+set -e
+ACTUAL_VER=$(jq -r '.version // empty' /tmp/context-mode-plugin.json)
+VER="${ACTUAL_VER:-1.0.118}"
+echo "[Dockerfile] installing context-mode@$VER"
+npm install -g "context-mode@$VER"
+CTX_DIR="$(npm root -g)/context-mode"
+export CTX_DIR
+node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const dir = process.env.CTX_DIR;
+const shim = "import { createRequire as __ctx_createRequire } from 'node:module';\nvar require = __ctx_createRequire(import.meta.url);\n";
+for (const name of ['cli.bundle.mjs', 'server.bundle.mjs']) {
+  const f = path.join(dir, name);
+  if (!fs.existsSync(f)) {
+    console.error('[Dockerfile] WARNING: ' + f + ' not found; context-mode layout may have changed');
+    process.exit(1);
+  }
+  let c = fs.readFileSync(f, 'utf8');
+  if (c.includes('__ctx_createRequire')) {
+    console.log('[Dockerfile] ' + name + ' already patched, skipping');
+    continue;
+  }
+  if (c.startsWith('#!')) {
+    const nl = c.indexOf('\n');
+    c = c.slice(0, nl + 1) + shim + c.slice(nl + 1);
+  } else {
+    c = shim + c;
+  }
+  fs.writeFileSync(f, c);
+  console.log('[Dockerfile] patched ' + name);
+}
+NODE
+context-mode --version
+rm -f /tmp/context-mode-plugin.json
+npm cache clean --force
+rm -rf /root/.npm
+EOF
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.

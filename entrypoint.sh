@@ -1057,20 +1057,28 @@ fi
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)
 # context-mode (https://github.com/mksglu/context-mode) ships in two layers:
 #   1. MCP server (ctx_* tools) - registered for ALL users on every session
-#      so the agent always has the helper tools available. The CLI is
-#      fetched on first use via bunx context-mode@<pinned>.
+#      so the agent always has the helper tools available. The package is
+#      installed globally at Docker build time and lives at
+#      /usr/local/bin/context-mode. Build time also patches the esbuild
+#      ESM bundles with a createRequire shim (see codeflare#309) so
+#      ctx_execute / ctx_batch_execute work; without the patch the bundles
+#      throw `Dynamic require of "node:fs" is not supported` on first
+#      execute call under both Node and Bun ESM loaders.
 #   2. Plugin folder (hooks + any plugin-bound rules) - ONLY delivered to
 #      unlimited (Custom) tier in Pro session mode via the R2 seed filter
 #      at src/lib/r2-seed.ts. The hooks auto-route tool calls and are the
 #      premium behavior change; the MCP tools are always available manually.
-# Version is pinned here so non-Custom users (whose preseed lacks the
-# plugin manifest) still get a consistent MCP server registration.
+# The MCP and hook commands invoke `context-mode` directly (no version
+# arg) - the global install IS the pinned version. Version bumps land
+# as a Dependabot PR that updates plugin.json AND triggers a Docker
+# rebuild (the Dockerfile reads plugin.json at build time).
 #
 # License posture (ELv2): context-mode is licensed under Elastic License
 # 2.0, which prohibits providing the software as a hosted/managed service.
 # Codeflare's posture is:
-#   - We do NOT redistribute context-mode source. The npm package is
-#     fetched by the user's own container from the npm registry via npx.
+#   - We do NOT redistribute context-mode source. The npm registry is
+#     the canonical source; our Docker build pulls from there exactly
+#     as `npx -y context-mode` would at runtime.
 #   - Commercial (non-Custom) users get the MCP server registered, but
 #     NO skill, rule, agent definition, or hook in our preseed instructs
 #     the agent to invoke ctx_* tools. The agent's tool-selection is its
@@ -1083,8 +1091,10 @@ fi
 CONTEXT_MODE_VERSION="1.0.118"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
-    # Custom+Pro: defer to the preseed manifest's pinned version so version
-    # bumps land via Dependabot on the preseed source rather than entrypoint.
+    # Surface the manifest version in the entrypoint log so a mismatch
+    # against the build-time-installed binary (= /usr/local/bin/context-mode
+    # --version output) is visible. Bumping plugin.json without a Docker
+    # rebuild is a deploy ordering issue caught by this log line.
     CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.118"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.118")
 fi
 # MCP server registration: always register the context-mode MCP server in
@@ -1094,7 +1104,7 @@ fi
 # hook wiring is in ~/.claude/settings.json. This matches the pattern used
 # by codeflare-memory and codeflare-hooks (both have bare plugin.json with
 # no mcpServers / no hooks blocks).
-CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"bunx",args:["context-mode@\($ver)"]}}}')
+CONTEXT_MODE_MCP_CONFIG=$(jq -n '{mcpServers:{"context-mode":{command:"context-mode",args:[]}}}')
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_JSON=$(mktemp)
     if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -1138,11 +1148,11 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # settings.json instead so it follows the same pattern as the other
     # plugins (bare plugin.json, real wiring in entrypoint).
     if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
-        CTX_HOOKS=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{
-          PreToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"bunx context-mode@\($ver) hook claude-code pretooluse"}]}],
-          PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"bunx context-mode@\($ver) hook claude-code posttooluse"}]}],
-          PreCompact: [{matcher:"",hooks:[{type:"command",command:"bunx context-mode@\($ver) hook claude-code precompact"}]}],
-          SessionStart: [{matcher:"",hooks:[{type:"command",command:"bunx context-mode@\($ver) hook claude-code sessionstart"}]}]
+        CTX_HOOKS=$(jq -n '{
+          PreToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"context-mode hook claude-code pretooluse"}]}],
+          PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"context-mode hook claude-code posttooluse"}]}],
+          PreCompact: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code precompact"}]}],
+          SessionStart: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code sessionstart"}]}]
         }')
         SETTINGS_CONFIG=$(echo "$SETTINGS_CONFIG" | jq --argjson ctx "$CTX_HOOKS" '
           .hooks as $h | .hooks = (
@@ -1167,8 +1177,11 @@ if [ -f "$SETTINGS_FILE" ]; then
     # Merge non-hooks settings with *, rebuild hooks separately to avoid
     # jq array-replace destroying user-added hooks or leaving stale managed hooks.
     # "Managed" = command path contains codeflare-(hooks|memory)/scripts/ OR
-    # is a context-mode bunx/npx invocation. Adding to MANAGED_HOOKS_REGEX
-    # must happen here AND in any other place that prunes managed hooks.
+    # is a context-mode hook invocation (any of: bare `context-mode`,
+    # `bunx context-mode@*`, or `npx -y context-mode@*` for legacy compat
+    # with sessions that still have stale settings.json from before the
+    # build-time install landed). Adding to MANAGED_HOOKS_REGEX must
+    # happen here AND in any other place that prunes managed hooks.
     if jq --argjson cfg "$SETTINGS_CONFIG" '
       . as $orig |
       (del(.hooks) * ($cfg | del(.hooks))) +
@@ -1181,7 +1194,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
-                select((.command // "") | test("codeflare-(hooks|memory)/scripts/|(bunx|npx) (-y )?context-mode@.* hook claude-code") | not)
+                select((.command // "") | test("codeflare-(hooks|memory)/scripts/|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
               ] as $user |
               [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}

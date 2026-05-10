@@ -22,9 +22,11 @@ The plugin folder ships a bare manifest (`name`, `description`, `version`) and t
   - PreCompact (no matcher)
   - SessionStart (no matcher)
 
-Each hook is `bunx context-mode@<version> hook claude-code <event>`. The first invocation downloads `context-mode@<version>` into the bunx cache; subsequent invocations are cache-served. Bun is the runtime (installed in the container image) because context-mode's bundled executor uses dynamic `require('node:fs')` calls that Node's ESM loader rejects with `Dynamic require of "node:fs" is not supported` — `ctx_doctor` and `ctx_stats` work under either runtime, but `ctx_execute` / `ctx_batch_execute` need Bun's runtime which handles dynamic `node:` builtins natively.
+Each hook is `context-mode hook claude-code <event>` invoking the build-time-installed global binary at `/usr/local/bin/context-mode`. No runtime download.
 
-The version comes from this plugin's `plugin.json` (entrypoint reads `.version` via `jq`), so plugin updates ship as a Dependabot PR bumping the version pin in `plugin.json`.
+context-mode is installed globally during the Docker image build (`npm install -g context-mode@<ver>`, version read from this plugin's `plugin.json`). The Dockerfile then prepends a 2-line `createRequire` shim to both `cli.bundle.mjs` and `server.bundle.mjs` in the global install. Without that shim, esbuild's ESM bundle fails on every dynamic `require('node:*')` with `Dynamic require of "node:fs" is not supported` because esbuild does not inject a CommonJS-require polyfill in `--format=esm` output. The bug reproduces under both Node and Bun ESM loaders (see [codeflare#309](https://github.com/nikolanovoselec/codeflare/issues/309)), so a runtime swap from `npx` to `bunx` does not fix it. Build-time patching is the durable fix until upstream `mksglu/context-mode` ships a release with the esbuild banner.
+
+Plugin updates ship as a Dependabot PR bumping the version in this `plugin.json`. The Dockerfile reads that file at build time, so the same PR rebuilds the image with the new version, keeping the runtime binary and the plugin manifest in lockstep.
 
 ## Why preseed not runtime config
 

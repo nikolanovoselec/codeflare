@@ -85,8 +85,16 @@ describe('entrypoint context-mode preseed gate', () => {
     const { claudeJson } = buildHarness(cwd, '{}', true);
     assert.ok(claudeJson.mcpServers, 'mcpServers key should exist');
     assert.ok(claudeJson.mcpServers['context-mode'], 'context-mode entry should exist');
-    assert.equal(claudeJson.mcpServers['context-mode'].command, 'bunx');
-    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['context-mode@1.0.118']);
+    assert.equal(
+      claudeJson.mcpServers['context-mode'].command,
+      'context-mode',
+      'MCP command must invoke the build-time-installed global binary, not bunx/npx (codeflare#309)'
+    );
+    assert.deepEqual(
+      claudeJson.mcpServers['context-mode'].args,
+      [],
+      'no version arg — global install IS the pinned version'
+    );
   });
 
   it('manifest absent: mcpServers["context-mode"] is STILL registered (universal MCP)', () => {
@@ -97,12 +105,8 @@ describe('entrypoint context-mode preseed gate', () => {
       claudeJson.mcpServers['context-mode'],
       'context-mode MCP must be registered for ALL users so ctx_* tools are universally available'
     );
-    assert.equal(claudeJson.mcpServers['context-mode'].command, 'bunx');
-    assert.deepEqual(
-      claudeJson.mcpServers['context-mode'].args,
-      ['context-mode@1.0.118'],
-      'falls back to entrypoint-pinned version when preseed manifest is absent'
-    );
+    assert.equal(claudeJson.mcpServers['context-mode'].command, 'context-mode');
+    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, []);
   });
 
   it('manifest present: PLUGINS_CONFIG enables context-mode plugin', () => {
@@ -138,34 +142,20 @@ describe('entrypoint context-mode preseed gate', () => {
     assert.ok(claudeJson.mcpServers['context-mode'], 'context-mode MCP must be added');
   });
 
-  it('manifest version is read from preseed plugin.json (not hardcoded in entrypoint)', () => {
-    const cwd = mkdtempSync(join(baseTmp, 'version-from-manifest-'));
-    // Mutate the version to a non-default value before extracting:
-    const userHome = join(cwd, 'user-home');
-    mkdirSync(join(userHome, '.claude', 'plugins', 'context-mode', '.claude-plugin'), {
-      recursive: true,
-    });
-    const manifestPath = join(
-      userHome,
-      '.claude',
-      'plugins',
-      'context-mode',
-      '.claude-plugin',
-      'plugin.json'
+  it('MCP command does not include a version pin (build-time install is authoritative)', () => {
+    // Regression for codeflare#309: prior versions registered
+    // `bunx context-mode@<ver>` so a version mismatch between plugin.json
+    // and the Dockerfile-installed binary was theoretically possible. The
+    // build-time install eliminates that ambiguity — the MCP command is
+    // the bare global binary, version flows through the Docker rebuild.
+    const cwd = mkdtempSync(join(baseTmp, 'no-version-pin-'));
+    const { claudeJson } = buildHarness(cwd, '{}', true);
+    const cm = claudeJson.mcpServers['context-mode'];
+    assert.equal(cm.command, 'context-mode');
+    assert.equal(cm.args.length, 0, 'args must be empty — no version pin');
+    assert.ok(
+      !JSON.stringify(cm).includes('@'),
+      'no @<version> anywhere in the MCP entry'
     );
-    writeFileSync(manifestPath, JSON.stringify({ name: 'context-mode', version: '2.5.42' }));
-    writeFileSync(join(userHome, '.claude.json'), '{}');
-
-    const mcpBlock = extractContextModeMcpBlock();
-    const script = `
-set -e
-USER_HOME="${userHome}"
-USER_CLAUDE_JSON="${join(userHome, '.claude.json')}"
-${mcpBlock}
-`;
-    const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
-    assert.equal(result.status, 0, `harness failed: ${result.stderr}`);
-    const claudeJson = JSON.parse(readFileSync(join(userHome, '.claude.json'), 'utf-8'));
-    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['context-mode@2.5.42']);
   });
 });
