@@ -638,7 +638,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/plugins/context-mode/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"context-mode\",\n  \"description\": \"Deterministic context-window reduction via tool-call routing (Pro tier only)\",\n  \"version\": \"1.0.111\",\n  \"mcpServers\": {\n    \"context-mode\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"context-mode@1.0.111\"]\n    }\n  },\n  \"skills\": \"./skills/\"\n}\n",
+    "content": "{\n  \"name\": \"context-mode\",\n  \"description\": \"Deterministic context-window reduction via tool-call routing (Pro tier only)\",\n  \"version\": \"1.0.111\",\n  \"mcpServers\": {\n    \"context-mode\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"context-mode@1.0.111\"]\n    }\n  }\n}\n",
     "modes": [
       "advanced"
     ]

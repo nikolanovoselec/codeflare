@@ -1110,6 +1110,21 @@ if [ ! -f "$CONTEXT_MODE_MANIFEST" ]; then
     fi
     echo "[entrypoint] context-mode MCP server registered in .claude.json (non-Custom tier, version $CONTEXT_MODE_VERSION)"
 else
+    # Clean any stale ~/.claude.json mcpServers.context-mode entry left over
+    # from a prior non-Custom session (R2 bisync restores the file on tier
+    # transition). Without this, the plugin loader and the entrypoint would
+    # both register context-mode, causing duplicate-registration warnings.
+    if [ -f "$USER_CLAUDE_JSON" ]; then
+        TMP_JSON=$(mktemp)
+        if jq 'if (.mcpServers // {}) | has("context-mode") then
+                 .mcpServers |= del(."context-mode") |
+                 if (.mcpServers // {}) == {} then del(.mcpServers) else . end
+               else . end' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+        else
+            rm -f "$TMP_JSON"
+        fi
+    fi
     echo "[entrypoint] context-mode plugin manifest present; MCP server + hooks registered via plugin.json (version $CONTEXT_MODE_VERSION)"
 fi
 

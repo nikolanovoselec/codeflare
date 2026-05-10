@@ -7,6 +7,5 @@
       "command": "npx",
       "args": ["-y", "context-mode@1.0.111"]
     }
-  },
-  "skills": "./skills/"
+  }
 }
