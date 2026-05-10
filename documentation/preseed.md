@@ -284,9 +284,16 @@ no skill, rule, hook, or system-prompt nudge in our preseed
 instructs Claude to invoke `ctx_*` tools. The agent's tool-selection
 is its own, identical to how it picks any other listed MCP tool.
 
-The full plugin folder containing the auto-routing hooks (PreToolUse,
-PostToolUse, PreCompact, SessionStart) is reserved for the admin-only
-Custom (`unlimited`) tier sandbox.
+The full plugin folder containing the auto-routing hooks (PreToolUse
+routing, PostToolUse indexing, PreCompact, SessionStart) plus the
+context-mode enforcement hook is reserved for the admin-only Custom
+(`unlimited`) tier sandbox. The enforcement hook is a fifth PreToolUse
+handler that hard-enforces context-mode routing: Bash calls are
+restricted to a whitelist (`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`,
+`npm install`, `pip install`); WebFetch and Grep are denied entirely
+and redirected to the equivalent `ctx_*` tools. Per-call bypass via
+`/tmp/ctx-bypass` (user-only sentinel - see
+[Security](security.md#context-mode-enforcement-bypass)).
 
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.
