@@ -36,7 +36,6 @@ import {
 import {
   collectMetrics as doCollectMetrics,
   updateKvStatus,
-  parseSleepAfterMs,
   type MetricsState,
   type MetricsCallbacks,
 } from './container-metrics';
@@ -78,7 +77,18 @@ export class container extends Container<Env> {
   // User-configured idle timeout (5m/15m/30m/1h/2h). Enforced by collectMetrics,
   // NOT by the SDK. Stored in DO storage under the 'sleepAfter' key for
   // backwards compat with existing sessions created before this refactor.
-  idleTimeoutPref: string = '5m';
+  //
+  // Default is the MAX supported value (2h), not the min. Rationale: this
+  // class field is the fallback that wins when (a) the DO is freshly
+  // constructed and storage hasn't been populated yet, or (b) a code path
+  // skipped the setBucketName flow that writes the user pref. In either
+  // case, defaulting LOW would kill the container before the pref could be
+  // applied, destroying user work. Defaulting HIGH only lets the container
+  // live longer than expected, which is a strictly safer failure mode. The
+  // collectMetrics tick re-reads storage as the authoritative source on
+  // every fire (60s cadence) so any drift is corrected within one tick.
+  // Implements REQ-OPS-006 AC8.
+  idleTimeoutPref: string = '2h';
 
   // Environment variables - set via property assignment in updateEnvVars()
   private _bucketName: string | null = null;
@@ -173,11 +183,6 @@ export class container extends Container<Env> {
   /** Get the bucket name. */
   getBucketName(): string | null {
     return this._bucketName;
-  }
-
-  /** Parse the user-configured idle timeout to milliseconds (used by collectMetrics). */
-  private parseSleepAfterMs(): number {
-    return parseSleepAfterMs(this.idleTimeoutPref);
   }
 
   /** Update envVars with current bucket name and credentials. */
@@ -391,8 +396,8 @@ export class container extends Container<Env> {
     const callbacks: MetricsCallbacks = {
       stop: (signal: number | string) => this.stop(signal as number),
       schedule: (delaySec: number, method: string) => this.schedule(delaySec, method) as Promise<unknown>,
-      parseSleepAfterMs: () => this.parseSleepAfterMs(),
       idleTimeoutPref: this.idleTimeoutPref,
+      setIdleTimeoutPref: (next: string) => { this.idleTimeoutPref = next; },
     };
     await doCollectMetrics(this.metricsState, this.ctx, this.env, callbacks);
   }

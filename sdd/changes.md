@@ -4,6 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-05-10
 - context-mode (REQ-AGENT-005 AC5-AC7) ships in two layers: the MCP server with `ctx_*` helper tools is registered for every user on every session so the agent always has the helpers available on demand, while the plugin folder containing the four auto-routing hooks (PreToolUse, PostToolUse, PreCompact, SessionStart) is delivered only to users on the Custom (`unlimited`) tier in Pro mode. The hooks-layer gate is enforced at the R2 seed filter so the plugin folder never appears in non-qualifying users' sessions.
+- Idle-detection now fails safe toward preserving user work (REQ-OPS-006 AC8-AC10): when `sleepAfter` cannot be resolved, the system falls back to the maximum supported value (2h) instead of the minimum, refreshes the persisted preference within one 60-second cycle, and refuses to silently substitute defaults. Hardens the failure surface that caused issue codeflare#294 (containers dying before their configured 2h timer).
 
 ## 2026-05-09
 - GitHub OAuth state validation is now stateless (REQ-AUTH-002 AC2-AC4), so sign-in works on iOS WebKit (Safari, Brave) and other browsers where prior cookie-based state was unreliable across the github.com bounce-back. State validation failure now redirects to the login page with a friendly error message instead of returning a raw 403.

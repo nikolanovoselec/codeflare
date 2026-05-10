@@ -264,6 +264,7 @@ describe('Container lifecycle extracted helpers', () => {
       workspaceSyncEnabled: true,
       fastStartEnabled: false,
       sessionMode: 'default',
+      sleepAfter: '30m',
       logger: mockLogger as any,
     };
 

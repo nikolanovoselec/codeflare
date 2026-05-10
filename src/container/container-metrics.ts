@@ -34,20 +34,43 @@ export interface MetricsState {
 export interface MetricsCallbacks {
   stop: (signal: number | string) => Promise<void>;
   schedule: (delaySec: number, method: string) => Promise<unknown>;
-  parseSleepAfterMs: () => number;
-  /** User-configured idle timeout ('5m'|'15m'|'30m'|'1h'|'2h'). Log-only. */
+  /** Cached value from class field. collectMetrics re-reads storage as the
+   *  authoritative source on every tick to avoid drift from stale caches. */
   idleTimeoutPref: string;
+  /** Update the in-memory cache after a fresh storage read. */
+  setIdleTimeoutPref: (next: string) => void;
 }
 
 // ---------------------------------------------------------------------------
 // parseSleepAfterMs
 // ---------------------------------------------------------------------------
 
-/** Parse sleepAfter string ('5m', '30m', '1h', '2h') to milliseconds. */
+/** Parse sleepAfter string ('5m', '30m', '1h', '2h') to milliseconds.
+ *
+ * Fail-safe direction: an unrecognized or malformed string returns the maximum
+ * supported timeout (2h) rather than the minimum. A short fallback would cause
+ * the container to die early when the pref is missing/corrupted; a long
+ * fallback only causes the container to live slightly longer than the user
+ * expected. Errs on the side of preserving user work over saving compute.
+ *
+ * The validated regex `/^(5m|15m|30m|1h|2h)$/` at the storage write site means
+ * this fallback should only ever fire on truly broken input. Log it loudly
+ * (caller logs).
+ *
+ * Implements REQ-OPS-006 AC8.
+ */
+export const SLEEP_AFTER_FALLBACK_MS = 7_200_000; // 2h
 export function parseSleepAfterMs(s: string): number {
-  if (s.endsWith('h')) return parseInt(s, 10) * 3_600_000;
-  if (s.endsWith('m')) return parseInt(s, 10) * 60_000;
-  return 300_000; // fallback 5 minutes
+  if (s.endsWith('h')) {
+    const h = parseInt(s, 10);
+    if (!Number.isNaN(h) && h > 0) return h * 3_600_000;
+  }
+  if (s.endsWith('m')) {
+    const m = parseInt(s, 10);
+    if (!Number.isNaN(m) && m > 0) return m * 60_000;
+  }
+  logger.warn('parseSleepAfterMs: unrecognized value, falling back to 2h', { input: s });
+  return SLEEP_AFTER_FALLBACK_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +143,34 @@ export async function collectMetrics(
   // `yes`. collectMetrics polls the in-container /activity endpoint for
   // lastInputAt (PTY input only) and explicitly stops the container when
   // idle exceeds the user-configured threshold.
+  //
+  // Re-read the idle-timeout pref from DO storage every tick. The class field
+  // cache may be stale if (a) the DO instance was hibernated and re-loaded
+  // and the construction's storage read raced with a setBucketName write, or
+  // (b) some code path wrote 'sleepAfter' to storage without updating the
+  // cache. Storage is the authoritative source.
+  // Implements REQ-OPS-006 AC9.
+  let idleTimeoutPref = callbacks.idleTimeoutPref;
+  try {
+    const stored = await ctx.storage.get<string>('sleepAfter');
+    if (stored && /^(5m|15m|30m|1h|2h)$/.test(stored)) {
+      if (stored !== idleTimeoutPref) {
+        logger.info('collectMetrics: refreshing idleTimeoutPref from storage', {
+          cached: idleTimeoutPref, stored,
+        });
+        callbacks.setIdleTimeoutPref(stored);
+      }
+      idleTimeoutPref = stored;
+    } else if (stored !== undefined) {
+      logger.warn('collectMetrics: storage holds invalid sleepAfter value, ignoring', { stored });
+    }
+  } catch (err) {
+    logger.warn('collectMetrics: failed to refresh idleTimeoutPref from storage', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const sleepMs = parseSleepAfterMs(idleTimeoutPref);
+
   try {
     const activityPort = ctx.container.getTcpPort(TERMINAL_SERVER_PORT);
     const activityRes = await activityPort.fetch('http://localhost/activity');
@@ -135,10 +186,9 @@ export async function collectMetrics(
       // the user has never typed (lastInputAt null).
       const referenceTime = activity.lastInputAt ?? state.containerStartedAt;
       const idleMs = Date.now() - referenceTime;
-      const sleepMs = callbacks.parseSleepAfterMs();
       if (idleMs > sleepMs) {
         logger.info('collectMetrics: idle exceeded threshold, stopping', {
-          idleMs, sleepMs, referenceTime, lastInputAt: activity.lastInputAt,
+          idleMs, sleepMs, idleTimeoutPref, referenceTime, lastInputAt: activity.lastInputAt,
         });
         // Write KV status before stop — DO state can be lost during shutdown
         await updateKvStatus(ctx, env, state._bucketName, 'stopped', 'lastActiveAt');
@@ -151,7 +201,7 @@ export async function collectMetrics(
         lastSeenInputAt: state.lastSeenInputAt,
         connectedClients: activity.connectedClients,
         hasActiveConnections: activity.hasActiveConnections,
-        idleMs, sleepMs, idleTimeoutPref: callbacks.idleTimeoutPref,
+        idleMs, sleepMs, idleTimeoutPref,
       });
     }
   } catch (err) {
