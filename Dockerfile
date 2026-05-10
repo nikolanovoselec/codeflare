@@ -145,6 +145,19 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
 RUN npm install -g @modelcontextprotocol/server-memory && \
     npm cache clean --force && rm -rf /root/.npm
 
+# Install Bun for context-mode plugin execution sandbox.
+# Implements REQ-AGENT-005: ctx_execute / ctx_batch_execute fail under
+# Node's ESM loader with "Dynamic require of node:fs is not supported"
+# because context-mode's bundled executor uses dynamic CJS-of-node:
+# requires that Node's ESM loader rejects. Bun handles dynamic require
+# of node: builtins natively, which is why the plugin docs flag Bun as
+# the recommended runtime ("install Bun for a 3-5× speed improvement").
+# Wired via `bunx context-mode@<ver>` in entrypoint.sh; npm fallback is
+# preserved for ctx_doctor / ctx_stats which work under either runtime.
+RUN npm install -g bun && \
+    bun --version && \
+    npm cache clean --force && rm -rf /root/.npm
+
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
 # This speeds up first-launch of Node.js CLIs (codex, gemini, copilot) inside containers

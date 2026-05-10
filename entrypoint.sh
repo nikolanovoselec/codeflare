@@ -1058,7 +1058,7 @@ fi
 # context-mode (https://github.com/mksglu/context-mode) ships in two layers:
 #   1. MCP server (ctx_* tools) - registered for ALL users on every session
 #      so the agent always has the helper tools available. The CLI is
-#      fetched on first use via npx -y context-mode@<pinned>.
+#      fetched on first use via bunx context-mode@<pinned>.
 #   2. Plugin folder (hooks + any plugin-bound rules) - ONLY delivered to
 #      unlimited (Custom) tier in Pro session mode via the R2 seed filter
 #      at src/lib/r2-seed.ts. The hooks auto-route tool calls and are the
@@ -1094,7 +1094,7 @@ fi
 # hook wiring is in ~/.claude/settings.json. This matches the pattern used
 # by codeflare-memory and codeflare-hooks (both have bare plugin.json with
 # no mcpServers / no hooks blocks).
-CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
+CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"bunx",args:["context-mode@\($ver)"]}}}')
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_JSON=$(mktemp)
     if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -1139,10 +1139,10 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # plugins (bare plugin.json, real wiring in entrypoint).
     if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
         CTX_HOOKS=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{
-          PreToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"npx -y context-mode@\($ver) hook claude-code pretooluse"}]}],
-          PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"npx -y context-mode@\($ver) hook claude-code posttooluse"}]}],
-          PreCompact: [{matcher:"",hooks:[{type:"command",command:"npx -y context-mode@\($ver) hook claude-code precompact"}]}],
-          SessionStart: [{matcher:"",hooks:[{type:"command",command:"npx -y context-mode@\($ver) hook claude-code sessionstart"}]}]
+          PreToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"bunx context-mode@\($ver) hook claude-code pretooluse"}]}],
+          PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"bunx context-mode@\($ver) hook claude-code posttooluse"}]}],
+          PreCompact: [{matcher:"",hooks:[{type:"command",command:"bunx context-mode@\($ver) hook claude-code precompact"}]}],
+          SessionStart: [{matcher:"",hooks:[{type:"command",command:"bunx context-mode@\($ver) hook claude-code sessionstart"}]}]
         }')
         SETTINGS_CONFIG=$(echo "$SETTINGS_CONFIG" | jq --argjson ctx "$CTX_HOOKS" '
           .hooks as $h | .hooks = (
@@ -1167,8 +1167,8 @@ if [ -f "$SETTINGS_FILE" ]; then
     # Merge non-hooks settings with *, rebuild hooks separately to avoid
     # jq array-replace destroying user-added hooks or leaving stale managed hooks.
     # "Managed" = command path contains codeflare-(hooks|memory)/scripts/ OR
-    # is a context-mode npx invocation. Adding to MANAGED_HOOKS_REGEX must
-    # happen here AND in any other place that prunes managed hooks.
+    # is a context-mode bunx/npx invocation. Adding to MANAGED_HOOKS_REGEX
+    # must happen here AND in any other place that prunes managed hooks.
     if jq --argjson cfg "$SETTINGS_CONFIG" '
       . as $orig |
       (del(.hooks) * ($cfg | del(.hooks))) +
@@ -1181,7 +1181,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
-                select((.command // "") | test("codeflare-(hooks|memory)/scripts/|context-mode@.* hook claude-code") | not)
+                select((.command // "") | test("codeflare-(hooks|memory)/scripts/|(bunx|npx) (-y )?context-mode@.* hook claude-code") | not)
               ] as $user |
               [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}

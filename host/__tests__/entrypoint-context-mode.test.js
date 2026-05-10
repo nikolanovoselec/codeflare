@@ -85,8 +85,8 @@ describe('entrypoint context-mode preseed gate', () => {
     const { claudeJson } = buildHarness(cwd, '{}', true);
     assert.ok(claudeJson.mcpServers, 'mcpServers key should exist');
     assert.ok(claudeJson.mcpServers['context-mode'], 'context-mode entry should exist');
-    assert.equal(claudeJson.mcpServers['context-mode'].command, 'npx');
-    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['-y', 'context-mode@1.0.118']);
+    assert.equal(claudeJson.mcpServers['context-mode'].command, 'bunx');
+    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['context-mode@1.0.118']);
   });
 
   it('manifest absent: mcpServers["context-mode"] is STILL registered (universal MCP)', () => {
@@ -97,10 +97,10 @@ describe('entrypoint context-mode preseed gate', () => {
       claudeJson.mcpServers['context-mode'],
       'context-mode MCP must be registered for ALL users so ctx_* tools are universally available'
     );
-    assert.equal(claudeJson.mcpServers['context-mode'].command, 'npx');
+    assert.equal(claudeJson.mcpServers['context-mode'].command, 'bunx');
     assert.deepEqual(
       claudeJson.mcpServers['context-mode'].args,
-      ['-y', 'context-mode@1.0.118'],
+      ['context-mode@1.0.118'],
       'falls back to entrypoint-pinned version when preseed manifest is absent'
     );
   });
@@ -166,6 +166,6 @@ ${mcpBlock}
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
     assert.equal(result.status, 0, `harness failed: ${result.stderr}`);
     const claudeJson = JSON.parse(readFileSync(join(userHome, '.claude.json'), 'utf-8'));
-    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['-y', 'context-mode@2.5.42']);
+    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['context-mode@2.5.42']);
   });
 });
