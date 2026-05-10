@@ -42,10 +42,10 @@ emit_deny() {
 
 case "$TOOL_NAME" in
   WebFetch)
-    emit_deny "WebFetch denied by context-mode routing. Use mcp__plugin_context-mode_context-mode__ctx_fetch_and_index(url, source) then ctx_search(queries) - raw HTML never enters context. Bypass (user-only): touch /tmp/ctx-bypass."
+    emit_deny "WebFetch violates <context_window_protection> routing. Use ctx_fetch_and_index(url, source) then ctx_search(queries). Bypass: touch /tmp/ctx-bypass (user-only)."
     ;;
   Grep)
-    emit_deny "Grep denied by context-mode routing. Use mcp__plugin_context-mode_context-mode__ctx_execute(language: \"shell\", code: \"grep ...\") to run in the sandbox, or ctx_search after indexing. Bypass (user-only): touch /tmp/ctx-bypass."
+    emit_deny "Grep violates <context_window_protection> routing. Use ctx_execute(language:\"shell\",code:\"grep ...\") or ctx_search. Bypass: touch /tmp/ctx-bypass (user-only)."
     ;;
   Bash)
     COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
@@ -54,12 +54,12 @@ case "$TOOL_NAME" in
     # Block curl/wget regardless of position in the command (they may
     # appear after a `cd && ...` chain).
     if printf '%s' "$COMMAND" | grep -Eq '(^|[[:space:];|&(`])(curl|wget)([[:space:]]|$)'; then
-      emit_deny "curl/wget blocked by context-mode routing. Use mcp__plugin_context-mode_context-mode__ctx_fetch_and_index(url, source) - the page is indexed in the sandbox and only a 3KB preview enters context. Bypass (user-only): touch /tmp/ctx-bypass."
+      emit_deny "curl/wget violates <context_window_protection> routing. Use ctx_fetch_and_index(url, source). Bypass: touch /tmp/ctx-bypass (user-only)."
     fi
 
     # Block inline HTTP calls in JS/Python/Node snippets passed as -c/-e.
     if printf '%s' "$COMMAND" | grep -Eq "fetch\([\"']https?:|requests\.(get|post|put|delete|patch|head)|http\.(get|request)\("; then
-      emit_deny "Inline HTTP call blocked by context-mode routing. Use ctx_execute(language, code) so only stdout enters context, or ctx_fetch_and_index for plain URL fetches. Bypass (user-only): touch /tmp/ctx-bypass."
+      emit_deny "Inline HTTP violates <context_window_protection> routing. Use ctx_execute(language, code) or ctx_fetch_and_index. Bypass: touch /tmp/ctx-bypass (user-only)."
     fi
 
     # Extract the first command word (strip leading whitespace, take
@@ -75,18 +75,18 @@ case "$TOOL_NAME" in
         if [[ "$SECOND" == "install" || "$SECOND" == "i" || "$SECOND" == "ci" ]]; then
           exit 0
         fi
-        emit_deny "npm subcommand '$SECOND' denied by context-mode routing. Only 'npm install' (or 'npm i' / 'npm ci') is allowed in Bash. For everything else use ctx_execute(language: \"shell\", code: \"npm ...\"). Bypass (user-only): touch /tmp/ctx-bypass."
+        emit_deny "npm '$SECOND' violates <context_window_protection> routing. Only 'npm install/i/ci' allowed in Bash; use ctx_execute for the rest. Bypass: touch /tmp/ctx-bypass (user-only)."
         ;;
       pip|pip3)
         SECOND=$(printf '%s' "$COMMAND" | sed -E 's/^[[:space:]]*//' | awk 'NR==1 {print $2; exit}')
         if [[ "$SECOND" == "install" ]]; then
           exit 0
         fi
-        emit_deny "$FIRST subcommand '$SECOND' denied by context-mode routing. Only '$FIRST install' is allowed in Bash. Bypass (user-only): touch /tmp/ctx-bypass."
+        emit_deny "$FIRST '$SECOND' violates <context_window_protection> routing. Only '$FIRST install' allowed in Bash. Bypass: touch /tmp/ctx-bypass (user-only)."
         ;;
     esac
 
-    emit_deny "Bash command '$FIRST' denied by context-mode routing. Bash is allowed only for: git, mkdir, rm, mv, cd, ls, npm install, pip install. Use mcp__plugin_context-mode_context-mode__ctx_execute(language: \"shell\", code: \"...\") for one command or ctx_batch_execute(commands, queries) for multiple. Bypass (user-only): touch /tmp/ctx-bypass."
+    emit_deny "Bash '$FIRST' violates <context_window_protection> routing. Use ctx_execute(language:\"shell\",code:\"...\") or ctx_batch_execute. Bypass: touch /tmp/ctx-bypass (user-only)."
     ;;
   *)
     exit 0

@@ -93,66 +93,66 @@ describe('enforce-ctx-mode hook', () => {
   describe('Bash denials', () => {
     it('denies tail', () => {
       const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'tail -30 /tmp/foo' } }));
-      assert.match(reason, /'tail' denied/);
+      assert.match(reason, /'tail' violates/);
       assert.match(reason, /ctx_execute|ctx_batch_execute/);
     });
 
     it('denies cat', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'cat /etc/passwd' } })), /'cat' denied/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'cat /etc/passwd' } })), /'cat' violates/);
     });
 
     it('denies echo', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'echo hi' } })), /'echo' denied/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'echo hi' } })), /'echo' violates/);
     });
 
     it('denies grep (the shell command, separate from Grep tool)', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'grep foo bar.txt' } })), /'grep' denied/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'grep foo bar.txt' } })), /'grep' violates/);
     });
 
     it('denies find', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'find . -name "*.ts"' } })), /'find' denied/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'find . -name "*.ts"' } })), /'find' violates/);
     });
 
     it('denies sed', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'sed -i s/a/b/ foo' } })), /'sed' denied/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'sed -i s/a/b/ foo' } })), /'sed' violates/);
     });
 
     it('denies gh (not in upstream whitelist)', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'gh pr view 123' } })), /'gh' denied/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'gh pr view 123' } })), /'gh' violates/);
     });
 
     it('denies npm run', () => {
       const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'npm run test' } }));
-      assert.match(reason, /npm subcommand 'run' denied/);
+      assert.match(reason, /npm 'run' violates/);
     });
 
     it('denies pip uninstall', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'pip uninstall pytest' } })), /pip subcommand 'uninstall' denied/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'pip uninstall pytest' } })), /pip 'uninstall' violates/);
     });
   });
 
   describe('curl/wget content block', () => {
     it('blocks bare curl', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'curl https://example.com' } })), /curl\/wget blocked/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'curl https://example.com' } })), /curl\/wget violates/);
     });
 
     it('blocks curl after cd && (chained)', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'cd /tmp && curl https://example.com' } })), /curl\/wget blocked/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'cd /tmp && curl https://example.com' } })), /curl\/wget violates/);
     });
 
     it('blocks wget', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'wget https://example.com' } })), /curl\/wget blocked/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'wget https://example.com' } })), /curl\/wget violates/);
     });
 
     it('blocks curl after pipe', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'echo x | curl -X POST https://example.com' } })), /curl\/wget blocked/);
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'echo x | curl -X POST https://example.com' } })), /curl\/wget violates/);
     });
 
     it('does NOT confuse curlfile (substring) with curl', () => {
       // `curlfile` is not curl. The whitelist denial (first word not allowed) fires instead.
       const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'curlfile abc' } }));
-      assert.doesNotMatch(reason, /curl\/wget blocked/);
-      assert.match(reason, /'curlfile' denied/);
+      assert.doesNotMatch(reason, /curl\/wget violates/);
+      assert.match(reason, /'curlfile' violates/);
     });
   });
 
@@ -160,14 +160,14 @@ describe('enforce-ctx-mode hook', () => {
     it('blocks node -e fetch', () => {
       assert.match(
         deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'node -e "fetch(\'https://example.com\')"' } })),
-        /Inline HTTP call blocked/,
+        /Inline HTTP violates/,
       );
     });
 
     it('blocks python -c requests.get', () => {
       assert.match(
         deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'python3 -c "import requests; requests.get(\'x\')"' } })),
-        /Inline HTTP call blocked/,
+        /Inline HTTP violates/,
       );
     });
   });
@@ -175,13 +175,13 @@ describe('enforce-ctx-mode hook', () => {
   describe('tool-level blocks', () => {
     it('blocks WebFetch', () => {
       const reason = deniedReason(runHook({ tool_name: 'WebFetch', tool_input: { url: 'https://example.com' } }));
-      assert.match(reason, /WebFetch denied/);
+      assert.match(reason, /WebFetch violates/);
       assert.match(reason, /ctx_fetch_and_index/);
     });
 
     it('blocks Grep', () => {
       const reason = deniedReason(runHook({ tool_name: 'Grep', tool_input: { pattern: 'foo' } }));
-      assert.match(reason, /Grep denied/);
+      assert.match(reason, /Grep violates/);
       assert.match(reason, /ctx_execute|ctx_search/);
     });
   });
