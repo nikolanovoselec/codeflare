@@ -71,6 +71,7 @@ import {
   getConfigsForMode,
   getPreseedKeysNotInMode,
   reconcileAgentConfigs,
+  reseedContextModePlugin,
 } from '../../lib/r2-seed';
 
 const env = {
@@ -212,5 +213,45 @@ describe('reconcileAgentConfigs tier gating', () => {
       contextModeEnabled: false,
     });
     expect(disabled.written).toEqual(['.claude/rules/common.md']);
+  });
+});
+
+describe('reseedContextModePlugin', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('contextModeEnabled=false short-circuits with no R2 calls', async () => {
+    const result = await reseedContextModePlugin(env, bucket, endpoint, false);
+    expect(result.written).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('contextModeEnabled=true overwrites all 3 context-mode files unconditionally', async () => {
+    mockFetch.mockResolvedValue(new Response('', { status: 200 }));
+
+    const result = await reseedContextModePlugin(env, bucket, endpoint, true);
+
+    expect(result.written).toHaveLength(3);
+    expect(result.written).toContain('.claude/plugins/context-mode/.claude-plugin/plugin.json');
+    expect(result.written).toContain('.claude/plugins/context-mode/hooks/hooks.json');
+    expect(result.written).toContain('.claude/plugins/context-mode/README.md');
+
+    // All 3 calls must be PUTs (overwrite=true skips the HEAD-existence phase)
+    const putCalls = mockFetch.mock.calls.filter((c) => c[1]?.method === 'PUT');
+    const headCalls = mockFetch.mock.calls.filter((c) => c[1]?.method === 'HEAD');
+    expect(putCalls).toHaveLength(3);
+    expect(headCalls).toHaveLength(0);
+  });
+
+  it('does NOT touch non-context-mode files (codeflare-hooks plugin, common rule)', async () => {
+    mockFetch.mockResolvedValue(new Response('', { status: 200 }));
+
+    await reseedContextModePlugin(env, bucket, endpoint, true);
+
+    const writtenUrls = mockFetch.mock.calls.map((c) => String(c[0]));
+    expect(writtenUrls.some((u) => u.includes('codeflare-hooks'))).toBe(false);
+    expect(writtenUrls.some((u) => u.includes('rules/common.md'))).toBe(false);
   });
 });

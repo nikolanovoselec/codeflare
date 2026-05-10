@@ -286,3 +286,35 @@ export async function seedAgentConfigs(
 
   return result;
 }
+
+// Implements REQ-AGENT-005
+/**
+ * The context-mode plugin subtree is Worker-authoritative: its plugin.json,
+ * hooks.json, and README ship inside the Worker bundle and must always
+ * reflect the deployed code on every session start. Existing buckets seeded
+ * before a plugin manifest change (e.g. before the mcpServers block was
+ * added) would otherwise keep the stale manifest forever, since the regular
+ * seed paths use overwrite:false on first-bucket creation.
+ *
+ * Always-overwrite the 3-file subtree on every session start when
+ * contextModeEnabled is true. The cost is 3 small R2 PUTs per session.
+ * When contextModeEnabled is false, do nothing - the cleanup path in
+ * deleteNonModeConfigs handles tier-downgrade.
+ */
+export async function reseedContextModePlugin(
+  env: Env,
+  bucketName: string,
+  endpoint: string,
+  contextModeEnabled: boolean,
+): Promise<SeedDocsResult> {
+  if (!contextModeEnabled) {
+    return { written: [], skipped: [] };
+  }
+  const contextModeDocs = AGENTS_SEEDED_CONFIGS.filter((doc) => isContextModeKey(doc.key));
+  const result = await seedDocuments(env, bucketName, endpoint, contextModeDocs, { overwrite: true });
+  logger.info('Reseeded context-mode plugin subtree', {
+    bucketName,
+    writtenCount: result.written.length,
+  });
+  return result;
+}

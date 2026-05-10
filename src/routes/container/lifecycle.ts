@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, SessionMode, UserPreferences, LlmKeys, DeployKeys, ContainerConfigPayload } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
-import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin } from '../../lib/r2-seed';
 import { resolveSessionMode } from '../../lib/session-mode';
 import { getR2Config } from '../../lib/r2-config';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
@@ -242,6 +242,30 @@ export async function ensureBucketAndSeed(params: {
       });
     } catch (error) {
       logger.warn('Failed to seed initial agent configs', {
+        bucketName,
+        error: toErrorMessage(error),
+      });
+    }
+  }
+
+  // Implements REQ-AGENT-005
+  // Always reseed the context-mode plugin subtree on every session start
+  // when the user is on the unlimited tier in advanced mode. The 3 plugin
+  // files (plugin.json, hooks.json, README.md) are Worker-authoritative -
+  // their content lives in the deployed Worker bundle and must always
+  // reflect the latest deploy. Existing buckets seeded before a manifest
+  // change (e.g. before the mcpServers block was added) would otherwise
+  // keep the stale manifest forever, since first-bucket seeding uses
+  // overwrite:false. Cost: 3 small R2 PUTs per session start.
+  if (contextModeEnabled === true) {
+    try {
+      const reseedResult = await reseedContextModePlugin(env, bucketName, r2Config.endpoint, true);
+      logger.info('Reseeded context-mode plugin subtree on session start', {
+        bucketName,
+        writtenCount: reseedResult.written.length,
+      });
+    } catch (error) {
+      logger.warn('Failed to reseed context-mode plugin subtree', {
         bucketName,
         error: toErrorMessage(error),
       });
