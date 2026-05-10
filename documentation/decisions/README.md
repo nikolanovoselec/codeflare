@@ -758,8 +758,9 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 
 **Implementation references:**
 
-- Preseed assets: `preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json`, `preseed/agents/claude/plugins/context-mode/hooks/hooks.json`, `preseed/agents/claude/plugins/context-mode/README.md`
-- Manifest: `preseed/agents/claude/manifest.json` (three new entries with `modes: ["advanced"]`)
+- Preseed assets: `preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json` (bare manifest; matches `codeflare-memory`/`codeflare-hooks` shape), `preseed/agents/claude/plugins/context-mode/README.md`
+- Manifest: `preseed/agents/claude/manifest.json` (two entries with `modes: ["advanced"]`)
+- Runtime wiring: `entrypoint.sh` registers the `context-mode` MCP server in `~/.claude.json` and appends four `npx -y context-mode@<version> hook claude-code <event>` commands to `~/.claude/settings.json` when the plugin manifest is present and `SESSION_MODE=advanced`. This mirrors the wiring path used by `codeflare-memory` and `codeflare-hooks` rather than relying on the upstream Claude Code plugin loader to auto-register from `plugin.json`.
 - R2 seed tier filter: `src/lib/r2-seed.ts` (`getConfigsForMode(mode, contextModeEnabled)`, `getPreseedKeysNotInMode`, `reconcileAgentConfigs`)
 - Worker-side tier gate: `src/routes/container/lifecycle.ts` (`contextModeEnabled = effectiveTier === 'unlimited' && sessionMode === 'advanced'`)
 - Worker-side reconcile call sites: `src/routes/preferences.ts`, `src/routes/storage/seed.ts`, `src/routes/stripe-webhook.ts`

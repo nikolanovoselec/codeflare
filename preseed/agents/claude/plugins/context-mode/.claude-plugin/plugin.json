@@ -1,11 +1,5 @@
 {
   "name": "context-mode",
   "description": "Deterministic context-window reduction via tool-call routing (Pro tier only)",
-  "version": "1.0.111",
-  "mcpServers": {
-    "context-mode": {
-      "command": "npx",
-      "args": ["-y", "context-mode@1.0.111"]
-    }
-  }
+  "version": "1.0.111"
 }

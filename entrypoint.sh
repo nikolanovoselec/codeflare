@@ -1087,46 +1087,26 @@ if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # bumps land via Dependabot on the preseed source rather than entrypoint.
     CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.111"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.111")
 fi
-# MCP server registration:
-#   - Custom + Pro tier: the plugin folder is preseeded, and its plugin.json
-#     declares the mcpServers block. Claude Code's plugin loader registers
-#     the MCP server (and hooks.json hooks) automatically. We MUST NOT also
-#     inject into ~/.claude.json — that would create a duplicate registration.
-#   - Non-Custom tier: plugin folder is NOT preseeded, so Claude Code never
-#     sees the plugin. We register the MCP server directly in ~/.claude.json
-#     so ctx_* tools are still available manually (no auto-routing).
-if [ ! -f "$CONTEXT_MODE_MANIFEST" ]; then
-    CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
-    if [ -f "$USER_CLAUDE_JSON" ]; then
-        TMP_JSON=$(mktemp)
-        if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
-        else
-            echo "[entrypoint] WARNING: Could not merge context-mode MCP config (malformed .claude.json?)"
-            rm -f "$TMP_JSON"
-        fi
+# MCP server registration: always register the context-mode MCP server in
+# ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).
+# The plugin folder + bare plugin.json + enabledPlugins entry mark "this
+# plugin is enabled"; the actual MCP wiring is in ~/.claude.json and the
+# hook wiring is in ~/.claude/settings.json. This matches the pattern used
+# by codeflare-memory and codeflare-hooks (both have bare plugin.json with
+# no mcpServers / no hooks blocks).
+CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
+if [ -f "$USER_CLAUDE_JSON" ]; then
+    TMP_JSON=$(mktemp)
+    if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+        mv "$TMP_JSON" "$USER_CLAUDE_JSON"
     else
-        echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+        echo "[entrypoint] WARNING: Could not merge context-mode MCP config (malformed .claude.json?)"
+        rm -f "$TMP_JSON"
     fi
-    echo "[entrypoint] context-mode MCP server registered in .claude.json (non-Custom tier, version $CONTEXT_MODE_VERSION)"
 else
-    # Clean any stale ~/.claude.json mcpServers.context-mode entry left over
-    # from a prior non-Custom session (R2 bisync restores the file on tier
-    # transition). Without this, the plugin loader and the entrypoint would
-    # both register context-mode, causing duplicate-registration warnings.
-    if [ -f "$USER_CLAUDE_JSON" ]; then
-        TMP_JSON=$(mktemp)
-        if jq 'if (.mcpServers // {}) | has("context-mode") then
-                 .mcpServers |= del(."context-mode") |
-                 if (.mcpServers // {}) == {} then del(.mcpServers) else . end
-               else . end' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
-        else
-            rm -f "$TMP_JSON"
-        fi
-    fi
-    echo "[entrypoint] context-mode plugin manifest present; MCP server + hooks registered via plugin.json (version $CONTEXT_MODE_VERSION)"
+    echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
 fi
+echo "[entrypoint] context-mode MCP server registered in .claude.json (version $CONTEXT_MODE_VERSION)"
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
@@ -1150,7 +1130,29 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     #   breaker) preserve user agency. Direct pushes to main are not
     #   special-cased here — the project should rely on GitHub branch
     #   protection to require PRs into main; see common/git-workflow.md.
+    # Base advanced-mode hooks (codeflare-memory + codeflare-hooks).
     SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
+    # context-mode hooks (Custom tier only, gated on plugin manifest presence).
+    # Implements REQ-AGENT-005. Same four hooks the upstream context-mode
+    # plugin would self-register via hooks.json — we wire them through
+    # settings.json instead so it follows the same pattern as the other
+    # plugins (bare plugin.json, real wiring in entrypoint).
+    if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+        CTX_HOOKS=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{
+          PreToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"npx -y context-mode@\($ver) hook claude-code pretooluse"}]}],
+          PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"npx -y context-mode@\($ver) hook claude-code posttooluse"}]}],
+          PreCompact: [{matcher:"",hooks:[{type:"command",command:"npx -y context-mode@\($ver) hook claude-code precompact"}]}],
+          SessionStart: [{matcher:"",hooks:[{type:"command",command:"npx -y context-mode@\($ver) hook claude-code sessionstart"}]}]
+        }')
+        SETTINGS_CONFIG=$(echo "$SETTINGS_CONFIG" | jq --argjson ctx "$CTX_HOOKS" '
+          .hooks as $h | .hooks = (
+            ($h | keys) + ($ctx | keys) | unique |
+            map(. as $k | {key: $k, value: (($h[$k] // []) + ($ctx[$k] // []))}) |
+            from_entries
+          )
+        ')
+        echo "[entrypoint] Advanced mode: context-mode hooks added to settings.json (version $CONTEXT_MODE_VERSION)"
+    fi
     echo "[entrypoint] Advanced mode: configuring settings.json with hooks"
 else
     SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
@@ -1164,7 +1166,9 @@ if [ -f "$SETTINGS_FILE" ]; then
     # Implements REQ-AGENT-008
     # Merge non-hooks settings with *, rebuild hooks separately to avoid
     # jq array-replace destroying user-added hooks or leaving stale managed hooks.
-    # "Managed" = command path contains codeflare-(hooks|memory)/scripts/.
+    # "Managed" = command path contains codeflare-(hooks|memory)/scripts/ OR
+    # is a context-mode npx invocation. Adding to MANAGED_HOOKS_REGEX must
+    # happen here AND in any other place that prunes managed hooks.
     if jq --argjson cfg "$SETTINGS_CONFIG" '
       . as $orig |
       (del(.hooks) * ($cfg | del(.hooks))) +
@@ -1177,7 +1181,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
-                select((.command // "") | test("codeflare-(hooks|memory)/scripts/") | not)
+                select((.command // "") | test("codeflare-(hooks|memory)/scripts/|context-mode@.* hook claude-code") | not)
               ] as $user |
               [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}

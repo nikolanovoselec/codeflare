@@ -398,11 +398,6 @@
       "advanced"
     ]
   },
-  "plugins/context-mode/hooks/hooks.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/context-mode/README.md": {
     "modes": [
       "advanced"

@@ -13,22 +13,25 @@ The R2 preseed filter at `src/lib/r2-seed.ts` excludes the entire `plugins/conte
 
 ## How it works
 
-`hooks/hooks.json` registers four hooks that invoke the upstream context-mode CLI via npx:
+The plugin folder ships a bare manifest (`name`, `description`, `version`) and this README. The actual wiring is done by `entrypoint.sh` at session start, mirroring how `codeflare-memory` and `codeflare-hooks` are wired:
 
-- PreToolUse on `Bash|Read|WebFetch|Grep|Glob|Agent`
-- PostToolUse on `Bash|Read|WebFetch|Grep|Glob`
-- PreCompact (no matcher)
-- SessionStart (no matcher)
+- The `context-mode` MCP server is registered in `~/.claude.json` under `mcpServers` (always, when the manifest is present).
+- Four hooks are appended to `~/.claude/settings.json` (advanced mode + manifest present only):
+  - PreToolUse on `Bash|Read|WebFetch|Grep|Glob|Agent`
+  - PostToolUse on `Bash|Read|WebFetch|Grep|Glob`
+  - PreCompact (no matcher)
+  - SessionStart (no matcher)
 
-The first invocation downloads context-mode@1.0.111 into the npx cache. Subsequent invocations are cache-served.
+Each hook is `npx -y context-mode@<version> hook claude-code <event>`. The first invocation downloads `context-mode@<version>` into the npx cache; subsequent invocations are cache-served.
+
+The version comes from this plugin's `plugin.json` (entrypoint reads `.version` via `jq`), so plugin updates ship as a Dependabot PR bumping the version pin in `plugin.json`.
 
 ## Why preseed not runtime config
 
-We deliver this as a preseed asset (R2 bisync) rather than wiring at runtime in `entrypoint.sh` so:
+We deliver the plugin folder as a preseed asset (R2 bisync) rather than installing the plugin at runtime so:
 
-- The configuration is data, not code in a shell heredoc.
-- Plugin updates ship as a Dependabot PR bumping the version pin in `hooks/hooks.json`.
+- The folder presence is the tier-gating sentinel — the entrypoint reads `~/.claude/plugins/context-mode/.claude-plugin/plugin.json` to decide whether to enable the hooks.
 - The upstream `claude plugin install` path is never invoked, so the matcher-null self-registration bug surfaced during PR #293 development cannot reach our users.
-- Adding/removing the plugin from a user's session is a R2 bisync operation, not a settings.json mutation.
+- Adding/removing the plugin from a user's session is a R2 bisync operation; the wiring (MCP server + hook commands) is rebuilt on every session start and stays in sync with the deployed entrypoint.
 
 See `documentation/decisions/README.md` for the full architecture decision record.
