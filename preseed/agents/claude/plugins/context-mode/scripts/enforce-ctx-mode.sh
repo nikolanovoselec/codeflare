@@ -74,6 +74,9 @@ check_segment() {
     git|mkdir|rm|mv|cd|ls)
       return 0
       ;;
+    curl|wget)
+      emit_deny "Bash '$first' violates <context_window_protection> routing. For URL fetches use ctx_fetch_and_index(url, source) then ctx_search(queries) - the page is indexed in the sandbox and only a 3KB preview enters context. Bypass: ask user to run 'touch /tmp/ctx-bypass' - do not create yourself."
+      ;;
     npm)
       local second
       second=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk 'NR==1 {print $2; exit}')

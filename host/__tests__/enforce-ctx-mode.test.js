@@ -158,12 +158,22 @@ describe('enforce-ctx-mode hook', () => {
   });
 
   describe('network commands (bare and chained)', () => {
-    it('denies bare curl', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'curl https://example.com' } })), /'curl' violates/);
+    it('denies bare curl with ctx_fetch_and_index hint', () => {
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'curl https://example.com' } }));
+      assert.match(reason, /'curl' violates/);
+      assert.match(reason, /ctx_fetch_and_index/);
     });
 
-    it('denies bare wget', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'wget https://example.com' } })), /'wget' violates/);
+    it('denies bare wget with ctx_fetch_and_index hint', () => {
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'wget https://example.com' } }));
+      assert.match(reason, /'wget' violates/);
+      assert.match(reason, /ctx_fetch_and_index/);
+    });
+
+    it('denies chained curl: git log && curl x, with ctx_fetch_and_index hint', () => {
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'git log && curl https://x' } }));
+      assert.match(reason, /'curl' violates/);
+      assert.match(reason, /ctx_fetch_and_index/);
     });
 
     it('does NOT confuse curlfile (substring) with curl', () => {
