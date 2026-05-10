@@ -1054,30 +1054,37 @@ if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
     echo "[entrypoint] consult-llm MCP server configured for Claude Code"
 fi
 
-# Configure context-mode MCP server when the preseed plugin is present.
-# (Implements REQ-AGENT-005)
-# context-mode (https://github.com/mksglu/context-mode) is shipped as a
-# preseed plugin under ~/.claude/plugins/context-mode/. The R2 seed filter
-# in src/lib/r2-seed.ts only deploys the plugin folder when the user is on
-# the unlimited (Custom) tier in Pro session mode, so the existence of
-# this manifest is the entrypoint-level gate. No env-var lookup required.
+# Configure context-mode MCP server. (Implements REQ-AGENT-005)
+# context-mode (https://github.com/mksglu/context-mode) ships in two layers:
+#   1. MCP server (ctx_* tools) - registered for ALL users on every session
+#      so the agent always has the helper tools available. The CLI is
+#      fetched on first use via npx -y context-mode@<pinned>.
+#   2. Plugin folder (hooks + any plugin-bound rules) - ONLY delivered to
+#      unlimited (Custom) tier in Pro session mode via the R2 seed filter
+#      at src/lib/r2-seed.ts. The hooks auto-route tool calls and are the
+#      premium behavior change; the MCP tools are always available manually.
+# Version is pinned here so non-Custom users (whose preseed lacks the
+# plugin manifest) still get a consistent MCP server registration.
+CONTEXT_MODE_VERSION="1.0.111"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+    # Custom+Pro: defer to the preseed manifest's pinned version so version
+    # bumps land via Dependabot on the preseed source rather than entrypoint.
     CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.111"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.111")
-    CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
-    if [ -f "$USER_CLAUDE_JSON" ]; then
-        TMP_JSON=$(mktemp)
-        if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
-        else
-            echo "[entrypoint] WARNING: Could not merge context-mode MCP config (malformed .claude.json?)"
-            rm -f "$TMP_JSON"
-        fi
-    else
-        echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
-    fi
-    echo "[entrypoint] context-mode MCP server configured for Claude Code (version $CONTEXT_MODE_VERSION)"
 fi
+CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
+if [ -f "$USER_CLAUDE_JSON" ]; then
+    TMP_JSON=$(mktemp)
+    if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+        mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+    else
+        echo "[entrypoint] WARNING: Could not merge context-mode MCP config (malformed .claude.json?)"
+        rm -f "$TMP_JSON"
+    fi
+else
+    echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+fi
+echo "[entrypoint] context-mode MCP server configured (version $CONTEXT_MODE_VERSION)"
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"

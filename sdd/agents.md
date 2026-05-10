@@ -127,12 +127,12 @@ Multi-agent support, preseed system, and session modes.
 
 ## REQ-AGENT-005: Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers
 
-<!-- sdd-allow-large: the 12-row Standard/Pro/Custom-tier content matrix
+<!-- sdd-allow-large: the 13-row Standard/Pro/Custom-tier content matrix
      IS the contract of this REQ. The matrix and the seven numbered AC
      bullets below are the minimum surface needed to specify what
      Pro mode means. Splitting would fragment a single decision. -->
 
-**Intent:** Pro mode must provide a significantly enhanced agent experience with more rules, skills, agent definitions, commands, hooks, and memory persistence. The Custom (unlimited) subscription tier additionally receives the context-mode preseed plugin for deterministic context-window reduction.
+**Intent:** Pro mode must provide a significantly enhanced agent experience with more rules, skills, agent definitions, commands, hooks, and memory persistence. The context-mode MCP server (`ctx_*` helper tools) is registered for all users so the helpers are universally available on demand; the auto-routing hooks that change agent behavior are reserved for the Custom (unlimited) subscription tier.
 
 **Acceptance Criteria:**
 
@@ -149,15 +149,16 @@ Multi-agent support, preseed system, and session modes.
 | Cherry-picked skills (API/backend/frontend patterns, SDD scaffolding) | No | Yes | Yes |
 | Discipline triad rules (spec, docs, tests) | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
-| context-mode preseed plugin (deterministic context-window reduction) | No | No | Yes |
+| context-mode MCP server (`ctx_*` helper tools, always-on) | Yes | Yes | Yes |
+| context-mode plugin folder (auto-routing hooks for context-window reduction) | No | No | Yes |
 
 1. Standard mode seeds the rows above marked Yes in the Standard column to R2.
 2. Pro mode seeds the rows above marked Yes in the Pro column to R2 (a strict superset of Standard).
 3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
 4. Pro mode registers hooks in `settings.json` with command-pattern gates so they only fire on relevant Bash calls: PreToolUse entries for commit attribution blocking (gated on git/gh commands), a PostToolUse entry for the PR-boundary trigger classifier (fires on `gh pr create` or push-to-PR-tracked-branch), a Stop entry for the PR HEAD SHA checkpoint (blocks turn-end until the review pipeline observes the new PR head), and a UserPromptSubmit entry for memory capture; Standard mode merges only `skipDangerousModePermissionPrompt`.
-5. The context-mode preseed plugin is delivered to the user's R2 bucket only when the user's effective subscription tier is `unlimited` (displayed as `Custom` in the admin UI) AND their session mode is `advanced` (Pro). Any other combination strips the plugin subtree from the seed list before bisync touches the bucket; the plugin folder simply does not appear in `~/.claude/plugins/` and Claude Code does not load it.
-6. The context-mode plugin, when present, registers four hooks (PreToolUse on tool-call routing matchers, PostToolUse on heavy-output matchers, PreCompact, SessionStart) that invoke the upstream context-mode CLI to provide deterministic context-window reduction.
-7. The container's `entrypoint.sh` detects the preseeded `~/.claude/plugins/context-mode/.claude-plugin/plugin.json` manifest and, when present, registers the `context-mode` MCP server in `~/.claude.json` and adds `context-mode: true` to `enabledPlugins`. The presence of the manifest is the authoritative gate.
+5. The context-mode integration ships in two layers with separate gating: (a) the **MCP server** (exposing `ctx_*` helper tools) is registered in `~/.claude.json` for **all users on every session** so the agent always has the helper tools available on demand; (b) the **plugin folder** containing hooks (auto-routing tool calls) and any plugin-bound rules is delivered to the user's R2 bucket **only when** the user's effective subscription tier is `unlimited` (displayed as `Custom` in the admin UI) **AND** their session mode is `advanced` (Pro). Any other tier/mode combination strips the plugin subtree from the seed list before bisync touches the bucket.
+6. When the plugin folder is present (Pro on Custom tier), it registers four hooks (PreToolUse on tool-call routing matchers, PostToolUse on heavy-output matchers, PreCompact, SessionStart) that invoke the upstream context-mode CLI to provide deterministic context-window reduction. When the plugin folder is absent (any other tier or mode), the MCP server is still active so users can call `ctx_*` tools manually, but no automatic routing fires.
+7. The container's `entrypoint.sh` registers the `context-mode` MCP server in `~/.claude.json` unconditionally (using a hardcoded version pin as fallback when the preseed manifest is absent). When the preseed manifest at `~/.claude/plugins/context-mode/.claude-plugin/plugin.json` exists, the entrypoint additionally adds `context-mode: true` to `enabledPlugins` and reads the version pin from the manifest. Manifest presence is the gate for plugin enablement; MCP registration is universal.
 
 **Constraints:**
 - Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.

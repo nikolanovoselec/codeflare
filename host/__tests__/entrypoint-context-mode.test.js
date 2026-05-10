@@ -14,7 +14,7 @@ const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8
 // in isolation against a fixture filesystem. This is "run the real thing"
 // per tdd-discipline.md: a regression in the gate flips the JSON shape.
 function extractContextModeMcpBlock() {
-  const start = entrypoint.indexOf('# Configure context-mode MCP server when the preseed plugin is present.');
+  const start = entrypoint.indexOf('# Configure context-mode MCP server.');
   if (start === -1) throw new Error('context-mode MCP block marker not found in entrypoint.sh');
   const blockEnd = entrypoint.indexOf('# Configure Claude Code settings.json', start);
   if (blockEnd === -1) throw new Error('context-mode MCP block end marker not found');
@@ -89,15 +89,20 @@ describe('entrypoint context-mode preseed gate', () => {
     assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['-y', 'context-mode@1.0.111']);
   });
 
-  it('manifest absent: mcpServers["context-mode"] is NOT added', () => {
+  it('manifest absent: mcpServers["context-mode"] is STILL registered (universal MCP)', () => {
     const cwd = mkdtempSync(join(baseTmp, 'absent-mcp-'));
     const { claudeJson } = buildHarness(cwd, '{}', false);
-    if (claudeJson.mcpServers) {
-      assert.ok(
-        !claudeJson.mcpServers['context-mode'],
-        'context-mode entry must not be present when manifest is absent'
-      );
-    }
+    assert.ok(claudeJson.mcpServers, 'mcpServers should exist even without manifest');
+    assert.ok(
+      claudeJson.mcpServers['context-mode'],
+      'context-mode MCP must be registered for ALL users so ctx_* tools are universally available'
+    );
+    assert.equal(claudeJson.mcpServers['context-mode'].command, 'npx');
+    assert.deepEqual(
+      claudeJson.mcpServers['context-mode'].args,
+      ['-y', 'context-mode@1.0.111'],
+      'falls back to entrypoint-pinned version when preseed manifest is absent'
+    );
   });
 
   it('manifest present: PLUGINS_CONFIG enables context-mode plugin', () => {
