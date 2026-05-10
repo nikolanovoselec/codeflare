@@ -152,6 +152,8 @@ Tier configuration is admin-editable via the Subscription Management panel. Stor
 
 Container tier (`RESSOURCE_TIER`) is independent of subscription tier and `MAX_INSTANCES`. All three can be combined freely.
 
+Cloudflare Containers enforces disk (GB) <= 2 x memory (GiB). The default tier's 6 GB ceiling is set by its 3 GiB memory; raising default disk above 6 GB requires raising default memory to >=4 GiB first.
+
 ## Boundaries
 
 - **No Node.js APIs in Worker** -- Workers use a web-standard runtime. `fetch()` not `http`; `crypto.subtle` not `require('crypto')`; `Request`/`Response` not Express objects. The `nodejs_compat` flag enables specific modules only.
