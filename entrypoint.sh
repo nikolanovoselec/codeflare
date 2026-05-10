@@ -1146,12 +1146,12 @@ if [ -f "$SETTINGS_FILE" ]; then
           ($orig.hooks[$type] // []) as $existArr |
           ($cfg.hooks[$type] // []) as $cfgArr |
           {key: $type, value: (
-            [$existArr[].matcher, $cfgArr[].matcher] | unique |
+            [($existArr[].matcher // ""), ($cfgArr[].matcher // "")] | unique |
             map(. as $m |
-              [$existArr[] | select(.matcher == $m) | (.hooks // [])[] |
+              [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
                 select((.command // "") | test("codeflare-(hooks|memory)/scripts/") | not)
               ] as $user |
-              [$cfgArr[] | select(.matcher == $m) | (.hooks // [])[]] as $mgr |
+              [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}
             ) | map(select(.hooks | length > 0))
           )}
