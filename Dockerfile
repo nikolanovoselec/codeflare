@@ -160,19 +160,21 @@ RUN npm install -g @modelcontextprotocol/server-memory && \
 # extraction.
 #
 # We do that here at build time so the patched bundles ship in the
-# container image — no runtime extraction, no per-session bunx
-# download, no first-call delay. Hooks and the MCP server invoke
+# container image with no runtime extraction, no per-session bunx
+# download, and no first-call delay. Hooks and the MCP server invoke
 # `context-mode` directly from /usr/local/bin (the global install).
 #
 # License posture (ELv2): we do NOT redistribute context-mode source.
 # npm pulls the package from the public registry at build time
 # exactly as `npx -y context-mode` would at runtime.
-ARG CONTEXT_MODE_VERSION=1.0.118
 COPY preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json /tmp/context-mode-plugin.json
 RUN <<'EOF'
 set -e
-ACTUAL_VER=$(jq -r '.version // empty' /tmp/context-mode-plugin.json)
-VER="${ACTUAL_VER:-1.0.118}"
+VER=$(jq -r '.version // empty' /tmp/context-mode-plugin.json)
+if [ -z "$VER" ]; then
+  echo "[Dockerfile] FATAL: plugin.json has no .version field; build cannot proceed" >&2
+  exit 1
+fi
 echo "[Dockerfile] installing context-mode@$VER"
 npm install -g "context-mode@$VER"
 CTX_DIR="$(npm root -g)/context-mode"
@@ -181,29 +183,43 @@ node <<'NODE'
 const fs = require('fs');
 const path = require('path');
 const dir = process.env.CTX_DIR;
+const shimMarker = '__ctx_createRequire';
 const shim = "import { createRequire as __ctx_createRequire } from 'node:module';\nvar require = __ctx_createRequire(import.meta.url);\n";
 for (const name of ['cli.bundle.mjs', 'server.bundle.mjs']) {
   const f = path.join(dir, name);
   if (!fs.existsSync(f)) {
-    console.error('[Dockerfile] WARNING: ' + f + ' not found; context-mode layout may have changed');
+    console.error('[Dockerfile] FATAL: ' + f + ' not found; context-mode layout may have changed');
     process.exit(1);
   }
   let c = fs.readFileSync(f, 'utf8');
-  if (c.includes('__ctx_createRequire')) {
+  if (c.includes(shimMarker)) {
     console.log('[Dockerfile] ' + name + ' already patched, skipping');
-    continue;
-  }
-  if (c.startsWith('#!')) {
-    const nl = c.indexOf('\n');
-    c = c.slice(0, nl + 1) + shim + c.slice(nl + 1);
   } else {
-    c = shim + c;
+    if (c.startsWith('#!')) {
+      const nl = c.indexOf('\n');
+      c = c.slice(0, nl + 1) + shim + c.slice(nl + 1);
+    } else {
+      c = shim + c;
+    }
+    fs.writeFileSync(f, c);
+    console.log('[Dockerfile] patched ' + name);
   }
-  fs.writeFileSync(f, c);
-  console.log('[Dockerfile] patched ' + name);
+  // Postcondition check: re-read and verify the shim is present at
+  // the expected position. Catches regressions if a future esbuild
+  // bundle ships with a coincidental marker collision or if the
+  // write silently truncated.
+  const verify = fs.readFileSync(f, 'utf8');
+  const head = verify.startsWith('#!') ? verify.slice(verify.indexOf('\n') + 1) : verify;
+  if (!head.startsWith("import { createRequire as __ctx_createRequire } from 'node:module';")) {
+    console.error('[Dockerfile] FATAL: post-write verification failed for ' + name + '; first non-shebang bytes: ' + JSON.stringify(head.slice(0, 80)));
+    process.exit(1);
+  }
 }
 NODE
+# Smoke-test BOTH bundles so a regression in server.bundle.mjs surfaces
+# at build time. cli.bundle.mjs is exercised by `--version`.
 context-mode --version
+node -e "import('/usr/local/lib/node_modules/context-mode/server.bundle.mjs').catch(e => { console.error('[Dockerfile] FATAL: server.bundle.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] server.bundle.mjs imports cleanly'))"
 rm -f /tmp/context-mode-plugin.json
 npm cache clean --force
 rm -rf /root/.npm

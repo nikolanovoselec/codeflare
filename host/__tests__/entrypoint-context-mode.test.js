@@ -1,3 +1,5 @@
+// Verifies REQ-AGENT-005 AC5/AC6/AC7: context-mode MCP server registration
+// in ~/.claude.json and PLUGINS_CONFIG enabledPlugins gating.
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
@@ -93,7 +95,7 @@ describe('entrypoint context-mode preseed gate', () => {
     assert.deepEqual(
       claudeJson.mcpServers['context-mode'].args,
       [],
-      'no version arg — global install IS the pinned version'
+      'no version arg - global install IS the pinned version'
     );
   });
 
@@ -146,13 +148,13 @@ describe('entrypoint context-mode preseed gate', () => {
     // Regression for codeflare#309: prior versions registered
     // `bunx context-mode@<ver>` so a version mismatch between plugin.json
     // and the Dockerfile-installed binary was theoretically possible. The
-    // build-time install eliminates that ambiguity — the MCP command is
+    // build-time install eliminates that ambiguity - the MCP command is
     // the bare global binary, version flows through the Docker rebuild.
     const cwd = mkdtempSync(join(baseTmp, 'no-version-pin-'));
     const { claudeJson } = buildHarness(cwd, '{}', true);
     const cm = claudeJson.mcpServers['context-mode'];
     assert.equal(cm.command, 'context-mode');
-    assert.equal(cm.args.length, 0, 'args must be empty — no version pin');
+    assert.equal(cm.args.length, 0, 'args must be empty - no version pin');
     assert.ok(
       !JSON.stringify(cm).includes('@'),
       'no @<version> anywhere in the MCP entry'
