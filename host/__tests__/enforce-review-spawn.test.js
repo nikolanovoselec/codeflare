@@ -225,7 +225,7 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision":"block"/);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
   });
@@ -238,7 +238,7 @@ describe('enforce-review-spawn.sh — PR state gating', () => {
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision":"block"/);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
   });
 
   it('fail-open: blocks when gh returns OPEN but baseRefName field is empty', () => {
@@ -263,7 +263,7 @@ exit 99`);
     const t = writeTranscript(cwd, [PUSH_LINE()]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
-    assert.match(r.stdout, /"decision":"block"/,
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
       'empty BASE_REF must fail-open to enforcement, not silently exit 0');
   });
 
