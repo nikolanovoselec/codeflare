@@ -112,12 +112,35 @@ export async function seedGettingStartedDocs(
   return result;
 }
 
+// Implements REQ-AGENT-005
 /**
- * Return only the seed documents that belong to the given session mode.
+ * Tier-gated preseed key prefix. Files under this prefix are only deployed
+ * to user buckets when contextModeEnabled is true (Pro tier + Pro session
+ * mode). See REQ-AGENT-005 and the context-mode preseed plugin README.
+ */
+const CONTEXT_MODE_KEY_PREFIX = '.claude/plugins/context-mode/';
+
+function isContextModeKey(key: string): boolean {
+  return key.startsWith(CONTEXT_MODE_KEY_PREFIX);
+}
+
+/**
+ * Return only the seed documents that belong to the given session mode and
+ * tier. The optional `contextModeEnabled` flag, when false, strips the
+ * context-mode plugin subtree from the deploy set - used to enforce the
+ * unlimited-tier-only gate before we ship the plugin to the user's bucket.
+ *
  * Throws if duplicate keys exist within the same mode (indicates generator bug).
  */
-export function getConfigsForMode(mode: SessionMode): SeedDocument[] {
-  const docs = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.modes.includes(mode));
+export function getConfigsForMode(
+  mode: SessionMode,
+  contextModeEnabled = false,
+): SeedDocument[] {
+  const docs = AGENTS_SEEDED_CONFIGS.filter((doc) => {
+    if (!doc.modes.includes(mode)) return false;
+    if (!contextModeEnabled && isContextModeKey(doc.key)) return false;
+    return true;
+  });
   const seen = new Set<string>();
   for (const doc of docs) {
     if (seen.has(doc.key)) throw new Error(`Duplicate key "${doc.key}" in mode "${mode}"`);
@@ -127,33 +150,46 @@ export function getConfigsForMode(mode: SessionMode): SeedDocument[] {
 }
 
 /**
- * Return the R2 keys of preseed-managed files that are NOT in the given mode.
- * These are candidates for cleanup on mode switch.
+ * Return the R2 keys of preseed-managed files that are NOT in the given mode
+ * (or are tier-gated context-mode files when contextModeEnabled is false).
+ * These are candidates for cleanup on mode switch or tier downgrade.
  *
- * Keys that have a variant in the target mode (same key, different content per mode)
- * are excluded — they were just seeded and must not be deleted.
+ * Keys that have a variant in the target deploy set (same key, different
+ * content per mode) are excluded - they were just seeded and must not be
+ * deleted.
  */
-export function getPreseedKeysNotInMode(mode: SessionMode): string[] {
+export function getPreseedKeysNotInMode(
+  mode: SessionMode,
+  contextModeEnabled = false,
+): string[] {
   const keysInMode = new Set(
-    AGENTS_SEEDED_CONFIGS.filter((doc) => doc.modes.includes(mode)).map((doc) => doc.key)
+    AGENTS_SEEDED_CONFIGS
+      .filter((doc) => {
+        if (!doc.modes.includes(mode)) return false;
+        if (!contextModeEnabled && isContextModeKey(doc.key)) return false;
+        return true;
+      })
+      .map((doc) => doc.key)
   );
   return AGENTS_SEEDED_CONFIGS
-    .filter((doc) => !doc.modes.includes(mode))
+    .filter((doc) => !doc.modes.includes(mode) || (!contextModeEnabled && isContextModeKey(doc.key)))
     .map((doc) => doc.key)
     .filter((k) => !keysInMode.has(k));
 }
 
 /**
- * Delete preseed-managed files that don't belong to the current mode.
- * Only deletes keys from the known generated set — never lists or scans the bucket.
+ * Delete preseed-managed files that don't belong to the current mode (or
+ * are tier-gated context-mode files when contextModeEnabled is false).
+ * Only deletes keys from the known generated set - never lists or scans the bucket.
  */
 export async function deleteNonModeConfigs(
   env: Env,
   bucketName: string,
   endpoint: string,
-  mode: SessionMode
+  mode: SessionMode,
+  contextModeEnabled = false,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
-  const keysToDelete = getPreseedKeysNotInMode(mode);
+  const keysToDelete = getPreseedKeysNotInMode(mode, contextModeEnabled);
   if (keysToDelete.length === 0) {
     return { deleted: [], warnings: [] };
   }
@@ -166,7 +202,7 @@ export async function deleteNonModeConfigs(
     keysToDelete.map(async (key) => {
       const url = getR2Url(endpoint, bucketName, key);
       const response = await r2Client.fetch(url, { method: 'DELETE' });
-      // 204 = deleted, 404 = already gone — both are success
+      // 204 = deleted, 404 = already gone - both are success
       if (response.ok || response.status === 404) {
         return key;
       }
@@ -195,16 +231,17 @@ export async function reconcileAgentConfigs(
   bucketName: string,
   endpoint: string,
   mode: SessionMode,
-  options: { overwrite: boolean; cleanup: boolean }
+  options: { overwrite: boolean; cleanup: boolean; contextModeEnabled?: boolean }
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
-  const docs = getConfigsForMode(mode);
+  const contextModeEnabled = options.contextModeEnabled === true;
+  const docs = getConfigsForMode(mode, contextModeEnabled);
   const seedResult = await seedDocuments(env, bucketName, endpoint, docs, { overwrite: options.overwrite });
 
   let deleted: string[] = [];
   let warnings: string[] = [];
 
   if (options.cleanup) {
-    const cleanupResult = await deleteNonModeConfigs(env, bucketName, endpoint, mode);
+    const cleanupResult = await deleteNonModeConfigs(env, bucketName, endpoint, mode, contextModeEnabled);
     deleted = cleanupResult.deleted;
     warnings = cleanupResult.warnings;
   }
@@ -212,6 +249,7 @@ export async function reconcileAgentConfigs(
   logger.info('Reconciled agent configs', {
     bucketName,
     mode,
+    contextModeEnabled,
     writtenCount: seedResult.written.length,
     skippedCount: seedResult.skipped.length,
     deletedCount: deleted.length,
@@ -230,15 +268,17 @@ export async function seedAgentConfigs(
   env: Env,
   bucketName: string,
   endpoint: string,
-  options: { overwrite?: boolean; mode?: SessionMode } = {}
+  options: { overwrite?: boolean; mode?: SessionMode; contextModeEnabled?: boolean } = {}
 ): Promise<SeedDocsResult> {
   const mode = options.mode ?? 'default';
-  const docs = getConfigsForMode(mode);
+  const contextModeEnabled = options.contextModeEnabled === true;
+  const docs = getConfigsForMode(mode, contextModeEnabled);
   const result = await seedDocuments(env, bucketName, endpoint, docs, options);
 
   logger.info('Seeded agent configs', {
     bucketName,
     mode,
+    contextModeEnabled,
     overwrite: options.overwrite === true,
     writtenCount: result.written.length,
     skippedCount: result.skipped.length,

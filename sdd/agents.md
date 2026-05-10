@@ -127,36 +127,43 @@ Multi-agent support, preseed system, and session modes.
 
 ## REQ-AGENT-005: Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers
 
-<!-- sdd-allow-large: the 11-row Standard/Pro content matrix IS the
-     contract of this REQ. The matrix and the four numbered AC
+<!-- sdd-allow-large: the 13-row Standard/Pro/Custom-tier content matrix
+     IS the contract of this REQ. The matrix and the seven numbered AC
      bullets below are the minimum surface needed to specify what
      Pro mode means. Splitting would fragment a single decision. -->
 
-**Intent:** Pro mode must provide a significantly enhanced agent experience with more rules, skills, agent definitions, commands, hooks, and memory persistence.
+**Intent:** Pro mode must provide a significantly enhanced agent experience with more rules, skills, agent definitions, commands, hooks, and memory persistence. The context-mode MCP server (`ctx_*` helper tools) is registered for all users so the helpers are universally available on demand; the auto-routing hooks that change agent behavior are reserved for the Custom (unlimited) subscription tier.
 
 **Acceptance Criteria:**
 
-| Content Category | Standard (default) | Pro (advanced) |
-|-----------------|-------------------|----------------|
-| Memory plugin and rule | No | Yes |
-| Core environment rules | Yes | Yes |
-| Universal coding skills (Cloudflare stack, ship references) | Yes | Yes |
-| consult-llm skill (Claude Code only) | No | Yes |
-| Pro-mode hooks (commit attribution + PR-boundary review pipeline) | No | Yes |
-| Language rules (TypeScript, Python, Go, Swift, common) | No | Yes |
-| Code-review and SDD agent definitions | No | Yes |
-| Slash commands (Claude Code only) | No | Yes |
-| Cherry-picked skills (API/backend/frontend patterns, SDD scaffolding) | No | Yes |
-| Discipline triad rules (spec, docs, tests) | No | Yes |
-| Known marketplaces plugin config | Yes | Yes |
+| Content Category | Standard (default) | Pro (advanced) | Pro on Custom tier |
+|-----------------|-------------------|----------------|--------------------|
+| Memory plugin and rule | No | Yes | Yes |
+| Core environment rules | Yes | Yes | Yes |
+| Universal coding skills (Cloudflare stack, ship references) | Yes | Yes | Yes |
+| consult-llm skill (Claude Code only) | No | Yes | Yes |
+| Pro-mode hooks (commit attribution + PR-boundary review pipeline) | No | Yes | Yes |
+| Language rules (TypeScript, Python, Go, Swift, common) | No | Yes | Yes |
+| Code-review and SDD agent definitions | No | Yes | Yes |
+| Slash commands (Claude Code only) | No | Yes | Yes |
+| Cherry-picked skills (API/backend/frontend patterns, SDD scaffolding) | No | Yes | Yes |
+| Discipline triad rules (spec, docs, tests) | No | Yes | Yes |
+| Known marketplaces plugin config | Yes | Yes | Yes |
+| context-mode MCP server (`ctx_*` helper tools, always-on) | Yes | Yes | Yes |
+| context-mode plugin folder (auto-routing hooks for context-window reduction) | No | No | Yes |
 
 1. Standard mode seeds the rows above marked Yes in the Standard column to R2.
 2. Pro mode seeds the rows above marked Yes in the Pro column to R2 (a strict superset of Standard).
 3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
 4. Pro mode registers hooks in `settings.json` with command-pattern gates so they only fire on relevant Bash calls: PreToolUse entries for commit attribution blocking (gated on git/gh commands), a PostToolUse entry for the PR-boundary trigger classifier (fires on `gh pr create` or push-to-PR-tracked-branch), a Stop entry for the PR HEAD SHA checkpoint (blocks turn-end until the review pipeline observes the new PR head), and a UserPromptSubmit entry for memory capture; Standard mode merges only `skipDangerousModePermissionPrompt`.
+5. The context-mode integration ships in two layers with separate gating: (a) the **MCP server** (exposing `ctx_*` helper tools) is registered in `~/.claude.json` for **all users on every session** so the agent always has the helper tools available on demand; (b) the **plugin folder** containing hooks (auto-routing tool calls) and any plugin-bound rules is delivered to the user's R2 bucket **only when** the user's effective subscription tier is `unlimited` (displayed as `Custom` in the admin UI) **AND** their session mode is `advanced` (Pro). Any other tier/mode combination strips the plugin subtree from the seed list before bisync touches the bucket.
+6. When the plugin folder is present (Pro on Custom tier), it registers four hooks (PreToolUse on tool-call routing matchers, PostToolUse on heavy-output matchers, PreCompact, SessionStart) that invoke the upstream context-mode CLI to provide deterministic context-window reduction. When the plugin folder is absent (any other tier or mode), the MCP server is still active so users can call `ctx_*` tools manually, but no automatic routing fires.
+7. The container's `entrypoint.sh` registers the `context-mode` MCP server in `~/.claude.json` unconditionally (using a hardcoded version pin as fallback when the preseed manifest is absent). When the preseed manifest at `~/.claude/plugins/context-mode/.claude-plugin/plugin.json` exists, the entrypoint additionally adds `context-mode: true` to `enabledPlugins` and reads the version pin from the manifest. Manifest presence is the gate for plugin enablement; MCP registration is universal.
 
 **Constraints:**
 - Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.
+- A tier downgrade away from `unlimited`, or a session-mode change away from `advanced`, must remove the entire context-mode preseed subtree from the user's bucket on the next reconcile so the plugin no longer loads.
+- The context-mode plugin must never be installed via `claude plugin install` against the upstream marketplace; ship it exclusively as preseed assets so the upstream installer's settings.json mutation cannot reach Codeflare users.
 
 **Applies To:** User
 **Priority:** P1

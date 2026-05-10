@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-10
+- context-mode (REQ-AGENT-005 AC5-AC7) ships in two layers: the MCP server with `ctx_*` helper tools is registered for every user on every session so the agent always has the helpers available on demand, while the plugin folder containing the four auto-routing hooks (PreToolUse, PostToolUse, PreCompact, SessionStart) is delivered only to users on the Custom (`unlimited`) tier in Pro mode. The hooks-layer gate is enforced at the R2 seed filter so the plugin folder never appears in non-qualifying users' sessions.
+
 ## 2026-05-09
 - GitHub OAuth state validation is now stateless (REQ-AUTH-002 AC2-AC4), so sign-in works on iOS WebKit (Safari, Brave) and other browsers where prior cookie-based state was unreliable across the github.com bounce-back. State validation failure now redirects to the login page with a friendly error message instead of returning a raw 403.
 - Terminal scrollback buffer increased from 400 to 1000 lines (REQ-MOB-004). Users can scroll back roughly 2.5x further through command output history before older lines are trimmed. Both browser xterm.js and host headless serialize buffer were bumped together so reconnect-restore stays in sync.

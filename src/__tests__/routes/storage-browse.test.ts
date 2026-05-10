@@ -265,7 +265,7 @@ describe('Storage Browse Routes', () => {
         expect.any(Object),
         'test-bucket',
         'https://test.r2.cloudflarestorage.com',
-        { overwrite: false, mode: 'default' }
+        { overwrite: false, mode: 'default', contextModeEnabled: false }
       );
     });
   });

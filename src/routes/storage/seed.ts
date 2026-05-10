@@ -9,6 +9,7 @@ import { ContainerError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
 import { getPreferencesKey } from '../../lib/kv-keys';
 import { resolveSessionMode } from '../../lib/session-mode';
+import { getEffectiveTier } from '../../lib/subscription';
 
 const logger = createLogger('storage-seed');
 
@@ -78,14 +79,21 @@ app.post('/agent-configs', async (c) => {
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json');
     const mode = resolveSessionMode(preferences ?? null);
 
+    // Implements REQ-AGENT-005 (tier-gate for context-mode preseed)
+    const user = c.get('user');
+    const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+    const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
+
     const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, mode, {
       overwrite: true,
       cleanup: true,
+      contextModeEnabled,
     });
 
     logger.info('Recreated agent configs', {
       bucketName,
       mode,
+      contextModeEnabled,
       bucketCreated: bucketResult.created === true,
       writtenCount: result.written.length,
       deletedCount: result.deleted.length,

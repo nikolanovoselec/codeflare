@@ -7,6 +7,7 @@ import { ValidationError, ContainerError } from '../../lib/error-types';
 import { validateKey } from './validation';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
+import { getEffectiveTier } from '../../lib/subscription';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 import { getPreferencesKey } from '../../lib/kv-keys';
@@ -89,12 +90,18 @@ app.get('/', async (c) => {
         }
 
         try {
+          // Implements REQ-AGENT-005 (tier-gate for context-mode preseed on auto-create path)
           const prefsKey = getPreferencesKey(bucketName);
           const preferences = await c.env.KV.get<UserPreferences>(prefsKey, 'json');
           const mode = resolveSessionMode(preferences ?? null);
-          const agentResult = await seedAgentConfigs(c.env, bucketName, endpoint, { overwrite: false, mode });
+          const user = c.get('user');
+          const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
+          const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
+          const agentResult = await seedAgentConfigs(c.env, bucketName, endpoint, { overwrite: false, mode, contextModeEnabled });
           logger.info('Seeded initial agent configs after auto-create', {
             bucketName,
+            mode,
+            contextModeEnabled,
             writtenCount: agentResult.written.length,
             skippedCount: agentResult.skipped.length,
           });

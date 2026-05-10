@@ -1054,6 +1054,53 @@ if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
     echo "[entrypoint] consult-llm MCP server configured for Claude Code"
 fi
 
+# Configure context-mode MCP server. (Implements REQ-AGENT-005)
+# context-mode (https://github.com/mksglu/context-mode) ships in two layers:
+#   1. MCP server (ctx_* tools) - registered for ALL users on every session
+#      so the agent always has the helper tools available. The CLI is
+#      fetched on first use via npx -y context-mode@<pinned>.
+#   2. Plugin folder (hooks + any plugin-bound rules) - ONLY delivered to
+#      unlimited (Custom) tier in Pro session mode via the R2 seed filter
+#      at src/lib/r2-seed.ts. The hooks auto-route tool calls and are the
+#      premium behavior change; the MCP tools are always available manually.
+# Version is pinned here so non-Custom users (whose preseed lacks the
+# plugin manifest) still get a consistent MCP server registration.
+#
+# License posture (ELv2): context-mode is licensed under Elastic License
+# 2.0, which prohibits providing the software as a hosted/managed service.
+# Codeflare's posture is:
+#   - We do NOT redistribute context-mode source. The npm package is
+#     fetched by the user's own container from the npm registry via npx.
+#   - Commercial (non-Custom) users get the MCP server registered, but
+#     NO skill, rule, agent definition, or hook in our preseed instructs
+#     the agent to invoke ctx_* tools. The agent's tool-selection is its
+#     own, exactly as for any other listed MCP tool.
+#   - The Custom (unlimited) tier with auto-routing hooks is admin-only
+#     personal use, which ELv2 fully permits.
+# A future contributor who adds a SessionStart-style ctx_* nudge for
+# commercial users would push us over the ELv2 line. Don't do that
+# without revisiting AD49 first.
+CONTEXT_MODE_VERSION="1.0.111"
+CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
+if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+    # Custom+Pro: defer to the preseed manifest's pinned version so version
+    # bumps land via Dependabot on the preseed source rather than entrypoint.
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.111"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.111")
+fi
+CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
+if [ -f "$USER_CLAUDE_JSON" ]; then
+    TMP_JSON=$(mktemp)
+    if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+        mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+    else
+        echo "[entrypoint] WARNING: Could not merge context-mode MCP config (malformed .claude.json?)"
+        rm -f "$TMP_JSON"
+    fi
+else
+    echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+fi
+echo "[entrypoint] context-mode MCP server configured (version $CONTEXT_MODE_VERSION)"
+
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
@@ -1122,8 +1169,14 @@ else
     echo "$SETTINGS_CONFIG" | jq '.' > "$SETTINGS_FILE"
 fi
 
-# Enable plugins (silently skipped if plugin files absent in default mode)
-PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true}}'
+# Enable plugins (silently skipped if plugin files absent in default mode).
+# context-mode is conditionally enabled via the preseed-plugin gate below.
+if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+    PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true,"context-mode":true}}'
+    echo "[entrypoint] context-mode plugin enabled (preseed manifest present)"
+else
+    PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true}}'
+fi
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_PLUGINS=$(mktemp)
     if jq --argjson cfg "$PLUGINS_CONFIG" '. * $cfg' "$USER_CLAUDE_JSON" > "$TMP_PLUGINS" 2>/dev/null; then

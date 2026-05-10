@@ -351,7 +351,7 @@ describe('Preferences Routes', () => {
         'codeflare-test-user',
         'https://r2.test',
         'advanced',
-        { overwrite: true, cleanup: true },
+        { overwrite: true, cleanup: true, contextModeEnabled: false },
       );
     });
 
@@ -380,7 +380,7 @@ describe('Preferences Routes', () => {
         'codeflare-test-user',
         'https://r2.test',
         'default',
-        { overwrite: true, cleanup: true },
+        { overwrite: true, cleanup: true, contextModeEnabled: false },
       );
     });
 

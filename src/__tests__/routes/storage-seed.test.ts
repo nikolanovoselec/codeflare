@@ -145,7 +145,7 @@ describe('Agent Config Seed Routes', () => {
       'my-bucket',
       'https://test.r2.cloudflarestorage.com',
       'default',
-      { overwrite: true, cleanup: true }
+      { overwrite: true, cleanup: true, contextModeEnabled: false }
     );
   });
 
