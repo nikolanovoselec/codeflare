@@ -8,23 +8,20 @@
 #   Bash whitelist:     git, mkdir, rm, mv, cd, ls, npm install, pip install
 #   Tool block:         WebFetch, Grep
 #
-# Per-segment scanning: the command is split on shell chain operators
-# (;, &&, ||, |, &) and EACH segment's first word must be whitelisted.
-# Closes the bypass where 'cd /tmp && tail x' would pass because the
-# first word is allowed but the chained command is not.
+# Normalization pipeline before per-segment scan:
+#   1. Strip heredoc bodies (lines between <<DELIM and matching DELIM)
+#   2. Strip content inside '...' and "..." quoted regions
+#   3. Split remaining text on shell chain operators (;, &&, ||, |, &)
+#   4. Each segment's first word must be whitelisted
+#
+# Closes two bypass vectors:
+#   - 'cd /tmp && tail x' (chain bypass via first-word-only check)
+#   - 'git x <<EOF\nbody\nEOF\n && curl evil' (heredoc bypass)
+# And one false-positive:
+#   - 'git log --grep="tail x ;"' (chain op inside quoted string)
 #
 # Bypass (USER ONLY, never invoked by the assistant):
 #   touch /tmp/ctx-bypass
-#
-# Known limitations (accept, document, work around with the bypass file):
-#   - Heredoc bodies (<<EOF ... EOF) containing chain operators trigger
-#     fallback to first-word-only check. Detected via '<<' prefix.
-#   - Quoted strings containing chain operators (e.g. git commit -m
-#     "use && for chaining") trigger false-split; first segment is
-#     git (allowed) but the rest looks like a new command.
-#   - Literal newlines mid-command are not treated as separators, so
-#     'git status\ntail x' allows. Backslash-continued multi-line
-#     commands work normally because they stay one segment.
 #
 # Fail-safe: any unexpected error returns exit 0 (no enforcement) so a
 # malformed input or missing jq never locks the user out.
@@ -52,23 +49,75 @@ emit_deny() {
   exit 0
 }
 
+# Strip heredoc bodies and quoted content via awk state machine.
+# Reads command on stdin, writes normalized command to stdout.
+normalize_command() {
+  awk '
+    BEGIN { in_hd = 0; delim = ""; dash = 0 }
+    in_hd {
+      t = $0
+      if (dash) sub(/^[ \t]+/, "", t)
+      if (t == delim) { in_hd = 0; delim = ""; dash = 0 }
+      next
+    }
+    {
+      line = $0
+      if (match(line, /<<-?[\047"]?[A-Za-z_][A-Za-z0-9_]*[\047"]?/)) {
+        marker = substr(line, RSTART, RLENGTH)
+        before = substr(line, 1, RSTART - 1)
+        after = substr(line, RSTART + RLENGTH)
+        dash = (substr(marker, 1, 3) == "<<-") ? 1 : 0
+        d = marker
+        sub(/^<<-?[\047"]?/, "", d)
+        sub(/[\047"]?$/, "", d)
+        delim = d
+        in_hd = 1
+        line = before " " after
+      }
+      out = ""
+      n = length(line)
+      i = 1
+      while (i <= n) {
+        c = substr(line, i, 1)
+        if (c == "\047") {
+          j = i + 1
+          while (j <= n && substr(line, j, 1) != "\047") j++
+          out = out "QQ"
+          if (j > n) break
+          i = j + 1
+        } else if (c == "\"") {
+          j = i + 1
+          while (j <= n) {
+            cj = substr(line, j, 1)
+            if (cj == "\\") { j += 2; continue }
+            if (cj == "\"") break
+            j++
+          }
+          out = out "QQ"
+          if (j > n) break
+          i = j + 1
+        } else {
+          out = out c
+          i++
+        }
+      }
+      print out
+    }
+  '
+}
+
 # Check one command segment's first word against the whitelist.
 # Strips env-var assignments and outer parens before extracting the
 # first word. Calls emit_deny on violation; returns 0 on success.
 check_segment() {
   local segment="$1"
-  # Empty or whitespace-only segment - nothing to enforce.
   if [[ -z "${segment// }" ]]; then
     return 0
   fi
-  # Strip outer parens for subshells: '(cmd args)' -> 'cmd args'.
   segment=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*\((.+)\)[[:space:]]*$/\1/')
-  # Strip leading env-var assignments: 'FOO=bar BAZ=qux cmd' -> 'cmd'.
   segment=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//')
   local first
   first=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk 'NR==1 {print $1; exit}')
-  # An empty first word after stripping is treated as no-op (e.g. a
-  # trailing separator like 'git log;').
   [[ -z "$first" ]] && return 0
   case "$first" in
     git|mkdir|rm|mv|cd|ls)
@@ -110,22 +159,14 @@ case "$TOOL_NAME" in
       exit 0
     fi
 
-    # Heredoc detection - if the command contains '<<' followed by a
-    # non-whitespace delimiter, fall back to a single first-word check.
-    # Chain operators inside the heredoc body would otherwise produce
-    # spurious segments (commit messages, etc.).
-    if printf '%s' "$COMMAND" | grep -qE '<<-?[^[:space:]]'; then
-      check_segment "$COMMAND"
-      exit 0
-    fi
+    # Normalize: strip heredoc bodies + quoted content, leaving only
+    # shell-structural text. Chain operators inside quoted strings or
+    # heredoc bodies are removed by this pass, so the per-segment scan
+    # operates on real command boundaries.
+    NORMALIZED=$(printf '%s' "$COMMAND" | normalize_command)
 
-    # Split on shell chain operators. Use ASCII Unit Separator (\x1f)
-    # as the delimiter so newlines inside the original command (from
-    # backslash continuations or quoted strings) stay inside their
-    # segment instead of splitting it. Longer alternatives must come
-    # first so '&&' matches before '&' and '||' before '|'.
     SEP=$(printf '\x1f')
-    SEGMENTS_STR=$(printf '%s' "$COMMAND" | sed -E "s/(&&|\\|\\||;|\\||&)/$SEP/g")
+    SEGMENTS_STR=$(printf '%s' "$NORMALIZED" | sed -E "s/(&&|\\|\\||;|\\||&)/$SEP/g")
     mapfile -t -d "$SEP" SEGMENTS_ARR < <(printf '%s' "$SEGMENTS_STR")
     for SEGMENT in "${SEGMENTS_ARR[@]}"; do
       check_segment "$SEGMENT"

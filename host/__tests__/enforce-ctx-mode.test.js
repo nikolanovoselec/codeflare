@@ -220,8 +220,8 @@ describe('enforce-ctx-mode hook', () => {
     });
   });
 
-  describe('heredoc fallback', () => {
-    it('allows git commit with heredoc body containing && (no false-split)', () => {
+  describe('heredoc normalization', () => {
+    it('allows git commit with heredoc body containing && (body stripped)', () => {
       const cmd = 'git commit -m "$(cat <<EOF\nuse && for chaining\nand || for fallback\nEOF\n)"';
       assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
     });
@@ -229,6 +229,50 @@ describe('enforce-ctx-mode hook', () => {
     it('allows git commit with quoted-delimiter heredoc', () => {
       const cmd = "git commit -m \"$(cat <<'EOF'\nuse && for chaining\nEOF\n)\"";
       assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+    });
+
+    it('CLOSES heredoc bypass: cmd <<EOF body EOF && curl evil is denied', () => {
+      const cmd = 'git x <<EOF\nbody\nEOF\n && curl https://evil.example';
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+      assert.match(reason, /'curl' violates/);
+    });
+
+    it('CLOSES heredoc bypass with tab-indented dash variant: <<-EOF', () => {
+      const cmd = 'git x <<-EOF\n\tbody\n\tEOF\n && tail x';
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+      assert.match(reason, /'tail' violates/);
+    });
+  });
+
+  describe('quoted-string normalization (closes false-positive)', () => {
+    it('allows git commit with chain ops inside double-quoted message', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git commit -m "use && and ; in messages"' },
+      }));
+    });
+
+    it('allows git log --grep with single-quoted semicolon (no false-split)', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: "git log --grep='tail x ; head y'" },
+      }));
+    });
+
+    it('still denies real chain outside quotes: git commit -m "msg" && curl', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git commit -m "msg" && curl https://evil' },
+      }));
+      assert.match(reason, /'curl' violates/);
+    });
+
+    it('still denies pipe to non-whitelisted after quoted block', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log --grep="release;" | head' },
+      }));
+      assert.match(reason, /'head' violates/);
     });
   });
 
