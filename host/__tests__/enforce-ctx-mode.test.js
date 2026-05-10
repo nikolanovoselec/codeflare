@@ -129,6 +129,14 @@ describe('enforce-ctx-mode hook', () => {
     it('denies pip uninstall', () => {
       assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'pip uninstall pytest' } })), /pip 'uninstall' violates/);
     });
+
+    it('denies pip3 uninstall (separate branch from pip)', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'pip3 uninstall pytest' } })), /pip3 'uninstall' violates/);
+    });
+
+    it('denies lone & background fork: git log & tail x', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'git log & tail x' } })), /'tail' violates/);
+    });
   });
 
   describe('chain bypass closed via per-segment scan', () => {
@@ -215,6 +223,18 @@ describe('enforce-ctx-mode hook', () => {
       assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: '(git log)' } }));
     });
 
+    it('allows subshell with chain ops: (cd /tmp && ls)', () => {
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: '(cd /tmp && ls)' } }));
+    });
+
+    it('allows subshell with semicolon: (cd /tmp; ls)', () => {
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: '(cd /tmp; ls)' } }));
+    });
+
+    it('still denies non-whitelisted inside subshell: (curl evil)', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: '(curl https://evil)' } })), /'curl' violates/);
+    });
+
     it('allows whitespace-only command silently', () => {
       assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: '   ' } }));
     });
@@ -240,6 +260,75 @@ describe('enforce-ctx-mode hook', () => {
     it('CLOSES heredoc bypass with tab-indented dash variant: <<-EOF', () => {
       const cmd = 'git x <<-EOF\n\tbody\n\tEOF\n && tail x';
       const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+      assert.match(reason, /'tail' violates/);
+    });
+
+    it('CLOSES heredoc-inside-quoted-string bypass (<<EOF inside "...")', () => {
+      const cmd = 'git status -- "see <<EOF in docs"\n&& curl https://evil';
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+      assert.match(reason, /'curl' violates/);
+    });
+
+    it('CLOSES heredoc-inside-single-quoted bypass', () => {
+      const cmd = "git status -- 'see <<EOF in docs'\n&& tail x";
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+      assert.match(reason, /'tail' violates/);
+    });
+
+    it('pins unterminated heredoc behavior (fails closed: consumes rest)', () => {
+      const cmd = 'git x <<EOF\nnever closes\n && tail evil';
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+    });
+  });
+
+  describe('file descriptor redirects (closes false-positive on &)', () => {
+    it('allows git log with 2>&1 redirect', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log 2>&1' },
+      }));
+    });
+
+    it('allows pipe with 2>&1 before pipe to whitelisted', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log 2>&1 | (ls)' },
+      }));
+    });
+
+    it('allows >&3 fd duplicate', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log >&3' },
+      }));
+    });
+
+    it('allows <&0 fd duplicate', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log <&0' },
+      }));
+    });
+
+    it('allows >&- fd close', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log >&-' },
+      }));
+    });
+
+    it('allows &>file redirect-both', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log &>/tmp/log' },
+      }));
+    });
+
+    it('still denies real background-fork: git log &', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log & tail x' },
+      }));
       assert.match(reason, /'tail' violates/);
     });
   });

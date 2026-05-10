@@ -49,11 +49,15 @@ emit_deny() {
   exit 0
 }
 
-# Strip heredoc bodies and quoted content via awk state machine.
-# Reads command on stdin, writes normalized command to stdout.
+# Strip heredoc bodies and quoted content via a char-by-char awk
+# state machine. Quote state (in_sq, in_dq) persists across lines so
+# multi-line quoted strings are handled correctly. Heredoc openers
+# are recognized ONLY when scanned outside any active quote - this
+# closes the bypass where '<<EOF' appearing inside a quoted argument
+# would otherwise enter heredoc mode and eat subsequent lines.
 normalize_command() {
   awk '
-    BEGIN { in_hd = 0; delim = ""; dash = 0 }
+    BEGIN { in_hd = 0; delim = ""; dash = 0; in_sq = 0; in_dq = 0 }
     in_hd {
       t = $0
       if (dash) sub(/^[ \t]+/, "", t)
@@ -62,45 +66,52 @@ normalize_command() {
     }
     {
       line = $0
-      if (match(line, /<<-?[\047"]?[A-Za-z_][A-Za-z0-9_]*[\047"]?/)) {
-        marker = substr(line, RSTART, RLENGTH)
-        before = substr(line, 1, RSTART - 1)
-        after = substr(line, RSTART + RLENGTH)
-        dash = (substr(marker, 1, 3) == "<<-") ? 1 : 0
-        d = marker
-        sub(/^<<-?[\047"]?/, "", d)
-        sub(/[\047"]?$/, "", d)
-        delim = d
-        in_hd = 1
-        line = before " " after
-      }
       out = ""
       n = length(line)
       i = 1
       while (i <= n) {
         c = substr(line, i, 1)
-        if (c == "\047") {
-          j = i + 1
-          while (j <= n && substr(line, j, 1) != "\047") j++
-          out = out "QQ"
-          if (j > n) break
-          i = j + 1
-        } else if (c == "\"") {
-          j = i + 1
-          while (j <= n) {
-            cj = substr(line, j, 1)
-            if (cj == "\\") { j += 2; continue }
-            if (cj == "\"") break
-            j++
-          }
-          out = out "QQ"
-          if (j > n) break
-          i = j + 1
-        } else {
-          out = out c
+        if (in_sq) {
+          if (c == "\047") { out = out "QQ"; in_sq = 0 }
           i++
+          continue
         }
+        if (in_dq) {
+          if (c == "\\") { i += 2; continue }
+          if (c == "\"") { out = out "QQ"; in_dq = 0 }
+          i++
+          continue
+        }
+        if (c == "\047") { in_sq = 1; i++; continue }
+        if (c == "\"") { in_dq = 1; i++; continue }
+        if (c == "<" && i < n && substr(line, i+1, 1) == "<") {
+          ps = i + 2
+          pd = 0
+          if (ps <= n && substr(line, ps, 1) == "-") { pd = 1; ps++ }
+          pq = ""
+          if (ps <= n && (substr(line, ps, 1) == "\047" || substr(line, ps, 1) == "\"")) {
+            pq = substr(line, ps, 1); ps++
+          }
+          d = ""
+          while (ps <= n) {
+            ch = substr(line, ps, 1)
+            if (ch ~ /[A-Za-z0-9_]/) { d = d ch; ps++ } else { break }
+          }
+          if (length(d) > 0) {
+            if (pq != "" && ps <= n && substr(line, ps, 1) == pq) ps++
+            delim = d
+            dash = pd
+            in_hd = 1
+            i = ps
+            continue
+          }
+        }
+        out = out c
+        i++
       }
+      # If we ended the line still inside a quoted region, the quote
+      # spans multiple lines - keep state for next record. Otherwise
+      # emit any final placeholder for the closed region.
       print out
     }
   '
@@ -114,7 +125,11 @@ check_segment() {
   if [[ -z "${segment// }" ]]; then
     return 0
   fi
-  segment=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*\((.+)\)[[:space:]]*$/\1/')
+  # Strip leading and trailing subshell-group parens. Handles both the
+  # wrapped form '(cmd args)' and the split-by-chain-op form where
+  # '(cmd1; cmd2)' becomes segments '(cmd1' and ' cmd2)'.
+  segment=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*\(+[[:space:]]*//')
+  segment=$(printf '%s' "$segment" | sed -E 's/[[:space:]]*\)+[[:space:]]*$//')
   segment=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//')
   local first
   first=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk 'NR==1 {print $1; exit}')
@@ -165,9 +180,20 @@ case "$TOOL_NAME" in
     # operates on real command boundaries.
     NORMALIZED=$(printf '%s' "$COMMAND" | normalize_command)
 
+    # Neutralize file-descriptor redirects so embedded '&' is not
+    # mistaken for a background-or-chain operator. Covers 2>&1, >&3,
+    # <&0, >&-, &>file, &|. Replaced with spaces (preserves spacing
+    # so per-segment first-word extraction is unaffected).
+    NORMALIZED=$(printf '%s' "$NORMALIZED" | sed -E 's/[0-9]*[<>]&[0-9]+|[0-9]*[<>]&-|&[>|]/ /g')
+
     SEP=$(printf '\x1f')
     SEGMENTS_STR=$(printf '%s' "$NORMALIZED" | sed -E "s/(&&|\\|\\||;|\\||&)/$SEP/g")
-    mapfile -t -d "$SEP" SEGMENTS_ARR < <(printf '%s' "$SEGMENTS_STR")
+    # Portable to Bash 3.2 (no mapfile -d). The trailing OR test
+    # ensures we still process the segment after the final SEP.
+    SEGMENTS_ARR=()
+    while IFS= read -r -d "$SEP" SEGMENT || [[ -n "$SEGMENT" ]]; do
+      SEGMENTS_ARR+=("$SEGMENT")
+    done < <(printf '%s' "$SEGMENTS_STR")
     for SEGMENT in "${SEGMENTS_ARR[@]}"; do
       check_segment "$SEGMENT"
     done
