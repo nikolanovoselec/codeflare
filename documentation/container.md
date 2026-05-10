@@ -23,7 +23,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 ### Global NPM Packages
 
-All packages install with `@latest` -- each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). The Dockerfile is the source of truth -- versions listed below are approximate and may drift between deploys.
+AI CLI packages install with `@latest` -- each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). The Dockerfile is the source of truth -- versions listed below are approximate and may drift between deploys. Exception: `bun` is pinned to a specific version because context-mode autodetects it as the JS/TS subprocess runtime; an upstream regression would silently break `ctx_execute` for every user.
 
 **Known trade-off:** Installing CLIs via `@latest` means each new container may run a different CLI version. Major version jumps (e.g., Copilot 0.0.418 → 1.0.12) between deploys have caused regressions (e.g., cursor rendering, xterm integration). Users in long-lived sessions will see the old version; new sessions after a deploy will see the new version. Monitor for unexpected behavior after deploys.
 
@@ -34,6 +34,7 @@ All packages install with `@latest` -- each deploy pulls the newest versions (`.
 | `@google/gemini-cli` | 0.30.0 | `gemini` command |
 | `opencode-ai` | 1.2.15 | `opencode` command |
 | `@github/copilot` | 0.0.418 | `copilot` command |
+| `bun` | 1.3.13 (pinned) | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. |
 
 ### V8 Compile Cache Warm-Up
 
