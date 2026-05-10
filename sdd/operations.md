@@ -63,7 +63,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. If Trivy finds unexcepted vulnerabilities, the pipeline fails before push.
 5. Image is pushed to Cloudflare registry via `wrangler containers push`, and the registry URI is extracted.
 6. `wrangler.toml` `image` field is patched to the registry URI (avoids Docker rebuild on deploy).
-7. Container resource tier is applied from `RESSOURCE_TIER` variable: low (0.25 vCPU / 1 GiB / 4 GB), default/saas (1 vCPU / 3 GiB / 8 GB), high (2 vCPU / 6 GiB / 8 GB).
+7. Container resource tier is applied from `RESSOURCE_TIER` variable: low (0.25 vCPU / 1 GiB / 4 GB), default/saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 8 GB).
 8. All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set.
 9. Optional cache busting for the AI agent layer via `CLAUDE_CODE_CACHE_BUSTER` variable.
 
@@ -172,7 +172,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. Both `setBucketName` paths (initial and subsequent) persist `sleepAfter` to storage.
 5. The DO constructor loads `sleepAfter` from storage with validation on startup.
 6. `destroy()` cleans up the persisted `sleepAfter` value.
-7. Cost per active container (default tier: 1 vCPU, 3 GiB, 8 GB) at 160h/month active usage with 20% average CPU is approximately $11.22/user/month including the Workers Paid plan.
+7. Cost per active container (default tier: 1 vCPU, 3 GiB, 6 GB) at 160h/month active usage with 20% average CPU is approximately $11.14/user/month including the Workers Paid plan.
 8. The idle-detection layer fails safe in the direction of preserving user work, not minimizing compute. When the configured `sleepAfter` cannot be resolved (storage corrupted, schema-validated value missing, parser fed garbage, code path skipped the user-pref resolution), the system falls back to the maximum supported value (2h) rather than the minimum.
 9. A change to the persisted `sleepAfter` preference takes effect within one 60-second idle-check cycle, regardless of which code path wrote it. Stale in-memory copies of the preference cannot outlive a single cycle.
 10. Any code path that hands the resolved `sleepAfter` to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer (e.g., 2h) is never silently replaced by a shorter default.
@@ -199,8 +199,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 1. `RESSOURCE_TIER` GitHub Actions variable controls container sizing with four tiers:
    - `low`: 0.25 vCPU, 1 GiB memory, 4 GB disk (basic)
-   - `default`: 1 vCPU, 3 GiB memory, 8 GB disk
-   - `saas`: 1 vCPU, 3 GiB memory, 8 GB disk (same as default)
+   - `default`: 1 vCPU, 3 GiB memory, 6 GB disk
+   - `saas`: 1 vCPU, 3 GiB memory, 6 GB disk (same as default)
    - `high`: 2 vCPU, 6 GiB memory, 8 GB disk
 2. All tiers default to 10 max instances.
 3. `MAX_INSTANCES` variable overrides the max instances count if set (must be a positive integer).

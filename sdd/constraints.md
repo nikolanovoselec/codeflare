@@ -147,10 +147,12 @@ Tier configuration is admin-editable via the Subscription Management panel. Stor
 | Tier | vCPU | Memory | Disk | Default Max Instances |
 |------|------|--------|------|-----------------------|
 | low | 0.25 | 1 GiB | 4 GB | 10 |
-| default | 1 | 3 GiB | 8 GB | 10 |
+| default | 1 | 3 GiB | 6 GB | 10 |
 | high | 2 | 6 GiB | 8 GB | 10 |
 
 Container tier (`RESSOURCE_TIER`) is independent of subscription tier and `MAX_INSTANCES`. All three can be combined freely.
+
+Cloudflare Containers enforces disk (GB) <= 2 x memory (GiB). The default tier's 6 GB ceiling is set by its 3 GiB memory; raising default disk above 6 GB requires raising default memory to >=4 GiB first.
 
 ## Boundaries
 

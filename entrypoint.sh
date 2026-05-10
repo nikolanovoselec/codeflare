@@ -1148,8 +1148,12 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # settings.json instead so it follows the same pattern as the other
     # plugins (bare plugin.json, real wiring in entrypoint).
     if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
-        CTX_HOOKS=$(jq -n '{
-          PreToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"context-mode hook claude-code pretooluse"}]}],
+        CTX_ENFORCE="$PLUGIN_DIR/context-mode/scripts/enforce-ctx-mode.sh"
+        CTX_HOOKS=$(jq -n --arg enforce "$CTX_ENFORCE" '{
+          PreToolUse: [
+            {matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"context-mode hook claude-code pretooluse"}]},
+            {matcher:"Bash|WebFetch|Grep",hooks:[{type:"command",command:("bash " + $enforce)}]}
+          ],
           PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"context-mode hook claude-code posttooluse"}]}],
           PreCompact: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code precompact"}]}],
           SessionStart: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code sessionstart"}]}]

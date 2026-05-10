@@ -76,7 +76,7 @@ Dynamic: setup wizard adds custom domain + `.workers.dev` to KV. `ALLOWED_ORIGIN
 | Tier | Config | Max Instances | Notes |
 |------|--------|---------------|-------|
 | `low` | `basic` (0.25 vCPU, 1 GiB, 4 GB) | 10 | Sub-1-vCPU workloads |
-| default | 1 vCPU, 3 GiB, 8 GB | 10 | Baseline for node-pty + agent CLIs |
+| default | 1 vCPU, 3 GiB, 6 GB | 10 | Baseline for node-pty + agent CLIs |
 | `high` | 2 vCPU, 6 GiB, 8 GB | 10 | Higher parallelism |
 
 Selected via the `RESSOURCE_TIER` GitHub Actions repo variable at deploy time (`low` / `default` / `high`). The misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.

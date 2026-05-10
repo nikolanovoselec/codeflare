@@ -174,7 +174,7 @@ Variables and secrets are set in your fork under `Settings` → `Secrets and var
 | Variable | Where | Default | What it does |
 |---|---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | var | `codeflare` | Worker name, R2 bucket prefix, and CF Access group prefix. Set to a unique name when running multiple instances on the same account |
-| `RESSOURCE_TIER` | var | unset | Container instance **size** only. `low`: 0.25 vCPU, 1 GiB, 4 GB. `default`/`saas`: 1 vCPU, 3 GiB, 8 GB. `high`: 2 vCPU, 6 GiB, 8 GB. Independent of `SAAS_MODE` and `MAX_INSTANCES` — combine freely (e.g., `RESSOURCE_TIER=high` + `SAAS_MODE=active` + `MAX_INSTANCES=500`) |
+| `RESSOURCE_TIER` | var | unset | Container instance **size** only. `low`: 0.25 vCPU, 1 GiB, 4 GB. `default`/`saas`: 1 vCPU, 3 GiB, 6 GB. `high`: 2 vCPU, 6 GiB, 8 GB. Independent of `SAAS_MODE` and `MAX_INSTANCES` — combine freely (e.g., `RESSOURCE_TIER=high` + `SAAS_MODE=active` + `MAX_INSTANCES=500`) |
 | `MAX_INSTANCES` | var | unset | Max concurrent container instances (default: 10). Set per environment (e.g., 10 for staging, 1400 for production). Must be a positive integer. Independent of `RESSOURCE_TIER` |
 | `MAX_SESSIONS_USER` | var | `3` | Max concurrent running sessions per regular user. Set to any number (e.g., `5`). Ignored in SaaS mode — tier config controls session limits instead |
 | `MAX_SESSIONS_ADMIN` | var | `10` | Max concurrent running sessions per admin. Set to any number. Ignored in SaaS mode — tier config controls session limits instead |
