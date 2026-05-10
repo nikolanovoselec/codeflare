@@ -131,44 +131,94 @@ describe('enforce-ctx-mode hook', () => {
     });
   });
 
-  describe('curl/wget content block', () => {
-    it('blocks bare curl', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'curl https://example.com' } })), /curl\/wget violates/);
+  describe('chain bypass closed via per-segment scan', () => {
+    it('denies cd && tail x (tail is not whitelisted)', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'cd /tmp && tail x' } })), /'tail' violates/);
     });
 
-    it('blocks curl after cd && (chained)', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'cd /tmp && curl https://example.com' } })), /curl\/wget violates/);
+    it('denies cd; tail x (semicolon chain)', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'cd /tmp; tail x' } })), /'tail' violates/);
     });
 
-    it('blocks wget', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'wget https://example.com' } })), /curl\/wget violates/);
+    it('denies git log | head (pipe to non-whitelisted)', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'git log | head' } })), /'head' violates/);
     });
 
-    it('blocks curl after pipe', () => {
-      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'echo x | curl -X POST https://example.com' } })), /curl\/wget violates/);
+    it('denies git log | tail', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'git log | tail' } })), /'tail' violates/);
+    });
+
+    it('denies git log && curl x (curl chained)', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'git log && curl https://example.com' } })), /'curl' violates/);
+    });
+
+    it('allows chained whitelist-only: cd; ls; cd; ls', () => {
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: 'cd /tmp; ls; cd /; ls' } }));
+    });
+  });
+
+  describe('network commands (bare and chained)', () => {
+    it('denies bare curl', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'curl https://example.com' } })), /'curl' violates/);
+    });
+
+    it('denies bare wget', () => {
+      assert.match(deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'wget https://example.com' } })), /'wget' violates/);
     });
 
     it('does NOT confuse curlfile (substring) with curl', () => {
-      // `curlfile` is not curl. The whitelist denial (first word not allowed) fires instead.
       const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'curlfile abc' } }));
-      assert.doesNotMatch(reason, /curl\/wget violates/);
       assert.match(reason, /'curlfile' violates/);
     });
   });
 
-  describe('inline HTTP content block', () => {
-    it('blocks node -e fetch', () => {
+  describe('interpreter inline calls', () => {
+    it('denies node -e fetch (node not whitelisted)', () => {
       assert.match(
         deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'node -e "fetch(\'https://example.com\')"' } })),
-        /Inline HTTP violates/,
+        /'node' violates/,
       );
     });
 
-    it('blocks python -c requests.get', () => {
+    it('denies python3 -c (python3 not whitelisted)', () => {
       assert.match(
         deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: 'python3 -c "import requests; requests.get(\'x\')"' } })),
-        /Inline HTTP violates/,
+        /'python3' violates/,
       );
+    });
+  });
+
+  describe('false-positive fixes', () => {
+    it('allows commit message containing the word curl', () => {
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: 'git commit -m "see curl docs"' } }));
+    });
+
+    it('allows env-var prefix: FOO=bar git log', () => {
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: 'FOO=bar git log' } }));
+    });
+
+    it('allows multiple env-var prefixes: A=1 B=2 git log', () => {
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: 'A=1 B=2 git log' } }));
+    });
+
+    it('allows subshell parens: (git log)', () => {
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: '(git log)' } }));
+    });
+
+    it('allows whitespace-only command silently', () => {
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: '   ' } }));
+    });
+  });
+
+  describe('heredoc fallback', () => {
+    it('allows git commit with heredoc body containing && (no false-split)', () => {
+      const cmd = 'git commit -m "$(cat <<EOF\nuse && for chaining\nand || for fallback\nEOF\n)"';
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+    });
+
+    it('allows git commit with quoted-delimiter heredoc', () => {
+      const cmd = "git commit -m \"$(cat <<'EOF'\nuse && for chaining\nEOF\n)\"";
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
     });
   });
 
