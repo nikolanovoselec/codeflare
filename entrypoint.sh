@@ -1065,6 +1065,21 @@ fi
 #      premium behavior change; the MCP tools are always available manually.
 # Version is pinned here so non-Custom users (whose preseed lacks the
 # plugin manifest) still get a consistent MCP server registration.
+#
+# License posture (ELv2): context-mode is licensed under Elastic License
+# 2.0, which prohibits providing the software as a hosted/managed service.
+# Codeflare's posture is:
+#   - We do NOT redistribute context-mode source. The npm package is
+#     fetched by the user's own container from the npm registry via npx.
+#   - Commercial (non-Custom) users get the MCP server registered, but
+#     NO skill, rule, agent definition, or hook in our preseed instructs
+#     the agent to invoke ctx_* tools. The agent's tool-selection is its
+#     own, exactly as for any other listed MCP tool.
+#   - The Custom (unlimited) tier with auto-routing hooks is admin-only
+#     personal use, which ELv2 fully permits.
+# A future contributor who adds a SessionStart-style ctx_* nudge for
+# commercial users would push us over the ELv2 line. Don't do that
+# without revisiting AD49 first.
 CONTEXT_MODE_VERSION="1.0.111"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then

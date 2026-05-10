@@ -741,6 +741,14 @@ The MCP layer is what users observe as "context-mode is always available"; the p
 - First-call latency: `npx -y context-mode@<pinned>` downloads the package from npm on first invocation per session. Subsequent invocations are cache-served. Baking `npm install -g context-mode@<pinned>` into the Dockerfile would eliminate this; deferred until measured cost justifies it.
 - A tier downgrade requires a reconcile pass (already triggered by `/api/preferences` PATCH and Stripe webhook handlers) to remove the plugin folder from R2. Until reconcile fires, a freshly-downgraded user could still load context-mode on next session, bounded to the next PATCH or webhook event.
 
+**License posture (ELv2):** context-mode is licensed under Elastic License 2.0, which is source-available but explicitly prohibits providing the software as a hosted or managed service that gives third parties access to substantial features of the software. Codeflare's integration is sized to stay within ELv2's permitted-use envelope:
+
+- We do not redistribute context-mode source. The npm package is fetched by the user's own container from the npm registry at `npx -y context-mode@<pinned>` invocation time. Codeflare's preseed contains only plugin metadata (`plugin.json`, `hooks/hooks.json`, `README.md`) which is our own configuration code, not context-mode's source.
+- Commercial (non-Custom) users receive `mcpServers["context-mode"]` registration so the `ctx_*` tools appear in the agent's tool list, but Codeflare's preseed contains no skill, rule, agent definition, command, or hook that instructs Claude to invoke those tools. The agent's tool-selection is its own — exactly as it is for any other listed MCP tool. Codeflare provides no automation or routing layer for commercial users.
+- The Custom (`unlimited`) tier with the auto-routing hooks is, in current product policy, an admin-only sandbox used for testing and personal development. ELv2 fully permits this personal use. If the Custom tier ever opens to paying third parties with the auto-routing hooks active, that crosses the ELv2 line and requires either a commercial license from the upstream author (mksglu) or removal of the hook layer.
+
+A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode skill, an `Implements ctx_*` rule, or any other automation that pushes commercial users toward context-mode functionality must update this ADR before merging.
+
 **Related requirements:** REQ-AGENT-005 (Pro mode skills/rules/agents/MCP, now also covers tier-gated context-mode delivery)
 
 **Implementation references:**
