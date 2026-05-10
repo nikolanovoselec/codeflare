@@ -279,7 +279,7 @@ is done via `settings.json` (see above).
 as an optional MCP server (`ctx_*` helper tools) for every user.
 The npm package is fetched by the user's own container from the npm
 registry on first invocation; Codeflare does not redistribute the
-source. Commercial users receive only the MCP server registration —
+source. Commercial users receive only the MCP server registration:
 no skill, rule, hook, or system-prompt nudge in our preseed
 instructs Claude to invoke `ctx_*` tools. The agent's tool-selection
 is its own, identical to how it picks any other listed MCP tool.
@@ -290,7 +290,7 @@ Custom (`unlimited`) tier sandbox.
 
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.
-See [AD49](decisions/README.md#ad49) for the full design + license analysis.
+See [AD49](decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
 ## Troubleshooting
 
