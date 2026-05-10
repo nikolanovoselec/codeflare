@@ -1169,6 +1169,16 @@ else
     echo "$SETTINGS_CONFIG" | jq '.' > "$SETTINGS_FILE"
 fi
 
+# Ensure any .mjs hook files in ~/.claude/hooks/ are executable. The CLI
+# self-installs context-mode-cache-heal.mjs as a SessionStart hook with mode
+# 0644, then calls it via shebang (#!/usr/bin/env node). /bin/sh refuses to
+# exec a non-executable file with "Permission denied", which surfaces in the
+# UI as "SessionStart:resume hook error". Defensive chmod every entrypoint
+# run so the bug cannot survive a bisync round-trip.
+if [ -d "$USER_CLAUDE_DIR/hooks" ]; then
+    find "$USER_CLAUDE_DIR/hooks" -maxdepth 2 -name '*.mjs' -type f -exec chmod 0755 {} +
+fi
+
 # Enable plugins (silently skipped if plugin files absent in default mode).
 # context-mode is conditionally enabled via the preseed-plugin gate below.
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
