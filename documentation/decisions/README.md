@@ -715,7 +715,7 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Context:** Heavy data-gathering sessions burn input tokens reading raw tool output across many turns: a 56 KB Bash result on turn 3 is in turn 4's input, turn 5's input, turn N's input, billed every turn until compaction. Cumulative cost on a long session can reach 40-70% of input billing. Separately, the advisory PostToolUse `git-push-review-reminder.sh` hook emitted `additionalContext` after `git push` with instructions to spawn the SDD review agents, but agents frequently ignored the directive — which is exactly why `enforce-review-spawn.sh` (Stop hook) was added as the actual gate. The advisory hook is theater alongside the gate.
 
-**Decision:** Adopt context-mode (https://github.com/mksglu/context-mode) as the in-session context-window discipline mechanism. Register the MCP server via `npx -y context-mode` in `.claude.json` (both Standard and Pro modes). In Pro mode, wire four hooks via `npx -y context-mode hook claude-code <event>`: PreToolUse (matcher `Bash|Read|WebFetch|Grep|Glob|Agent`), PostToolUse (matcher `Bash|Read|WebFetch|Grep|Glob`), PreCompact, and SessionStart. Retire the advisory `git-push-review-reminder.sh` PostToolUse hook in the same change; `enforce-review-spawn.sh` (Stop) remains the sole SDD review-pipeline gate.
+**Decision:** Adopt context-mode (https://github.com/mksglu/context-mode) as the in-session context-window discipline mechanism. Register the MCP server via `npx -y context-mode@<pinned-version>` in `.claude.json` (both Standard and Pro modes). In Pro mode, wire four hooks via the same pinned `npx -y context-mode@<ver> hook claude-code <event>` shape: PreToolUse (matcher `Bash|Read|WebFetch|Grep|Glob|Agent`), PostToolUse (matcher `Bash|Read|WebFetch|Grep|Glob`), PreCompact, and SessionStart. The version pin is a single shell variable in `entrypoint.sh` (`CONTEXT_MODE_VERSION`); upgrade by bumping the variable and following the Upgrade procedure below. Retire the advisory `git-push-review-reminder.sh` PostToolUse hook in the same change; `enforce-review-spawn.sh` (Stop) remains the sole SDD review-pipeline gate.
 
 **Alternatives considered:**
 
@@ -734,18 +734,26 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Trade-offs accepted:**
 
-- Codeflare gains an external dependency on the `context-mode` npm package; package availability becomes a session prerequisite. Mitigation: `npx -y` falls back gracefully when the package cannot be reached (the hook silently no-ops, the MCP server fails to start).
+- Codeflare gains an external dependency on the `context-mode` npm package — single-maintainer (`mksglu`), executed unsandboxed inside every Pro-mode session before tool calls. Mitigation 1: pinning to a specific version (`CONTEXT_MODE_VERSION`) means `npx -y` cannot silently pick up a malicious patch; an upgrade is an explicit codeflare commit. Mitigation 2: `npx -y` falls back gracefully when the package cannot be reached (the hook silently no-ops, the MCP server fails to start). Hook errors are not surfaced; supply-chain compromises that crash the hook are invisible at the session level.
 - WebFetch behavior changes: requests are intercepted with a tip pointing at `ctx_fetch_and_index`. Existing user workflows that relied on raw WebFetch must learn the new path.
-- PreToolUse deterministic decisions are gated on `/tmp/context-mode-mcp-ready-*` sentinels (per `07-selective-hook-validation.md`); if the MCP server is slow to boot, the first few tool calls in a fresh session may not get the rewrite. Mitigation: accept as cold-start cost.
+- **MCP-ready sentinel race / cold-start cost.** PreToolUse deterministic decisions (curl/wget rewrites, WebFetch deny) are gated on `/tmp/context-mode-mcp-ready-*` sentinels. Until the MCP server boots and writes the sentinel, every PreToolUse `modify` and `deny` collapses to passthrough — the first N tool calls in a fresh session do NOT get the rewrite even when the hook fires. Cold start on a fresh container with no npm cache: 5-15 seconds (network fetch + extract + boot). On a warm cache: 1-2 seconds. Mitigation: accept as cold-start cost; SessionStart routing-block injection (the bulk of the savings) is unaffected — it runs synchronously and does not depend on the MCP server.
 
-**Related requirements:** REQ-AGENT-005 (Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers — AC4-AC5 updated)
+**Upgrade procedure:**
+
+1. Bump `CONTEXT_MODE_VERSION` in `entrypoint.sh` (search the file for the variable name; do NOT pin in multiple places).
+2. Verify the new version on npm: `npm view context-mode@<new> version`.
+3. Re-run `host/__tests__/entrypoint-context-mode.test.js` — the version-pin tests assert the new value flows through both the MCP config and all four hook commands.
+4. Deploy to integration; smoke-test that ctx_* tools resolve and the four hook events fire (`/mcp`, then trigger Bash/WebFetch/etc).
+5. The `entrypoint.sh` managed-hook regex matches `context-mode@[0-9.]+` so older versions still in user `settings.json` are correctly stripped on the first rerun after an upgrade.
+
+**Related requirements:** REQ-AGENT-005 (Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers — AC4-AC6 updated)
 
 **Implementation references:**
 
-- `entrypoint.sh:1057-1075` (context-mode MCP server registration)
-- `entrypoint.sh:1078-1110` (settings.json hook wiring)
-- `preseed/agents/claude/manifest.json` (git-push-review-reminder.sh entry removed)
-- Pre-decision integration analysis: `/home/user/Temporary/context-mode-integration/` (8 files)
+- `entrypoint.sh` — `# Configure context-mode MCP server for Claude Code` block (MCP server registration).
+- `entrypoint.sh` — `# Configure Claude Code settings.json with hooks` block (six-event hook stack, built via `jq -n`).
+- `preseed/agents/claude/manifest.json` — `git-push-review-reminder.sh` entry removed.
+- Pre-decision integration analysis: `/home/user/Temporary/context-mode-integration/` (8 files).
 
 ---
 

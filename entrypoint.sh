@@ -1054,13 +1054,20 @@ if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${GEMINI_API_KEY:-}" ]; then
     echo "[entrypoint] consult-llm MCP server configured for Claude Code"
 fi
 
-# Configure context-mode MCP server for Claude Code
+# Configure context-mode MCP server for Claude Code (Implements REQ-AGENT-005)
 # context-mode (https://github.com/mksglu/context-mode) provides ctx_* MCP tools
-# that sandbox large tool output and enable BM25 retrieval. Registered
-# unconditionally (parallel to memory MCP) so the tools are available in both
-# Standard and Pro modes. The hook-driven routing (which actually delivers the
-# bulk of context-window savings) is only wired in advanced mode below.
-CONTEXT_MODE_MCP_CONFIG='{"mcpServers":{"context-mode":{"command":"npx","args":["-y","context-mode"]}}}'
+# that sandbox large tool output and enable BM25 retrieval. Pinned to a specific
+# version so `npx -y` cannot silently pull in a malicious or breaking upstream
+# release; upgrade procedure documented in AD49.
+# Registered unconditionally (parallel to memory MCP) so the tools are
+# available in both Standard and Pro modes. NOTE: this unconditional write
+# means $USER_CLAUDE_JSON now exists in every Pro-mode session even when no
+# LLM API key is set; do not treat .claude.json existence as a proxy for
+# "user has consult-llm configured" — check for specific mcpServers keys.
+# The hook-driven routing (which delivers the bulk of context-window
+# savings) is only wired in Pro mode below.
+CONTEXT_MODE_VERSION="1.0.111"
+CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_JSON=$(mktemp)
     if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -1074,43 +1081,91 @@ else
 fi
 echo "[entrypoint] context-mode MCP server configured for Claude Code"
 
-# Configure Claude Code settings.json with hooks (advanced) or just settings (default)
+# Configure Claude Code settings.json with hooks (Pro mode) or just the
+# permission-prompt setting (Standard mode).
+#
+# Pro-mode hook stack (six events, built via jq -n below):
+#
+#   PreToolUse — two entries:
+#     1. block-attributed-commits (matcher Bash, if-gated on git */gh *)
+#        catches AI attribution in commits/PRs/issues/releases.
+#     2. context-mode pretooluse (matcher Bash|Read|WebFetch|Grep|Glob|Agent)
+#        intercepts WebFetch (deny + tip), rewrites curl/wget/build-tool
+#        commands to one-line tips, and injects the context-mode routing
+#        block into subagent prompts via the Agent branch.
+#
+#   PostToolUse — context-mode posttooluse writes tool events to a local
+#     SQLite store (~/.claude/context-mode/sessions/) for ctx_search
+#     retrieval. Does not alter tool output. This is independent of the
+#     Stop-hook change described below — they retire and add different
+#     hooks for unrelated reasons.
+#
+#   PreCompact — context-mode precompact captures session state before
+#     Claude Code compacts the conversation, so ctx_search continues
+#     to work post-compact.
+#
+#   SessionStart — context-mode sessionstart injects the routing block
+#     that teaches the agent to prefer ctx_batch_execute / ctx_search /
+#     ctx_execute_file for heavy data gathering. This is the source of
+#     the bulk of context-window savings (~40-70% on heavy data
+#     sessions per integration analysis).
+#
+#   Stop — enforce-review-spawn (v5) blocks turn-end if the SDD review
+#     agents weren't spawned after the most recent PR-tracked push.
+#     Replaces (independently of the PostToolUse change above) the
+#     retired git-push-review-reminder.sh advisory hook — that hook
+#     only emitted additionalContext that agents frequently ignored,
+#     enforce-review-spawn is the actual gate. Three USER-ONLY bypass
+#     methods preserve user agency. Direct pushes to main are not
+#     special-cased; the project should rely on GitHub branch
+#     protection. See common/git-workflow.md.
+#
+#   UserPromptSubmit — memory-capture writes user prompts to the local
+#     memory store on a periodic schedule.
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
-    # PreToolUse: two entries.
-    #   1. block-attributed-commits (matcher Bash, if-gated on git */gh *)
-    #      catches AI attribution in commits/PRs/issues/releases.
-    #   2. context-mode pretooluse (matcher Bash|Read|WebFetch|Grep|Glob|Agent)
-    #      intercepts WebFetch (deny + tip) and rewrites curl/wget/build-tool
-    #      commands to one-line tips, and injects the context-mode routing
-    #      block into subagent prompts via the Agent branch.
-    # PostToolUse: context-mode posttooluse writes tool events to a local
-    #   SQLite (~/.claude/context-mode/sessions/) for ctx_search retrieval.
-    #   Does not alter tool output. Replaces the retired
-    #   git-push-review-reminder.sh advisory hook (was only emitting
-    #   additionalContext that agents frequently ignored; the Stop hook
-    #   below remains the actual SDD review-pipeline gate).
-    # PreCompact: context-mode precompact captures session state to its
-    #   SQLite store before Claude Code compacts the conversation, so
-    #   ctx_search continues to work post-compact.
-    # SessionStart: context-mode sessionstart injects the routing block
-    #   that teaches the agent to prefer ctx_batch_execute / ctx_search /
-    #   ctx_execute_file for heavy data gathering. This is the source of
-    #   the bulk of context-window savings (~40-70% on heavy data
-    #   sessions per integration analysis).
-    # Stop: enforce-review-spawn (v5) blocks turn-end if the SDD review
-    #   agents weren't spawned after the most recent PR-tracked push.
-    #   Checkpoint at .git/sdd-last-ack-pr-head (PR HEAD SHA). Only fires
-    #   if sdd/ is bootstrapped. Three USER-ONLY bypass methods (sentinel
-    #   file, "skip review" / "skip verification" phrase, 3-strike circuit
-    #   breaker) preserve user agency. Direct pushes to main are not
-    #   special-cased here — the project should rely on GitHub branch
-    #   protection to require PRs into main; see common/git-workflow.md.
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]},{"matcher":"Bash|Read|WebFetch|Grep|Glob|Agent","hooks":[{"type":"command","command":"npx -y context-mode hook claude-code pretooluse"}]}],"PostToolUse":[{"matcher":"Bash|Read|WebFetch|Grep|Glob","hooks":[{"type":"command","command":"npx -y context-mode hook claude-code posttooluse"}]}],"PreCompact":[{"matcher":"","hooks":[{"type":"command","command":"npx -y context-mode hook claude-code precompact"}]}],"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"npx -y context-mode hook claude-code sessionstart"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
-    echo "[entrypoint] Advanced mode: configuring settings.json with hooks"
+    SETTINGS_CONFIG=$(jq -n \
+      --arg dir "$PLUGIN_DIR" \
+      --arg ver "$CONTEXT_MODE_VERSION" \
+      '
+      def cm($event): "npx -y context-mode@\($ver) hook claude-code \($event)";
+      {
+        skipDangerousModePermissionPrompt: true,
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                {if: "Bash(git *)", type: "command", command: "bash \($dir)/codeflare-hooks/scripts/block-attributed-commits.sh"},
+                {if: "Bash(gh *)", type: "command", command: "bash \($dir)/codeflare-hooks/scripts/block-attributed-commits.sh"}
+              ]
+            },
+            {
+              matcher: "Bash|Read|WebFetch|Grep|Glob|Agent",
+              hooks: [{type: "command", command: cm("pretooluse")}]
+            }
+          ],
+          PostToolUse: [
+            {matcher: "Bash|Read|WebFetch|Grep|Glob", hooks: [{type: "command", command: cm("posttooluse")}]}
+          ],
+          PreCompact: [
+            {matcher: "", hooks: [{type: "command", command: cm("precompact")}]}
+          ],
+          SessionStart: [
+            {matcher: "", hooks: [{type: "command", command: cm("sessionstart")}]}
+          ],
+          Stop: [
+            {matcher: "", hooks: [{type: "command", command: "bash \($dir)/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}
+          ],
+          UserPromptSubmit: [
+            {matcher: "", hooks: [{type: "command", command: "bash \($dir)/codeflare-memory/scripts/memory-capture.sh"}]}
+          ]
+        }
+      }')
+    echo "[entrypoint] Pro mode: configuring settings.json with hooks"
 else
     SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
-    echo "[entrypoint] Default mode: configuring settings.json without hooks"
+    echo "[entrypoint] Standard mode: configuring settings.json without hooks"
 fi
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
@@ -1120,7 +1175,11 @@ if [ -f "$SETTINGS_FILE" ]; then
     # Merge non-hooks settings with *, rebuild hooks separately to avoid
     # jq array-replace destroying user-added hooks or leaving stale managed hooks.
     # "Managed" = command path contains codeflare-(hooks|memory)/scripts/
-    # OR matches the context-mode hook subcommand pattern.
+    # OR matches the *exact* context-mode hook command shape entrypoint
+    # emits (`^npx -y context-mode@<ver> hook claude-code <event>$`).
+    # Anchored on full-string match so a user-added wrapper script that
+    # *calls* `context-mode hook claude-code` (e.g., logging proxy) is
+    # NOT silently classified as managed and stripped on rerun.
     if jq --argjson cfg "$SETTINGS_CONFIG" '
       . as $orig |
       (del(.hooks) * ($cfg | del(.hooks))) +
@@ -1133,7 +1192,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [$existArr[].matcher, $cfgArr[].matcher] | unique |
             map(. as $m |
               [$existArr[] | select(.matcher == $m) | (.hooks // [])[] |
-                select((.command // "") | test("codeflare-(hooks|memory)/scripts/|context-mode hook claude-code") | not)
+                select((.command // "") | test("codeflare-(hooks|memory)/scripts/|^npx -y context-mode@[0-9.]+ hook claude-code (pretooluse|posttooluse|precompact|sessionstart)$") | not)
               ] as $user |
               [$cfgArr[] | select(.matcher == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}

@@ -154,8 +154,18 @@ Multi-agent support, preseed system, and session modes.
 1. Standard mode seeds the rows above marked Yes in the Standard column to R2.
 2. Pro mode seeds the rows above marked Yes in the Pro column to R2 (a strict superset of Standard).
 3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
-4. Both modes register the context-mode MCP server in `~/.claude/.claude.json` so the ctx_* tools are reachable from any session.
-5. Pro mode registers hooks in `settings.json`: PreToolUse entries for commit attribution blocking (matcher Bash, if-gated on git/gh commands) and for context-mode pretooluse (matcher Bash|Read|WebFetch|Grep|Glob|Agent — intercepts WebFetch with a tip and rewrites curl/wget/build-tool commands); a PostToolUse entry for context-mode posttooluse (writes tool events to a local SQLite store for ctx_search retrieval); a PreCompact entry for context-mode precompact (preserves session continuity across compaction); a SessionStart entry for context-mode sessionstart (injects the routing block that teaches the agent to prefer ctx_* tools for heavy data gathering); a Stop entry for the SDD review-pipeline PR HEAD SHA checkpoint (blocks turn-end until the review pipeline observes the new PR head); and a UserPromptSubmit entry for memory capture. Standard mode merges only `skipDangerousModePermissionPrompt`.
+4. Both Standard and Pro mode sessions can invoke the context-mode ctx_* tools (`ctx_batch_execute`, `ctx_search`, `ctx_execute_file`, `ctx_fetch_and_index`, etc.) for heavy data gathering.
+5. In Pro mode the session additionally:
+   a. Blocks AI-attribution lines in commit/PR/issue/release messages produced by `git`/`gh` commands.
+   b. Intercepts WebFetch tool calls and returns a tip pointing the agent at `ctx_fetch_and_index` instead of fetching directly.
+   c. Rewrites heavy-output Bash commands (curl, wget, common build tools) to one-line tips that route through ctx_*.
+   d. Captures session state across compaction so ctx_search continues to return tool history after Claude Code compacts the conversation.
+   e. Receives routing guidance at session start and at every subagent spawn that prefers ctx_* tools for large data work.
+   f. Blocks turn-end until the SDD review pipeline has observed any new PR HEAD SHA on the current branch.
+   g. Captures the user's prompts to the memory store on a periodic schedule.
+6. Standard mode receives only `skipDangerousModePermissionPrompt` and the context-mode MCP registration; no hooks are wired.
+
+Internal mechanism for the items above (settings.json layout, hook event names, matcher patterns, MCP config file path, SQLite store): `documentation/architecture.md` and AD49.
 
 **Constraints:**
 - Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.
