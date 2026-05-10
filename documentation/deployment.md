@@ -149,15 +149,15 @@ codeflare/
 
 ### Per-Container Pricing
 
-Parameters: 8h/day, 20 days/month = 160h = 576,000s active. Default tier (1 vCPU, 3 GiB, 8 GB). CPU usage: 20% average.
+Parameters: 8h/day, 20 days/month = 160h = 576,000s active. Default tier (1 vCPU, 3 GiB, 6 GB). CPU usage: 20% average.
 
 | Resource | Calculation | Free Tier | Billable | Rate | Cost |
 |----------|-------------|-----------|----------|------|------|
 | CPU (active usage) | 0.2 vCPU x 576,000s = 115,200 vCPU-s | 22,500 vCPU-s | 92,700 vCPU-s | $0.000020/vCPU-s | $1.85 |
 | Memory (provisioned) | 3 GiB x 576,000s = 1,728,000 GiB-s | 90,000 GiB-s | 1,638,000 GiB-s | $0.0000025/GiB-s | $4.10 |
-| Disk (provisioned) | 8 GB x 576,000s = 4,608,000 GB-s | 720,000 GB-s | 3,888,000 GB-s | $0.00000007/GB-s | $0.27 |
+| Disk (provisioned) | 6 GB x 576,000s = 3,456,000 GB-s | 720,000 GB-s | 2,736,000 GB-s | $0.00000007/GB-s | $0.19 |
 | Workers Paid plan | | | | | $5.00 |
-| **Total** | | | | | **~$11.22/user/month** |
+| **Total** | | | | | **~$11.14/user/month** |
 
 Notes:
 - CPU billed on active usage only. Memory + disk billed on provisioned resources.
