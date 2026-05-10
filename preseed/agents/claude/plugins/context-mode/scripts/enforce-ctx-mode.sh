@@ -182,9 +182,9 @@ case "$TOOL_NAME" in
 
     # Neutralize file-descriptor redirects so embedded '&' is not
     # mistaken for a background-or-chain operator. Covers 2>&1, >&3,
-    # <&0, >&-, &>file, &|. Replaced with spaces (preserves spacing
-    # so per-segment first-word extraction is unaffected).
-    NORMALIZED=$(printf '%s' "$NORMALIZED" | sed -E 's/[0-9]*[<>]&[0-9]+|[0-9]*[<>]&-|&[>|]/ /g')
+    # <&0, >&-, &>file, &>>file, &|. Replaced with spaces (preserves
+    # spacing so per-segment first-word extraction is unaffected).
+    NORMALIZED=$(printf '%s' "$NORMALIZED" | sed -E 's/[0-9]*[<>]&[0-9]+|[0-9]*[<>]&-|&>>?|&\|/ /g')
 
     SEP=$(printf '\x1f')
     SEGMENTS_STR=$(printf '%s' "$NORMALIZED" | sed -E "s/(&&|\\|\\||;|\\||&)/$SEP/g")

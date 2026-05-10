@@ -324,6 +324,13 @@ describe('enforce-ctx-mode hook', () => {
       }));
     });
 
+    it('allows &>>file redirect-both-append', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log &>>/tmp/log' },
+      }));
+    });
+
     it('still denies real background-fork: git log &', () => {
       const reason = deniedReason(runHook({
         tool_name: 'Bash',
