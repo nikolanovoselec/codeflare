@@ -1087,19 +1087,31 @@ if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # bumps land via Dependabot on the preseed source rather than entrypoint.
     CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.111"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.111")
 fi
-CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
-if [ -f "$USER_CLAUDE_JSON" ]; then
-    TMP_JSON=$(mktemp)
-    if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
-        mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+# MCP server registration:
+#   - Custom + Pro tier: the plugin folder is preseeded, and its plugin.json
+#     declares the mcpServers block. Claude Code's plugin loader registers
+#     the MCP server (and hooks.json hooks) automatically. We MUST NOT also
+#     inject into ~/.claude.json — that would create a duplicate registration.
+#   - Non-Custom tier: plugin folder is NOT preseeded, so Claude Code never
+#     sees the plugin. We register the MCP server directly in ~/.claude.json
+#     so ctx_* tools are still available manually (no auto-routing).
+if [ ! -f "$CONTEXT_MODE_MANIFEST" ]; then
+    CONTEXT_MODE_MCP_CONFIG=$(jq -n --arg ver "$CONTEXT_MODE_VERSION" '{mcpServers:{"context-mode":{command:"npx",args:["-y","context-mode@\($ver)"]}}}')
+    if [ -f "$USER_CLAUDE_JSON" ]; then
+        TMP_JSON=$(mktemp)
+        if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+        else
+            echo "[entrypoint] WARNING: Could not merge context-mode MCP config (malformed .claude.json?)"
+            rm -f "$TMP_JSON"
+        fi
     else
-        echo "[entrypoint] WARNING: Could not merge context-mode MCP config (malformed .claude.json?)"
-        rm -f "$TMP_JSON"
+        echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
     fi
+    echo "[entrypoint] context-mode MCP server registered in .claude.json (non-Custom tier, version $CONTEXT_MODE_VERSION)"
 else
-    echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+    echo "[entrypoint] context-mode plugin manifest present; MCP server + hooks registered via plugin.json (version $CONTEXT_MODE_VERSION)"
 fi
-echo "[entrypoint] context-mode MCP server configured (version $CONTEXT_MODE_VERSION)"
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
@@ -1129,6 +1141,7 @@ else
     SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
     echo "[entrypoint] Default mode: configuring settings.json without hooks"
 fi
+
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
@@ -1146,7 +1159,7 @@ if [ -f "$SETTINGS_FILE" ]; then
           ($orig.hooks[$type] // []) as $existArr |
           ($cfg.hooks[$type] // []) as $cfgArr |
           {key: $type, value: (
-            [($existArr[].matcher // ""), ($cfgArr[].matcher // "")] | unique |
+            [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
                 select((.command // "") | test("codeflare-(hooks|memory)/scripts/") | not)
