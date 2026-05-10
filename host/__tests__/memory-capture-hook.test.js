@@ -163,7 +163,10 @@ describe('memory-capture.sh — user-message counting', () => {
     const out = JSON.parse(r.stdout);
     // additionalContext must reference the vars file the agent will read
     const vars = join(home, '.memory/counter/sess-t.vars');
-    assert.match(out.hookSpecificOutput.additionalContext, new RegExp(vars.replace(/\//g, '\\/')));
+    assert.ok(
+      out.hookSpecificOutput.additionalContext.includes(vars),
+      `additionalContext should mention vars path; got: ${out.hookSpecificOutput.additionalContext}`,
+    );
     assert.equal(existsSync(vars), true,
       'capture path must write the .vars file');
     const v = JSON.parse(readFileSync(vars, 'utf-8'));
