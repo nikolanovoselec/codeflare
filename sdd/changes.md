@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-10
+- Sessions in both Standard and Pro mode now have access to the context-mode MCP server (`ctx_batch_execute`, `ctx_search`, `ctx_execute_file`, `ctx_fetch_and_index`, etc.) for context-window-efficient data gathering (REQ-AGENT-005 AC4-AC5). In Pro mode, four context-mode hooks are wired (PreToolUse, PostToolUse, PreCompact, SessionStart): WebFetch is intercepted with a tip pointing at `ctx_fetch_and_index`, common heavy-output Bash commands (curl/wget/build tools) are rewritten to one-line tips, and the agent receives routing guidance to prefer ctx_* tools for heavy data work. The advisory PostToolUse `git-push-review-reminder.sh` hook is retired; the Stop hook (`enforce-review-spawn.sh`) remains the sole SDD review-pipeline gate.
+
 ## 2026-05-09
 - GitHub OAuth state validation is now stateless (REQ-AUTH-002 AC2-AC4), so sign-in works on iOS WebKit (Safari, Brave) and other browsers where prior cookie-based state was unreliable across the github.com bounce-back. State validation failure now redirects to the login page with a friendly error message instead of returning a raw 403.
 - Terminal scrollback buffer increased from 400 to 1000 lines (REQ-MOB-004). Users can scroll back roughly 2.5x further through command output history before older lines are trimmed. Both browser xterm.js and host headless serialize buffer were bumped together so reconnect-restore stays in sync.

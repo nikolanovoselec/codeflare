@@ -230,9 +230,8 @@ expect(body.users[0]).toHaveProperty('id');
 
 For shell scripts and hooks: spawn the script with stdin/argv/env,
 assert exit code + stdout/stderr. The shape used in
-`host/__tests__/enforce-review-spawn.test.js` and
-`host/__tests__/git-push-review-reminder.test.js` is the canonical
-example — those tests caught real bugs (PUSH_TS empty-string fail-open,
+`host/__tests__/enforce-review-spawn.test.js` is the canonical
+example — that test caught real bugs (PUSH_TS empty-string fail-open,
 PUSH_LINE substring false-positives) that text-matching tests did not.
 
 ```js

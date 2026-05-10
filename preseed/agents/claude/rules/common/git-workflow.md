@@ -62,14 +62,7 @@ cumulative diff. Direct push to `main` should be prevented at the
 GitHub layer (see "Branch protection on main" below) rather than
 worked around in-session.
 
-The `git-push-review-reminder.sh` PostToolUse hook enforces this:
-checks for `sdd/` + `sdd/README.md`, classifies the trigger
-(`gh pr create` → poll gh for the just-created PR's base; `git push`
-→ `gh pr view` → check state OPEN AND base IN (main, master)), and
-emits the three-agent directive only when the trigger fires. On
-non-SDD projects the hook exits silently and no agents are spawned.
-
-The `enforce-review-spawn.sh` Stop hook is the safety net: it calls
+The `enforce-review-spawn.sh` Stop hook is the gate. It calls
 `gh pr view` at turn end and blocks the turn from ending only if a
 PR-to-main has an un-acked HEAD with the required agents not spawned.
 Same base gate (main/master only). Branch-tracking note:

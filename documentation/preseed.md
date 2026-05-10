@@ -26,7 +26,8 @@ deployed on Recreate or new bucket creation.
 | CI monitoring, environment, no-local-builds, deploy-credentials rules | Yes | Yes |
 | Cloudflare stack, ship, ship references skills | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes |
-| CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes |
+| CC hooks: `block-attributed-commits`, `enforce-review-spawn` | No | Yes |
+| context-mode MCP server (registered always; hook routing in Pro) | Yes | Yes |
 | Language rules (23 files: common, TS, Python, Go, Swift) | No | Yes |
 | Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes |
 | Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes |
@@ -162,13 +163,13 @@ All preseed content is deployed via the manifest pipeline:
   database-migrations, deployment-patterns, frontend-patterns,
   iterative-retrieval, search-first, spec-driven-development (+13
   reference templates for /sdd init scaffolding)
-- `plugins/` (10): known_marketplaces.json (default+advanced),
+- `plugins/` (9): known_marketplaces.json (default+advanced),
   codeflare-memory plugin (4 files, advanced only: plugin.json,
   memory-capture.sh, memory-agent-prompt.md,
-  memory-compact-prompt.md), codeflare-hooks plugin (5 files,
+  memory-compact-prompt.md), codeflare-hooks plugin (4 files,
   advanced only: plugin.json, block-attributed-commits.sh,
-  git-push-review-reminder.sh, enforce-review-spawn.sh,
-  lib/gh-pr-state.sh — shared helper sourced by both PR-aware hooks)
+  enforce-review-spawn.sh, lib/gh-pr-state.sh — shared helper
+  for the Stop-hook PR state lookup)
 
 ## Multi-Agent Preseed
 

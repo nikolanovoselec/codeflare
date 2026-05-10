@@ -1,10 +1,10 @@
-# Shared helper sourced by enforce-review-spawn.sh and
-# git-push-review-reminder.sh. Single source of truth for the gh CLI
-# invocation used to query a branch's PR state and HEAD SHA.
-#
-# Why a shared helper: keeps the CLI shape consistent across both
-# hooks (test fixtures pin the same exact-match args), and makes
-# future field additions a one-place change.
+# Shared helper sourced by enforce-review-spawn.sh.
+# Single source of truth for the gh CLI invocation used to query a
+# branch's PR state and HEAD SHA. Originally factored out for two
+# hooks; the second consumer (git-push-review-reminder.sh) was
+# retired in AD49, but the helper is kept as the canonical CLI
+# shape so test fixtures pin the same exact-match args and future
+# field additions are a one-place change.
 #
 # This file is sourced, not executed — it defines a function and
 # exits without side effects when imported.

@@ -27,14 +27,17 @@ describe('settings.json configuration', () => {
   });
 
   it('advanced mode SETTINGS_CONFIG includes hooks', () => {
-    // Advanced mode should merge PreToolUse, PostToolUse, and UserPromptSubmit hooks
+    // Advanced mode wires PreToolUse, PostToolUse, PreCompact, SessionStart,
+    // Stop, and UserPromptSubmit. Detailed structural assertions live in
+    // entrypoint-context-mode.test.js; this test just verifies the
+    // advanced-mode block declares the expected event names.
     assert.ok(
       entrypoint.includes('PreToolUse'),
       'entrypoint should configure PreToolUse hook for advanced mode'
     );
     assert.ok(
       entrypoint.includes('PostToolUse'),
-      'entrypoint should configure PostToolUse hook for review-reminder'
+      'entrypoint should configure PostToolUse hook (context-mode posttooluse)'
     );
     assert.ok(
       entrypoint.includes('UserPromptSubmit'),
@@ -42,7 +45,7 @@ describe('settings.json configuration', () => {
     );
     assert.ok(
       entrypoint.includes('block-attributed-commits.sh'),
-      'PreToolUse hook should point to codeflare-hooks plugin script'
+      'PreToolUse should still wire block-attributed-commits (Codeflare-managed)'
     );
     assert.ok(
       entrypoint.includes('memory-capture.sh'),
@@ -51,9 +54,8 @@ describe('settings.json configuration', () => {
   });
 
   it('hooks use if-gates to filter by command pattern', () => {
-    // PreToolUse: block-attributed-commits gated on git * and gh *.
-    // PreToolUse block-attributed-commits keeps its `if:` gates because
-    // commit/PR-create commands always lead with `git`/`gh`.
+    // PreToolUse: block-attributed-commits keeps its if-gates because
+    // commit/PR-create commands always lead with git/gh.
     assert.ok(
       entrypoint.includes('"if":"Bash(git *)"'),
       'block-attributed-commits should be if-gated on Bash(git *)'
@@ -62,12 +64,14 @@ describe('settings.json configuration', () => {
       entrypoint.includes('"if":"Bash(gh *)"'),
       'block-attributed-commits should also be if-gated on Bash(gh *)'
     );
-    // PostToolUse git-push-review-reminder must NOT carry a prefix `if:` gate —
-    // it would silently skip chained pipelines (`git add . && git push`),
-    // see #243. The script's in-process case statement is the canonical filter.
+    // The retired git-push-review-reminder.sh used to be PostToolUse here.
+    // It carried no prefix if-gate (chained pipelines like
+    // `git add . && git push` would have silently bypassed it, see #243).
+    // The retired hook must not reappear: assert there is no PostToolUse
+    // entry pointing at the deleted script.
     assert.ok(
-      !entrypoint.includes('"if":"Bash(git push*)"'),
-      'git-push-review-reminder must NOT be if-gated on Bash(git push*) — chained pushes would be silently bypassed (#243)'
+      !entrypoint.includes('git-push-review-reminder.sh'),
+      'git-push-review-reminder.sh is retired (AD49) and must not be referenced'
     );
   });
 

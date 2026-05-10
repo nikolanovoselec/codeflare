@@ -1,9 +1,9 @@
 <!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 48 ADR slots exist (AD1-AD48). 11 slots are redirect stubs that preserve inbound AD-N references: 6 merged into a canonical sibling on 2026-05-03 (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18), and 5 reclassified out of the decision log on 2026-05-09 per the "What is NOT an ADR" rule (AD9→configuration.md, AD23→inline+security.md, AD24→inline+security.md, AD25→inline+security.md, AD31→inline+security.md). 37 ADRs carry active content (AD38 is superseded but preserved per the immutability rule). The combined file is over the implicit 100×48 budget but each individual active ADR is under the per-ADR cap. Splitting into 48 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 49 ADR slots exist (AD1-AD49). 11 slots are redirect stubs that preserve inbound AD-N references: 6 merged into a canonical sibling on 2026-05-03 (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18), and 5 reclassified out of the decision log on 2026-05-09 per the "What is NOT an ADR" rule (AD9→configuration.md, AD23→inline+security.md, AD24→inline+security.md, AD25→inline+security.md, AD31→inline+security.md). 38 ADRs carry active content (AD38 is superseded but preserved per the immutability rule). The combined file is over the implicit 100×49 budget but each individual active ADR is under the per-ADR cap. Splitting into 49 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD48 throughout the codebase and documentation. 37 ADRs carry active content (AD38 superseded by AD48); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD49 throughout the codebase and documentation. 38 ADRs carry active content (AD38 superseded by AD48); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -61,6 +61,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
 | [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | PTY keepalive as safety net only, not the idle policy | Architecture |
 | [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | OAuth state replaced by HMAC-signed stateless token | Security |
+| [AD49](#ad49-context-mode-integration-via-npx--retire-advisory-posttooluse-review-hook) | context-mode integration via npx + retire advisory PostToolUse review hook | Architecture |
 
 ---
 
@@ -705,6 +706,46 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 **Implementation references:**
 
 - `src/routes/github-oauth.ts` (`generateState()`, `verifyState()`)
+
+---
+
+### AD49: context-mode integration via npx + retire advisory PostToolUse review hook
+
+**Status:** Accepted (2026-05-10)
+
+**Context:** Heavy data-gathering sessions burn input tokens reading raw tool output across many turns: a 56 KB Bash result on turn 3 is in turn 4's input, turn 5's input, turn N's input, billed every turn until compaction. Cumulative cost on a long session can reach 40-70% of input billing. Separately, the advisory PostToolUse `git-push-review-reminder.sh` hook emitted `additionalContext` after `git push` with instructions to spawn the SDD review agents, but agents frequently ignored the directive — which is exactly why `enforce-review-spawn.sh` (Stop hook) was added as the actual gate. The advisory hook is theater alongside the gate.
+
+**Decision:** Adopt context-mode (https://github.com/mksglu/context-mode) as the in-session context-window discipline mechanism. Register the MCP server via `npx -y context-mode` in `.claude.json` (both Standard and Pro modes). In Pro mode, wire four hooks via `npx -y context-mode hook claude-code <event>`: PreToolUse (matcher `Bash|Read|WebFetch|Grep|Glob|Agent`), PostToolUse (matcher `Bash|Read|WebFetch|Grep|Glob`), PreCompact, and SessionStart. Retire the advisory `git-push-review-reminder.sh` PostToolUse hook in the same change; `enforce-review-spawn.sh` (Stop) remains the sole SDD review-pipeline gate.
+
+**Alternatives considered:**
+
+1. **B-MCP-only (no hooks).** Reachable via `claude mcp add context-mode -- npx -y context-mode` with no hook wiring. Rejected: without SessionStart's routing block teaching the agent to prefer ctx_* tools, savings collapse to the narrow PreToolUse deterministic band (curl/wget/build-tool rewrites + WebFetch deny) — a small fraction of the headline 40-70%.
+2. **B-Selective with filter.** Wire PreToolUse + PostToolUse but skip SessionStart, using a pipe filter to strip the verbose-output rules from SessionStart's routing block. Rejected after empirical validation in `/home/user/Temporary/context-mode-integration/07-selective-hook-validation.md`: PreToolUse re-injects the unfiltered routing block into subagent prompts via the Agent branch (`routing.mjs:342-356`), so the filter is incomplete by design. The verbose-output rules also do not materially hurt SDD review agents — spec-reviewer and doc-updater write to files, not chat; code-reviewer's findings are already structured.
+3. **Posture C (vendor + fork).** Vendor context-mode source into `preseed/agents/claude/plugins/context-mode/` with a forked routing block. Rejected: 1-2 weeks engineering plus ongoing fork maintenance; the `npx -y` approach gives upstream updates for free and the fork divergence costs more than the routing-block conflict it would avoid.
+4. **Posture D (native reimplementation).** 3-4 weeks of engineering for parity with what context-mode already does. Deferred until E proves out.
+5. **Keep `git-push-review-reminder.sh` as guidance.** Rejected: the Stop hook does its own `gh pr view` PR-base classification and does not depend on the PostToolUse hook firing first. The advisory hook adds 200-500 tokens of advisory `additionalContext` per push and is empirically often ignored. Removing it costs at most one extra Stop-block-and-respawn cycle per push.
+
+**Rationale:**
+
+- Marquee context savings (~40-70% on heavy data sessions) come from the agent voluntarily routing to ctx_batch_execute / ctx_search / ctx_execute_file, which requires SessionStart's routing block to teach. Wiring all four hooks captures this value deterministically.
+- `npx -y` keeps Codeflare on the latest upstream context-mode without vendoring. Cold-start adds 1-2 seconds on the first MCP call after npx cache eviction — acceptable.
+- The Stop hook (`enforce-review-spawn.sh`) is the actual SDD enforcement; the advisory PostToolUse hook was always belt-and-suspenders where the suspenders did not hold. Retiring it simplifies the hook stack without weakening enforcement.
+- Subagent prompts receive context-mode's routing rules via the PreToolUse Agent branch. Per Phase 7 reasoning, file-editing review agents (spec-reviewer, doc-updater) are not materially affected; code-reviewer chat findings may compress slightly but remain structurally complete.
+
+**Trade-offs accepted:**
+
+- Codeflare gains an external dependency on the `context-mode` npm package; package availability becomes a session prerequisite. Mitigation: `npx -y` falls back gracefully when the package cannot be reached (the hook silently no-ops, the MCP server fails to start).
+- WebFetch behavior changes: requests are intercepted with a tip pointing at `ctx_fetch_and_index`. Existing user workflows that relied on raw WebFetch must learn the new path.
+- PreToolUse deterministic decisions are gated on `/tmp/context-mode-mcp-ready-*` sentinels (per `07-selective-hook-validation.md`); if the MCP server is slow to boot, the first few tool calls in a fresh session may not get the rewrite. Mitigation: accept as cold-start cost.
+
+**Related requirements:** REQ-AGENT-005 (Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers — AC4-AC5 updated)
+
+**Implementation references:**
+
+- `entrypoint.sh:1057-1075` (context-mode MCP server registration)
+- `entrypoint.sh:1078-1110` (settings.json hook wiring)
+- `preseed/agents/claude/manifest.json` (git-push-review-reminder.sh entry removed)
+- Pre-decision integration analysis: `/home/user/Temporary/context-mode-integration/` (8 files)
 
 ---
 

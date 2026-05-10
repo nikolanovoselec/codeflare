@@ -156,8 +156,8 @@ LEGACY_ACK="$GIT_COMMON_DIR/sdd-last-ack-push"
 # Layer 2 (TRUTH) — PR HEAD SHA via gh pr view
 #
 # If the current branch has no open PR, exit 0 (deferred). The review
-# pipeline fires when the PR opens (handled by git-push-review-reminder.sh
-# at PR-OPEN time). No open PR → no enforcement here.
+# pipeline fires when this hook re-runs after the PR opens. No open
+# PR → no enforcement here.
 # ---------------------------------------------------------------------------
 CURRENT=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
 [ -n "$CURRENT" ] || exit 0

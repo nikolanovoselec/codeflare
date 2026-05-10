@@ -23,7 +23,7 @@ You are spawned when:
 - A new PR is opened on the current branch (`gh pr create` runs in this session), OR
 - A new push lands on a branch that already has an open PR (`gh pr view` returns a non-empty PR for the branch)
 
-You do NOT run on every plain `git push` to a feature branch. Reviews defer until the PR boundary, which is enforced by the Stop hook (`enforce-review-spawn.sh`) and the PostToolUse hook (`git-push-review-reminder.sh`). Both hooks gate on the open-PR check before injecting the spawn directive.
+You do NOT run on every plain `git push` to a feature branch. Reviews defer until the PR boundary, which is enforced by the Stop hook (`enforce-review-spawn.sh`). The hook gates on the open-PR check before requiring the review-agent spawn.
 
 A direct push to `main` is the only true bypass case. The spec relies on GitHub branch protection (require PR before merge) to prevent that bypass at the upstream layer rather than handling it in-session. If branch protection isn't enabled and a direct push to `main` lands, the user can spawn agents manually after the push.
 

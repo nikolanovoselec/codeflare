@@ -142,7 +142,8 @@ Multi-agent support, preseed system, and session modes.
 | Core environment rules | Yes | Yes |
 | Universal coding skills (Cloudflare stack, ship references) | Yes | Yes |
 | consult-llm skill (Claude Code only) | No | Yes |
-| Pro-mode hooks (commit attribution + PR-boundary review pipeline) | No | Yes |
+| Pro-mode hooks (commit attribution + PR-boundary review pipeline + context-window discipline) | No | Yes |
+| context-mode MCP server (ctx_* sandbox + retrieval tools) | Yes | Yes |
 | Language rules (TypeScript, Python, Go, Swift, common) | No | Yes |
 | Code-review and SDD agent definitions | No | Yes |
 | Slash commands (Claude Code only) | No | Yes |
@@ -153,7 +154,8 @@ Multi-agent support, preseed system, and session modes.
 1. Standard mode seeds the rows above marked Yes in the Standard column to R2.
 2. Pro mode seeds the rows above marked Yes in the Pro column to R2 (a strict superset of Standard).
 3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
-4. Pro mode registers hooks in `settings.json` with command-pattern gates so they only fire on relevant Bash calls: PreToolUse entries for commit attribution blocking (gated on git/gh commands), a PostToolUse entry for the PR-boundary trigger classifier (fires on `gh pr create` or push-to-PR-tracked-branch), a Stop entry for the PR HEAD SHA checkpoint (blocks turn-end until the review pipeline observes the new PR head), and a UserPromptSubmit entry for memory capture; Standard mode merges only `skipDangerousModePermissionPrompt`.
+4. Both modes register the context-mode MCP server in `~/.claude/.claude.json` so the ctx_* tools are reachable from any session.
+5. Pro mode registers hooks in `settings.json`: PreToolUse entries for commit attribution blocking (matcher Bash, if-gated on git/gh commands) and for context-mode pretooluse (matcher Bash|Read|WebFetch|Grep|Glob|Agent — intercepts WebFetch with a tip and rewrites curl/wget/build-tool commands); a PostToolUse entry for context-mode posttooluse (writes tool events to a local SQLite store for ctx_search retrieval); a PreCompact entry for context-mode precompact (preserves session continuity across compaction); a SessionStart entry for context-mode sessionstart (injects the routing block that teaches the agent to prefer ctx_* tools for heavy data gathering); a Stop entry for the SDD review-pipeline PR HEAD SHA checkpoint (blocks turn-end until the review pipeline observes the new PR head); and a UserPromptSubmit entry for memory capture. Standard mode merges only `skipDangerousModePermissionPrompt`.
 
 **Constraints:**
 - Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.
