@@ -31,8 +31,22 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 /**
  * Build the JSON body for /_internal/setBucketName requests.
  * Extracted to avoid duplication between initial set and post-destroy re-set.
+ *
+ * sleepAfter is REQUIRED here (not defaulted). The /start route resolves the
+ * effective value from `(effectiveTier === 'free' ? '15m' : preferences.sleepAfter || '30m')`
+ * and passes it explicitly. A missing sleepAfter at this layer would mean the
+ * resolution skipped a code path and we should fail loudly rather than ship a
+ * silent '30m' default that lies to the user about their configured 2h pref.
+ * (Implements REQ-CONT-014)
  */
 function buildSetBucketNameBody(params: ContainerConfigPayload): string {
+  if (!params.sleepAfter) {
+    throw new Error(
+      'buildSetBucketNameBody: sleepAfter is required. The caller must resolve '
+      + 'it from user preferences before invoking. A silent default would mask '
+      + 'a real bug where the user\'s configured idle-timeout is ignored.'
+    );
+  }
   const body = SetBucketNameBodySchema.parse({
     bucketName: params.bucketName,
     sessionId: params.sessionId,
@@ -51,7 +65,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     ...(params.deployKeys?.cloudflareAccountId && { cloudflareAccountId: params.deployKeys.cloudflareAccountId }),
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
     sessionMode: params.sessionMode,
-    sleepAfter: params.sleepAfter ?? '30m',
+    sleepAfter: params.sleepAfter,
   });
   return JSON.stringify(body);
 }
