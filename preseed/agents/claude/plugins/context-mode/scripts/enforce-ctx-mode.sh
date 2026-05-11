@@ -158,9 +158,19 @@ extract_subs() {
             i = j
             continue
           }
-          # Unterminated arithmetic - pass through unchanged (fail-open,
-          # same shape as the existing unterminated $(...) handling).
+          # Unterminated arithmetic - bash rejects this at parse time,
+          # but defensively recurse on the body anyway so any inner
+          # terminated $(...) / backticks are still extracted as
+          # denyable segments. The outer malformed prefix passes
+          # through verbatim in `out` (irrelevant once the inner sub
+          # is denied; bash never runs the command).
+          arith_body = substr(input, i+3, j - i - 3)
+          saved_found = RESULT_FOUND
+          extract_pass(arith_body)
           out = out substr(input, i, j - i)
+          extras = extras RESULT_EXTRAS
+          if (RESULT_FOUND) saved_found = 1
+          RESULT_FOUND = saved_found
           i = j
           continue
         }
