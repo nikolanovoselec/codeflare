@@ -49,9 +49,9 @@ Before pushing a new commit, cancel still-running runs from the previous push (t
 
 ```
 mcp__context-mode__ctx_execute(language: "shell", code:
-  "gh run list --branch <branch> --limit 5 --json databaseId,status \
-   --jq '.[] | select(.status != \"completed\") | .databaseId' \
-   | xargs -I{} gh run cancel {}")
+  gh run list --branch <branch> --limit 5 --json databaseId,status \
+    --jq '.[] | select(.status != "completed") | .databaseId' \
+    | xargs -I{} gh run cancel {})
 ```
 
 Vibe-coding: same body via Bash directly.
