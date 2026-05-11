@@ -66,11 +66,17 @@ function fakeGhFails(cwd) {
 }
 
 function runHook(cwd, command, binDir) {
+  return runHookWithInput(cwd, { tool_input: { command } }, binDir);
+}
+
+// Helper for issue #317 — feed any tool_input shape (Bash, ctx_execute,
+// ctx_batch_execute) through the hook and capture exit + stdout.
+function runHookWithInput(cwd, payload, binDir) {
   const env = { ...process.env };
   if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
   return spawnSync('bash', [HOOK], {
     cwd,
-    input: JSON.stringify({ tool_input: { command } }),
+    input: JSON.stringify(payload),
     encoding: 'utf-8',
     env,
   });
@@ -358,5 +364,152 @@ describe('git-push-review-reminder.sh — cache behavior (3-line schema)', () =>
     const rewritten = readFileSync(cachePath, 'utf-8');
     assert.match(rewritten, /^[^\n]+\nOPEN\nmain\n$/,
       'cache must be rewritten in 3-line schema');
+  });
+});
+
+describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #317)', () => {
+  // Issue #317: enforce-ctx-mode.sh denies gh/curl/git-log in the Bash tool
+  // and forces those invocations through MCP shell tools (ctx_execute /
+  // ctx_batch_execute). The hook used to extract command from
+  // .tool_input.command only — so when an agent retried `gh pr create`
+  // through ctx_execute, COMMAND was empty, the trigger never fired, and
+  // the SDD review pipeline silently skipped that PR. These tests pin the
+  // fix: the hook must classify identically regardless of which tool
+  // surfaced the command.
+
+  it('classifies git push from ctx_execute shell code (PR-SYNC)', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHookWithInput(
+      cwd,
+      { tool_input: { language: 'shell', code: 'git push origin develop' } },
+      binDir,
+    );
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'ctx_execute shell shape must fire the review directive');
+    assert.match(r.stdout, /SDD push to PR-tracked branch/,
+      'must classify as PR-sync');
+  });
+
+  it('classifies gh pr create from ctx_execute shell code (PR-OPEN)', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHookWithInput(
+      cwd,
+      {
+        tool_input: {
+          language: 'shell',
+          code: 'gh pr create --base main --title x --body y',
+        },
+      },
+      binDir,
+    );
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/);
+    assert.match(r.stdout, /SDD PR open/,
+      'must classify as PR-open trigger');
+  });
+
+  it('ignores ctx_execute with non-shell language even if code mentions git push', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGhFails(cwd); // gh must not be called
+    const r = runHookWithInput(
+      cwd,
+      {
+        tool_input: {
+          language: 'javascript',
+          code: 'const msg = "next step: git push";',
+        },
+      },
+      binDir,
+    );
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'non-shell ctx_execute language must never trigger the hook');
+  });
+
+  it('classifies git push from ctx_batch_execute commands[].command', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHookWithInput(
+      cwd,
+      {
+        tool_input: {
+          commands: [
+            { label: 'status', command: 'git status' },
+            { label: 'push', command: 'git push origin develop' },
+          ],
+        },
+      },
+      binDir,
+    );
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'ctx_batch_execute shape must fire the review directive when any command is git push');
+  });
+
+  it('classifies gh pr create from ctx_batch_execute commands[].command', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHookWithInput(
+      cwd,
+      {
+        tool_input: {
+          commands: [
+            { label: 'open', command: 'gh pr create --base main -t x -b y' },
+          ],
+        },
+      },
+      binDir,
+    );
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /SDD PR open/);
+  });
+
+  it('does not classify ctx_batch_execute when no command contains git push or gh pr create', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGhFails(cwd);
+    const r = runHookWithInput(
+      cwd,
+      {
+        tool_input: {
+          commands: [
+            { label: 'list', command: 'git status' },
+            { label: 'log', command: 'git log --oneline -3' },
+          ],
+        },
+      },
+      binDir,
+    );
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+
+  it('does not classify a commit message in ctx_execute code that mentions git push', () => {
+    // Substring-vs-anchored-regex parity check: the false-positive guard
+    // that exists for Bash must hold for ctx_execute too.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHookWithInput(
+      cwd,
+      {
+        tool_input: {
+          language: 'shell',
+          code: 'git commit -m "fix: integration findings — git push hardening"',
+        },
+      },
+      binDir,
+    );
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'commit message containing "git push" must not trigger via ctx_execute either');
   });
 });

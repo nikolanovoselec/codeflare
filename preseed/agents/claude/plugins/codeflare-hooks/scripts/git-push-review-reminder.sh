@@ -53,7 +53,31 @@ case "$INPUT" in
   *) exit 0 ;;
 esac
 
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null) || true
+# Extract the command(s) from any of three supported tool-input shapes:
+#
+#   1. Bash tool             → .tool_input.command           (string)
+#   2. mcp__*__ctx_execute   → .tool_input.code              (string, only when
+#                              .tool_input.language == "shell")
+#   3. mcp__*__ctx_batch_execute → .tool_input.commands[].command (array of
+#                              objects; concatenated with `; ` so the existing
+#                              shell-separator regex matches each command)
+#
+# Issue #317: when context-mode's enforce-ctx-mode.sh denies `gh pr create` /
+# `gh pr merge` in Bash, agents retry through MCP shell tools. Without this
+# multi-shape parsing, the regex below was applied to a JSON shape that has
+# no `.tool_input.command` field, COMMAND was empty, and the review-pipeline
+# directive silently never fired for the redirected invocation.
+COMMAND=$(echo "$INPUT" | jq -r '
+  if (.tool_input.command // "") != "" then
+    .tool_input.command
+  elif (.tool_input.language // "") == "shell" and (.tool_input.code // "") != "" then
+    .tool_input.code
+  elif (.tool_input.commands | type? == "array") then
+    [.tool_input.commands[]?.command // empty] | join("; ")
+  else
+    empty
+  end
+' 2>/dev/null) || true
 
 # Classify the command. Direct gh pr create is unambiguous (PR-OPEN).
 # git push is conditional on open-PR detection (PR-SYNC vs DEFERRED).

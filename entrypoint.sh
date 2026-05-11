@@ -1149,12 +1149,20 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # plugins (bare plugin.json, real wiring in entrypoint).
     if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
         CTX_ENFORCE="$PLUGIN_DIR/context-mode/scripts/enforce-ctx-mode.sh"
-        CTX_HOOKS=$(jq -n --arg enforce "$CTX_ENFORCE" '{
+        # Issue #317: enforce-ctx-mode.sh denies `gh pr create` / `gh pr merge`
+        # in Bash and forces them through MCP shell tools. Register the SDD
+        # review-reminder hook on the MCP shell matcher too so the PR-boundary
+        # directive fires for redirected invocations, not just direct Bash.
+        REVIEW_HOOK="$PLUGIN_DIR/codeflare-hooks/scripts/git-push-review-reminder.sh"
+        CTX_HOOKS=$(jq -n --arg enforce "$CTX_ENFORCE" --arg review "$REVIEW_HOOK" '{
           PreToolUse: [
             {matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"context-mode hook claude-code pretooluse"}]},
             {matcher:"Bash|WebFetch|Grep",hooks:[{type:"command",command:("bash " + $enforce)}]}
           ],
-          PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"context-mode hook claude-code posttooluse"}]}],
+          PostToolUse: [
+            {matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"context-mode hook claude-code posttooluse"}]},
+            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $review)}]}
+          ],
           PreCompact: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code precompact"}]}],
           SessionStart: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code sessionstart"}]}]
         }')
