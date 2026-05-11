@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-11
+- Subagents spawned via the Task tool (architect, build-error-resolver, code-reviewer, doc-updater, refactor-cleaner, security-reviewer, spec-reviewer, tdd-guide) now have the `mcp__context-mode__ctx_*` tools in their inventory (REQ-AGENT-005). Previously the strict PreToolUse hook denied native `Grep` / unwhitelisted `Bash` and instructed agents to route through `ctx_execute` / `ctx_search` — but those MCP tools were not in the subagent's tool schema, so the redirect was a dead end. `/review` reports and review-pipeline agents (code-reviewer / spec-reviewer / doc-updater) can now actually search code on Custom + Pro tiers instead of degrading to Read+Glob.
+- Entrypoint hook merge now treats `enforce-ctx-mode.sh` invocations as managed (REQ-AGENT-008), so duplicate strict-hook entries no longer accumulate across container restarts. Previously every entrypoint run silently re-appended the strict hook because the managed-hooks regex matched only `codeflare-(hooks|memory)/scripts/` and bare `context-mode` invocations; production settings.json grew to 4× duplicate entries on the `Bash|WebFetch|Grep` matcher.
+
 ## 2026-05-10
 - context-mode routing is now hard-enforced for Custom + Pro users (REQ-AGENT-005 AC6). A fifth PreToolUse hook denies `Bash` outside `{git, mkdir, rm, mv, cd, ls, npm install, pip install}` and every `WebFetch` and `Grep` call, redirecting to the matching `ctx_*` tool. Per-call bypass via `/tmp/ctx-bypass` (user-only sentinel). The four advisory hooks remain.
 - Reverted: the disk bump from 6 GB to 8 GB on the default/saas tiers (REQ-OPS-002 AC7, REQ-OPS-007 AC1). Cloudflare's containers cap disk at 2x memory in GiB, so 8 GB requires at least 4 GiB memory; the default tier ships with 3 GiB and the deploy was rejected. Default disk stays at 6 GB until a future tier upgrade raises memory first.

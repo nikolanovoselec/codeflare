@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Expert code review specialist. Proactively reviews code for quality, security, and maintainability. Use immediately after writing or modifying code. MUST BE USED for all code changes.
-tools: ["Read", "Grep", "Glob", "Bash", "Write", "mcp__consult-llm__consult_llm", "mcp__memory__search_nodes", "mcp__memory__open_nodes"]
+tools: ["Read", "Grep", "Glob", "Bash", "Write", "mcp__consult-llm__consult_llm", "mcp__memory__search_nodes", "mcp__memory__open_nodes", "mcp__context-mode__ctx_search", "mcp__context-mode__ctx_batch_execute", "mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_execute_file", "mcp__context-mode__ctx_fetch_and_index"]
 model: opus
 ---
 

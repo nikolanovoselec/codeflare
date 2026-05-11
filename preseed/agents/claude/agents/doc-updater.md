@@ -1,7 +1,7 @@
 ---
 name: doc-updater
 description: Documentation specialist. Runs only on SDD-bootstrapped projects (sdd/ folder exists). Enforces spec-vs-docs boundary, generates REQ backlinks, updates documentation/ to match code. Use PROACTIVELY when a PR opens or syncs on SDD projects. Can also be invoked manually on any project.
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "mcp__context-mode__ctx_search", "mcp__context-mode__ctx_batch_execute", "mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_execute_file", "mcp__context-mode__ctx_fetch_and_index"]
 model: sonnet
 ---
 

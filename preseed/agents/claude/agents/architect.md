@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Software architecture specialist for system design, scalability, and technical decision-making. Use PROACTIVELY when planning new features, refactoring large systems, or making architectural decisions.
-tools: ["Read", "Grep", "Glob", "Write"]
+tools: ["Read", "Grep", "Glob", "Write", "mcp__context-mode__ctx_search", "mcp__context-mode__ctx_batch_execute", "mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_execute_file", "mcp__context-mode__ctx_fetch_and_index"]
 model: opus
 ---
 
