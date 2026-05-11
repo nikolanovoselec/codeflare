@@ -1,5 +1,7 @@
 # Stress Testing
 
+<!-- doc-allow-large -->
+
 k6-based load testing against the integration worker. Four test suites run in parallel via the `stress-test.yml` GitHub Actions workflow.
 
 **Audience:** Operators
