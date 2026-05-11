@@ -42,12 +42,25 @@ esac
 
 # Extract the command(s) from any of three supported tool-input shapes:
 #
-#   1. Bash tool                  → .tool_input.command          (string)
-#   2. mcp__*__ctx_execute        → .tool_input.code             (string, only
-#                                   when .tool_input.language == "shell")
-#   3. mcp__*__ctx_batch_execute  → .tool_input.commands[].command (array of
-#                                   objects; concatenated with `; ` so the
-#                                   existing per-command regex matches each)
+#   1. Bash tool                  -> .tool_input.command          (string)
+#   2. mcp__*__ctx_execute        -> .tool_input.code             (string, only
+#                                   when .tool_input.language == "shell";
+#                                   defense in depth - the MCP server enforces
+#                                   language as a required schema field, so a
+#                                   missing language field silently exits this
+#                                   branch and the hook allows the call. If
+#                                   the upstream schema ever stops requiring
+#                                   language, this gate falls open and so does
+#                                   the matching gate in enforce-review-spawn.sh.)
+#   3. mcp__*__ctx_batch_execute  -> .tool_input.commands[].command (array of
+#                                   objects; concatenated with `"; "` so the
+#                                   existing per-command regex matches each.
+#                                   The separator is load-bearing: changing it
+#                                   could let a single regex span two entries
+#                                   and produce a false-positive across an
+#                                   entry boundary - test fixtures in
+#                                   host/__tests__/block-attributed-commits.test.js
+#                                   pin the current join semantics.)
 COMMAND=$(echo "$INPUT" | jq -r '
   if (.tool_input.command // "") != "" then
     .tool_input.command

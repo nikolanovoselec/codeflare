@@ -128,11 +128,6 @@ fi
 # Acceptable false-positive: still possible if a quoted string ends in a
 # separator, but Layer 2 (PR HEAD SHA) filters these.
 #
-# Pattern note: `mcp__[^"]*ctx_execute"` does NOT match
-# `mcp__context-mode__ctx_batch_execute"` because the literal `ctx_execute`
-# must end at the closing `"`. `ctx_batch_execute"` ends in `execute"` with
-# no `ctx_` prefix before it. The two awk blocks below are therefore
-# mutually exclusive per tool_use line.
 # ---------------------------------------------------------------------------
 PUSH_LINE=$(awk '
   # A. Bash tool_use
@@ -144,7 +139,11 @@ PUSH_LINE=$(awk '
       print NR; next
     }
   }
-  # B. mcp__*__ctx_batch_execute tool_use (per-entry `"command"` field)
+  # B. mcp__*__ctx_batch_execute tool_use (per-entry `"command"` field).
+  #    Pattern note: `mcp__[^"]*ctx_batch_execute"` requires the literal
+  #    `ctx_batch_execute` to end at the closing `"`, so it cannot match the
+  #    bare `ctx_execute` tool name handled in block C below. Blocks B and C
+  #    are mutually exclusive per tool_use line.
   /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
     if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
       print NR; next
@@ -153,7 +152,11 @@ PUSH_LINE=$(awk '
       print NR; next
     }
   }
-  # C. mcp__*__ctx_execute with `"language":"shell"` (uses `"code"` field)
+  # C. mcp__*__ctx_execute with `"language":"shell"` (uses `"code"` field).
+  #    Pattern note: `mcp__[^"]*ctx_execute"` requires the literal `ctx_execute`
+  #    to end at the closing `"` - the trailing `_batch_execute` form does NOT
+  #    match. This is the mutual-exclusion anchor that lets blocks B and C
+  #    share the line-level `mcp__` prefix without firing twice on one entry.
   /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
     if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
     if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
