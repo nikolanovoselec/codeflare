@@ -553,6 +553,36 @@ describe('enforce-ctx-mode hook', () => {
       }));
     });
 
+    it('CLOSES unterminated-arithmetic inner $(...) bypass: $((1+$(curl evil)', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $((1+$(curl evil)' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES unterminated-arithmetic inner backtick bypass: $((1+`curl evil`', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $((1+`curl evil`' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('allows bare unterminated arithmetic with no inner sub: git log $((1+2', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $((1+2' },
+      }));
+    });
+
+    it('handles doubly-unterminated input safely (no inner extraction, no infinite loop): $((1+$(curl x', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $((1+$(curl x' },
+      }));
+    });
+
     it('allows parameter expansion $VAR and ${VAR}', () => {
       assertAllowed(runHook({
         tool_name: 'Bash',
