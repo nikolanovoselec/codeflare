@@ -9,16 +9,26 @@
 #   Tool block:         WebFetch, Grep
 #
 # Normalization pipeline before per-segment scan:
-#   1. Strip heredoc bodies (lines between <<DELIM and matching DELIM)
-#   2. Strip content inside '...' and "..." quoted regions
-#   3. Split remaining text on shell chain operators (;, &&, ||, |, &)
-#   4. Each segment's first word must be whitelisted
+#   1. Extract $(...), <(...), >(...), and `...` substitutions as
+#      additional segments joined by ';' (iterates to fixed point so
+#      nested $($(...)) is fully unwrapped)
+#   2. Strip heredoc bodies (lines between <<DELIM and matching DELIM)
+#   3. Strip content inside '...' and "..." quoted regions
+#   4. Split remaining text on shell chain operators (;, &&, ||, |, &)
+#   5. Each segment's first word must be whitelisted
 #
-# Closes two bypass vectors:
+# Closes the following bypass vectors:
 #   - 'cd /tmp && tail x' (chain bypass via first-word-only check)
 #   - 'git x <<EOF\nbody\nEOF\n && curl evil' (heredoc bypass)
-# And one false-positive:
+#   - 'git log $(curl evil)' (command substitution bypass)
+#   - 'git diff <(curl a) <(curl b)' (process substitution bypass)
+#   - 'git log `curl evil`' (backtick command substitution bypass)
+#   - 'git log $(echo $(curl evil))' (nested substitution)
+# And these false-positives:
 #   - 'git log --grep="tail x ;"' (chain op inside quoted string)
+#   - "git log --grep='$(curl x)'" (sub inside single-quoted literal)
+#   - 'git log -n $((1+2))' (arithmetic expansion)
+#   - 'git log $HOME' / 'git log ${HOME}' (parameter expansion)
 #
 # Bypass (USER ONLY, never invoked by the assistant):
 #   touch /tmp/ctx-bypass
@@ -49,6 +59,189 @@ emit_deny() {
   exit 0
 }
 
+# Extract $(...), <(...), >(...), and backtick command substitutions
+# and emit them as additional ;-separated segments appended to the
+# outer command. The outer occurrence is replaced with a single space
+# so the surrounding tokens still parse. Rules:
+#
+#   - Single quotes ('...') suppress extraction; their content is a
+#     literal string in bash so '$(...)' is not a command sub.
+#   - Double quotes ("...") do NOT suppress extraction; "$(...)" is
+#     executed at runtime.
+#   - $((arith)) is arithmetic, not command substitution; it is
+#     skipped (passed through unchanged) by peeking at the second '('.
+#   - Backslash inside double quotes escapes the next character so
+#     '\"' inside "..." is not a quote terminator.
+#   - Iterates to a fixed point so nested $($(...)) and `` `$(...)` ``
+#     are fully unwrapped into independently checkable segments.
+#   - Multi-line substitutions (where $(... spans newlines) are an
+#     acceptable false-negative; agent commands are single-line in
+#     practice, the runtime would also reject malformed multi-line
+#     subs at parse time.
+#
+# Output: one line per input line. If extractions were made, the line
+# ends with ' ; <ext1>;<ext2>;...' so the chain-op splitter downstream
+# pulls each extracted command out as its own segment.
+extract_subs() {
+  awk '
+    function extract_pass(input,   out, extras, n, i, c, depth, j,
+                                   content, in_sq, in_dq, inner_sq,
+                                   inner_dq, cc) {
+      out = ""
+      extras = ""
+      n = length(input)
+      i = 1
+      RESULT_FOUND = 0
+      in_sq = 0
+      in_dq = 0
+      while (i <= n) {
+        c = substr(input, i, 1)
+        # Backslash escape inside double quotes
+        if (in_dq && c == "\\" && i < n) {
+          out = out c substr(input, i+1, 1)
+          i += 2
+          continue
+        }
+        # Single quote toggle (only outside double quotes)
+        if (!in_dq && c == "\047") {
+          in_sq = !in_sq
+          out = out c
+          i++
+          continue
+        }
+        # Inside single quotes: pass through unchanged
+        if (in_sq) {
+          out = out c
+          i++
+          continue
+        }
+        # Double quote toggle (extraction stays active inside)
+        if (c == "\"") {
+          in_dq = !in_dq
+          out = out c
+          i++
+          continue
+        }
+        # Arithmetic expansion $((...)) - pass through unchanged.
+        # Detection: $ followed by ( followed by (.
+        if (c == "$" && i+2 <= n \
+                     && substr(input, i+1, 1) == "(" \
+                     && substr(input, i+2, 1) == "(") {
+          depth = 2
+          j = i + 3
+          while (j <= n && depth > 0) {
+            cc = substr(input, j, 1)
+            if (cc == "(") depth++
+            else if (cc == ")") depth--
+            j++
+          }
+          out = out substr(input, i, j - i)
+          i = j
+          continue
+        }
+        # Command/process substitution: $(...), <(...), >(...)
+        if ((c == "$" || c == "<" || c == ">") \
+             && i+1 <= n && substr(input, i+1, 1) == "(") {
+          depth = 1
+          j = i + 2
+          content = ""
+          inner_sq = 0
+          inner_dq = 0
+          while (j <= n && depth > 0) {
+            cc = substr(input, j, 1)
+            if (inner_dq && cc == "\\" && j < n) {
+              content = content cc substr(input, j+1, 1)
+              j += 2
+              continue
+            }
+            if (!inner_dq && cc == "\047") {
+              inner_sq = !inner_sq
+            } else if (!inner_sq && cc == "\"") {
+              inner_dq = !inner_dq
+            } else if (!inner_sq && !inner_dq) {
+              if (cc == "(") {
+                depth++
+              } else if (cc == ")") {
+                depth--
+                if (depth == 0) break
+              }
+            }
+            content = content cc
+            j++
+          }
+          if (depth == 0) {
+            extras = extras content ";"
+            out = out " "
+            i = j + 1
+            RESULT_FOUND = 1
+            continue
+          }
+          # Unterminated - pass through unchanged
+          out = out c
+          i++
+          continue
+        }
+        # Backtick command substitution
+        if (c == "`") {
+          j = i + 1
+          content = ""
+          while (j <= n) {
+            cc = substr(input, j, 1)
+            if (cc == "\\" && j < n) {
+              content = content substr(input, j+1, 1)
+              j += 2
+              continue
+            }
+            if (cc == "`") break
+            content = content cc
+            j++
+          }
+          if (j <= n && substr(input, j, 1) == "`") {
+            extras = extras content ";"
+            out = out " "
+            i = j + 1
+            RESULT_FOUND = 1
+            continue
+          }
+          # Unterminated - pass through
+          out = out c
+          i++
+          continue
+        }
+        out = out c
+        i++
+      }
+      RESULT_OUT = out
+      RESULT_EXTRAS = extras
+    }
+    {
+      line = $0
+      extras_accum = ""
+      # Repeatedly scan the outer line until no more subs found.
+      while (1) {
+        extract_pass(line)
+        line = RESULT_OUT
+        extras_accum = extras_accum RESULT_EXTRAS
+        if (!RESULT_FOUND) break
+      }
+      # Then scan accumulated extras for nested subs to a fixed point.
+      while (1) {
+        if (length(extras_accum) == 0) break
+        extract_pass(extras_accum)
+        new_clean = RESULT_OUT
+        new_extras = RESULT_EXTRAS
+        if (!RESULT_FOUND) break
+        extras_accum = new_clean new_extras
+      }
+      if (length(extras_accum) > 0) {
+        print line " ; " extras_accum
+      } else {
+        print line
+      }
+    }
+  '
+}
+
 # Strip heredoc bodies and quoted content via a char-by-char awk
 # state machine. Quote state (in_sq, in_dq) persists across lines so
 # multi-line quoted strings are handled correctly. Heredoc openers
@@ -61,7 +254,19 @@ normalize_command() {
     in_hd {
       t = $0
       if (dash) sub(/^[ \t]+/, "", t)
-      if (t == delim) { in_hd = 0; delim = ""; dash = 0 }
+      if (t == delim) {
+        in_hd = 0; delim = ""; dash = 0
+        # Emit a chain separator so a post-heredoc command becomes
+        # its own segment. Closes the multi-line heredoc bypass:
+        #   git x <<EOF
+        #   body
+        #   EOF
+        #   curl evil
+        # Without this, the post-EOF line concatenates into the
+        # opener segment (first word git -> allowed) and curl
+        # never gets checked.
+        print ";"
+      }
       next
     }
     {
@@ -132,7 +337,7 @@ check_segment() {
   segment=$(printf '%s' "$segment" | sed -E 's/[[:space:]]*\)+[[:space:]]*$//')
   segment=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//')
   local first
-  first=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk 'NR==1 {print $1; exit}')
+  first=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk '{ if (NF > 0) { print $1; exit } }')
   [[ -z "$first" ]] && return 0
   case "$first" in
     git|mkdir|rm|mv|cd|ls)
@@ -143,7 +348,7 @@ check_segment() {
       ;;
     npm)
       local second
-      second=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk 'NR==1 {print $2; exit}')
+      second=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk '{ if (NF > 0) { print $2; exit } }')
       if [[ "$second" == "install" || "$second" == "i" || "$second" == "ci" ]]; then
         return 0
       fi
@@ -151,7 +356,7 @@ check_segment() {
       ;;
     pip|pip3)
       local second
-      second=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk 'NR==1 {print $2; exit}')
+      second=$(printf '%s' "$segment" | sed -E 's/^[[:space:]]*//' | awk '{ if (NF > 0) { print $2; exit } }')
       if [[ "$second" == "install" ]]; then
         return 0
       fi
@@ -174,11 +379,18 @@ case "$TOOL_NAME" in
       exit 0
     fi
 
+    # Extract substitutions first: $(...), <(...), >(...), `...`.
+    # These execute commands hidden inside argument expansion of an
+    # outer whitelisted command, e.g. 'git log $(curl evil)'. Each
+    # extracted body is appended as a ;-separated segment so the
+    # per-segment scan below covers it.
+    EXTRACTED=$(printf '%s' "$COMMAND" | extract_subs)
+
     # Normalize: strip heredoc bodies + quoted content, leaving only
     # shell-structural text. Chain operators inside quoted strings or
     # heredoc bodies are removed by this pass, so the per-segment scan
     # operates on real command boundaries.
-    NORMALIZED=$(printf '%s' "$COMMAND" | normalize_command)
+    NORMALIZED=$(printf '%s' "$EXTRACTED" | normalize_command)
 
     # Neutralize file-descriptor redirects so embedded '&' is not
     # mistaken for a background-or-chain operator. Covers 2>&1, >&3,

