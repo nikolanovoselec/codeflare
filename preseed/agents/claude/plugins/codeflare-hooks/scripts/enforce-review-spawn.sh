@@ -101,23 +101,65 @@ if [ -f "sdd/.skip-next-review" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Layer 1 (CANDIDATE) — find Bash tool_use lines whose .input.command
-# field actually runs `git push` (not just mentions it inside an echo or
-# narration). Match either:
-#   1. command starts with `git push` — e.g. `"command":"git push origin..."`
-#   2. command has a shell separator (;&|) before `git push` — chained
-#      pipelines like `git add . && git push` or `git status; git push`
+# Layer 1 (CANDIDATE) — find tool_use lines whose effective shell command
+# actually runs `git push` (not just mentions it inside an echo or
+# narration). Three tool surfaces are scanned:
+#
+#   A. Bash tool                  → field `"command":"..."`
+#   B. mcp__*__ctx_batch_execute  → field `"command":"..."` (per array entry,
+#                                   inline on the same JSONL line)
+#   C. mcp__*__ctx_execute        → field `"code":"..."` (only when the
+#                                   sibling `"language":"shell"` appears on
+#                                   the same JSONL line)
+#
+# Issue #319: prior to multi-tool scanning, `git push` made via ctx_execute
+# or ctx_batch_execute was invisible to PUSH_LINE detection because the awk
+# regex required `"name":"Bash"`. The review gate silently fell through
+# (exit 0 — "no candidate") and unreviewed PR HEADs slipped past the
+# Stop hook. The fix mirrors the multi-shape parsing already shipped in
+# git-push-review-reminder.sh for issue #317.
+#
+# Match positions inside the command/code value:
+#   1. starts with `git push` — e.g. `"command":"git push origin..."`
+#   2. has a shell separator (;&|) before `git push` — chained pipelines
+#      like `git add . && git push` or `git status; git push`
 # Acceptable false-negative: heredoc/multi-line commands that JSON-encode
 # newlines as `\n` and put `git push` after that. Rare in practice.
 # Acceptable false-positive: still possible if a quoted string ends in a
 # separator, but Layer 2 (PR HEAD SHA) filters these.
+#
+# Pattern note: `mcp__[^"]*ctx_execute"` does NOT match
+# `mcp__context-mode__ctx_batch_execute"` because the literal `ctx_execute`
+# must end at the closing `"`. `ctx_batch_execute"` ends in `execute"` with
+# no `ctx_` prefix before it. The two awk blocks below are therefore
+# mutually exclusive per tool_use line.
 # ---------------------------------------------------------------------------
 PUSH_LINE=$(awk '
+  # A. Bash tool_use
   /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
     if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
       print NR; next
     }
     if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\]/) {
+      print NR; next
+    }
+  }
+  # B. mcp__*__ctx_batch_execute tool_use (per-entry `"command"` field)
+  /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
+      print NR; next
+    }
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\]/) {
+      print NR; next
+    }
+  }
+  # C. mcp__*__ctx_execute with `"language":"shell"` (uses `"code"` field)
+  /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
+    if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
+    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
+      print NR; next
+    }
+    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\]/) {
       print NR; next
     }
   }

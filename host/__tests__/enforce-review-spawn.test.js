@@ -602,3 +602,124 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
     assert.match(r.stdout, /"decision"\s*:\s*"block"/);
   });
 });
+
+describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)', () => {
+  // Regression for #319: when context-mode forces `git push` through
+  // ctx_execute(language:"shell", code:"git push ...") or
+  // ctx_batch_execute({commands:[{command:"git push ..."}]}), the
+  // PUSH_LINE awk must classify those transcript entries as candidate
+  // push events. Prior to the fix, the awk only matched `"name":"Bash"`
+  // and the entire review gate fell through silently for MCP shell
+  // routing — exactly the silent-bypass the Stop hook exists to prevent.
+
+  const ctxExecPush = (
+    ts = '2026-05-03T12:00:00.000Z',
+    code = 'git push origin develop',
+    language = 'shell',
+  ) =>
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'mcp__context-mode__ctx_execute',
+            input: { language, code },
+          },
+        ],
+      },
+      timestamp: ts,
+    });
+
+  const ctxBatchPush = (
+    ts = '2026-05-03T12:00:00.000Z',
+    commands = [{ label: 'push', command: 'git push origin develop' }],
+  ) =>
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'mcp__context-mode__ctx_batch_execute',
+            input: { commands, queries: ['noop'] },
+          },
+        ],
+      },
+      timestamp: ts,
+    });
+
+  it('blocks on ctx_execute(language=shell) with git push', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [ctxExecPush()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'ctx_execute shell git push must trigger PUSH_LINE detection');
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /spec-reviewer/);
+  });
+
+  it('blocks on ctx_batch_execute with git push in commands array', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [ctxBatchPush()]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'ctx_batch_execute git push command must trigger PUSH_LINE detection');
+  });
+
+  it('does NOT classify ctx_execute(language=javascript) with code mentioning git push', () => {
+    // language gate: only shell-language ctx_execute counts. A JS
+    // analysis snippet that happens to string-match "git push" must
+    // not fire the review gate.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'newsha'));
+    const t = writeTranscript(cwd, [
+      ctxExecPush(
+        '2026-05-03T12:00:00.000Z',
+        'console.log("docs say: run git push origin develop")',
+        'javascript',
+      ),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'ctx_execute with language!=shell must not classify as a push trigger');
+  });
+
+  it('detects chained pipelines inside ctx_execute shell code', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [
+      ctxExecPush(
+        '2026-05-03T12:00:00.000Z',
+        'git add . && git commit -m x && git push origin develop',
+      ),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+
+  it('detects chained pipelines inside any ctx_batch_execute command entry', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [
+      ctxBatchPush('2026-05-03T12:00:00.000Z', [
+        { label: 'status', command: 'git status' },
+        { label: 'push', command: 'git add . && git push origin develop' },
+      ]),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/);
+  });
+});

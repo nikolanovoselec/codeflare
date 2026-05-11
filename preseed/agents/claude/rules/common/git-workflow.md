@@ -172,16 +172,34 @@ separation" section) makes this explicit.
 
 ## Post-Push: CI Monitoring
 
-After every `git push`, monitor CI in the background so the user can
-continue working:
-1. Spawn a background Bash command that polls `gh run list` every 15s
-2. Wait for ALL runs on the pushed commit to complete
-3. If ALL GREEN — report to user
-4. If ANY FAILED — check `gh run view <id> --log-failed`, fix the issue,
-   commit, push, and repeat from step 1
-5. Continue this loop until CI is green
+After every `git push`, monitor CI until every run on the pushed commit
+completes successfully.
 
-Never report CI as passing unless you have confirmed it.
+**Bounded per-iteration polling, not a long-running script.** DO NOT spawn
+`while true; do ...; done` (blocking script that the agent can't
+intervene in if it hangs). DO call a single 15-second-spaced check
+every iteration, read the table, decide. Cap at ~30 iterations
+(~7-8 min wall time) before escalating to the user.
+
+Tool selection (binary on session type):
+
+- **Context-mode sessions** — `enforce-ctx-mode.sh` denies `gh` /
+  `while` / `echo` / `tail` via the native Bash tool. Each iteration
+  goes through `mcp__context-mode__ctx_execute(language:"shell",
+  code:"sleep 15 && gh run list --branch <branch> ...")`. The sandbox
+  interior is unrestricted shell; output stays in sandbox FTS5 so
+  the agent burns near-zero context tokens per iteration.
+- **Vibe-coding (no context-mode) sessions** — same single-iteration
+  body via the Bash tool (no `run_in_background:true` — each call is
+  short and bounded by the 15-second sleep + one `gh run list`).
+
+See `rules/ci-monitoring.md` for the full per-iteration decision
+matrix, failure-triage flow, and stale-run cancellation step.
+
+Never report CI as passing unless you have confirmed every row is
+`completed` + `success` in the same iteration. Never deploy to
+integration until every run is green. Never use `gh run watch` —
+it hangs.
 
 ## Pull Request Workflow
 
