@@ -115,13 +115,13 @@ fi
 # Issue #319: prior to multi-tool scanning, `git push` made via ctx_execute
 # or ctx_batch_execute was invisible to PUSH_LINE detection because the awk
 # regex required `"name":"Bash"`. The review gate silently fell through
-# (exit 0 — "no candidate") and unreviewed PR HEADs slipped past the
+# (exit 0 - "no candidate") and unreviewed PR HEADs slipped past the
 # Stop hook. The fix mirrors the multi-shape parsing already shipped in
 # git-push-review-reminder.sh for issue #317.
 #
 # Match positions inside the command/code value:
-#   1. starts with `git push` — e.g. `"command":"git push origin..."`
-#   2. has a shell separator (;&|) before `git push` — chained pipelines
+#   1. starts with `git push` - e.g. `"command":"git push origin..."`
+#   2. has a shell separator (;&|) before `git push` - chained pipelines
 #      like `git add . && git push` or `git status; git push`
 # Acceptable false-negative: heredoc/multi-line commands that JSON-encode
 # newlines as `\n` and put `git push` after that. Rare in practice.
