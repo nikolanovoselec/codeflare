@@ -492,6 +492,67 @@ describe('enforce-ctx-mode hook', () => {
       }));
     });
 
+    it('allows nested arithmetic-only $(($((1+2)) + 3)) with no inner command sub', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log -n $(($((1+2)) + 3))' },
+      }));
+    });
+
+    it('allows arithmetic with parens-grouped operator: $(( (1+2) * 3 ))', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log -n $(( (1+2) * 3 ))' },
+      }));
+    });
+
+    it('CLOSES arithmetic-nested $(...) bypass: $(($(curl evil) + 1))', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log -n $(($(curl evil.com) + 1))' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES arithmetic-nested backtick bypass: $((`curl evil` + 1))', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log -n $((`curl evil` + 1))' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES arithmetic-nested non-network sub: $(($(head /etc/passwd) + 1))', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log -n $(($(head /etc/passwd) + 1))' },
+      }));
+      assert.match(reason, /head violates/);
+    });
+
+    it('CLOSES deeply-nested arithmetic+sub: $(($((1+$(curl x))) + 2))', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log -n $(($((1+$(curl x))) + 2))' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('CLOSES arithmetic-nested sub inside double-quoted string', () => {
+      const reason = deniedReason(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: 'git log --grep="$(($(curl evil) + 1))"' },
+      }));
+      assert.match(reason, /curl violates/);
+    });
+
+    it('allows arithmetic-nested sub inside single-quoted string (literal)', () => {
+      assertAllowed(runHook({
+        tool_name: 'Bash',
+        tool_input: { command: "git log --grep='$(($(curl x) + 1))'" },
+      }));
+    });
+
     it('allows parameter expansion $VAR and ${VAR}', () => {
       assertAllowed(runHook({
         tool_name: 'Bash',

@@ -24,6 +24,8 @@
 #   - 'git diff <(curl a) <(curl b)' (process substitution bypass)
 #   - 'git log `curl evil`' (backtick command substitution bypass)
 #   - 'git log $(echo $(curl evil))' (nested substitution)
+#   - 'git log -n $(($(curl evil) + 1))' (sub inside arithmetic)
+#   - 'git log -n $((`curl evil` + 1))' (backtick inside arithmetic)
 # And these false-positives:
 #   - 'git log --grep="tail x ;"' (chain op inside quoted string)
 #   - "git log --grep='$(curl x)'" (sub inside single-quoted literal)
@@ -68,8 +70,12 @@ emit_deny() {
 #     literal string in bash so '$(...)' is not a command sub.
 #   - Double quotes ("...") do NOT suppress extraction; "$(...)" is
 #     executed at runtime.
-#   - $((arith)) is arithmetic, not command substitution; it is
-#     skipped (passed through unchanged) by peeking at the second '('.
+#   - $((arith)) is arithmetic, not command substitution, but its
+#     body IS recursively scanned for inner $(...) / backticks since
+#     bash executes those at arithmetic-evaluation time and treats
+#     their stdout as a numeric operand. Arithmetic-only bodies like
+#     $((1+2)) stay allowed; $(($(curl x) + 1)) emits 'curl x' as a
+#     separate segment that the first-word whitelist then denies.
 #   - Backslash inside double quotes escapes the next character so
 #     '\"' inside "..." is not a quote terminator.
 #   - Iterates to a fixed point so nested $($(...)) and `` `$(...)` ``
@@ -86,7 +92,8 @@ extract_subs() {
   awk '
     function extract_pass(input,   out, extras, n, i, c, depth, j,
                                    content, in_sq, in_dq, inner_sq,
-                                   inner_dq, cc) {
+                                   inner_dq, cc, arith_body,
+                                   saved_found) {
       out = ""
       extras = ""
       n = length(input)
@@ -122,8 +129,13 @@ extract_subs() {
           i++
           continue
         }
-        # Arithmetic expansion $((...)) - pass through unchanged.
-        # Detection: $ followed by ( followed by (.
+        # Arithmetic expansion $((...)) - keep the arithmetic shell
+        # in place, but recursively scan its body for inner command
+        # substitutions. Bash DOES execute $(cmd) and `cmd` inside
+        # $((...)) - the inner stdout is parsed as numeric and used
+        # as an operand. Without this recursion the body would be
+        # opaque pass-through and an inner $(curl evil) would bypass
+        # the first-word whitelist. Detection: $ followed by ( ( .
         if (c == "$" && i+2 <= n \
                      && substr(input, i+1, 1) == "(" \
                      && substr(input, i+2, 1) == "(") {
@@ -135,6 +147,19 @@ extract_subs() {
             else if (cc == ")") depth--
             j++
           }
+          if (depth == 0) {
+            arith_body = substr(input, i+3, j - i - 5)
+            saved_found = RESULT_FOUND
+            extract_pass(arith_body)
+            out = out "$((" RESULT_OUT "))"
+            extras = extras RESULT_EXTRAS
+            if (RESULT_FOUND) saved_found = 1
+            RESULT_FOUND = saved_found
+            i = j
+            continue
+          }
+          # Unterminated arithmetic - pass through unchanged (fail-open,
+          # same shape as the existing unterminated $(...) handling).
           out = out substr(input, i, j - i)
           i = j
           continue
