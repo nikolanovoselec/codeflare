@@ -275,9 +275,10 @@ is done via `settings.json` (see above).
   the pipe-alternated MCP matcher
   `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`.
   This keeps attribution blocking and push detection effective when
-  context-mode's `enforce-ctx-mode.sh` denies specific PR-mutating
-  `gh` subcommands in Bash and agents retry them through MCP shell
-  tools. Implements
+  context-mode's `enforce-ctx-mode.sh` restricts Bash to a whitelist
+  (`git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip
+  install`) - all `gh` calls in Bash are denied and agents route them
+  through MCP shell tools instead. Implements
   [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC4, AC8. Hooks
   registered in settings.json, scripts delivered via plugin.
 
