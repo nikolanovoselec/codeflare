@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # PreToolUse hook - blocks git commits / GitHub surfaces with Claude attribution.
 #
-# Registered in settings.json on three matchers:
-#   1. Bash                                    (with `"if": "Bash(git *)"` /
+# Registered in settings.json on two matcher entries covering three tool names:
+#   1. matcher "Bash"                          (with `"if": "Bash(git *)"` /
 #                                               `"if": "Bash(gh *)"` predicates)
-#   2. mcp__context-mode__ctx_execute          (ctx-mode shell tool)
-#   3. mcp__context-mode__ctx_batch_execute    (ctx-mode batch shell tool)
+#   2. matcher "mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute"
+#      (pipe-alternated regex covering both ctx-mode shell and batch tools)
 #
 # Within those, it further narrows to commands that can introduce attribution
 # into a git object or a GitHub surface (commit messages, merge messages, tag
