@@ -1,0 +1,137 @@
+name: bump-shadow-pins
+
+# Watches npm packages whose versions are pinned outside any package.json
+# (so Dependabot can't see them) and opens a single PR per bump.
+#
+# Currently watched: context-mode (canonical version in
+# preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json,
+# echoed in entrypoint.sh, hooks.json, and README.md).
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  context-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Diff current pin against npm latest
+        id: ver
+        run: |
+          set -euo pipefail
+          CURRENT=$(jq -r .version preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json)
+          LATEST=$(npm view context-mode version)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST, nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/context-mode-${{ steps.ver.outputs.latest }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          # Replace every occurrence of the exact version string. The version
+          # is specific enough (1.0.NNN) that a global string replace is safe.
+          # No sed: do it via Node so the rule against editing files with sed
+          # holds even in CI.
+          node <<'NODE'
+          const fs = require('node:fs');
+          const cur = process.env.CUR;
+          const lat = process.env.LAT;
+          const files = [
+            'preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json',
+            'entrypoint.sh',
+            'preseed/agents/claude/plugins/context-mode/hooks/hooks.json',
+            'preseed/agents/claude/plugins/context-mode/README.md',
+          ];
+          for (const f of files) {
+            const before = fs.readFileSync(f, 'utf-8');
+            const after = before.replaceAll(cur, lat);
+            if (before !== after) {
+              fs.writeFileSync(f, after);
+              console.log(`updated ${f}`);
+            }
+          }
+          NODE
+
+          # Regenerate the embedded preseed manifest so agent-seed.generated.ts
+          # reflects the bumped hooks.json content.
+          npm ci --no-audit --no-fund --silent
+          npm run generate:agent-seed
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing changed (replacement found nothing) — aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump context-mode $CUR -> $LAT"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          Auto-generated bump of \`context-mode\` from \`$CUR\` to \`$LAT\`.
+
+          The version is shadow-pinned (no package.json entry) so Dependabot can't open this PR — \`bump-shadow-pins.yml\` does it weekly.
+
+          Files updated by string replace + agent-seed regenerate:
+          - \`preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json\`
+          - \`entrypoint.sh\` (CONTEXT_MODE_VERSION + jq/bash fallback strings)
+          - \`preseed/agents/claude/plugins/context-mode/hooks/hooks.json\` (4 hook commands)
+          - \`preseed/agents/claude/plugins/context-mode/README.md\`
+          - \`src/lib/agent-seed.generated.ts\` (regenerated)
+
+          ## Test plan
+          - [ ] CI green
+          - [ ] Smoke test on integration: \`ctx_doctor\` reports the new version
+          EOF
+          )
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump context-mode $CUR -> $LAT" \
+            --body "$BODY"
