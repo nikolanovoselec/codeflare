@@ -1186,6 +1186,17 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
         ')
         echo "[entrypoint] Advanced mode: context-mode hooks added to settings.json (version $CONTEXT_MODE_VERSION)"
     fi
+    # Hardening: validate SETTINGS_CONFIG is well-formed JSON before it
+    # reaches the settings.json merge below. The literal heredoc-style
+    # quoting on line ~1163 uses interleaved `'"$PLUGIN_DIR"'` insertions —
+    # a single typo (missing close-quote, stray comma) produces a string
+    # bash accepts but Claude Code silently rejects at runtime, hooks just
+    # never fire. Fail loudly here instead.
+    if ! printf '%s' "$SETTINGS_CONFIG" | jq empty 2>/dev/null; then
+        echo "[entrypoint] FATAL: SETTINGS_CONFIG is not valid JSON after assembly" >&2
+        echo "[entrypoint] First 200 chars: $(printf '%s' "$SETTINGS_CONFIG" | cut -c1-200)" >&2
+        exit 1
+    fi
     echo "[entrypoint] Advanced mode: configuring settings.json with hooks"
 else
     SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'

@@ -269,12 +269,15 @@ is done via `settings.json` (see above).
   git-push review reminders, and SDD review-agent sequential
   enforcement — `spec-reviewer` runs first, then `doc-updater`
   sequentially; on non-SDD projects (no `sdd/`) no agents fire and
-  the push is friction-free (vibe-coding mode). Each hook is
-  registered on both the Bash matcher AND the MCP shell-tool matchers
-  (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`)
-  so attribution blocking and push detection remain effective when
-  context-mode's `enforce-ctx-mode.sh` routes `gh`/`git` calls
-  through MCP tools instead of Bash. Implements
+  the push is friction-free (vibe-coding mode). Each tool-gated hook
+  is registered on two matcher entries covering three tool names: the
+  `Bash` matcher (with `Bash(git *)` and `Bash(gh *)` predicates) and
+  the pipe-alternated MCP matcher
+  `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`.
+  This keeps attribution blocking and push detection effective when
+  context-mode's `enforce-ctx-mode.sh` denies specific PR-mutating
+  `gh` subcommands in Bash and agents retry them through MCP shell
+  tools. Implements
   [REQ-AGENT-021](../sdd/agents.md#req-agent-021) AC4, AC8. Hooks
   registered in settings.json, scripts delivered via plugin.
 
@@ -308,14 +311,15 @@ See [AD49](decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not
 
 - **Attribution blocking not working**: Check
   `~/.claude/settings.json` has `PreToolUse` hook entries pointing
-  to `block-attributed-commits.sh` on three matchers: `Bash` (with
-  `"if": "Bash(git *)"` and `"if": "Bash(gh *)"` predicates),
-  `mcp__context-mode__ctx_execute`, and
-  `mcp__context-mode__ctx_batch_execute`. Verify the script exists
-  at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
+  to `block-attributed-commits.sh` on two matcher entries covering
+  three tool names: a `Bash` matcher (with `"if": "Bash(git *)"`
+  and `"if": "Bash(gh *)"` predicates) AND a pipe-alternated MCP
+  matcher `"matcher": "mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute"`.
+  Verify the script exists at
+  `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
   If attribution appears via `gh pr create` in a context-mode session,
-  the MCP matchers are missing — re-run the entrypoint or check the
-  `SETTINGS_CONFIG` merge in `entrypoint.sh`.
+  the MCP matcher entry is missing — re-run the entrypoint or check
+  the `SETTINGS_CONFIG` merge in `entrypoint.sh`.
 - **Review-spawn enforcement not firing on push**: see
   [Resetting the review-spawn checkpoint](#resetting-the-review-spawn-checkpoint)
   below.
