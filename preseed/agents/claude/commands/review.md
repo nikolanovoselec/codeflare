@@ -4,14 +4,23 @@ Run a full codebase review from 6 specialized perspectives using parallel agents
 
 **Review mode:** static analysis only - no runtime, build, or test validation performed.
 
+## Shell execution (applies to every phase)
+
+Shell snippets in this command run via one of two transparent paths:
+
+- **Context-mode session** — route through `mcp__context-mode__ctx_execute(language: "shell", code: "<body>")` (or `ctx_batch_execute` for multi-step batches). `enforce-ctx-mode.sh` denies `gh`, `while`, `head`, `tail`, `awk`, `sed`, `cat`, `echo` in the native Bash tool.
+- **Non-context-mode session** — same body via the Bash tool directly.
+
+Both paths produce identical output; the wrapper is transparent.
+
 ## Context Preservation
 
 **CRITICAL:** The main session agent is primarily an orchestrator. All source-code analysis and all reading of files `01-11` and `documentation/decisions/README.md` MUST be delegated to Task agents.
 
 The main agent may read only:
-- After Phase 4: summary via `head -n 20` (Bash tool) on `08-active-findings.md`
-- After Phase 5: summary via `head -n 30` (Bash tool) on `09-real-findings.md`
-- After Phase 6: summary via `head -n 30` (Bash tool) on `10-llm-verified.md`
+- After Phase 4: the first ~20 lines of `08-active-findings.md`
+- After Phase 5: the first ~30 lines of `09-real-findings.md`
+- After Phase 6: the first ~30 lines of `10-llm-verified.md`
 - Phase 7: the `## Real Findings` and `## Tech-Debt Surfaced` sections of `09-real-findings.md` (or `10-llm-verified.md` if Phase 6 ran) for triage
 - Phase 10: the `## Fix` section of `11-triage-results.md` to enter plan mode
 
@@ -120,7 +129,7 @@ Launch a single Task agent (`code-reviewer` type). The agent:
 Task agent prompt:
 
 ```
-Use Bash to run: ls [REVIEW_DIR]/0*.md
+List the existing review files at [REVIEW_DIR]/0*.md (use Glob).
 Read ONLY the files that actually exist. Some review agents may have failed - do not attempt to read missing files.
 
 Perform cross-referencing analysis:
@@ -235,7 +244,7 @@ Review mode: static analysis only
 - **Suggestion:** ...
 ```
 
-After the Task agent completes, use Bash to run `head -n 20 "$REVIEW_DIR/08-active-findings.md"` and print the output to the user. Phase 5 still runs even if Active = 0 - the cycle counter and audit log are useful artifacts even on clean cycles.
+After the Task agent completes, read the first ~20 lines of `$REVIEW_DIR/08-active-findings.md` and print them to the user. Phase 5 still runs even if Active = 0 - the cycle counter and audit log are useful artifacts even on clean cycles.
 
 ## Phase 5: Reality Filter (Task agent)
 
@@ -453,7 +462,7 @@ tools. The Auto-Filtered audit section is mandatory output - if it is missing or
 when DROP/DEMOTE counts are non-zero, the phase failed.
 ```
 
-After the Task agent completes, use Bash to run `head -n 30 "$REVIEW_DIR/09-real-findings.md"` and print the output to the user.
+After the Task agent completes, read the first ~30 lines of `$REVIEW_DIR/09-real-findings.md` and print them to the user.
 
 **Orchestrator check:** Parse the "Real findings (after Q1-Q5)" count and the "Tech-Debt surfaced" count from the header. If both are 0, output "Clean review - no actionable findings after Reality Filter" and STOP. Do not proceed to Phase 6 or beyond.
 
@@ -560,7 +569,7 @@ how many findings there are. If you find yourself about to call consult_llm a 3r
 time, stop and re-batch.
 ```
 
-After the Task agent completes, use Bash to run `head -n 30 "$REVIEW_DIR/10-llm-verified.md"` and print the output to the user.
+After the Task agent completes, read the first ~30 lines of `$REVIEW_DIR/10-llm-verified.md` and print them to the user.
 
 **Orchestrator check:** If the surviving Real Findings count is 0 AND Tech-Debt-Surfaced is 0, output "Clean review - no actionable findings after LLM verification" and STOP.
 
@@ -800,7 +809,7 @@ You are updating architecture decisions and creating GitHub issues from a codeba
    - If not found, append a new AD subsection at the end of the Decisions section with the next available AD number
 
 3. For each "Technical Debt" entry:
-   - Create a GitHub issue using: gh issue create --label "technical-debt" --title "TD: [title]" --body "[description + remediation]"
+   - Create a GitHub issue using: `gh issue create --label "technical-debt" --title "TD: [title]" --body "[description + remediation]"`
    - Do NOT write tech debt to any documentation file
 
 IMPORTANT: Read documentation/decisions/README.md fully before editing. Use the Edit tool for AD insertions.

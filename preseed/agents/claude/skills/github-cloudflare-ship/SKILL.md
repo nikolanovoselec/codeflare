@@ -16,6 +16,28 @@ Non-technical users who may have never used GitHub, git, a terminal, or deployed
 
 This environment has limited resources (1 CPU core). Never run `npm test` or any test suite locally. Tests only run in GitHub Actions CI, where the runner has dedicated resources. When creating CI workflows, include a test step only if the project has real tests configured.
 
+## Shell execution (applies to every step)
+
+Every shell snippet in this skill (`gh ...`, `git ...`, `wrangler ...`, etc.)
+runs through one of two transparent paths:
+
+- **Context-mode session** — `enforce-ctx-mode.sh` denies `gh`, `echo`,
+  `while`, `head`, `tail`, `awk`, `sed`, `cat` in the native Bash tool. Route
+  them through `mcp__context-mode__ctx_execute(language: "shell", code: "<body>")`
+  for single commands, or `mcp__context-mode__ctx_batch_execute(commands: [...])`
+  for multi-command sequences. The sandbox interior is unrestricted shell;
+  output stays in sandbox FTS5 (near-zero context burn).
+- **Non-context-mode session** — same command body via the Bash tool directly.
+  No routing layer, no denial list, same observable result.
+
+Both paths produce identical output. The user does not need to know which path
+their session is using; the snippet bodies in this file work unchanged in
+either. Code blocks below are written in their bare shell form for clarity.
+
+User-paste blocks (where the user pastes a command into a *second terminal
+tab* to keep secrets off the chat) are unaffected by either path — those
+commands run in the user's own shell, not yours.
+
 ## Workflow
 
 On invocation, run through each step below in order. For each step, **detect the current state first** — if the step is already complete, confirm it and move on. Never redo completed steps.
@@ -350,7 +372,16 @@ Do not ask the user to create resources manually. Get the credentials first, the
 4. `git push`
 5. Tell the user: "Your code is being deployed. Let me check..."
 6. Get the run ID: `RUN_ID=$(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')`
-7. Poll until complete (do NOT use `gh run watch` — it can exceed the Bash timeout): `gh run view $RUN_ID --json status,conclusion --jq '[.status, .conclusion] | join(" ")'`. Check every 15 seconds until status is `completed`. Use `run_in_background` for the polling loop if needed.
+7. **Bounded per-iteration polling** (do NOT use `gh run watch` — it hangs; do NOT spawn a long-running `while true` loop — it can't be interrupted if the run stalls). One iteration is one shell call:
+   ```
+   sleep 15
+   gh run view $RUN_ID --json status,conclusion --jq '[.status, .conclusion] | join(" ")'
+   ```
+   After each iteration, read the printed pair and decide explicitly:
+   - `completed success` → done, proceed to Step 14
+   - `completed <anything else>` → fetch logs via `gh run view $RUN_ID --log-failed`, report failure, fix, retry
+   - `queued <empty>` or `in_progress <empty>` → run the same one-shot snippet again to recheck 15 seconds later
+   - Cap at ~30 iterations (~7-8 min). If still not terminal, escalate to user.
 
 ### Step 14: Verify and Celebrate
 
