@@ -1141,7 +1141,21 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     #   special-cased here — the project should rely on GitHub branch
     #   protection to require PRs into main; see common/git-workflow.md.
     # Base advanced-mode hooks (codeflare-memory + codeflare-hooks).
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
+    #
+    # Issue #317: git-push-review-reminder.sh is registered on BOTH the Bash
+    # matcher AND the MCP shell-tool matcher (mcp__context-mode__ctx_execute,
+    # mcp__context-mode__ctx_batch_execute). The MCP entry is added
+    # unconditionally — not gated on context-mode plugin presence — so the
+    # configuration is uniform across users with and without context-mode:
+    #
+    #   - Users WITHOUT context-mode: the MCP matcher exists in settings.json
+    #     but the MCP tools themselves are never invoked, so the entry is
+    #     inert. Adds zero overhead and zero behavior change.
+    #   - Users WITH context-mode: when enforce-ctx-mode.sh denies `gh pr
+    #     create` / `gh pr merge` in Bash and forces them through
+    #     ctx_execute, the review-reminder still fires from the MCP matcher.
+    #     Closes the silent-bypass discovered in ai-news-digest PR #247.
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"}]}]}}'
     # context-mode hooks (Custom tier only, gated on plugin manifest presence).
     # Implements REQ-AGENT-005. Same four hooks the upstream context-mode
     # plugin would self-register via hooks.json — we wire them through
@@ -1149,20 +1163,12 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # plugins (bare plugin.json, real wiring in entrypoint).
     if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
         CTX_ENFORCE="$PLUGIN_DIR/context-mode/scripts/enforce-ctx-mode.sh"
-        # Issue #317: enforce-ctx-mode.sh denies `gh pr create` / `gh pr merge`
-        # in Bash and forces them through MCP shell tools. Register the SDD
-        # review-reminder hook on the MCP shell matcher too so the PR-boundary
-        # directive fires for redirected invocations, not just direct Bash.
-        REVIEW_HOOK="$PLUGIN_DIR/codeflare-hooks/scripts/git-push-review-reminder.sh"
-        CTX_HOOKS=$(jq -n --arg enforce "$CTX_ENFORCE" --arg review "$REVIEW_HOOK" '{
+        CTX_HOOKS=$(jq -n --arg enforce "$CTX_ENFORCE" '{
           PreToolUse: [
             {matcher:"Bash|Read|WebFetch|Grep|Glob|Agent",hooks:[{type:"command",command:"context-mode hook claude-code pretooluse"}]},
             {matcher:"Bash|WebFetch|Grep",hooks:[{type:"command",command:("bash " + $enforce)}]}
           ],
-          PostToolUse: [
-            {matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"context-mode hook claude-code posttooluse"}]},
-            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $review)}]}
-          ],
+          PostToolUse: [{matcher:"Bash|Read|WebFetch|Grep|Glob",hooks:[{type:"command",command:"context-mode hook claude-code posttooluse"}]}],
           PreCompact: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code precompact"}]}],
           SessionStart: [{matcher:"",hooks:[{type:"command",command:"context-mode hook claude-code sessionstart"}]}]
         }')
