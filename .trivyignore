@@ -258,3 +258,22 @@ CVE-2026-25835
 # never invoked with user-controlled credentials. No fix available in Debian
 # bookworm.
 CVE-2026-7598
+
+# Go stdlib in rclone v1.73.x (Go 1.26.2) and lazygit v0.60.0 (Go 1.25.7):
+# new batch of HIGH stdlib advisories. Fixes are in Go 1.25.10 / 1.26.3 but
+# rclone/lazygit upstream releases have not rebuilt yet. Exposure profile is
+# unchanged from prior Go stdlib entries above: both binaries are CLI tools
+# in the sandboxed container, do outbound network only, and do not parse
+# untrusted addresses, NUL-byte hostnames, HTTP/2 SETTINGS frames as a
+# server, or untrusted email phrases.
+#
+# CVE-2026-33811: net.LookupCNAME with cgo DNS resolver miscounts answers.
+# CVE-2026-33814: HTTP/2 SETTINGS frame handling enters error state on peer input.
+# CVE-2026-39820: ParseAddress / ParseAddressList input handling DoS.
+# CVE-2026-39836: Dial / LookupPort panic when hostname contains NUL byte.
+# CVE-2026-42499: net/mail consumePhrase DoS on pathological inputs.
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-39820
+CVE-2026-39836
+CVE-2026-42499
