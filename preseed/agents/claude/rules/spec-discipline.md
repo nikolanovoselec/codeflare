@@ -107,6 +107,8 @@ REQs describing complex features can be long, but length is a smell:
 | 51–100 lines | MEDIUM finding (likely contains implementation leakage) |
 | >100 lines | HIGH finding (almost certainly mixing intent and implementation) |
 
+### Hatch justification (`<!-- sdd-allow-large -->`)
+
 A REQ may opt out of length warnings with an HTML comment, but the marker MUST carry structured justification:
 
 ```markdown
@@ -166,12 +168,16 @@ Severity of the proposal-generation finding: MEDIUM. The finding is satisfied wh
 Algorithm:
 
 1. Parse `sdd/README.md` and every domain file's `## Out of Scope` section.
-2. For each bullet: extract the bolded lead phrase (e.g., `**Embeddings or vector search**: not in scope for v1`) and any `(was REQ-X-NNN)` references.
+2. For each bullet:
+   - **Bolded lead phrase only**: extract tokens **strictly** from the bolded prefix (`**...**`) at the start of the bullet. Bullets without a bolded prefix are skipped (the algorithm refuses to guess where the "lead" ends in plain prose; an unbolded bullet is treated as not having a parseable lead phrase and never produces a finding).
+   - **Ignore parenthetical qualifiers**: any `(...)` clause in the bolded lead phrase is stripped before token extraction. A bullet like `**Memory search UI** (memory is accessed via MCP API not web UI)` yields `{memory, search, UI}` — not `{MCP, API, web}`. This is the load-bearing fix for the "negation + explanation" false-positive pattern (codeflare's own OOS section is the canonical example).
+   - **Capture REQ-ID references**: any `(was REQ-X-NNN)` reference is captured separately for the REQ-ID match path.
 3. Walk every non-`Deprecated` REQ in the entire spec. Flag MEDIUM when:
-   - **Strong match**: an Implemented REQ's title, Intent, or AC contains the Out-of-Scope bullet's bolded phrase, with **≥2 content-word overlap** (stopwords excluded — "the", "a", "and", "or", "of", "for", "to", "in", "is", "be", and the like; "vector search" → "vector" + "search" both qualify; "the system" → 0 qualifying words).
+   - **Strong match**: an Implemented REQ's title, Intent, or AC contains the Out-of-Scope bullet's bolded lead-phrase tokens (post-stripping), with **≥2 content-word overlap** (stopwords excluded — "the", "a", "and", "or", "of", "for", "to", "in", "is", "be", and the like; "vector search" → "vector" + "search" both qualify; "the system" → 0 qualifying words).
    - **REQ-ID match**: a `(was REQ-X-NNN)` reference in the Out-of-Scope bullet points at a REQ that is **not** in `Status: Deprecated` and still has prose in its domain file.
 4. Findings list both the Out-of-Scope bullet location and the colliding REQ ID(s). Proposed resolution: either remove the Out-of-Scope bullet (the feature shipped — update the narrative) or move the REQ to "Out of Scope" / mark Deprecated (the bullet is still correct — the REQ is stale).
-5. Triggering example: an Out-of-Scope bullet claiming "embeddings or vector search" alongside an Implemented REQ with "embedding" / "Vectorize" / "vector search" in title or Intent → MEDIUM finding listing both sides.
+5. Triggering example: an Out-of-Scope bullet claiming `**Embeddings or vector search**` alongside an Implemented REQ with "embedding" / "Vectorize" / "vector search" in title or Intent → MEDIUM finding listing both sides.
+6. Non-triggering example: a bullet `**Memory search UI** (memory is accessed via MCP API not web UI)` does NOT flag a `mcp_memory_*` REQ — the parenthetical is stripped, leaving only `{memory, search, UI}` as match tokens, which is the negated concept, not the implementing REQ.
 
 **Mode behavior**: interactive escalates and asks the user which side to update; auto writes the finding to `sdd/.review-needed.md` and continues; unleashed proposes a rewrite of the Out-of-Scope bullet (the narrative-not-shipped side is the conservative one to preserve — the REQ has tests and code, the bullet is just prose) and logs to `sdd/.review-needed.md`.
 

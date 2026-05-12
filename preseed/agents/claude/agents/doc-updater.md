@@ -220,6 +220,8 @@ For every `<!-- doc-allow-large: ... -->` marker in `documentation/` files:
 | Marker references `pending:YYYY-MM-DD` with the date in the past | LOW (follow-up overdue) |
 | Well-formed and current | no finding |
 
+The same audit applies to `<!-- doc-template-exempt: ... -->` markers introduced by Pass 5 — same severity table, same date math.
+
 Date math is performed against system date at run time. The ADR `Status` field is parsed from the file header (`**Status:** Accepted (YYYY-MM-DD)` shape). spec-reviewer mirrors this pass for `<!-- sdd-allow-large -->` markers in `sdd/`.
 
 ## Phase 3: Apply (mode-dependent)

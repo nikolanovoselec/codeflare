@@ -226,6 +226,8 @@ For every `<!-- doc-allow-large: ... -->` marker in `documentation/` files (and 
 | Marker references `pending:YYYY-MM-DD` with the date in the past | LOW | Follow-up overdue. |
 | Marker is well-formed and current | (no finding) | Accept. |
 
+The same audit applies to `<!-- doc-template-exempt: ... -->` markers introduced by Pass 5: the marker's body must reference an ADR or `pending:YYYY-MM-DD`, and the same severity table governs orphan / superseded / aged / overdue conditions. spec-reviewer applies an identical audit to `<!-- sdd-allow-large -->`.
+
 Date math is performed against the system date at run time. ADR `Status` is parsed from the ADR file's header field.
 
 ## Severity classification on doc findings
