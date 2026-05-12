@@ -25,12 +25,13 @@ When `sdd/` exists, tests are derived from the REQ's acceptance criteria — one
 
 1. **One test per AC bullet.** If the REQ has 5 numbered AC bullets, write 5 test functions. Name each exactly: `REQ-{DOMAIN}-{NNN}: {one-line AC summary}`. The REQ ID MUST appear literally in the test name so spec-reviewer can grep for it.
 2. **Assert observable behavior.** Every test must assert a specific outcome that would fail if the implementation is wrong. "Does not throw" and "is defined" are not acceptable as the only assertion — use them as guards, follow with a real check.
-3. **Banned patterns — never write these:**
+3. **Banned patterns — never write these** (the full antipattern catalogue lives in `tdd-discipline.md` "Antipatterns", which code-reviewer enforces; the highlights):
    - Identity assertions: `expect(true).toBe(true)`, `expect(1).toEqual(1)`, `expect(x).toBe(x)`, `assert True`, `assertTrue(true)`
    - Lone existence checks as the only assertion: `expect(x).toBeDefined()`, `expect(x).not.toThrow()`
    - Empty bodies: `it(..., () => {})`, `it(..., () => { /* TODO */ })`, `def test_foo(): pass`
    - Skipped tests: `.skip`, `xit`, `xdescribe`, `test.skip`, `it.skip`, `@pytest.mark.skip`, `#[ignore]`, `t.Skip()` — tests must run
    - Single-assertion placeholders that don't exercise the AC
+   - **Test name lies about what's asserted** (tdd-discipline antipattern 8): the test name claims behavior X, the assertion checks unrelated Y. Especially dangerous when the test is named after a REQ ID — it satisfies the literal-match rule but verifies nothing. Read your test name back as a one-sentence contract; ask "if the named behavior is broken, does at least one assertion fail?" If no, rewrite.
 4. **RED verification is mandatory.** Before any implementation is written, push the test alone and monitor CI. Observe the test fail in CI and log the failure output to the conversation so the user sees RED was confirmed. Do not run tests locally — always use CI and monitor. If the test passes immediately on CI → the test is wrong, the feature already exists, or you are testing a tautology; fix the test until it genuinely fails for the right reason.
 5. **Edge cases from the REQ.** For each AC bullet, enumerate the null, empty, invalid, boundary, error, and unauthorized cases implied by the contract. Write tests for each. The "Edge Cases You MUST Test" list below is the floor, not the ceiling.
 
