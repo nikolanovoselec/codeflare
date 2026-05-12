@@ -146,6 +146,15 @@ Each canonical lane file follows a per-section template so readers can scan the 
 - A section that legitimately has no value for a field uses an explicit marker: `**Auth:** none (public endpoint)` rather than omission. The marker counts as the field being present.
 - Missing fields are emitted by Pass 5 as MEDIUM findings naming the section and the missing field list.
 
+**Two equivalent shapes**. A section satisfies the template if it carries the required fields in EITHER of these shapes — Pass 5 accepts both:
+
+- **Per-item shape**: one section per item (one endpoint, one env var, one threat, one recipe) with each required field as a bolded label/value pair (`**Method:** GET`, `**Auth:** Cloudflare Access`, ...).
+- **Grouped-table shape**: one section per area (`### Session Management`, `### Container Lifecycle`) listing multiple items in a markdown table whose **column headers contain the required fields**. The table itself counts as the contract for every row. Per-row prose (notes, edge-case warnings) can follow the table.
+
+The required-field set is the same in both shapes — only the encoding differs. For `api-reference.md`, a grouped table must carry columns named at least `Method`, `Path`, `Auth`, `Implements` (Request/Response shapes can live in body prose below the table when they're shared across the section's endpoints). For `configuration.md`, a grouped table must carry columns `Variable`, `Default`, `Required`, `Consumed by`, `Implements`. For `security.md`, `Threat`, `Mitigation`, `Verification`, `Implements`. For `troubleshooting.md`, `Symptom`, `Cause`, `Fix`. For `architecture.md`, `Component`, `Responsibility`, `Source`. For `deployment.md`, `When`, `Command`, `Verifies`, `Rollback`.
+
+Pass 5 picks the shape per-section: if a section contains a recognized table (its column headers match ≥3 of the required fields), Pass 5 enforces the grouped-table shape; otherwise it enforces the per-item shape. A section is free to mix (a table for the bulk of items + a per-item subsection for one that needs extended prose); each subsection is evaluated independently.
+
 The full project's template set is the registry above. Projects may extend it via a `templates` field in `sdd/config.yml` (future), but the canonical lane templates are not overridable — the lane is the contract.
 
 ## Enforcement passes (run by doc-updater)
@@ -199,19 +208,30 @@ Triggering examples from the original audit that motivated the pattern catalogue
 
 ### Pass 5 — Format-template enforcement
 
-For each canonical lane file, walk every `##`/`###` section and verify it contains the required fields from the per-lane template registry above. Emit a MEDIUM finding per section listing the **missing field set**.
+For each canonical lane file, walk every `##`/`###` section and verify it carries the required fields from the per-lane template registry above in **either** of the two shapes defined in the "Two equivalent shapes" rule (per-item bolded fields or grouped-table column headers). Emit a MEDIUM finding per section listing the **missing field set**.
 
-The pass produces concrete, actionable findings:
+Shape detection per section:
+
+1. If the section contains a markdown table whose header row matches ≥3 of the lane's required fields → enforce **grouped-table shape**. Missing fields are columns absent from the header row. The body prose may carry the remaining contract fields (e.g., a single `**Request:**` block shared across all endpoints in a `### Session Management` section).
+2. Otherwise → enforce **per-item shape**. Missing fields are bolded label/value pairs absent from the section body.
+
+Per-section findings name the source file, section heading, detected shape, and missing field list:
 
 ```
 documentation/api-reference.md
-  Section "## Inquiry email delivery" (line 42)
-    Missing: **Auth:**, **Response:**, **Implements:**
+  Section "### Session Management" (line 27) — grouped-table shape detected
+    Missing columns: Auth, Implements
+documentation/api-reference.md
+  Section "### Inquiry email delivery" (line 142) — per-item shape detected
+    Missing fields: **Auth:**, **Response:**, **Implements:**
 ```
 
-Templates are matched against the canonical lane files only — projects that have lane files but no templates set (legacy projects, projects that pre-date this pass) get one onboarding finding per file directing the user to either adopt the template or add a project-level `<!-- doc-template-exempt: ADR-NN reason -->` marker referencing an ADR.
+The pass does NOT auto-rewrite existing sections — restructuring prose or backfilling per-row Auth/Implements values is genuine authoring work. In `unleashed` mode, the agent appends one of:
 
-The pass does NOT auto-rewrite existing sections — restructuring prose into the per-field shape is genuine authoring work. In `unleashed` mode, the agent appends a placeholder marker (`**Implements:** TBD`) so the missing-field set is resolved, but the user must fill in the value.
+- For grouped-table sections: a placeholder column (e.g., adds an `| Implements |` header and a `TBD` cell per row) so the contract surface is visible and the operator can fill values in a follow-up commit
+- For per-item sections: a `**Implements:** TBD` placeholder marker so the missing-field set is resolved
+
+The values must still be filled in by the user — the placeholder satisfies the structural rule, not the contract.
 
 ### Pass 6 — Hatch justification audit
 

@@ -189,23 +189,30 @@ Dual-narrative ADRs are HIGH findings — propose splitting into a new ADR with 
 
 ### Pass 5 — Format-template enforcement
 
-For each canonical lane file (`api-reference.md`, `configuration.md`, `deployment.md`, `security.md`, `architecture.md`, `troubleshooting.md`, and ADR files), walk every `##`/`###` section and verify it contains the required fields per the template registry in `documentation-discipline.md` "Per-lane format templates".
+For each canonical lane file (`api-reference.md`, `configuration.md`, `deployment.md`, `security.md`, `architecture.md`, `troubleshooting.md`, and ADR files), walk every `##`/`###` section and verify it carries the required fields per the template registry in `documentation-discipline.md` "Per-lane format templates" in EITHER of the two shapes defined under "Two equivalent shapes" (per-item bolded fields OR grouped-table column headers).
 
-Emit MEDIUM findings naming the section heading and the missing field set:
+Shape detection per section:
+
+1. If the section contains a markdown table whose header row matches ≥3 of the lane's required fields → enforce **grouped-table shape**. Missing fields are columns absent from the header row.
+2. Otherwise → enforce **per-item shape**. Missing fields are bolded label/value pairs absent from the section body.
+
+Emit MEDIUM findings naming the source file, section heading, detected shape, and missing field list:
 
 ```
 documentation/api-reference.md
-  Section "## Inquiry email delivery" (line 42)
-    Missing: **Auth:**, **Response:**, **Implements:**
+  Section "### Session Management" (line 27) — grouped-table shape detected
+    Missing columns: Auth, Implements
+documentation/api-reference.md
+  Section "### Inquiry email delivery" (line 142) — per-item shape detected
+    Missing fields: **Auth:**, **Response:**, **Implements:**
 ```
 
 Rules:
 
 - A top-of-file preamble paragraph is exempt (no `##` heading yet).
 - Sections describing a different concern than their lane are exempt for Pass 5 (they're flagged separately by Pass 4 lane-violation).
-- An explicit "field has no value" marker counts as the field being present: `**Auth:** none (public endpoint)`. Omission does not.
-- Pass 5 never rewrites existing prose — restructuring is genuine authoring work. In `unleashed` mode, append a placeholder `**Implements:** TBD` to resolve the missing-field set, but the user must fill the value.
-- Projects with lane files but no template adoption: emit one onboarding finding per file directing the user to adopt the template OR add a `<!-- doc-template-exempt: ADR-NN reason -->` marker referencing an ADR.
+- An explicit "field has no value" marker counts as the field being present: `**Auth:** none (public endpoint)` for per-item shape, or `none` as the cell value for grouped-table shape. Omission does not.
+- Pass 5 never rewrites existing prose — restructuring is genuine authoring work. In `unleashed` mode, append placeholders: a `| Implements |` column with `TBD` cells for grouped-table shape, or a `**Implements:** TBD` line for per-item shape. The user must fill the values.
 
 ### Pass 6 — Hatch justification audit
 
