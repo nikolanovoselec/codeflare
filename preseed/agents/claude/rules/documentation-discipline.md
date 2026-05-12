@@ -159,7 +159,7 @@ The full project's template set is the registry above. Projects may extend it vi
 
 ## Enforcement passes (run by doc-updater)
 
-doc-updater runs six passes on every PR-boundary trigger:
+doc-updater runs twelve passes on every PR-boundary trigger. Passes 1-6 are **structural** (shape, budgets, lane, hatch resolution). Passes 7-12 are **content-quality** (does the doc say what it claims, and can a reader actually use it):
 
 ### Pass 1 — Per-element budget enforcement
 
@@ -249,6 +249,95 @@ For every `<!-- doc-allow-large: ... -->` marker in `documentation/` files (and 
 The same audit applies to `<!-- doc-template-exempt: ... -->` markers introduced by Pass 5: the marker's body must reference an ADR or `pending:YYYY-MM-DD`, and the same severity table governs orphan / superseded / aged / overdue conditions. spec-reviewer applies an identical audit to `<!-- sdd-allow-large -->`.
 
 Date math is performed against the system date at run time. ADR `Status` is parsed from the ADR file's header field.
+
+### Pass 7 — Verification truth-check
+
+For every `**Verification:** <test-file>` field in a doc section, open the cited test file and check both:
+
+1. The section's `**Implements:** REQ-X-NNN` REQ ID appears in a `describe`, `test`, or `it` block name within the cited file. A plain substring match is sufficient (mirrors the spec-discipline source-vs-test detector).
+2. At least one content-word token (≥4 chars, stopwords excluded) from the section's `**Threat:**` or `**Mitigation:**` prose appears anywhere in the cited file.
+
+If neither match fires, emit MEDIUM finding `verification-field-cites-unrelated-test` naming the section, the cited file path, and the missing match dimension(s). The cited file existing on disk is necessary but not sufficient — Pass 7 verifies the file actually exercises what the doc claims.
+
+Multiple files in one `**Verification:**` field (comma- or `+`-separated) are evaluated independently; the finding lists only the files that fail. If at least one cited file matches both criteria, the field passes — the convention is that the **first** cited file is the load-bearing one and additional files supplement it.
+
+Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: rewrite the failing field to `**Verification:** {kept-files-that-passed}` (drop the unrelated ones). If every file failed, replace the field with `**Verification:** audit pending — see `documentation/.doc-coverage.md`` and append an audit-pending entry naming the section. Never silently keep a misleading citation.
+
+### Pass 8 — Implements-vs-AC cross-walk
+
+For every `**Implements:** REQ-X-NNN` (or `REQ-X-NNN AC N`) field in a doc section, read the linked REQ's Intent and AC bullets from `sdd/{domain}.md` and classify the doc section's relationship to that REQ using a single-shot structured-output LLM call (provider follows the project's `consult-llm` config; falls back to deterministic keyword overlap when no LLM key is available):
+
+| Classification | Severity | Auto-fix |
+|---|---|---|
+| (a) Section describes a specific AC's behavior, and the linked AC matches | (no finding) | Accept. |
+| (b) Section describes generic REQ context (intent paragraph, cross-cutting behavior), not a specific AC, and the field cites the REQ without an AC suffix | (no finding) | Accept (the bare-REQ form is the correct shape for cross-AC context). |
+| (b') Section describes generic REQ context but the field cites a specific AC (`REQ-X-NNN AC N`) | MEDIUM `implements-field-too-narrow` | Strip the AC suffix; cite the REQ alone. |
+| (c) Section describes behavior outside any AC of the linked REQ | HIGH `implements-field-mismatched` | Replace cited REQ with the LLM's suggested REQ ID (or `audit pending` if no candidate scores above the confidence floor); log to `.doc-coverage.md` with the LLM's reasoning. |
+
+The LLM call receives: (i) the doc section verbatim, (ii) the REQ's Intent block, (iii) every AC bullet of the REQ. Output schema: `{ classification: 'a'|'b'|'b_prime'|'c', matched_ac: number|null, confidence: 0..1, suggested_req: string|null, reasoning: string }`. Confidence floor 0.7; below that, defer to MEDIUM `implements-field-low-confidence` rather than auto-rewriting.
+
+Deterministic fallback (no LLM key): compute token overlap between the doc section's body and each AC bullet, plus the REQ Intent. If the highest-scoring AC overlaps by ≥3 content words (≥4 chars, stopwords excluded), accept as (a) and emit the matched AC number. If only the Intent matches and no AC scores above the floor, accept as (b). Otherwise emit MEDIUM `implements-field-needs-llm-audit` rather than HIGH — the deterministic path under-flags rather than over-rewrites.
+
+### Pass 9 — Stale code-block detection
+
+For every fenced code block, `**Path:** /api/foo`-style field, function signature in body prose, and JSON shape example in `documentation/`, locate the matching source artifact via the project's `src_globs` (from `sdd/config.yml`) and compute a structural diff. The pass runs four sub-checks per artifact:
+
+1. **Route paths**: any `**Path:** /api/foo` or fenced block whose first line is an HTTP method + path. Resolve via filename convention (`src/pages/api/foo*.ts`, `src/routes/foo.ts`, `app/api/foo/route.ts`, framework equivalents). HIGH finding `route-not-in-source` if no handler resolves; MEDIUM `route-handler-renamed` if a near-match exists at a sibling path.
+2. **Function signatures**: any `function fooBar(...)`, `export function fooBar(...)`, or `fooBar(...): Foo` in body prose or fenced TS/JS blocks. Resolve via `src/**` grep for the exported symbol. MEDIUM finding `function-signature-drift` if found but with different parameter count or type list. HIGH finding `function-removed` if the symbol no longer exports.
+3. **JSON shape examples**: any fenced ```json block paired with a `**Response:**` or `**Request:**` field. If a TS type matches the section (by name match against `src/types/**` or `src/**.types.ts`), compare top-level keys. MEDIUM finding `json-example-shape-drift` listing missing/extra keys. If a fixture exists at `tests/fixtures/{normalized-name}.json`, prefer the fixture over the example.
+4. **Env var references**: any `**Variable:** FOO_BAR` or fenced `env.FOO_BAR` usage. Grep `src/**` for the symbol. HIGH finding `env-var-removed-from-source` if no consumer found.
+
+Severity: HIGH for route-not-in-source / function-removed / env-var-removed-from-source; MEDIUM otherwise. Auto-fix in `auto`/`unleashed`: for shape-drift, regenerate the example from the resolved source artifact (read the route handler's return-type, the function's signature, the JSON type's keys) and replace the block. Never delete a stale block silently — replace or flag, never drop.
+
+### Pass 10 — Hatch overuse / catch-all detection
+
+Count `<!-- doc-allow-large: AD-NN ... -->` and `<!-- doc-template-exempt: AD-NN ... -->` references per ADR across the entire `documentation/` corpus (and `<!-- sdd-allow-large: AD-NN ... -->` for `sdd/`, mirrored by spec-reviewer). If one ADR carries `>3` distinct markers across `>1` file, flag it:
+
+- MEDIUM finding `hatch-catch-all` reporting: ADR ID, marker count, file count, and a per-marker excerpt (the marker line plus the ≤2 lines of body immediately following) so the operator can read each justification side-by-side.
+- The finding's resolution choices are spelled out in the output: either (a) the cases are genuinely the same decision and the ADR's `**Decision:**` section should enumerate them explicitly, or (b) the cases are different and the ADR should be split into N per-case ADRs with `Supersedes: AD-NN`.
+
+Threshold tuning: the rule is "more than 3 markers AND more than 1 file" because a single-file ADR (e.g., a per-file budget exemption that triggers in 4 sections of the same `architecture.md`) is a legitimate single decision. Cross-file recurrence is the catch-all signal.
+
+Severity: MEDIUM. Auto-fix: NO — splitting or enumerating an ADR is authoring judgment, not mechanical. The finding stays in `.doc-coverage.md` until the user resolves it. doc-updater records the finding once per run; repeat counts do not re-flag.
+
+### Pass 11 — Content-preservation on trim
+
+When doc-updater (in `auto` or `unleashed` mode) proposes a Pass 1 trim — shortening a bullet to fit the 40-word cap, a paragraph to fit the 120-word cap, or a cell to fit the 50-word cap — the agent must run a content-preservation check on the proposed trim **before committing it**:
+
+1. Tokenize the **removed** content clause-by-clause (split on semicolons, conjunctions, comma-separated enumerations).
+2. For each removed clause, check whether its content tokens reappear in: the kept body of the same bullet, the surrounding prose paragraphs (same `##`/`###` section), the parent section's `**Rationale:**` / `**Consequences:**` / `**Context:**` fields, or — when a linked ADR exists — the ADR body.
+3. A removed clause whose content tokens have no match anywhere is "context-loss" — typically a load-bearing example or a constraint that gave the bullet its meaning.
+
+Three outcomes:
+
+- **All removed clauses match elsewhere**: trim commits as-is.
+- **Some clauses are context-loss but a natural relocation exists** (an adjacent `**Rationale:**` paragraph, an ADR body, a parent section's prose): the agent promotes the clause — appends it to the relocation target with a leading marker `Trimmed from <bullet/section> on <date>:` — and then commits the trim. The agent's commit body lists `trimmed N clauses; preserved K in-place; promoted M to {target}`.
+- **Clauses are context-loss with no relocation target**: the trim is REVERTED. The agent leaves the over-cap bullet in place and emits MEDIUM finding `trim-would-lose-load-bearing-content` listing the bullet location and the at-risk clauses. The cap is violated, but the content is preserved — the operator decides whether to split the bullet, promote inline, or write an ADR.
+
+The deterministic implementation uses tf-idf token overlap with a 0.4 cosine floor (no embedding model required for the baseline). Projects with `embedding_model` configured in `sdd/config.yml` may upgrade to the embedding path, but the default is dependency-free.
+
+Severity: MEDIUM as a finding on the auto-trim itself when the revert path fires. No finding when promotion succeeds (the agent's commit body is the audit trail).
+
+### Pass 12 — Stranger cold-read
+
+For each top-level canonical file in `documentation/`, dispatch a fresh subagent (`general-purpose` subtype, **not** `doc-updater` — must come in cold with no project context) with: (i) only the contents of the one doc file, (ii) a simulated task the file is supposed to answer. The default task registry:
+
+| File | Simulated task |
+|---|---|
+| `api-reference.md` | "Call the most-used public endpoint and parse the response. Output the exact curl command plus the field list you'd extract from a successful response." |
+| `api-reference-admin.md` | "Manually trigger a backend job listed in this file. Output the exact request (method, path, headers, body) and the specific success signal the operator looks for." |
+| `architecture.md` | "Find the source file that owns request authentication for admin endpoints. Output the path. If the doc points elsewhere, say where." |
+| `configuration.md` | "List every env var the dev-bypass code path consumes. Output: name, type, default, where it's consumed." |
+| `deployment.md` | "Roll back the last production deploy. Output the exact commands in order, including any verification commands between steps." |
+| `security.md` | "An external researcher claims the session cookie is readable from JavaScript on the production site. Refute or confirm using only the doc; output the load-bearing sentence." |
+| `troubleshooting.md` | "A user reports the page returns 500 after login. Output the first three diagnostic steps from the doc." |
+| `decisions/README.md` | "Why was the most recent ADR raised? Output the ADR ID and the one-line reason." |
+
+The subagent reports one of three outcomes per file: `succeeded` (task completed using only the doc), `partial` (some sub-question answered, others required guessing), `failed` (the doc lacks the load-bearing information). Partial and failed outcomes each produce a MEDIUM finding `stranger-cold-read-gap` naming the specific information the doc failed to surface — typically the load-bearing path, the exact command, the field name, or the one-line constraint that decides the task.
+
+The task list is project-overridable via `documentation/.cold-read-tasks.yml` (per-file: `simulated_task: "..."`). Files not in the registry skip Pass 12. The pass runs at most once per PR-boundary trigger (caches results on commit SHA + file mtime).
+
+Severity: MEDIUM. No auto-fix — Pass 12 is a signal, not a corrector. doc-updater writes the per-file gap report to `documentation/.doc-coverage.md` under a `## Cold-read gaps` heading and surfaces it to the operator. This is the only pass in the framework that answers "is this doc actually usable?" — every other pass answers a structural question.
 
 ## Severity classification on doc findings
 

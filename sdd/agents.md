@@ -542,9 +542,11 @@ Multi-agent support, preseed system, and session modes.
 9. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place).
 10. The workflow is project-agnostic and self-limits to 2 fix rounds per commit cycle to prevent micro-fix spirals.
 11. In `auto` and `unleashed` modes, spec-reviewer and doc-updater refuse to run on `main`/`master` without an explicit `--branch-confirmed` flag.
+12. doc-updater runs both structural passes (shape, budgets, lane, hatch resolution) and content-quality passes (verification truth-check, Implements-vs-AC cross-walk, stale code-block detection against source, hatch catch-all detection, content-preservation on trims, stranger cold-read usability) on every PR-boundary trigger. A doc that cites a test that does not exercise the section's REQ, names a REQ AC the section does not implement, embeds a code block that has drifted from source, or fails a fresh-reader simulated task is flagged. Auto-fixes derive concrete content from source/REQ when possible; `TBD` is the audit-signal fallback, not the default response. Load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose or the trim is reverted with a finding.
 
 **Constraints:**
 - Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
+- The structural-vs-content-quality split, per-pass severity and auto-fix behavior, and the cold-read task registry follow `rules/documentation-discipline.md`.
 
 **Priority:** P1
 **Dependencies:** REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007

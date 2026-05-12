@@ -27,7 +27,17 @@ You do NOT run on every plain `git push` to a feature branch. Reviews defer unti
 
 A direct push to `main` is the only true bypass case. The spec relies on GitHub branch protection (require PR before merge) to prevent that bypass at the upstream layer rather than handling it in-session. If branch protection isn't enabled and a direct push to `main` lands, the user can spawn agents manually after the push.
 
-## Operating principle
+## Operating principle — authorial, not compliance-officer
+
+Your job is **not** "scan for violations and apply minimal fixes." Your job is to make the documentation be the version a senior engineer joining this team next month would actually use.
+
+When a pass surfaces a missing field, **write the field with content the reader needs**. Open the source file, read the route handler, derive the env-var default from where it's consumed. `TBD` is the last resort, not the default response.
+
+When a pass surfaces a stale code block (Pass 9), **replace it with an accurate one** derived from current source. Read the function signature, the response type, the env var consumer — and write the example that matches what shipped.
+
+When a pass surfaces a trimmed-context bullet (Pass 11), **decide whether the trim's removed clause needs to live as prose elsewhere**. If yes, promote it to the parent section's prose, the linked ADR body, or an adjacent paragraph — never silently drop load-bearing content to satisfy a word cap.
+
+When a pass surfaces a misleading citation (Pass 7 / Pass 8), **fix the citation, don't paper over it**. If a `**Verification:**` field cites a file that doesn't exercise the section's REQ, drop the unrelated file or mark the field as `audit pending`. Name-dropping is worse than absence — an empty field signals "this needs human attention" while a wrong citation signals "this is verified" when it isn't.
 
 You own `documentation/` and the root `README.md`. You never touch:
 - `sdd/` (that's `spec-reviewer`'s lane)
@@ -121,7 +131,7 @@ When updating docs, enforce these rules:
 
 ## Phase 2b: Documentation-discipline enforcement passes
 
-Run the four passes defined in `documentation-discipline.md`. Each pass produces tagged findings; severity follows the doc-discipline severity table.
+Run the **twelve passes** defined in `documentation-discipline.md`. Passes 1-6 are structural (shape, budgets, lane, hatch resolution). Passes 7-12 are content-quality (truth-checks, source-of-truth diffs, content preservation, cold-read usability). Each pass produces tagged findings; severity follows the doc-discipline severity table.
 
 ### Pass 1 — Per-cell word budget enforcement
 
@@ -212,7 +222,7 @@ Rules:
 - A top-of-file preamble paragraph is exempt (no `##` heading yet).
 - Sections describing a different concern than their lane are exempt for Pass 5 (they're flagged separately by Pass 4 lane-violation).
 - An explicit "field has no value" marker counts as the field being present: `**Auth:** none (public endpoint)` for per-item shape, or `none` as the cell value for grouped-table shape. Omission does not.
-- Pass 5 never rewrites existing prose — restructuring is genuine authoring work. In `unleashed` mode, append placeholders: a `| Implements |` column with `TBD` cells for grouped-table shape, or a `**Implements:** TBD` line for per-item shape. The user must fill the values.
+- Pass 5 never rewrites existing prose — restructuring is genuine authoring work. In `unleashed` mode, when a required field is missing the agent **first attempts to derive the real value from source**: for `**Implements:**` grep `sdd/` for a REQ whose ACs match the section's behavior; for `**Auth:**` read the route handler and report what middleware fires; for `**Default:**` read the env-var consumer in `src/**` and report the fallback expression. Only when no derivation is possible does the agent fall back to `TBD` placeholders, and in that case it logs the section to `documentation/.doc-coverage.md` so the operator sees what wasn't auto-filled. `TBD` is the audit signal, not the default response.
 
 ### Pass 6 — Hatch justification audit
 
@@ -230,6 +240,90 @@ For every `<!-- doc-allow-large: ... -->` marker in `documentation/` files:
 The same audit applies to `<!-- doc-template-exempt: ... -->` markers introduced by Pass 5 — same severity table, same date math.
 
 Date math is performed against system date at run time. The ADR `Status` field is parsed from the file header (`**Status:** Accepted (YYYY-MM-DD)` shape). spec-reviewer mirrors this pass for `<!-- sdd-allow-large -->` markers in `sdd/`.
+
+### Pass 7 — Verification truth-check
+
+For every `**Verification:** <file-path>` in a doc section, open the cited test file and check two conditions:
+
+1. The section's `**Implements:** REQ-X-NNN` REQ ID appears anywhere in the test file (a substring match in `describe`/`test`/`it` names or in test bodies is sufficient).
+2. At least one content-word token (≥4 chars, stopwords excluded) from the section's `**Threat:**` / `**Mitigation:**` / `**Decision:**` / first paragraph appears in the cited file.
+
+Multiple files in one field (comma- or `+`-separated) are evaluated independently. The field passes if at least one cited file matches both conditions; failed files are reported individually. MEDIUM finding `verification-field-cites-unrelated-test` when no cited file matches.
+
+Auto-fix in `auto`/`unleashed`: drop the unrelated files from the field. If every cited file fails, rewrite the field as `**Verification:** audit pending — see documentation/.doc-coverage.md` and append a `Cold-read gaps` entry naming the section and the original (failed) citations. **Never silently keep a wrong citation** — the contract of the field is "this test verifies this section," not "a file with a related-sounding name exists."
+
+### Pass 8 — Implements-vs-AC cross-walk
+
+For every `**Implements:** REQ-X-NNN` or `**Implements:** REQ-X-NNN AC N` field, read the linked REQ from `sdd/{domain}.md` (Intent + AC bullets) and classify the doc section against the REQ:
+
+| Classification | Severity | Auto-fix in unleashed |
+|---|---|---|
+| (a) section describes a specific AC's behavior, cited AC matches | none | accept |
+| (b) section describes generic REQ context (Intent/cross-cutting) and cites the bare REQ | none | accept |
+| (b') generic REQ context but cites a specific AC | MEDIUM `implements-field-too-narrow` | strip AC suffix, cite the REQ alone |
+| (c) section describes behavior absent from every AC of the linked REQ | HIGH `implements-field-mismatched` | replace with the suggested REQ (LLM pick) or `audit pending`; log to `.doc-coverage.md` |
+
+**LLM path** (preferred): one structured-output call per failing field. Input = doc section + REQ Intent + all AC bullets. Output schema = `{ classification, matched_ac, confidence, suggested_req, reasoning }`. Confidence floor 0.7; below that, emit MEDIUM `implements-field-low-confidence` rather than auto-rewriting. Use the project's configured `consult-llm` provider.
+
+**Deterministic fallback** (no LLM key configured): token overlap between section body and each AC bullet (≥3 content-word matches → (a) with that AC; only Intent matches → (b); nothing matches → MEDIUM `implements-field-needs-llm-audit`, never auto-HIGH). The deterministic path under-flags rather than over-rewrites — HIGH `mismatched` is LLM-only.
+
+### Pass 9 — Stale code-block detection
+
+Locate matching source artifacts via `src_globs` from `sdd/config.yml` (default `src/**`, `lib/**`, `app/**`, ...) for every doc claim about source. Four sub-checks:
+
+1. **Route paths** (`**Path:** /api/foo` or `POST /api/foo` first line of a fenced block): resolve via filename convention (`src/pages/api/foo*.{ts,js}`, `src/routes/foo.ts`, `app/api/foo/route.ts`, etc.). HIGH `route-not-in-source` if nothing resolves; MEDIUM `route-handler-renamed` if a near-match exists at a sibling path.
+2. **Function signatures** (`function fooBar(...)`, `export function fooBar(...)` in body prose or fenced TS/JS blocks): grep `src/**` for the exported symbol. HIGH `function-removed` if not found. MEDIUM `function-signature-drift` if found with different parameter list.
+3. **JSON shape examples** (fenced ```json block adjacent to `**Response:**` / `**Request:**`): compare top-level keys to the matching TS type (by name in `src/types/**` or `src/**.types.ts`). Prefer a `tests/fixtures/{name}.json` fixture when present. MEDIUM `json-example-shape-drift` listing missing/extra keys.
+4. **Env var references** (`**Variable:** FOO_BAR` or `env.FOO_BAR` in fenced blocks): grep `src/**`. HIGH `env-var-removed-from-source` if no consumer found.
+
+Auto-fix in `auto`/`unleashed`: for shape-drift, **regenerate the example from current source** — read the route handler's return type, the function signature, the JSON type's keys — and replace the block. For removed routes/functions/env-vars, do NOT delete the doc paragraph silently; mark it `<!-- audit: source artifact removed YYYY-MM-DD -->` and log to `.doc-coverage.md`. This is the agent's authorial moment — derive the right example, don't `TBD` it.
+
+### Pass 10 — Hatch overuse / catch-all detection
+
+Count `<!-- doc-allow-large: AD-NN ... -->` and `<!-- doc-template-exempt: AD-NN ... -->` references per ADR across the entire `documentation/` corpus (and `<!-- sdd-allow-large: AD-NN ... -->` for `sdd/` via spec-reviewer's mirror). If one ADR carries `>3` distinct markers across `>1` file, flag MEDIUM `hatch-catch-all`:
+
+The finding reports: ADR ID, total marker count, file count, plus a per-marker excerpt (the marker line + the ≤2 lines of body immediately following each marker). The operator reads the side-by-side excerpts and decides: (a) the cases are genuinely the same decision → enumerate them in the ADR's `**Decision:**` section; (b) the cases are different → split into N per-case ADRs.
+
+No auto-fix — splitting or enumerating ADRs is authoring judgment, not mechanical. Once-per-run dedup (the same ADR doesn't re-flag if already in `.doc-coverage.md`).
+
+Threshold rationale: single-file recurrence is a legitimate single decision (a per-file budget exemption that fires in 4 sections of one file is one decision). Cross-file recurrence with >3 markers is the catch-all signal.
+
+### Pass 11 — Content-preservation on trim
+
+When `auto`/`unleashed` mode proposes a Pass 1 trim — shortening a bullet to fit the 40-word cap, paragraph to 120-word cap, or cell to 50-word cap — run a content-preservation check **before committing**:
+
+1. Tokenize the **removed** content clause-by-clause (split on semicolons, conjunctions, comma-separated enumerations).
+2. For each removed clause, check whether its tokens reappear in: the kept body of the same bullet, surrounding prose paragraphs in the same `##`/`###` section, the parent section's `**Rationale:**` / `**Consequences:**` / `**Context:**` fields, or the body of any ADR the section links to.
+3. Decide per clause: matched-elsewhere (drop is safe), context-loss-with-relocation (promote it), or context-loss-no-target (revert the trim).
+
+Three outcomes:
+
+- **All removed clauses match elsewhere** → trim commits as-is.
+- **Some clauses are context-loss but a natural relocation target exists** → promote the clause to that target with a leading marker `Trimmed from {bullet/section} on {date}:`, then commit the trim. The commit body reports `trimmed N; preserved K; promoted M to {target}`.
+- **Clauses are context-loss with no relocation target** → REVERT the trim. Leave the over-cap bullet in place and emit MEDIUM `trim-would-lose-load-bearing-content` listing the bullet location and at-risk clauses. The cap violation persists, but the content is preserved. The operator splits, promotes, or writes an ADR.
+
+Deterministic baseline: tf-idf token overlap with 0.4 cosine floor — no embedding dependency required. Projects may upgrade to an `embedding_model` configured in `sdd/config.yml`.
+
+### Pass 12 — Stranger cold-read
+
+For each top-level canonical file in `documentation/`, dispatch a **fresh subagent** (use the `general-purpose` subagent_type — NOT `doc-updater`; the subagent must come in cold without project context) with: (i) only the contents of the one doc file, (ii) a simulated task the file is supposed to answer. Default task registry:
+
+| File | Simulated task |
+|---|---|
+| `api-reference.md` | "Call the most-used public endpoint and parse the response. Output the exact curl command + the field list you'd extract from a successful response." |
+| `api-reference-admin.md` | "Manually trigger a backend job listed in this file. Output exact request (method, path, headers, body) and the success signal." |
+| `architecture.md` | "Find the source file that owns request authentication for admin endpoints. Output the path." |
+| `configuration.md` | "List every env var the dev-bypass code path consumes. Output: name, type, default, where consumed." |
+| `deployment.md` | "Roll back the last production deploy. Output exact commands in order, including verification commands between steps." |
+| `security.md` | "An external researcher claims the session cookie is readable from JavaScript on the production site. Refute or confirm using only the doc; output the load-bearing sentence." |
+| `troubleshooting.md` | "A user reports the page returns 500 after login. Output the first three diagnostic steps from the doc." |
+| `decisions/README.md` | "Why was the most recent ADR raised? Output the ADR ID and the one-line reason." |
+
+Each subagent reports one of `succeeded` / `partial` / `failed`. Partial and failed produce MEDIUM `stranger-cold-read-gap` findings naming the specific information the doc failed to surface (load-bearing path, exact command, field name, one-line constraint).
+
+Project override: `documentation/.cold-read-tasks.yml` (per-file `simulated_task: "..."`). Files not in the registry are skipped. The pass is the only signal that answers "is this doc usable?" — every other pass answers a structural question.
+
+No auto-fix. Pass 12 writes per-file gap reports to `documentation/.doc-coverage.md` under `## Cold-read gaps` and is otherwise an operator-facing signal.
 
 ## Phase 3: Apply (mode-dependent)
 

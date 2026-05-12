@@ -3,6 +3,7 @@
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
 ## 2026-05-12
+- doc-discipline framework extends from six structural passes to twelve passes (REQ-AGENT-021 AC 12). Passes 7-12 add content-quality detection on top of the structural shape/budget/lane checks: verification-field truth-check (cited tests must actually exercise the section), Implements-vs-AC cross-walk (REQ ID claims must match the linked AC's behavior), stale code-block detection against current source, hatch catch-all detection (one ADR carrying >3 markers across >1 file flags as MEDIUM), content-preservation on auto-trims (load-bearing clauses promote to prose or the trim reverts), and stranger cold-read (fresh subagent attempts a simulated task with only the doc — failures surface usability gaps). doc-updater reshaped from compliance-officer to authorial: when a field is missing, it derives the real value from source before falling back to `TBD`. Closes codeflare#331.
 - REQ-AGENT-005 acceptance criteria rewritten to describe the user-observable Standard-vs-Pro experience (memory persistence, hook coverage on every PR boundary, universal context-mode helpers, Custom-tier-only auto-routing). The detailed per-content-category delivery matrix moved to [documentation/preseed.md](../documentation/preseed.md#session-modes) where the engineering reference already lived; the spec now backlinks the matrix instead of duplicating it. No change in delivered behavior.
 
 ## 2026-05-11
