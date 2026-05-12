@@ -18,7 +18,7 @@ The xterm cursor is visible (enabled as of Claude Code 1.0.12+ / Copilot 1.0.12+
 
 **Rationale:** Newer CLI versions (Copilot 1.0.12+, Claude Code) rely on xterm's native cursor layer instead of rendering their own via ANSI escape sequences. This provides better cursor synchronization and eliminates the need for client-side hiding tricks.
 
-**Historical note:** On mobile, previous versions disabled xterm's cursor to avoid "orange square" duplication where both the DOM cursor and CLI's ANSI cursor were visible. The iframe compositor jail code remains as a precaution for the genuine Android IME native caret problem (separate from xterm's DOM cursor).
+**Historical note:** Previous versions hid the xterm cursor on mobile to avoid "orange square" duplication. The iframe compositor jail remains for the Android IME native caret problem.
 
 ## Keyboard Management
 
@@ -46,7 +46,7 @@ Samsung fires a cached stale `geometrychange` event immediately when `overlaysCo
 
 **CRITICAL: Guard on actual toggle only.** The timestamp must ONLY be stamped when `overlaysContent` actually changes value (e.g., `false->true`). If `enableVirtualKeyboardOverlay()` is called when `overlaysContent` is already `true` (a no-op), it must NOT restamp `overlaysContentChangedAt`. Restamping on no-ops restarts the 50ms ignore window, which eats the REAL `geometrychange` event that follows the stale one -- leaving `keyboardHeight` at 0 with the keyboard visually open (the "gap" bug).
 
-This was the root cause of a persistent Samsung bug where the dashboard->terminal path worked but visibility return didn't: on dashboard entry, the keyboard lifecycle effect sets `overlaysContent=true` well before the user taps, so `enableVirtualKeyboardOverlay()` is a no-op (no stamp, no window). On visibility return, `overlaysContent` was `false` (from blur), so the enable call was a real toggle -- stamping the window and eating both stale and real events.
+Root cause of a persistent Samsung bug: on dashboard entry the enable call was a no-op (no stamp); on visibility return it was a real toggle that ate both stale and real events.
 
 #### `baselineInnerHeight` / `viewportGrowth` Compensation
 
@@ -63,21 +63,7 @@ Samsung's bottom navigation bar creates a "locked layout viewport" bug:
 
 **Why:** Samsung fires `geometrychange` with `height=0` (keyboard closed) BEFORE the bottom navigation bar returns to the screen. At this point, `window.innerHeight` is still inflated by ~47px (the space the bottom bar occupied). Any code that updates `baselineInnerHeight` during keyboard close grabs this inflated value, which poisons `viewportGrowth` to 0 on all subsequent keyboard opens -- producing a persistent ~47px gap between the terminal and keyboard.
 
-**Diagnosed via debug overlay:**
-```
-First keyboard open (correct):   baselineInnerH=1009, vpGrowth=47, getKbHeight=436
-Second keyboard open (broken):   baselineInnerH=1105, vpGrowth=0,  getKbHeight=483
-```
-The 47px gap (483 - 436) is exactly the missing `viewportGrowth` compensation.
-
-**Final solution:** Removed ALL `baselineInnerHeight` updates from:
-- `handleGeometryChange` keyboard-close branch (was the primary corruption source)
-- `forceResetKeyboardState()` (called on visibility return, terminal exit)
-- `resetKeyboardStateIfStale()` (called on terminal re-entry)
-
-Baseline now only changes at:
-1. Module initialization: `let baselineInnerHeight = window.innerHeight`
-2. Galaxy Fold screen-switch resize handler: `if (!vkOpen() && delta > 200)` -- this handles genuine physical screen changes (folded <-> unfolded, ~800px delta) that cannot be confused with keyboard/bar transitions
+**Fix:** Removed ALL `baselineInnerHeight` updates from keyboard-close, `forceResetKeyboardState()`, and `resetKeyboardStateIfStale()`. Baseline only changes at module initialization and the Galaxy Fold screen-switch resize handler (`delta > 200px`) which handles genuine physical screen changes.
 
 ### Samsung Focusout Handler
 
@@ -113,7 +99,6 @@ The 50ms delay gives SolidJS time to process the null state and run cleanup effe
 
 **Samsung-specific input resume:** `terminal-mobile-input.ts` `restoreFocusIfNeeded()` does NOT auto-focus on Samsung (which would open the keyboard and trigger stale `geometrychange` events). Instead, it delays `enableVirtualKeyboardOverlay()` by 300ms so the compositor settles, then leaves the keyboard closed for the user to tap when ready. The 300ms delay ensures Samsung's delayed stale `geometrychange` events (which can arrive up to ~200ms after toggle) are caught by the 50ms ignore window from the delayed toggle.
 
-**Historical context:** These bugs were masked before infinite WS retries and `hasConnected` latch because the old retry limit (10 attempts -> error state) would show an error overlay, forcing the user to navigate away and back -- which triggered full keyboard cleanup.
 
 ### FitAddon Management
 
@@ -251,21 +236,12 @@ Users at the bottom following output saw constant flashing/jitter during rapid o
 
 ### Scroll Stability Overhaul Context
 
-Earlier iterations (git: Fixes 9-12) introduced three overlapping scroll-correction mechanisms that fought each other during output, causing terminal oscillation (especially on mobile with keyboard open). The overhaul (git: Fix 13) replaced them with a minimal, targeted approach:
-
-1. **Narrowed scroll-reset detection** (`hooks/useTerminal.ts`) -- changed from `ydisp < ybase` to `ydisp === 0`. The browser focus-reset bug always snaps to position 0 (scroll origin).
-
-2. **Removed `drop > 3` heuristic** -- xterm.js natively adjusts viewportY when trimming scrollback lines to maintain visual stability. The heuristic was counterproductive.
-
-3. **Simplified post-write guard** (`stores/terminal.ts`) -- kept only `wasAtBottom -> scrollToBottom` sync check. Removed `drop > 3` and rAF duplicate that fought with the onScroll detector.
-
-4. **Added re-entrancy guard** -- `isCorrectingScroll` boolean prevents `scrollToBottom()` inside corrections from re-triggering the detector via synchronous `onScroll`.
-
-5. **External scroll intent API** (`lib/terminal-scroll-intent.ts`) -- keyed by session:terminal. Floating buttons call `markScrollIntent()` before `scrollPages()`/`scrollToBottom()` so the detector recognizes out-of-tree UI actions.
-
-6. **Reduced grace window** from 250ms to 150ms for tighter intent tracking.
-
-7. **Reduced scrollback** from 10,000 to 1,000 lines (both frontend and headless). Virtual scroll is disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`), so xterm's scrollback buffer is the only history cap.
+Earlier iterations introduced overlapping scroll-correction mechanisms that fought each other (oscillation on mobile with keyboard open). The overhaul (git: Fix 13) simplified to:
+- Narrowed reset detection to `ydisp === 0` (browser focus-reset always snaps to 0)
+- Removed `drop > 3` heuristic (xterm natively adjusts viewportY during trim)
+- Added `isCorrectingScroll` re-entrancy guard
+- External scroll intent API (`lib/terminal-scroll-intent.ts`) so floating buttons don't trigger the detector
+- Scrollback reduced from 10,000 to 1,000 lines; virtual scroll disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`)
 
 ## WebSocket Recovery
 
