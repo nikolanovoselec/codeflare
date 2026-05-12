@@ -1,5 +1,4 @@
-<!-- doc-allow-large -->
-<!-- doc-discipline note: per documentation-discipline.md the per-ADR budget is 100 lines. 49 ADR slots exist (AD1-AD49). 11 slots are redirect stubs that preserve inbound AD-N references: 6 merged into a canonical sibling on 2026-05-03 (AD7→AD10, AD17→AD6, AD19→AD18, AD28→AD26, AD33→AD10, AD35→AD18), and 5 reclassified out of the decision log on 2026-05-09 per the "What is NOT an ADR" rule (AD9→configuration.md, AD23→inline+security.md, AD24→inline+security.md, AD25→inline+security.md, AD31→inline+security.md). 38 ADRs carry active content (AD38 is superseded but preserved per the immutability rule). The combined file is over the implicit 100×49 budget but each individual active ADR is under the per-ADR cap. Splitting into 49 files would scatter related decisions and break inbound AD-N references throughout the codebase, so the unified file is the deliberately chosen shape. -->
+<!-- doc-allow-large: AD50 — unified ADR file; see AD50 below for the structural rationale -->
 
 # Architecture Decisions
 
@@ -61,6 +60,8 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
 | [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | PTY keepalive as safety net only, not the idle policy | Architecture |
 | [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | OAuth state replaced by HMAC-signed stateless token | Security |
+| [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | context-mode delivered as preseed plugin, not runtime install | Architecture |
+| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | Unified ADR file with structural doc-allow-large exemption | Documentation |
 
 ---
 
@@ -769,6 +770,19 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 - Worker-side reconcile call sites: `src/routes/preferences.ts`, `src/routes/storage/seed.ts`, `src/routes/stripe-webhook.ts`
 - Container-side detection: `entrypoint.sh` (`CONTEXT_MODE_MANIFEST` existence check; conditional `mcpServers["context-mode"]` jq merge; conditional `enabledPlugins["context-mode"]: true`)
 - Tests: `src/__tests__/lib/r2-seed-context-mode.test.ts`, `host/__tests__/entrypoint-context-mode.test.js`
+
+### AD50: Unified ADR file with structural doc-allow-large exemption
+
+**Status:** Accepted (2026-05-12)
+**Overrides:** file-budget:decisions/README.md
+
+**Context:** The `documentation-discipline.md` per-ADR soft budget is 100 lines. 49 ADR slots exist (AD1-AD49). 11 slots are redirect stubs that preserve inbound AD-N references (6 merged 2026-05-03, 5 reclassified 2026-05-09). 38 ADRs carry active content; each individual active ADR is under the 100-line per-ADR cap. The combined file exceeds the implicit aggregate budget. doc-updater would ordinarily flag this as a MEDIUM finding.
+
+**Decision:** Keep all ADRs in a single `decisions/README.md` file. Add `<!-- doc-allow-large: AD50 -->` to the file header. Do NOT split into 49 individual files.
+
+**Rationale:** AD-N identifiers are referenced throughout the codebase (`decisions/README.md#ad44`, `decisions/README.md#ad47`, etc.) in source comments, doc cross-references, and ADR Supersedes fields. Splitting into 49 files would require renaming every inbound anchor from `README.md#ad-N` to `adr-N.md#ad-N` across the entire codebase and documentation corpus - a mechanical change with high surface area and no product value. Individual ADRs are under their per-ADR budget; the file-level overage is inherent to the count of active decisions, not to any single ADR being too long. The correct granularity for the budget rule is per-ADR, not per-file.
+
+**Consequences:** doc-updater will skip the file-budget check for `decisions/README.md` when `<!-- doc-allow-large: AD50 -->` is present. Per-ADR budget enforcement still applies: any new ADR that exceeds 100 lines must be split or compressed. The Decision Index at the top of this file remains the navigation entry point.
 
 ---
 
