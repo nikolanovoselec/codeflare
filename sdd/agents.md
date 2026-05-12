@@ -552,3 +552,31 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** REQ-AGENT-005, REQ-AGENT-006, REQ-AGENT-007
 **Verification:** Manual check
 **Status:** Implemented
+
+## REQ-AGENT-022: Legacy-codebase transition to SDD via init triage
+
+**Intent:** Enterprises migrating a legacy codebase from manual development to autonomous agentic development need a transition path that converts un-extracted intent into a real spec. `/sdd init` Import Mode produces two outputs from the same analysis pass — official REQs for behavior clear from source/tests/comments/commits, and a triage queue for everything unclear, with the agent's concrete Context and Recommendation populated up front. The user resolves the queue at their own pace; until it drains, the project is in SDD transition. Once the queue is empty, full SDD discipline applies and autonomous agentic coding is unlocked, because the agent has a real contract to reason against.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+1. `/sdd init` Import Mode emits two outputs simultaneously: spec REQs in `sdd/{domain}.md` for anything clearly determinable from source, tests, comments, commits, PRs, or existing docs; and triage entries in `sdd/init-triage.md` for anything unclear (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent, domain-placement guesses).
+2. Every entry in `sdd/init-triage.md` carries `**Context:**` (concrete evidence — file path + line range, git author of last meaningful change, commit SHA + subject, adjacent comments, related tests, related PRs) and `**Recommendation:**` (the agent's specific best-guess answer) with `**Rationale:**` (one line tying the recommendation to specific Context evidence). Vague Context (no refs, no authors, no commits) and placeholder Recommendations (`TBD`, `(inferred)`, `unknown`) are rejected as malformed triage entries.
+3. Triage entries use `**Status:** open | resolved | lost`. `lost` requires a one-line `**Reason:**` field explaining why the information is genuinely unrecoverable.
+4. While `sdd/init-triage.md` contains any `Status: open` items, `sdd/config.yml` carries `transition: true` and the project is in SDD transition. During transition, spec-reviewer suppresses the `Implemented → Partial` auto-demote rule; the Source-vs-test and Test-quality passes run normally; doc-updater and code-reviewer are unaffected. `/sdd autonomous unleashed` is rejected with a message naming the open-item count.
+5. Re-invoking `/sdd init` on a project where `sdd/` already exists and `sdd/init-triage.md` has at least one open item enters Resume Mode rather than aborting. Resume Mode surfaces one open item at a time, refreshing its Context before presenting (re-reads source, re-checks git log, re-fetches related PRs).
+6. The user chooses one of five decisions per item: `accept` (use the recommendation as-is and fold into the relevant REQ), `correct` (free-form prose describing what the thing is for and how it works; agent folds purpose into REQ Intent and behavior into AC bullets), `lost` (record the gap with a one-line Reason; the related REQ — if any — gets a `Notes: intent lost during SDD transition — see TRIAGE-{NNN}` annotation; nothing is fabricated into the spec), `skip` (leave Status: open, write nothing to the spec, advance to next), or `quit` (commit progress and exit).
+7. Only `accept` and `correct` promote anything into the official spec. `skip` and `lost` write nothing to `sdd/{domain}.md`.
+8. Each decision is its own commit (`[sdd-init] resolve TRIAGE-{NNN}` or `mark lost`). Two developers resuming triage in parallel resolve conflicts via normal git merge.
+9. When the last `Status: open` item is resolved or marked `lost`, the resolving commit also clears `transition: true` from `sdd/config.yml` and appends a single line to `sdd/changes.md` recording transition completion with totals (accepted / corrected / lost). `sdd/init-triage.md` is preserved as the audit record — resolved and lost items remain visible. The next spec-reviewer run applies full SDD discipline.
+10. The no-args `/sdd` help screen documents the resume behavior under SUBCOMMANDS without introducing a separate `/sdd triage` subcommand — there is one entry point (`/sdd init`) that detects greenfield, import, or resume by inspecting the project state.
+
+**Constraints:**
+- Triage items live only in `sdd/init-triage.md`. No separate state file, no JSON mirror, no machine-readable index. Git history is the audit trail for who resolved which item with what decision.
+- Triage workflow is interactive only. `auto` and `unleashed` modes do not auto-resolve triage items — the entire point is that judgment is required, and triage cannot be bypassed without abandoning the transition guarantees.
+- `sdd/init-triage.md` is owned by `/sdd init`. spec-reviewer reads it to determine transition state and to verify resolved items' REQs received the fold-in; doc-updater does not touch it.
+
+**Priority:** P1
+**Dependencies:** REQ-AGENT-021
+**Verification:** Manual check
+**Status:** Planned

@@ -146,25 +146,38 @@ To get autonomous review on a project, ensure:
 
 The hooks fail-safe in the right direction: if `gh` is missing or transiently fails, the Stop hook errs toward enforcement (better to over-block on uncertain truth than miss an unreviewed PR-to-main); the PostToolUse directive errs toward emission. Either way, the user can always invoke review agents manually via the `Task` tool.
 
-## /sdd init — bootstrapping a project (greenfield OR existing codebase)
+## /sdd init — bootstrapping a project (greenfield, import, or resume)
 
-`/sdd init` handles two scenarios:
+`/sdd init` handles three scenarios:
 
 1. **Greenfield**: empty project, no existing code. Agent bootstraps from prose.
-2. **Existing codebase**: project already has source code. Agent enters **import mode** — analyzes the existing code, derives a spec from observed behavior, presents it for user confirmation, and writes the scaffolding.
+2. **Import**: project already has source code, no `sdd/` yet. Agent enters **Import Mode** — derives a spec where behavior is clear from source/tests/comments/commits, files the unclear parts to `sdd/init-triage.md` with concrete Context + Recommendation, and writes the scaffolding.
+3. **Resume**: `sdd/` already exists and `sdd/init-triage.md` has `**Status:** open` items. Agent enters **Resume Mode** — surfaces one open triage item at a time with refreshed Context + Recommendation, the user accepts/corrects/marks-lost, the answer folds into the relevant REQ.
 
-The agent detects the scenario automatically by counting source files in the project. >5 source files → existing codebase → import mode. ≤5 → greenfield.
+The agent detects the scenario automatically — source-file count for greenfield-vs-import, presence of open triage items for resume.
 
-In **import mode**, the agent:
-- Reads README.md, package.json (or equivalent), top-level configs to understand intent
-- Analyzes directory structure to identify domains
-- Reads representative source files to derive REQs
-- Tentatively marks all derived REQs as `Status: Implemented`
-- Searches existing test files for feature/route names; demotes REQs without test coverage to `Partial` with `Notes:` explaining what's missing
-- Presents derived spec for user confirmation, one domain at a time
-- Writes scaffolding (sdd/, documentation/, root README) WITHOUT touching existing code, existing README, or existing documentation/ files
+### Import Mode — two-output model
 
-Import mode is **always interactive** even in `auto` or `unleashed` config — inferring intent from code is genuinely judgment-required and the user must validate the result.
+Import Mode is the migration path from legacy manual coding to autonomous agentic coding. It produces two outputs simultaneously:
+
+- **Official spec REQs** in `sdd/{domain}.md` — for behavior that is clearly determinable from source, tests, comments, commits, PRs, or existing docs. Normal REQ shape, normal SDD discipline.
+- **Triage entries** in `sdd/init-triage.md` — for anything unclear (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent). Each entry carries the agent's **Context** (file:line, git author, commit refs, related tests/PRs, adjacent code) and **Recommendation** (best-guess answer with one-line Rationale). The user reviews and decides; they don't perform archaeology from scratch.
+
+While `sdd/init-triage.md` contains any `**Status:** open` items, the project is in **SDD transition**. `sdd/config.yml` carries `transition: true`. During transition:
+
+- spec-reviewer suppresses Implemented → Partial auto-demote (the imported spec is intentionally partial — that's what the triage queue means)
+- `/sdd autonomous unleashed` is rejected (judgment is required for triage; cannot run blind)
+- doc-updater and code-reviewer operate normally
+
+When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record.
+
+Import Mode is **always interactive**, regardless of `auto` or `unleashed` config — both the CLEAR-vs-UNCLEAR classification and the triage Recommendations require judgment that the user validates.
+
+### Resume Mode — picking up where you left off
+
+When `/sdd init` is re-invoked on a project where `sdd/init-triage.md` has open items, the agent enters Resume Mode. It surfaces one item at a time with **refreshed** Context (re-read source, re-check git log, re-fetch related PRs — the codebase may have evolved since the prior session). The user picks one of: **accept** the recommendation, **correct** it, mark it **lost** (one-line Reason required), **skip** for now, or **quit**.
+
+Only `accept` and `correct` promote the answer into the official spec REQs. `correct` opens an editor for free-form prose where the user describes **what the thing is for** (purpose → REQ Intent) and **how it works** (observable behavior → REQ ACs); the agent folds the prose into the relevant REQ's fields. `skip` leaves the triage item open in `sdd/init-triage.md` and writes nothing to the spec — skipped items resurface on the next Resume Mode run. `lost` records the gap but does not fabricate an Intent. Each decision is its own commit; two developers can resume in parallel and normal git merge resolves conflicts.
 
 In **greenfield mode**, the agent:
 

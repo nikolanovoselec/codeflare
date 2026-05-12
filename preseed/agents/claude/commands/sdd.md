@@ -24,7 +24,13 @@ SUBCOMMANDS
   init [idea]            Bootstrap a new project (interactive). Creates
                          sdd/, documentation/, root README, tests/,
                          sdd/config.yml. Detects existing codebases and
-                         imports a derived spec instead of greenfield.
+                         imports a derived spec — clear-from-source becomes
+                         official REQs, unclear items become triage entries
+                         in sdd/init-triage.md with the agent's context +
+                         recommendation. Re-running /sdd init while triage
+                         items are open resumes the interactive triage. The
+                         project is in SDD transition until the queue drains;
+                         agentic development is unlocked when it does.
   edit <domain>          Add or modify requirements in an existing
                          domain. Always interactive.
   add <domain>           Create a new domain in an existing spec.
@@ -145,6 +151,7 @@ EXAMPLES
   /sdd init "vacation rental site for Pasman"
                                     Bootstrap a new project from idea
   /sdd init                         Bootstrap; agent prompts for idea
+                                    (or resumes triage if mid-transition)
   /sdd edit authentication          Add or modify auth requirements
   /sdd add notifications            Create a new domain
   /sdd clean                        Rescue a rotted spec
@@ -169,12 +176,15 @@ Bootstrap a new project. Always interactive — you confirm the vision before an
 
 ### Behavior
 
-1. **Check for existing sdd/**: if `sdd/` already exists, abort with:
-   ```
-   Error: sdd/ already exists in this project.
-   To rescue an existing rotted spec, use /sdd clean.
-   To overwrite (destructive), use /sdd init --force.
-   ```
+1. **Check for existing sdd/**:
+   - If `sdd/` does not exist → continue to step 2.
+   - If `sdd/` exists AND `sdd/init-triage.md` exists AND it contains items with `**Status:** open` → enter **Resume Mode** (jump to "Resume Mode" section below). The user is mid-transition; pick up where the prior session left off.
+   - If `sdd/` exists with no open triage items, abort with:
+     ```
+     Error: sdd/ already exists in this project.
+     To rescue an existing rotted spec, use /sdd clean.
+     To overwrite (destructive), use /sdd init --force.
+     ```
 2. **Detect existing code**: check for substantive source code in the project
    - Look for `src/`, `lib/`, `app/`, `pkg/`, language-specific directories
    - Look for project files: `package.json`, `Cargo.toml`, `go.mod`, `requirements.txt`, `pyproject.toml`, `Gemfile`, `pom.xml`, etc.
@@ -240,83 +250,118 @@ Bootstrap a new project. Always interactive — you confirm the vision before an
 
 ### Import Mode (existing codebase)
 
-When step 2 detected substantive existing code, the agent enters import mode instead of greenfield bootstrap. This is the path for **converting an existing project to SDD**.
+When step 2 detected substantive existing code, the agent enters import mode. This is the path for **converting an existing project to SDD as a transition to agentic development**. The completed transition is the gate: once the project is fully on SDD, autonomous agentic coding is unlocked because the agent has a real contract to reason against.
+
+**Two-output model.** Import Mode produces two outputs simultaneously:
+
+1. **Official spec REQs** in `sdd/{domain}.md` — for anything clearly determinable from source, tests, comments, commits, PRs, or existing docs. Normal REQ shape, normal SDD discipline. No `(inferred)` marker, no review queue.
+2. **Triage entries** in `sdd/init-triage.md` — for anything unclear or missing: magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent. Each entry carries the agent's **Context** (concrete evidence — file:line, git author, commit refs, related tests/PRs) and **Recommendation** (best-guess answer with one-line rationale). The user reviews context + recommendation and decides — accept, correct, or mark `lost`. They don't perform archaeology from scratch.
+
+**Transition state.** While `sdd/init-triage.md` contains any `open` items, the project is in SDD transition. `sdd/config.yml` carries `transition: true`. During transition:
+- spec-reviewer suppresses the Implemented → Partial auto-demote rule (the imported spec is intentionally partial — that's what the triage queue means)
+- `/sdd autonomous unleashed` is rejected (judgment is required for triage; cannot run blind)
+- doc-updater and code-reviewer operate normally
+
+When the queue drains to zero (every item is `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record (`lost` items remain visible as the documented gaps in the spec's heritage).
 
 #### Workflow
 
 1. **Confirm intent with the user**:
-   > "Detected existing codebase: {N} source files in src/, package.json present, framework: {detected}. Should I derive a spec from the existing code (recommended for SDD migration), or treat this as a fresh start (will ignore existing code)?"
-   - If user picks "fresh start": jump to step 4 in the greenfield flow above (ignore the existing code)
+   > "Detected existing codebase: {N} source files, {framework} project. I'll derive a spec from the code. What I can read clearly from source/tests/comments/commits becomes official spec. What I can't — magic numbers, retry policies, ambiguous contracts — becomes a triage queue with my best-guess answer attached, for you to confirm or correct at your own pace via `/sdd triage`. The project stays in SDD transition until the queue drains, then full autonomous agentic coding is unlocked. Continue, or treat this as a fresh start (ignore existing code)?"
+   - If user picks "fresh start": jump to step 4 in the greenfield flow above
    - If user picks "derive from code" (default): continue
-2. **Analyze the project**:
-   - Read `README.md` to extract project intent and feature list
-   - Read `package.json` (or equivalent) for name, description, dependencies, scripts
-   - Read top-level config files (`tsconfig.json`, `wrangler.toml`, `Cargo.toml`, etc.) to understand the runtime
-   - Walk the directory tree under `src/`, `app/`, `lib/`, `pkg/` (project-language-aware) to identify modules
-3. **Identify domains from directory structure**. Heuristics:
-   - `src/api/auth/` or `src/auth/` → "Authentication" domain
-   - `src/api/billing/` or `src/billing/` → "Billing" or "Subscription" domain
-   - `src/pages/` or `src/routes/` → "UI" or one domain per page section
-   - `src/lib/` → utility libs, usually NOT a domain (referenced from other domains)
-   - Top-level feature directories → one domain each
-   - Generic structures (no clear domains): propose 3-5 broad domains and let the user refine
-4. **Read representative files** in each identified domain. For each module:
-   - Route handlers / endpoint definitions → API contracts
-   - Schema files (`zod`, `prisma`, `pydantic`) → data shapes
-   - Auth middleware → security constraints
-   - Test files → coverage map (which features have tests)
-5. **Derive REQs from observed behavior** (one per major feature/route/page). For each REQ:
-   - **Intent**: inferred from naming, comments, README references. Mark with `(inferred)` if unclear so the user knows to validate.
-   - **Acceptance Criteria**: describe **observable behavior** at the user-facing level. Strip implementation details (file paths, function names, hex codes go to documentation/, not the spec).
-   - **Status**: tentatively `Implemented`. Will be auto-checked in step 7.
-   - **Priority**: P0 for core flows (auth, primary user actions), P1 for supporting features, P2 for polish, P3 for stretch.
-   - **Dependencies**: cross-domain REQ links discovered from imports.
-   - **Verification**: `Automated test` if a test file references the feature, `Manual check` otherwise.
-6. **Identify cross-cutting constraints** by reading config files and middleware:
-   - Tech stack from `package.json` / `Cargo.toml` / etc.
-   - Security headers from middleware
-   - Performance budgets from CI config
-   - Compliance markers from privacy/legal files
-   - Each becomes a `CON-*` entry in `sdd/constraints.md`
-7. **Run the import-time coverage baseline** (one-time pass during `/sdd init` only — future spec-reviewer runs respect the `enforce_tdd` config setting):
-   - For each derived REQ marked `Status: Implemented`, search test files for the feature name or route path (NOT the REQ ID — the agent has not annotated tests yet, so this is a heuristic match for the import baseline only)
-   - If found, keep `Implemented`. If not, demote to `Partial` with `Notes: No test coverage found during import analysis. Add REQ-{ID} to test names to restore Implemented status.`
-   - Why this is a one-time pass: import-mode runs once on a fresh spec where no REQ IDs are in tests yet. After import, the user adds REQ IDs to tests over time, and the regular `enforce_tdd` setting takes over for steady-state runs.
-8. **Present the derived spec for confirmation**, one domain at a time:
-   - Show the proposed REQs in the domain
-   - Ask: "Does this match what {domain} actually does? Add, remove, or modify any REQs?"
-   - User edits inline; agent adjusts
-9. **Optionally let the user fill in vision and principles**:
-   - Vision: pre-fill from README. User confirms or rewrites.
-   - Principles: ask "What design principles should guide future changes? I see {N} themes in the existing code: {list}." User confirms or replaces.
-10. **Write the same scaffolding as greenfield init**, plus the derived REQs:
-    - `sdd/README.md` with derived domain index and Out of Scope section (empty)
-    - One `sdd/{domain}.md` per derived domain with the validated REQs
-    - `sdd/constraints.md` with derived CON-* entries
-    - `sdd/glossary.md` with terms inferred from code (vendor names, protocols, domain concepts)
-    - `sdd/changes.md` with one entry: `## YYYY-MM-DD\n- Initial spec imported from existing codebase via /sdd init (N requirements across M domains)`
-    - `sdd/config.yml` with `mode: interactive` and `enforce_tdd: false` (respect existing-project caution — the imported code predates the annotation convention; user opts in after adding annotations)
-    - `documentation/` scaffolding from templates, with backlinks to derived REQs where applicable
-    - Root `README.md` updated to reference `sdd/` and `documentation/` (preserve existing content if already present — append the SDD section)
-11. **Print next steps for the imported project**:
+
+2. **Analyze the project** (evidence vacuum):
+   - Read `README.md`, `package.json` (or equivalent), top-level configs
+   - Walk the directory tree under `src/`, `app/`, `lib/`, `pkg/`
+   - Identify domains from directory structure (`src/api/auth/` → Authentication, `src/billing/` → Billing, etc.; generic structures get 3-5 broad domains)
+   - Vacuum: tests (file names + describe/test blocks + assertion shapes), inline comments on entry-point files, commit messages on those files via `git log --follow`, PR descriptions via `gh pr list --search` if a GitHub remote exists, ADR-shaped files (`docs/decisions/`, `ADR/`, `architecture/decisions/`)
+
+3. **For every observable feature/route/page/job, classify into one of two buckets**:
+
+   **CLEAR** (becomes a normal REQ in `sdd/{domain}.md`):
+   - Route handler with a named schema + a test that names the expected behavior
+   - Function whose docstring, README mention, or PR description states intent
+   - Config field with a comment naming its purpose
+   - Commit message that explicitly states the why ("add foo to support X requirement")
+   - Existing ADR or architecture doc that describes the feature
+
+   **UNCLEAR** (becomes a triage entry in `sdd/init-triage.md`):
+   - Magic numbers / timeouts / batch sizes / retry counts with no comment / test / PR explaining the choice
+   - Guards or branches that handle unnamed conditions (`if (user.id === 'legacy_42') skip()`)
+   - Tests that document behavior but no source/commit/PR/doc explains why that behavior exists
+   - Endpoints, jobs, or queue consumers that exist but are unreferenced (invisible-path vs dead code is a decision the user must make)
+   - Vendor-specific workarounds where the underlying constraint isn't documented
+   - Domain placement the agent had to guess
+   - Whole REQs whose Intent the agent had to guess — file as triage, not as a REQ with `(inferred)`
+
+4. **For each UNCLEAR item, build a triage entry with Context AND Recommendation populated**. The agent performs the archaeology and presents findings. The user decides on substance, not from scratch.
+
+   - **Context fields**: file path + line range, git author of last meaningful change to that range, commit SHA + subject, adjacent comments, related test names, PR numbers that touch the file or symbol, similar patterns elsewhere in the codebase
+   - **Recommendation**: a specific best-guess answer with a one-line rationale tying it to evidence in Context. Never `TBD`, never `(inferred)`. If the agent genuinely cannot make a recommendation, the entry is filed as `**Recommendation:** Cannot determine — likely lost ({why})` and the user can confirm `lost` directly
+
+   Each triage entry shape:
+   ```
+   ## TRIAGE-{NNN}
+   **Question:** {specific, decidable question — not "what's the intent?"}
+   **Context:**
+   - {file:line, git author, commit ref, related tests, related PRs, adjacent code}
+   **Recommendation:** {best-guess answer}
+   **Rationale:** {one line tying recommendation to specific Context evidence}
+   **Status:** open
+   **Resolution:**
+   ```
+
+5. **Derive CLEAR REQs** (the official spec):
+   - **Intent**: lifted directly from the evidence (README sentence, PR description, commit message, docstring)
+   - **Acceptance Criteria**: observable behavior at the user-facing level, derived from named test assertions or documented contracts
+   - **Status**: `Implemented` if a test verifies the AC, `Partial` otherwise (one-time import baseline; future runs respect `enforce_tdd`)
+   - **Priority**: P0 for core flows, P1 for supporting features, P2 for polish, P3 for stretch
+   - **Dependencies**: cross-domain links from imports
+   - **Verification**: `Automated test` if a test references the feature, `Manual check` otherwise
+
+6. **Identify cross-cutting constraints** by reading config files and middleware (tech stack from manifests, security headers from middleware, performance budgets from CI config, compliance markers from privacy/legal files). Each becomes a `CON-*` entry. Constraints that the agent can't justify from evidence also go to triage.
+
+7. **One-shot user confirmation (fast)**:
+   - Present CLEAR REQs in file order. User scans and rejects any that look wrong (those become triage entries).
+   - Print triage queue size: "{T} items in triage queue at `sdd/init-triage.md`. Run `/sdd init` again to resume triage, one item at a time, at your own pace."
+   - Do NOT walk through every triage item now — that's what Resume Mode does on subsequent `/sdd init` runs.
+
+8. **Optionally fill in vision and principles** (same as before: pre-fill from README, user confirms or rewrites).
+
+9. **Write the scaffolding**:
+   - `sdd/README.md` with derived domain index and Out of Scope section (empty)
+   - One `sdd/{domain}.md` per derived domain with CLEAR REQs
+   - `sdd/constraints.md` with derived CON-* entries
+   - `sdd/glossary.md` with terms from code (vendor names, protocols, domain concepts)
+   - `sdd/changes.md` with one entry: `## YYYY-MM-DD\n- Initial spec imported via /sdd init (N clear REQs across M domains, T triage items — see sdd/init-triage.md)`
+   - `sdd/config.yml` with `mode: interactive`, `enforce_tdd: false`, and **`transition: true`** (cleared automatically when triage drains)
+   - **`sdd/init-triage.md`** with all triage entries (each with Context + Recommendation populated)
+   - `documentation/` scaffolding from templates, with backlinks to CLEAR REQs where applicable
+   - Root `README.md` updated to reference `sdd/` and `documentation/` (preserve existing content — append the SDD section)
+
+10. **Print next steps**:
     ```
     ✓ Spec imported from existing codebase
-    ✓ {N} requirements across {M} domains
-    ✓ {X} marked Implemented (tests found)
-    ✓ {Y} marked Partial (no tests found — see Notes: field)
+    ✓ {N} clear requirements across {M} domains
+    ✓ {T} triage items in sdd/init-triage.md (each with context + recommendation)
     ✓ {Z} CON-* constraints derived
-    ✓ documentation/ scaffolding created (existing files preserved)
-    ✓ sdd/config.yml created (mode: interactive, enforce_tdd: false)
+    ✓ sdd/config.yml created (mode: interactive, enforce_tdd: false, transition: true)
+    ✓ Project is in SDD TRANSITION until the triage queue drains
 
-    The spec describes what the code currently does. Review it and:
-      1. Adjust requirements that don't match your intent
-      2. Add REQ IDs to test names so spec-reviewer can verify Implemented status
-         (e.g., test('REQ-AUTH-001: rejects expired tokens', () => {...}))
-      3. Add `Implements REQ-X-NNN` comments to source files so spec-reviewer
-         can detect code-without-tests
-      4. Once annotations are in place, flip `enforce_tdd: true` in sdd/config.yml
-      5. To convert Partial → Implemented as you add tests, just push — the
-         spec-reviewer agent handles it on every push
+    Resume triage at your own pace by running `/sdd init` again — it
+    surfaces one open item at a time. Quit any time; progress is committed
+    after each decision.
+
+    While transition is active:
+      - spec-reviewer skips Implemented → Partial auto-demote
+      - /sdd autonomous unleashed is rejected (triage requires judgment)
+      - doc-updater and code-reviewer operate normally
+
+    When the queue drains to zero:
+      - transition: true clears automatically
+      - Full SDD discipline applies on the next push
+      - Autonomous agentic development is unlocked
 
     Your code is unchanged. Only sdd/, documentation/, and root README were created.
     ```
@@ -326,9 +371,62 @@ When step 2 detected substantive existing code, the agent enters import mode ins
 - **Never edit existing source code** during import — only read it
 - **Never overwrite existing `README.md`** — append the SDD section, preserve existing content
 - **Never overwrite existing `documentation/`** files — only create files that don't exist
-- **Always confirm derived REQs with the user** before writing — even in `auto` or `unleashed` mode (import mode is always interactive because inferring intent from code is genuinely judgment-required)
-- **Mark inferred intent explicitly** with `(inferred)` so the user knows what to validate first
-- **Default `enforce_tdd: false` for imports only** — never aggressively demote on a freshly imported spec; let the user add REQ-ID test names and `Implements REQ-X-NNN` source annotations first, then opt in. Greenfield `/sdd init` still defaults to `enforce_tdd: true`.
+- **Triage entry Context must be concrete** — file paths + line ranges + commit refs + author names + related PR numbers. Vague Context (no refs, no authors, no commits) is grounds for rerun. The user must be able to verify the recommendation against the cited evidence.
+- **Triage entry Recommendation must be a specific answer with a Rationale**, never `(inferred)`, `TBD`, or `unknown`. If the agent genuinely cannot determine the answer, file as `**Recommendation:** Cannot determine — likely lost ({why})` so the user can confirm `lost` in one step.
+- **Always confirm CLEAR REQs with the user** before writing — even in `auto` or `unleashed` mode. Import mode is always interactive because both classification (CLEAR vs UNCLEAR) and triage recommendations require judgment.
+- **Default `enforce_tdd: false` for imports** — the imported code predates the annotation convention. User opts in after adding `Implements REQ-X-NNN` annotations and REQ-ID test names. Greenfield `/sdd init` still defaults to `enforce_tdd: true`.
+
+### Resume Mode
+
+Triggered when `/sdd init` is invoked on a project where `sdd/` already exists and `sdd/init-triage.md` has at least one `**Status:** open` item. The user is mid-transition; resume the interactive triage where the prior session left off.
+
+1. **Read `sdd/init-triage.md`**, collect items with `**Status:** open` in file order. Report queue size: `{N} open items in triage queue. Press [q] at any prompt to quit; progress is committed after each decision.`
+
+2. **For the next open item, REFRESH Context** before surfacing. The original Context was a snapshot from a prior session; the codebase may have evolved. Re-read the referenced file at the cited lines, re-check `git log` for new commits touching the range, re-scan adjacent tests, re-fetch related PRs via `gh pr list --search`. Update the entry's Context block in place if it has shifted materially.
+
+3. **Surface the item** with the refreshed Context and Recommendation:
+
+   ```
+   ━━━ TRIAGE-007 ({position} of {total} open) ━━━
+
+   Question: {question}
+
+   Context:
+     - {evidence lines}
+
+   Recommendation: {best-guess answer}
+   Rationale: {one line tying to Context evidence}
+
+   Decision:
+     [a] accept recommendation as-is
+     [c] correct: describe what this is for and how it works (free-form prose)
+     [l] lost: information genuinely unrecoverable (one-line Reason required)
+     [s] skip for now (stays open)
+     [q] quit (commit progress, exit)
+   ```
+
+4. **Apply the decision**. Only `accept` and `correct` promote anything into the official spec. `skip` and `lost` do not:
+   - **accept**: write recommendation into `**Resolution:**`, set `**Status:** resolved`, **fold the answer into the relevant REQ** (creating one in `sdd/{domain}.md` if the item was a placeholder for a missing REQ; updating the REQ's Intent or AC if it already exists)
+   - **correct**: open an editor / prompt for free-form prose. The user describes **what this is for** (purpose, which becomes the REQ's Intent) and **how it works** (observable behavior, which becomes the REQ's AC). The whole prose block is written into `**Resolution:**`. The agent then folds purpose into Intent and behavior into AC bullets on the relevant REQ, set `**Status:** resolved`.
+   - **lost**: prompt for a one-line `**Reason:**`, set `**Status:** lost`. **No fold into spec.** The related REQ (if any) gets a `Notes: intent lost during SDD transition — see TRIAGE-{NNN}` annotation; otherwise the item stays only in `sdd/init-triage.md` as the documented gap.
+   - **skip**: leave `**Status:** open` unchanged. **The triage item stays in `sdd/init-triage.md` and nothing is written to the spec.** Advance to the next open item. Skipped items resurface on the next `/sdd init` Resume Mode run.
+   - **quit**: stop, commit, exit. Open items (including any just skipped) remain in `sdd/init-triage.md` for the next session.
+
+5. **Commit per decision**: each `accept`/`correct`/`lost` is its own commit with subject `[sdd-init] resolve TRIAGE-{NNN}` (or `mark lost`). Crash-safe; concurrent triage by two developers resolves via normal git merge.
+
+6. **Transition-closure check** runs after every resolved/lost decision. When zero `**Status:** open` items remain:
+   - Clear `transition: true` from `sdd/config.yml`
+   - Append to `sdd/changes.md`: `## YYYY-MM-DD\n- SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost). Full SDD discipline now applies; autonomous agentic development unlocked.`
+   - Print:
+     ```
+     ✓ Triage queue drained. SDD transition complete.
+     ✓ Full SDD discipline applies on the next push.
+     ✓ Autonomous agentic development is unlocked.
+
+     sdd/init-triage.md preserved as audit record.
+     ```
+
+To re-open a previously resolved or lost item, the user edits `sdd/init-triage.md` directly: change `**Status:**` back to `open`. The next `/sdd init` Resume Mode run surfaces it again.
 
 ---
 
