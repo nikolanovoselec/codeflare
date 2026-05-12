@@ -24,7 +24,7 @@ Technical reference documentation for Codeflare.
 | [Preseed System](preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks | Developers |
 | [Preseed Troubleshooting](preseed-troubleshooting.md) | Hook debugging, attribution blocking, checkpoint reset | Developers |
 | [Token Scopes](token-scopes.md) | GitHub PAT and Cloudflare API token scope guidance | Operators |
-| [Architecture Decisions](decisions/README.md) | 50 ADRs (39 active) with rationale and trade-offs | Developers |
+| [Architecture Decisions](decisions/README.md) | 51 ADRs (37 active) with rationale and trade-offs | Developers |
 | [Penetration Testing](PENTEST.md) | Security scan results | Security |
 | [Stress Testing](STRESS_TEST.md) | Load testing guide | Operators |
 | [Stress Testing Results](STRESS_TEST-results.md) | Latest benchmark results, file index, Timekeeper load | Operators |
