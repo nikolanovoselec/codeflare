@@ -160,8 +160,10 @@ The agent detects the scenario automatically — source-file count for greenfiel
 
 Import Mode is the migration path from legacy manual coding to autonomous agentic coding. It produces two outputs simultaneously:
 
-- **Official spec REQs** in `sdd/{domain}.md` — for behavior that is clearly determinable from source, tests, comments, commits, PRs, or existing docs. Normal REQ shape, normal SDD discipline.
-- **Triage entries** in `sdd/init-triage.md` — for anything unclear (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent). Each entry carries the agent's **Context** (file:line, git author, commit refs, related tests/PRs, adjacent code) and **Recommendation** (best-guess answer with one-line Rationale). The user reviews and decides; they don't perform archaeology from scratch.
+- **Official spec REQs** in `sdd/{domain}.md` — for behavior that is clearly determinable from the full discovery surface. Normal REQ shape, normal SDD discipline.
+- **Triage entries** in `sdd/init-triage.md` — for anything unclear (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent). Each entry carries the agent's **Context** (file:line, git author, commit refs, related tests, PRs, issues, releases, comments) and **Recommendation** (best-guess answer with one-line Rationale). The user reviews and decides; they don't perform archaeology from scratch.
+
+**Discovery surface is the full project history, not just source code.** Intent in legacy systems often lives outside the working tree — in PR descriptions, issue threads (open and closed), code-review comments, and release notes. Import Mode pulls every available source: working tree (README, configs, source, tests, inline comments, ADRs), git history (commits, tags), and the GitHub corpus when a remote is present (PRs with review comments via `gh pr view --comments`, issues with comments via `gh issue view --comments`, releases via `gh release view`, wiki via the API). When a PR references an issue ("Closes #142"), Context follows the chain backward through every linked artifact rather than stopping at the first hit.
 
 While `sdd/init-triage.md` contains any `**Status:** open` items, the project is in **SDD transition**. `sdd/config.yml` carries `transition: true`. During transition:
 

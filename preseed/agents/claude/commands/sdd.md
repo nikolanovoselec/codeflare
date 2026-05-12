@@ -267,15 +267,22 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 #### Workflow
 
 1. **Confirm intent with the user**:
-   > "Detected existing codebase: {N} source files, {framework} project. I'll derive a spec from the code. What I can read clearly from source/tests/comments/commits becomes official spec. What I can't — magic numbers, retry policies, ambiguous contracts — becomes a triage queue with my best-guess answer attached, for you to confirm or correct at your own pace via `/sdd triage`. The project stays in SDD transition until the queue drains, then full autonomous agentic coding is unlocked. Continue, or treat this as a fresh start (ignore existing code)?"
+   > "Detected existing codebase: {N} source files, {framework} project. I'll derive a spec from the full project history (working tree, git log, pull requests, issues, releases). What I can read clearly becomes official spec. What I can't — magic numbers, retry policies, ambiguous contracts — becomes a triage queue with my best-guess answer attached, for you to confirm or correct at your own pace by re-running `/sdd init`. The project stays in SDD transition until the queue drains, then full autonomous agentic coding is unlocked. Continue, or treat this as a fresh start (ignore existing code)?"
    - If user picks "fresh start": jump to step 4 in the greenfield flow above
    - If user picks "derive from code" (default): continue
 
-2. **Analyze the project** (evidence vacuum):
-   - Read `README.md`, `package.json` (or equivalent), top-level configs
-   - Walk the directory tree under `src/`, `app/`, `lib/`, `pkg/`
-   - Identify domains from directory structure (`src/api/auth/` → Authentication, `src/billing/` → Billing, etc.; generic structures get 3-5 broad domains)
-   - Vacuum: tests (file names + describe/test blocks + assertion shapes), inline comments on entry-point files, commit messages on those files via `git log --follow`, PR descriptions via `gh pr list --search` if a GitHub remote exists, ADR-shaped files (`docs/decisions/`, `ADR/`, `architecture/decisions/`)
+2. **Analyze the project** (evidence vacuum). Discovery is NOT limited to source code — intent often lives outside the working tree (in PRs, issues, release notes, code review comments). Pull every available source and weight them equally:
+   - **Local working tree**: `README.md`, `package.json` (or equivalent), top-level configs; walk `src/`, `app/`, `lib/`, `pkg/` and identify domains from directory structure (`src/api/auth/` → Authentication, `src/billing/` → Billing; generic structures get 3-5 broad domains)
+   - **Tests**: file names + describe/test blocks + assertion shapes (often the most honest record of intended behavior)
+   - **Inline comments and docstrings** on entry-point files
+   - **Git history**: commit messages on entry-point files via `git log --follow`; tags and their messages (`git tag -l --format='%(refname:short) %(contents:subject)'`)
+   - **GitHub Pull Requests** (when a GitHub remote is detected): list both open and merged PRs via `gh pr list --state all --limit 200 --json number,title,body,labels,mergedAt`; fetch each PR's review comments and inline review threads via `gh pr view {n} --comments` for the PRs that touch the file or symbol you're classifying. PR descriptions often state the *why* that source code does not.
+   - **GitHub Issues** (open + closed): list via `gh issue list --state all --limit 200 --json number,title,body,labels,state,closedAt`; for issues referenced by a PR or commit message, fetch comments via `gh issue view {n} --comments`. Closed issues are especially valuable — they describe bugs that shaped current behavior and decisions that were made and superseded.
+   - **GitHub Releases**: `gh release list --limit 50`; for each release, `gh release view {tag}` to read the release notes body. Release notes are a curated record of user-facing intent and explicitly call out behavior changes.
+   - **ADR-shaped files** in the working tree: `docs/decisions/`, `ADR/`, `architecture/decisions/`, `documentation/decisions/`
+   - **Wiki** (when present): `gh api repos/{owner}/{repo}/wikis` — many legacy projects keep design notes there rather than in the repo
+
+   Cross-reference: when a PR description says "Closes #142", pull issue #142's body and comments too. When a release note says "fixes the bug from #87 and the discussion in PR #93", pull both. Intent typically traces backward through several artifacts; the agent follows the chain rather than stopping at the first hit.
 
 3. **For every observable feature/route/page/job, classify into one of two buckets**:
 
