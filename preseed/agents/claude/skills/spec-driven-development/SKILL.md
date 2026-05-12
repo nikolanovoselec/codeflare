@@ -163,23 +163,39 @@ Import Mode is the migration path from legacy manual coding to autonomous agenti
 - **Official spec REQs** in `sdd/{domain}.md` — for behavior that is clearly determinable from the full discovery surface. Normal REQ shape, normal SDD discipline.
 - **Triage entries** in `sdd/init-triage.md` — for anything unclear (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent). Each entry carries the agent's **Context** (file:line, git author, commit refs, related tests, PRs, issues, releases, comments) and **Recommendation** (best-guess answer with one-line Rationale). The user reviews and decides; they don't perform archaeology from scratch.
 
-**Discovery surface is the full project history, not just source code.** Intent in legacy systems often lives outside the working tree — in PR descriptions, issue threads (open and closed), code-review comments, and release notes. Import Mode pulls every available source: working tree (README, configs, source, tests, inline comments, ADRs), git history (commits, tags), and the GitHub corpus when a remote is present (PRs with review comments via `gh pr view --comments`, issues with comments via `gh issue view --comments`, releases via `gh release view`, wiki via the API). When a PR references an issue ("Closes #142"), Context follows the chain backward through every linked artifact rather than stopping at the first hit.
+**Discovery surface is the full project history, not just source code.** Intent in legacy systems often lives outside the working tree - in PR descriptions, issue threads (open and closed), code-review comments, and release notes. Import Mode pulls every available source: working tree (README, configs, source, tests, inline comments, ADRs), git history (commits, tags), and the GitHub corpus when a remote is present (PRs with review comments via `gh pr view --comments`, issues with comments via `gh issue view --comments`, releases via `gh release view`, wiki via the API). When a PR references an issue ("Closes #142"), Context follows the chain backward through every linked artifact rather than stopping at the first hit.
+
+**Degradation when GitHub sources are unreachable.** The GitHub corpus is best-effort, not mandatory. Detect failure conditions up front (non-GitHub remote - GitLab / Bitbucket / Forgejo / Gerrit; `gh auth status` fails; rate-limited; private repo with insufficient token scope; air-gapped network). If any condition holds, skip the GitHub sources entirely and proceed with working-tree + git-log evidence only. Print a one-line notice to the user before scaffolding (`Note: discovery used working tree + git log only ({reason} - GitHub sources unavailable).`) and append the same notice to the `sdd/changes.md` import entry. Triage Context fields reference whatever artifact refs are reachable; the audit trail honestly reflects what the agent saw.
 
 While `sdd/init-triage.md` contains any `**Status:** open` items, the project is in **SDD transition**. `sdd/config.yml` carries `transition: true`. During transition:
 
-- spec-reviewer suppresses Implemented → Partial auto-demote (the imported spec is intentionally partial — that's what the triage queue means)
+- spec-reviewer suppresses Implemented → Partial auto-demote (the imported spec is intentionally partial - that's what the triage queue means)
+- code-reviewer defers `Implements REQ-X-NNN` annotation findings on legacy source (the annotation convention is post-transition)
 - `/sdd autonomous unleashed` is rejected (judgment is required for triage; cannot run blind)
-- doc-updater and code-reviewer operate normally
+- The PR-boundary review pipeline is suspended for pushes to the working branch (PostToolUse + Stop hooks short-circuit when `sdd/init-triage.md` has open items)
+- doc-updater operates normally
 
-When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record.
+When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically AND `enforce_tdd` flips from `false` to `true` in the same edit. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record.
 
-Import Mode is **always interactive**, regardless of `auto` or `unleashed` config — both the CLEAR-vs-UNCLEAR classification and the triage Recommendations require judgment that the user validates.
+Import Mode is **always interactive**, regardless of `auto` or `unleashed` config - both the CLEAR-vs-UNCLEAR classification and the triage Recommendations require judgment that the user validates.
 
 ### Resume Mode — picking up where you left off
 
-When `/sdd init` is re-invoked on a project where `sdd/init-triage.md` has open items, the agent enters Resume Mode. It surfaces one item at a time with **refreshed** Context (re-read source, re-check git log, re-fetch related PRs — the codebase may have evolved since the prior session). The user picks one of: **accept** the recommendation, **correct** it, mark it **lost** (one-line Reason required), **skip** for now, or **quit**.
+When `/sdd init` is re-invoked on a project where `sdd/init-triage.md` has open items, the agent enters Resume Mode. The agent:
 
-Only `accept` and `correct` promote the answer into the official spec REQs. `correct` opens an editor for free-form prose where the user describes **what the thing is for** (purpose → REQ Intent) and **how it works** (observable behavior → REQ ACs); the agent folds the prose into the relevant REQ's fields. `skip` leaves the triage item open in `sdd/init-triage.md` and writes nothing to the spec — skipped items resurface on the next Resume Mode run. `lost` records the gap but does not fabricate an Intent. Each decision is its own commit; two developers can resume in parallel and normal git merge resolves conflicts.
+1. **Checks the working tree is clean** (`git status --porcelain` empty). Refuses to start if uncommitted changes are present - Resume Mode commits per decision and would otherwise mix WIP edits with triage commits. Same gate as `/sdd clean`.
+2. **Sanity-checks transition state**. If `transition: true` is missing from `sdd/config.yml` but open items exist, restores it quietly. If `transition: true` is set but `sdd/init-triage.md` is unreadable, aborts with a recovery hint (restore from git history or remove the flag manually).
+3. **Prints a mode-auto notice** when `sdd/config.yml` says `mode: auto`: Resume Mode is always interactive, the auto setting is suspended for this run and resumes after the queue drains.
+4. **Surfaces one item at a time** with **refreshed** Context (re-read source, re-check git log, re-fetch related PRs - the codebase may have evolved since the prior session). The user picks one of: **accept** the recommendation, **correct** it, mark it **lost** (one-line Reason required), **skip** for now, or **quit**.
+
+Only `accept` and `correct` promote the answer into the official spec REQs. `correct` opens an editor for free-form prose where the user describes **what the thing is for** (purpose → REQ Intent) and **how it works** (observable behavior → REQ ACs); the agent folds the prose into the relevant REQ's fields named in the triage entry's `**Target REQ:**` field (no re-inference at resolution time). `skip` leaves the triage item open in `sdd/init-triage.md` and writes nothing to the spec - skipped items resurface on the next Resume Mode run. `lost` records the gap but does not fabricate an Intent. Each decision is its own commit.
+
+**Transition-closure step** runs after every resolved/lost decision. When zero `**Status:** open` items remain:
+
+- `transition: true` is cleared from `sdd/config.yml`
+- `enforce_tdd: false` is flipped to `true` in the same edit - the import-time concession ends and TDD enforcement applies on the next push
+- A closure entry is appended to `sdd/changes.md` (e.g., `SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost).`)
+- The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 17) so the first feature work on top of the now-real spec is plan-gated
 
 In **greenfield mode**, the agent:
 
@@ -315,6 +331,8 @@ Same as `/sdd edit` but creates a new domain file. The agent:
 ```
 
 The setting is persistent (committed to git as `sdd/config.yml`) and travels with the project. Per-command overrides via `--interactive`, `--auto`, `--unleashed` flags on `/sdd clean`.
+
+**Transition gate on `unleashed`**: `/sdd autonomous unleashed` is rejected while `sdd/config.yml` carries `transition: true` (the import triage queue still has open items). Unleashed mode runs blind and auto-resolves JUDGMENT; triage items require user judgment by construction. The user must drain the triage queue via Resume Mode first. `/sdd autonomous on` (auto) and `off` (interactive) are both allowed during transition - they do not bypass user judgment on individual triage items.
 
 ## Test discipline
 

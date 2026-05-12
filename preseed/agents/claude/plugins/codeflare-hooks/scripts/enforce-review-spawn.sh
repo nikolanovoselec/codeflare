@@ -83,6 +83,17 @@ if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# SDD transition gate (REQ-AGENT-022) — do not block turn-end while the
+# user is mid-transition. /sdd init Resume Mode commits per-decision and
+# pushes; blocking each push on a full review pipeline spawn would stall
+# triage. Review resumes automatically when sdd/init-triage.md has no
+# open items and transition: true clears from sdd/config.yml.
+# ---------------------------------------------------------------------------
+if [ -f "sdd/init-triage.md" ] && grep -q '^\*\*Status:\*\* open' "sdd/init-triage.md" 2>/dev/null; then
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # Read hook input
 # ---------------------------------------------------------------------------
 INPUT=$(cat 2>/dev/null) || exit 0

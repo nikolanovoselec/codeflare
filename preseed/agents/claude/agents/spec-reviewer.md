@@ -49,7 +49,18 @@ If false, exit silently with code 0. Nothing to do.
 
 Read `sdd/config.yml`. If missing, write defaults from the `sdd-config.yml` template in the `spec-driven-development` skill (interactive mode, `enforce_tdd: true`) and continue.
 
-Required fields: `mode`, `enforce_tdd`, `test_globs`, `forbidden_content_allowlist`.
+Required fields: `mode`, `enforce_tdd`, `test_globs`, `forbidden_content_allowlist`. Optional: `transition` (set by `/sdd init` Import Mode while triage queue has open items).
+
+### Step 0b.5: Detect SDD transition state
+
+If `sdd/config.yml` carries `transition: true` AND `sdd/init-triage.md` exists with at least one `**Status:** open` item, the project is in SDD transition. Set `IN_TRANSITION=1` for this run.
+
+While `IN_TRANSITION=1`:
+- Phase 2 rule 5a (Auto-demote `Implemented → Partial`) is suppressed entirely. The imported spec is intentionally partial; the triage queue is the gap inventory, not a coverage failure.
+- Phase 2 rules 5b (source-vs-test) and 5c (test quality) still run and produce findings normally — they describe real gaps the user will close through triage or follow-up.
+- Continue with all other phases unchanged.
+
+Sanity check: if `transition: true` is set but `sdd/init-triage.md` is missing or contains no open items, this is a corrupted transition state. Write HIGH finding to `sdd/.review-needed.md`: *"sdd/config.yml has transition: true but no open triage items in sdd/init-triage.md. Either restore the triage file from history or set transition: false manually."* Do not suppress auto-demote — treat as no-transition for this run.
 
 ### Step 0c: Check the round counter (anti-spiral)
 
@@ -57,7 +68,7 @@ Required fields: `mode`, `enforce_tdd`, `test_globs`, `forbidden_content_allowli
 git log -3 --format="%s" 2>/dev/null
 ```
 
-Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-reviewer]` (NOT `[sdd-clean]` — those are explicitly excluded). If ≥2 of the last 3 commits are agent-authored on the **same target REQ-ID or category**, hard stop:
+Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-reviewer]`. Excluded prefixes (do NOT count toward the limit): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If ≥2 of the last 3 commits are agent-authored on the **same target REQ-ID or category**, hard stop:
 
 1. Write the would-be findings to `sdd/.review-needed.md` with header "Round limit reached"
 2. Exit with code 0
@@ -124,6 +135,7 @@ Run these checks against the post-Phase-1 spec:
    Run three classification passes against every REQ:
 
    **5a. Auto-demote (existing rule, kept)**
+   - **Suppressed when `IN_TRANSITION=1`** (see Step 0b.5). The imported spec is intentionally partial during SDD transition; the triage queue is the authoritative gap inventory. Write a one-line note to `sdd/.coverage-report.md` listing REQs that would have been demoted, but do not modify the spec.
    - For every `Status: Implemented` REQ, search test files (per `test_globs`) for the REQ ID
    - If no test references the REQ ID → HIGH finding, demote to `Partial` with `Notes:` explaining what's missing
    - Behavioral observation → adds a changelog entry

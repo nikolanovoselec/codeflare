@@ -107,6 +107,19 @@ if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# SDD transition gate (REQ-AGENT-022) — skip review during legacy-codebase
+# transition. While sdd/init-triage.md has open items, the user is doing
+# triage via /sdd init Resume Mode, producing many [sdd-init] commits in
+# succession. Firing the full code-reviewer + spec-reviewer + doc-updater
+# pipeline on each push would thrash the review surface; the imported spec
+# is intentionally partial during transition. Review resumes automatically
+# when the triage queue drains and transition: true clears from config.
+# ---------------------------------------------------------------------------
+if [ -f "sdd/init-triage.md" ] && grep -q '^\*\*Status:\*\* open' "sdd/init-triage.md" 2>/dev/null; then
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # PR-SYNC path — git push only fires review if the current branch has an
 # open PR. Cached at .git/sdd-pr-cache (60s TTL) to avoid hammering gh.
 # ---------------------------------------------------------------------------

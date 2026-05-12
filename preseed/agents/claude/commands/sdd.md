@@ -276,13 +276,15 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
    - **Tests**: file names + describe/test blocks + assertion shapes (often the most honest record of intended behavior)
    - **Inline comments and docstrings** on entry-point files
    - **Git history**: commit messages on entry-point files via `git log --follow`; tags and their messages (`git tag -l --format='%(refname:short) %(contents:subject)'`)
-   - **GitHub Pull Requests** (when a GitHub remote is detected): list both open and merged PRs via `gh pr list --state all --limit 200 --json number,title,body,labels,mergedAt`; fetch each PR's review comments and inline review threads via `gh pr view {n} --comments` for the PRs that touch the file or symbol you're classifying. PR descriptions often state the *why* that source code does not.
+   - **GitHub Pull Requests** (when a GitHub remote is detected AND `gh` is authenticated): list both open and merged PRs via `gh pr list --state all --limit 200 --json number,title,body,labels,mergedAt`; fetch each PR's review comments and inline review threads via `gh pr view {n} --comments` for the PRs that touch the file or symbol you're classifying. PR descriptions often state the *why* that source code does not.
    - **GitHub Issues** (open + closed): list via `gh issue list --state all --limit 200 --json number,title,body,labels,state,closedAt`; for issues referenced by a PR or commit message, fetch comments via `gh issue view {n} --comments`. Closed issues are especially valuable — they describe bugs that shaped current behavior and decisions that were made and superseded.
    - **GitHub Releases**: `gh release list --limit 50`; for each release, `gh release view {tag}` to read the release notes body. Release notes are a curated record of user-facing intent and explicitly call out behavior changes.
    - **ADR-shaped files** in the working tree: `docs/decisions/`, `ADR/`, `architecture/decisions/`, `documentation/decisions/`
    - **Wiki** (when present): `gh api repos/{owner}/{repo}/wikis` — many legacy projects keep design notes there rather than in the repo
 
    Cross-reference: when a PR description says "Closes #142", pull issue #142's body and comments too. When a release note says "fixes the bug from #87 and the discussion in PR #93", pull both. Intent typically traces backward through several artifacts; the agent follows the chain rather than stopping at the first hit.
+
+   **Degradation when GitHub sources are unreachable.** The GitHub corpus is best-effort, not mandatory. Detect failure conditions up front (no GitHub remote — e.g. GitLab / Bitbucket / Forgejo / Gerrit; `gh auth status` fails; rate-limited; private repo with insufficient token scope; air-gapped network). If any condition holds, skip the GitHub sources entirely and proceed with working-tree + git-log evidence only. Print a one-line notice to the user before scaffolding: `Note: discovery used working tree + git log only ({reason} — GitHub sources unavailable). Triage entries reference local evidence only.` Append the same notice to `sdd/changes.md` import entry. Triage entry Context fields list whatever artifact refs are available (PR numbers if reachable, otherwise file:line + commit ref only); the audit trail honestly reflects what the agent saw.
 
 3. **For every observable feature/route/page/job, classify into one of two buckets**:
 
@@ -310,14 +312,19 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
    Each triage entry shape:
    ```
    ## TRIAGE-{NNN}
+   **Domain:** {domain — sorting | auth | billing | ...; the spec domain the answer will fold into}
+   **Target REQ:** {REQ-X-NNN if updating an existing REQ, or `new-in-{domain}` if the resolution will create a new REQ}
    **Question:** {specific, decidable question — not "what's the intent?"}
    **Context:**
-   - {file:line, git author, commit ref, related tests, related PRs, adjacent code}
+   - {file:line, git author, commit ref, related tests, related PR/issue/release numbers, adjacent code}
    **Recommendation:** {best-guess answer}
    **Rationale:** {one line tying recommendation to specific Context evidence}
    **Status:** open
-   **Resolution:**
+   **Reason:** {required only when Status is `lost`; one-line explanation of why information is genuinely unrecoverable}
+   **Resolution:** {written by Resume Mode after accept/correct; blank while open}
    ```
+
+   `Domain` and `Target REQ` are populated by Import Mode at entry creation, so Resume Mode's fold-in is deterministic (no re-inference at resolution time). `new-in-{domain}` items create a fresh REQ in `sdd/{domain}.md` on `accept`; existing-REQ items update Intent or ACs on the named REQ.
 
 5. **Derive CLEAR REQs** (the official spec):
    - **Intent**: lifted directly from the evidence (README sentence, PR description, commit message, docstring)
@@ -387,14 +394,29 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 
 Triggered when `/sdd init` is invoked on a project where `sdd/` already exists and `sdd/init-triage.md` has at least one `**Status:** open` item. The user is mid-transition; resume the interactive triage where the prior session left off.
 
-1. **Read `sdd/init-triage.md`**, collect items with `**Status:** open` in file order. Report queue size: `{N} open items in triage queue. Press [q] at any prompt to quit; progress is committed after each decision.`
+**Resume Mode is always interactive**, regardless of `mode` in `sdd/config.yml`. If config says `mode: auto`, print a one-line notice before step 1: `Note: mode: auto is suspended for this run — Resume Mode is always interactive because each triage decision requires user judgment.` After the queue drains, the normal mode resumes for subsequent runs.
 
-2. **For the next open item, REFRESH Context** before surfacing. The original Context was a snapshot from a prior session; the codebase may have evolved. Re-read the referenced file at the cited lines, re-check `git log` for new commits touching the range, re-scan adjacent tests, re-fetch related PRs via `gh pr list --search`. Update the entry's Context block in place if it has shifted materially.
+1. **Check working tree cleanliness**: if `git status --porcelain` is non-empty, refuse to start Resume Mode:
+   ```
+   Error: working tree has uncommitted changes. Resume Mode commits per
+   decision, and your WIP would get pulled into a [sdd-init] resolve
+   commit. Stash or commit first, then re-run /sdd init.
+   ```
+   Same rule as `/sdd clean`'s working-tree gate.
 
-3. **Surface the item** with the refreshed Context and Recommendation:
+2. **Sanity-check transition state**: read `sdd/config.yml`. If `transition: true` is absent but open items exist in `sdd/init-triage.md`, set it back to `true` (recover quietly). If `transition: true` is set but `sdd/init-triage.md` is missing or unreadable, abort with: `Error: sdd/config.yml has transition: true but sdd/init-triage.md is missing. Either restore the triage file from git history or remove transition: true manually before re-running /sdd init.`
+
+3. **Read `sdd/init-triage.md`**, collect items with `**Status:** open` in file order. Report queue size: `{N} open items in triage queue. Press [q] at any prompt to quit; progress is committed after each decision.`
+
+4. **For the next open item, REFRESH Context** before surfacing. The original Context was a snapshot from a prior session; the codebase may have evolved. Re-read the referenced file at the cited lines, re-check `git log` for new commits touching the range, re-scan adjacent tests, re-fetch related PRs / issues / releases via `gh` if available. Update the entry's Context block in place if it has shifted materially.
+
+5. **Surface the item** with the refreshed Context and Recommendation. The agent shows the item's `**Domain:**` and `**Target REQ:**` so the user knows which REQ will receive the fold-in:
 
    ```
    ━━━ TRIAGE-007 ({position} of {total} open) ━━━
+
+   Domain: {domain}
+   Target REQ: {REQ-X-NNN or new-in-{domain}}
 
    Question: {question}
 
@@ -412,28 +434,36 @@ Triggered when `/sdd init` is invoked on a project where `sdd/` already exists a
      [q] quit (commit progress, exit)
    ```
 
-4. **Apply the decision**. Only `accept` and `correct` promote anything into the official spec. `skip` and `lost` do not:
-   - **accept**: write recommendation into `**Resolution:**`, set `**Status:** resolved`, **fold the answer into the relevant REQ** (creating one in `sdd/{domain}.md` if the item was a placeholder for a missing REQ; updating the REQ's Intent or AC if it already exists)
-   - **correct**: open an editor / prompt for free-form prose. The user describes **what this is for** (purpose, which becomes the REQ's Intent) and **how it works** (observable behavior, which becomes the REQ's AC). The whole prose block is written into `**Resolution:**`. The agent then folds purpose into Intent and behavior into AC bullets on the relevant REQ, set `**Status:** resolved`.
-   - **lost**: prompt for a one-line `**Reason:**`, set `**Status:** lost`. **No fold into spec.** The related REQ (if any) gets a `Notes: intent lost during SDD transition — see TRIAGE-{NNN}` annotation; otherwise the item stays only in `sdd/init-triage.md` as the documented gap.
+6. **Apply the decision**. Only `accept` and `correct` promote anything into the official spec. `skip` and `lost` do not:
+   - **accept**: write recommendation into `**Resolution:**`, set `**Status:** resolved`, **fold the answer into the named Target REQ**. If `**Target REQ:**` is `new-in-{domain}`, create a new REQ in `sdd/{domain}.md` with the resolution as its Intent and a test-derived AC. If it's `REQ-X-NNN`, update the named REQ's Intent or AC.
+   - **correct**: open an editor / prompt for free-form prose. The user describes **what this is for** (purpose, which becomes the REQ's Intent) and **how it works** (observable behavior, which becomes the REQ's AC). The whole prose block is written into `**Resolution:**`. The agent folds purpose into Intent and behavior into AC bullets on the named Target REQ, set `**Status:** resolved`.
+   - **lost**: prompt for a one-line `**Reason:**`, write it into the entry's `**Reason:**` field, set `**Status:** lost`. **No fold into spec.** The Target REQ (if it exists) gets a `Notes: intent lost during SDD transition — see TRIAGE-{NNN}` annotation; otherwise the item stays only in `sdd/init-triage.md` as the documented gap.
    - **skip**: leave `**Status:** open` unchanged. **The triage item stays in `sdd/init-triage.md` and nothing is written to the spec.** Advance to the next open item. Skipped items resurface on the next `/sdd init` Resume Mode run.
    - **quit**: stop, commit, exit. Open items (including any just skipped) remain in `sdd/init-triage.md` for the next session.
 
-5. **Commit per decision**: each `accept`/`correct`/`lost` is its own commit with subject `[sdd-init] resolve TRIAGE-{NNN}` (or `mark lost`). Crash-safe; concurrent triage by two developers resolves via normal git merge.
+7. **Commit per decision**: each `accept`/`correct`/`lost` is its own commit with subject `[sdd-init] resolve TRIAGE-{NNN}` (or `mark lost`). Crash-safe; the `[sdd-init]` prefix is excluded from the spec-reviewer round-counter (per `spec-discipline.md`), so a long triage session does not trip the 2-round spiral guard.
 
-6. **Transition-closure check** runs after every resolved/lost decision. When zero `**Status:** open` items remain:
+8. **Transition-closure check** runs after every resolved/lost decision. When zero `**Status:** open` items remain:
    - Clear `transition: true` from `sdd/config.yml`
-   - Append to `sdd/changes.md`: `## YYYY-MM-DD\n- SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost). Full SDD discipline now applies; autonomous agentic development unlocked.`
+   - **Flip `enforce_tdd: true`** in the same edit — the spec is now real and test coverage enforcement should apply on the next push (the import-time `enforce_tdd: false` was only a transition-window concession)
+   - Append to `sdd/changes.md`: `## YYYY-MM-DD\n- SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost). Full SDD discipline now applies; enforce_tdd flipped to true; autonomous agentic development unlocked.`
    - Print:
      ```
      ✓ Triage queue drained. SDD transition complete.
-     ✓ Full SDD discipline applies on the next push.
+     ✓ enforce_tdd flipped to true; full SDD discipline applies on the next push.
      ✓ Autonomous agentic development is unlocked.
 
      sdd/init-triage.md preserved as audit record.
-     ```
 
-To re-open a previously resolved or lost item, the user edits `sdd/init-triage.md` directly: change `**Status:**` back to `open`. The next `/sdd init` Resume Mode run surfaces it again.
+     NEXT STEP — enter Plan Mode to plan the first feature work on top of
+     the freshly-completed spec. The same Plan-Mode gate that protects
+     greenfield init applies here: no source/test/config edits before
+     planning. "go" / "execute" / "ship it" / "build now" authorize
+     starting the plan, never skipping it.
+     ```
+   - Enter Plan Mode (same gate as greenfield `/sdd init` step 17).
+
+To re-open a previously resolved or lost item, the user edits `sdd/init-triage.md` directly: change `**Status:**` back to `open`. The next `/sdd init` Resume Mode run surfaces it again. Note: re-opening does NOT automatically un-fold the prior Resolution from the Target REQ — the user reverts that edit manually (the REQ history is in `git log sdd/{domain}.md`).
 
 ---
 
@@ -569,6 +599,18 @@ Set the autonomy mode.
 ```
 
 If `sdd/config.yml` doesn't exist, create it from the template first. If `sdd/` doesn't exist, error out: "No SDD project here. Run `/sdd init` first."
+
+**Transition gate.** Before writing `mode: unleashed`, read `sdd/config.yml` and check for `transition: true`. If set, refuse with:
+
+```
+Error: project is in SDD transition (sdd/init-triage.md has open items).
+Unleashed mode applies fixes without confirmation, which is incompatible
+with triage entries that require user judgment to resolve. Drain the
+triage queue first (run `/sdd init` again to resume), then re-run
+`/sdd autonomous unleashed on`.
+```
+
+`/sdd autonomous on` (auto mode) and `/sdd autonomous off` (interactive) are both allowed during transition — they do not bypass user judgment on individual triage items.
 
 ---
 
