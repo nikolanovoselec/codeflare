@@ -20,22 +20,26 @@ Users choose between **Default** and **Advanced** session modes via
 Settings > Session Defaults. The mode controls which preseed files are
 deployed on Recreate or new bucket creation.
 
-| Content | Default | Advanced |
-|---------|---------|----------|
-| Memory plugin & rule | No | Yes |
-| CI monitoring, environment, no-local-builds, deploy-credentials rules | Yes | Yes |
-| Cloudflare stack, ship, ship references skills | Yes | Yes |
-| `consult-llm` skill (CC only) | No | Yes |
-| CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes |
-| Language rules (23 files: common, TS, Python, Go, Swift) | No | Yes |
-| Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes |
-| Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes |
-| Cherry-picked skills (8: api-design, backend-patterns, etc.) | No | Yes |
-| `spec-discipline` rule (universal SDD enforcement, all 5 agents) | No | Yes |
-| `documentation-discipline` rule (per-file/per-cell budgets, lane separation) | No | Yes |
-| `tdd-discipline` rule (test-quality patterns, third sibling of the discipline triad) | No | Yes |
-| SDD template scaffolding (13 files for `/sdd init`) | No | Yes |
-| Known marketplaces plugin config | Yes | Yes |
+| Content | Default | Advanced | Advanced on Custom tier |
+|---------|---------|----------|-------------------------|
+| Memory plugin & rule | No | Yes | Yes |
+| CI monitoring, environment, no-local-builds, deploy-credentials rules | Yes | Yes | Yes |
+| Cloudflare stack, ship, ship references skills | Yes | Yes | Yes |
+| `consult-llm` skill (CC only) | No | Yes | Yes |
+| CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
+| Language rules (23 files: common, TS, Python, Go, Swift) | No | Yes | Yes |
+| Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
+| Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
+| Cherry-picked skills (8: api-design, backend-patterns, etc.) | No | Yes | Yes |
+| `spec-discipline` rule (universal SDD enforcement, all 5 agents) | No | Yes | Yes |
+| `documentation-discipline` rule (per-file/per-cell budgets, lane separation) | No | Yes | Yes |
+| `tdd-discipline` rule (test-quality patterns, third sibling of the discipline triad) | No | Yes | Yes |
+| SDD template scaffolding (13 files for `/sdd init`) | No | Yes | Yes |
+| Known marketplaces plugin config | Yes | Yes | Yes |
+| context-mode MCP server (`ctx_*` helper tools, always-on) | Yes | Yes | Yes |
+| context-mode plugin folder (auto-routing hooks for context-window reduction) | No | No | Yes |
+
+The Custom-tier column reflects the extra delivery surface for users on the `unlimited` subscription tier in Advanced mode. The context-mode helper tools (`ctx_*`) are universally available so the agent can always invoke them on demand; the plugin folder that adds automatic context-window-reduction routing is delivered only to Advanced + Custom users.
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in
 `UserPreferences` (KV). Undefined = `'default'`.
