@@ -26,98 +26,98 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 ### Session Management
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/sessions` | List sessions |
-| POST | `/api/sessions` | Create session (rate limited) |
-| GET | `/api/sessions/:id` | Get session |
-| PATCH | `/api/sessions/:id` | Update session |
-| DELETE | `/api/sessions/:id` | Delete session and destroy container |
-| POST | `/api/sessions/:id/touch` | Update lastAccessedAt |
-| POST | `/api/sessions/:id/stop` | Stop session (KV 'stopped' + container.destroy()) |
-| GET | `/api/sessions/:id/status` | Get session and container status |
-| GET | `/api/sessions/batch-status` | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode) |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/sessions` | Session cookie | TBD | List sessions |
+| POST | `/api/sessions` | Session cookie | TBD | Create session (rate limited) |
+| GET | `/api/sessions/:id` | Session cookie | TBD | Get session |
+| PATCH | `/api/sessions/:id` | Session cookie | TBD | Update session |
+| DELETE | `/api/sessions/:id` | Session cookie | TBD | Delete session and destroy container |
+| POST | `/api/sessions/:id/touch` | Session cookie | TBD | Update lastAccessedAt |
+| POST | `/api/sessions/:id/stop` | Session cookie | TBD | Stop session (KV 'stopped' + container.destroy()) |
+| GET | `/api/sessions/:id/status` | Session cookie | TBD | Get session and container status |
+| GET | `/api/sessions/batch-status` | Session cookie | TBD | Batch status for all sessions (status, ptyActive, lastActiveAt, lastStartedAt, metrics, maxSessions, storageStats from KV cache, usage piggyback in SaaS mode) |
 
 ### Container Lifecycle
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/container/start` | Start container (non-blocking) |
-| POST | `/api/container/destroy` | Destroy container (SIGKILL) |
-| GET | `/api/container/startup-status` | Poll startup progress |
-| GET | `/api/container/health` | Health check |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| POST | `/api/container/start` | Session cookie | TBD | Start container (non-blocking) |
+| POST | `/api/container/destroy` | Session cookie | TBD | Destroy container (SIGKILL) |
+| GET | `/api/container/startup-status` | Session cookie | TBD | Poll startup progress |
+| GET | `/api/container/health` | Session cookie | TBD | Health check |
 
 ### Terminal
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| WS | `/api/terminal/:compoundId/ws` | Terminal WebSocket (compoundId format: `sessionId-terminalId`) |
-| GET | `/api/terminal/:sessionId/status` | Connection status |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| WS | `/api/terminal/:compoundId/ws` | Session cookie | TBD | Terminal WebSocket (compoundId format: `sessionId-terminalId`) |
+| GET | `/api/terminal/:sessionId/status` | Session cookie | TBD | Connection status |
 
 ### User Management
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/user` | Authenticated user info (includes `onboardingActive`, `onboardingComplete`) |
-| POST | `/api/user/onboarding-complete` | Mark guided setup as visited (sets KV flag) |
-| GET | `/api/user/r2-status` | R2 credential status for current user |
-| POST | `/api/user/ensure-r2-token` | Create scoped R2 token if missing (rate limited) |
-| GET | `/api/users` | List allowed users (admin only) |
-| DELETE | `/api/users/:email` | Remove allowed user (admin only) |
-| PATCH | `/api/users/:email` | Update user tier/role (admin only) |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/user` | Session cookie (admin-only routes require admin role) | TBD | Authenticated user info (includes `onboardingActive`, `onboardingComplete`) |
+| POST | `/api/user/onboarding-complete` | Session cookie (admin-only routes require admin role) | TBD | Mark guided setup as visited (sets KV flag) |
+| GET | `/api/user/r2-status` | Session cookie (admin-only routes require admin role) | TBD | R2 credential status for current user |
+| POST | `/api/user/ensure-r2-token` | Session cookie (admin-only routes require admin role) | TBD | Create scoped R2 token if missing (rate limited) |
+| GET | `/api/users` | Session cookie (admin-only routes require admin role) | TBD | List allowed users (admin only) |
+| DELETE | `/api/users/:email` | Session cookie (admin-only routes require admin role) | TBD | Remove allowed user (admin only) |
+| PATCH | `/api/users/:email` | Session cookie (admin-only routes require admin role) | TBD | Update user tier/role (admin only) |
 
 ### Auth (SaaS Mode)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/auth/providers` | List configured IdPs (public, no auth) |
-| GET | `/api/auth/status` | Auth status (tier, email, role, turnstile key, session/billing state) |
-| GET | `/api/auth/tiers` | Subscribable tier configs (requires identity) |
-| GET | `/api/auth/onboarding-config` | Onboarding page config (turnstile key) |
-| POST | `/api/auth/subscribe` | Self-service tier selection (rate-limited 3/min) |
-| POST | `/api/auth/request-access` | Request access with Turnstile (rate-limited 3/hr) |
-| POST | `/api/auth/contact-team` | Enterprise tier inquiry email (rate-limited 1/hr) |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/auth/providers` | varies | TBD | List configured IdPs (public, no auth) |
+| GET | `/api/auth/status` | varies | TBD | Auth status (tier, email, role, turnstile key, session/billing state) |
+| GET | `/api/auth/tiers` | varies | TBD | Subscribable tier configs (requires identity) |
+| GET | `/api/auth/onboarding-config` | varies | TBD | Onboarding page config (turnstile key) |
+| POST | `/api/auth/subscribe` | varies | TBD | Self-service tier selection (rate-limited 3/min) |
+| POST | `/api/auth/request-access` | varies | TBD | Request access with Turnstile (rate-limited 3/hr) |
+| POST | `/api/auth/contact-team` | varies | TBD | Enterprise tier inquiry email (rate-limited 1/hr) |
 
 ### Usage
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/usage` | Current user's real-time usage (Timekeeper DO with KV fallback) |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/usage` | Session cookie | TBD | Current user's real-time usage (Timekeeper DO with KV fallback) |
 
 ### Admin
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/admin/tiers` | Get current tier config (admin only) |
-| PUT | `/api/admin/tiers` | Update tier config (admin only, 8-tier array) |
-| PUT | `/api/users/max-users` | Set max users capacity cap (admin only) |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/admin/tiers` | Admin role | TBD | Get current tier config (admin only) |
+| PUT | `/api/admin/tiers` | Admin role | TBD | Update tier config (admin only, 8-tier array) |
+| PUT | `/api/users/max-users` | Admin role | TBD | Set max users capacity cap (admin only) |
 
 ### Billing
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/billing/checkout` | Create Stripe Checkout Session for paid tier (rate-limited 5/min) |
-| GET | `/api/billing/status` | Live billing state from Stripe (subscription, period, status) |
-| POST | `/api/billing/portal` | Create Stripe Customer Portal session (rate-limited 5/min) |
-| POST | `/api/billing/switch` | Deep-link portal for plan change confirmation (rate-limited 5/min) |
-| POST | `/public/stripe/webhook` | Stripe webhook handler (unauthenticated, HMAC-verified, rate-limited 100/min) |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| POST | `/api/billing/checkout` | Session cookie | TBD | Create Stripe Checkout Session for paid tier (rate-limited 5/min) |
+| GET | `/api/billing/status` | Session cookie | TBD | Live billing state from Stripe (subscription, period, status) |
+| POST | `/api/billing/portal` | Session cookie | TBD | Create Stripe Customer Portal session (rate-limited 5/min) |
+| POST | `/api/billing/switch` | Session cookie | TBD | Deep-link portal for plan change confirmation (rate-limited 5/min) |
+| POST | `/public/stripe/webhook` | Session cookie | TBD | Stripe webhook handler (unauthenticated, HMAC-verified, rate-limited 100/min) |
 
 ### Deploy Keys
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/deploy-keys` | Get encrypted deploy credentials (masked) |
-| PUT | `/api/deploy-keys` | Save/update deploy credentials (GitHub PAT, CF API token) |
-| DELETE | `/api/deploy-keys` | Erase all deploy credentials |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/deploy-keys` | Session cookie | TBD | Get encrypted deploy credentials (masked) |
+| PUT | `/api/deploy-keys` | Session cookie | TBD | Save/update deploy credentials (GitHub PAT, CF API token) |
+| DELETE | `/api/deploy-keys` | Session cookie | TBD | Erase all deploy credentials |
 
 ### Public (Unauthenticated)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/public/auth/providers` | Auth providers (outside CF Access gate) |
-| GET | `/public/onboarding-config` | Turnstile site key + onboarding status |
-| GET | `/public/tiers` | Public tier config (no session mode info) |
-| POST | `/public/waitlist` | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/public/auth/providers` | none | TBD | Auth providers (outside CF Access gate) |
+| GET | `/public/onboarding-config` | none | TBD | Turnstile site key + onboarding status |
+| GET | `/public/tiers` | none | TBD | Public tier config (no session mode info) |
+| POST | `/public/waitlist` | none | TBD | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
 
 ### Setup
 
@@ -408,20 +408,20 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 
 ### Storage (R2 File Browser)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/storage/browse` | List objects in R2 prefix |
-| POST | `/api/storage/upload` | Upload file |
-| GET | `/api/storage/download` | Download file |
-| POST | `/api/storage/delete` | Delete objects by key and/or prefix (server-side bulk delete) |
-| GET | `/api/storage/preview` | Preview file content (text files inline, others return metadata only) |
-| GET | `/api/storage/stats` | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
-| POST | `/api/storage/seed/getting-started` | Seed tutorial docs |
-| POST | `/api/storage/seed/agent-configs` | Recreate AI agent skills & rules (overwrites, respects session mode) |
-| POST | `/api/storage/upload/initiate` | Initiate multipart upload |
-| POST | `/api/storage/upload/part` | Upload a single part (base64 body) |
-| POST | `/api/storage/upload/complete` | Complete multipart upload |
-| POST | `/api/storage/upload/abort` | Abort multipart upload |
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/storage/browse` | Session cookie | TBD | List objects in R2 prefix |
+| POST | `/api/storage/upload` | Session cookie | TBD | Upload file |
+| GET | `/api/storage/download` | Session cookie | TBD | Download file |
+| POST | `/api/storage/delete` | Session cookie | TBD | Delete objects by key and/or prefix (server-side bulk delete) |
+| GET | `/api/storage/preview` | Session cookie | TBD | Preview file content (text files inline, others return metadata only) |
+| GET | `/api/storage/stats` | Session cookie | TBD | File/folder counts (60s KV cache, refreshes from R2 on miss/stale) |
+| POST | `/api/storage/seed/getting-started` | Session cookie | TBD | Seed tutorial docs |
+| POST | `/api/storage/seed/agent-configs` | Session cookie | TBD | Recreate AI agent skills & rules (overwrites, respects session mode) |
+| POST | `/api/storage/upload/initiate` | Session cookie | TBD | Initiate multipart upload |
+| POST | `/api/storage/upload/part` | Session cookie | TBD | Upload a single part (base64 body) |
+| POST | `/api/storage/upload/complete` | Session cookie | TBD | Complete multipart upload |
+| POST | `/api/storage/upload/abort` | Session cookie | TBD | Abort multipart upload |
 
 ### Presets
 
