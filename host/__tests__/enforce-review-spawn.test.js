@@ -529,63 +529,24 @@ describe('enforce-review-spawn.sh — bypass 2: magic phrase', () => {
 });
 
 describe('enforce-review-spawn.sh — fail-safe behavior', () => {
-  it('exits 0 silently when timestamp extraction fails (regression for fail-open bug)', () => {
-    // This test pins the fix for the awk `ts > ""` fail-open bug.
-    // A push line with no extractable timestamp must NOT silently
-    // skip enforcement via awk's string-compare semantics — it must
-    // hit the explicit empty-PUSH_TS guard and exit 0.
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, ghReturning('OPEN', 'newsha'));
-    // Bash command line with NO timestamp field
-    const pushLineNoTs = JSON.stringify({
-      type: 'assistant',
-      message: {
-        content: [
-          { type: 'tool_use', name: 'Bash', input: { command: 'git push origin develop' } },
-        ],
-      },
-    });
-    const t = writeTranscript(cwd, [pushLineNoTs]);
-    const r = runHook(cwd, { transcriptPath: t, binDir });
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'missing timestamp must short-circuit before the spawned_after_push helper, ' +
-      'not silently disable enforcement via awk string comparison');
-  });
-
-  it('does not promote same-second non-fractional agent ts past fractional push (regression for strip_frac double-Z bug)', () => {
-    // Pins the fix for the awk strip_frac bug. The bug fires at the
-    // boundary: when an agent timestamp shares the same wall-clock
-    // second as the normalized push timestamp but lacks the fractional
-    // portion, a buggy strip_frac re-appended Z unconditionally,
-    // producing "2026-05-03T12:00:00ZZ" which sorts lexicographically
-    // GREATER than the normalized push ts "2026-05-03T12:00:00Z".
-    // spawned_after_push then returned TRUE for every same-second
-    // pre-push agent and the hook silently skipped enforcement.
-    //
-    // The collision must happen at the same wall-clock second for the
-    // spurious ZZ to be the only thing that can flip the comparison;
-    // earlier seconds (e.g. 11:59:59Z) lose the ordering on the seconds
-    // digit and the bug is not exercised.
-    //
-    // Expected behaviour with the fix: agent ts stays "12:00:00Z",
-    // which is not strictly greater than the push ts "12:00:00Z", so
-    // the three agents are correctly classified as pre-push and the
-    // hook BLOCKS with a directive naming all three.
+  it('classifies agents earlier in the transcript than the push as stale', () => {
+    // Pins the line-number ordering contract for spawned_after_push.
+    // The transcript is append-only JSONL, so a subagent_type entry
+    // that appears BEFORE the push line is definitionally pre-push
+    // and must not satisfy enforcement.
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
     const t = writeTranscript(cwd, [
-      AGENT_LINE('code-reviewer', '2026-05-03T12:00:00Z', 'toolu_stale_cr'),
-      AGENT_LINE('spec-reviewer', '2026-05-03T12:00:00Z', 'toolu_stale_sr'),
-      AGENT_LINE('doc-updater', '2026-05-03T12:00:00Z', 'toolu_stale_du'),
-      PUSH_LINE('2026-05-03T12:00:00.500Z'),
+      AGENT_LINE('code-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_cr'),
+      AGENT_LINE('spec-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_sr'),
+      AGENT_LINE('doc-updater', '2026-05-03T11:59:59Z', 'toolu_stale_du'),
+      PUSH_LINE(),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'same-second non-fractional agent ts must not be promoted past push ts by strip_frac');
+      'agents earlier in the transcript than the push must not count');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
     assert.match(r.stdout, /doc-updater/);

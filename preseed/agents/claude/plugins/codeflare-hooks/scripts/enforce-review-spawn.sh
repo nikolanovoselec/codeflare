@@ -33,8 +33,8 @@
 #   - Open PR + CURRENT_PR_HEAD == LAST_ACK → exit 0 (already reviewed
 #     at this state)
 #   - Open PR + CURRENT_PR_HEAD ≠ LAST_ACK → enforce: require
-#     code-reviewer + spec-reviewer + doc-updater spawned with
-#     transcript timestamps after the PR HEAD landed
+#     code-reviewer + spec-reviewer + doc-updater spawned later in
+#     the transcript than the push line
 #
 # Migration from v4: if .git/sdd-last-ack-push (timestamp checkpoint)
 # exists, it is deleted on first v5 invocation. The PR HEAD SHA
@@ -319,57 +319,15 @@ fi
 # ---------------------------------------------------------------------------
 # Real un-acknowledged PR HEAD exists. Enforce.
 #
-# Find the timestamp of the candidate push line — agents must be spawned
-# with timestamps strictly after the push to count as a fresh review.
+# "Spawned after push" = appears later in the transcript than the push
+# line. The transcript is append-only JSONL, so line number is the
+# authoritative order. No timestamp parsing needed.
 # ---------------------------------------------------------------------------
-PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT" 2>/dev/null)
-PUSH_TS=$(echo "$PUSH_LINE_CONTENT" | grep -oE '"timestamp":"[^"]+"' | head -1 | sed -E 's/.*"timestamp":"([^"]+)"/\1/')
 
-# Normalize RFC3339 timestamps: strip fractional seconds so the awk
-# string-compare below is order-correct. Without this, mixing
-# "2026-05-12T18:25:30Z" (20 chars) and "2026-05-12T18:25:30.123Z"
-# (24 chars) sorts the longer string greater regardless of actual time,
-# letting stale agent spawns appear "after the push."
-normalize_ts() {
-  echo "$1" | sed -E 's/\.[0-9]+(Z|[+-][0-9:]+)$/\1/'
-}
-PUSH_TS=$(normalize_ts "$PUSH_TS")
-
-# Fail-safe: if timestamp extraction failed (transcript schema drift,
-# missing field, etc.) the awk comparison `ts > "$PUSH_TS"` would become
-# `ts > ""` — TRUE for any non-empty string — making spawned_after_push
-# return true for any historical agent invocation and silently disabling
-# enforcement. Exit 0 here makes the failure mode explicit (consistent
-# with the rest of the hook) instead of relying on awk's string-compare
-# semantics happening to do the right thing.
-[ -n "$PUSH_TS" ] || exit 0
-
-# Helper: was this subagent_type spawned with transcript timestamp > push ts?
-# Normalizes both sides by stripping fractional seconds to make the
-# string-compare order-correct on RFC3339 timestamps of differing lengths.
 spawned_after_push() {
   local agent="$1"
-  awk -v t="$PUSH_TS" -v a="$agent" '
-    function strip_frac(s,    out) {
-      out = s
-      # Only re-append the tz suffix when sub actually stripped a
-      # fractional portion. awks sub returns 1 on match, 0 otherwise.
-      # Without the gate, a no-fractional input like "2026-05-12T18:25:30Z"
-      # would re-append Z to itself, producing "2026-05-12T18:25:30ZZ"
-      # which sorts greater than its fractional-equivalent neighbour.
-      if (sub(/\.[0-9]+(Z|[+-][0-9:]+)$/, "", out)) {
-        if (match(s, /(Z|[+-][0-9:]+)$/)) {
-          out = out substr(s, RSTART, RLENGTH)
-        }
-      }
-      return out
-    }
-    index($0, "\"subagent_type\":\"" a "\"") {
-      if (match($0, /"timestamp":"[^"]+"/)) {
-        ts = substr($0, RSTART+13, RLENGTH-14)
-        if (strip_frac(ts) > t) { found = 1; exit }
-      }
-    }
+  awk -v p="$PUSH_LINE" -v a="$agent" '
+    NR > p && index($0, "\"subagent_type\":\"" a "\"") { found = 1; exit }
     END { exit !found }
   ' "$TRANSCRIPT"
 }
@@ -440,13 +398,8 @@ fi
 # ---------------------------------------------------------------------------
 # Check 2: spec-reviewer completion → doc-updater must follow
 # ---------------------------------------------------------------------------
-SPEC_SPAWN_LINE=$(awk -v t="$PUSH_TS" '
-  /"subagent_type":"spec-reviewer"/ {
-    if (match($0, /"timestamp":"[^"]+"/)) {
-      ts = substr($0, RSTART+13, RLENGTH-14)
-      if (ts > t) print NR
-    }
-  }
+SPEC_SPAWN_LINE=$(awk -v p="$PUSH_LINE" '
+  NR > p && /"subagent_type":"spec-reviewer"/ { print NR }
 ' "$TRANSCRIPT" | tail -1)
 
 PIPELINE_COMPLETE=0
