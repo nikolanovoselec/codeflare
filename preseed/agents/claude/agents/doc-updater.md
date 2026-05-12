@@ -33,11 +33,11 @@ Your job is **not** "scan for violations and apply minimal fixes." Your job is t
 
 When a pass surfaces a missing field, **write the field with content the reader needs**. Open the source file, read the route handler, derive the env-var default from where it's consumed. `TBD` is the last resort, not the default response.
 
-When a pass surfaces a stale code block (Pass 9), **replace it with an accurate one** derived from current source. Read the function signature, the response type, the env var consumer — and write the example that matches what shipped.
+When a pass surfaces a stale code block (Pass 8), **replace it with an accurate one** derived from current source. Read the function signature, the response type, the env var consumer - and write the example that matches what shipped.
 
-When a pass surfaces a trimmed-context bullet (Pass 11), **decide whether the trim's removed clause needs to live as prose elsewhere**. If yes, promote it to the parent section's prose, the linked ADR body, or an adjacent paragraph — never silently drop load-bearing content to satisfy a word cap.
+When a pass surfaces a trimmed-context bullet (Pass 9), **decide whether the trim's removed clause needs to live as prose elsewhere**. If yes, promote it to the parent section's prose, the linked ADR body, or an adjacent paragraph - never silently drop load-bearing content to satisfy a word cap.
 
-When a pass surfaces a misleading citation (Pass 7 / Pass 8), **fix the citation, don't paper over it**. If a `**Verification:**` field cites a file that doesn't exercise the section's REQ, drop the unrelated file or mark the field as `audit pending`. Name-dropping is worse than absence — an empty field signals "this needs human attention" while a wrong citation signals "this is verified" when it isn't.
+When a pass surfaces a misleading citation (Pass 6 / Pass 7), **fix the citation, don't paper over it**. If a `**Verification:**` field cites a file that doesn't exercise the section's REQ, drop the unrelated file or mark the field as `audit pending`. Name-dropping is worse than absence — an empty field signals "this needs human attention" while a wrong citation signals "this is verified" when it isn't.
 
 You own `documentation/` and the root `README.md`. You never touch:
 - `sdd/` (that's `spec-reviewer`'s lane)
@@ -81,20 +81,16 @@ test -f documentation/README.md
 - If false: HIGH gap. **Do NOT auto-create** the file. Report the missing index and exit — the user must scaffold `documentation/` deliberately (via `/sdd init` or manually). Auto-creating files on push is too aggressive.
 - If true: read `documentation/README.md` to learn the project's actual doc structure. This index is the routing table — do NOT hardcode any file names.
 
-### Step 0c: Read decision-recorded overrides
-
-Scan `documentation/decisions/**/*.md` for `**Overrides:** {rule_id}:{target_id}` headers using the regex `^(?:\*\*)?Overrides:?(?:\*\*)?\s*(.+?)\s*(?:\*\*)?$` (same parser spec-reviewer uses — see its Step 0d; the regex tolerates both plain `Overrides:` and the project's universal bold-wrapped `**Overrides:**` field convention). Build the skip set from those entries. The legacy `sdd/.user-overrides.md` file is no longer read; if it still exists, leave the migration to spec-reviewer (which will surface a HIGH finding asking the user to migrate via `/sdd clean`).
-
-### Step 0d: Round counter (anti-spiral)
+### Step 0c: Round counter (anti-spiral)
 
 ```bash
 git log -3 --format="%H %s" 2>/dev/null
 git log -3 --name-only --format="--- %H %s" 2>/dev/null
 ```
 
-Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[unleashed]` **AND** that touched at least one path under `documentation/`. Commits that touched only `sdd/` or only source code do NOT count toward the doc-updater round counter (those are spec-reviewer's or code-reviewer's domain - path-based discrimination keeps each agent's spiral guard scoped to its own lane). Excluded prefixes regardless of paths (do NOT count toward the limit): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]` -- same exclusion list spec-reviewer uses, so first-after-transition doc work is not blocked by the spiral detector. If ≥2 of the last 3 qualifying commits target the same documentation file: hard stop. Write findings to `sdd/.review-needed.md`. Exit code 0.
+Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[unleashed]` **AND** that touched at least one path under `documentation/`. Commits that touched only `sdd/` or only source code do NOT count toward the doc-updater round counter (those are spec-reviewer's or code-reviewer's domain - path-based discrimination keeps each agent's spiral guard scoped to its own lane). Excluded prefixes regardless of paths (do NOT count toward the limit): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]` -- same exclusion list spec-reviewer uses, so first-after-transition doc work is not blocked by the spiral detector. If ≥2 of the last 3 qualifying commits qualify: hard stop. Write findings to `sdd/.review-needed.md`. Exit code 0.
 
-### Step 0e: Diff classification
+### Step 0d: Diff classification
 
 ```bash
 git diff origin/main...HEAD 2>/dev/null || git diff HEAD~1..HEAD 2>/dev/null || git diff
@@ -147,7 +143,7 @@ When updating docs, enforce these rules:
 
 ## Phase 2b: Documentation-discipline enforcement passes
 
-Run the **twelve passes** defined in `documentation-discipline.md`. Passes 1-6 are structural (shape, budgets, lane, hatch resolution). Passes 7-12 are content-quality (truth-checks, source-of-truth diffs, content preservation, cold-read usability). Each pass produces tagged findings; severity follows the doc-discipline severity table.
+Run the **ten passes** defined in `documentation-discipline.md`. Passes 1-5 are structural (shape, budgets, lane). Passes 6-10 are content-quality (truth-checks, source-of-truth diffs, content preservation, cold-read usability). Each pass produces tagged findings; severity follows the doc-discipline severity table.
 
 ### Pass 1 — Per-cell word budget enforcement
 
@@ -174,8 +170,6 @@ For each file in `documentation/`, count non-blank, non-code-fence lines. Apply 
 | Other doc files | 250 lines (soft default) |
 
 Severity tier is LOW (1×–1.4×), MEDIUM (1.4×–2×), HIGH (>2×).
-
-Files containing the literal HTML comment `<!-- doc-allow-large -->` near the top opt out — skip the budget check.
 
 In `auto`/`unleashed` modes, propose a split at natural `##` boundaries, write a sibling file, leave a redirect pointer in the original. Commit as `[doc-updater] split: filename.md → filename-{section}.md`.
 
@@ -238,26 +232,9 @@ Rules:
 - A top-of-file preamble paragraph is exempt (no `##` heading yet).
 - Sections describing a different concern than their lane are exempt for Pass 5 (they're flagged separately by Pass 4 lane-violation).
 - An explicit "field has no value" marker counts as the field being present: `**Auth:** none (public endpoint)` for per-item shape, or `none` as the cell value for grouped-table shape. Omission does not.
-- Pass 5 never rewrites existing prose — restructuring is genuine authoring work. In `unleashed` mode, when a required field is missing the agent **first attempts to derive the real value from source**: for `**Implements:**` grep `sdd/` for a REQ whose ACs match the section's behavior; for `**Auth:**` read the route handler and report what middleware fires; for `**Default:**` read the env-var consumer in `src/**` and report the fallback expression. Only when no derivation is possible does the agent fall back to `TBD` placeholders, and in that case it logs the section to `documentation/.doc-coverage.md` so the operator sees what wasn't auto-filled. `TBD` is the audit signal, not the default response.
+- Pass 5 never rewrites existing prose — restructuring is genuine authoring work. In `unleashed` mode, when a required field is missing the agent **attempts to derive the real value from source**: for `**Implements:**` grep `sdd/` for a REQ whose ACs match the section's behavior; for `**Auth:**` read the route handler and report what middleware fires; for `**Default:**` read the env-var consumer in `src/**` and report the fallback expression. When no derivation is possible, log the section to `documentation/.doc-coverage.md` so the operator can complete the field manually.
 
-### Pass 6 — Hatch justification audit
-
-For every `<!-- doc-allow-large: ... -->` marker in `documentation/` files:
-
-| Condition | Severity |
-|---|---|
-| Bare marker (no colon or justification) | MEDIUM |
-| Marker references an ADR that does not exist | HIGH |
-| Marker references an ADR with `Status: Superseded` | HIGH |
-| Marker references an ADR with `Status: Accepted` >180 days old | LOW (reminder) |
-| Marker references `pending:YYYY-MM-DD` with the date in the past | LOW (follow-up overdue) |
-| Well-formed and current | no finding |
-
-The same audit applies to `<!-- doc-template-exempt: ... -->` markers introduced by Pass 5 — same severity table, same date math.
-
-Date math is performed against system date at run time. The ADR `Status` field is parsed from the file header (`**Status:** Accepted (YYYY-MM-DD)` shape). spec-reviewer mirrors this pass for `<!-- sdd-allow-large -->` markers in `sdd/`.
-
-### Pass 7 — Verification truth-check
+### Pass 6 — Verification truth-check
 
 For every `**Verification:** <file-path>` in a doc section, open the cited test file and check two conditions:
 
@@ -268,7 +245,7 @@ Multiple files in one field (comma- or `+`-separated) are evaluated independentl
 
 Auto-fix in `auto`/`unleashed`: drop the unrelated files from the field. If every cited file fails, rewrite the field as `**Verification:** audit pending — see documentation/.doc-coverage.md` and append a `Cold-read gaps` entry naming the section and the original (failed) citations. **Never silently keep a wrong citation** — the contract of the field is "this test verifies this section," not "a file with a related-sounding name exists."
 
-### Pass 8 — Implements-vs-AC cross-walk
+### Pass 7 — Implements-vs-AC cross-walk
 
 For every `**Implements:** REQ-X-NNN` or `**Implements:** REQ-X-NNN AC N` field, read the linked REQ from `sdd/{domain}.md` (Intent + AC bullets) and classify the doc section against the REQ:
 
@@ -281,7 +258,7 @@ For every `**Implements:** REQ-X-NNN` or `**Implements:** REQ-X-NNN AC N` field,
 
 You make the call by reading the doc section, the REQ Intent, and every AC bullet of the linked REQ. If multiple ACs plausibly match or the section straddles AC and Intent, emit MEDIUM `implements-field-low-confidence` rather than auto-rewriting. HIGH `implements-field-mismatched` (case c) is reserved for cases you are confident are mismatches. Under-flag rather than over-rewrite.
 
-### Pass 9 — Stale code-block detection
+### Pass 8 — Stale code-block detection
 
 Locate matching source artifacts via `src_globs` from `sdd/config.yml` (default `src/**`, `lib/**`, `app/**`, ...) for every doc claim about source. Four sub-checks:
 
@@ -292,17 +269,7 @@ Locate matching source artifacts via `src_globs` from `sdd/config.yml` (default 
 
 Auto-fix in `auto`/`unleashed`: for shape-drift, **regenerate the example from current source** — read the route handler's return type, the function signature, the JSON type's keys — and replace the block. For removed routes/functions/env-vars, do NOT delete the doc paragraph silently; mark it `<!-- audit: source artifact removed YYYY-MM-DD -->` and log to `.doc-coverage.md`. This is the agent's authorial moment — derive the right example, don't `TBD` it.
 
-### Pass 10 — Hatch overuse / catch-all detection
-
-Count `<!-- doc-allow-large: AD-N+ ... -->` and `<!-- doc-template-exempt: AD-N+ ... -->` references per ADR across the entire `documentation/` corpus (and `<!-- sdd-allow-large: AD-N+ ... -->` for `sdd/` via spec-reviewer's mirror). If one ADR carries `>3` distinct markers across `>1` file, flag MEDIUM `hatch-catch-all`:
-
-The finding reports: ADR ID, total marker count, file count, plus a per-marker excerpt (the marker line + the ≤2 lines of body immediately following each marker). The operator reads the side-by-side excerpts and decides: (a) the cases are genuinely the same decision → enumerate them in the ADR's `**Decision:**` section; (b) the cases are different → split into N per-case ADRs.
-
-No auto-fix — splitting or enumerating ADRs is authoring judgment, not mechanical. Once-per-run dedup (the same ADR doesn't re-flag if already in `.doc-coverage.md`).
-
-Threshold rationale: single-file recurrence is a legitimate single decision (a per-file budget exemption that fires in 4 sections of one file is one decision). Cross-file recurrence with >3 markers is the catch-all signal.
-
-### Pass 11 — Content-preservation on trim
+### Pass 9 — Content-preservation on trim
 
 When `auto`/`unleashed` mode proposes a Pass 1 trim — shortening a bullet to fit the 40-word cap, paragraph to 120-word cap, or cell to 50-word cap — run a content-preservation check **before committing**:
 
@@ -318,7 +285,7 @@ Three outcomes:
 
 You decide "context-loss" by reading both the removed text and the candidate kept locations. A clause is context-loss when its specific subject (a function name, a constraint, a load-bearing example) does not appear elsewhere. A clause is safe to drop when its content is paraphrased or restated nearby.
 
-### Pass 12 — Stranger cold-read
+### Pass 10 — Stranger cold-read
 
 For each top-level canonical file in `documentation/`, dispatch a **fresh subagent** (use the `general-purpose` subagent_type — NOT `doc-updater`; the subagent must come in cold without project context) with: (i) only the contents of the one doc file, (ii) a simulated task the file is supposed to answer. Default task registry:
 
@@ -337,7 +304,7 @@ Each subagent reports one of `succeeded` / `partial` / `failed`. Partial and fai
 
 Project override: `documentation/.cold-read-tasks.yml` (per-file `simulated_task: "..."`). Files not in the registry are skipped. The pass is the only signal that answers "is this doc usable?" — every other pass answers a structural question.
 
-No auto-fix. Pass 12 writes per-file gap reports to `documentation/.doc-coverage.md` under `## Cold-read gaps` and is otherwise an operator-facing signal.
+No auto-fix. Pass 10 writes per-file gap reports to `documentation/.doc-coverage.md` under `## Cold-read gaps` and is otherwise an operator-facing signal.
 
 ## Phase 3: Apply (mode-dependent)
 
@@ -345,7 +312,7 @@ No auto-fix. Pass 12 writes per-file gap reports to `documentation/.doc-coverage
 
 For each finding (HIGH first):
 1. Show the finding with file/line/proposed fix
-2. Ask: apply, skip, or override?
+2. Ask: apply or skip?
 3. After all findings handled: commit per category with `[doc-updater]` prefix
 
 ### Mode: auto

@@ -1,8 +1,7 @@
-<!-- doc-allow-large: AD50 — unified ADR file; see AD50 below for the structural rationale -->
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD49 throughout the codebase and documentation. 38 ADRs carry active content (AD38 superseded by AD48); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD51 throughout the codebase and documentation. 37 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -56,12 +55,13 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD42](#ad42-unauthenticated-first-setbucketname-call-cf-010) | Unauthenticated first setBucketName call (CF-010) | Security |
 | [AD43](#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke) | Parse-and-exclude vanishing files before escalating to nuke | Storage |
 | [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) | SDD three-mode autonomy with conservative JUDGMENT resolution | Architecture |
-| [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | User overrides recorded as ADRs, not skip-list | Architecture |
+| [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) | _superseded by AD51 -- override mechanism ripped out_ | (superseded) |
 | [AD46](#ad46-review-reality-filter-as-phase-5) | `/review` Reality Filter as Phase 5 (stateful per-finding triage history) | Architecture |
 | [AD47](#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy) | PTY keepalive as safety net only, not the idle policy | Architecture |
 | [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | OAuth state replaced by HMAC-signed stateless token | Security |
 | [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | context-mode delivered as preseed plugin, not runtime install | Architecture |
-| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | Unified ADR file with structural doc-allow-large exemption | Documentation |
+| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | _superseded by AD51 -- doc-allow-large hatch ripped out_ | (superseded) |
+| [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Rip out six overengineered SDD framework features | Architecture |
 
 ---
 
@@ -512,6 +512,8 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 ### AD45: User overrides recorded as ADRs, not skip-list
 
+**Status:** Superseded by AD51 (2026-05-12). The override-via-ADR mechanism described below was ripped out alongside five other overengineered SDD features. There is now no per-rule override mechanism at all -- if a finding keeps re-firing, fix the rule or the REQ.
+
 **Category:** Architecture
 
 **Decision:** Remove `sdd/.user-overrides.md`. When the user resolves an automated SDD finding as "keep current behavior — this mechanism IS the contract", the resolution is recorded as a real ADR in `documentation/decisions/` carrying an `Overrides: {rule_id}:{REQ-ID}` header. spec-reviewer and doc-updater grep `documentation/decisions/**/*.md` for that header at the start of every run and skip matching findings — same machine behavior as the legacy skip list, but the architectural decision is now first-class.
@@ -773,16 +775,41 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 
 ### AD50: Unified ADR file with structural doc-allow-large exemption
 
-**Status:** Accepted (2026-05-12)
-**Overrides:** file-budget:decisions/README.md
+**Status:** Superseded by AD51 (2026-05-12). The `<!-- doc-allow-large -->` hatch mechanism this ADR relied on was ripped out. The unified ADR file is preserved for the same anchor-stability reason, but the budget rule no longer offers a per-file opt-out -- the file-size finding is now a known LOW that the operator defers via `sdd/.review-decisions.md` if at all.
 
 **Context:** The `documentation-discipline.md` per-ADR soft budget is 100 lines. 49 ADR slots exist (AD1-AD49). 11 slots are redirect stubs that preserve inbound AD-N references (6 merged 2026-05-03, 5 reclassified 2026-05-09). 38 ADRs carry active content; each individual active ADR is under the 100-line per-ADR cap. The combined file exceeds the implicit aggregate budget. doc-updater would ordinarily flag this as a MEDIUM finding.
 
-**Decision:** Keep all ADRs in a single `decisions/README.md` file. Add `<!-- doc-allow-large: AD50 -->` to the file header. Do NOT split into 49 individual files.
+**Decision:** Keep all ADRs in a single `decisions/README.md` file. Originally relied on `<!-- doc-allow-large: AD50 -->` for explicit exemption; that mechanism is now gone, so the file-budget finding simply persists as known tech-debt.
 
 **Rationale:** AD-N identifiers are referenced throughout the codebase (`decisions/README.md#ad44`, `decisions/README.md#ad47`, etc.) in source comments, doc cross-references, and ADR Supersedes fields. Splitting into 49 files would require renaming every inbound anchor from `README.md#ad-N` to `adr-N.md#ad-N` across the entire codebase and documentation corpus - a mechanical change with high surface area and no product value. Individual ADRs are under their per-ADR budget; the file-level overage is inherent to the count of active decisions, not to any single ADR being too long. The correct granularity for the budget rule is per-ADR, not per-file.
 
-**Consequences:** doc-updater will skip the file-budget check for `decisions/README.md` when `<!-- doc-allow-large: AD50 -->` is present. Per-ADR budget enforcement still applies: any new ADR that exceeds 100 lines must be split or compressed. The Decision Index at the top of this file remains the navigation entry point.
+**Consequences:** The Decision Index at the top of this file remains the navigation entry point. Per-ADR budget enforcement still applies: any new ADR that exceeds 100 lines must be split or compressed.
+
+---
+
+### AD51: Rip out six overengineered SDD framework features
+
+**Status:** Accepted (2026-05-12)
+**Supersedes:** AD45, AD50
+
+**Category:** Architecture
+
+**Context:** A third-wave architect review of the SDD framework after the second-wave fixes surfaced 30 findings. Per-finding triage on the highest-severity ones revealed that several of the framework features themselves -- not bugs in their implementation but the features as designed -- were adding surface area without proportionate value. User feedback during triage was unambiguous: "overengineered bullshit, remove all commit category idiocity", "wtf is this overengineered shit now". The decision was to rip the six worst offenders before continuing to act on architect findings on what remained.
+
+**Decision:** Remove the following six features from the SDD framework:
+
+1. **ADR Overrides skip-list** (AD45). The `Overrides: {rule}:{target}` ADR header that spec-reviewer / doc-updater parsed at the start of every run to skip matching findings. If a finding keeps re-firing, fix the underlying rule or REQ -- no per-rule bypass.
+2. **Hatch markers + audit** (AD50 and supporting machinery). `<!-- sdd-allow-large -->`, `<!-- doc-allow-large -->`, and `<!-- doc-template-exempt -->` markers plus the Pass 6 / Pass 10 ADR-cross-check audit. Oversized files produce a finding; the operator defers via `sdd/.review-decisions.md` if appropriate.
+3. **REQ split-proposal mode**. spec-reviewer draft files at `sdd/.split-proposals/{REQ-ID}.md` consumed by `/sdd clean` on `**Status:** Approved`. Oversized REQs shrink in place; the user splits manually when actually needed.
+4. **Out-of-Scope collision check**. Full-spec pass cross-referencing `## Out of Scope` bullets against shipped REQs with content-word-overlap heuristics. Spec drift is normal-quality work, not a separate detector.
+5. **Anti-spiral "category" matching**. Round counter required `≥2 commits on the same target REQ-ID or category` parsed from the commit subject's `fix(spec): {category}` infix. Simplified to `≥2 of the last 3 lane-scoped commits` -- same protection, no parser.
+6. **`Implements REQ-X-NNN` annotation enforcement**. code-reviewer flagged source files implementing a REQ's behavior without the annotation. spec-reviewer CQ-2 cross-walked source annotations against REQ ACs. Annotations remain a human-discoverability convention but are no longer flagged. The test-name-based coverage check is the load-bearing signal.
+
+doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and Pass 10 hatch overuse). spec-discipline drops CQ-2, CQ-4, and CQ-6 (kept and renumbered CQ-1/CQ-3/CQ-5 to CQ-1/CQ-2/CQ-3). `/sdd clean` drops the legacy `sdd/.user-overrides.md` migration step. `/sdd mode` no longer lists recent ADR overrides.
+
+**Consequences:** Smaller surface for both the agent author and the human operator. AD45 and AD50 are marked Superseded but preserved for anchor stability. Architect findings that still need addressing on the remaining surface (six HIGH fixes from the third-wave review) are tracked separately. The framework now has: `/sdd init`, `/sdd clean`, `/sdd mode`, the three-agent PR-boundary pipeline, transition state, and the three discipline rules (spec / doc / tdd). That is the entire surface.
+
+**Issue:** Architect review triage 2026-05-12; user authorization in conversation.
 
 ---
 

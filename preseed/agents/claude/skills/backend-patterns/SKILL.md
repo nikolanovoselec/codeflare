@@ -595,8 +595,4 @@ export async function GET(request: Request) {
 }
 ```
 
-## REQ annotations (when `sdd/` exists)
-
-When implementing backend code in a project with an `sdd/` folder, annotate each source file with `// Implements REQ-X-NNN` (or language equivalent) for every REQ it implements. This lets spec-reviewer detect code-without-tests by grep. See `spec-discipline.md` → Source code ↔ REQ annotations.
-
 **Remember**: Backend patterns enable scalable, maintainable server-side applications. Choose patterns that fit your complexity level.

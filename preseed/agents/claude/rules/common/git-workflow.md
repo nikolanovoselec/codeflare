@@ -154,8 +154,6 @@ separation" section) makes this explicit.
 ### The three agents (SDD mode only)
 
 1. **code-reviewer** — reviews code quality, security, correctness.
-   When `sdd/` exists, it also checks that new source files implementing
-   observable behavior include the `// Implements REQ-X-NNN` annotation.
 2. **spec-reviewer** — keeps `sdd/` as the single source of truth.
    When code changes introduce new features, modify behavior, or change
    APIs without a corresponding spec update, this agent updates `sdd/`

@@ -328,7 +328,7 @@ While `sdd/init-triage.md` contains any open items, `sdd/config.yml` carries `tr
 2. Appends a closure entry to `sdd/changes.md` recording totals (accepted / corrected / lost)
 3. The agent enters Plan Mode -- the first feature work on the now-real spec is plan-gated
 
-`enforce_tdd` is NOT touched by the closure commit. The user changes it manually when ready for TDD enforcement (typically after adding `Implements REQ-X-NNN` annotations and REQ-ID test names to the imported source).
+`enforce_tdd` is NOT touched by the closure commit. The user changes it manually when ready for TDD enforcement (typically after adding REQ-ID references to test names in the imported source).
 
 Full SDD discipline applies on the next push; autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record. Implements [REQ-AGENT-022](../sdd/agents.md#req-agent-022).
 

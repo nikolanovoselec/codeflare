@@ -107,100 +107,14 @@ REQs describing complex features can be long, but length is a smell:
 | 51–100 lines | MEDIUM finding (likely contains implementation leakage) |
 | >100 lines | HIGH finding (almost certainly mixing intent and implementation) |
 
-### Hatch justification (`<!-- sdd-allow-large -->`)
-
-A REQ may opt out of length warnings with an HTML comment, but the marker MUST carry structured justification:
-
-```markdown
-<!-- sdd-allow-large: AD-N reason -->
-```
-
-Required shape:
-
-- The marker MUST carry a colon and a justification body. Bare `<!-- sdd-allow-large -->` is rejected.
-- The body MUST reference an existing ADR by ID `AD-N` (one or more digits, matching the ADR's filename and heading in `documentation/decisions/`), OR a `pending.md` entry with a follow-up date in ISO format `pending:YYYY-MM-DD`.
-- ID-matching regex: `\bAD-[0-9]+\b`. The legacy `ADR-NN` alias is rejected -- the canonical form is `AD-N+` (matches `documentation/decisions/<adr>.md` filenames and the `### AD-N:` heading template). This is the single source of truth across spec-discipline, documentation-discipline, and the ADR template.
-- spec-reviewer verifies the referenced ADR or pending entry exists every run.
-
-**Marker age (for the 180-day rule)**: defined as the git-blame age of the marker line in its current file. Compute with `git blame -L <line>,<line> -- <file>` and use the commit's author date. The marker does NOT carry an inline timestamp -- adding one would be a rotting metadata pattern. Age resets if the marker line is moved or rewritten in a commit (intentional -- a deliberate edit of the hatch is a fresh review of the decision).
-
-Hatch audit findings (mirrors doc-updater's `<!-- doc-allow-large -->` audit in `documentation-discipline.md`):
-
-| Condition | Severity |
-|---|---|
-| Bare `<!-- sdd-allow-large -->` (no colon or justification) | MEDIUM |
-| Marker references an ADR that does not exist | HIGH |
-| Marker references an ADR with `Status: Superseded` | HIGH |
-| Marker uses the legacy `ADR-NN` form | LOW (rewrite to `AD-N+`) |
-| Marker (by git-blame age) is older than 180 days and its ADR is `Status: Accepted` | LOW (reminder to revisit) |
-| Marker references `pending:YYYY-MM-DD` with a date in the past | LOW (follow-up overdue) |
-
-This converts the hatch from a silent perma-license into a decision that lives in the ADR ledger — discoverable and revisitable.
-
-## REQ split-proposal mode
-
-Oversized REQs that the length-guidance band flags but that the conservative JUDGMENT rule (`Shrink in place — never split`) refuses to repair stay oversized indefinitely. The discovery context: an Implemented REQ with 18 ACs covering 5 distinct concerns sits in the 26–50-line LOW band; spec-reviewer correctly declines to split it, and the REQ never improves.
-
-Split-proposal mode is the explicit, opt-in path out of that stalemate. spec-reviewer generates a proposal but never auto-applies it.
-
-**Trigger threshold**: a REQ at **≥12 ACs OR ≥50 lines** that lacks a valid `<!-- sdd-allow-large -->` hatch produces a split proposal on the next spec-reviewer run.
-
-**Proposal mechanics**:
-
-1. Cluster the existing AC bullets into 3–7 candidate child REQs by semantic theme (each child has at least 2 ACs, no child has more than 7).
-2. For each child REQ, draft a stub: proposed REQ ID (next free `REQ-{DOMAIN}-{NNN}` in the domain), proposed Title, the AC bullets lifted **verbatim** from the parent (no paraphrasing — the LLM does not rephrase ACs on split).
-3. Carry the parent's Intent forward to each child unmodified. The user re-scopes Intent per child during review.
-4. Build a file-level migration plan: which child REQs land in which domain file (default: same domain as parent), what the parent becomes (`Status: Deprecated` with `Replaced By:` listing all children, OR moved to "Out of Scope" if the parent name no longer makes sense).
-5. Write the proposal to `sdd/.split-proposals/{REQ-ID}.md`. Never auto-apply, never edit the parent.
-
-**The user reviews `sdd/.split-proposals/{REQ-ID}.md` and either**:
-
-- Edits the proposal in-place (rewords child titles, re-clusters ACs, adjusts per-child Intent).
-- Runs `/sdd clean`, which detects pending proposals as part of its existing scan and executes any whose top-of-file `**Status:** Approved` line is set by the user (proposals start at `**Status:** Draft` — the user flips to `Approved` after review).
-- Deletes the proposal file to dismiss. spec-reviewer regenerates on the next run unless the parent shrinks below the threshold or gains a valid hatch.
-
-**What this is NOT**: spec-reviewer never splits a REQ on its own initiative. The proposal is a draft document. Even `unleashed` mode generates the proposal but does not auto-approve — splitting a REQ requires human judgment on Intent decomposition. `/sdd clean` only consumes proposals whose Status is `Approved`; Draft proposals stay as findings.
-
-Severity of the proposal-generation finding: MEDIUM. The finding is satisfied when the proposal file exists; subsequent runs do not re-flag until `/sdd clean` consumes it or the user deletes it.
-
-## Out-of-Scope collision check
-
-`sdd/README.md` (and any domain README) may declare an `## Out of Scope` section listing things the project explicitly will not do. Over time, a feature that started Out of Scope can ship and acquire a Status: Implemented REQ — without anyone updating the Out of Scope bullet. The narrative-vs-shipped contradiction is invisible to diff-scoped checks because neither file changed in the offending PR.
-
-**The collision check is a full-spec pass, not diff-scoped.** It runs on every spec-reviewer invocation.
-
-Algorithm:
-
-1. Parse `sdd/README.md` and every domain file's `## Out of Scope` section.
-2. For each bullet:
-   - **Bolded lead phrase only**: extract tokens **strictly** from the bolded prefix (`**...**`) at the start of the bullet. Bullets without a bolded prefix are skipped (the algorithm refuses to guess where the "lead" ends in plain prose; an unbolded bullet is treated as not having a parseable lead phrase and never produces a finding).
-   - **Ignore parenthetical qualifiers**: any `(...)` clause in the bolded lead phrase is stripped before token extraction. A bullet like `**Memory search UI** (memory is accessed via MCP API not web UI)` yields `{memory, search, UI}` - not `{MCP, API, web}`. This is the load-bearing fix for the "negation + explanation" false-positive pattern (codeflare's own OOS section is the canonical example).
-   - **Capture REQ-ID references**: any `(was REQ-X-NNN)` reference is captured separately for the REQ-ID match path.
-3. Walk every non-`Deprecated` REQ in the entire spec. Flag MEDIUM when:
-   - **Strong match**: an Implemented REQ's title, Intent, or AC contains the Out-of-Scope bullet's bolded lead-phrase tokens (post-stripping), with **≥2 content-word overlap**. The stopword set is fixed and exhaustive (no "and the like" -- spec-reviewer implementations must use exactly this list to ensure deterministic matching across runs):
-
-     ```
-     a, an, the, and, or, of, for, to, in, on, at, by, is, be, are, was, were,
-     it, its, with, from, as, that, this, these, those, but, not, no, vs, via,
-     into, onto, out, off, over, under, up, down, only, also, e.g., i.e., etc
-     ```
-
-     Example: "vector search" -> tokens `{vector, search}`, both qualify. "the system for users" -> `{system, users}` (the/for/users... wait "users" is content). Re-tokenize: `{system, users}` -- 2 content words. "the the the" -> `{}` -- 0 content words. Match is case-insensitive; punctuation is stripped before tokenization.
-   - **REQ-ID match**: a `(was REQ-X-NNN)` reference in the Out-of-Scope bullet points at a REQ that is **not** in `Status: Deprecated` and still has prose in its domain file.
-4. Findings list both the Out-of-Scope bullet location and the colliding REQ ID(s). Proposed resolution: either remove the Out-of-Scope bullet (the feature shipped — update the narrative) or move the REQ to "Out of Scope" / mark Deprecated (the bullet is still correct — the REQ is stale).
-5. Triggering example: an Out-of-Scope bullet claiming `**Embeddings or vector search**` alongside an Implemented REQ with "embedding" / "Vectorize" / "vector search" in title or Intent → MEDIUM finding listing both sides.
-6. Non-triggering example: a bullet `**Memory search UI** (memory is accessed via MCP API not web UI)` does NOT flag a `mcp_memory_*` REQ — the parenthetical is stripped, leaving only `{memory, search, UI}` as match tokens, which is the negated concept, not the implementing REQ.
-
-**Mode behavior**: interactive escalates and asks the user which side to update; auto writes the finding to `sdd/.review-needed.md` and continues; unleashed proposes a rewrite of the Out-of-Scope bullet (the narrative-not-shipped side is the conservative one to preserve — the REQ has tests and code, the bullet is just prose) and logs to `sdd/.review-needed.md`.
+Oversized REQs are shrunk in place (extract implementation prose to `documentation/`) - never split, never auto-proposed for split. The user can manually split a REQ in a follow-up if needed.
 
 ## Acceptance criteria guidance
 
 - Each AC bullet is **binary pass/fail**, testable in principle
-- 3-7 bullets is typical. The hard threshold that triggers split-proposal mode is **≥12 ACs** (see "REQ split-proposal mode" above); the band 8-11 is informational, not actionable.
+- 3-7 bullets is typical; >10 is a smell that the REQ likely covers multiple concerns
 - Avoid "should" -- use "must" or describe the observable outcome
 - Avoid vague terms like "responsive", "fast", "user-friendly" -- specify the criterion (e.g., "loads in under 2 seconds on 4G mobile")
-
-The three length signals work together: the line-count band table (≤25 / 26-50 / 51-100 / >100) flags length as a *prose smell* (implementation leakage), while the AC-count threshold (≥12) flags structural smell (multiple concerns). Split-proposal mode triggers on **either** ≥12 ACs OR ≥50 lines without a valid hatch -- whichever fires first. The two signals are not duplicates; a REQ can be long without having too many ACs (one AC with run-on prose) or have many ACs without being long (each tightly worded). When the REQ trips both, the split proposal is more likely to find natural cluster boundaries.
 
 ## Run-on AC bullets
 
@@ -319,16 +233,14 @@ The Stop hook deliberately under-blocks (lets a push through unreviewed) rather 
 
 DRAFT PRs (`gh pr view` reports `state: OPEN` for drafts) are treated as fully open. Drafts often want early feedback, and silently skipping review on them would surprise users whose draft is the de-facto review target. Users who want a review-free WIP should defer the PR open until ready, or use a per-push USER bypass.
 
-## Content-quality checks (CQ-1 through CQ-6)
+## Content-quality checks (CQ-1 through CQ-3)
 
-The rules above are **structural** — they ask "does this REQ have the right shape, the right fields, the right length?" CQ-1..CQ-6 are **content-quality** — they ask "does this REQ say what it claims, and can a stranger use it?" Same shape of gap that motivated doc-discipline Passes 7-12; same shape of fix.
+The rules above are **structural** - they ask "does this REQ have the right shape, the right fields, the right length?" CQ-1..CQ-3 are **content-quality** - they ask "does this REQ say what it claims, and can a stranger use it?" Same shape of gap that motivated doc-discipline Passes 6-10; same shape of fix.
 
 A spec can satisfy every structural check (zero findings) and still ship:
 
 - REQs marked `Implemented` whose only tests mention the REQ ID in a comment but assert unrelated behavior
-- Source files annotated `// Implements REQ-X-NNN` that don't actually implement any AC of that REQ
 - AC bullets naming vendor products or external interfaces no longer present in the source
-- One ADR carrying `<!-- sdd-allow-large -->` markers across multiple REQ files for unrelated reasons
 - Shrink-in-place edits that satisfy a length cap by dropping load-bearing AC clauses
 - REQs whose Intent paragraph is technically present but reads as a feature list, so a fresh reader can't articulate what the feature buys the user
 
@@ -343,52 +255,23 @@ For every REQ marked `Status: Implemented`, walk every test file (per `test_glob
 
 A REQ whose only test cites the REQ ID in a code comment, in a fixture path, or in a test that asserts unrelated behavior (`expect(result.length > 0)` under a test named after the REQ) is name-drop, not coverage. Emit MEDIUM `req-test-name-only-match` naming the REQ, the cited files, and the AC bullet that has no test referencing its observable behavior. No auto-fix — writing a real test is authoring work for `tdd-guide` or the developer.
 
-### CQ-2 — Source-annotation-vs-AC cross-walk
-
-For every source file containing `// Implements REQ-X-NNN` (or the language-equivalent comment from the source-annotation registry), read the linked REQ's ACs and decide:
-
-- The file implements at least one AC's observable behavior, or provides shared infrastructure consumed by ACs of that REQ → accept.
-- The file's actual behavior — what its exported symbols do, what its callers expect — sits entirely outside every AC of the linked REQ → HIGH `source-annotation-mismatched`. The agent reports its best alternative REQ ID if one exists, otherwise `audit pending`. The user (not the agent) moves the annotation or files a missing REQ.
-
-If the agent is uncertain — the file is generic infrastructure that touches the REQ's ACs only via several layers of indirection — emit MEDIUM `source-annotation-low-confidence` rather than HIGH. Under-flag rather than over-rewrite.
-
-### CQ-3 — Vendor / external-interface drift
+### CQ-2 — Vendor / external-interface drift
 
 REQ ACs may reference external products and protocols (`Cloudflare Access`, `Stripe`, `OAuth 2.0`, `WCAG 2.1 AA`, ...) per the existing allowlist. For every allowlisted vendor/protocol token appearing in an `Implemented` REQ's AC bullets, the agent must find at least one mention of the same token in source (case-insensitive, allowing reasonable variants — `cf_access` counts for `Cloudflare Access`). If no source mention exists, emit MEDIUM `vendor-reference-orphaned-in-spec` naming the REQ, the AC bullet, and the orphan token.
 
 This catches "AC mentions Stripe Checkout but the codebase removed Stripe six months ago." Spec passes structurally, ships a lie about reality. The remediation is either delete/update the AC (integration removed) or restore the source (integration lost). No auto-fix — the agent can't disambiguate.
 
-### CQ-4 — `<!-- sdd-allow-large -->` catch-all detection
+### CQ-3 — Content-preservation on shrink
 
-Mirror of doc-discipline Pass 10 applied to `sdd/`. Count `<!-- sdd-allow-large: AD-N+ ... -->` references per ADR across `sdd/{domain}.md` files. If one ADR carries more than three distinct markers across more than one file, flag MEDIUM `sdd-hatch-catch-all`.
+The "Shrink in place" rule and the run-on AC bullet split rule both delete content. Before committing either edit in `auto` or `unleashed` mode, the agent must check that nothing load-bearing is lost.
 
-The finding lists the ADR ID, the marker locations, and a short excerpt of the prose immediately around each marker so the operator can read them side-by-side. The resolution is either to enumerate the cases in the ADR's `**Decision:**` section (genuinely one decision covering all cases) or to split the ADR into per-case ADRs (genuinely different decisions). No auto-fix — that's authoring judgment.
-
-### CQ-5 — Content-preservation on shrink and split
-
-The "Shrink in place — never split" rule and the run-on AC bullet split rule both delete content. Before committing either edit in `auto` or `unleashed` mode, the agent must check that nothing load-bearing is lost.
-
-Tokenize the **removed** clauses. For each removed clause, the agent asks itself: does the specific subject of this clause — the named function, the named constraint, the load-bearing example — appear in any of the candidate kept locations (the kept body of the REQ, surrounding ACs, the REQ Intent, the doc file the prose is being moved to, the linked ADR body)? A clause that does **not** appear elsewhere is context-loss.
+Tokenize the **removed** clauses. For each removed clause, the agent asks itself: does the specific subject of this clause — the named function, the named constraint, the load-bearing example — appear in any of the candidate kept locations (the kept body of the REQ, surrounding ACs, the REQ Intent, the doc file the prose is being moved to)? A clause that does **not** appear elsewhere is context-loss.
 
 Three outcomes:
 
 - All removed clauses match elsewhere → commit the edit.
-- Context-loss with a natural relocation target (a doc file, an ADR body, an adjacent paragraph) → promote the clause to that target with a leading `Trimmed from REQ-X-NNN on YYYY-MM-DD:` marker, then commit the edit.
+- Context-loss with a natural relocation target (a doc file, an adjacent paragraph) → promote the clause to that target with a leading `Trimmed from REQ-X-NNN on YYYY-MM-DD:` marker, then commit the edit.
 - Context-loss with no relocation target → REVERT the edit, emit MEDIUM `shrink-would-lose-load-bearing-content` listing the REQ, the edit, and the at-risk clauses. The length-cap violation persists, but the content is preserved.
-
-### CQ-6 — REQ Intent cold-read
-
-For each domain file in `sdd/`, the agent dispatches a fresh subagent (`general-purpose`, NOT spec-reviewer — must come in cold without project context) with only that one domain file's contents and a simulated task. For every `sdd/{domain}.md` the task is:
-
-> "Pick three REQs in this file. For each, write one sentence describing what the user can do (or what the system guarantees the user) because this REQ exists. If you can't, say which REQ left you stranded and what information you'd need."
-
-For `sdd/README.md` the task is:
-
-> "What is the product? What's the single most important constraint it operates under? Output both in one sentence each."
-
-The subagent reports `succeeded`, `partial`, or `failed`. Partial and failed → MEDIUM `req-intent-cold-read-gap` naming the specific REQ and the load-bearing information the Intent paragraph failed to surface (typically: Intent reads as a feature list and omits the user-problem framing). No auto-fix — Pass surfaces the gap; the user (or `unleashed` mode in a follow-up commit) writes Intent prose.
-
-This is the only check in the framework that answers "is this REQ readable by a stranger?" Every other check answers a shape question.
 
 ## Severity classification on findings
 
@@ -448,39 +331,23 @@ When the last open triage item is resolved or marked `lost` (via Resume Mode), t
 1. Clears `transition: true` from `sdd/config.yml`
 2. Appends a closure entry to `sdd/changes.md` recording totals (accepted / corrected / lost)
 
-`enforce_tdd` is NOT touched by the closure commit. The import-time default is `enforce_tdd: false`; the user flips it to `true` manually when they're ready for full TDD enforcement (typically after adding `Implements REQ-X-NNN` annotations and REQ-ID test names to the imported source).
+`enforce_tdd` is NOT touched by the closure commit. The import-time default is `enforce_tdd: false`; the user flips it to `true` manually when they're ready for full TDD enforcement (typically after adding REQ-ID references to test names in the imported source).
 
 `sdd/init-triage.md` is preserved as the audit record. The closure commit is tagged `[sdd-init] transition complete` and is excluded from the round counter for the same reason as `[sdd-init]` resolution commits.
 
 `sdd/init-triage.md` itself is owned by `/sdd init`. All review agents and PR-boundary hooks read it to determine transition state; nothing else writes it.
 
-## Source code ↔ REQ annotations
+## Source code ↔ REQ annotations (optional)
 
-Source files implementing a requirement must reference the REQ ID in a comment so spec-reviewer can detect code-without-tests by grep. Without annotations, the source-vs-test check has nothing to match and silently passes broken code.
+Source files implementing a requirement MAY reference the REQ ID in a comment. This is a human-discoverability convention, not a parser contract:
 
-**Format** (match the file's language):
+```
+// Implements REQ-SITE-002
+# Implements REQ-API-001
+<!-- Implements REQ-UI-003 -->
+```
 
-| Language / file type | Example |
-|---|---|
-| TypeScript, JavaScript, Java, C, Go, Rust | `// Implements REQ-SITE-002` |
-| JSDoc block above a function or class | `/** Implements REQ-SITE-002 */` |
-| Python, Ruby, shell, YAML, TOML | `# Implements REQ-API-001` |
-| HTML, Astro, Svelte, Vue template | `<!-- Implements REQ-UI-003 -->` |
-| CSS, SCSS | `/* Implements REQ-BRAND-001 */` |
-
-**Rules:**
-
-- Every source file implementing observable behavior from one or more REQs must contain at least one `Implements REQ-X-NNN` comment for each REQ it implements. Place at the top of the file or inline at the function/class level in multi-REQ files.
-- spec-reviewer greps for the literal REQ ID substring. The "Implements" keyword is a convention for humans, not a parser token — any comment mentioning the REQ ID counts.
-- When refactoring, annotations move with the code. When code is deleted, annotations are deleted. Never leave orphan annotations pointing at moved or removed code.
-- Tests already name the REQ ID in their test function name (`test('REQ-X-NNN: rejects expired token', ...)`) — no additional annotation needed in test files.
-- Multiple REQs per file: list each separately. Do not concatenate (`Implements REQ-A-001, REQ-A-002` is ambiguous — write two comments).
-
-**Agent responsibilities:**
-
-- **Code-writing agents** (`tdd-guide`, `build-error-resolver`, `refactor-cleaner`, `security-reviewer`, any agent writing new source files): add or preserve annotations for every REQ the code implements
-- **Code-reviewing agents** (`code-reviewer`): flag source files that implement observable behavior matching a REQ's AC but lack an annotation (MEDIUM finding)
-- **Spec-reviewer**: runs the source-vs-test coverage check above on every push
+Tests name the REQ ID in their test function (`test('REQ-X-NNN: rejects expired token', ...)`) which is what spec-reviewer greps for when classifying test coverage. Source-side annotations are not required and not enforced.
 
 ## Commit-prefix contract (load-bearing for anti-spiral)
 
@@ -506,8 +373,6 @@ The anti-spiral mechanism parses commit subjects by **tag prefix**, not infix. E
 
 Plain commits (no tag prefix) are treated as user-authored and reset the round counter. The counted/excluded sets are **closed** -- introducing a new tag without adding it to the table above creates a silent spiral-detector blind spot, which is a HIGH finding against the agent that introduced it.
 
-The category portion of the subject (`fix(spec): {category}`) is optional for round-counter purposes (it only feeds the cross-run spiral detector below). The tag prefix is the load-bearing parser anchor.
-
 ## The 2-round commit cycle limit
 
 Spec-reviewer and doc-updater self-limit to prevent infinite micro-fix spirals. Each agent's counter is **scoped to its own lane** so the two don't cross-contaminate (a doc-updater fix should not trip spec-reviewer's spiral guard, and vice versa):
@@ -516,7 +381,7 @@ Spec-reviewer and doc-updater self-limit to prevent infinite micro-fix spirals. 
 2. From those, count commits whose subject starts with any tag from the **counted** set above **AND** that touched at least one path in the agent's lane:
    - **spec-reviewer** counts only commits touching `sdd/**`
    - **doc-updater** counts only commits touching `documentation/**`
-3. If ≥2 of the last 3 commits qualify on the **same target REQ-ID or category**, hard stop
+3. If ≥2 of the last 3 commits qualify, hard stop
 4. Write the would-be findings to `sdd/.review-needed.md` and exit
 5. The counter resets when a non-agent commit lands in the agent's lane (real user code or manual edits in `sdd/` for spec-reviewer, in `documentation/` for doc-updater)
 
@@ -524,51 +389,9 @@ Path-based discrimination means a `[doc-updater]` commit touching only `document
 
 The next push after `/sdd clean` or `/sdd init` is round 1, not round 3 -- excluded-tag commits do not contribute to the round count. They are not "round 0 placeholders" but rather invisible to the counter entirely; the round number is the count of counted-tag commits among the last 3. Doc-updater applies the same exclusion rule.
 
-## Spiral detection across runs
+## User overrides
 
-Beyond the 2-round limit, spec-reviewer detects slow-drip spirals via git log analysis. The detector queries by **tag prefix**, not by `fix(spec):` infix, so agents that omit the infix still get detected:
-
-```
-git log --since="7 days ago" \
-  --grep="^\[autonomous\]" --grep="^\[unleashed\]" \
-  --grep="^\[spec-reviewer\]" --grep="^\[doc-updater\]" --grep="^\[code-reviewer\]" \
-  --format="%s"
-```
-
-If the last 100 agent commits cluster on a single category (parsed from `fix({lane}): {category}` when present, falling back to the first three words of the subject after the tag prefix when absent), and that category accounts for >80% of the agent commits, pause that category for 24 hours and write a note to `sdd/.review-needed.md`. Other categories continue normally. The user can resume by pushing a commit that touches the relevant REQ themselves (manual override).
-
-## User overrides via ADRs
-
-When the user reverts an automated fix or tells the agent "don't do that for this REQ — that mechanism IS the contract", the resolution is an architectural decision and is recorded as an ADR in `documentation/decisions/`, NOT in any skip-list file. The ADR carries an `Overrides:` header that spec-reviewer and doc-updater grep at the start of every run.
-
-```markdown
-### AD-N: {Decision title}
-
-**Status:** Accepted ({YYYY-MM-DD})
-**Overrides:** mechanism-leakage:REQ-AUTH-002, mechanism-leakage:REQ-AUTH-003
-
-**Context:** {What the agent flagged and why the rule normally fires.}
-
-**Decision:** {What the user decided — keep current behavior, treat
-the mechanism as the contract, etc.}
-
-**Rationale:** {Why this choice over rewriting to user-observable language.}
-
-**Consequences:** {What downstream code/docs must keep in lockstep.}
-
-**Related requirements:** REQ-AUTH-002, REQ-AUTH-003
-```
-
-The `Overrides:` line is the parser anchor. Each entry is `{rule_id}:{target_id}` — same key shape spec-reviewer used for the legacy skip list. `target_id` is a REQ ID like `REQ-X-NNN` or `*` for "all REQs in scope of the rule". Multiple keys are comma-separated.
-
-Why ADRs and not a skip-list file:
-
-- Discoverable from the project's docs index (`documentation/decisions/README.md`) instead of buried in `sdd/.user-overrides.md`.
-- Structured (Context / Decision / Rationale / Consequences) — a future contributor reading the auth REQs sees the prior reasoning instead of re-litigating the same call.
-- Backlinks REQs in a parseable form, can be revised with full Status history (`Accepted` → `Superseded by AD-M`).
-- Same machine behavior (skippable by spec-reviewer via the same `{rule}:{target}` key) but the *decision* is now first-class architecture.
-
-The legacy `sdd/.user-overrides.md` file is removed (issue codeflare#266). When `/sdd clean` encounters one, it converts each entry to an ADR with the `User note:` field expanded into the Context/Rationale fields, then deletes the file in the same commit.
+When the user reverts an automated fix or tells the agent "don't do that for this REQ", that is a normal git operation. The reverted commit stays in history; the agent's round counter sees a fresh user-authored commit and resets. No skip-list file, no ADR mechanism, no per-rule bypass keys -- if the same finding keeps re-firing, fix the underlying rule or the REQ, don't paper over it.
 
 ## Modes (set via `sdd/config.yml`)
 
@@ -641,7 +464,6 @@ Before any agent-driven write to `sdd/` or `documentation/`:
 | `sdd/.coverage-report.md` | Yes | Output of enforce_tdd: false runs |
 | `sdd/.last-clean-run.md` | Yes | Audit log of the most recent /sdd clean run |
 | `sdd/changes-archive-*.md` | Yes | Archived old changelogs from /sdd clean runs |
-| `sdd/.split-proposals/*.md` | Yes | Draft REQ split proposals generated by spec-reviewer when a REQ hits the ≥12-AC / ≥50-line threshold; user edits and flips Status: Approved, then `/sdd clean` consumes |
 | `sdd/init-triage.md` | Yes | Open / resolved / lost items from `/sdd init` Import Mode. Owned by `/sdd init`. Presence of any `Status: open` item triggers transition state (auto-demote suppressed; `unleashed` rejected). Preserved as audit record after queue drains. |
 
 Nothing in `sdd/` is gitignored. Everything is part of the project's history.

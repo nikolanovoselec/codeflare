@@ -14,8 +14,7 @@ mode: interactive
 # enforce_tdd: false for codeflare.
 #
 # Why opt out: codeflare predates the SDD overhaul. The 151 Implemented
-# REQs were authored before the `Implements REQ-X-NNN` source annotation
-# convention and the `REQ-X-NNN: ...` test-name convention existed.
+# REQs were authored before the `REQ-X-NNN: ...` test-name convention.
 # Codeflare HAS heavy test coverage (1620 backend + 1529 frontend + 140
 # E2E tests) but the tests don't reference REQ IDs. Setting this to true
 # would auto-demote every Implemented REQ to Partial in a single sweep
@@ -23,8 +22,8 @@ mode: interactive
 #
 # Instead, with enforce_tdd: false, spec-reviewer writes coverage findings
 # to sdd/.coverage-report.md without modifying the spec. We get visibility
-# into the gap and can backfill annotations incrementally as we touch each
-# domain, then flip this to true once the bulk of the bridge is built.
+# into the gap and can backfill REQ-ID test names incrementally as we touch
+# each domain, then flip this to true once the bulk of the bridge is built.
 enforce_tdd: false
 
 # Test discovery globs — where spec-reviewer looks for REQ ID references.
@@ -38,8 +37,8 @@ test_globs:
   - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
   - "tests/e2e/**/*.spec.{ts,js}"
 
-# Source discovery globs (optional override) — where spec-reviewer greps
-# for `Implements REQ-X-NNN` annotations. Codeflare uses the standard
+# Source discovery globs (optional override) — where spec-reviewer scans
+# for REQ-ID references in source code. Codeflare uses the standard
 # layout, so the built-in defaults (src/**, lib/**, app/**, etc.) cover
 # the Worker code. host/src is the in-container Node code.
 src_globs:

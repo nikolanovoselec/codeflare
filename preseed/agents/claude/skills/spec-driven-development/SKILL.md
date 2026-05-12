@@ -169,7 +169,7 @@ Import Mode is the migration path from legacy manual coding to autonomous agenti
 
 While `sdd/init-triage.md` contains any `**Status:** open` items, the project is in **SDD transition**. `sdd/config.yml` carries `transition: true`. During transition, the PR-boundary review pipeline is **entirely suspended**: code-reviewer, spec-reviewer, and doc-updater do not fire on any push or PR event. PostToolUse + Stop hooks short-circuit. `/sdd mode unleashed` is rejected.
 
-When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `enforce_tdd` is NOT auto-flipped - the user sets it manually when ready (typically after annotating imported source with `Implements REQ-X-NNN`). `sdd/init-triage.md` is preserved as the audit record.
+When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `enforce_tdd` is NOT auto-flipped - the user sets it manually when ready (typically after adding REQ-ID references to test names in the imported source). `sdd/init-triage.md` is preserved as the audit record.
 
 Import Mode writes CLEAR REQs to `sdd/{domain}.md` files automatically, without user confirmation. The agent's confidence threshold (single matching domain, unambiguous behavior, clear evidence in code/PRs/tests) is the gate; anything below it becomes a triage entry. Only the triage queue surfaces unclear/ambiguous items for user judgment, one at a time in Resume Mode. To correct any CLEAR REQ after import, the user runs `/sdd edit {domain}`.
 
@@ -188,7 +188,7 @@ Only `accept` and `correct` promote the answer into the official spec REQs. `cor
 
 - `transition: true` is cleared from `sdd/config.yml`
 - A closure entry is appended to `sdd/changes.md` (e.g., `SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost).`)
-- `enforce_tdd` is NOT changed - the user flips it to `true` manually when ready for TDD enforcement (typically after adding source annotations and REQ-ID test names)
+- `enforce_tdd` is NOT changed - the user flips it to `true` manually when ready for TDD enforcement (typically after adding REQ-ID test names)
 - The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 17) so the first feature work on top of the now-real spec is plan-gated
 
 In **greenfield mode**, the agent:
@@ -282,12 +282,9 @@ Both `auto` and `unleashed` push to the currently checked-out branch. The user i
 - **Oversized REQs** (>50 lines) → flagged; in unleashed mode, implementation prose extracted to docs while Intent + AC stay verbatim
 - **Bloated `changes.md`** (verification log entries, commit SHAs, multi-paragraph entries) → archived to `sdd/changes-archive-YYYY-MM.md`, new file written with user-facing entries only
 - **Status: Implemented REQs without test coverage** → if `enforce_tdd: true`, demoted to `Partial` with `Notes:` explaining what's missing; if `enforce_tdd: false`, written to `sdd/.coverage-report.md` only
-- **Status: Planned/Partial REQs with source code but no test** → if `enforce_tdd: true`, HIGH finding + auto-promote `Planned → Partial` with `Notes:` (requires the `Implements REQ-X-NNN` annotation convention in source files — see `spec-discipline.md` → Source code ↔ REQ annotations)
+- **Status: Planned/Partial REQs with source code but no test** → if `enforce_tdd: true`, HIGH finding + auto-promote `Planned → Partial` with `Notes:`
 - **Test quality heuristics** → AC-count vs test-count check, tautology detection, skipped-test detection (all run when `enforce_tdd: true`)
 - **Missing doc→spec backlinks** → generated automatically (links from `documentation/` files to relevant REQ IDs)
-- **Approved split proposals** → spec-reviewer drafts `sdd/.split-proposals/{REQ-ID}.md` for any REQ at ≥12 ACs or ≥50 lines without a valid `<!-- sdd-allow-large -->` hatch. AC text is lifted verbatim into 3–7 candidate child REQs. The user reviews and flips `**Status:** Draft` to `**Status:** Approved`; `/sdd clean` then executes the split, updates the parent, and deletes the proposal. Splits are never auto-applied — even in `unleashed` mode the proposal stays at Draft until the user approves.
-- **Out-of-Scope collisions** → REQs marked Implemented while a sibling Out-of-Scope bullet claims the same feature is not in scope. Full-spec pass (not diff-scoped) with ≥2 content-word overlap heuristic. Conservative resolution removes the Out-of-Scope bullet (the feature shipped); user can override per finding.
-- **Hatch justification audit** → `<!-- sdd-allow-large -->` and `<!-- doc-allow-large -->` markers must reference an existing ADR or a dated `pending:YYYY-MM-DD` entry. Bare markers → MEDIUM rewrite. Orphan ADR refs → HIGH. Superseded ADR refs → HIGH. Aged-Accepted ADR refs (>180 days) → LOW reminder. Converts a silent perma-license into a decision discoverable in the ADR ledger.
 - **False-positive ADRs** in `documentation/decisions/` (static-analyzer accommodations, naming-compat notes, risk acceptance with no alternative considered, implementation notes framed as decisions) → reclassified to their canonical home (inline source comment, `troubleshooting.md`, `configuration.md`, or `security.md`). The original `### AD-N:` heading is preserved as a `Status: Reclassified` stub so inbound `AD-N` references keep resolving. See `documentation-discipline.md` "What is NOT an ADR" — applied by `/sdd clean` (the PR-boundary doc-updater passes only flag, never reclassify, to avoid surprising the user mid-PR).
 
 ## /sdd edit — adding or modifying requirements
@@ -321,7 +318,7 @@ Same as `/sdd edit` but creates a new domain file. The agent:
 /sdd mode interactive   # agent asks before every fix (default)
 /sdd mode auto          # agent silently applies safe fixes
 /sdd mode unleashed     # agent does everything without asking
-/sdd mode               # show current mode + recent ADRs with Overrides: headers
+/sdd mode               # show current mode
 ```
 
 The setting is persistent (committed to git as `sdd/config.yml`) and travels with the project. Per-command overrides via `--interactive`, `--auto`, `--unleashed` flags on `/sdd clean`.
@@ -340,7 +337,7 @@ test('REQ-AUTH-001: rejects expired JWT tokens', () => {
 });
 ```
 
-When `enforce_tdd: true` (the default), REQs without test references get downgraded to `Partial` with a `Notes:` field, and REQs whose source code exists but lacks tests get flagged and auto-promoted `Planned → Partial`. Source code must annotate each REQ it implements with a comment like `Implements REQ-X-NNN` so spec-reviewer has something concrete to grep (see `spec-discipline.md` → Source code ↔ REQ annotations). Projects that genuinely cannot admit automated testing (pure visual design systems, for example) can opt out with `enforce_tdd: false`.
+When `enforce_tdd: true` (the default), REQs without test references get downgraded to `Partial` with a `Notes:` field, and REQs whose source code exists but lacks tests get flagged and auto-promoted `Planned → Partial`. spec-reviewer matches by REQ-ID substring in test files (see test naming example above). Projects that genuinely cannot admit automated testing (pure visual design systems, for example) can opt out with `enforce_tdd: false`.
 
 **Bug fix discipline**: when fixing a bug, write a failing test that reproduces it BEFORE writing the fix. The test proves the bug exists and proves the fix works. The `tdd-guide` agent enforces this proactively.
 

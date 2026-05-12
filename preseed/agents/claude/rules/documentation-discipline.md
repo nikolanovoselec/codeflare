@@ -50,22 +50,7 @@ The reader of `documentation/` is a developer who already knows what the product
 | `documentation/decisions/<adr>.md` | 100 lines per ADR | LOW (100-150) / MEDIUM (150-250) / HIGH (>250) |
 | Other files in `documentation/` | 250 lines | LOW (250-400) / MEDIUM (400-600) / HIGH (>600) |
 
-A file may opt out of length warnings with an HTML comment near the top, but the marker MUST carry structured justification:
-
-```markdown
-<!-- doc-allow-large: AD-N reason -->
-```
-
-Required shape:
-
-- The marker MUST carry a colon and a justification body. Bare `<!-- doc-allow-large -->` is rejected.
-- The body MUST reference an existing ADR by ID `AD-N` (one or more digits, matching the ADR's filename and heading in `documentation/decisions/`), OR a `pending.md` entry with a follow-up date in ISO format `pending:YYYY-MM-DD`.
-- ID-matching regex: `\bAD-[0-9]+\b`. The legacy `ADR-NN` alias is rejected (LOW finding asks the user to rewrite). The canonical form is `AD-N+`.
-- doc-updater verifies the referenced ADR or pending entry exists every run (see Pass 6 below).
-
-**Marker age (for the 180-day rule)**: defined as the git-blame age of the marker line in its current file (`git blame -L <line>,<line> -- <file>`, take the commit author date). The marker does NOT carry an inline timestamp; the age resets when the marker line is rewritten or moved (intentional -- a deliberate edit is a fresh review of the decision).
-
-This converts the hatch from a silent perma-license into a decision that lives in the ADR ledger — discoverable and revisitable. The same rules mirror to `<!-- sdd-allow-large -->` in `spec-discipline.md` (enforced by spec-reviewer).
+Files over budget produce a finding at the severity tier. There is no inline opt-out hatch -- if a file is genuinely allowed to be long, split it, or accept the finding as a known tech-debt entry in `sdd/.review-decisions.md`.
 
 ## Per-element budgets
 
@@ -140,7 +125,7 @@ Each canonical lane file follows a per-section template so readers can scan the 
 | `documentation/security.md` | Per policy section: `**Threat:**`, `**Mitigation:**`, `**Verification:**` (test/audit reference), `**Implements:** (REQ-X-NNN)` |
 | `documentation/architecture.md` | Per component section: `**Responsibility:**` (one-sentence), `**Inputs:**`, `**Outputs:**`, `**Source:**` (file path or `src/foo/**`) |
 | `documentation/troubleshooting.md` | Per recipe section: `**Symptom:**`, `**Cause:**`, `**Fix:**`, `**Prevention:**` (optional) |
-| `documentation/decisions/<adr>.md` | ADR header: `**Status:** {Proposed\|Accepted\|Superseded\|Reclassified} ({YYYY-MM-DD})`, `**Context:**`, `**Decision:**`, `**Consequences:**`, optional `**Supersedes:**`, optional `**Overrides:**` |
+| `documentation/decisions/<adr>.md` | ADR header: `**Status:** {Proposed\|Accepted\|Superseded\|Reclassified} ({YYYY-MM-DD})`, `**Context:**`, `**Decision:**`, `**Consequences:**`, optional `**Supersedes:**` |
 
 **Rules of engagement**:
 
@@ -162,7 +147,7 @@ The full project's template set is the registry above. Projects may extend it vi
 
 ## Enforcement passes (run by doc-updater)
 
-doc-updater runs twelve passes on every PR-boundary trigger. Passes 1-6 are **structural** (shape, budgets, lane, hatch resolution). Passes 7-12 are **content-quality** (does the doc say what it claims, and can a reader actually use it):
+doc-updater runs ten passes on every PR-boundary trigger. Passes 1-5 are **structural** (shape, budgets, lane). Passes 6-10 are **content-quality** (does the doc say what it claims, and can a reader actually use it):
 
 ### Pass 1 — Per-element budget enforcement
 
@@ -176,7 +161,7 @@ Walks each `documentation/*.md` file and applies every cap from the per-element 
 
 ### Pass 2 — File-level budget enforcement
 
-For each file in `documentation/`, count lines (excluding blank lines and code fences). Apply the budget table above. If a file is over its budget AND lacks `<!-- doc-allow-large -->`, emit a finding at the severity tier.
+For each file in `documentation/`, count lines (excluding blank lines and code fences). Apply the budget table above. Emit a finding at the severity tier when a file exceeds its budget.
 
 In `auto` and `unleashed` modes, doc-updater proposes a split: identifies natural section boundaries (top-level `##` headings) and writes a new sibling file with a redirect pointer in the original. The split is committed as `[doc-updater] split: filename.md → filename-{section}.md`.
 
@@ -229,45 +214,22 @@ documentation/api-reference.md
     Missing fields: **Auth:**, **Response:**, **Implements:**
 ```
 
-The pass does NOT auto-rewrite existing sections — restructuring prose or backfilling per-row Auth/Implements values is genuine authoring work. In `unleashed` mode, the agent appends one of:
+The pass does NOT auto-rewrite existing sections — restructuring prose or backfilling per-row Auth/Implements values is genuine authoring work. The finding stays in `documentation/.doc-coverage.md` until the user fills the missing fields.
 
-- For grouped-table sections: a placeholder column (e.g., adds an `| Implements |` header and a `TBD` cell per row) so the contract surface is visible and the operator can fill values in a follow-up commit
-- For per-item sections: a `**Implements:** TBD` placeholder marker so the missing-field set is resolved
-
-The values must still be filled in by the user — the placeholder satisfies the structural rule, not the contract.
-
-### Pass 6 — Hatch justification audit
-
-For every `<!-- doc-allow-large: ... -->` marker in `documentation/` files (and every `<!-- sdd-allow-large: ... -->` marker the spec-reviewer mirror reports for `sdd/`):
-
-| Condition | Severity | Action |
-|---|---|---|
-| Bare marker (no colon or justification) | MEDIUM | Rewrite to `<!-- doc-allow-large: TODO open ADR -->` and emit finding prompting the user to file an ADR. |
-| Marker references an ADR that does not exist in `documentation/decisions/` | HIGH | Orphan reference -- flag immediately, do not auto-fix. |
-| Marker references an ADR with `Status: Superseded` | HIGH | The decision the hatch relied on has been overturned. Flag for review. |
-| Marker uses the legacy `ADR-NN` form instead of the canonical `AD-N+` | LOW | Rewrite the marker to the canonical form. |
-| Marker (by git-blame age) is older than 180 days and references an ADR with `Status: Accepted` | LOW | Reminder to revisit the decision; the project may have grown past the original justification. |
-| Marker references `pending:YYYY-MM-DD` with the date in the past | LOW | Follow-up overdue. |
-| Marker is well-formed and current | (no finding) | Accept. |
-
-The same audit applies to `<!-- doc-template-exempt: ... -->` markers. Markers of this shape are added by Pass 5 in `auto`/`unleashed` modes when a section legitimately cannot satisfy the per-lane format template right now (e.g., a section documenting a legacy endpoint whose Auth field is genuinely unknown until triage). Like `doc-allow-large`, they MUST carry an ADR ID or `pending:YYYY-MM-DD` justification body; the same severity table above applies. spec-reviewer applies an identical audit to `<!-- sdd-allow-large -->`.
-
-Date math is performed against the system date at run time. Marker age uses git-blame as the basis (the age of the marker line's most recent commit). ADR `Status` is parsed from the ADR file's header field.
-
-### Pass 7 — Verification truth-check
+### Pass 6 — Verification truth-check
 
 For every `**Verification:** <test-file>` field in a doc section, open the cited test file and check both:
 
 1. The section's `**Implements:** REQ-X-NNN` REQ ID appears in a `describe`, `test`, or `it` block name within the cited file. A plain substring match is sufficient (mirrors the spec-discipline source-vs-test detector).
 2. At least one content-word token (≥4 chars, stopwords excluded) from the section's `**Threat:**` or `**Mitigation:**` prose appears anywhere in the cited file.
 
-If neither match fires, emit MEDIUM finding `verification-field-cites-unrelated-test` naming the section, the cited file path, and the missing match dimension(s). The cited file existing on disk is necessary but not sufficient — Pass 7 verifies the file actually exercises what the doc claims.
+If neither match fires, emit MEDIUM finding `verification-field-cites-unrelated-test` naming the section, the cited file path, and the missing match dimension(s). The cited file existing on disk is necessary but not sufficient — Pass 6 verifies the file actually exercises what the doc claims.
 
 Multiple files in one `**Verification:**` field (comma- or `+`-separated) are evaluated independently; the finding lists only the files that fail. If at least one cited file matches both criteria, the field passes — the convention is that the **first** cited file is the load-bearing one and additional files supplement it.
 
 Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: rewrite the failing field to `**Verification:** {kept-files-that-passed}` (drop the unrelated ones). If every file failed, replace the field with `**Verification:** audit pending — see `documentation/.doc-coverage.md`` and append an audit-pending entry naming the section. Never silently keep a misleading citation.
 
-### Pass 8 — Implements-vs-AC cross-walk
+### Pass 7 — Implements-vs-AC cross-walk
 
 For every `**Implements:** REQ-X-NNN` (or `REQ-X-NNN AC N`) field in a doc section, read the linked REQ's Intent and AC bullets from `sdd/{domain}.md` and classify the doc section's relationship to that REQ. The agent makes the call by reading both sides:
 
@@ -280,7 +242,7 @@ For every `**Implements:** REQ-X-NNN` (or `REQ-X-NNN AC N`) field in a doc secti
 
 If the agent is uncertain — multiple ACs plausibly match, or the section straddles AC and Intent — it emits MEDIUM `implements-field-low-confidence` rather than auto-rewriting. HIGH `implements-field-mismatched` (case c) is reserved for cases the agent is confident are mismatches. The rule of thumb: under-flag rather than over-rewrite.
 
-### Pass 9 — Stale code-block detection
+### Pass 8 — Stale code-block detection
 
 For every fenced code block, `**Path:** /api/foo`-style field, function signature in body prose, and JSON shape example in `documentation/`, locate the matching source artifact via the project's `src_globs` (from `sdd/config.yml`) and compute a structural diff. The pass runs four sub-checks per artifact:
 
@@ -291,18 +253,7 @@ For every fenced code block, `**Path:** /api/foo`-style field, function signatur
 
 Severity: HIGH for route-not-in-source / function-removed / env-var-removed-from-source; MEDIUM otherwise. Auto-fix in `auto`/`unleashed`: for shape-drift, regenerate the example from the resolved source artifact (read the route handler's return-type, the function's signature, the JSON type's keys) and replace the block. Never delete a stale block silently — replace or flag, never drop.
 
-### Pass 10 — Hatch overuse / catch-all detection
-
-Count `<!-- doc-allow-large: AD-N+ ... -->` and `<!-- doc-template-exempt: AD-N+ ... -->` references per ADR across the entire `documentation/` corpus (and `<!-- sdd-allow-large: AD-N+ ... -->` for `sdd/`, mirrored by spec-reviewer). If one ADR carries `>3` distinct markers across `>1` file, flag it:
-
-- MEDIUM finding `hatch-catch-all` reporting: ADR ID, marker count, file count, and a per-marker excerpt (the marker line plus the ≤2 lines of body immediately following) so the operator can read each justification side-by-side.
-- The finding's resolution choices are spelled out in the output: either (a) the cases are genuinely the same decision and the ADR's `**Decision:**` section should enumerate them explicitly, or (b) the cases are different and the ADR should be split into N per-case ADRs with `Supersedes: AD-N+`.
-
-Threshold tuning: the rule is "more than 3 markers AND more than 1 file" because a single-file ADR (e.g., a per-file budget exemption that triggers in 4 sections of the same `architecture.md`) is a legitimate single decision. Cross-file recurrence is the catch-all signal.
-
-Severity: MEDIUM. Auto-fix: NO — splitting or enumerating an ADR is authoring judgment, not mechanical. The finding stays in `.doc-coverage.md` until the user resolves it. doc-updater records the finding once per run; repeat counts do not re-flag.
-
-### Pass 11 — Content-preservation on trim
+### Pass 9 — Content-preservation on trim
 
 When doc-updater (in `auto` or `unleashed` mode) proposes a Pass 1 trim — shortening a bullet to fit the 40-word cap, a paragraph to fit the 120-word cap, or a cell to fit the 50-word cap — the agent must run a content-preservation check on the proposed trim **before committing it**:
 
@@ -320,7 +271,7 @@ The agent decides "context-loss" by reading both the removed text and the candid
 
 Severity: MEDIUM as a finding on the auto-trim itself when the revert path fires. No finding when promotion succeeds (the agent's commit body is the audit trail).
 
-### Pass 12 — Stranger cold-read
+### Pass 10 — Stranger cold-read
 
 For each top-level canonical file in `documentation/`, dispatch a fresh subagent (`general-purpose` subtype, **not** `doc-updater` — must come in cold with no project context) with: (i) only the contents of the one doc file, (ii) a simulated task the file is supposed to answer. The default task registry:
 
@@ -337,9 +288,9 @@ For each top-level canonical file in `documentation/`, dispatch a fresh subagent
 
 The subagent reports one of three outcomes per file: `succeeded` (task completed using only the doc), `partial` (some sub-question answered, others required guessing), `failed` (the doc lacks the load-bearing information). Partial and failed outcomes each produce a MEDIUM finding `stranger-cold-read-gap` naming the specific information the doc failed to surface — typically the load-bearing path, the exact command, the field name, or the one-line constraint that decides the task.
 
-The task list is project-overridable via `documentation/.cold-read-tasks.yml` (per-file: `simulated_task: "..."`). Files not in the registry skip Pass 12. The pass runs at most once per PR-boundary trigger (caches results on commit SHA + file mtime).
+The task list is project-overridable via `documentation/.cold-read-tasks.yml` (per-file: `simulated_task: "..."`). Files not in the registry skip Pass 10. The pass runs at most once per PR-boundary trigger (caches results on commit SHA + file mtime).
 
-Severity: MEDIUM. No auto-fix — Pass 12 is a signal, not a corrector. doc-updater writes the per-file gap report to `documentation/.doc-coverage.md` under a `## Cold-read gaps` heading and surfaces it to the operator. This is the only pass in the framework that answers "is this doc actually usable?" — every other pass answers a structural question.
+Severity: MEDIUM. No auto-fix — this pass is a signal, not a corrector. doc-updater writes the per-file gap report to `documentation/.doc-coverage.md` under a `## Cold-read gaps` heading and surfaces it to the operator. This is the only pass in the framework that answers "is this doc actually usable?" — every other pass answers a structural question.
 
 ## Severity classification on doc findings
 

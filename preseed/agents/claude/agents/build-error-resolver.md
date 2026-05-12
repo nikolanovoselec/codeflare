@@ -113,10 +113,6 @@ npx eslint . --fix
 - Tests failing → use `tdd-guide`
 - Security issues → use `security-reviewer`
 
-## Source annotations (when `sdd/` exists)
-
-When fixing a source file, preserve any existing `Implements REQ-X-NNN` comments. If you move code between files, move the annotation with it. Never orphan annotations. See `spec-discipline.md` → Source code ↔ REQ annotations.
-
 ---
 
 **Remember**: Fix the error, verify the build passes, move on. Speed and precision over perfection.

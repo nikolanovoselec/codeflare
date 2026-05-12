@@ -2,6 +2,16 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-12 (later same day)
+- Ripped out six overengineered features from the SDD framework after a third-wave architect review surfaced them as user-facing complexity without proportionate value:
+  - **ADR Overrides skip-list** (`Overrides:` header on ADRs that spec-reviewer / doc-updater parsed as a per-rule bypass). Removed. If a finding keeps re-firing across runs, fix the underlying rule or the REQ; there is no per-rule bypass.
+  - **Hatch markers + audit** (`<!-- sdd-allow-large -->`, `<!-- doc-allow-large -->`, `<!-- doc-template-exempt -->` and the Pass 6 / Pass 10 audit machinery). Removed. Oversized files produce a finding; the finding can be deferred via `sdd/.review-decisions.md`.
+  - **REQ split-proposal mode** (spec-reviewer drafting `sdd/.split-proposals/{REQ-ID}.md` files for `/sdd clean` to consume on `**Status:** Approved`). Removed. Oversized REQs shrink in place; the user splits manually when actually needed.
+  - **Out-of-Scope collision check** (full-spec pass cross-referencing `## Out of Scope` bullets against shipped REQs). Removed. Spec drift is normal-quality work, not a separate detector.
+  - **Anti-spiral category matching** (round counter required ≥2 commits on the *same target REQ-ID or category*). Removed. ≥2 of the last 3 lane-scoped commits is the simpler, sufficient trigger.
+  - **`Implements REQ-X-NNN` annotation enforcement** (code-reviewer flagged source files lacking REQ annotations; spec-reviewer CQ-2 cross-walked annotations against AC). Removed. Annotations remain a human-discoverability convention but are no longer flagged; spec-reviewer's test-name-based coverage check is the load-bearing signal.
+- doc-discipline drops from twelve passes to ten. spec-discipline drops CQ-2 / CQ-4 / CQ-6 (kept CQ-1, renumbered CQ-3 / CQ-5 to CQ-2 / CQ-3). `/sdd clean` drops the legacy `sdd/.user-overrides.md` migration step. `/sdd mode` no longer lists recent ADR overrides.
+
 ## 2026-05-12
 - Second-wave architect triage applied (REQ-AGENT-022, REQ-AGENT-021). Twelve HIGH findings resolved across the SDD framework:
   - `enforce_tdd` is no longer auto-flipped on transition closure - the user sets it manually when ready (typically after annotating imported source with `Implements REQ-X-NNN`). Removes a silent override of a deliberate per-project opt-out.

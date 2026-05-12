@@ -37,9 +37,7 @@ SUBCOMMANDS
                          Always interactive.
   clean                  Refactor a rotted spec. Detects implementation
                          leakage, fake-Deprecated REQs, oversized REQs,
-                         bloated changelogs, Out-of-Scope/REQ
-                         collisions, pending split proposals, orphan
-                         hatch markers. Mode-aware.
+                         bloated changelogs. Mode-aware.
                          Flags:
                            --scope=all (default) | --scope=diff
                            --interactive | --auto | --unleashed
@@ -64,10 +62,8 @@ AUTO-RUN  (no /sdd invocation needed)
   Once sdd/ exists, the SDD workflow runs automatically at PR-boundary
   events for PRs targeting main/master: code-reviewer + spec-reviewer
   + doc-updater fire on PR open or on push to a branch with such a
-  PR open. Both honor sdd/config.yml mode and any ADRs in
-  documentation/decisions/ that carry an Overrides: header (skip
-  list — see "USER OVERRIDES" below). Vibe-code without sdd/ works
-  too — agents stay silent until you /sdd init.
+  PR open. All honor sdd/config.yml mode. Vibe-code without sdd/
+  works too — agents stay silent until you /sdd init.
 
 REQUIRED SDLC FOR AUTONOMOUS REVIEW
   The review pipeline only fires for PRs whose base is `main` or
@@ -106,20 +102,7 @@ FILES
   sdd/.review-needed.md       Findings escalated for human review
   sdd/.coverage-report.md     Output when enforce_tdd: false
   sdd/.last-clean-run.md      Audit log of the last /sdd clean
-  documentation/decisions/    ADRs (any with `Overrides:` header act
-                              as the agent skip list — see USER
-                              OVERRIDES below)
-
-USER OVERRIDES
-  When an automated finding is wrong for a specific REQ ("this
-  mechanism IS the contract"), the resolution is an architectural
-  decision and is recorded as an ADR — not a one-line skip entry.
-  Each ADR carries an `Overrides: {rule_id}:{REQ-ID}` header that
-  spec-reviewer and doc-updater grep at the start of every run.
-  See ~/.claude/rules/spec-discipline.md "User overrides via ADRs".
-
-  Legacy sdd/.user-overrides.md is removed (issue codeflare#266).
-  Existing entries auto-migrate to ADRs on the next /sdd clean.
+  documentation/decisions/    ADRs (architectural decision records)
 
 DISCIPLINE TRIAD  (loaded into all agents)
   spec-discipline           What counts as a real requirement.
@@ -162,7 +145,7 @@ EXAMPLES
   /sdd mode auto                    Switch to auto mode
   /sdd mode unleashed               Switch to walk-away autopilot
   /sdd mode interactive             Back to interactive (default)
-  /sdd mode                         Show current mode + overrides
+  /sdd mode                         Show current mode
 
 LEARN MORE
   Skill         ~/.claude/skills/spec-driven-development/SKILL.md
@@ -389,7 +372,7 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 - **Triage entry Context must be concrete** — file paths + line ranges + commit refs + author names + related PR numbers. Vague Context (no refs, no authors, no commits) is grounds for rerun. The user must be able to verify the recommendation against the cited evidence.
 - **Triage entry Recommendation must be a specific answer with a Rationale**, never `(inferred)`, `TBD`, or `unknown`. If the agent genuinely cannot determine the answer, file as `**Recommendation:** Cannot determine — likely lost ({why})` so the user can confirm `lost` in one step.
 - **CLEAR REQs are written without user confirmation** (the confidence threshold IS the gate). Only the triage queue surfaces unclear/ambiguous items for user judgment, one at a time, in Resume Mode.
-- **Default `enforce_tdd: false` for imports** — the imported code predates the annotation convention. User opts in after adding `Implements REQ-X-NNN` annotations and REQ-ID test names. Greenfield `/sdd init` still defaults to `enforce_tdd: true`.
+- **Default `enforce_tdd: false` for imports** — the imported code predates the test-naming convention. User opts in after adding REQ-ID references to test names. Greenfield `/sdd init` still defaults to `enforce_tdd: true`.
 
 ### Resume Mode
 
@@ -447,7 +430,7 @@ Triggered when `/sdd init` is invoked on a project where `sdd/` already exists a
 8. **Transition-closure check** runs after every resolved/lost decision. When zero `**Status:** open` items remain:
    - Clear `transition: true` from `sdd/config.yml`
    - Append to `sdd/changes.md`: `## YYYY-MM-DD\n- SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost). Full SDD discipline now applies; autonomous agentic development unlocked.`
-   - Note: `enforce_tdd` is NOT auto-flipped. The user flips it manually when ready for TDD enforcement (typically after adding `Implements REQ-X-NNN` annotations and REQ-ID test names to the imported source). The import-time `enforce_tdd: false` stays in effect until the user changes it.
+   - Note: `enforce_tdd` is NOT auto-flipped. The user flips it manually when ready for TDD enforcement (typically after adding REQ-ID references to test names in the imported source). The import-time `enforce_tdd: false` stays in effect until the user changes it.
    - Print:
      ```
      ✓ Triage queue drained. SDD transition complete.
@@ -537,34 +520,7 @@ Refactor a rotted spec. Mode-aware.
    - Status: Planned/Partial REQs with source code but no test (HIGH if `enforce_tdd: true`)
    - Test quality findings: tautologies, skipped tests, AC-count mismatch (HIGH/MEDIUM if `enforce_tdd: true`)
    - Doc-vs-spec conflicts (MEDIUM, JUDGMENT)
-   - Legacy `sdd/.user-overrides.md` exists (HIGH, AUTO-MIGRATE — see step 6a)
-   - **Approved split proposals**: scan `sdd/.split-proposals/*.md` for files whose top-of-file `**Status:** Approved` line is present. For each, execute the split: write the child REQs to their target domain files (verbatim AC text from the proposal), update the parent (Deprecated with `Replaced By:` listing children, OR move to "Out of Scope" if the parent name no longer makes sense), update any inbound REQ cross-references, then delete the consumed proposal file. Draft-status proposals are left untouched. (MEDIUM, JUDGMENT — user already authorized via Status: Approved, so /sdd clean proceeds without re-confirming.)
-   - **Out-of-Scope collisions**: spec-reviewer's Phase 2 check #16 written to `.review-needed.md`. `/sdd clean` proposes resolution per finding: either remove the Out-of-Scope bullet (the feature shipped) or move the REQ to "Out of Scope" / mark Deprecated. (MEDIUM, JUDGMENT — confirm with user in interactive mode; in auto, surface a one-line proposal per collision and let user pick; in unleashed, default-keep the shipped REQ and remove the Out-of-Scope bullet.)
-   - **Orphan / aged hatch markers**: `<!-- sdd-allow-large -->` and `<!-- doc-allow-large -->` markers flagged by spec-reviewer Phase 2 #18 and doc-updater Pass 6. Bare markers rewritten to `: TODO open ADR`; orphan ADR references prompt the user to file an ADR or remove the hatch; aged-Accepted reminders are surfaced for revisit. (LOW/MEDIUM/HIGH per the audit table.)
    - False-positive ADRs in `documentation/decisions/` per `documentation-discipline.md` "What is NOT an ADR" (MEDIUM, AUTO-RECLASSIFY in `auto`/`unleashed`): static-analyzer accommodations move to inline source comments + `documentation/troubleshooting.md` if recurring; naming/spelling-compat notes move to `documentation/configuration.md`; risk-acceptance with no alternative considered moves to `documentation/security.md`; implementation-notes-as-decisions are deleted or moved to `pending.md`. The original `### AD-N:` heading is preserved as a `Status: Reclassified on YYYY-MM-DD` stub so inbound `AD-N` references keep resolving. Findings on entries already carrying `Status: Reclassified` or `Status: Merged into` are suppressed.
-5a. **Migrate legacy `sdd/.user-overrides.md` to ADRs** (one-time, runs before any other apply step):
-    - For each entry block keyed by `## {rule_id}:{target_id}`, generate a new ADR file at `documentation/decisions/AD{N}-{slug-of-rule-id}-{lowercased-target-id}.md` where `{N}` is the next available AD number (read `documentation/decisions/README.md` for the highest existing AD ID and increment).
-    - ADR template:
-      ```markdown
-      ### AD{N}: {Decision title derived from `{rule_id}` + `{target_id}`}
-
-      **Status:** {Accepted (YYYY-MM-DD from the legacy `Date:` field). If the legacy entry has no parseable Date or the value is malformed, emit `Accepted (date unknown)` instead — never substitute today's date, as that would silently re-stamp the decision and lose the audit trail.}
-      **Overrides:** {rule_id}:{target_id}
-
-      **Context:** {Auto-filled placeholder explaining what `{rule_id}` flagged on `{target_id}`. Reference the rule by name from `~/.claude/rules/spec-discipline.md`.}
-
-      **Decision:** {The legacy `User note:` field, verbatim.}
-
-      **Rationale:** {Auto-filled placeholder asking the user to expand the legacy note into the original reasoning. Mark with `<!-- TODO: expand from legacy override note -->` so the user notices on first read of the new ADR.}
-
-      **Consequences:** {Auto-filled placeholder asking the user to list downstream code/docs that must keep in lockstep.}
-
-      **Related requirements:** {target_id if it parses as REQ-X-NNN, else leave blank}
-      ```
-    - Append a row to `documentation/decisions/README.md`'s decision index for each new ADR.
-    - Delete `sdd/.user-overrides.md` in the same commit.
-    - Tag the commit `[sdd-clean] migrate user-overrides to ADRs (issue codeflare#266)` so spec-reviewer's round-counter excludes it.
-    - The TODO placeholders in the ADRs are intentional — the user fills them on first review. Until then, the `Overrides:` header is fully active and spec-reviewer/doc-updater respect it.
 6. **Apply per mode**:
    - **interactive**: report findings batch by batch, ask confirmation
    - **auto**: apply SAFE + RISKY silently, escalate JUDGMENT to `sdd/.review-needed.md`
@@ -594,9 +550,7 @@ Set or read the autonomy mode.
 /sdd mode interactive   → write `mode: interactive` to sdd/config.yml
 /sdd mode auto          → write `mode: auto` to sdd/config.yml
 /sdd mode unleashed     → write `mode: unleashed` to sdd/config.yml
-/sdd mode               → print current mode + last 5 ADRs in
-                          documentation/decisions/ that carry an
-                          `Overrides:` header
+/sdd mode               → print current mode
 ```
 
 If `sdd/config.yml` doesn't exist, create it from the template first. If `sdd/` doesn't exist, error out: "No SDD project here. Run `/sdd init` first."

@@ -1,4 +1,4 @@
-<!-- doc-discipline: 600 lines max, one-line table cells (≤50 words), no architecture rationale (lives in architecture.md), no env var docs (lives in configuration.md). Add <!-- doc-allow-large --> below this comment if a complete API surface genuinely needs more lines. -->
+<!-- doc-discipline: 600 lines max, one-line table cells (≤50 words), no architecture rationale (lives in architecture.md), no env var docs (lives in configuration.md). -->
 
 # API Reference
 

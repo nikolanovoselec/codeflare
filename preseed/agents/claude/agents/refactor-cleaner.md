@@ -88,6 +88,3 @@ After each batch:
 - No regressions
 - Bundle size reduced
 
-## Source annotations (when `sdd/` exists)
-
-When moving, renaming, or deleting code, move any `Implements REQ-X-NNN` comments with the code they annotate. If code is deleted, delete the annotation. Never leave orphan annotations pointing at removed or relocated code. See `spec-discipline.md` → Source code ↔ REQ annotations.

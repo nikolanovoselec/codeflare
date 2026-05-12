@@ -35,12 +35,6 @@ When `sdd/` exists, tests are derived from the REQ's acceptance criteria — one
 4. **RED verification is mandatory.** Before any implementation is written, push the test alone and monitor CI. Observe the test fail in CI and log the failure output to the conversation so the user sees RED was confirmed. Do not run tests locally — always use CI and monitor. If the test passes immediately on CI → the test is wrong, the feature already exists, or you are testing a tautology; fix the test until it genuinely fails for the right reason.
 5. **Edge cases from the REQ.** For each AC bullet, enumerate the null, empty, invalid, boundary, error, and unauthorized cases implied by the contract. Write tests for each. The "Edge Cases You MUST Test" list below is the floor, not the ceiling.
 
-## Source annotation (when `sdd/` exists)
-
-When you write or modify a production-code file that implements a REQ, add an `Implements REQ-X-NNN` comment to the file. Format matches the file's language: `// Implements REQ-SITE-002` for JS/TS/Java/Go/C-family, `# Implements REQ-API-001` for Python/Ruby/shell/YAML, `/** Implements REQ-SITE-002 */` for JSDoc blocks, `<!-- Implements REQ-UI-003 -->` for HTML/Astro/Svelte. One comment per REQ; do not concatenate. See `spec-discipline.md` → Source code ↔ REQ annotations for the full convention.
-
-Test files do NOT need the annotation — the REQ ID in the test name is sufficient.
-
 ## Spec-Driven Test Derivation
 
 If `sdd/` exists in the project, read the relevant domain file first. Acceptance criteria in the spec are your primary source for test cases — each criterion maps to at least one test. If no `sdd/` exists, derive tests from the conversation and code context as usual.
