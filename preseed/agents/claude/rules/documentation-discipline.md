@@ -50,7 +50,19 @@ The reader of `documentation/` is a developer who already knows what the product
 | `documentation/decisions/<adr>.md` | 100 lines per ADR | LOW (100-150) / MEDIUM (150-250) / HIGH (>250) |
 | Other files in `documentation/` | 250 lines | LOW (250-400) / MEDIUM (400-600) / HIGH (>600) |
 
-A file may opt out of length warnings with an HTML comment near the top: `<!-- doc-allow-large -->`. Use sparingly and only for genuinely complex references whose full surface needs to live in one place (e.g., a complete OpenAPI dump).
+A file may opt out of length warnings with an HTML comment near the top, but the marker MUST carry structured justification:
+
+```markdown
+<!-- doc-allow-large: ADR-NN reason -->
+```
+
+Required shape:
+
+- The marker MUST carry a colon and a justification body. Bare `<!-- doc-allow-large -->` is rejected.
+- The body MUST reference an existing ADR (`ADR-NN` or `AD-NN`) in `documentation/decisions/`, OR a `pending.md` entry with a follow-up date in ISO format `pending:YYYY-MM-DD`.
+- doc-updater verifies the referenced ADR or pending entry exists every run (see Pass 6 below).
+
+This converts the hatch from a silent perma-license into a decision that lives in the ADR ledger — discoverable and revisitable. The same rules mirror to `<!-- sdd-allow-large -->` in `spec-discipline.md` (enforced by spec-reviewer).
 
 ## Per-element budgets
 
@@ -113,9 +125,32 @@ The fix: the original ADR is immutable. Write a new ADR that references the orig
 
 This is enforced as a HIGH finding by doc-updater because dual-narrative ADRs corrupt the decision log — readers cannot tell which decision is current.
 
+## Per-lane format templates
+
+Each canonical lane file follows a per-section template so readers can scan the file in one pass instead of reverse-engineering each section's format. Templates are sibling-registered to the lane separation table.
+
+| File | Required per-section fields |
+|---|---|
+| `documentation/api-reference.md` | Per endpoint section: `**Method:** {GET\|POST\|...}`, `**Path:**`, `**Auth:**`, `**Request:**` (or "no body"), `**Response:**` (status code list with one-line description each), `**Implements:** (REQ-X-NNN)` |
+| `documentation/configuration.md` | Per env var section: `**Variable:**`, `**Default:**`, `**Required:**` (yes/no), `**Consumed by:** {file/module}`, `**Implements:** (REQ-X-NNN if applicable)` |
+| `documentation/deployment.md` | Per command/runbook section: `**When:**` (trigger), `**Command:**` (fenced block), `**Verifies:**` (success signal), `**Rollback:**` |
+| `documentation/security.md` | Per policy section: `**Threat:**`, `**Mitigation:**`, `**Verification:**` (test/audit reference), `**Implements:** (REQ-X-NNN)` |
+| `documentation/architecture.md` | Per component section: `**Responsibility:**` (one-sentence), `**Inputs:**`, `**Outputs:**`, `**Source:**` (file path or `src/foo/**`) |
+| `documentation/troubleshooting.md` | Per recipe section: `**Symptom:**`, `**Cause:**`, `**Fix:**`, `**Prevention:**` (optional) |
+| `documentation/decisions/<adr>.md` | ADR header: `**Status:** {Proposed\|Accepted\|Superseded\|Reclassified} ({YYYY-MM-DD})`, `**Context:**`, `**Decision:**`, `**Consequences:**`, optional `**Supersedes:**`, optional `**Overrides:**` |
+
+**Rules of engagement**:
+
+- Templates apply per **section** (`##` or `###` heading), not per file. A top-of-file preamble paragraph is exempt.
+- Sections describing a different concern than their lane (e.g., a `## Glossary` section at the bottom of `configuration.md`) are exempt — they're flagged separately by Pass 4 lane-violation detection.
+- A section that legitimately has no value for a field uses an explicit marker: `**Auth:** none (public endpoint)` rather than omission. The marker counts as the field being present.
+- Missing fields are emitted by Pass 5 as MEDIUM findings naming the section and the missing field list.
+
+The full project's template set is the registry above. Projects may extend it via a `templates` field in `sdd/config.yml` (future), but the canonical lane templates are not overridable — the lane is the contract.
+
 ## Enforcement passes (run by doc-updater)
 
-doc-updater runs four passes on every PR-boundary trigger:
+doc-updater runs six passes on every PR-boundary trigger:
 
 ### Pass 1 — Per-element budget enforcement
 
@@ -137,11 +172,61 @@ In `auto` and `unleashed` modes, doc-updater proposes a split: identifies natura
 
 Scan each `documentation/` file for paragraphs that read like AC text (`must`, `shall`, `ensures that`, `the system rejects`). These belong in `sdd/` not `documentation/` and signal that someone wrote intent in the wrong place. Flag as MEDIUM with the target REQ ID (or "no matching REQ" if none exists, escalating to HIGH because it indicates an unspec'd feature).
 
-### Pass 4 — Lane-violation detection
+### Pass 4 — Lane-violation detection (pattern-based)
 
-Scan each file against its lane in the table above. If `architecture.md` contains a section titled `## API Endpoints` with route+method+status-code content, it's a lane violation — flag as MEDIUM and propose moving the section to `api-reference.md` with a backlink in `architecture.md`.
+Scan each file against its declared lane using **per-lane content signatures**, not a single hardcoded example. The pattern catalogue:
 
-Dual-narrative ADR detection runs alongside pass 4 against `documentation/decisions/`.
+| Signature | Belongs in | Flagged in |
+|---|---|---|
+| HTTP method + path + status code triplet (e.g., `POST /api/foo → 201`) | `api-reference.md` | `architecture.md`, `deployment.md`, `configuration.md`, `security.md` |
+| Env var name + default value + consumption point | `configuration.md` | `architecture.md`, `deployment.md`, `security.md` |
+| Shell command intended to be copy-pasted at deploy time | `deployment.md` | `api-reference.md`, `troubleshooting.md` (unless `Fix:` block), `architecture.md` |
+| Symptom → Cause → Fix recipe block | `troubleshooting.md` | `deployment.md`, `architecture.md`, `api-reference.md` |
+| Threat model paragraph (attacker capability + system response) | `security.md` | `architecture.md`, `api-reference.md`, `configuration.md` |
+| Auth/rate-limit rationale (why the limits exist, not what they are) | `security.md` OR ADR | `api-reference.md`, `configuration.md` |
+| Decision rationale ("we chose X because…", "we tried X then Y") | ADR (`documentation/decisions/`) | `architecture.md`, `troubleshooting.md`, `deployment.md` |
+| Admin-only endpoint with operator runbook prose | `api-reference.md` (the contract) **and** `deployment.md` (the runbook) — split, do not duplicate | wherever the unsplit blob currently lives |
+
+For each match, emit a MEDIUM finding naming **the source file**, **the section heading**, **the detected signature**, and **the proposed target lane**. The proposed-move plan is written into `documentation/.doc-coverage.md` so operators can review before accepting.
+
+Dual-narrative ADR detection runs alongside Pass 4 against `documentation/decisions/`.
+
+Triggering examples from the original audit that motivated the pattern catalogue:
+
+- `deployment.md` containing the admin-routes contract → split: contract to `api-reference.md`, deploy-time runbook stays in `deployment.md` with a backlink.
+- `deployment.md` containing the dev-bypass diagnostic recipe → move to `troubleshooting.md`.
+- `api-reference.md` paragraphs explaining "why fingerprint-drift checks exist" → move to `security.md` or a fresh ADR.
+
+### Pass 5 — Format-template enforcement
+
+For each canonical lane file, walk every `##`/`###` section and verify it contains the required fields from the per-lane template registry above. Emit a MEDIUM finding per section listing the **missing field set**.
+
+The pass produces concrete, actionable findings:
+
+```
+documentation/api-reference.md
+  Section "## Inquiry email delivery" (line 42)
+    Missing: **Auth:**, **Response:**, **Implements:**
+```
+
+Templates are matched against the canonical lane files only — projects that have lane files but no templates set (legacy projects, projects that pre-date this pass) get one onboarding finding per file directing the user to either adopt the template or add a project-level `<!-- doc-template-exempt: ADR-NN reason -->` marker referencing an ADR.
+
+The pass does NOT auto-rewrite existing sections — restructuring prose into the per-field shape is genuine authoring work. In `unleashed` mode, the agent appends a placeholder marker (`**Implements:** TBD`) so the missing-field set is resolved, but the user must fill in the value.
+
+### Pass 6 — Hatch justification audit
+
+For every `<!-- doc-allow-large: ... -->` marker in `documentation/` files (and every `<!-- sdd-allow-large: ... -->` marker the spec-reviewer mirror reports for `sdd/`):
+
+| Condition | Severity | Action |
+|---|---|---|
+| Bare marker (no colon or justification) | MEDIUM | Rewrite to `<!-- doc-allow-large: TODO open ADR -->` and emit finding prompting the user to file an ADR. |
+| Marker references an ADR that does not exist in `documentation/decisions/` | HIGH | Orphan reference — flag immediately, do not auto-fix. |
+| Marker references an ADR with `Status: Superseded` | HIGH | The decision the hatch relied on has been overturned. Flag for review. |
+| Marker references an ADR with `Status: Accepted` older than 180 days | LOW | Reminder to revisit the decision; the project may have grown past the original justification. |
+| Marker references `pending:YYYY-MM-DD` with the date in the past | LOW | Follow-up overdue. |
+| Marker is well-formed and current | (no finding) | Accept. |
+
+Date math is performed against the system date at run time. ADR `Status` is parsed from the ADR file's header field.
 
 ## Severity classification on doc findings
 
@@ -184,7 +269,7 @@ Same rules as spec-reviewer (see `spec-discipline.md` "Working tree and branch s
 | File | Committed to git | Purpose |
 |---|---|---|
 | `documentation/decisions/README.md` | Yes | ADR index — auto-maintained by doc-updater |
-| `documentation/.doc-coverage.md` | Yes | Output of doc-updater coverage runs |
+| `documentation/.doc-coverage.md` | Yes | Output of doc-updater coverage runs and Pass 4 proposed-move plans |
 | `documentation/.review-needed.md` | Yes | Doc findings escalated for human review |
 
 Nothing in `documentation/` is gitignored.

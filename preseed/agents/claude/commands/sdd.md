@@ -31,7 +31,11 @@ SUBCOMMANDS
                          Always interactive.
   clean                  Refactor a rotted spec. Detects implementation
                          leakage, fake-Deprecated REQs, oversized REQs,
-                         bloated changelogs. Mode-aware.
+                         bloated changelogs, Out-of-Scope/REQ
+                         collisions, pending split proposals, orphan
+                         hatch markers. Mode-aware. --scope=all (default)
+                         scans the entire corpus; --scope=diff scans only
+                         the open PR delta.
   autonomous <action>    Set autonomy mode. Actions: on | off |
                          unleashed | unleashed off | status
                          (off resets to interactive from any mode)
@@ -380,11 +384,14 @@ Refactor a rotted spec. Mode-aware.
 ### Behavior
 
 1. **Read `sdd/config.yml`** to determine mode (`interactive`, `auto`, `unleashed`)
-2. **Apply per-command flags**: `--interactive`, `--auto`, `--unleashed` override the config setting for this run
+2. **Apply per-command flags**:
+   - `--interactive`, `--auto`, `--unleashed` override the config setting for this run
+   - `--scope=all` (default) scans the entire `sdd/` + `documentation/` corpus
+   - `--scope=diff` limits the scan to files changed in `git diff origin/main...HEAD` (the open PR's delta). Use this when invoked from a PR context to keep the cleanup proportional to the review.
 3. **Validate working tree**: refuse if `git status --porcelain` is non-empty
 4. **In `auto` mode**: refuse if current branch is `main` or `master` without `--branch-confirmed`
 5. **In `unleashed` mode**: push directly to the current branch (no new branch, no PR); refuse to run on `main`/`master` without `--branch-confirmed`
-6. **Scan `sdd/` for findings**:
+6. **Scan for findings** (across the resolved scope from step 2):
    - Strikethrough text in REQs (LOW)
    - Prose Status fields (LOW)
    - Implementation leakage in REQs per allowlist (LOW)
@@ -396,6 +403,9 @@ Refactor a rotted spec. Mode-aware.
    - Test quality findings: tautologies, skipped tests, AC-count mismatch (HIGH/MEDIUM if `enforce_tdd: true`)
    - Doc-vs-spec conflicts (MEDIUM, JUDGMENT)
    - Legacy `sdd/.user-overrides.md` exists (HIGH, AUTO-MIGRATE — see step 6a)
+   - **Approved split proposals**: scan `sdd/.split-proposals/*.md` for files whose top-of-file `**Status:** Approved` line is present. For each, execute the split: write the child REQs to their target domain files (verbatim AC text from the proposal), update the parent (Deprecated with `Replaced By:` listing children, OR move to "Out of Scope" if the parent name no longer makes sense), update any inbound REQ cross-references, then delete the consumed proposal file. Draft-status proposals are left untouched. (MEDIUM, JUDGMENT — user already authorized via Status: Approved, so /sdd clean proceeds without re-confirming.)
+   - **Out-of-Scope collisions**: spec-reviewer's Phase 2 check #16 written to `.review-needed.md`. `/sdd clean` proposes resolution per finding: either remove the Out-of-Scope bullet (the feature shipped) or move the REQ to "Out of Scope" / mark Deprecated. (MEDIUM, JUDGMENT — confirm with user in interactive mode; in auto, surface a one-line proposal per collision and let user pick; in unleashed, default-keep the shipped REQ and remove the Out-of-Scope bullet.)
+   - **Orphan / aged hatch markers**: `<!-- sdd-allow-large -->` and `<!-- doc-allow-large -->` markers flagged by spec-reviewer Phase 2 #18 and doc-updater Pass 6. Bare markers rewritten to `: TODO open ADR`; orphan ADR references prompt the user to file an ADR or remove the hatch; aged-Accepted reminders are surfaced for revisit. (LOW/MEDIUM/HIGH per the audit table.)
    - False-positive ADRs in `documentation/decisions/` per `documentation-discipline.md` "What is NOT an ADR" (MEDIUM, AUTO-RECLASSIFY in `auto`/`unleashed`): static-analyzer accommodations move to inline source comments + `documentation/troubleshooting.md` if recurring; naming/spelling-compat notes move to `documentation/configuration.md`; risk-acceptance with no alternative considered moves to `documentation/security.md`; implementation-notes-as-decisions are deleted or moved to `pending.md`. The original `### AD-N:` heading is preserved as a `Status: Reclassified on YYYY-MM-DD` stub so inbound `AD-N` references keep resolving. Findings on entries already carrying `Status: Reclassified` or `Status: Merged into` are suppressed.
 6a. **Migrate legacy `sdd/.user-overrides.md` to ADRs** (one-time, runs before any other apply step):
     - For each entry block keyed by `## {rule_id}:{target_id}`, generate a new ADR file at `documentation/decisions/AD{N}-{slug-of-rule-id}-{lowercased-target-id}.md` where `{N}` is the next available AD number (read `documentation/decisions/README.md` for the highest existing AD ID and increment).

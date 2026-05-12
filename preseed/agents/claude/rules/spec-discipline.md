@@ -107,7 +107,73 @@ REQs describing complex features can be long, but length is a smell:
 | 51–100 lines | MEDIUM finding (likely contains implementation leakage) |
 | >100 lines | HIGH finding (almost certainly mixing intent and implementation) |
 
-A REQ may opt out of length warnings with an HTML comment: `<!-- sdd-allow-large -->`. Use sparingly and only for genuinely complex features whose full surface needs to live in one place.
+A REQ may opt out of length warnings with an HTML comment, but the marker MUST carry structured justification:
+
+```markdown
+<!-- sdd-allow-large: ADR-NN reason -->
+```
+
+Required shape:
+
+- The marker MUST carry a colon and a justification body. Bare `<!-- sdd-allow-large -->` is rejected.
+- The body MUST reference an existing ADR (`ADR-NN` or `AD-NN`) in `documentation/decisions/`, OR a `pending.md` entry with a follow-up date in ISO format `pending:YYYY-MM-DD`.
+- spec-reviewer verifies the referenced ADR or pending entry exists every run.
+
+Hatch audit findings (mirrors doc-updater's `<!-- doc-allow-large -->` audit in `documentation-discipline.md`):
+
+| Condition | Severity |
+|---|---|
+| Bare `<!-- sdd-allow-large -->` (no colon or justification) | MEDIUM |
+| Marker references an ADR that does not exist | HIGH |
+| Marker references an ADR with `Status: Superseded` | HIGH |
+| Marker is older than 180 days and its ADR is `Status: Accepted` | LOW (reminder to revisit) |
+| Marker references `pending:YYYY-MM-DD` with a date in the past | LOW (follow-up overdue) |
+
+This converts the hatch from a silent perma-license into a decision that lives in the ADR ledger — discoverable and revisitable.
+
+## REQ split-proposal mode
+
+Oversized REQs that the length-guidance band flags but that the conservative JUDGMENT rule (`Shrink in place — never split`) refuses to repair stay oversized indefinitely. The discovery context: an Implemented REQ with 18 ACs covering 5 distinct concerns sits in the 26–50-line LOW band; spec-reviewer correctly declines to split it, and the REQ never improves.
+
+Split-proposal mode is the explicit, opt-in path out of that stalemate. spec-reviewer generates a proposal but never auto-applies it.
+
+**Trigger threshold**: a REQ at **≥12 ACs OR ≥50 lines** that lacks a valid `<!-- sdd-allow-large -->` hatch produces a split proposal on the next spec-reviewer run.
+
+**Proposal mechanics**:
+
+1. Cluster the existing AC bullets into 3–7 candidate child REQs by semantic theme (each child has at least 2 ACs, no child has more than 7).
+2. For each child REQ, draft a stub: proposed REQ ID (next free `REQ-{DOMAIN}-{NNN}` in the domain), proposed Title, the AC bullets lifted **verbatim** from the parent (no paraphrasing — the LLM does not rephrase ACs on split).
+3. Carry the parent's Intent forward to each child unmodified. The user re-scopes Intent per child during review.
+4. Build a file-level migration plan: which child REQs land in which domain file (default: same domain as parent), what the parent becomes (`Status: Deprecated` with `Replaced By:` listing all children, OR moved to "Out of Scope" if the parent name no longer makes sense).
+5. Write the proposal to `sdd/.split-proposals/{REQ-ID}.md`. Never auto-apply, never edit the parent.
+
+**The user reviews `sdd/.split-proposals/{REQ-ID}.md` and either**:
+
+- Edits the proposal in-place (rewords child titles, re-clusters ACs, adjusts per-child Intent).
+- Runs `/sdd clean`, which detects pending proposals as part of its existing scan and executes any whose top-of-file `**Status:** Approved` line is set by the user (proposals start at `**Status:** Draft` — the user flips to `Approved` after review).
+- Deletes the proposal file to dismiss. spec-reviewer regenerates on the next run unless the parent shrinks below the threshold or gains a valid hatch.
+
+**What this is NOT**: spec-reviewer never splits a REQ on its own initiative. The proposal is a draft document. Even `unleashed` mode generates the proposal but does not auto-approve — splitting a REQ requires human judgment on Intent decomposition. `/sdd clean` only consumes proposals whose Status is `Approved`; Draft proposals stay as findings.
+
+Severity of the proposal-generation finding: MEDIUM. The finding is satisfied when the proposal file exists; subsequent runs do not re-flag until `/sdd clean` consumes it or the user deletes it.
+
+## Out-of-Scope collision check
+
+`sdd/README.md` (and any domain README) may declare an `## Out of Scope` section listing things the project explicitly will not do. Over time, a feature that started Out of Scope can ship and acquire a Status: Implemented REQ — without anyone updating the Out of Scope bullet. The narrative-vs-shipped contradiction is invisible to diff-scoped checks because neither file changed in the offending PR.
+
+**The collision check is a full-spec pass, not diff-scoped.** It runs on every spec-reviewer invocation.
+
+Algorithm:
+
+1. Parse `sdd/README.md` and every domain file's `## Out of Scope` section.
+2. For each bullet: extract the bolded lead phrase (e.g., `**Embeddings or vector search**: not in scope for v1`) and any `(was REQ-X-NNN)` references.
+3. Walk every non-`Deprecated` REQ in the entire spec. Flag MEDIUM when:
+   - **Strong match**: an Implemented REQ's title, Intent, or AC contains the Out-of-Scope bullet's bolded phrase, with **≥2 content-word overlap** (stopwords excluded — "the", "a", "and", "or", "of", "for", "to", "in", "is", "be", and the like; "vector search" → "vector" + "search" both qualify; "the system" → 0 qualifying words).
+   - **REQ-ID match**: a `(was REQ-X-NNN)` reference in the Out-of-Scope bullet points at a REQ that is **not** in `Status: Deprecated` and still has prose in its domain file.
+4. Findings list both the Out-of-Scope bullet location and the colliding REQ ID(s). Proposed resolution: either remove the Out-of-Scope bullet (the feature shipped — update the narrative) or move the REQ to "Out of Scope" / mark Deprecated (the bullet is still correct — the REQ is stale).
+5. Triggering example: an Out-of-Scope bullet claiming "embeddings or vector search" alongside an Implemented REQ with "embedding" / "Vectorize" / "vector search" in title or Intent → MEDIUM finding listing both sides.
+
+**Mode behavior**: interactive escalates and asks the user which side to update; auto writes the finding to `sdd/.review-needed.md` and continues; unleashed proposes a rewrite of the Out-of-Scope bullet (the narrative-not-shipped side is the conservative one to preserve — the REQ has tests and code, the bullet is just prose) and logs to `sdd/.review-needed.md`.
 
 ## Acceptance criteria guidance
 
@@ -421,5 +487,6 @@ Before any agent-driven write to `sdd/` or `documentation/`:
 | `sdd/.coverage-report.md` | Yes | Output of enforce_tdd: false runs |
 | `sdd/.last-clean-run.md` | Yes | Audit log of the most recent /sdd clean run |
 | `sdd/changes-archive-*.md` | Yes | Archived old changelogs from /sdd clean runs |
+| `sdd/.split-proposals/*.md` | Yes | Draft REQ split proposals generated by spec-reviewer when a REQ hits the ≥12-AC / ≥50-line threshold; user edits and flips Status: Approved, then `/sdd clean` consumes |
 
 Nothing in `sdd/` is gitignored. Everything is part of the project's history.
