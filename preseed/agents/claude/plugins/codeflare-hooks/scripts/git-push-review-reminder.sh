@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Implements REQ-AGENT-004
 # Implements REQ-AGENT-021
+# Implements REQ-AGENT-022
 # PostToolUse hook — silently triggers review agents at the PR boundary.
 # ONLY on projects that have opted into SDD by running /sdd init.
 #
@@ -107,15 +108,19 @@ if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# SDD transition gate (REQ-AGENT-022) — skip review during legacy-codebase
-# transition. While sdd/init-triage.md has open items, the user is doing
-# triage via /sdd init Resume Mode, producing many [sdd-init] commits in
-# succession. Firing the full code-reviewer + spec-reviewer + doc-updater
-# pipeline on each push would thrash the review surface; the imported spec
-# is intentionally partial during transition. Review resumes automatically
-# when the triage queue drains and transition: true clears from config.
+# SDD transition gate (REQ-AGENT-022) - skip review during legacy-codebase
+# transition. The condition is the single source of truth defined in
+# spec-discipline.md "Transition gate condition": BOTH transition: true in
+# sdd/config.yml AND at least one **Status:** open item in
+# sdd/init-triage.md (case-insensitive on `open`). Both required.
+#
+# If transition: true is set but no open items exist (or the file is
+# missing), this is corrupted state — let the run proceed so spec-reviewer
+# flags it (Step 0b.5 writes a HIGH finding to sdd/.review-needed.md).
 # ---------------------------------------------------------------------------
-if [ -f "sdd/init-triage.md" ] && grep -q '^\*\*Status:\*\* open' "sdd/init-triage.md" 2>/dev/null; then
+if grep -q '^transition:[[:space:]]*true' sdd/config.yml 2>/dev/null \
+   && [ -f "sdd/init-triage.md" ] \
+   && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "sdd/init-triage.md" 2>/dev/null; then
   exit 0
 fi
 
@@ -279,10 +284,9 @@ case "$TRIGGER" in
   git-push) CONTEXT="push to PR-tracked branch (PR-sync)" ;;
 esac
 
-DIRECTIVE="[silent] SDD $CONTEXT detected. Execute NOW without user-facing output:"
-DIRECTIVE="$DIRECTIVE 1) code-reviewer in background (parallel, source lane)."
-DIRECTIVE="$DIRECTIVE 2) spec-reviewer in background FIRST (sdd/ lane)."
-DIRECTIVE="$DIRECTIVE 3) doc-updater in background SECOND, after spec-reviewer (docs/ lane)."
+DIRECTIVE="[silent] SDD $CONTEXT detected. Execute NOW without user-facing output."
+DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane)."
+DIRECTIVE="$DIRECTIVE Sequential: spec-reviewer (sdd/ lane), then doc-updater (docs/ lane) AFTER spec-reviewer completes - never in parallel with each other (they race on shared filesystem state)."
 DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff itself via 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) — the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
 DIRECTIVE="$DIRECTIVE Do NOT mention these agents to the user. Do NOT print status updates about them."
 

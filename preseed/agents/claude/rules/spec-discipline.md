@@ -112,14 +112,17 @@ REQs describing complex features can be long, but length is a smell:
 A REQ may opt out of length warnings with an HTML comment, but the marker MUST carry structured justification:
 
 ```markdown
-<!-- sdd-allow-large: ADR-NN reason -->
+<!-- sdd-allow-large: AD-N reason -->
 ```
 
 Required shape:
 
 - The marker MUST carry a colon and a justification body. Bare `<!-- sdd-allow-large -->` is rejected.
-- The body MUST reference an existing ADR (`ADR-NN` or `AD-NN`) in `documentation/decisions/`, OR a `pending.md` entry with a follow-up date in ISO format `pending:YYYY-MM-DD`.
+- The body MUST reference an existing ADR by ID `AD-N` (one or more digits, matching the ADR's filename and heading in `documentation/decisions/`), OR a `pending.md` entry with a follow-up date in ISO format `pending:YYYY-MM-DD`.
+- ID-matching regex: `\bAD-[0-9]+\b`. The legacy `ADR-NN` alias is rejected -- the canonical form is `AD-N+` (matches `documentation/decisions/<adr>.md` filenames and the `### AD-N:` heading template). This is the single source of truth across spec-discipline, documentation-discipline, and the ADR template.
 - spec-reviewer verifies the referenced ADR or pending entry exists every run.
+
+**Marker age (for the 180-day rule)**: defined as the git-blame age of the marker line in its current file. Compute with `git blame -L <line>,<line> -- <file>` and use the commit's author date. The marker does NOT carry an inline timestamp -- adding one would be a rotting metadata pattern. Age resets if the marker line is moved or rewritten in a commit (intentional -- a deliberate edit of the hatch is a fresh review of the decision).
 
 Hatch audit findings (mirrors doc-updater's `<!-- doc-allow-large -->` audit in `documentation-discipline.md`):
 
@@ -128,7 +131,8 @@ Hatch audit findings (mirrors doc-updater's `<!-- doc-allow-large -->` audit in 
 | Bare `<!-- sdd-allow-large -->` (no colon or justification) | MEDIUM |
 | Marker references an ADR that does not exist | HIGH |
 | Marker references an ADR with `Status: Superseded` | HIGH |
-| Marker is older than 180 days and its ADR is `Status: Accepted` | LOW (reminder to revisit) |
+| Marker uses the legacy `ADR-NN` form | LOW (rewrite to `AD-N+`) |
+| Marker (by git-blame age) is older than 180 days and its ADR is `Status: Accepted` | LOW (reminder to revisit) |
 | Marker references `pending:YYYY-MM-DD` with a date in the past | LOW (follow-up overdue) |
 
 This converts the hatch from a silent perma-license into a decision that lives in the ADR ledger — discoverable and revisitable.
@@ -170,10 +174,18 @@ Algorithm:
 1. Parse `sdd/README.md` and every domain file's `## Out of Scope` section.
 2. For each bullet:
    - **Bolded lead phrase only**: extract tokens **strictly** from the bolded prefix (`**...**`) at the start of the bullet. Bullets without a bolded prefix are skipped (the algorithm refuses to guess where the "lead" ends in plain prose; an unbolded bullet is treated as not having a parseable lead phrase and never produces a finding).
-   - **Ignore parenthetical qualifiers**: any `(...)` clause in the bolded lead phrase is stripped before token extraction. A bullet like `**Memory search UI** (memory is accessed via MCP API not web UI)` yields `{memory, search, UI}` — not `{MCP, API, web}`. This is the load-bearing fix for the "negation + explanation" false-positive pattern (codeflare's own OOS section is the canonical example).
+   - **Ignore parenthetical qualifiers**: any `(...)` clause in the bolded lead phrase is stripped before token extraction. A bullet like `**Memory search UI** (memory is accessed via MCP API not web UI)` yields `{memory, search, UI}` - not `{MCP, API, web}`. This is the load-bearing fix for the "negation + explanation" false-positive pattern (codeflare's own OOS section is the canonical example).
    - **Capture REQ-ID references**: any `(was REQ-X-NNN)` reference is captured separately for the REQ-ID match path.
 3. Walk every non-`Deprecated` REQ in the entire spec. Flag MEDIUM when:
-   - **Strong match**: an Implemented REQ's title, Intent, or AC contains the Out-of-Scope bullet's bolded lead-phrase tokens (post-stripping), with **≥2 content-word overlap** (stopwords excluded — "the", "a", "and", "or", "of", "for", "to", "in", "is", "be", and the like; "vector search" → "vector" + "search" both qualify; "the system" → 0 qualifying words).
+   - **Strong match**: an Implemented REQ's title, Intent, or AC contains the Out-of-Scope bullet's bolded lead-phrase tokens (post-stripping), with **≥2 content-word overlap**. The stopword set is fixed and exhaustive (no "and the like" -- spec-reviewer implementations must use exactly this list to ensure deterministic matching across runs):
+
+     ```
+     a, an, the, and, or, of, for, to, in, on, at, by, is, be, are, was, were,
+     it, its, with, from, as, that, this, these, those, but, not, no, vs, via,
+     into, onto, out, off, over, under, up, down, only, also, e.g., i.e., etc
+     ```
+
+     Example: "vector search" -> tokens `{vector, search}`, both qualify. "the system for users" -> `{system, users}` (the/for/users... wait "users" is content). Re-tokenize: `{system, users}` -- 2 content words. "the the the" -> `{}` -- 0 content words. Match is case-insensitive; punctuation is stripped before tokenization.
    - **REQ-ID match**: a `(was REQ-X-NNN)` reference in the Out-of-Scope bullet points at a REQ that is **not** in `Status: Deprecated` and still has prose in its domain file.
 4. Findings list both the Out-of-Scope bullet location and the colliding REQ ID(s). Proposed resolution: either remove the Out-of-Scope bullet (the feature shipped — update the narrative) or move the REQ to "Out of Scope" / mark Deprecated (the bullet is still correct — the REQ is stale).
 5. Triggering example: an Out-of-Scope bullet claiming `**Embeddings or vector search**` alongside an Implemented REQ with "embedding" / "Vectorize" / "vector search" in title or Intent → MEDIUM finding listing both sides.
@@ -184,9 +196,11 @@ Algorithm:
 ## Acceptance criteria guidance
 
 - Each AC bullet is **binary pass/fail**, testable in principle
-- 3–7 bullets is typical; >10 is a smell that the REQ should be split
-- Avoid "should" — use "must" or describe the observable outcome
-- Avoid vague terms like "responsive", "fast", "user-friendly" — specify the criterion (e.g., "loads in under 2 seconds on 4G mobile")
+- 3-7 bullets is typical. The hard threshold that triggers split-proposal mode is **≥12 ACs** (see "REQ split-proposal mode" above); the band 8-11 is informational, not actionable.
+- Avoid "should" -- use "must" or describe the observable outcome
+- Avoid vague terms like "responsive", "fast", "user-friendly" -- specify the criterion (e.g., "loads in under 2 seconds on 4G mobile")
+
+The three length signals work together: the line-count band table (≤25 / 26-50 / 51-100 / >100) flags length as a *prose smell* (implementation leakage), while the AC-count threshold (≥12) flags structural smell (multiple concerns). Split-proposal mode triggers on **either** ≥12 ACs OR ≥50 lines without a valid hatch -- whichever fires first. The two signals are not duplicates; a REQ can be long without having too many ACs (one AC with run-on prose) or have many ACs without being long (each tightly worded). When the REQ trips both, the split proposal is more likely to find natural cluster boundaries.
 
 ## Run-on AC bullets
 
@@ -346,7 +360,7 @@ This catches "AC mentions Stripe Checkout but the codebase removed Stripe six mo
 
 ### CQ-4 — `<!-- sdd-allow-large -->` catch-all detection
 
-Mirror of doc-discipline Pass 10 applied to `sdd/`. Count `<!-- sdd-allow-large: AD-NN ... -->` references per ADR across `sdd/{domain}.md` files. If one ADR carries more than three distinct markers across more than one file, flag MEDIUM `sdd-hatch-catch-all`.
+Mirror of doc-discipline Pass 10 applied to `sdd/`. Count `<!-- sdd-allow-large: AD-N+ ... -->` references per ADR across `sdd/{domain}.md` files. If one ADR carries more than three distinct markers across more than one file, flag MEDIUM `sdd-hatch-catch-all`.
 
 The finding lists the ADR ID, the marker locations, and a short excerpt of the prose immediately around each marker so the operator can read them side-by-side. The resolution is either to enumerate the cases in the ADR's `**Decision:**` section (genuinely one decision covering all cases) or to split the ADR into per-case ADRs (genuinely different decisions). No auto-fix — that's authoring judgment.
 
@@ -416,17 +430,28 @@ In `unleashed` mode, `enforce_tdd: true` is forced — the commits on the curren
 
 When `/sdd init` runs in Import Mode on an existing codebase, it produces both official REQs (for behavior clear from source/tests/comments/commits) and a triage queue at `sdd/init-triage.md` for everything unclear. While any triage item carries `**Status:** open`, the project is in **SDD transition** and `sdd/config.yml` carries `transition: true`.
 
-During transition, spec-reviewer respects that the imported spec is intentionally partial:
+**During transition, the entire review pipeline is suspended.** No review agents fire automatically (PostToolUse + Stop hooks short-circuit when the transition gate condition below is true). If any review agent is invoked manually (Task tool, slash command), it MUST check the same gate condition and exit no-op with a one-line notice (`SDD transition in progress; review suspended until triage drains.`). Single rule, single gate, all enforcement layers honor it.
 
-- The `Implemented` → `Partial` auto-demote rule (Auto-demote pass under `enforce_tdd`) is **suppressed**. Imported REQs without test references stay at their imported Status until the user resolves the related triage item or adds tests. spec-reviewer writes a one-line note to `sdd/.coverage-report.md` listing REQs that would have been demoted, but does not modify the spec.
-- The Source-vs-test coverage pass and Test quality heuristics still run and produce findings normally — they describe real gaps the user will address through triage or follow-up.
-- doc-updater and code-reviewer operate normally; transition only affects spec-reviewer's auto-demote.
+`/sdd mode unleashed` is rejected while `transition: true`. Unleashed mode applies fixes without confirmation, which is incompatible with triage entries that require user judgment.
 
-`/sdd autonomous unleashed` is rejected while `transition: true` is set. Unleashed mode applies fixes without confirmation, which is incompatible with triage entries that require user judgment to resolve.
+**Transition gate condition** (single source of truth across all enforcement layers):
 
-When the last `**Status:** open` triage item is resolved or marked `lost` (via `/sdd init` Resume Mode), `transition: true` is cleared from `sdd/config.yml` in the same commit that resolves the item. The next spec-reviewer run uses normal enforcement. `sdd/init-triage.md` is preserved as the audit record — resolved and lost items remain visible.
+```
+IN_TRANSITION = (grep -q '^transition: true' sdd/config.yml)
+                 AND (test -f sdd/init-triage.md)
+                 AND (grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' sdd/init-triage.md)
+```
 
-`sdd/init-triage.md` itself is owned by `/sdd init`. spec-reviewer reads it (to determine transition state and to verify resolved items' REQs got the fold-in) but does not edit it. doc-updater does not touch it.
+Case-insensitive on `open` and tolerant of multiple whitespace -- the triage file is human-edited and a single-space-strict pattern is too brittle. All three conditions must be true. If `transition: true` is set but no open items exist (or the file is missing), this is corrupted state: spec-reviewer writes a HIGH finding to `.review-needed.md` and treats the run as no-transition.
+
+When the last open triage item is resolved or marked `lost` (via Resume Mode), the closure commit:
+1. Clears `transition: true` from `sdd/config.yml`
+2. Flips `enforce_tdd: false` to `true` in the same edit
+3. Appends a closure entry to `sdd/changes.md` recording totals (accepted / corrected / lost)
+
+`sdd/init-triage.md` is preserved as the audit record. The closure commit is tagged `[sdd-init] transition complete` and is excluded from the round counter for the same reason as `[sdd-init]` resolution commits.
+
+`sdd/init-triage.md` itself is owned by `/sdd init`. All review agents and PR-boundary hooks read it to determine transition state; nothing else writes it.
 
 ## Source code ↔ REQ annotations
 
@@ -456,27 +481,56 @@ Source files implementing a requirement must reference the REQ ID in a comment s
 - **Code-reviewing agents** (`code-reviewer`): flag source files that implement observable behavior matching a REQ's AC but lack an annotation (MEDIUM finding)
 - **Spec-reviewer**: runs the source-vs-test coverage check above on every push
 
+## Commit-prefix contract (load-bearing for anti-spiral)
+
+The anti-spiral mechanism parses commit subjects by **tag prefix**, not infix. Every agent-authored commit MUST start its subject with one of the canonical tag prefixes; otherwise the spiral detectors miss it.
+
+**Counted as agent-authored** (contribute to the round counter):
+
+| Tag | Used by |
+|---|---|
+| `[autonomous]` | spec-reviewer/doc-updater in `auto` mode |
+| `[unleashed]` | spec-reviewer/doc-updater in `unleashed` mode |
+| `[spec-reviewer]` | manual spec-reviewer invocations that commit |
+| `[doc-updater]` | doc-updater commits when distinct from `[autonomous]`/`[unleashed]` |
+| `[code-reviewer]` | code-reviewer commits when distinct from above |
+
+**Excluded** (do NOT contribute to the round counter):
+
+| Tag | Used by |
+|---|---|
+| `[sdd-clean]` | `/sdd clean` runs - intentional bulk cleanup |
+| `[sdd-init]` | `/sdd init` Import or Resume Mode - intentional bulk transition |
+| `[sdd-triage]` | reserved for triage-tool commits |
+
+Plain commits (no tag prefix) are treated as user-authored and reset the round counter. The counted/excluded sets are **closed** -- introducing a new tag without adding it to the table above creates a silent spiral-detector blind spot, which is a HIGH finding against the agent that introduced it.
+
+The category portion of the subject (`fix(spec): {category}`) is optional for round-counter purposes (it only feeds the cross-run spiral detector below). The tag prefix is the load-bearing parser anchor.
+
 ## The 2-round commit cycle limit
 
 Spec-reviewer and doc-updater self-limit to prevent infinite micro-fix spirals:
 
 1. At the start of every run, check the last 3 commits via `git log -3 --format="%s"`
-2. Count commits whose subject starts with `[autonomous]`, `[unleashed]`, or `[spec-reviewer]` — **excluded prefixes: `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`**
+2. Count commits whose subject starts with any tag from the **counted** set above
 3. If ≥2 of the last 3 commits are agent-authored on the **same target REQ-ID or category**, hard stop
 4. Write the would-be findings to `sdd/.review-needed.md` and exit
 5. The counter resets when a non-agent commit lands (real user code or manual edits)
 
-Commits made by `/sdd clean` are tagged `[sdd-clean]` and excluded from the round detection — `/sdd clean` may make many commits in succession without triggering the limit on itself. Commits made by `/sdd init` Import or Resume Mode are tagged `[sdd-init]` and excluded for the same reason: during legacy-codebase transition, a single user session may resolve many triage items in succession, and each resolution is a legitimate spec edit that should not trip the spiral detector. The next push after `/sdd clean` or `/sdd init` is round 1, not round 3. Doc-updater applies the same exclusion rule.
+The next push after `/sdd clean` or `/sdd init` is round 1, not round 3 -- excluded-tag commits do not contribute to the round count. They are not "round 0 placeholders" but rather invisible to the counter entirely; the round number is the count of counted-tag commits among the last 3. Doc-updater applies the same exclusion rule.
 
 ## Spiral detection across runs
 
-Beyond the 2-round limit, spec-reviewer detects slow-drip spirals via git log analysis (no local file dependency):
+Beyond the 2-round limit, spec-reviewer detects slow-drip spirals via git log analysis. The detector queries by **tag prefix**, not by `fix(spec):` infix, so agents that omit the infix still get detected:
 
 ```
-git log --since="7 days ago" --grep="\[autonomous\]" --grep="\[unleashed\]" --format="%s"
+git log --since="7 days ago" \
+  --grep="^\[autonomous\]" --grep="^\[unleashed\]" \
+  --grep="^\[spec-reviewer\]" --grep="^\[doc-updater\]" --grep="^\[code-reviewer\]" \
+  --format="%s"
 ```
 
-If the last 100 agent commits are >80% the same fix category (parsed from the commit subject's `fix(spec): {category}` portion), pause that category for 24 hours and write a note to `sdd/.review-needed.md`. Other categories continue normally. The user can resume by pushing a commit that touches the relevant REQ themselves (manual override).
+If the last 100 agent commits cluster on a single category (parsed from `fix({lane}): {category}` when present, falling back to the first three words of the subject after the tag prefix when absent), and that category accounts for >80% of the agent commits, pause that category for 24 hours and write a note to `sdd/.review-needed.md`. Other categories continue normally. The user can resume by pushing a commit that touches the relevant REQ themselves (manual override).
 
 ## User overrides via ADRs
 
@@ -515,7 +569,7 @@ The legacy `sdd/.user-overrides.md` file is removed (issue codeflare#266). When 
 
 ```yaml
 mode: interactive    # or 'auto' or 'unleashed'
-enforce_tdd: true    # TDD enforcement (forced true in unleashed mode); opt out per project if needed
+enforce_tdd: true    # TDD enforcement. Unleashed mode refuses to run when this is false (no silent override); use `auto` if opting out per project.
 test_globs:
   - "tests/**/*.test.{ts,js}"
   - "__tests__/**/*"
@@ -534,10 +588,12 @@ forbidden_content_overrides: []  # explicit REQ IDs that opt out of forbidden ch
 | SAFE fixes | Confirm before applying | Apply silently | Apply silently |
 | RISKY fixes (truncate changes.md, mass moves) | Confirm + backup | Backup + apply | Backup + apply |
 | JUDGMENT calls | Escalate to user, pause | Escalate to `sdd/.review-needed.md`, continue | **Auto-resolve conservatively** (rules below), continue |
-| enforce_tdd default | per config (default true) | per config (default true) | **forced true** |
+| enforce_tdd default | per config (default true) | per config (default true) | per config; if `enforce_tdd: false`, refuse to run |
 | Output | Inline confirmations | Inline reports | Inline reports; per-category commits |
 
 The fundamental difference between modes is **how JUDGMENT is handled**. All modes push to the current branch; unleashed does not create branches or PRs.
+
+**enforce_tdd interaction with unleashed**: prior wording said unleashed "forces enforce_tdd: true". That silently overrode a deliberate per-project opt-out (e.g., pure visual design systems where automated testing is genuinely inapplicable). The current rule is: unleashed *refuses to run* on a project with `enforce_tdd: false` and emits an explanatory finding pointing the user to either (a) flip `enforce_tdd: true` if the opt-out is no longer warranted, or (b) keep the opt-out and use `auto` mode instead. This preserves the project-level decision instead of stomping it.
 
 ## Conservative JUDGMENT auto-resolution rules (unleashed mode only)
 

@@ -18,7 +18,7 @@ The user only invokes `/sdd` directly to:
 - Bootstrap a new project (`/sdd init`)
 - Manually add or modify requirements (`/sdd edit`, `/sdd add`)
 - Rescue a rotted spec (`/sdd clean`)
-- Switch autonomy mode (`/sdd autonomous`)
+- Switch autonomy mode (`/sdd mode`)
 
 ## Spec structure
 
@@ -117,7 +117,7 @@ The user comes back to new commits on the current branch. They inspect the per-c
 | `/sdd edit {domain}` | Add or modify requirements in an existing domain (interactive, always needs user input) |
 | `/sdd add {domain}` | Create a new domain in an existing spec |
 | `/sdd clean` | Refactor a rotted spec — applies SAFE/RISKY/JUDGMENT fixes per current mode |
-| `/sdd autonomous {on\|off\|unleashed}` | Set the mode in `sdd/config.yml` |
+| `/sdd mode {interactive\|auto\|unleashed}` | Set the mode in `sdd/config.yml` |
 
 The full command syntax is documented in the `/sdd` command file.
 
@@ -167,17 +167,11 @@ Import Mode is the migration path from legacy manual coding to autonomous agenti
 
 **Degradation when GitHub sources are unreachable.** The GitHub corpus is best-effort, not mandatory. Detect failure conditions up front (non-GitHub remote - GitLab / Bitbucket / Forgejo / Gerrit; `gh auth status` fails; rate-limited; private repo with insufficient token scope; air-gapped network). If any condition holds, skip the GitHub sources entirely and proceed with working-tree + git-log evidence only. Print a one-line notice to the user before scaffolding (`Note: discovery used working tree + git log only ({reason} - GitHub sources unavailable).`) and append the same notice to the `sdd/changes.md` import entry. Triage Context fields reference whatever artifact refs are reachable; the audit trail honestly reflects what the agent saw.
 
-While `sdd/init-triage.md` contains any `**Status:** open` items, the project is in **SDD transition**. `sdd/config.yml` carries `transition: true`. During transition:
-
-- spec-reviewer suppresses Implemented → Partial auto-demote (the imported spec is intentionally partial - that's what the triage queue means)
-- code-reviewer defers `Implements REQ-X-NNN` annotation findings on legacy source (the annotation convention is post-transition)
-- `/sdd autonomous unleashed` is rejected (judgment is required for triage; cannot run blind)
-- The PR-boundary review pipeline is suspended for pushes to the working branch (PostToolUse + Stop hooks short-circuit when `sdd/init-triage.md` has open items)
-- doc-updater operates normally
+While `sdd/init-triage.md` contains any `**Status:** open` items, the project is in **SDD transition**. `sdd/config.yml` carries `transition: true`. During transition, the PR-boundary review pipeline is **entirely suspended**: code-reviewer, spec-reviewer, and doc-updater do not fire on any push or PR event. PostToolUse + Stop hooks short-circuit. `/sdd mode unleashed` is rejected.
 
 When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically AND `enforce_tdd` flips from `false` to `true` in the same edit. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record.
 
-Import Mode is **always interactive**, regardless of `auto` or `unleashed` config - both the CLEAR-vs-UNCLEAR classification and the triage Recommendations require judgment that the user validates.
+Import Mode writes CLEAR REQs to `sdd/{domain}.md` files automatically, without user confirmation. The agent's confidence threshold (single matching domain, unambiguous behavior, clear evidence in code/PRs/tests) is the gate; anything below it becomes a triage entry. Only the triage queue surfaces unclear/ambiguous items for user judgment, one at a time in Resume Mode. To correct any CLEAR REQ after import, the user runs `/sdd edit {domain}`.
 
 ### Resume Mode — picking up where you left off
 
@@ -321,18 +315,20 @@ Same as `/sdd edit` but creates a new domain file. The agent:
 4. Updates the domain index in `sdd/README.md`
 5. Updates glossary and changelog
 
-## /sdd autonomous — switching modes
+**NEXT ACTION - MANDATORY: enter Plan Mode** before any source/test/config edits. Same gate as `/sdd init` and `/sdd edit` (see "Plan Mode integration" below).
+
+## /sdd mode — switching autonomy
 
 ```bash
-/sdd autonomous on              # mode = auto (writes to sdd/config.yml)
-/sdd autonomous unleashed on    # mode = unleashed
-/sdd autonomous off             # mode = interactive
-/sdd autonomous status          # show current mode + recent ADRs with Overrides: headers
+/sdd mode interactive   # agent asks before every fix (default)
+/sdd mode auto          # agent silently applies safe fixes
+/sdd mode unleashed     # agent does everything without asking
+/sdd mode               # show current mode + recent ADRs with Overrides: headers
 ```
 
 The setting is persistent (committed to git as `sdd/config.yml`) and travels with the project. Per-command overrides via `--interactive`, `--auto`, `--unleashed` flags on `/sdd clean`.
 
-**Transition gate on `unleashed`**: `/sdd autonomous unleashed` is rejected while `sdd/config.yml` carries `transition: true` (the import triage queue still has open items). Unleashed mode runs blind and auto-resolves JUDGMENT; triage items require user judgment by construction. The user must drain the triage queue via Resume Mode first. `/sdd autonomous on` (auto) and `off` (interactive) are both allowed during transition - they do not bypass user judgment on individual triage items.
+**Transition gate on `unleashed`**: `/sdd mode unleashed` is rejected while `sdd/config.yml` carries `transition: true` (the import triage queue still has open items). Unleashed mode runs blind and auto-resolves JUDGMENT; triage items require user judgment by construction. The user must drain the triage queue via Resume Mode first. `/sdd mode auto` and `/sdd mode interactive` are both allowed during transition; they do not bypass user judgment on individual triage items.
 
 ## Test discipline
 

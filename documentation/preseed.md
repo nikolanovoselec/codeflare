@@ -315,7 +315,23 @@ See [AD49](decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not
 - **Import** — substantive existing code, no `sdd/` yet. Two-output model: behavior clearly determinable from source / tests / comments / commits / PRs becomes official REQs in `sdd/{domain}.md`; everything unclear (magic numbers, retry policies, ambiguous contracts, orphan code) becomes triage entries in `sdd/init-triage.md` with the agent's `**Context:**` (file:line, git author, commit refs, related tests/PRs) and `**Recommendation:**` (best-guess answer with one-line `**Rationale:**`) populated up front.
 - **Resume** — `sdd/` exists and `sdd/init-triage.md` has at least one `**Status:** open` item. Agent surfaces one item at a time with refreshed Context. Five decisions: `accept` (use the recommendation as-is, fold into REQ), `correct` (free-form prose describing what the thing is for and how it works; agent folds purpose into Intent and behavior into ACs), `lost` (one-line Reason required, no spec write), `skip` (stays open, no spec write), `quit`. Only `accept` and `correct` promote anything into the official spec.
 
-While `sdd/init-triage.md` contains any open items, `sdd/config.yml` carries `transition: true`. During transition: spec-reviewer suppresses the Implemented → Partial auto-demote rule (the imported spec is intentionally partial), `/sdd autonomous unleashed` is rejected (judgment is required for triage), and doc-updater + code-reviewer run normally. When the queue drains to zero, transition clears automatically in the same commit that resolves the last item, and full SDD discipline applies on the next push — autonomous agentic development is unlocked because the spec is now a real contract the agent can reason against. `sdd/init-triage.md` is preserved as the audit record after the queue drains. Implements [REQ-AGENT-022](../sdd/agents.md#req-agent-022).
+While `sdd/init-triage.md` contains any open items, `sdd/config.yml` carries `transition: true`. The transition gate condition is the conjunction `transition: true` in config AND `**Status:** open` items in the triage file (case-insensitive on `open`); all enforcement layers test both. During transition the entire review pipeline is suspended:
+
+- PR-boundary hooks (`git-push-review-reminder` PostToolUse + `enforce-review-spawn` Stop) short-circuit to no-op so no reviewer spawns on push or PR events
+- Manually-invoked review agents (code-reviewer, spec-reviewer, doc-updater) check the same gate and exit no-op with a one-line notice
+- `/sdd mode unleashed` is rejected (judgment is required for triage; cannot run blind)
+
+**Resume Mode** is always interactive regardless of `sdd/config.yml`'s `mode` setting. It refuses to start on a dirty working tree (same gate as `/sdd clean`). When `mode: auto` is active, a one-line suspension notice is printed at entry.
+
+**Transition closure.** When the last open item is resolved or marked `lost`, the closure commit:
+1. Clears `transition: true` from `sdd/config.yml`
+2. Flips `enforce_tdd` from `false` to `true` in the same edit
+3. Appends a closure entry to `sdd/changes.md` recording totals (accepted / corrected / lost)
+4. The agent enters Plan Mode -- the first feature work on the now-real spec is plan-gated
+
+Full SDD discipline applies on the next push; autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record. Implements [REQ-AGENT-022](../sdd/agents.md#req-agent-022).
+
+**GitHub corpus degradation.** When Import Mode cannot reach GitHub (non-GitHub remote, `gh auth status` failure, rate-limited, air-gapped), discovery falls back to working-tree + git-log evidence only. A one-line notice naming the reason is appended to the `sdd/changes.md` import entry; triage Context fields reference whatever artifact refs are reachable.
 
 ## Troubleshooting
 

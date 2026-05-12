@@ -324,12 +324,16 @@ on transcript with no push line`.
 
 ## Enforcement
 
-`code-reviewer` agent (HIGH severity) flags:
+`code-reviewer` agent flags (severity aligned with `spec-discipline.md`'s test-quality heuristics):
+
+HIGH (real coverage gap):
 - Tests that read file content + regex/substring match against it
 - Assertions whose values are destructured from local literal fixtures
+- Test bodies with no `expect`/`assert` call
+
+MEDIUM (test-quality smell, weaker coverage):
 - `expect(spy).toHaveBeenCalledTimes(N)` without paired output assertion
 - `it.skip` / `xit` / `describe.skip` without a justification comment
-- Test bodies with no `expect`/`assert` call
 
 `tdd-guide` agent writes tests in this style by default and refuses
 to produce text-matching theater.

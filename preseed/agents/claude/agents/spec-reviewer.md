@@ -55,12 +55,9 @@ Required fields: `mode`, `enforce_tdd`, `test_globs`, `forbidden_content_allowli
 
 If `sdd/config.yml` carries `transition: true` AND `sdd/init-triage.md` exists with at least one `**Status:** open` item, the project is in SDD transition. Set `IN_TRANSITION=1` for this run.
 
-While `IN_TRANSITION=1`:
-- Phase 2 rule 5a (Auto-demote `Implemented → Partial`) is suppressed entirely. The imported spec is intentionally partial; the triage queue is the gap inventory, not a coverage failure.
-- Phase 2 rules 5b (source-vs-test) and 5c (test quality) still run and produce findings normally — they describe real gaps the user will close through triage or follow-up.
-- Continue with all other phases unchanged.
+While `IN_TRANSITION=1`, exit no-op. Print `SDD transition in progress; spec-reviewer suspended until triage drains.` and exit with code 0. No phases run; no findings emitted. Single rule across all review agents; see `spec-discipline.md` → SDD transition state.
 
-Sanity check: if `transition: true` is set but `sdd/init-triage.md` is missing or contains no open items, this is a corrupted transition state. Write HIGH finding to `sdd/.review-needed.md`: *"sdd/config.yml has transition: true but no open triage items in sdd/init-triage.md. Either restore the triage file from history or set transition: false manually."* Do not suppress auto-demote — treat as no-transition for this run.
+Sanity check: if `transition: true` is set but `sdd/init-triage.md` is missing or contains no open items, this is a corrupted transition state. Write HIGH finding to `sdd/.review-needed.md`: *"sdd/config.yml has transition: true but no open triage items in sdd/init-triage.md. Either restore the triage file from history or set transition: false manually."* Treat as no-transition for this run and continue with all phases.
 
 ### Step 0c: Check the round counter (anti-spiral)
 
@@ -198,7 +195,7 @@ For every allowlisted vendor/protocol token (e.g., `Cloudflare Access`, `Stripe`
 
 ### CQ-4 — `<!-- sdd-allow-large -->` catch-all detection
 
-Mirror of doc-updater Pass 10. Count `<!-- sdd-allow-large: AD-NN ... -->` markers per ADR across `sdd/{domain}.md` files. More than three markers across more than one file → MEDIUM `sdd-hatch-catch-all`. Resolution: enumerate the cases in the ADR's `**Decision:**` section, or split the ADR. No auto-fix.
+Mirror of doc-updater Pass 10. Count `<!-- sdd-allow-large: AD-N+ ... -->` markers per ADR across `sdd/{domain}.md` files. More than three markers across more than one file → MEDIUM `sdd-hatch-catch-all`. Resolution: enumerate the cases in the ADR's `**Decision:**` section, or split the ADR. No auto-fix.
 
 ### CQ-5 — Content-preservation on shrink and split
 

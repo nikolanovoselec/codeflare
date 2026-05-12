@@ -503,7 +503,7 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
       {
         tool_input: {
           language: 'shell',
-          code: 'git commit -m "fix: integration findings — git push hardening"',
+          code: 'git commit -m "fix: integration findings - git push hardening"',
         },
       },
       binDir,
@@ -511,5 +511,82 @@ describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #31
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '',
       'commit message containing "git push" must not trigger via ctx_execute either');
+  });
+});
+
+describe('git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)', () => {
+  function withTransitionConfig(cwd, { transition = true } = {}) {
+    writeFileSync(
+      join(cwd, 'sdd/config.yml'),
+      `mode: interactive\nenforce_tdd: false\n${transition ? 'transition: true' : '# transition: false'}\n`,
+    );
+  }
+
+  function withTriage(cwd, body) {
+    writeFileSync(join(cwd, 'sdd/init-triage.md'), body);
+  }
+
+  it('exits 0 silently when transition: true AND triage has Status: open', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    withTransitionConfig(cwd);
+    withTriage(cwd, '## TRIAGE-001\n**Status:** open\n');
+    const binDir = fakeGhFails(cwd); // gh must NOT be called
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'transition with open triage suppresses the review directive');
+  });
+
+  it('exits 0 silently with mixed-case Status: Open (case-insensitive)', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    withTransitionConfig(cwd);
+    withTriage(cwd, '## TRIAGE-001\n**Status:** Open\n');
+    const binDir = fakeGhFails(cwd);
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  });
+
+  it('fires normally when transition: true but every triage item is resolved/lost', () => {
+    // Corrupted state OR end-of-transition: triage file has no open items.
+    // Hook should NOT suppress -- the run proceeds so spec-reviewer can
+    // flag the missing closure (transition: true should have cleared).
+    const cwd = makeFixture();
+    withSdd(cwd);
+    withTransitionConfig(cwd);
+    withTriage(cwd, '## TRIAGE-001\n**Status:** resolved\n\n## TRIAGE-002\n**Status:** lost\n');
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'no open items means run proceeds to the normal PR-SYNC path');
+  });
+
+  it('fires normally when init-triage.md is missing entirely', () => {
+    const cwd = makeFixture();
+    withSdd(cwd);
+    // No transition config, no triage file -- normal project state
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'no transition state at all means review fires normally');
+  });
+
+  it('fires normally when transition: false even if init-triage.md has open items', () => {
+    // Conjunction: both transition: true AND open items required. If
+    // config flag is cleared but triage file lingers (e.g. archive),
+    // review must still fire.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    withTransitionConfig(cwd, { transition: false });
+    withTriage(cwd, '## TRIAGE-001\n**Status:** open\n');
+    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
+    const r = runHook(cwd, 'git push origin develop', binDir);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /additionalContext/,
+      'transition: false means review fires regardless of stale triage file');
   });
 });

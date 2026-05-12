@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Implements REQ-AGENT-004
 # Implements REQ-AGENT-021
+# Implements REQ-AGENT-022
 # Stop hook — enforces SDD review-agent spawning at the PR boundary.
 #
 # Architecture (v5): PR HEAD SHA checkpoint + open-PR gate.
@@ -83,18 +84,8 @@ if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# SDD transition gate (REQ-AGENT-022) — do not block turn-end while the
-# user is mid-transition. /sdd init Resume Mode commits per-decision and
-# pushes; blocking each push on a full review pipeline spawn would stall
-# triage. Review resumes automatically when sdd/init-triage.md has no
-# open items and transition: true clears from sdd/config.yml.
-# ---------------------------------------------------------------------------
-if [ -f "sdd/init-triage.md" ] && grep -q '^\*\*Status:\*\* open' "sdd/init-triage.md" 2>/dev/null; then
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# Read hook input
+# Read hook input (must come before sentinel cleanup so SubagentStop doesn't
+# eat the one-shot sentinel before the actual Stop event honors it)
 # ---------------------------------------------------------------------------
 INPUT=$(cat 2>/dev/null) || exit 0
 HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
@@ -104,7 +95,26 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
 
 # ---------------------------------------------------------------------------
-# Bypass 1: sentinel file (one-shot, auto-delete)
+# SDD transition gate (REQ-AGENT-022) - do not block turn-end while the
+# user is mid-transition. The condition is the single source of truth
+# defined in spec-discipline.md "Transition gate condition": BOTH
+# transition: true in sdd/config.yml AND at least one **Status:** open
+# item in sdd/init-triage.md (case-insensitive on `open`). Both required.
+#
+# If transition: true is set but no open items exist, this is corrupted
+# state -- let the run proceed so spec-reviewer flags it (Step 0b.5
+# writes a HIGH finding to sdd/.review-needed.md).
+# ---------------------------------------------------------------------------
+if grep -q '^transition:[[:space:]]*true' sdd/config.yml 2>/dev/null \
+   && [ -f "sdd/init-triage.md" ] \
+   && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "sdd/init-triage.md" 2>/dev/null; then
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Bypass 1: sentinel file (one-shot, auto-delete). Must come AFTER the
+# HOOK_EVENT check so a SubagentStop event doesn't consume the sentinel
+# before the actual Stop event has a chance to honor it.
 # ---------------------------------------------------------------------------
 if [ -f "sdd/.skip-next-review" ]; then
   rm -f "sdd/.skip-next-review"
@@ -143,10 +153,10 @@ fi
 PUSH_LINE=$(awk '
   # A. Bash tool_use
   /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\]/) {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -156,10 +166,10 @@ PUSH_LINE=$(awk '
   #    bare `ctx_execute` tool name handled in block C below. Blocks B and C
   #    are mutually exclusive per tool_use line.
   /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_batch_execute"/ {
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\]/) {
+    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -170,10 +180,10 @@ PUSH_LINE=$(awk '
   #    share the line-level `mcp__` prefix without firing twice on one entry.
   /"name"[[:space:]]*:[[:space:]]*"mcp__[^"]*ctx_execute"/ {
     if ($0 !~ /"language"[[:space:]]*:[[:space:]]*"shell"/) next
-    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\]/) {
+    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\]/) {
+    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -269,7 +279,22 @@ PR_STATE=$(echo "$PR_INFO" | jq -r '.state // empty' 2>/dev/null)
 CURRENT_PR_HEAD=$(echo "$PR_INFO" | jq -r '.headRefOid // empty' 2>/dev/null)
 BASE_REF=$(echo "$PR_INFO" | jq -r '.baseRefName // empty' 2>/dev/null)
 
-# No open PR for current branch → exit 0 (deferred review)
+# No open PR → exit 0 (deferred review)
+# MERGED/CLOSED with un-acked HEAD → record visibility finding but do
+# not block (the merge already happened; blocking turn-end is moot).
+if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
+  if [ -n "$CURRENT_PR_HEAD" ] \
+     && [ -n "$LAST_ACK_PR_HEAD" ] \
+     && [ "$LAST_ACK_PR_HEAD" != "$CURRENT_PR_HEAD" ]; then
+    {
+      printf '\n## %s — PR %s un-acked at merge/close\n' \
+        "$(date +%Y-%m-%d)" "$PR_STATE"
+      printf -- '- PR for branch `%s` reached %s with un-acked HEAD `%s` (last ack: `%s`). Review pipeline did not complete before merge.\n' \
+        "$CURRENT" "$PR_STATE" "${CURRENT_PR_HEAD:0:7}" "${LAST_ACK_PR_HEAD:0:7}"
+    } >> sdd/.review-needed.md 2>/dev/null || true
+  fi
+  exit 0
+fi
 [ "$PR_STATE" = "OPEN" ] || exit 0
 [ -n "$CURRENT_PR_HEAD" ] || exit 0
 
@@ -300,6 +325,16 @@ fi
 PUSH_LINE_CONTENT=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT" 2>/dev/null)
 PUSH_TS=$(echo "$PUSH_LINE_CONTENT" | grep -oE '"timestamp":"[^"]+"' | head -1 | sed -E 's/.*"timestamp":"([^"]+)"/\1/')
 
+# Normalize RFC3339 timestamps: strip fractional seconds so the awk
+# string-compare below is order-correct. Without this, mixing
+# "2026-05-12T18:25:30Z" (20 chars) and "2026-05-12T18:25:30.123Z"
+# (24 chars) sorts the longer string greater regardless of actual time,
+# letting stale agent spawns appear "after the push."
+normalize_ts() {
+  echo "$1" | sed -E 's/\.[0-9]+(Z|[+-][0-9:]+)$/\1/'
+}
+PUSH_TS=$(normalize_ts "$PUSH_TS")
+
 # Fail-safe: if timestamp extraction failed (transcript schema drift,
 # missing field, etc.) the awk comparison `ts > "$PUSH_TS"` would become
 # `ts > ""` — TRUE for any non-empty string — making spawned_after_push
@@ -310,13 +345,24 @@ PUSH_TS=$(echo "$PUSH_LINE_CONTENT" | grep -oE '"timestamp":"[^"]+"' | head -1 |
 [ -n "$PUSH_TS" ] || exit 0
 
 # Helper: was this subagent_type spawned with transcript timestamp > push ts?
+# Normalizes both sides by stripping fractional seconds to make the
+# string-compare order-correct on RFC3339 timestamps of differing lengths.
 spawned_after_push() {
   local agent="$1"
   awk -v t="$PUSH_TS" -v a="$agent" '
+    function strip_frac(s,    out) {
+      out = s
+      sub(/\.[0-9]+(Z|[+-][0-9:]+)$/, "", out)
+      # Re-append the trailing tz suffix that the substitution stripped
+      if (match(s, /(Z|[+-][0-9:]+)$/)) {
+        out = out substr(s, RSTART, RLENGTH)
+      }
+      return out
+    }
     index($0, "\"subagent_type\":\"" a "\"") {
       if (match($0, /"timestamp":"[^"]+"/)) {
         ts = substr($0, RSTART+13, RLENGTH-14)
-        if (ts > t) { found = 1; exit }
+        if (strip_frac(ts) > t) { found = 1; exit }
       }
     }
     END { exit !found }
@@ -324,16 +370,28 @@ spawned_after_push() {
 }
 
 # 3-strike circuit breaker (keyed by CURRENT_PR_HEAD — unique per PR state)
+#
+# Counter format on disk: "<sha>:<count>" or "<sha>:GIVEUP".
+# After the third block for the same SHA, the counter is set to GIVEUP
+# rather than deleted -- this makes the give-up state sticky for that
+# specific SHA. Without GIVEUP, deleting the file on the third strike
+# would let the next Stop event start at 0 and block 3 more times,
+# repeating forever. The counter resets only when CURRENT_PR_HEAD
+# changes (next push lands).
 read_count() {
   if [ -f "$COUNT_FILE" ]; then
     local stored hash count
     stored=$(cat "$COUNT_FILE" 2>/dev/null)
     hash="${stored%%:*}"
     count="${stored#*:}"
-    case "$count" in
-      ''|*[!0-9]*) count=0 ;;
-    esac
     if [ "$hash" = "$CURRENT_PR_HEAD" ]; then
+      if [ "$count" = "GIVEUP" ]; then
+        echo "GIVEUP"
+        return
+      fi
+      case "$count" in
+        ''|*[!0-9]*) count=0 ;;
+      esac
       echo "$count"
       return
     fi
@@ -349,8 +407,11 @@ emit_block() {
   local reason="$1"
   local current
   current=$(read_count)
-  if [ "$current" -ge 3 ]; then
-    clear_counter
+  if [ "$current" = "GIVEUP" ]; then
+    exit 0
+  fi
+  if [ "$current" -ge 3 ] 2>/dev/null; then
+    echo "$CURRENT_PR_HEAD:GIVEUP" > "$COUNT_FILE" 2>/dev/null || true
     exit 0
   fi
   local new=$((current + 1))

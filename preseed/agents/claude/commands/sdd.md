@@ -42,20 +42,20 @@ SUBCOMMANDS
                          hatch markers. Mode-aware. --scope=all (default)
                          scans the entire corpus; --scope=diff scans only
                          the open PR delta.
-  autonomous <action>    Set autonomy mode. Actions: on | off |
-                         unleashed | unleashed off | status
-                         (off resets to interactive from any mode)
+  mode <name>            Set the autonomy mode. Name is one of:
+                         interactive | auto | unleashed | status
+                         (no arg prints current mode).
 
-AUTONOMY MODES
-  interactive  (default)   Confirm every change before applying. Safe
-                           for new users and high-stakes specs.
-  auto                     SAFE/RISKY fixes auto-applied on current
-                           branch. JUDGMENT items logged to
-                           sdd/.review-needed.md.
-  unleashed                Walk-away autopilot. Applies SAFE/RISKY/
-                           JUDGMENT with conservative defaults, commits
-                           per category, pushes. enforce_tdd forced
-                           true. Revert per-category SHA to undo.
+MODES  (how much the agent asks before changing your spec)
+  interactive  (default)   Agent asks before every fix. Safe for new
+                           users and high-stakes specs.
+  auto                     Agent silently applies safe fixes. Risky
+                           items logged to sdd/.review-needed.md.
+                           Trivial cleanup deferred to /sdd clean.
+  unleashed                Agent does everything without asking,
+                           including trivial cleanup. Commits per
+                           category so you can revert by SHA.
+                           enforce_tdd forced true.
 
 AUTO-RUN  (no /sdd invocation needed)
   Once sdd/ exists, the SDD workflow runs automatically at PR-boundary
@@ -156,9 +156,10 @@ EXAMPLES
   /sdd add notifications            Create a new domain
   /sdd clean                        Rescue a rotted spec
   /sdd clean --unleashed            Force unleashed mode for one run
-  /sdd autonomous on                Switch to auto mode
-  /sdd autonomous unleashed on      Switch to walk-away autopilot
-  /sdd autonomous status            Show current mode + overrides
+  /sdd mode auto                    Switch to auto mode
+  /sdd mode unleashed               Switch to walk-away autopilot
+  /sdd mode interactive             Back to interactive (default)
+  /sdd mode                         Show current mode + overrides
 
 LEARN MORE
   Skill         ~/.claude/skills/spec-driven-development/SKILL.md
@@ -183,7 +184,6 @@ Bootstrap a new project. Always interactive — you confirm the vision before an
      ```
      Error: sdd/ already exists in this project.
      To rescue an existing rotted spec, use /sdd clean.
-     To overwrite (destructive), use /sdd init --force.
      ```
 2. **Detect existing code**: check for substantive source code in the project
    - Look for `src/`, `lib/`, `app/`, `pkg/`, language-specific directories
@@ -242,8 +242,8 @@ Bootstrap a new project. Always interactive — you confirm the vision before an
          Planned → Implemented on push.
 
     To switch modes:
-      /sdd autonomous on            → auto (recommended for solo dev)
-      /sdd autonomous unleashed on  → walk-away mode (PR-based review)
+      /sdd mode auto                → auto (recommended for solo dev)
+      /sdd mode unleashed           → walk-away mode (PR-based review)
     ```
 
 17. **NEXT ACTION — MANDATORY**: enter Plan Mode. No code, tests, or config under `src/`, `lib/`, `app/`, `pkg/`, `tests/` before Plan Mode. Hard gate. "build now" / "go" / "execute" / "ship it" / "just do it" authorize starting, never skipping. See `Plan Mode integration` in the `spec-driven-development` skill.
@@ -259,7 +259,7 @@ When step 2 detected substantive existing code, the agent enters import mode. Th
 
 **Transition state.** While `sdd/init-triage.md` contains any `open` items, the project is in SDD transition. `sdd/config.yml` carries `transition: true`. During transition:
 - spec-reviewer suppresses the Implemented → Partial auto-demote rule (the imported spec is intentionally partial — that's what the triage queue means)
-- `/sdd autonomous unleashed` is rejected (judgment is required for triage; cannot run blind)
+- `/sdd mode unleashed` is rejected (judgment is required for triage; cannot run blind)
 - doc-updater and code-reviewer operate normally
 
 When the queue drains to zero (every item is `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record (`lost` items remain visible as the documented gaps in the spec's heritage).
@@ -320,11 +320,12 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
    **Recommendation:** {best-guess answer}
    **Rationale:** {one line tying recommendation to specific Context evidence}
    **Status:** open
-   **Reason:** {required only when Status is `lost`; one-line explanation of why information is genuinely unrecoverable}
    **Resolution:** {written by Resume Mode after accept/correct; blank while open}
    ```
 
    `Domain` and `Target REQ` are populated by Import Mode at entry creation, so Resume Mode's fold-in is deterministic (no re-inference at resolution time). `new-in-{domain}` items create a fresh REQ in `sdd/{domain}.md` on `accept`; existing-REQ items update Intent or ACs on the named REQ.
+
+   A `**Reason:**` field is appended only when an item is marked `lost` (one-line explanation of why information is genuinely unrecoverable). Not part of the canonical shape for `open` or `resolved` entries.
 
 5. **Derive CLEAR REQs** (the official spec):
    - **Intent**: lifted directly from the evidence (README sentence, PR description, commit message, docstring)
@@ -336,10 +337,7 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 
 6. **Identify cross-cutting constraints** by reading config files and middleware (tech stack from manifests, security headers from middleware, performance budgets from CI config, compliance markers from privacy/legal files). Each becomes a `CON-*` entry. Constraints that the agent can't justify from evidence also go to triage.
 
-7. **One-shot user confirmation (fast)**:
-   - Present CLEAR REQs in file order. User scans and rejects any that look wrong (those become triage entries).
-   - Print triage queue size: "{T} items in triage queue at `sdd/init-triage.md`. Run `/sdd init` again to resume triage, one item at a time, at your own pace."
-   - Do NOT walk through every triage item now — that's what Resume Mode does on subsequent `/sdd init` runs.
+7. **Write CLEAR REQs silently** to `sdd/{domain}.md` files. No user confirmation. The agent's confidence threshold (single matching domain + unambiguous behavior + clear evidence in code/PRs/tests) is the gate; anything not meeting it became a triage entry in step 4. Print triage queue size: "{T} items in triage queue at `sdd/init-triage.md`. Run `/sdd init` again to resume triage, one item at a time, at your own pace." Do NOT walk through every triage item now; that's what Resume Mode does on subsequent `/sdd init` runs. To correct any CLEAR REQ after import, the user runs `/sdd edit {domain}`.
 
 8. **Optionally fill in vision and principles** (same as before: pre-fill from README, user confirms or rewrites).
 
@@ -368,9 +366,9 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
     after each decision.
 
     While transition is active:
-      - spec-reviewer skips Implemented → Partial auto-demote
-      - /sdd autonomous unleashed is rejected (triage requires judgment)
-      - doc-updater and code-reviewer operate normally
+      - PR-boundary review pipeline is suspended (no spec-reviewer,
+        code-reviewer, or doc-updater fires on push or PR events)
+      - /sdd mode unleashed is rejected (triage requires judgment)
 
     When the queue drains to zero:
       - transition: true clears automatically
@@ -387,7 +385,7 @@ When the queue drains to zero (every item is `resolved` or `lost`), `transition:
 - **Never overwrite existing `documentation/`** files — only create files that don't exist
 - **Triage entry Context must be concrete** — file paths + line ranges + commit refs + author names + related PR numbers. Vague Context (no refs, no authors, no commits) is grounds for rerun. The user must be able to verify the recommendation against the cited evidence.
 - **Triage entry Recommendation must be a specific answer with a Rationale**, never `(inferred)`, `TBD`, or `unknown`. If the agent genuinely cannot determine the answer, file as `**Recommendation:** Cannot determine — likely lost ({why})` so the user can confirm `lost` in one step.
-- **Always confirm CLEAR REQs with the user** before writing — even in `auto` or `unleashed` mode. Import mode is always interactive because both classification (CLEAR vs UNCLEAR) and triage recommendations require judgment.
+- **CLEAR REQs are written without user confirmation** (the confidence threshold IS the gate). Only the triage queue surfaces unclear/ambiguous items for user judgment, one at a time, in Resume Mode.
 - **Default `enforce_tdd: false` for imports** — the imported code predates the annotation convention. User opts in after adding `Implements REQ-X-NNN` annotations and REQ-ID test names. Greenfield `/sdd init` still defaults to `enforce_tdd: true`.
 
 ### Resume Mode
@@ -584,18 +582,19 @@ Refactor a rotted spec. Mode-aware.
 
 ---
 
-## /sdd autonomous
+## /sdd mode
 
-Set the autonomy mode.
+Set or read the autonomy mode.
 
 ### Behavior
 
 ```
-/sdd autonomous on              → write `mode: auto` to sdd/config.yml
-/sdd autonomous unleashed on    → write `mode: unleashed` to sdd/config.yml
-/sdd autonomous off             → write `mode: interactive` (resets from auto OR unleashed)
-/sdd autonomous unleashed off   → alias for `off` (same behavior)
-/sdd autonomous status          → print current mode + last 5 ADRs in documentation/decisions/ that carry an `Overrides:` header
+/sdd mode interactive   → write `mode: interactive` to sdd/config.yml
+/sdd mode auto          → write `mode: auto` to sdd/config.yml
+/sdd mode unleashed     → write `mode: unleashed` to sdd/config.yml
+/sdd mode               → print current mode + last 5 ADRs in
+                          documentation/decisions/ that carry an
+                          `Overrides:` header
 ```
 
 If `sdd/config.yml` doesn't exist, create it from the template first. If `sdd/` doesn't exist, error out: "No SDD project here. Run `/sdd init` first."
@@ -607,10 +606,10 @@ Error: project is in SDD transition (sdd/init-triage.md has open items).
 Unleashed mode applies fixes without confirmation, which is incompatible
 with triage entries that require user judgment to resolve. Drain the
 triage queue first (run `/sdd init` again to resume), then re-run
-`/sdd autonomous unleashed on`.
+`/sdd mode unleashed`.
 ```
 
-`/sdd autonomous on` (auto mode) and `/sdd autonomous off` (interactive) are both allowed during transition — they do not bypass user judgment on individual triage items.
+`/sdd mode auto` and `/sdd mode interactive` are both allowed during transition; they do not bypass user judgment on individual triage items.
 
 ---
 
@@ -626,9 +625,9 @@ Examples:
 - `/sdd add notifications` — create new domain
 - `/sdd clean` — rescue rotted spec (per current mode)
 - `/sdd clean --unleashed` — force unleashed mode for this run
-- `/sdd autonomous on` — switch to auto mode
-- `/sdd autonomous unleashed on` — switch to unleashed mode
-- `/sdd autonomous status` — show current mode
+- `/sdd mode auto` - switch to auto mode
+- `/sdd mode unleashed` - switch to unleashed mode
+- `/sdd mode` - show current mode
 
 ---
 

@@ -53,14 +53,17 @@ The reader of `documentation/` is a developer who already knows what the product
 A file may opt out of length warnings with an HTML comment near the top, but the marker MUST carry structured justification:
 
 ```markdown
-<!-- doc-allow-large: ADR-NN reason -->
+<!-- doc-allow-large: AD-N reason -->
 ```
 
 Required shape:
 
 - The marker MUST carry a colon and a justification body. Bare `<!-- doc-allow-large -->` is rejected.
-- The body MUST reference an existing ADR (`ADR-NN` or `AD-NN`) in `documentation/decisions/`, OR a `pending.md` entry with a follow-up date in ISO format `pending:YYYY-MM-DD`.
+- The body MUST reference an existing ADR by ID `AD-N` (one or more digits, matching the ADR's filename and heading in `documentation/decisions/`), OR a `pending.md` entry with a follow-up date in ISO format `pending:YYYY-MM-DD`.
+- ID-matching regex: `\bAD-[0-9]+\b`. The legacy `ADR-NN` alias is rejected (LOW finding asks the user to rewrite). The canonical form is `AD-N+`.
 - doc-updater verifies the referenced ADR or pending entry exists every run (see Pass 6 below).
+
+**Marker age (for the 180-day rule)**: defined as the git-blame age of the marker line in its current file (`git blame -L <line>,<line> -- <file>`, take the commit author date). The marker does NOT carry an inline timestamp; the age resets when the marker line is rewritten or moved (intentional -- a deliberate edit is a fresh review of the decision).
 
 This converts the hatch from a silent perma-license into a decision that lives in the ADR ledger — discoverable and revisitable. The same rules mirror to `<!-- sdd-allow-large -->` in `spec-discipline.md` (enforced by spec-reviewer).
 
@@ -240,15 +243,16 @@ For every `<!-- doc-allow-large: ... -->` marker in `documentation/` files (and 
 | Condition | Severity | Action |
 |---|---|---|
 | Bare marker (no colon or justification) | MEDIUM | Rewrite to `<!-- doc-allow-large: TODO open ADR -->` and emit finding prompting the user to file an ADR. |
-| Marker references an ADR that does not exist in `documentation/decisions/` | HIGH | Orphan reference — flag immediately, do not auto-fix. |
+| Marker references an ADR that does not exist in `documentation/decisions/` | HIGH | Orphan reference -- flag immediately, do not auto-fix. |
 | Marker references an ADR with `Status: Superseded` | HIGH | The decision the hatch relied on has been overturned. Flag for review. |
-| Marker references an ADR with `Status: Accepted` older than 180 days | LOW | Reminder to revisit the decision; the project may have grown past the original justification. |
+| Marker uses the legacy `ADR-NN` form instead of the canonical `AD-N+` | LOW | Rewrite the marker to the canonical form. |
+| Marker (by git-blame age) is older than 180 days and references an ADR with `Status: Accepted` | LOW | Reminder to revisit the decision; the project may have grown past the original justification. |
 | Marker references `pending:YYYY-MM-DD` with the date in the past | LOW | Follow-up overdue. |
 | Marker is well-formed and current | (no finding) | Accept. |
 
-The same audit applies to `<!-- doc-template-exempt: ... -->` markers introduced by Pass 5: the marker's body must reference an ADR or `pending:YYYY-MM-DD`, and the same severity table governs orphan / superseded / aged / overdue conditions. spec-reviewer applies an identical audit to `<!-- sdd-allow-large -->`.
+The same audit applies to `<!-- doc-template-exempt: ... -->` markers. Markers of this shape are added by Pass 5 in `auto`/`unleashed` modes when a section legitimately cannot satisfy the per-lane format template right now (e.g., a section documenting a legacy endpoint whose Auth field is genuinely unknown until triage). Like `doc-allow-large`, they MUST carry an ADR ID or `pending:YYYY-MM-DD` justification body; the same severity table above applies. spec-reviewer applies an identical audit to `<!-- sdd-allow-large -->`.
 
-Date math is performed against the system date at run time. ADR `Status` is parsed from the ADR file's header field.
+Date math is performed against the system date at run time. Marker age uses git-blame as the basis (the age of the marker line's most recent commit). ADR `Status` is parsed from the ADR file's header field.
 
 ### Pass 7 — Verification truth-check
 
@@ -289,10 +293,10 @@ Severity: HIGH for route-not-in-source / function-removed / env-var-removed-from
 
 ### Pass 10 — Hatch overuse / catch-all detection
 
-Count `<!-- doc-allow-large: AD-NN ... -->` and `<!-- doc-template-exempt: AD-NN ... -->` references per ADR across the entire `documentation/` corpus (and `<!-- sdd-allow-large: AD-NN ... -->` for `sdd/`, mirrored by spec-reviewer). If one ADR carries `>3` distinct markers across `>1` file, flag it:
+Count `<!-- doc-allow-large: AD-N+ ... -->` and `<!-- doc-template-exempt: AD-N+ ... -->` references per ADR across the entire `documentation/` corpus (and `<!-- sdd-allow-large: AD-N+ ... -->` for `sdd/`, mirrored by spec-reviewer). If one ADR carries `>3` distinct markers across `>1` file, flag it:
 
 - MEDIUM finding `hatch-catch-all` reporting: ADR ID, marker count, file count, and a per-marker excerpt (the marker line plus the ≤2 lines of body immediately following) so the operator can read each justification side-by-side.
-- The finding's resolution choices are spelled out in the output: either (a) the cases are genuinely the same decision and the ADR's `**Decision:**` section should enumerate them explicitly, or (b) the cases are different and the ADR should be split into N per-case ADRs with `Supersedes: AD-NN`.
+- The finding's resolution choices are spelled out in the output: either (a) the cases are genuinely the same decision and the ADR's `**Decision:**` section should enumerate them explicitly, or (b) the cases are different and the ADR should be split into N per-case ADRs with `Supersedes: AD-N+`.
 
 Threshold tuning: the rule is "more than 3 markers AND more than 1 file" because a single-file ADR (e.g., a per-file budget exemption that triggers in 4 sections of the same `architecture.md`) is a legitimate single decision. Cross-file recurrence is the catch-all signal.
 

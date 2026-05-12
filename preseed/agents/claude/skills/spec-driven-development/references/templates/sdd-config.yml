@@ -27,12 +27,11 @@ enforce_tdd: true
 
 # transition: set automatically by /sdd init Import Mode and cleared
 # automatically when the sdd/init-triage.md queue drains.
-# Do NOT set this by hand — it is managed by the /sdd init lifecycle.
+# Do NOT set this by hand - it is managed by the /sdd init lifecycle.
 # While transition: true is set:
-#   - spec-reviewer suppresses Implemented → Partial auto-demote
-#   - code-reviewer defers Implements-annotation findings on legacy source
-#   - /sdd autonomous unleashed is rejected
-#   - PR-boundary review pipeline is suspended on the working branch
+#   - PR-boundary review pipeline is entirely suspended (no
+#     code-reviewer, spec-reviewer, or doc-updater fires on push or PR)
+#   - /sdd mode unleashed is rejected
 # On queue drain, transition: true clears AND enforce_tdd flips to true.
 # transition: false
 

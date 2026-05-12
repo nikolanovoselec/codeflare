@@ -57,6 +57,21 @@ test -d sdd && test -f sdd/README.md
 
 (Manual invocation on a non-SDD project is still allowed — if the user calls this agent directly via the Task tool without `sdd/`, proceed with `documentation/` maintenance using `documentation/README.md` as the routing table. Never create `documentation/` or its README from scratch in that case — report the missing scaffolding and stop. The agent never creates an uninvited `documentation/` folder.)
 
+### Step 0a.5: Detect SDD transition state
+
+```bash
+IN_TRANSITION=0
+if grep -q '^transition: true' sdd/config.yml 2>/dev/null \
+   && [ -f sdd/init-triage.md ] \
+   && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' sdd/init-triage.md 2>/dev/null; then
+  IN_TRANSITION=1
+fi
+```
+
+When `IN_TRANSITION=1`, exit no-op. Print the notice `SDD transition in progress; doc-updater suspended until triage drains.` and write the same line to `documentation/.doc-coverage.md`. No passes run; no findings emitted. Single rule across all review agents; see `spec-discipline.md` → SDD transition state.
+
+The condition is identical to spec-reviewer Step 0b.5 and the PR-boundary hooks' transition gate -- single source of truth per `spec-discipline.md` "Transition gate condition".
+
 ### Step 0b: Read documentation/ scaffolding
 
 ```bash
@@ -76,7 +91,7 @@ Scan `documentation/decisions/**/*.md` for `**Overrides:** {rule_id}:{target_id}
 git log -3 --format="%s" 2>/dev/null
 ```
 
-If ≥2 of the last 3 commits are tagged `[doc-updater]`, `[autonomous]`, or `[unleashed]` AND target the same documentation file: hard stop. Write findings to `sdd/.review-needed.md`. Exit code 0.
+Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[unleashed]`. Excluded prefixes (do NOT count toward the limit): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]` -- same exclusion list spec-reviewer uses, so first-after-transition doc work is not blocked by the spiral detector. If ≥2 of the last 3 (non-excluded) commits are tagged AND target the same documentation file: hard stop. Write findings to `sdd/.review-needed.md`. Exit code 0.
 
 ### Step 0e: Diff classification
 
@@ -278,7 +293,7 @@ Auto-fix in `auto`/`unleashed`: for shape-drift, **regenerate the example from c
 
 ### Pass 10 — Hatch overuse / catch-all detection
 
-Count `<!-- doc-allow-large: AD-NN ... -->` and `<!-- doc-template-exempt: AD-NN ... -->` references per ADR across the entire `documentation/` corpus (and `<!-- sdd-allow-large: AD-NN ... -->` for `sdd/` via spec-reviewer's mirror). If one ADR carries `>3` distinct markers across `>1` file, flag MEDIUM `hatch-catch-all`:
+Count `<!-- doc-allow-large: AD-N+ ... -->` and `<!-- doc-template-exempt: AD-N+ ... -->` references per ADR across the entire `documentation/` corpus (and `<!-- sdd-allow-large: AD-N+ ... -->` for `sdd/` via spec-reviewer's mirror). If one ADR carries `>3` distinct markers across `>1` file, flag MEDIUM `hatch-catch-all`:
 
 The finding reports: ADR ID, total marker count, file count, plus a per-marker excerpt (the marker line + the ≤2 lines of body immediately following each marker). The operator reads the side-by-side excerpts and decides: (a) the cases are genuinely the same decision → enumerate them in the ADR's `**Decision:**` section; (b) the cases are different → split into N per-case ADRs.
 
