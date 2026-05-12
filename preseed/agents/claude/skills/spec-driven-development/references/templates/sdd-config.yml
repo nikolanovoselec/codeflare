@@ -21,7 +21,8 @@ mode: interactive
 # When false, spec-reviewer only writes sdd/.coverage-report.md without
 # modifying the spec.
 #
-# Forced to true in unleashed mode (commits land on the current branch; TDD enforcement is non-negotiable).
+# Unleashed mode refuses to run when this is false (preserves the per-project
+# opt-out). User flips to true manually when ready, or uses auto mode instead.
 # Default true — TDD is the contract; opt out per project if needed.
 enforce_tdd: true
 
