@@ -123,6 +123,15 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 The setup wizard configures a fresh Codeflare deployment. It provisions Cloudflare resources (R2 credentials, DNS records, Access applications) and stores the resulting configuration in Workers KV so the application can serve requests.
 
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| POST | `/api/setup/configure` | CSRF-gated (bootstrap window); admin-only post-setup | TBD | Run the setup wizard (streams NDJSON progress) |
+| GET | `/api/setup/status` | none | TBD | Whether setup is complete (always public) |
+| GET | `/api/setup/detect-token` | CSRF-gated (bootstrap window); admin-only post-setup | TBD | Detect and verify the Cloudflare API token |
+| GET | `/api/setup/prefill` | CSRF-gated (bootstrap window); admin-only post-setup | TBD | Prefill setup form from existing Access groups |
+
+Conditional auth: before `setup:complete` is set in KV, every Setup endpoint except `/api/setup/status` is publicly reachable through the CSRF-gated bootstrap window (see AD10). Once setup is marked complete, the same endpoints require an admin-role session.
+
 #### When Setup Runs
 
 | Scenario | Auth requirement | Entry point |
