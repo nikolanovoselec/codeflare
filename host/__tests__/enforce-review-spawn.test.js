@@ -554,32 +554,38 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
       'not silently disable enforcement via awk string comparison');
   });
 
-  it('classifies non-fractional agent timestamp before fractional push as stale (regression for strip_frac double-Z bug)', () => {
-    // Pins the fix for the awk strip_frac bug. When the push timestamp
-    // carries fractional seconds but an agent spawn timestamp does not,
-    // a buggy strip_frac would append a redundant Z to the non-fractional
-    // value ("2026-05-03T11:59:59Z" -> "2026-05-03T11:59:59ZZ"), which
-    // sorts lexicographically GREATER than the normalized push ts
-    // "2026-05-03T12:00:00Z". The hook would then treat the earlier
-    // agent spawn as if it occurred after the push, silently disabling
-    // enforcement.
+  it('does not promote same-second non-fractional agent ts past fractional push (regression for strip_frac double-Z bug)', () => {
+    // Pins the fix for the awk strip_frac bug. The bug fires at the
+    // boundary: when an agent timestamp shares the same wall-clock
+    // second as the normalized push timestamp but lacks the fractional
+    // portion, a buggy strip_frac re-appended Z unconditionally,
+    // producing "2026-05-03T12:00:00ZZ" which sorts lexicographically
+    // GREATER than the normalized push ts "2026-05-03T12:00:00Z".
+    // spawned_after_push then returned TRUE for every same-second
+    // pre-push agent and the hook silently skipped enforcement.
     //
-    // Expected behaviour: the three review agents have NO post-push
-    // spawn record, so the hook must BLOCK and emit a directive naming
-    // the missing agents.
+    // The collision must happen at the same wall-clock second for the
+    // spurious ZZ to be the only thing that can flip the comparison;
+    // earlier seconds (e.g. 11:59:59Z) lose the ordering on the seconds
+    // digit and the bug is not exercised.
+    //
+    // Expected behaviour with the fix: agent ts stays "12:00:00Z",
+    // which is not strictly greater than the push ts "12:00:00Z", so
+    // the three agents are correctly classified as pre-push and the
+    // hook BLOCKS with a directive naming all three.
     const cwd = makeFixture();
     withSdd(cwd);
     const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
     const t = writeTranscript(cwd, [
-      AGENT_LINE('code-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_cr'),
-      AGENT_LINE('spec-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_sr'),
-      AGENT_LINE('doc-updater', '2026-05-03T11:59:59Z', 'toolu_stale_du'),
+      AGENT_LINE('code-reviewer', '2026-05-03T12:00:00Z', 'toolu_stale_cr'),
+      AGENT_LINE('spec-reviewer', '2026-05-03T12:00:00Z', 'toolu_stale_sr'),
+      AGENT_LINE('doc-updater', '2026-05-03T12:00:00Z', 'toolu_stale_du'),
       PUSH_LINE('2026-05-03T12:00:00.500Z'),
     ]);
     const r = runHook(cwd, { transcriptPath: t, binDir });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /"decision"\s*:\s*"block"/,
-      'stale non-fractional agent spawns must not be promoted to "after push" by strip_frac');
+      'same-second non-fractional agent ts must not be promoted past push ts by strip_frac');
     assert.match(r.stdout, /code-reviewer/);
     assert.match(r.stdout, /spec-reviewer/);
     assert.match(r.stdout, /doc-updater/);
