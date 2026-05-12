@@ -245,7 +245,7 @@ For each finding (HIGH first, then MEDIUM, then LOW):
    - **Doc-vs-spec conflict**: mark REQ as `Partial`, add `Notes:`, log to `sdd/.review-needed.md`. **Never overwrite intent.**
    - **Oversized REQ**: extract implementation prose to relevant `documentation/` file, leave Intent + AC verbatim. **Never split into multiple REQs.**
    - **Fake-Deprecated REQ**: move definition to `## Out of Scope` section in domain README, remove from domain file. **Never delete.**
-4. `enforce_tdd` is forced true in unleashed mode
+4. If `sdd/config.yml` has `enforce_tdd: false`, refuse to run in unleashed mode. Emit an explanatory finding pointing the user to either flip `enforce_tdd: true` or use `auto` mode instead. The project-level opt-out is preserved, not silently overridden. See `spec-discipline.md` → enforce_tdd interaction with unleashed.
 5. Commit per category with `[unleashed] [spec-reviewer]` prefix. Each commit message includes its audit log excerpt.
 6. Push commits directly to the current branch. No new branch, no PR.
 7. Write `sdd/.last-clean-run.md` summarizing what happened (full audit log lives here + in the per-category commit messages)

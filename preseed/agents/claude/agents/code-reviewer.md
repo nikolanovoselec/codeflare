@@ -34,6 +34,7 @@ When invoked:
      exit 0
    fi
    ```
+   Emit the notice and stop without writing any review report. Same gate shape as `git-push-review-reminder.sh` and `enforce-review-spawn.sh`.
 
 1. **Gather the full diff** — Resolve the diff source from the PR base when a PR exists, falling back to upstream-aware syntax otherwise:
    ```bash

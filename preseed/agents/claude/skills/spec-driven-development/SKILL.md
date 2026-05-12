@@ -255,7 +255,7 @@ In **interactive** mode: reports findings batch-by-batch, asks for confirmation 
 
 In **auto** mode: applies SAFE and RISKY fixes silently on the current branch. JUDGMENT items go to `sdd/.review-needed.md`.
 
-In **unleashed** mode: applies SAFE + RISKY + JUDGMENT fixes on the current branch (using conservative defaults for JUDGMENT), commits per category, pushes directly. No new branch, no PR. `enforce_tdd: true` is forced. The commits land where the user pushed from.
+In **unleashed** mode: applies SAFE + RISKY + JUDGMENT fixes on the current branch (using conservative defaults for JUDGMENT), commits per category, pushes directly. No new branch, no PR. If `enforce_tdd: false`, unleashed refuses to run and emits a finding asking the user to either flip the value or use `auto` instead - the per-project opt-out is preserved. Commits land where the user pushed from.
 
 ### Safety nets
 

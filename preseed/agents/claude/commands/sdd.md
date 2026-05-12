@@ -57,7 +57,8 @@ MODES  (how much the agent asks before changing your spec)
   unleashed                Agent does everything without asking,
                            including trivial cleanup. Commits per
                            category so you can revert by SHA.
-                           enforce_tdd forced true.
+                           Refuses to run when enforce_tdd: false
+                           (preserves per-project opt-out).
 
 AUTO-RUN  (no /sdd invocation needed)
   Once sdd/ exists, the SDD workflow runs automatically at PR-boundary
