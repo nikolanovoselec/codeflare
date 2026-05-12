@@ -125,10 +125,10 @@ The setup wizard configures a fresh Codeflare deployment. It provisions Cloudfla
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| POST | `/api/setup/configure` | CSRF-gated (bootstrap window); admin-only post-setup | TBD | Run the setup wizard (streams NDJSON progress) |
-| GET | `/api/setup/status` | none | TBD | Whether setup is complete (always public) |
-| GET | `/api/setup/detect-token` | CSRF-gated (bootstrap window); admin-only post-setup | TBD | Detect and verify the Cloudflare API token |
-| GET | `/api/setup/prefill` | CSRF-gated (bootstrap window); admin-only post-setup | TBD | Prefill setup form from existing Access groups |
+| POST | `/api/setup/configure` | Public (pre-setup); admin (post-setup) | REQ-SETUP-001, REQ-SETUP-005 | Run the setup wizard (streams NDJSON progress) |
+| GET | `/api/setup/status` | Public | REQ-SETUP-001 | Whether setup is complete (always public) |
+| GET | `/api/setup/detect-token` | Public (pre-setup); admin (post-setup) | REQ-SETUP-005, REQ-SETUP-008 | Detect and verify the Cloudflare API token |
+| GET | `/api/setup/prefill` | Public (pre-setup); admin (post-setup) | REQ-SETUP-005, REQ-SETUP-008 | Prefill setup form from existing Access groups |
 
 Conditional auth: before `setup:complete` is set in KV, every Setup endpoint except `/api/setup/status` is publicly reachable through the CSRF-gated bootstrap window (see AD10). Once setup is marked complete, the same endpoints require an admin-role session.
 
