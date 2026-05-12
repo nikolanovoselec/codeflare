@@ -191,7 +191,7 @@ interface CheckoutSessionOptions {
   trialQuotaHours?: number;
   /** ISO 4217 currency code (lowercase). Selects from Price's currency_options. */
   currency?: string;
-  /** Unix timestamp (seconds) for subscription billing_cycle_anchor. Implements REQ-SUB-021. */
+  /** Unix timestamp (seconds) for subscription billing_cycle_anchor. */
   billingCycleAnchor?: number;
 }
 

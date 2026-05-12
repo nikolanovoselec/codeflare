@@ -1,9 +1,8 @@
 /**
  * GitHub OAuth routes for SaaS mode authentication.
  *
- *
  * Replaces Cloudflare Access when SAAS_MODE=active and OAUTH_CLIENT_ID is set.
- * Mounts at /auth/github — login, callback, and logout.
+ * Mounts at /auth/github - login, callback, and logout.
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';

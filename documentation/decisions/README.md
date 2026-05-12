@@ -448,6 +448,8 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 ### AD44: SDD three-mode autonomy with conservative JUDGMENT resolution
 
+**Status:** Accepted (2026-05-09). **Partially superseded by AD51 (2026-05-12):** the `Implements REQ-X-NNN` annotation convention (Consequences) and the `Overrides: {rule_id}:{REQ-ID}` ADR-based user-override mechanism (Trade-offs) are removed. Test-name-based REQ-ID matching is the load-bearing coverage signal; there is no per-rule bypass. The rest of AD44 (three autonomy modes, conservative JUDGMENT resolution, universal enforcement layer) stands.
+
 **Category:** Architecture
 
 **Decision:** Codeflare ships SDD (Spec-Driven Development) as a Pro feature with three autonomy modes (`interactive`, `auto`, `unleashed`), with a universal enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions, and conservative JUDGMENT auto-resolution that never overwrites spec intent. The spec-reviewer and doc-updater agents are project-agnostic and detect `sdd/` automatically.
