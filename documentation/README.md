@@ -7,8 +7,11 @@ Technical reference documentation for Codeflare.
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [Architecture](architecture.md) | System overview, components, data flow, design rationale | Developers |
+| [Architecture Internals](architecture-internals.md) | Backend library reference, code structure, CF-NNN index | Developers |
 | [API Reference](api-reference.md) | All API endpoints, request/response formats | Developers |
-| [Authentication & Billing](authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, subscriptions, Stripe | Operators, Developers |
+| [Authentication & Billing](authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers |
+| [Billing & Subscription](billing.md) | Stripe integration, subscription tiers, Timekeeper, paygate | Operators, Developers |
+| [User Provisioning](user-provisioning.md) | JIT provisioning, subscribe page, session mode authorization | Operators, Developers |
 | [Security](security.md) | Security model, encryption, rate limiting, hardening | Operators, Security |
 | [Configuration](configuration.md) | Environment variables, secrets, CORS, API token permissions | Operators |
 | [Container](container.md) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
@@ -19,10 +22,12 @@ Technical reference documentation for Codeflare.
 | [Mobile Terminal](mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
 | [Memory](memory.md) | MCP memory server, automatic capture, two-phase compaction | Developers |
 | [Preseed System](preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks | Developers |
+| [Preseed Troubleshooting](preseed-troubleshooting.md) | Hook debugging, attribution blocking, checkpoint reset | Developers |
 | [Token Scopes](token-scopes.md) | GitHub PAT and Cloudflare API token scope guidance | Operators |
-| [Architecture Decisions](decisions/README.md) | 49 ADRs (38 active) with rationale and trade-offs | Developers |
+| [Architecture Decisions](decisions/README.md) | 50 ADRs (39 active) with rationale and trade-offs | Developers |
 | [Penetration Testing](PENTEST.md) | Security scan results | Security |
 | [Stress Testing](STRESS_TEST.md) | Load testing guide | Operators |
+| [Stress Testing Results](STRESS_TEST-results.md) | Latest benchmark results, file index, Timekeeper load | Operators |
 
 ## Other Documentation
 
