@@ -127,43 +127,19 @@ Multi-agent support, preseed system, and session modes.
 
 ## REQ-AGENT-005: Pro Mode Includes Additional Skills, Rules, Agents, and MCP Servers
 
-<!-- sdd-allow-large: the 13-row Standard/Pro/Custom-tier content matrix
-     IS the contract of this REQ. The matrix and the seven numbered AC
-     bullets below are the minimum surface needed to specify what
-     Pro mode means. Splitting would fragment a single decision. -->
-
-**Intent:** Pro mode must provide a significantly enhanced agent experience with more rules, skills, agent definitions, commands, hooks, and memory persistence. The context-mode MCP server (`ctx_*` helper tools) is registered for all users so the helpers are universally available on demand; the auto-routing hooks that change agent behavior are reserved for the Custom (unlimited) subscription tier.
+**Intent:** Pro mode must provide a significantly enhanced agent experience over Standard — more rules, skills, agent definitions, commands, hooks, and persistent memory. The context-mode helper tools are universally available to every user on demand, while context-mode's automatic context-window-reduction behavior is reserved for the Custom subscription tier.
 
 **Acceptance Criteria:**
-
-| Content Category | Standard (default) | Pro (advanced) | Pro on Custom tier |
-|-----------------|-------------------|----------------|--------------------|
-| Memory plugin and rule | No | Yes | Yes |
-| Core environment rules | Yes | Yes | Yes |
-| Universal coding skills (Cloudflare stack, ship references) | Yes | Yes | Yes |
-| consult-llm skill (Claude Code only) | No | Yes | Yes |
-| Pro-mode hooks (commit attribution + PR-boundary review pipeline) | No | Yes | Yes |
-| Language rules (TypeScript, Python, Go, Swift, common) | No | Yes | Yes |
-| Code-review and SDD agent definitions | No | Yes | Yes |
-| Slash commands (Claude Code only) | No | Yes | Yes |
-| Cherry-picked skills (API/backend/frontend patterns, SDD scaffolding) | No | Yes | Yes |
-| Discipline triad rules (spec, docs, tests) | No | Yes | Yes |
-| Known marketplaces plugin config | Yes | Yes | Yes |
-| context-mode MCP server (`ctx_*` helper tools, always-on) | Yes | Yes | Yes |
-| context-mode plugin folder (auto-routing hooks for context-window reduction) | No | No | Yes |
-
-1. Standard mode seeds the rows above marked Yes in the Standard column to R2.
-2. Pro mode seeds the rows above marked Yes in the Pro column to R2 (a strict superset of Standard).
-3. Pro mode enables memory persistence (`.memory/` directory synced via rclone); Standard mode excludes the entire `.memory/**` directory from sync.
-4. Pro mode registers hooks in `settings.json` with command-pattern gates so they only fire on relevant shell-tool calls — both native Bash invocations and MCP shell tools (`mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`), uniformly for every Pro user regardless of context-mode tier — so hook coverage stays intact when context-mode routes `git`/`gh` through MCP: PreToolUse entries for commit attribution blocking (gated on git/gh commands), a PostToolUse entry for the PR-boundary trigger classifier (fires on `gh pr create` or push-to-PR-tracked-branch), a Stop entry for the PR HEAD SHA checkpoint (blocks turn-end until the review pipeline observes the new PR head), and a UserPromptSubmit entry for memory capture; Standard mode merges only `skipDangerousModePermissionPrompt`.
-5. The context-mode integration ships in two layers with separate gating: (a) the **MCP server** (exposing `ctx_*` helper tools) is available to **all users on every session** so the agent always has the helper tools on demand; (b) the **plugin folder** containing hooks (auto-routing tool calls) and any plugin-bound rules is delivered to the user's R2 bucket **only when** the user's effective subscription tier is `unlimited` (displayed as `Custom` in the admin UI) **AND** their session mode is `advanced` (Pro). Any other tier/mode combination strips the plugin subtree from the seed list before bisync touches the bucket.
-6. When the plugin folder is present (Pro on Custom tier), it registers five hooks for context-window reduction: four invoke the upstream context-mode CLI (PreToolUse routing, PostToolUse indexing, PreCompact, SessionStart), plus a PreToolUse denial hook on `Bash|WebFetch|Grep` that blocks calls outside the routing whitelist and redirects to the equivalent `ctx_*` tool. Per-call bypass via `/tmp/ctx-bypass` (user-only). When the plugin folder is absent, the MCP server is still active so users can call `ctx_*` tools manually, but no automatic routing or enforcement fires.
-7. MCP server availability is universal regardless of tier or mode, but is wired through one of two mutually-exclusive paths to avoid duplicate registration: when the preseed plugin manifest is present (Custom tier in Pro mode), the plugin loader registers the MCP server via the manifest's declarative configuration and the plugin is enabled; when the manifest is absent (any other tier/mode), the container's entrypoint registers the MCP server directly so `ctx_*` tools remain available. Manifest presence is the single gate that determines which path applies, and the version pin used by both paths is identical.
+1. Pro mode delivers a strict superset of the content Standard mode delivers, covering memory persistence, language rules, agent definitions, slash commands, cherry-picked skills, the discipline triad (spec, docs, tests), and the commit-attribution and PR-boundary review hooks. The canonical per-content-category matrix lives in [documentation/preseed.md](../documentation/preseed.md#session-modes); the spec lane documents the user-observable contract only.
+2. Pro mode enables persistent memory (the `.memory/` directory is included in storage sync); Standard mode excludes it so memory does not persist across container restarts.
+3. Pro-mode hooks fire uniformly regardless of which tool surface invoked the underlying command, so coverage is identical whether the user is on Custom tier (commands route through context-mode) or any other tier (commands run directly): commit attribution is blocked before the commit lands, the SDD review pipeline is triggered at every PR-to-`main` boundary event, the turn cannot end while a PR HEAD remains unreviewed, and memory capture runs on the user-prompt cadence.
+4. The context-mode helper tools are available to every user on every session regardless of subscription tier or session mode, so the agent can always invoke them on demand.
+5. Custom-tier Pro users additionally receive context-mode's automatic context-window-reduction behavior: large tool output stays out of the conversation window unless the agent explicitly retrieves it, and commands that would flood the window are redirected to the equivalent helper tool. Any other tier-and-mode combination receives the helper tools without the automatic redirection.
+6. Downgrading away from Custom tier, or switching away from Pro mode, removes the Custom-tier-only behavior on the next reconcile so the automatic redirection no longer fires.
 
 **Constraints:**
-- Cleanup on mode switch is scoped strictly to preseed-managed keys; user-created files are never deleted.
-- A tier downgrade away from `unlimited`, or a session-mode change away from `advanced`, must remove the entire context-mode preseed subtree from the user's bucket on the next reconcile so the plugin no longer loads.
-- The context-mode plugin must never be installed via `claude plugin install` against the upstream marketplace; ship it exclusively as preseed assets so the upstream installer's settings.json mutation cannot reach Codeflare users.
+- Cleanup on mode switch is scoped strictly to preseed-managed content; user-created files are never deleted.
+- The Custom-tier context-mode behavior must be delivered through the platform's preseed pipeline, never through a user-driven marketplace install that could mutate settings outside the platform's control.
 
 **Applies To:** User
 **Priority:** P1
