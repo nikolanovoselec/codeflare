@@ -94,7 +94,8 @@ files), `consult-llm`, `api-design`, `backend-patterns`,
 `content-hash-cache-pattern`, `database-migrations`,
 `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`,
 `search-first`, `spec-driven-development` (+ 13 reference templates
-for `/sdd init` scaffolding). Preseeded to
+for `/sdd init` scaffolding; covers the three Import/Resume modes
+for legacy-codebase transition documented below). Preseeded to
 `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for
 agents that support skills). `consult-llm` is CC-only (depends on
 MCP tool).
@@ -305,6 +306,16 @@ and redirected to the equivalent `ctx_*` tools. Per-call bypass via
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
+
+## /sdd init Modes
+
+`/sdd init` is the single entry point for bootstrapping SDD on a project. It detects one of three scenarios from project state and dispatches automatically:
+
+- **Greenfield** — empty project. Agent drafts vision / actors / domains / requirements from the user's prose and writes scaffolding.
+- **Import** — substantive existing code, no `sdd/` yet. Two-output model: behavior clearly determinable from source / tests / comments / commits / PRs becomes official REQs in `sdd/{domain}.md`; everything unclear (magic numbers, retry policies, ambiguous contracts, orphan code) becomes triage entries in `sdd/init-triage.md` with the agent's `**Context:**` (file:line, git author, commit refs, related tests/PRs) and `**Recommendation:**` (best-guess answer with one-line `**Rationale:**`) populated up front.
+- **Resume** — `sdd/` exists and `sdd/init-triage.md` has at least one `**Status:** open` item. Agent surfaces one item at a time with refreshed Context. Five decisions: `accept` (use the recommendation as-is, fold into REQ), `correct` (free-form prose describing what the thing is for and how it works; agent folds purpose into Intent and behavior into ACs), `lost` (one-line Reason required, no spec write), `skip` (stays open, no spec write), `quit`. Only `accept` and `correct` promote anything into the official spec.
+
+While `sdd/init-triage.md` contains any open items, `sdd/config.yml` carries `transition: true`. During transition: spec-reviewer suppresses the Implemented → Partial auto-demote rule (the imported spec is intentionally partial), `/sdd autonomous unleashed` is rejected (judgment is required for triage), and doc-updater + code-reviewer run normally. When the queue drains to zero, transition clears automatically in the same commit that resolves the last item, and full SDD discipline applies on the next push — autonomous agentic development is unlocked because the spec is now a real contract the agent can reason against. `sdd/init-triage.md` is preserved as the audit record after the queue drains. Implements [REQ-AGENT-022](../sdd/agents.md#req-agent-022).
 
 ## Troubleshooting
 
