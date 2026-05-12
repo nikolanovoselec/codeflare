@@ -87,7 +87,6 @@ export class container extends Container<Env> {
   // live longer than expected, which is a strictly safer failure mode. The
   // collectMetrics tick re-reads storage as the authoritative source on
   // every fire (60s cadence) so any drift is corrected within one tick.
-  // Implements REQ-OPS-006 AC8.
   idleTimeoutPref: string = '2h';
 
   // Environment variables - set via property assignment in updateEnvVars()

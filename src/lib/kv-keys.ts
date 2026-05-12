@@ -218,7 +218,6 @@ export function getUtcMonthString(date: Date): string {
  * Used to anchor Stripe subscriptions so the billing cycle matches the monthly
  * quota reset boundary.
  *
- * Implements REQ-SUB-021
  */
 export function getNextUtcMonthStart(now: Date = new Date()): number {
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0));

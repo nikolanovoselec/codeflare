@@ -57,7 +57,6 @@ export interface MetricsCallbacks {
  * this fallback should only ever fire on truly broken input. Log it loudly
  * (caller logs).
  *
- * Implements REQ-OPS-006 AC8.
  */
 export const SLEEP_AFTER_FALLBACK_MS = 7_200_000; // 2h
 export function parseSleepAfterMs(s: string): number {
@@ -149,7 +148,6 @@ export async function collectMetrics(
   // and the construction's storage read raced with a setBucketName write, or
   // (b) some code path wrote 'sleepAfter' to storage without updating the
   // cache. Storage is the authoritative source.
-  // Implements REQ-OPS-006 AC9.
   let idleTimeoutPref = callbacks.idleTimeoutPref;
   try {
     const stored = await ctx.storage.get<string>('sleepAfter');

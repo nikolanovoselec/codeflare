@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Implements REQ-AGENT-004
-# Implements REQ-AGENT-021
-# Implements REQ-AGENT-022
 # PostToolUse hook — silently triggers review agents at the PR boundary.
 # ONLY on projects that have opted into SDD by running /sdd init.
 #

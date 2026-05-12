@@ -37,7 +37,6 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
  * and passes it explicitly. A missing sleepAfter at this layer would mean the
  * resolution skipped a code path and we should fail loudly rather than ship a
  * silent '30m' default that lies to the user about their configured 2h pref.
- * Implements REQ-OPS-006 AC10.
  */
 function buildSetBucketNameBody(params: ContainerConfigPayload): string {
   if (!params.sleepAfter) {
@@ -248,7 +247,6 @@ export async function ensureBucketAndSeed(params: {
     }
   }
 
-  // Implements REQ-AGENT-005
   // Always reseed the context-mode plugin subtree on every session start
   // when the user is on the unlimited tier in advanced mode. The 3 plugin
   // files (plugin.json, hooks.json, README.md) are Worker-authoritative -
@@ -471,7 +469,6 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       } catch { /* non-SaaS or KV unavailable — allow the stored mode */ }
     }
     const sleepAfter = effectiveTier === 'free' ? '15m' : (preferences.sleepAfter || '30m');
-    // Implements REQ-AGENT-005
     // context-mode preseed plugin: hard-gated to the unlimited (Custom) tier
     // in Pro session mode. Any other combination strips the context-mode
     // subtree from the R2 seed before bisync touches the bucket, so the

@@ -90,7 +90,6 @@ app.get('/', async (c) => {
         }
 
         try {
-          // Implements REQ-AGENT-005 (tier-gate for context-mode preseed on auto-create path)
           const prefsKey = getPreferencesKey(bucketName);
           const preferences = await c.env.KV.get<UserPreferences>(prefsKey, 'json');
           const mode = resolveSessionMode(preferences ?? null);

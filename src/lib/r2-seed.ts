@@ -112,7 +112,6 @@ export async function seedGettingStartedDocs(
   return result;
 }
 
-// Implements REQ-AGENT-005
 /**
  * Tier-gated preseed key prefix. Files under this prefix are only deployed
  * to user buckets when contextModeEnabled is true (Pro tier + Pro session
@@ -287,7 +286,6 @@ export async function seedAgentConfigs(
   return result;
 }
 
-// Implements REQ-AGENT-005
 /**
  * The context-mode plugin subtree is Worker-authoritative: its plugin.json,
  * hooks.json, and README ship inside the Worker bundle and must always

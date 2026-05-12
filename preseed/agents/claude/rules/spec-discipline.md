@@ -337,18 +337,6 @@ When the last open triage item is resolved or marked `lost` (via Resume Mode), t
 
 `sdd/init-triage.md` itself is owned by `/sdd init`. All review agents and PR-boundary hooks read it to determine transition state; nothing else writes it.
 
-## Source code ↔ REQ annotations (optional)
-
-Source files implementing a requirement MAY reference the REQ ID in a comment. This is a human-discoverability convention, not a parser contract:
-
-```
-// Implements REQ-SITE-002
-# Implements REQ-API-001
-<!-- Implements REQ-UI-003 -->
-```
-
-Tests name the REQ ID in their test function (`test('REQ-X-NNN: rejects expired token', ...)`) which is what spec-reviewer greps for when classifying test coverage. Source-side annotations are not required and not enforced.
-
 ## Commit-prefix contract (load-bearing for anti-spiral)
 
 The anti-spiral mechanism parses commit subjects by **tag prefix**, not infix. Every agent-authored commit MUST start its subject with one of the canonical tag prefixes; otherwise the spiral detectors miss it.

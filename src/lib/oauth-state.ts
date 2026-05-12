@@ -1,7 +1,6 @@
 /**
  * Stateless OAuth state token (HMAC-signed nonce + timestamp).
  *
- * Implements REQ-AUTH-002 (state validation portion).
  *
  * Replaces the cookie-based double-submit pattern. Cookie state was
  * unreliable on iOS WebKit (Safari + Brave), where ITP suppressed the

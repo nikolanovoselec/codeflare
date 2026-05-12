@@ -79,7 +79,6 @@ app.post('/agent-configs', async (c) => {
     const preferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json');
     const mode = resolveSessionMode(preferences ?? null);
 
-    // Implements REQ-AGENT-005 (tier-gate for context-mode preseed)
     const user = c.get('user');
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';

@@ -275,7 +275,6 @@ async function handleSubscriptionDeleted(
   try {
     const bucketName = getBucketName(email);
     const { endpoint } = await getR2Config(env);
-    // Implements REQ-AGENT-005 (subscription-deletion path strips context-mode subtree)
     // Subscription is gone, user is no longer Custom-tier, so the gate is
     // explicitly closed. cleanup: true also removes any context-mode files
     // already in the bucket via the mode filter (advanced-only keys), but
@@ -379,7 +378,6 @@ export async function syncSubscriptionState(
     try {
       const bucketName = getBucketName(email);
       const { endpoint } = await getR2Config(env);
-      // Implements REQ-AGENT-005
       // Tier-gate context-mode preseed: unlimited (Custom) tier in Pro mode only.
       // Reads tier from the patch when present, falling back to the existing record.
       const effectiveTierForGate = (patch.subscriptionTier as string | undefined)

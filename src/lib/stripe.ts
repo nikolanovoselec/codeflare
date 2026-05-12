@@ -46,7 +46,6 @@ export function isStripeConfigured(env: Pick<Env, 'STRIPE_SECRET_KEY'>): boolean
 // Stripe Price fetching — for displaying prices on subscribe page
 // ---------------------------------------------------------------------------
 
-// Implements REQ-SUB-020
 
 /** Cached Stripe price data (1-hour TTL) — stores base + currency_options */
 interface CachedPrice {
@@ -227,7 +226,6 @@ export async function createCheckoutSession(opts: CheckoutSessionOptions): Promi
     params['custom_text[submit][message]'] = `Your trial includes ${opts.trialQuotaHours ?? 4} hours of compute. Full billing begins after usage or ${opts.trialDays} days, whichever comes first.`;
   }
 
-  // Implements REQ-SUB-021: anchor subscription to 1st of UTC month
   if (opts.billingCycleAnchor != null) {
     params['subscription_data[billing_cycle_anchor]'] = String(opts.billingCycleAnchor);
   }

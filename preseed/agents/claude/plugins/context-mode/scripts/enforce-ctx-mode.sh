@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook - denies tool calls that should route through context-mode.
 #
-# Implements REQ-AGENT-005 (strict routing variant). Tier-gated via the
 # R2 preseed filter: this script ships only when the entire
 # plugins/context-mode/ subtree is included for the user's tier+mode.
 #

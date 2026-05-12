@@ -1,4 +1,3 @@
-// Implements REQ-SUB-020
 
 export const SUPPORTED_CURRENCIES = ['chf', 'usd', 'eur', 'gbp'] as const;
 type SupportedCurrency = typeof SUPPORTED_CURRENCIES[number];

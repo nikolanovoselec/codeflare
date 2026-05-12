@@ -1,7 +1,6 @@
 /**
  * GitHub OAuth routes for SaaS mode authentication.
  *
- * Implements REQ-AUTH-002.
  *
  * Replaces Cloudflare Access when SAAS_MODE=active and OAUTH_CLIENT_ID is set.
  * Mounts at /auth/github — login, callback, and logout.

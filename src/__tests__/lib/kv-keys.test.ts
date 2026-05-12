@@ -248,7 +248,6 @@ describe('getUtcMonthString', () => {
 });
 
 describe('getNextUtcMonthStart', () => {
-  // Implements REQ-SUB-021
   it('returns unix timestamp for 1st of next UTC month', () => {
     const date = new Date('2026-04-20T14:30:00Z');
     const expected = Math.floor(Date.UTC(2026, 4, 1, 0, 0, 0) / 1000); // May 1 2026

@@ -336,7 +336,6 @@ describe('createCheckoutSession with trial', () => {
 });
 
 describe('createCheckoutSession with billing_cycle_anchor', () => {
-  // Implements REQ-SUB-021
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {

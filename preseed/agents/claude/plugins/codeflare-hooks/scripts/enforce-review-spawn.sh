@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Implements REQ-AGENT-004
-# Implements REQ-AGENT-021
-# Implements REQ-AGENT-022
 # Stop hook — enforces SDD review-agent spawning at the PR boundary.
 #
 # Architecture (v5): PR HEAD SHA checkpoint + open-PR gate.

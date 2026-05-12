@@ -1,4 +1,3 @@
-// Implements REQ-SUB-020
 import { describe, it, expect } from 'vitest';
 import { getCurrencyForCountry, SUPPORTED_CURRENCIES } from '../../lib/currency';
 

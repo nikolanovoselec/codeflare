@@ -9,7 +9,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
   - **REQ split-proposal mode** (spec-reviewer drafting `sdd/.split-proposals/{REQ-ID}.md` files for `/sdd clean` to consume on `**Status:** Approved`). Removed. Oversized REQs shrink in place; the user splits manually when actually needed.
   - **Out-of-Scope collision check** (full-spec pass cross-referencing `## Out of Scope` bullets against shipped REQs). Removed. Spec drift is normal-quality work, not a separate detector.
   - **Anti-spiral category matching** (round counter required ≥2 commits on the *same target REQ-ID or category*). Removed. ≥2 of the last 3 lane-scoped commits is the simpler, sufficient trigger.
-  - **`Implements REQ-X-NNN` annotation enforcement** (code-reviewer flagged source files lacking REQ annotations; spec-reviewer CQ-2 cross-walked annotations against AC). Removed. Annotations remain a human-discoverability convention but are no longer flagged; spec-reviewer's test-name-based coverage check is the load-bearing signal.
+  - **`Implements REQ-X-NNN` annotations entirely** (the convention itself, not just enforcement). Removed. The "Source code <-> REQ annotations" section in spec-discipline.md, the glossary entry, and 32 comment lines across 21 source files are deleted. Test-name-based REQ-ID matching (`test('REQ-X-NNN: ...')`) is the load-bearing coverage signal; source-side annotations were overhead with no consumer once the grep was gone.
 - doc-discipline drops from twelve passes to ten. spec-discipline drops CQ-2 / CQ-4 / CQ-6 (kept CQ-1, renumbered CQ-3 / CQ-5 to CQ-2 / CQ-3). `/sdd clean` drops the legacy `sdd/.user-overrides.md` migration step. `/sdd mode` no longer lists recent ADR overrides.
 
 ## 2026-05-12

@@ -99,7 +99,6 @@ app.post('/checkout', requireIdentity, checkoutRateLimiter, async (c) => {
   const country = c.req.header('CF-IPCountry') || '';
   const currency = getCurrencyForCountry(country);
 
-  // Implements REQ-SUB-021: anchor billing cycle to 1st of UTC month.
   // Stripe requires billing_cycle_anchor >= trial_end, so compute the anchor
   // relative to the end of the trial (or now, if no trial).
   const trialDays = trialUsed ? 0 : 7;
