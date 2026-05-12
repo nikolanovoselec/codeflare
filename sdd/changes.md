@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-12
+- REQ-AGENT-005 acceptance criteria rewritten to describe the user-observable Standard-vs-Pro experience (memory persistence, hook coverage on every PR boundary, universal context-mode helpers, Custom-tier-only auto-routing). The detailed per-content-category delivery matrix moved to [documentation/preseed.md](../documentation/preseed.md#session-modes) where the engineering reference already lived; the spec now backlinks the matrix instead of duplicating it. No change in delivered behavior.
+
 ## 2026-05-11
 - SDD Stop-hook review gate now fires regardless of which tool surfaced `git push` (REQ-AGENT-021, REQ-AGENT-004). The `enforce-review-spawn.sh` PUSH_LINE detector previously scanned the transcript only for `"name":"Bash"` tool_use entries, so `git push` driven through `mcp__context-mode__ctx_execute` (with `language:"shell"`) or `mcp__context-mode__ctx_batch_execute` was invisible — the gate silently exited 0 and unreviewed PR HEADs slipped past Stop enforcement. The awk now scans three matching shapes: Bash `"command"`, ctx_batch_execute per-entry `"command"`, and ctx_execute `"code"` with sibling `"language":"shell"`. Same anchored-regex semantics across all three. Companion fix to PR #318 (PostToolUse). Closes codeflare#319.
 - Attribution gate now fires on MCP shell tools too (REQ-AGENT-004). The `block-attributed-commits.sh` PreToolUse hook is registered on `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` in addition to Bash, and parses the same three `.tool_input` shapes as the review-reminder hook. Closes the matching bug-class where attribution lines could land via `gh pr create --body "...Co-Authored-By..."` redirected through ctx_execute when context-mode denied the Bash form.
