@@ -62,10 +62,16 @@ Sanity check: if `transition: true` is set but `sdd/init-triage.md` is missing o
 ### Step 0c: Check the round counter (anti-spiral)
 
 ```bash
-git log -3 --format="%s" 2>/dev/null
+git log -3 --format="%H %s" 2>/dev/null
 ```
 
-Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-reviewer]`. Excluded prefixes (do NOT count toward the limit): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If ≥2 of the last 3 commits are agent-authored on the **same target REQ-ID or category**, hard stop:
+For each of the last 3 commits, also list the paths it touched:
+
+```bash
+git log -3 --name-only --format="--- %H %s" 2>/dev/null
+```
+
+Count commits whose subject contains `[autonomous]`, `[unleashed]`, or `[spec-reviewer]` **AND** that touched at least one path under `sdd/`. Commits that touched only `documentation/` or only source code do NOT count toward the spec-reviewer round counter (those are doc-updater's or code-reviewer's domain). Excluded prefixes regardless of paths (do NOT count toward the limit): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`. If ≥2 of the last 3 commits qualify on the **same target REQ-ID or category**, hard stop:
 
 1. Write the would-be findings to `sdd/.review-needed.md` with header "Round limit reached"
 2. Exit with code 0
@@ -230,11 +236,10 @@ For each finding (HIGH first, then MEDIUM, then LOW):
 2. Defer LOW findings: write them to `sdd/.review-needed.md` for later `/sdd clean` run
 3. JUDGMENT findings (fake-Deprecated, doc-vs-spec conflict, oversized REQ): write to `sdd/.review-needed.md`, do not auto-resolve
 4. Commit per category with `[autonomous] [spec-reviewer]` prefix
-5. Refuse to run on `main`/`master` without `--branch-confirmed`
 
 ### Mode: unleashed
 
-1. Stay on the current branch. Refuse to run on `main`/`master` without `--branch-confirmed`.
+1. Stay on the current branch.
 2. Auto-fix all findings including LOW
 3. Auto-resolve JUDGMENT items conservatively:
    - **Doc-vs-spec conflict**: mark REQ as `Partial`, add `Notes:`, log to `sdd/.review-needed.md`. **Never overwrite intent.**

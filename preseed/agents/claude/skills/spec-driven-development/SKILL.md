@@ -169,7 +169,7 @@ Import Mode is the migration path from legacy manual coding to autonomous agenti
 
 While `sdd/init-triage.md` contains any `**Status:** open` items, the project is in **SDD transition**. `sdd/config.yml` carries `transition: true`. During transition, the PR-boundary review pipeline is **entirely suspended**: code-reviewer, spec-reviewer, and doc-updater do not fire on any push or PR event. PostToolUse + Stop hooks short-circuit. `/sdd mode unleashed` is rejected.
 
-When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically AND `enforce_tdd` flips from `false` to `true` in the same edit. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `sdd/init-triage.md` is preserved as the audit record.
+When the queue drains to zero (every item `resolved` or `lost`), `transition: true` clears automatically. Full SDD discipline applies on the next push and autonomous agentic development is unlocked. `enforce_tdd` is NOT auto-flipped - the user sets it manually when ready (typically after annotating imported source with `Implements REQ-X-NNN`). `sdd/init-triage.md` is preserved as the audit record.
 
 Import Mode writes CLEAR REQs to `sdd/{domain}.md` files automatically, without user confirmation. The agent's confidence threshold (single matching domain, unambiguous behavior, clear evidence in code/PRs/tests) is the gate; anything below it becomes a triage entry. Only the triage queue surfaces unclear/ambiguous items for user judgment, one at a time in Resume Mode. To correct any CLEAR REQ after import, the user runs `/sdd edit {domain}`.
 
@@ -187,8 +187,8 @@ Only `accept` and `correct` promote the answer into the official spec REQs. `cor
 **Transition-closure step** runs after every resolved/lost decision. When zero `**Status:** open` items remain:
 
 - `transition: true` is cleared from `sdd/config.yml`
-- `enforce_tdd: false` is flipped to `true` in the same edit - the import-time concession ends and TDD enforcement applies on the next push
 - A closure entry is appended to `sdd/changes.md` (e.g., `SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost).`)
+- `enforce_tdd` is NOT changed - the user flips it to `true` manually when ready for TDD enforcement (typically after adding source annotations and REQ-ID test names)
 - The agent enters Plan Mode (same hard gate as greenfield `/sdd init` step 17) so the first feature work on top of the now-real spec is plan-gated
 
 In **greenfield mode**, the agent:
@@ -217,7 +217,7 @@ In **greenfield mode**, the agent:
 
 The agent does not need internet access — all templates are bundled in `references/templates/`.
 
-If `sdd/` already exists, `/sdd init` aborts with an error. Use `--force` to overwrite (destructive — confirm with user first).
+If `sdd/` already exists with no open triage items, `/sdd init` aborts with an error pointing the user at `/sdd clean` for spec rescue. If open triage items exist, `/sdd init` enters Resume Mode.
 
 ### Dependency version resolution
 
@@ -266,14 +266,12 @@ In all modes:
 - **`[sdd-clean]` commit tag** that bypasses round-detection in spec-reviewer
 - **Sequential execution** (spec-reviewer first, then doc-updater)
 
-In `auto` mode specifically:
-- Refuses to run on `main` or `master` without `--branch-confirmed`
-
 In `unleashed` mode specifically:
 - Pushes commits directly to the current branch (no new branch, no PR)
-- Refuses to run on `main`/`master` without `--branch-confirmed`
-- Each commit is per-category and tagged `[sdd-clean]` — `git revert <sha>` is the rollback surface
+- Each commit is per-category and tagged `[sdd-clean]` - `git revert <sha>` is the rollback surface
 - Full audit log lives in `sdd/.last-clean-run.md` + the per-category commit messages
+
+Both `auto` and `unleashed` push to the currently checked-out branch. The user is responsible for checking out a feature/dev branch before invoking if they don't want commits landing on the current branch.
 
 ### What gets cleaned
 

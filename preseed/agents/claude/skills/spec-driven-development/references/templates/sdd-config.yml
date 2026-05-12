@@ -32,7 +32,8 @@ enforce_tdd: true
 #   - PR-boundary review pipeline is entirely suspended (no
 #     code-reviewer, spec-reviewer, or doc-updater fires on push or PR)
 #   - /sdd mode unleashed is rejected
-# On queue drain, transition: true clears AND enforce_tdd flips to true.
+# On queue drain, transition: true clears. enforce_tdd is NOT auto-flipped -
+# the user changes it manually when ready for TDD enforcement.
 # transition: false
 
 # Test discovery globs — where spec-reviewer looks for REQ ID references in test files.

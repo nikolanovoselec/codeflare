@@ -424,13 +424,13 @@ When `enforce_tdd: true`, spec-reviewer runs three classification passes on ever
 
 When `enforce_tdd: false`, spec-reviewer writes `sdd/.coverage-report.md` without modifying the spec. Opt out per project if the product domain genuinely does not admit automated testing (e.g., pure visual design systems).
 
-In `unleashed` mode, `enforce_tdd: true` is forced — the commits on the current branch are fully autonomous, so TDD enforcement is non-negotiable.
-
 ## SDD transition state (legacy-codebase imports)
 
 When `/sdd init` runs in Import Mode on an existing codebase, it produces both official REQs (for behavior clear from source/tests/comments/commits) and a triage queue at `sdd/init-triage.md` for everything unclear. While any triage item carries `**Status:** open`, the project is in **SDD transition** and `sdd/config.yml` carries `transition: true`.
 
 **During transition, the entire review pipeline is suspended.** No review agents fire automatically (PostToolUse + Stop hooks short-circuit when the transition gate condition below is true). If any review agent is invoked manually (Task tool, slash command), it MUST check the same gate condition and exit no-op with a one-line notice (`SDD transition in progress; review suspended until triage drains.`). Single rule, single gate, all enforcement layers honor it.
+
+If `transition: true` is set in config but NO open items exist in the triage file (stuck/corrupted state, usually from a crashed closure step), the gate condition is FALSE so agents run normally; spec-reviewer additionally emits a HIGH finding to `sdd/.review-needed.md` asking the user to either re-run the closure step or clear `transition: true` manually.
 
 `/sdd mode unleashed` is rejected while `transition: true`. Unleashed mode applies fixes without confirmation, which is incompatible with triage entries that require user judgment.
 
@@ -446,8 +446,9 @@ Case-insensitive on `open` and tolerant of multiple whitespace -- the triage fil
 
 When the last open triage item is resolved or marked `lost` (via Resume Mode), the closure commit:
 1. Clears `transition: true` from `sdd/config.yml`
-2. Flips `enforce_tdd: false` to `true` in the same edit
-3. Appends a closure entry to `sdd/changes.md` recording totals (accepted / corrected / lost)
+2. Appends a closure entry to `sdd/changes.md` recording totals (accepted / corrected / lost)
+
+`enforce_tdd` is NOT touched by the closure commit. The import-time default is `enforce_tdd: false`; the user flips it to `true` manually when they're ready for full TDD enforcement (typically after adding `Implements REQ-X-NNN` annotations and REQ-ID test names to the imported source).
 
 `sdd/init-triage.md` is preserved as the audit record. The closure commit is tagged `[sdd-init] transition complete` and is excluded from the round counter for the same reason as `[sdd-init]` resolution commits.
 
@@ -509,13 +510,17 @@ The category portion of the subject (`fix(spec): {category}`) is optional for ro
 
 ## The 2-round commit cycle limit
 
-Spec-reviewer and doc-updater self-limit to prevent infinite micro-fix spirals:
+Spec-reviewer and doc-updater self-limit to prevent infinite micro-fix spirals. Each agent's counter is **scoped to its own lane** so the two don't cross-contaminate (a doc-updater fix should not trip spec-reviewer's spiral guard, and vice versa):
 
-1. At the start of every run, check the last 3 commits via `git log -3 --format="%s"`
-2. Count commits whose subject starts with any tag from the **counted** set above
-3. If ≥2 of the last 3 commits are agent-authored on the **same target REQ-ID or category**, hard stop
+1. At the start of every run, list the last 3 commits with their touched paths via `git log -3 --name-only --format="--- %H %s"`
+2. From those, count commits whose subject starts with any tag from the **counted** set above **AND** that touched at least one path in the agent's lane:
+   - **spec-reviewer** counts only commits touching `sdd/**`
+   - **doc-updater** counts only commits touching `documentation/**`
+3. If ≥2 of the last 3 commits qualify on the **same target REQ-ID or category**, hard stop
 4. Write the would-be findings to `sdd/.review-needed.md` and exit
-5. The counter resets when a non-agent commit lands (real user code or manual edits)
+5. The counter resets when a non-agent commit lands in the agent's lane (real user code or manual edits in `sdd/` for spec-reviewer, in `documentation/` for doc-updater)
+
+Path-based discrimination means a `[doc-updater]` commit touching only `documentation/`/* does not count toward spec-reviewer's spiral guard. Cross-cutting commits that touch BOTH `sdd/` and `documentation/` count for whichever agents own touched lanes.
 
 The next push after `/sdd clean` or `/sdd init` is round 1, not round 3 -- excluded-tag commits do not contribute to the round count. They are not "round 0 placeholders" but rather invisible to the counter entirely; the round number is the count of counted-tag commits among the last 3. Doc-updater applies the same exclusion rule.
 
@@ -624,7 +629,7 @@ Falls back gracefully when there's no upstream.
 Before any agent-driven write to `sdd/` or `documentation/`:
 
 1. **Working tree must be clean**: refuse to run if `git status --porcelain` is non-empty (avoids mixing the user's WIP edits with agent commits)
-2. **Branch protection**: in `auto` and `unleashed` modes, refuse to run on `main` or `master` without `--branch-confirmed`. Neither mode creates a new branch; both push to the current branch.
+2. **Current branch**: `auto` and `unleashed` modes push to whatever branch is checked out. The user is responsible for checking out the right branch before invoking (e.g., a feature branch rather than `main`). Neither mode creates a new branch or opens a PR.
 
 ## Files that live alongside `sdd/`
 

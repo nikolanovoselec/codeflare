@@ -24,6 +24,17 @@ A plain push to a branch with no open PR does NOT trigger you — that case is d
 
 When invoked:
 
+0. **Transition gate (Phase 0, before any other work).** Run this check FIRST. If the project is in SDD transition, exit no-op with the notice `SDD transition in progress; review suspended until triage drains.` Single rule across all review agents; see `spec-discipline.md` → SDD transition state. The literal check (same regex shape as `spec-reviewer` and `doc-updater`):
+   ```bash
+   if [ -f sdd/config.yml ] \
+      && grep -q '^transition:[[:space:]]*true' sdd/config.yml \
+      && [ -f sdd/init-triage.md ] \
+      && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' sdd/init-triage.md; then
+     echo "SDD transition in progress; review suspended until triage drains."
+     exit 0
+   fi
+   ```
+
 1. **Gather the full diff** — Resolve the diff source from the PR base when a PR exists, falling back to upstream-aware syntax otherwise:
    ```bash
    PR_BASE=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null)
@@ -397,4 +408,3 @@ When reviewing AI-generated changes, prioritize:
 
 In projects with an `sdd/` folder, every source file implementing observable behavior from a REQ must include a comment annotating it: `// Implements REQ-X-NNN` (or language equivalent). Review rule: if a changed source file implements behavior matching a REQ's acceptance criteria but lacks the annotation → MEDIUM finding, suggest the specific annotation line. See `spec-discipline.md` → Source code ↔ REQ annotations.
 
-**Transition gate.** If `sdd/config.yml` carries `transition: true` AND `sdd/init-triage.md` exists with at least one `**Status:** open` entry, exit no-op with the notice `SDD transition in progress; review suspended until triage drains.` Single rule across all review agents; see `spec-discipline.md` → SDD transition state.

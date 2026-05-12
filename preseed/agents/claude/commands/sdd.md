@@ -39,11 +39,13 @@ SUBCOMMANDS
                          leakage, fake-Deprecated REQs, oversized REQs,
                          bloated changelogs, Out-of-Scope/REQ
                          collisions, pending split proposals, orphan
-                         hatch markers. Mode-aware. --scope=all (default)
-                         scans the entire corpus; --scope=diff scans only
-                         the open PR delta.
+                         hatch markers. Mode-aware.
+                         Flags:
+                           --scope=all (default) | --scope=diff
+                           --interactive | --auto | --unleashed
+                             (override sdd/config.yml mode for one run)
   mode <name>            Set the autonomy mode. Name is one of:
-                         interactive | auto | unleashed | status
+                         interactive | auto | unleashed
                          (no arg prints current mode).
 
 MODES  (how much the agent asks before changing your spec)
@@ -402,7 +404,7 @@ Triggered when `/sdd init` is invoked on a project where `sdd/` already exists a
    ```
    Same rule as `/sdd clean`'s working-tree gate.
 
-2. **Sanity-check transition state**: read `sdd/config.yml`. If `transition: true` is absent but open items exist in `sdd/init-triage.md`, set it back to `true` (recover quietly). If `transition: true` is set but `sdd/init-triage.md` is missing or unreadable, abort with: `Error: sdd/config.yml has transition: true but sdd/init-triage.md is missing. Either restore the triage file from git history or remove transition: true manually before re-running /sdd init.`
+2. **Sanity-check transition state**: read `sdd/config.yml`. If the file is missing entirely, create it from the template with `mode: interactive`, `enforce_tdd: false`, `transition: true` and continue (recover quietly - the triage queue is the authoritative state, config.yml is regenerable). If the file exists but lacks `transition: true` while open items exist in `sdd/init-triage.md`, set it back to `true`. If `transition: true` is set but `sdd/init-triage.md` is missing or unreadable, abort with: `Error: sdd/config.yml has transition: true but sdd/init-triage.md is missing. Either restore the triage file from git history or remove transition: true manually before re-running /sdd init.`
 
 3. **Read `sdd/init-triage.md`**, collect items with `**Status:** open` in file order. Report queue size: `{N} open items in triage queue. Press [q] at any prompt to quit; progress is committed after each decision.`
 
@@ -443,12 +445,12 @@ Triggered when `/sdd init` is invoked on a project where `sdd/` already exists a
 
 8. **Transition-closure check** runs after every resolved/lost decision. When zero `**Status:** open` items remain:
    - Clear `transition: true` from `sdd/config.yml`
-   - **Flip `enforce_tdd: true`** in the same edit — the spec is now real and test coverage enforcement should apply on the next push (the import-time `enforce_tdd: false` was only a transition-window concession)
-   - Append to `sdd/changes.md`: `## YYYY-MM-DD\n- SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost). Full SDD discipline now applies; enforce_tdd flipped to true; autonomous agentic development unlocked.`
+   - Append to `sdd/changes.md`: `## YYYY-MM-DD\n- SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost). Full SDD discipline now applies; autonomous agentic development unlocked.`
+   - Note: `enforce_tdd` is NOT auto-flipped. The user flips it manually when ready for TDD enforcement (typically after adding `Implements REQ-X-NNN` annotations and REQ-ID test names to the imported source). The import-time `enforce_tdd: false` stays in effect until the user changes it.
    - Print:
      ```
      ✓ Triage queue drained. SDD transition complete.
-     ✓ enforce_tdd flipped to true; full SDD discipline applies on the next push.
+     ✓ Full SDD discipline applies on the next push.
      ✓ Autonomous agentic development is unlocked.
 
      sdd/init-triage.md preserved as audit record.
@@ -522,9 +524,8 @@ Refactor a rotted spec. Mode-aware.
    - `--scope=all` (default) scans the entire `sdd/` + `documentation/` corpus
    - `--scope=diff` limits the scan to files changed in `git diff origin/main...HEAD` (the open PR's delta). Use this when invoked from a PR context to keep the cleanup proportional to the review.
 3. **Validate working tree**: refuse if `git status --porcelain` is non-empty
-4. **In `auto` mode**: refuse if current branch is `main` or `master` without `--branch-confirmed`
-5. **In `unleashed` mode**: push directly to the current branch (no new branch, no PR); refuse to run on `main`/`master` without `--branch-confirmed`
-6. **Scan for findings** (across the resolved scope from step 2):
+4. **Branch responsibility**: `auto` and `unleashed` modes push to whatever branch is currently checked out. The user is responsible for checking out the right branch before invoking - if commits land on `main`/`master`, that's a user-side branch choice, not an enforcement layer.
+5. **Scan for findings** (across the resolved scope from step 2):
    - Strikethrough text in REQs (LOW)
    - Prose Status fields (LOW)
    - Implementation leakage in REQs per allowlist (LOW)
@@ -540,7 +541,7 @@ Refactor a rotted spec. Mode-aware.
    - **Out-of-Scope collisions**: spec-reviewer's Phase 2 check #16 written to `.review-needed.md`. `/sdd clean` proposes resolution per finding: either remove the Out-of-Scope bullet (the feature shipped) or move the REQ to "Out of Scope" / mark Deprecated. (MEDIUM, JUDGMENT — confirm with user in interactive mode; in auto, surface a one-line proposal per collision and let user pick; in unleashed, default-keep the shipped REQ and remove the Out-of-Scope bullet.)
    - **Orphan / aged hatch markers**: `<!-- sdd-allow-large -->` and `<!-- doc-allow-large -->` markers flagged by spec-reviewer Phase 2 #18 and doc-updater Pass 6. Bare markers rewritten to `: TODO open ADR`; orphan ADR references prompt the user to file an ADR or remove the hatch; aged-Accepted reminders are surfaced for revisit. (LOW/MEDIUM/HIGH per the audit table.)
    - False-positive ADRs in `documentation/decisions/` per `documentation-discipline.md` "What is NOT an ADR" (MEDIUM, AUTO-RECLASSIFY in `auto`/`unleashed`): static-analyzer accommodations move to inline source comments + `documentation/troubleshooting.md` if recurring; naming/spelling-compat notes move to `documentation/configuration.md`; risk-acceptance with no alternative considered moves to `documentation/security.md`; implementation-notes-as-decisions are deleted or moved to `pending.md`. The original `### AD-N:` heading is preserved as a `Status: Reclassified on YYYY-MM-DD` stub so inbound `AD-N` references keep resolving. Findings on entries already carrying `Status: Reclassified` or `Status: Merged into` are suppressed.
-6a. **Migrate legacy `sdd/.user-overrides.md` to ADRs** (one-time, runs before any other apply step):
+5a. **Migrate legacy `sdd/.user-overrides.md` to ADRs** (one-time, runs before any other apply step):
     - For each entry block keyed by `## {rule_id}:{target_id}`, generate a new ADR file at `documentation/decisions/AD{N}-{slug-of-rule-id}-{lowercased-target-id}.md` where `{N}` is the next available AD number (read `documentation/decisions/README.md` for the highest existing AD ID and increment).
     - ADR template:
       ```markdown
@@ -563,14 +564,14 @@ Refactor a rotted spec. Mode-aware.
     - Delete `sdd/.user-overrides.md` in the same commit.
     - Tag the commit `[sdd-clean] migrate user-overrides to ADRs (issue codeflare#266)` so spec-reviewer's round-counter excludes it.
     - The TODO placeholders in the ADRs are intentional — the user fills them on first review. Until then, the `Overrides:` header is fully active and spec-reviewer/doc-updater respect it.
-7. **Apply per mode**:
+6. **Apply per mode**:
    - **interactive**: report findings batch by batch, ask confirmation
    - **auto**: apply SAFE + RISKY silently, escalate JUDGMENT to `sdd/.review-needed.md`
    - **unleashed**: apply SAFE + RISKY + JUDGMENT (conservative defaults), commit per category, push directly to current branch
-8. **All commits tagged `[sdd-clean]`** to bypass spec-reviewer's round-detection
-9. **Backup before destructive ops**: archive `changes.md` to `changes-archive-YYYY-MM.md` before truncating
-10. **Write `sdd/.last-clean-run.md`** with full audit log
-11. **In unleashed mode**, each commit message includes its audit log excerpt so the user can review per-category when they return (also see `sdd/.last-clean-run.md`)
+7. **All commits tagged `[sdd-clean]`** to bypass spec-reviewer's round-detection
+8. **Backup before destructive ops**: archive `changes.md` to `changes-archive-YYYY-MM.md` before truncating
+9. **Write `sdd/.last-clean-run.md`** with full audit log
+10. **In unleashed mode**, each commit message includes its audit log excerpt so the user can review per-category when they return (also see `sdd/.last-clean-run.md`)
 
 ### Conservative JUDGMENT auto-resolution (unleashed only)
 

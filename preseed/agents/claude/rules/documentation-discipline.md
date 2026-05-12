@@ -375,7 +375,7 @@ doc-updater scans every section heading and first paragraph for likely-feature c
 Same rules as spec-reviewer (see `spec-discipline.md` "Working tree and branch safety"):
 
 1. Working tree must be clean before any agent-driven write
-2. In `auto` and `unleashed` modes, refuse to run on `main` or `master` without `--branch-confirmed`
+2. In `auto` and `unleashed` modes, push to whatever branch is currently checked out; user is responsible for checking out the right branch first
 
 ## Files that live alongside `documentation/`
 

@@ -61,7 +61,7 @@ test -d sdd && test -f sdd/README.md
 
 ```bash
 IN_TRANSITION=0
-if grep -q '^transition: true' sdd/config.yml 2>/dev/null \
+if grep -q '^transition:[[:space:]]*true' sdd/config.yml 2>/dev/null \
    && [ -f sdd/init-triage.md ] \
    && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' sdd/init-triage.md 2>/dev/null; then
   IN_TRANSITION=1
@@ -88,10 +88,11 @@ Scan `documentation/decisions/**/*.md` for `**Overrides:** {rule_id}:{target_id}
 ### Step 0d: Round counter (anti-spiral)
 
 ```bash
-git log -3 --format="%s" 2>/dev/null
+git log -3 --format="%H %s" 2>/dev/null
+git log -3 --name-only --format="--- %H %s" 2>/dev/null
 ```
 
-Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[unleashed]`. Excluded prefixes (do NOT count toward the limit): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]` -- same exclusion list spec-reviewer uses, so first-after-transition doc work is not blocked by the spiral detector. If ≥2 of the last 3 (non-excluded) commits are tagged AND target the same documentation file: hard stop. Write findings to `sdd/.review-needed.md`. Exit code 0.
+Count commits whose subject starts with `[doc-updater]`, `[autonomous]`, or `[unleashed]` **AND** that touched at least one path under `documentation/`. Commits that touched only `sdd/` or only source code do NOT count toward the doc-updater round counter (those are spec-reviewer's or code-reviewer's domain - path-based discrimination keeps each agent's spiral guard scoped to its own lane). Excluded prefixes regardless of paths (do NOT count toward the limit): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]` -- same exclusion list spec-reviewer uses, so first-after-transition doc work is not blocked by the spiral detector. If ≥2 of the last 3 qualifying commits target the same documentation file: hard stop. Write findings to `sdd/.review-needed.md`. Exit code 0.
 
 ### Step 0e: Diff classification
 
@@ -353,11 +354,10 @@ For each finding (HIGH first):
 2. Defer LOW findings (audience tags, footers, format) to later cleanup
 3. Doc-vs-spec conflicts: write to `sdd/.review-needed.md`, do not auto-resolve
 4. Commit per category with `[autonomous] [doc-updater]` prefix
-5. Refuse to run on `main`/`master` without `--branch-confirmed`
 
 ### Mode: unleashed
 
-1. Stay on the current branch. Refuse to run on `main`/`master` without `--branch-confirmed`.
+1. Stay on the current branch.
 2. Auto-fix all findings including LOW
 3. Auto-resolve doc-vs-spec conflicts conservatively: mark both sides as needing review (mark the doc with a warning block, mark the REQ via spec-reviewer's mechanism). **Never overwrite intent on either side.**
 4. Commit per category with `[unleashed] [doc-updater]` prefix

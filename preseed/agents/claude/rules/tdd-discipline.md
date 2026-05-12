@@ -334,6 +334,7 @@ HIGH (real coverage gap):
 MEDIUM (test-quality smell, weaker coverage):
 - `expect(spy).toHaveBeenCalledTimes(N)` without paired output assertion
 - `it.skip` / `xit` / `describe.skip` without a justification comment
+- Test name lies about what's asserted (antipattern 8) - pairs with spec-discipline CQ-1 (`req-test-name-only-match`) at the same severity
 
 `tdd-guide` agent writes tests in this style by default and refuses
 to produce text-matching theater.
