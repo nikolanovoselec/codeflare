@@ -448,8 +448,6 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 
 ### AD44: SDD three-mode autonomy with conservative JUDGMENT resolution
 
-**Status:** Accepted (2026-05-09). **Partially superseded by AD51 (2026-05-12):** the `Implements REQ-X-NNN` annotation convention (Consequences) and the `Overrides: {rule_id}:{REQ-ID}` ADR-based user-override mechanism (Trade-offs) are removed. Test-name-based REQ-ID matching is the load-bearing coverage signal; there is no per-rule bypass. The rest of AD44 (three autonomy modes, conservative JUDGMENT resolution, universal enforcement layer) stands.
-
 **Category:** Architecture
 
 **Decision:** Codeflare ships SDD (Spec-Driven Development) as a Pro feature with three autonomy modes (`interactive`, `auto`, `unleashed`), with a universal enforcement layer (`rules/spec-discipline.md`) inlined into every agent's instructions, and conservative JUDGMENT auto-resolution that never overwrites spec intent. The spec-reviewer and doc-updater agents are project-agnostic and detect `sdd/` automatically.
@@ -484,12 +482,10 @@ The recovery applies at both call sites: `establish_bisync_baseline()` (startup)
 - **2-round commit-cycle limit** with `[sdd-clean]` tag exclusion catches micro-fix spirals without crashing the rescue command itself.
 - **`enforce_tdd` rule** (renamed from `auto_demote`, default `true`): spec-reviewer auto-demotes `Implemented` REQs without test coverage to `Partial`, detects `Planned`/`Partial` REQs whose source code exists but has no corresponding test (code-without-test finding), and runs test-quality heuristics (AC-count vs test-count ratio, tautology detection, skipped-test detection) on every push. Forced `true` in unleashed mode where the PR review is the safety net.
 - **Plan Mode mandate**: `/sdd init`, `/sdd edit`, and `/sdd add` emit `EnterPlanMode` directives so spec-to-code transitions always go through Plan Mode (a built-in Claude Code primitive). The `/plan` custom slash command is removed — Plan Mode replaces it.
-- **`Implements REQ-X-NNN` annotation convention**: source files must carry a comment naming the REQ they implement (e.g., `// Implements REQ-AUTH-001`). spec-reviewer greps for these annotations when running coverage checks; they are the bridge between source code and the spec.
 - **Template scaffolding** in `references/templates/` lets `/sdd init` bootstrap any project with no external dependencies.
 
 **Trade-offs accepted:**
 
-- The unleashed mode's conservative defaults will sometimes mark a REQ as `Partial` when the user knows it's `Implemented` (e.g., visual design REQs without unit tests). The user records the override as a new ADR with an `Overrides: {rule_id}:{REQ-ID}` header and it's not re-attempted.
 - The PR-based safety net adds friction for users who want true zero-touch (the PR has to be merged manually). Acceptable trade-off for the rollback story.
 - The forbidden-content allowlist requires per-project tuning for projects that legitimately use vendor names, protocol names, or HTTP status codes in their REQs. Configurable via `sdd/config.yml`.
 
