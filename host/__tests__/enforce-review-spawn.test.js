@@ -554,6 +554,37 @@ describe('enforce-review-spawn.sh — fail-safe behavior', () => {
       'not silently disable enforcement via awk string comparison');
   });
 
+  it('classifies non-fractional agent timestamp before fractional push as stale (regression for strip_frac double-Z bug)', () => {
+    // Pins the fix for the awk strip_frac bug. When the push timestamp
+    // carries fractional seconds but an agent spawn timestamp does not,
+    // a buggy strip_frac would append a redundant Z to the non-fractional
+    // value ("2026-05-03T11:59:59Z" -> "2026-05-03T11:59:59ZZ"), which
+    // sorts lexicographically GREATER than the normalized push ts
+    // "2026-05-03T12:00:00Z". The hook would then treat the earlier
+    // agent spawn as if it occurred after the push, silently disabling
+    // enforcement.
+    //
+    // Expected behaviour: the three review agents have NO post-push
+    // spawn record, so the hook must BLOCK and emit a directive naming
+    // the missing agents.
+    const cwd = makeFixture();
+    withSdd(cwd);
+    const binDir = fakeGh(cwd, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(cwd, [
+      AGENT_LINE('code-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_cr'),
+      AGENT_LINE('spec-reviewer', '2026-05-03T11:59:59Z', 'toolu_stale_sr'),
+      AGENT_LINE('doc-updater', '2026-05-03T11:59:59Z', 'toolu_stale_du'),
+      PUSH_LINE('2026-05-03T12:00:00.500Z'),
+    ]);
+    const r = runHook(cwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'stale non-fractional agent spawns must not be promoted to "after push" by strip_frac');
+    assert.match(r.stdout, /code-reviewer/);
+    assert.match(r.stdout, /spec-reviewer/);
+    assert.match(r.stdout, /doc-updater/);
+  });
+
   it('does not match "git push" inside echo strings (regression for substring false-positive)', () => {
     // This test pins the fix for the PUSH_LINE substring bug.
     // A Bash command that mentions "git push" inside an echo (not as

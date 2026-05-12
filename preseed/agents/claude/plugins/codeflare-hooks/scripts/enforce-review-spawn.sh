@@ -352,10 +352,15 @@ spawned_after_push() {
   awk -v t="$PUSH_TS" -v a="$agent" '
     function strip_frac(s,    out) {
       out = s
-      sub(/\.[0-9]+(Z|[+-][0-9:]+)$/, "", out)
-      # Re-append the trailing tz suffix that the substitution stripped
-      if (match(s, /(Z|[+-][0-9:]+)$/)) {
-        out = out substr(s, RSTART, RLENGTH)
+      # Only re-append the tz suffix when sub actually stripped a
+      # fractional portion. awks sub returns 1 on match, 0 otherwise.
+      # Without the gate, a no-fractional input like "2026-05-12T18:25:30Z"
+      # would re-append Z to itself, producing "2026-05-12T18:25:30ZZ"
+      # which sorts greater than its fractional-equivalent neighbour.
+      if (sub(/\.[0-9]+(Z|[+-][0-9:]+)$/, "", out)) {
+        if (match(s, /(Z|[+-][0-9:]+)$/)) {
+          out = out substr(s, RSTART, RLENGTH)
+        }
       }
       return out
     }
