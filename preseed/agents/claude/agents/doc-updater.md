@@ -263,9 +263,7 @@ For every `**Implements:** REQ-X-NNN` or `**Implements:** REQ-X-NNN AC N` field,
 | (b') generic REQ context but cites a specific AC | MEDIUM `implements-field-too-narrow` | strip AC suffix, cite the REQ alone |
 | (c) section describes behavior absent from every AC of the linked REQ | HIGH `implements-field-mismatched` | replace with the suggested REQ (LLM pick) or `audit pending`; log to `.doc-coverage.md` |
 
-**LLM path** (preferred): one structured-output call per failing field. Input = doc section + REQ Intent + all AC bullets. Output schema = `{ classification, matched_ac, confidence, suggested_req, reasoning }`. Confidence floor 0.7; below that, emit MEDIUM `implements-field-low-confidence` rather than auto-rewriting. Use the project's configured `consult-llm` provider.
-
-**Deterministic fallback** (no LLM key configured): token overlap between section body and each AC bullet (≥3 content-word matches → (a) with that AC; only Intent matches → (b); nothing matches → MEDIUM `implements-field-needs-llm-audit`, never auto-HIGH). The deterministic path under-flags rather than over-rewrites — HIGH `mismatched` is LLM-only.
+You make the call by reading the doc section, the REQ Intent, and every AC bullet of the linked REQ. If multiple ACs plausibly match or the section straddles AC and Intent, emit MEDIUM `implements-field-low-confidence` rather than auto-rewriting. HIGH `implements-field-mismatched` (case c) is reserved for cases you are confident are mismatches. Under-flag rather than over-rewrite.
 
 ### Pass 9 — Stale code-block detection
 
@@ -302,7 +300,7 @@ Three outcomes:
 - **Some clauses are context-loss but a natural relocation target exists** → promote the clause to that target with a leading marker `Trimmed from {bullet/section} on {date}:`, then commit the trim. The commit body reports `trimmed N; preserved K; promoted M to {target}`.
 - **Clauses are context-loss with no relocation target** → REVERT the trim. Leave the over-cap bullet in place and emit MEDIUM `trim-would-lose-load-bearing-content` listing the bullet location and at-risk clauses. The cap violation persists, but the content is preserved. The operator splits, promotes, or writes an ADR.
 
-Deterministic baseline: tf-idf token overlap with 0.4 cosine floor — no embedding dependency required. Projects may upgrade to an `embedding_model` configured in `sdd/config.yml`.
+You decide "context-loss" by reading both the removed text and the candidate kept locations. A clause is context-loss when its specific subject (a function name, a constraint, a load-bearing example) does not appear elsewhere. A clause is safe to drop when its content is paraphrased or restated nearby.
 
 ### Pass 12 — Stranger cold-read
 

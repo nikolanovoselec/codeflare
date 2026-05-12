@@ -265,18 +265,16 @@ Severity: MEDIUM. Auto-fix in `auto`/`unleashed`: rewrite the failing field to `
 
 ### Pass 8 — Implements-vs-AC cross-walk
 
-For every `**Implements:** REQ-X-NNN` (or `REQ-X-NNN AC N`) field in a doc section, read the linked REQ's Intent and AC bullets from `sdd/{domain}.md` and classify the doc section's relationship to that REQ using a single-shot structured-output LLM call (provider follows the project's `consult-llm` config; falls back to deterministic keyword overlap when no LLM key is available):
+For every `**Implements:** REQ-X-NNN` (or `REQ-X-NNN AC N`) field in a doc section, read the linked REQ's Intent and AC bullets from `sdd/{domain}.md` and classify the doc section's relationship to that REQ. The agent makes the call by reading both sides:
 
 | Classification | Severity | Auto-fix |
 |---|---|---|
 | (a) Section describes a specific AC's behavior, and the linked AC matches | (no finding) | Accept. |
 | (b) Section describes generic REQ context (intent paragraph, cross-cutting behavior), not a specific AC, and the field cites the REQ without an AC suffix | (no finding) | Accept (the bare-REQ form is the correct shape for cross-AC context). |
 | (b') Section describes generic REQ context but the field cites a specific AC (`REQ-X-NNN AC N`) | MEDIUM `implements-field-too-narrow` | Strip the AC suffix; cite the REQ alone. |
-| (c) Section describes behavior outside any AC of the linked REQ | HIGH `implements-field-mismatched` | Replace cited REQ with the LLM's suggested REQ ID (or `audit pending` if no candidate scores above the confidence floor); log to `.doc-coverage.md` with the LLM's reasoning. |
+| (c) Section describes behavior outside every AC of the linked REQ | HIGH `implements-field-mismatched` | Replace cited REQ with the better-matching REQ ID if the agent can identify one; otherwise mark `audit pending` and log to `.doc-coverage.md`. |
 
-The LLM call receives: (i) the doc section verbatim, (ii) the REQ's Intent block, (iii) every AC bullet of the REQ. Output schema: `{ classification: 'a'|'b'|'b_prime'|'c', matched_ac: number|null, confidence: 0..1, suggested_req: string|null, reasoning: string }`. Confidence floor 0.7; below that, defer to MEDIUM `implements-field-low-confidence` rather than auto-rewriting.
-
-Deterministic fallback (no LLM key): compute token overlap between the doc section's body and each AC bullet, plus the REQ Intent. If the highest-scoring AC overlaps by ≥3 content words (≥4 chars, stopwords excluded), accept as (a) and emit the matched AC number. If only the Intent matches and no AC scores above the floor, accept as (b). Otherwise emit MEDIUM `implements-field-needs-llm-audit` rather than HIGH — the deterministic path under-flags rather than over-rewrites.
+If the agent is uncertain — multiple ACs plausibly match, or the section straddles AC and Intent — it emits MEDIUM `implements-field-low-confidence` rather than auto-rewriting. HIGH `implements-field-mismatched` (case c) is reserved for cases the agent is confident are mismatches. The rule of thumb: under-flag rather than over-rewrite.
 
 ### Pass 9 — Stale code-block detection
 
@@ -314,7 +312,7 @@ Three outcomes:
 - **Some clauses are context-loss but a natural relocation exists** (an adjacent `**Rationale:**` paragraph, an ADR body, a parent section's prose): the agent promotes the clause — appends it to the relocation target with a leading marker `Trimmed from <bullet/section> on <date>:` — and then commits the trim. The agent's commit body lists `trimmed N clauses; preserved K in-place; promoted M to {target}`.
 - **Clauses are context-loss with no relocation target**: the trim is REVERTED. The agent leaves the over-cap bullet in place and emits MEDIUM finding `trim-would-lose-load-bearing-content` listing the bullet location and the at-risk clauses. The cap is violated, but the content is preserved — the operator decides whether to split the bullet, promote inline, or write an ADR.
 
-The deterministic implementation uses tf-idf token overlap with a 0.4 cosine floor (no embedding model required for the baseline). Projects with `embedding_model` configured in `sdd/config.yml` may upgrade to the embedding path, but the default is dependency-free.
+The agent decides "context-loss" by reading both the removed text and the candidate kept locations. A clause is context-loss when its specific subject (the function name, the constraint, the example) does not appear in any of the candidate locations. A clause is safe to drop when its content is paraphrased or restated nearby.
 
 Severity: MEDIUM as a finding on the auto-trim itself when the revert path fires. No finding when promotion succeeds (the agent's commit body is the audit trail).
 

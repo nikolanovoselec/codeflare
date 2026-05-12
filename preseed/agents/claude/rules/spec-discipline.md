@@ -305,6 +305,77 @@ The Stop hook deliberately under-blocks (lets a push through unreviewed) rather 
 
 DRAFT PRs (`gh pr view` reports `state: OPEN` for drafts) are treated as fully open. Drafts often want early feedback, and silently skipping review on them would surprise users whose draft is the de-facto review target. Users who want a review-free WIP should defer the PR open until ready, or use a per-push USER bypass.
 
+## Content-quality checks (CQ-1 through CQ-6)
+
+The rules above are **structural** — they ask "does this REQ have the right shape, the right fields, the right length?" CQ-1..CQ-6 are **content-quality** — they ask "does this REQ say what it claims, and can a stranger use it?" Same shape of gap that motivated doc-discipline Passes 7-12; same shape of fix.
+
+A spec can satisfy every structural check (zero findings) and still ship:
+
+- REQs marked `Implemented` whose only tests mention the REQ ID in a comment but assert unrelated behavior
+- Source files annotated `// Implements REQ-X-NNN` that don't actually implement any AC of that REQ
+- AC bullets naming vendor products or external interfaces no longer present in the source
+- One ADR carrying `<!-- sdd-allow-large -->` markers across multiple REQ files for unrelated reasons
+- Shrink-in-place edits that satisfy a length cap by dropping load-bearing AC clauses
+- REQs whose Intent paragraph is technically present but reads as a feature list, so a fresh reader can't articulate what the feature buys the user
+
+CQ checks run on every PR-boundary spec-reviewer trigger, after the structural checks. Mode-dependent action mirrors the structural checks: `interactive` confirms, `auto` applies CRITICAL+HIGH+MEDIUM and defers LOW, `unleashed` applies everything.
+
+### CQ-1 — REQ-test truth-check
+
+For every REQ marked `Status: Implemented`, walk every test file (per `test_globs`) that contains the REQ ID literally. The REQ-ID mention must satisfy both:
+
+1. It appears in the name of a `describe` / `test` / `it` block (or the language equivalent — `def test_`, `t.Run("...")`, etc.) — not just a code comment, not just a fixture filename.
+2. At least one assertion in that block references content that the REQ's ACs describe — by symbol name, by user-observable string, or by behavior the AC names.
+
+A REQ whose only test cites the REQ ID in a code comment, in a fixture path, or in a test that asserts unrelated behavior (`expect(result.length > 0)` under a test named after the REQ) is name-drop, not coverage. Emit MEDIUM `req-test-name-only-match` naming the REQ, the cited files, and the AC bullet that has no test referencing its observable behavior. No auto-fix — writing a real test is authoring work for `tdd-guide` or the developer.
+
+### CQ-2 — Source-annotation-vs-AC cross-walk
+
+For every source file containing `// Implements REQ-X-NNN` (or the language-equivalent comment from the source-annotation registry), read the linked REQ's ACs and decide:
+
+- The file implements at least one AC's observable behavior, or provides shared infrastructure consumed by ACs of that REQ → accept.
+- The file's actual behavior — what its exported symbols do, what its callers expect — sits entirely outside every AC of the linked REQ → HIGH `source-annotation-mismatched`. The agent reports its best alternative REQ ID if one exists, otherwise `audit pending`. The user (not the agent) moves the annotation or files a missing REQ.
+
+If the agent is uncertain — the file is generic infrastructure that touches the REQ's ACs only via several layers of indirection — emit MEDIUM `source-annotation-low-confidence` rather than HIGH. Under-flag rather than over-rewrite.
+
+### CQ-3 — Vendor / external-interface drift
+
+REQ ACs may reference external products and protocols (`Cloudflare Access`, `Stripe`, `OAuth 2.0`, `WCAG 2.1 AA`, ...) per the existing allowlist. For every allowlisted vendor/protocol token appearing in an `Implemented` REQ's AC bullets, the agent must find at least one mention of the same token in source (case-insensitive, allowing reasonable variants — `cf_access` counts for `Cloudflare Access`). If no source mention exists, emit MEDIUM `vendor-reference-orphaned-in-spec` naming the REQ, the AC bullet, and the orphan token.
+
+This catches "AC mentions Stripe Checkout but the codebase removed Stripe six months ago." Spec passes structurally, ships a lie about reality. The remediation is either delete/update the AC (integration removed) or restore the source (integration lost). No auto-fix — the agent can't disambiguate.
+
+### CQ-4 — `<!-- sdd-allow-large -->` catch-all detection
+
+Mirror of doc-discipline Pass 10 applied to `sdd/`. Count `<!-- sdd-allow-large: AD-NN ... -->` references per ADR across `sdd/{domain}.md` files. If one ADR carries more than three distinct markers across more than one file, flag MEDIUM `sdd-hatch-catch-all`.
+
+The finding lists the ADR ID, the marker locations, and a short excerpt of the prose immediately around each marker so the operator can read them side-by-side. The resolution is either to enumerate the cases in the ADR's `**Decision:**` section (genuinely one decision covering all cases) or to split the ADR into per-case ADRs (genuinely different decisions). No auto-fix — that's authoring judgment.
+
+### CQ-5 — Content-preservation on shrink and split
+
+The "Shrink in place — never split" rule and the run-on AC bullet split rule both delete content. Before committing either edit in `auto` or `unleashed` mode, the agent must check that nothing load-bearing is lost.
+
+Tokenize the **removed** clauses. For each removed clause, the agent asks itself: does the specific subject of this clause — the named function, the named constraint, the load-bearing example — appear in any of the candidate kept locations (the kept body of the REQ, surrounding ACs, the REQ Intent, the doc file the prose is being moved to, the linked ADR body)? A clause that does **not** appear elsewhere is context-loss.
+
+Three outcomes:
+
+- All removed clauses match elsewhere → commit the edit.
+- Context-loss with a natural relocation target (a doc file, an ADR body, an adjacent paragraph) → promote the clause to that target with a leading `Trimmed from REQ-X-NNN on YYYY-MM-DD:` marker, then commit the edit.
+- Context-loss with no relocation target → REVERT the edit, emit MEDIUM `shrink-would-lose-load-bearing-content` listing the REQ, the edit, and the at-risk clauses. The length-cap violation persists, but the content is preserved.
+
+### CQ-6 — REQ Intent cold-read
+
+For each domain file in `sdd/`, the agent dispatches a fresh subagent (`general-purpose`, NOT spec-reviewer — must come in cold without project context) with only that one domain file's contents and a simulated task. For every `sdd/{domain}.md` the task is:
+
+> "Pick three REQs in this file. For each, write one sentence describing what the user can do (or what the system guarantees the user) because this REQ exists. If you can't, say which REQ left you stranded and what information you'd need."
+
+For `sdd/README.md` the task is:
+
+> "What is the product? What's the single most important constraint it operates under? Output both in one sentence each."
+
+The subagent reports `succeeded`, `partial`, or `failed`. Partial and failed → MEDIUM `req-intent-cold-read-gap` naming the specific REQ and the load-bearing information the Intent paragraph failed to surface (typically: Intent reads as a feature list and omits the user-problem framing). No auto-fix — Pass surfaces the gap; the user (or `unleashed` mode in a follow-up commit) writes Intent prose.
+
+This is the only check in the framework that answers "is this REQ readable by a stranger?" Every other check answers a shape question.
+
 ## Severity classification on findings
 
 Both `spec-reviewer` and `doc-updater` agents tag every finding with severity:

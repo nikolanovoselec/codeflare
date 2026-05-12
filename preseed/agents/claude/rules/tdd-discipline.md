@@ -224,6 +224,42 @@ expect(Array.isArray(body.users)).toBe(true);  // body came from a real handler
 expect(body.users[0]).toHaveProperty('id');
 ```
 
+### 8. Test name lies about what's asserted
+
+A test whose name claims behavior X but whose assertions check unrelated Y. The test runs, the assertions pass, the dashboard turns green — but the named behavior is never exercised. This is the most insidious antipattern because every prior check (the test has a name, it has an assertion, the assertion can fail) is satisfied.
+
+```js
+// BAD: name says "rejects expired JWT", assertion checks string length
+it('rejects expired JWT', async () => {
+  const result = await validateToken(expiredJwt);
+  expect(result.length).toBeGreaterThan(0);  // wat
+});
+
+// BAD: name says "returns 403 for unauthorized user", assertion checks the mock
+it('returns 403 for unauthorized user', async () => {
+  await routeHandler(unauthorizedReq);
+  expect(mockAuth).toHaveBeenCalled();  // does not check the 403
+});
+```
+
+```js
+// GOOD: assertion matches the named behavior
+it('rejects expired JWT', async () => {
+  const result = await validateToken(expiredJwt);
+  expect(result.valid).toBe(false);
+  expect(result.reason).toBe('expired');
+});
+
+it('returns 403 for unauthorized user', async () => {
+  const response = await routeHandler(unauthorizedReq);
+  expect(response.status).toBe(403);
+});
+```
+
+Detection: the reviewer reads the test name as a one-sentence behavioral contract, then reads the assertions, and asks: "if this implementation is correct and the named behavior is broken — say `validateToken` returns `{ valid: true }` for an expired JWT — does at least one assertion in this test fail?" If the answer is no, the test name lies.
+
+This subsumes a narrower case the existing antipatterns miss: a test named `it('REQ-AUTH-001: rejects expired token', ...)` that satisfies the literal REQ-ID-in-test-name rule from spec-discipline but doesn't actually verify the AC. Pairs naturally with the spec-discipline CQ-1 (REQ-test truth-check) — same gap, two sides.
+
 ## Patterns that produce useful tests
 
 ### Run the real thing

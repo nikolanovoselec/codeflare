@@ -273,6 +273,15 @@ Flag at MEDIUM severity:
   `assert.match(content, /file\.md.*350/)` breaks on whitespace
   changes, table reformatting. Prefer structural extraction or
   anchor on stable boundaries separately.
+- **Test name lies about what's asserted** — a test named
+  `it('rejects expired JWT', ...)` whose body asserts
+  `expect(result.length > 0)` or `expect(mockAuth).toHaveBeenCalled()`.
+  The named behavior is never exercised. Read the test name as a
+  one-sentence contract, read the assertions, ask: "if the implementation
+  is correct but the named behavior is broken, does at least one
+  assertion fail?" If no, the test name lies. Especially insidious for
+  tests named after a REQ ID — they satisfy the spec-discipline source-vs-
+  test literal-match rule (CQ-1) but verify nothing the REQ promises.
 
 ```javascript
 // BAD: text-matching theater — passes on any file containing the word
