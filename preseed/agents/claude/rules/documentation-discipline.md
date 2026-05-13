@@ -23,8 +23,8 @@ Every clean / PR-boundary run MUST emit a manifest with one row per pass. Audit 
 | Pass 3 — Implementation-prose detection | Walk every doc file; flag AC-shaped paragraphs that belong in `sdd/`. | `ran (K files, M findings)` |
 | Pass 4 — Lane-violation detection | Walk every doc file against signature catalogue. | `ran (K files, M findings)` |
 | Pass 5 — Format-template field presence | Walk every section in canonical lane files; verify required fields. Includes TOC content rule and index-table link rule. | `ran (S sections, M findings)` |
-| Pass 6 — File-level shape consistency | Verify against declared doc-shape marker; flag deviant sections. | `ran (K files, M findings)` |
-| Pass 7 — Canonical per-endpoint rendering | For any `documentation/api-reference*.md`, verify each endpoint section matches the binding template. | `ran (E endpoints, M findings)` or `inert (no api-reference*.md)` |
+| Pass 6 — File-level shape consistency | Verify each lane file against the shape expected from the per-lane format templates table (filename-resolved); flag deviant sections. | `ran (K files, M findings)` |
+| Pass 7 — Canonical per-endpoint rendering | For `documentation/api-reference.md`, verify each endpoint section matches the binding template. | `ran (E endpoints, M findings)` or `inert (api-reference.md absent)` |
 | Pass 8 — Verification truth-check | For every `**Verification:**` field, open cited test file and verify REQ ID + content-word match. | `ran (V fields, F files, M findings)` |
 | Pass 9 — Implements-vs-AC cross-walk | For every `**Implements:**` field, read linked REQ; classify section-vs-AC. | `ran (I fields, M findings)` |
 | Pass 10 — Stale code-block detection | For every fenced block / route / signature / JSON / env var ref, resolve against `src_globs`. | `ran (B blocks, M findings)` |
@@ -68,8 +68,7 @@ Pass 12 caches on commit SHA + file mtime. When warm, the agent records `ran (ca
 | `documentation/deployment.md` | 200 | LOW (200-350) / MEDIUM (350-500) / HIGH (>500) |
 | `documentation/security.md` | 250 | LOW (250-400) / MEDIUM (400-600) / HIGH (>600) |
 | `documentation/troubleshooting.md` | 300 | LOW (300-500) / MEDIUM (500-800) / HIGH (>800) |
-| `documentation/decisions/<adr>.md` | 100 per ADR | LOW (100-150) / MEDIUM (150-250) / HIGH (>250) |
-| `documentation/decisions/README.md` | 300 (index-only) | MEDIUM (300-500) / HIGH (>500) |
+| `documentation/decisions/README.md` | No soft budget | ADR ledger grows monotonically; use `doc-allow-large` hatch with an AD reference for any size-related finding |
 | Other files in `documentation/` | 250 | LOW (250-400) / MEDIUM (400-600) / HIGH (>600) |
 
 **File-level exemption marker.** A `<!-- doc-allow-large: AD-NN reason -->` HTML comment in the file's preamble (after H1, before first `##`) exempts that file from its Pass 2 budget. The `AD-NN` reference is required; Pass 4 verifies the cited ADR exists. Multiple markers allowed. When marker is present but the cited ADR does NOT exist → MEDIUM `doc-allow-large-ad-missing`. Element-level markers from Pass 1 do NOT exempt from Pass 2.
@@ -94,32 +93,7 @@ Pass 12 caches on commit SHA + file mtime. When warm, the agent records `ran (ca
 | `deployment.md` | Deploy commands, CI workflow names, rollback, secret rotation | API contracts, env documentation (link to configuration.md) |
 | `security.md` | Threat model, auth flow, cookie/header policies, rate limits | Per-endpoint auth (link to api-reference.md) |
 | `troubleshooting.md` | Symptom → cause → fix recipes, build-tool quirks, runtime gotchas | Architecture, env vars, deploy (link) |
-| `decisions/<adr>.md` | One ADR each | Anything not specific to that decision |
-| `decisions/README.md` | ADR index table only — one row per ADR with link to the AD file | ADR body content |
-
-## Declared doc-shape (binding preamble marker)
-
-Each canonical lane file MUST declare its rendering shape in a preamble HTML comment immediately after the H1, before the first `##` section:
-
-```
-<!-- doc-shape: per-endpoint -->
-<!-- doc-shape: per-runbook -->
-<!-- doc-shape: per-policy -->
-<!-- doc-shape: per-decision -->
-<!-- doc-shape: per-reference -->
-```
-
-| Shape value | Canonical lane file |
-|---|---|
-| `per-endpoint` | `api-reference*.md` |
-| `per-runbook` | `deployment.md` |
-| `per-policy` | `security.md` |
-| `per-decision` | `decisions/<adr>.md` (single-AD files) |
-| `per-reference` | `architecture.md`, `configuration.md`, `troubleshooting.md` |
-
-Pass 6 enforces consistency **against the declared shape**, not against the file's first section. A file missing the doc-shape marker is MEDIUM `doc-shape-marker-missing`, auto-fixed by inferring from the dominant section pattern (≥60% of sections match one shape → that shape; otherwise first-section-wins tiebreak). A file whose sections deviate from the declared shape is MEDIUM `doc-shape-mismatch-with-declaration` per section.
-
-Files not in the canonical-lane registry (one-off notes, glossaries) need not declare a doc-shape; Pass 6 skips them.
+| `decisions/README.md` | All ADRs in a single ledger: index table at top with rows linked to in-file `### AD-N` anchors below, followed by one `### AD-N: Title` section per decision (Status, Context, Decision, Consequences) | Non-ADR content; runbook prose; spec REQs |
 
 ## Big-O jargon in narrative documentation
 
@@ -152,7 +126,7 @@ Severity: HIGH.
 | `security.md` | Per policy: `**Threat:**`, `**Mitigation:**`, `**Verification:**`, `**Implements:**` |
 | `architecture.md` | Per component: `**Responsibility:**`, `**Inputs:**`, `**Outputs:**`, `**Source:**` |
 | `troubleshooting.md` | Per recipe: `**Symptom:**`, `**Cause:**`, `**Fix:**`, `**Prevention:**` (optional) |
-| `decisions/<adr>.md` | ADR header: `**Status:**` (`Proposed`/`Accepted`/`Superseded`/`Reclassified` + date), `**Context:**`, `**Decision:**`, `**Consequences:**`, optional `**Supersedes:**` |
+| `decisions/README.md` | Per ADR section: `**Status:**` (`Proposed`/`Accepted`/`Superseded`/`Reclassified` + date), `**Context:**`, `**Decision:**`, `**Consequences:**`, optional `**Supersedes:**` |
 
 **Rules of engagement:**
 - Templates apply per **section** (`##` or `###`), not per file. Top-of-file preamble paragraph exempt.
@@ -165,7 +139,7 @@ Severity: HIGH.
 - **Per-item shape**: one section per item with bolded label/value pairs.
 - **Grouped-table shape**: one section per area with a markdown table whose column headers contain the required fields. Table itself counts as contract for every row.
 
-Choice is made once per FILE (via the doc-shape marker above, plus the dominant-shape detection within that). Pass 6 enforces consistency against the declared shape.
+Choice is made once per FILE via dominant-shape detection (≥60% of sections match one shape; first-content-section tiebreak otherwise). Pass 6 enforces consistency against that resolved shape.
 
 Required-field set is the same in both shapes. For `api-reference*.md`, grouped tables must carry columns ≥ `Method`, `Path`, `Auth`, `Implements`. For `configuration.md`: `Variable`, `Default`, `Required`, `Consumed by`, `Implements`. For `security.md`: `Threat`, `Mitigation`, `Verification`, `Implements`. For `troubleshooting.md`: `Symptom`, `Cause`, `Fix`. For `architecture.md`: `Component`, `Responsibility`, `Source`. For `deployment.md`: `When`, `Command`, `Verifies`, `Rollback`.
 
@@ -192,15 +166,15 @@ Files under 5 sections exempt.
 
 Pass 5: missing TOC on file with ≥5 sections → MEDIUM `missing-jump-toc`. Out-of-sync entries → MEDIUM `toc-out-of-sync`. Both auto-fix.
 
-## TOC content rule for non-API documentation (binding)
+## TOC content rule (binding)
 
-Contents/TOC blocks in `documentation/security.md`, `configuration.md`, `deployment.md`, `architecture.md`, `troubleshooting.md` MUST NOT contain REQ-* references. REQ links belong on individual sections as `**Implements:**` fields, not in the navigation block.
+Contents/TOC blocks in any `documentation/**.md` file MUST NOT contain `REQ-*` or `CON-*` references. These IDs belong on individual sections as `**Implements:**` fields (or in body content tables where the IDs are the contract), not in the navigation block.
 
-Detection: any `REQ-[A-Z]+-\d+` token inside a `## Contents` block (or any `^##\s+(Contents|Table of Contents)` block) in the named files.
+Detection: any `(REQ|CON)-[A-Z]+-\d+` token inside a `## Contents` block (or any `^##\s+(Contents|Table of Contents)` block) in any `documentation/**.md` file, including `api-reference.md` and `api-reference-admin.md`.
 
-Severity: MEDIUM `toc-contains-req-ref`. Auto-fix in `auto`/`unleashed`: strip the REQ token from the TOC entry (keeping the section-heading link); add the REQ token as `**Implements:** REQ-X-NNN` on the target section if not already present there.
+Severity: MEDIUM `toc-contains-req-ref`. Auto-fix in `auto`/`unleashed`: strip the REQ/CON token from the TOC entry (keeping the section-heading link); add the token as `**Implements:** REQ-X-NNN` on the target section if not already present there.
 
-`api-reference*.md` is exempt — its endpoint sections carry `**Implements:**` per the canonical template, and the file's Conventions section may legitimately list REQs in a contract table (not a navigation TOC).
+Body content (tables, prose, per-endpoint `**Implements:**` lines) is unaffected — the rule only forbids these IDs inside `## Contents` navigation blocks.
 
 ## Index-table link rule (binding)
 
@@ -213,27 +187,6 @@ Forms:
 Detection: in any table inside `decisions/README.md` or `*-index.md`, scan each row for a leading or first-column cell matching `(AD|REQ|CON)-[A-Z]*-?\d+`. Bare ID without surrounding `[...]( ... )` → finding.
 
 Auto-fix in `auto`/`unleashed`: wrap the bare ID with a markdown link to the resolved target (target AD file for `decisions/README.md`; target REQ anchor for index files; falls back to logging when target cannot be resolved).
-
-## Decisions directory shape (one-file-per-AD)
-
-`documentation/decisions/` uses **one `.md` file per AD** with a slim README index. README.md is index-only and MUST be ≤300 lines.
-
-Required directory shape:
-```
-documentation/decisions/
-├── README.md             # index table only, one row per AD, ≤300 lines
-├── ad-001-some-title.md  # one decision per file
-├── ad-002-other-title.md
-├── ...
-```
-
-README.md MUST link each row to its target AD file (per the **Index-table link rule** above). Filenames follow `ad-<NN>-<kebab-slug>.md`.
-
-This supersedes AD46c ("single-file design" / monolithic README with all ADRs colocated). Monolithic ADR README files are flagged HIGH `decisions-readme-monolithic`. Auto-fix in `auto`/`unleashed`: split each `### AD-N: Title` section into its own `ad-<NN>-<kebab-slug>.md` file; rewrite README.md to an index-only table with linked rows; commit as `[doc-updater] split: decisions/README.md → one-file-per-AD`.
-
-The README index table columns (minimum): `ID`, `Title`, `Status`, `Date`. Optional `Supersedes`, `Tags`.
-
-Per-AD file follows the `decisions/<adr>.md` template (doc-shape: `per-decision`).
 
 ## Pass 1 — Per-element budget enforcement
 
@@ -272,13 +225,13 @@ Dual-narrative ADR detection runs alongside.
 
 ## Pass 5 — Format-template field presence
 
-**Scope:** Pass 5 (and all other passes) operate on canonical lane files. Framework metadata files excluded by name: any basename starting with `.` (`.doc-coverage.md`, `.review-needed.md`, `.cold-read-tasks.yml`), `documentation/README.md` index. `documentation/decisions/README.md` is covered by the **Index-table link rule** above and by the per-AD template, not by lane templates. Same scope applies for Passes 1-12.
+**Scope:** Pass 5 (and all other passes) operate on canonical lane files. Framework metadata files excluded by name: any basename starting with `.` (`.doc-coverage.md`, `.review-needed.md`, `.cold-read-tasks.yml`), `documentation/README.md` index. `documentation/decisions/README.md` is covered by the **Index-table link rule** above and by the per-ADR-section template in the per-lane templates table. Same scope applies for Passes 1-12.
 
 Walk every `##`/`###` section in each canonical lane file. Verify required fields from the per-lane template in either shape. Missing fields → MEDIUM `template-field-missing` listing section + missing fields.
 
 Pass 5 also enforces:
 - The jump-TOC rule on the file as a whole (≥5 `##` sections → required TOC).
-- The **TOC content rule** above (no REQ refs in TOCs of non-API lane files).
+- The **TOC content rule** above (no REQ/CON refs in TOCs of any documentation file).
 - The **Index-table link rule** above (ID cells in `decisions/README.md` and `*-index.md` files must be hyperlinks).
 
 Shape detection per section:
@@ -289,9 +242,7 @@ Auto-fix in `auto`/`unleashed` requires inferable content from source; otherwise
 
 ## Pass 6 — File-level shape consistency
 
-Verify file against its declared `<!-- doc-shape: ... -->` marker. Every section that deviates → MEDIUM `rendering-shape-mismatch` naming the section, deviant shape, declared file shape.
-
-When the marker is missing, infer from dominant shape (≥60% of sections; else first-content-section tiebreak). Missing marker → MEDIUM `doc-shape-marker-missing`, auto-fixed by inserting the inferred marker.
+Verify each canonical lane file against its expected shape declared by the per-lane format templates table (resolved by filename). Every section that deviates → MEDIUM `rendering-shape-mismatch` naming the section, deviant shape, expected file shape.
 
 **Content-preservation guarantee:** auto-fix preserves all original prose verbatim. Restructuring a per-item section to grouped-table shape collapses the bolded pairs into table rows; extended prose preserved as body prose below the table. Reverse direction splits table rows into sections. Either direction, no clause dropped or paraphrased. If a section's prose cannot be split or merged without semantic loss (>200 words of inline prose that does not fit any single cell), auto-fix DEFERS that one section, emits MEDIUM `shape-conversion-content-bloat`. Rare residual JUDGMENT.
 
@@ -299,9 +250,9 @@ Auto-fix in `auto`/`unleashed`: mechanical re-render; commit `[doc-updater] re-r
 
 ## Pass 7 — Canonical per-endpoint rendering
 
-**Binding glob:** Pass 7 fires on any file matching `documentation/api-reference*.md` (so `api-reference.md`, `api-reference-admin.md`, `api-reference-internal.md`, etc., all share the same per-endpoint contract). Files not matching this glob skip Pass 7 (`inert` row).
+**Binding scope:** Pass 7 fires on `documentation/api-reference.md` only. Other api-reference family files (`api-reference-admin.md` etc.) are covered by Pass 5's per-lane format templates, not by Pass 7's stricter binding template.
 
-Every endpoint section in the matched files MUST use this exact structure:
+Every endpoint section in `api-reference.md` MUST use this exact structure:
 
 ```
 ### {METHOD path} ({optional descriptive title})
@@ -424,7 +375,7 @@ Project-overridable via `documentation/.cold-read-tasks.yml`. Pass runs at most 
 |---|---|
 | **CRITICAL** | Doc claims behaviour that contradicts shipped code in a security/data-loss-misleading way |
 | **HIGH** | Implementation-prose paragraph with no REQ; dual-narrative ADR; doc references removed function/file/route; monolithic decisions README; file >2× soft budget |
-| **MEDIUM** | Lane violation; cell >50 words; file 1×–2× budget; missing REQ backlink; ADR missing Status; doc-shape marker missing or mismatched; index-table ID not linked; REQ ref in non-API TOC |
+| **MEDIUM** | Lane violation; cell >50 words; file 1×–2× budget; missing REQ backlink; ADR missing Status; index-table ID not linked; REQ ref in non-API TOC |
 | **LOW** | Cell 40-50 words; file 0.8×–1× budget (approaching); inconsistent heading capitalisation; broken intra-doc anchor link |
 
 Mode-dependent action mirrors spec-reviewer:
@@ -452,8 +403,7 @@ Same rules as spec-reviewer (see `spec-discipline.md`):
 
 | File | Committed | Purpose |
 |---|---|---|
-| `documentation/decisions/README.md` | Yes | ADR index — auto-maintained, ≤300 lines, index-only |
-| `documentation/decisions/ad-*.md` | Yes | One file per AD |
+| `documentation/decisions/README.md` | Yes | ADR ledger — index table at top with rows linked to in-file `### AD-N` anchors, followed by one section per ADR |
 | `documentation/.doc-coverage.md` | Yes | Output of doc-updater coverage runs and Pass 4 proposed-move plans |
 | `documentation/.review-needed.md` | Yes | Doc findings escalated for human review |
 

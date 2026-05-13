@@ -17,7 +17,7 @@ Audit location by trigger: `/sdd clean` → `sdd/.last-clean-run.md`. PR-boundar
 | Rule | Required action this run | Status |
 |---|---|---|
 | Forbidden content in REQs | Walk every Active REQ; flag banned tokens in AC/Intent. | `ran (N REQs, M findings)` |
-| Status field semantics + Deprecated discipline | Walk every REQ; verify Status shape + Deprecated tombstone shape (Intent + Replaced By + Removed In + Status only). | `ran (N REQs, M findings)` |
+| Status field semantics + Deprecated cleanup | Walk every REQ; verify Status is one of the four valid values; delete any `Status: Deprecated` entries per the deletion rule. | `ran (N REQs, M findings)` |
 | REQ rendering template (binding) | Walk every Active REQ; verify render shape AND that cross-reference fields render IDs as markdown anchor links. | `ran (N REQs, M findings)` |
 | REQ length guidance | Walk every Active REQ; flag length tiers. | `ran (N REQs, M findings)` |
 | Acceptance criteria guidance + AC granularity + REQ accretion guard | Walk every Active REQ; flag AC count > cap, multi-behaviour ACs (split-into-≥2-test-names), accretion patterns. | `ran (N REQs, K diff hunks, M findings)` |
@@ -62,28 +62,17 @@ Vendor product names (Cloudflare Access, Stripe), protocol names (OAuth 2.0, JWT
 
 `sdd/config.yml` overrides via `forbidden_content_allowlist` and `forbidden_content_overrides`.
 
-## Deprecated REQs are tombstones
+## Deprecated REQs are deleted
 
-A `Status: Deprecated` REQ is a tombstone. The live contract is in the `Replaced By:` REQ.
+When a REQ stops being the contract — feature removed, replaced by another REQ, scope dropped — delete it from `sdd/{domain}.md` entirely. Do not mark `Status: Deprecated`, do not keep a tombstone, do not preserve old ACs. Git log is the history.
 
-**Required Deprecated shape (binding):**
+If a successor REQ carries the new contract, the successor stands on its own — no `Replaced By:` field, no AC migration. Any clauses worth keeping are folded into the successor's ACs before the source REQ is deleted, in the same commit.
 
-```
-### REQ-{DOMAIN}-{NNN}: {Title}
+If no successor exists and the idea should be remembered as not-built, move a one-line summary into the domain README's "Out of Scope" section, then delete the REQ.
 
-**Intent:** {one sentence stating what the deprecated feature did at the user-observable level.}
+Auto-fix in `auto`/`unleashed`: detect `Status: Deprecated` REQs and delete them; if `Replaced By:` was set, fold any AC clauses not already covered into the successor first; append a `sdd/changes.md` entry naming the deleted REQ and successor (if any). No successor and no Out-of-Scope candidacy → escalate to `.review-needed.md` rather than delete blind.
 
-**Status:** Deprecated
-**Replaced By:** REQ-X-NNN   (OR **Removed In:** YYYY-MM-DD)
-```
-
-**ACs are deleted on deprecation.** The Replaced By REQ carries the active contract; preserving old ACs duplicates contract and produces sprawl (REQ-PIPE-008 failure: 11 ACs retained on a Deprecated entry). Move still-relevant clauses into the Replaced By REQ first, then trim the deprecated entry to the four-field shape.
-
-Still applies: `Replaced By:` OR `Removed In:` MUST be present; "Out of Scope" rule — move to README's Out-of-Scope section when no replacement AND no historical reference is needed; corrupted heading or missing Status is still a finding.
-
-Auto-fix in `auto`/`unleashed`: trim a Deprecated REQ with body content to the four-field shape; preserved AC content appends to the Replaced By REQ's Notes as `Trimmed from {REQ-ID} on YYYY-MM-DD:`. No Replaced By → escalate.
-
-CQ-1, CQ-2, CQ-3 skip Deprecated REQs (tests removed, vendor tokens stale, trim ≠ shrink). Corpus-walking detectors MUST check `Status: Deprecated` first; the entry is inert after tombstoning.
+`Deprecated` is not a valid Status going forward. Existing `Status: Deprecated` entries are migrated by the rule above.
 
 ## Status field semantics
 
@@ -95,13 +84,12 @@ Every REQ has one Status value. **One word, no prose.**
 | `Planned` | Committed, not yet built |
 | `Partial` | Built but some AC unmet OR no automated verification found |
 | `Implemented` | Built AND tests verify the ACs |
-| `Deprecated` | Was implemented, then removed or replaced. Requires `Replaced By:` or `Removed In:`. |
 
 `Partial` may have a `Notes:` field ≤3 sentences. No other status uses Notes (except doc-pointer — Rule B).
 
-Status transitions: `Proposed` → `Planned` → (`Partial` ↔ `Implemented`) → `Deprecated`. Implementation tracking (SHAs, paths) belongs in `pending.md` or issues — never in Status.
+Status transitions: `Proposed` → `Planned` → (`Partial` ↔ `Implemented`). When a REQ stops being the contract, it is deleted (see "Deprecated REQs are deleted" above). Implementation tracking (SHAs, paths) belongs in `pending.md` or issues — never in Status.
 
-`Deprecated` is for built-then-removed features, NOT for never-built ideas (those go to "Out of Scope" in the domain README). **Never delete REQs outright** — content is always moved.
+Out-of-scope ideas (never-built) go to "Out of Scope" in the domain README, not to a `Deprecated` Status.
 
 ## What is NOT a requirement
 
@@ -138,12 +126,10 @@ Every Active REQ in `sdd/{domain}.md` MUST render in exactly this shape. Deviati
 
 **Verification:** {Automated test | Integration test | Manual check}
 
-**Status:** {Proposed | Planned | Partial | Implemented | Deprecated}
+**Status:** {Proposed | Planned | Partial | Implemented}
 ```
 
-For `Status: Deprecated`, trailing fields use the tombstone shape (Intent + Status + Replaced By / Removed In only). `Replaced By` and `Supersedes` render as links: `**Replaced By:** [REQ-PIPE-003](#req-pipe-003-title-slug)`.
-
-**Cross-reference linking (binding).** Every `CON-*` and `REQ-*` ID inside `**Constraints:**`, `**Dependencies:**`, `**Replaced By:**`, `**Supersedes:**` MUST render as a markdown anchor link, not plain text. Form:
+**Cross-reference linking (binding).** Every `CON-*` and `REQ-*` ID inside `**Constraints:**` and `**Dependencies:**` MUST render as a markdown anchor link, not plain text. Form:
 
 - Same-file REQ reference: `[REQ-X-NNN](#req-x-nnn-title-slug)`
 - Other-domain REQ reference: `[REQ-X-NNN](other-domain.md#req-x-nnn-title-slug)`
@@ -227,7 +213,7 @@ Worked outcome (REQ-PIPE-003): 8 packed multi-behaviour ACs → Granularity spli
 
 Worked outcome (REQ-OPS-008): 7 multi-concern ACs → Concern-boundary detects 3 operationally distinct clusters → Splitting by sub-feature → 3 sibling REQs (phase dispatch, UI streaming, idempotency), each with 2–3 ACs.
 
-Worked outcome (REQ-PIPE-008 Deprecated): tombstone rule trims body to 4-field shape; preserved AC clauses append to REQ-PIPE-003 Notes as `Trimmed from REQ-PIPE-008 on YYYY-MM-DD:`.
+Worked outcome (REQ-PIPE-008 Deprecated): deletion rule removes the REQ entirely from the spec; any clauses not already covered by REQ-PIPE-003 are folded into REQ-PIPE-003's ACs in the same commit; `sdd/changes.md` records the deletion.
 
 ### Cross-cutting concerns get their own REQ family
 
@@ -552,7 +538,7 @@ All modes push the current branch; unleashed creates no branches or PRs. Unleash
 |---|---|
 | Doc-vs-spec conflict | Mark BOTH `Partial` with conflict Notes; log to `.review-needed.md`. Never overwrite. |
 | Oversized REQ refactor | Shrink → Splitting by actor/concern → Splitting by sub-feature. Cap binding. |
-| Fake-Deprecated REQ (no Replaced By) | Move to README "Out of Scope". Content preserved. |
+| Deprecated REQ with no successor and no Out-of-Scope candidacy | Escalate to `.review-needed.md`; do not delete blind. |
 | Mass operations (>100 changes) | No cap. Per-category commits for selective revert. |
 | Truly ambiguous content | Mark Partial with Notes, log to `.review-needed.md`. |
 
