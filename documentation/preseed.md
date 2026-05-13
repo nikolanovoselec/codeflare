@@ -17,17 +17,18 @@ deployed on Recreate or new bucket creation.
 | Content | Default | Advanced | Advanced on Custom tier |
 |---------|---------|----------|-------------------------|
 | Memory plugin & rule | No | Yes | Yes |
-| CI monitoring, environment, no-local-builds, deploy-credentials rules | Yes | Yes | Yes |
-| Cloudflare stack, ship, ship references skills | Yes | Yes | Yes |
+| Core environment rules (cloudflare-environment, no-local-builds, git-workflow) | Yes | Yes | Yes |
+| Cloudflare-stack, github-cloudflare-ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (CC only) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
-| Language rules (23 files: common, TS, Python, Go, Swift) | No | Yes | Yes |
+| Language rules (18 files: common, TS, Python, Go, Swift) | No | Yes | Yes |
 | Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
 | Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
 | Cherry-picked skills (8: api-design, backend-patterns, etc.) | No | Yes | Yes |
-| `spec-discipline` rule (universal SDD enforcement, all 5 agents) | No | Yes | Yes |
-| `documentation-discipline` rule (per-file/per-cell budgets, lane separation) | No | Yes | Yes |
-| `tdd-discipline` rule (test-quality patterns, third sibling of the discipline triad) | No | Yes | Yes |
+| `spec-discipline` rule + spec-enforce skill family (3 skills: spine, AC, truth) | No | Yes | Yes |
+| `documentation-discipline` rule + doc-enforce skill family (4 skills: spine, lanes, shape, truth) | No | Yes | Yes |
+| `tdd-discipline` rule + tdd-enforce skill | No | Yes | Yes |
+| git-review-pipeline skill (SDD PR-boundary review pipeline) | No | Yes | Yes |
 | SDD template scaffolding (13 files for `/sdd init`) | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
 | context-mode MCP server (`ctx_*` helper tools, always-on) | Yes | Yes | Yes |
@@ -87,34 +88,45 @@ and `model` (CC only).
 **Commands (5)**: `brainstorm`, `debug`, `deploy`, `review`, `sdd`.
 Preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't
 support slash commands). Planning transitions are handled via Plan
-Mode (a built-in Claude Code primitive), not a slash command.
+Mode (a built-in Claude Code primitive), not a slash command. `/review`
+takes mandatory scope flags (`--all` or `--diff`) plus an optional
+`--verify-high` flag; invoking it with no arguments prints a CLI help
+screen and exits without running.
 
-**Skills (27 entries)**: `cloudflare-stack`, `ship` (+ 2 reference
-files), `consult-llm`, `api-design`, `backend-patterns`,
-`content-hash-cache-pattern`, `database-migrations`,
-`deployment-patterns`, `frontend-patterns`, `iterative-retrieval`,
-`search-first`, `spec-driven-development` (+ 13 reference templates
-for `/sdd init` scaffolding; covers the three Import/Resume modes
-for legacy-codebase transition documented below). Preseeded to
+**Skills (24 SKILL.md files, 39 manifest entries including
+reference files)**: `cloudflare-stack`, `github-cloudflare-ship`
+(+ 2 reference files), `consult-llm`, `api-design`,
+`backend-patterns`, `content-hash-cache-pattern`,
+`database-migrations`, `deployment-patterns`, `frontend-patterns`,
+`iterative-retrieval`, `search-first`, `spec-driven-development`
+(+ 13 reference templates for `/sdd init` scaffolding; covers the
+three Import/Resume modes for legacy-codebase transition documented
+below). SDD enforcement family (8 skills, advanced-only):
+`spec-enforce` + `spec-enforce-ac` + `spec-enforce-truth`,
+`doc-enforce` + `doc-enforce-lanes` + `doc-enforce-shape` +
+`doc-enforce-truth`, `tdd-enforce`. Git-workflow family (4 skills):
+`ci-monitoring`, `git-review-pipeline` (advanced-only),
+`pr-workflow`, `deploy-credentials`. Preseeded to
 `~/.claude/skills/<name>/SKILL.md` (and adapted equivalents for
 agents that support skills). `consult-llm` is CC-only (depends on
 MCP tool).
 
-**Rules (27 files, 4 in both modes + 23 advanced-only)**: Core
-environment rules (`ci-monitoring`, `cloudflare-environment`,
-`no-local-builds`, `deploy-credentials`) in both modes. The
-discipline triad — `spec-discipline`, `documentation-discipline`,
-`tdd-discipline` — is advanced-only (Pro-mode SDD workflow opt-in:
-spec-discipline is the universal enforcement layer inlined into all
-5 agents' instructions; documentation-discipline defines per-file
-line budgets, per-cell word budgets, and lane separation for
-`documentation/`; tdd-discipline defines what counts as a real
-test, no text-matching theater or tautology). `memory` rule is
-advanced-only (depends on MCP memory server). ECC-derived language
-rules in `{common,typescript,python,golang,swift}/` subdirs (3 + 5*4
-= 23 files, advanced only). Common rules cover security, coding
-style, and git workflow. Language-specific rules provide conventions
-for TypeScript, Python, Go, and Swift.
+**Rules (25 files, 3 in both modes + 22 advanced-only)**: Core
+environment rules (`cloudflare-environment`, `no-local-builds`,
+`git-workflow`) in both modes — `git-workflow` is the umbrella
+core rule that delegates branched mechanics to the `ci-monitoring`,
+`git-review-pipeline`, `pr-workflow`, and `deploy-credentials`
+skills. The discipline triad — `spec-discipline`,
+`documentation-discipline`, `tdd-discipline` — is advanced-only
+core-minimum rules (Pro-mode SDD workflow opt-in: identity, status
+vocabulary, severity, and skill pointers; detection algorithms and
+content-quality checks live in their respective `*-enforce` skill
+families). `memory` rule is advanced-only (depends on MCP memory
+server). ECC-derived language rules in
+`{common,typescript,python,golang,swift}/` subdirs (2 + 4*4 = 18
+files, advanced only). Common rules cover security and coding
+style. Language-specific rules provide conventions for TypeScript,
+Python, Go, and Swift.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds
 the official Anthropic plugin marketplace URL for user discovery.
@@ -133,7 +145,7 @@ All preseed content is deployed via the manifest pipeline:
 3. `scripts/generate-agent-seed.mjs` reads manifest + files
    (manifest-driven, ignores non-manifest files like
    `plugins/cache/`), generates `src/lib/agent-seed.generated.ts`
-   with `AGENTS_SEEDED_CONFIGS` array (187 documents across all
+   with `AGENTS_SEEDED_CONFIGS` array (236 documents across all
    agents)
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
@@ -145,29 +157,37 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`)
 
-**Manifest structure (77 total entries)**:
-- `rules/` (27): core (4 default+advanced: ci-monitoring,
-  cloudflare-environment, no-local-builds, deploy-credentials; +
-  4 advanced-only: memory, spec-discipline,
-  documentation-discipline, tdd-discipline), common (3),
-  typescript (4), python (4), golang (4), swift (4)
+**Manifest structure (90 total entries)**:
+- `rules/` (25): core (3 default+advanced: cloudflare-environment,
+  no-local-builds, git-workflow; + 4 advanced-only: memory,
+  spec-discipline, documentation-discipline, tdd-discipline),
+  common (2: coding-style, security), typescript (4), python (4),
+  golang (4), swift (4)
 - `agents/` (8): architect, build-error-resolver, code-reviewer,
   doc-updater, refactor-cleaner, security-reviewer, spec-reviewer,
   tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, review, sdd
   (advanced only)
-- `skills/` (27): cloudflare-stack, ship (+2 refs), consult-llm,
-  api-design, backend-patterns, content-hash-cache-pattern,
-  database-migrations, deployment-patterns, frontend-patterns,
-  iterative-retrieval, search-first, spec-driven-development (+13
-  reference templates for /sdd init scaffolding)
-- `plugins/` (10): known_marketplaces.json (default+advanced),
+- `skills/` (39): cloudflare-stack, github-cloudflare-ship (+2
+  refs), ci-monitoring, pr-workflow, deploy-credentials (the five
+  default+advanced skills), consult-llm, api-design,
+  backend-patterns, content-hash-cache-pattern, database-migrations,
+  deployment-patterns, frontend-patterns, iterative-retrieval,
+  search-first, spec-driven-development (+13 reference templates
+  for /sdd init scaffolding), spec-enforce, spec-enforce-ac,
+  spec-enforce-truth, doc-enforce, doc-enforce-lanes,
+  doc-enforce-shape, doc-enforce-truth, tdd-enforce,
+  git-review-pipeline
+- `plugins/` (13): known_marketplaces.json (default+advanced),
   codeflare-memory plugin (4 files, advanced only: plugin.json,
   memory-capture.sh, memory-agent-prompt.md,
   memory-compact-prompt.md), codeflare-hooks plugin (5 files,
   advanced only: plugin.json, block-attributed-commits.sh,
   git-push-review-reminder.sh, enforce-review-spawn.sh,
-  lib/gh-pr-state.sh — shared helper sourced by both PR-aware hooks)
+  lib/gh-pr-state.sh — shared helper sourced by both PR-aware
+  hooks), context-mode plugin (3 files, advanced only: plugin.json,
+  README.md, scripts/enforce-ctx-mode.sh — admin-only Custom-tier
+  routing enforcement, see Third-party plugin section below)
 
 ## Multi-Agent Preseed
 
@@ -200,12 +220,12 @@ files exist on disk.
 
 | Agent | Total Documents |
 |-------|-----------------|
-| CC | 77 |
-| Codex | 28 |
-| Gemini | 36 |
+| CC | 90 |
+| Codex | 40 |
+| Gemini | 48 |
 | Copilot | 10 |
-| OpenCode | 36 |
-| **Total** | **187** |
+| OpenCode | 48 |
+| **Total** | **236** |
 
 **Excluded from non-CC agents**: hooks (CC hook system), commands (CC
 slash commands), plugins (CC plugin system, including
@@ -219,8 +239,8 @@ remaps tool names in agent definition frontmatter, (3) removes
 references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents).
 
-**Per-mode counts**: Default mode seeds 25 files, advanced mode
-seeds 184 files. Total array size is 187 (includes variant-per-mode
+**Per-mode counts**: Default mode seeds 36 files, advanced mode
+seeds 232 files. Total array size is 236 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
