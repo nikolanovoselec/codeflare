@@ -4,6 +4,77 @@ Run a full codebase review from 6 specialized perspectives using parallel agents
 
 **Review mode:** static analysis only - no runtime, build, or test validation performed.
 
+## When the user types `/review` with no scope flag
+
+If $ARGUMENTS does NOT contain `--all` or `--diff`, print this help screen and exit. Do not invoke any phases. The scope flag is mandatory.
+
+```
+review — comprehensive multi-perspective codebase review
+
+  Run a full codebase review from 6 specialized perspectives using parallel
+  agents, cross-reference findings, filter against architecture decisions
+  and prior triage history, optionally verify with external LLMs, then
+  triage interactively with the user.
+
+USAGE
+  /review                                    Show this help
+  /review --all  [flags] [scope]             Review the entire codebase
+  /review --diff [flags] [scope]             Review the current diff vs base
+
+FLAGS
+  --all          Review the entire codebase. Phase 2 agents run with
+                 scope=all; doc-enforce and tdd-enforce run their full
+                 manifests against every file. Heavier but exhaustive.
+  --diff         Review only changes against the PR base (resolved via
+                 `gh pr view --json baseRefName`, falling back to
+                 origin/main). Phase 2 agents run with scope=diff. Faster,
+                 ideal during active feature work before opening a PR.
+  --verify-high  After the Reality Filter (Phase 5), send every surviving
+                 HIGH and CRITICAL finding to external code LLMs (GPT +
+                 Gemini) for verification and fix proposals. Adds Phase 6.
+                 Cost-bounded at 2 LLM calls total.
+  [scope]        Optional free-text scope hint passed to every review
+                 agent. Narrows focus within the chosen --all/--diff mode
+                 (e.g., "focus on src/routes/").
+
+EXAMPLES
+  /review --all                     Full whole-codebase review (typical)
+  /review --diff                    Quick review of in-progress changes
+  /review --all --verify-high       Deep review with external LLM cross-check
+  /review --diff --verify-high      Same, narrowed to the current diff
+  /review --diff src/routes/        Diff review narrowed to one directory
+
+PHASES
+  1   Argument parse + run directory
+  2   Parallel agent dispatch (6 agents: security, architect, code-
+      reviewer, refactor-cleaner, tdd-guide, doc-updater)
+  3   Cross-reference + dedup
+  4   AD filtering against documentation/decisions/README.md
+  5   Reality Filter (Q1-Q5)
+  6   LLM verification (only when --verify-high)
+  7   Interactive triage (only phase in main session context)
+  8   Save triage + append to sdd/.review-decisions.md
+  9   Update ADs + create tech-debt GitHub issues
+  10  Plan mode for Fix decisions
+
+OUTPUT
+  Each run writes to /home/user/Temporary/Review/<timestamp>/, with
+  /home/user/Temporary/Review/latest symlinked to the most recent run.
+  Phase outputs: 01-06 (agent reports), 07 (cross-ref), 08 (active after
+  AD filter), 09 (real findings after Reality Filter), 10 (LLM-verified,
+  only when --verify-high), 11 (triage decisions).
+
+CYCLE EXPECTATION
+  On a stable codebase the count of active CRITICAL/HIGH/MEDIUM findings
+  drops materially each cycle and is typically near-zero by the third
+  successive run. Phase 5 surfaces Cycle Health in its header.
+
+SIBLINGS
+  /sdd clean             Rescue a rotted SDD spec
+  /sdd clean --all       Same, full corpus
+  /sdd clean --diff      Same, diff-scoped
+```
+
 ## Shell execution (applies to every phase)
 
 Shell snippets in this command run via one of two transparent paths:
@@ -28,28 +99,59 @@ The main agent must never read source files, `01-07`, or `documentation/decision
 
 ## Arguments
 
-$ARGUMENTS can include:
-- `--verify-high` - after Reality Filter, send HIGH and CRITICAL findings to external code LLMs for verification and fix proposals
-- Any other text is passed as additional context/scope to all review agents (e.g., "focus on src/routes/" or "review the auth system")
+$ARGUMENTS supports the following flags. The scope flag (`--all` or `--diff`) is mandatory — its absence triggers the help screen above.
+
+- `--all` — review the entire codebase. Phase 2 agents run with `scope=all` (the value propagates into doc-enforce / tdd-enforce skill invocations).
+- `--diff` — review only the diff against the PR base (resolved via `gh pr view --json baseRefName`; fallback `origin/main`). Phase 2 agents run with `scope=diff`. The resolved base ref is captured in `$REVIEW_DIR/.scope.txt` so Task agents can read it.
+- `--verify-high` — adds Phase 6: send all surviving HIGH/CRITICAL findings to external LLMs (GPT + Gemini) for verification. 2 LLM calls total.
+- Any remaining text — free-text scope hint passed to every Phase 2 agent (e.g., "focus on src/routes/"). Combines with --all or --diff to narrow within the chosen mode.
 
 ## A note on cycle counts
 
 `/review` is calibrated so that, on a stable codebase, the count of active CRITICAL/HIGH/MEDIUM findings drops materially each cycle and is typically near-zero by the third successive run. The Phase 5 header surfaces this metric for visibility - it is an expectation, not a gate. Cycle 3 with non-zero active CRITICAL/HIGH/MEDIUM still completes normally; the number is informational so the user can decide whether the Reality Filter needs re-tuning or whether new code is genuinely introducing real bugs faster than they get fixed.
 
-## Phase 1: Create Run Directory (main agent)
+## Phase 1: Parse Arguments + Create Run Directory (main agent)
 
-Create a timestamped output directory to avoid overwriting previous runs:
+Step 1a — parse `$ARGUMENTS` into three variables:
+
+- `$SCOPE` = `all` (if `--all` present) or `diff` (if `--diff` present). If neither is present the help screen above already short-circuited; this step never executes without one of them set.
+- `$VERIFY_HIGH` = `true` (if `--verify-high` present) else `false`.
+- `$SCOPE_HINT` = remaining free text after stripping the three known flags. Empty string if nothing left.
+
+Step 1b — create the run directory:
 ```bash
 REVIEW_DIR=/home/user/Temporary/Review/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$REVIEW_DIR"
 ln -sfn "$REVIEW_DIR" /home/user/Temporary/Review/latest
 ```
 
-Use `$REVIEW_DIR` for ALL output files in every subsequent phase. Print the path so the user can reference it.
+Step 1c — record the scope decision so Task agents can read it without re-parsing `$ARGUMENTS`:
+```bash
+{
+  echo "SCOPE=$SCOPE"
+  echo "VERIFY_HIGH=$VERIFY_HIGH"
+  echo "SCOPE_HINT=$SCOPE_HINT"
+  if [ "$SCOPE" = "diff" ]; then
+    BASE_REF=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo "main")
+    echo "BASE_REF=$BASE_REF"
+    echo "DIFF_CMD=git diff origin/${BASE_REF}...HEAD"
+  fi
+} > "$REVIEW_DIR/.scope.txt"
+```
+
+Step 1d — print the run summary so the user knows what's happening:
+```
+/review run: $REVIEW_DIR
+  scope:        $SCOPE  (diff -> against origin/$BASE_REF)
+  verify-high:  $VERIFY_HIGH
+  scope hint:   $SCOPE_HINT (or "(none)")
+```
+
+Use `$REVIEW_DIR` for ALL output files and `$REVIEW_DIR/.scope.txt` for scope plumbing in every subsequent phase.
 
 ## Phase 2: Parallel Agent Dispatch (6 Task agents)
 
-Launch **all 6 agents in parallel** using the Task tool. Each agent reviews the codebase (or scoped area if $ARGUMENTS specifies) and writes structured findings to its output file.
+Launch **all 6 agents in parallel** using the Task tool. Each agent reviews per the parsed `$SCOPE` (`all` = entire codebase; `diff` = the diff against `origin/$BASE_REF`) plus the optional `$SCOPE_HINT`, then writes structured findings to its output file.
 
 | # | Agent subagent_type | Output File | Focus |
 |---|---------------------|-------------|-------|
@@ -74,11 +176,17 @@ Each agent prompt MUST include:
 Use this prompt structure for each agent (adjust focus area per agent type):
 
 ```
-You are conducting a comprehensive codebase review of the project at [PROJECT_ROOT].
+You are conducting a [SCOPE_DESCRIPTION] review of the project at [PROJECT_ROOT].
 
-[ADDITIONAL_CONTEXT if provided]
+Scope mode: [SCOPE]    ([SCOPE_DESCRIPTION])
+[If SCOPE = diff]: review only what appears in `git diff origin/[BASE_REF]...HEAD`.
+                   Read $REVIEW_DIR/.scope.txt for BASE_REF + DIFF_CMD.
+[If SCOPE = all]:  review the entire codebase.
 
-Review the codebase thoroughly. Use Glob and Grep to explore, Read to examine files.
+[SCOPE_HINT if provided, e.g., "Within that scope, focus on src/routes/."]
+
+[For SCOPE = diff: Use the DIFF_CMD output to identify changed files; Read each one fully and Read directly-related files for context. Do NOT review files outside the diff unless they are imported by changed files.]
+[For SCOPE = all:  Use Glob and Grep to explore; Read to examine files.]
 
 Rate each finding with one of these severities:
 - CRITICAL: Security vulnerabilities, data loss risks, production-breaking issues
@@ -99,20 +207,26 @@ Write your findings to [OUTPUT_FILE] using the Write tool. Use this format for e
 
 At the top of the file, include:
 # [REVIEW_TYPE] Review
-**Scope:** [full codebase or scoped area]
+**Scope:** [SCOPE] ([all-codebase | diff vs origin/BASE_REF])
 **Findings:** [total count]
 
 Focus on: [AGENT-SPECIFIC FOCUS AREA]
 
 Skill invocation override for /review mode (when applicable to your agent type):
-- **doc-updater**: invoke `doc-enforce` skill with scope=all against the full `documentation/` corpus as your first action. The skill conditionally invokes doc-enforce-lanes / doc-enforce-shape / doc-enforce-truth as needed.
-- **tdd-guide**: invoke `tdd-enforce` skill with scope=all against every test file in the codebase as your first action.
-- **code-reviewer**: when your scope includes test files, invoke `tdd-enforce` with scope=all against them.
+- **doc-updater**: invoke `doc-enforce` skill with `scope=[SCOPE]` as your first action. The skill conditionally invokes doc-enforce-lanes / doc-enforce-shape / doc-enforce-truth as needed.
+- **tdd-guide**: invoke `tdd-enforce` skill with `scope=[SCOPE]` against the [test files in the diff | every test file in the codebase] as your first action.
+- **code-reviewer**: when your scope includes test files, invoke `tdd-enforce` with `scope=[SCOPE]`.
 
-These skills default-bind to PR-boundary diff; the scope=all override lets the full manifest (8-antipattern catalogue for tdd-enforce, 14-row manifest plus lane/shape/truth detail skills for doc-enforce) run against the whole codebase rather than a diff.
+The `scope` parameter propagates from /review's mode flag into each skill invocation. `scope=all` lets the full manifest run against the whole codebase; `scope=diff` lets the spine's PR-base-aware diff resolution narrow it.
 
 Do NOT run any builds, tests, or linters locally. Read and analyze the code only.
 ```
+
+When dispatching, substitute the placeholders:
+- `[SCOPE]` → `all` or `diff` (literal value from `$REVIEW_DIR/.scope.txt`)
+- `[SCOPE_DESCRIPTION]` → `"comprehensive whole-codebase"` for `all`, or `"diff-scoped"` for `diff`
+- `[BASE_REF]` → value from `.scope.txt`, only meaningful in diff mode
+- `[SCOPE_HINT]` → the free-text remainder, or omitted if empty
 
 Agent ID prefixes: SEC (security), ARCH (architecture), QUAL (code-quality), DEAD (dead-code), TEST (test-gaps), DOCS (documentation).
 
