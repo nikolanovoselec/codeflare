@@ -152,7 +152,7 @@ describe('ECC rules in agent-seed', () => {
     expect(tddDisciplineRule!.modes).toEqual(['advanced']);
   });
 
-  it('total ECC rules count is 19', () => {
-    expect(eccRules().length).toBe(19);
+  it('total ECC rules count is 18', () => {
+    expect(eccRules().length).toBe(18);
   });
 });
