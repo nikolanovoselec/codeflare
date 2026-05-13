@@ -62,9 +62,10 @@ Every clean / PR-boundary run MUST emit a manifest with one row per rule. The ma
 | Meta-content leakage Rule B (Notes two-shape) | Walk every REQ; flag Notes-vs-two-shape violations. | `ran (N Notes fields, M findings)` |
 | Meta-content leakage Rule C (preamble edit-history) | Walk every `sdd/{domain}.md` preamble (per Rule C scope); flag edit-history prose. | `ran (K domain files, M findings)` |
 | Test coverage and enforce_tdd | If `enforce_tdd: true`, run all three classification passes (auto-demote, source-vs-test, test-quality). | `ran (N REQs, M findings)` or `inert (enforce_tdd: false)` |
-| CQ-1 — REQ-test truth-check | For every Implemented REQ, walk every test file containing the REQ ID; verify REQ-ID-in-name AND assertion-references-AC-content. | `ran (N Implemented REQs, K test files opened, M findings)` |
+| CQ-1 — REQ-test truth-check | For every Implemented REQ (excluding `Verification: Manual check`), walk every test file containing the REQ ID; classify as pass / Subclass A (name-only-match, AUTO-FIX rename) / Subclass B (no-coverage, owner action). | `ran (N Implemented REQs, K test files opened, A Subclass-A auto-fixed, B Subclass-B escalated)` |
 | CQ-2 — Vendor / external-interface drift | For every Implemented REQ, extract vendor/protocol tokens from ACs; grep `src_globs` for each token; flag orphans. | `ran (N REQs, T tokens scanned, M findings)` |
 | CQ-3 — Content-preservation on shrink | On every shrink/run-on-split edit proposed this run, run the content-preservation tokenization check before committing. | `ran (K shrink ops, M findings)` or `inert (no shrink ops)` |
+| Backlog re-triage | Walk every open finding in `sdd/.review-needed.md`; re-classify each under the current rule set. Auto-fixable items (now Subclass A under updated CQ-1, now-mechanizable splits under updated rules) get fixed this run, not left as terminal state. | `ran (B open backlog items, R re-triaged, F auto-fixed, S still-escalated)` |
 
 ### Evidence requirement is binding
 
@@ -595,12 +596,26 @@ CQ checks run on every PR-boundary spec-reviewer trigger, after the structural c
 
 ### CQ-1 — REQ-test truth-check
 
-For every REQ marked `Status: Implemented`, walk every test file (per `test_globs`) that contains the REQ ID literally. The REQ-ID mention must satisfy both:
+**Skip clause:** CQ-1 does not fire on REQs whose `Verification:` field is `Manual check`. Manual-check REQs declare upfront that no automated test exists by design (deploy workflows, operator runbooks, design-aesthetic checks). Firing the auto-demote on them is spurious — the verification path is the manual checklist, not a test file. The REQ should carry a `Notes:` doc-pointer to where the manual checklist or runbook artifact lives (a workflow file, an ADR, a `documentation/deployment.md` section) so reviewers can still trace verification.
+
+For every other REQ marked `Status: Implemented`, walk every test file (per `test_globs`) that contains the REQ ID literally. The REQ-ID mention must satisfy both:
 
 1. It appears in the name of a `describe` / `test` / `it` block (or the language equivalent — `def test_`, `t.Run("...")`, etc.) — not just a code comment, not just a fixture filename.
 2. At least one assertion in that block references content that the REQ's ACs describe — by symbol name, by user-observable string, or by behavior the AC names.
 
-A REQ whose only test cites the REQ ID in a code comment, in a fixture path, or in a test that asserts unrelated behavior (`expect(result.length > 0)` under a test named after the REQ) is name-drop, not coverage. Emit MEDIUM `req-test-name-only-match` naming the REQ, the cited files, and the AC bullet that has no test referencing its observable behavior. No auto-fix — writing a real test is authoring work for `tdd-guide` or the developer.
+When neither condition holds, the finding splits into two subclasses with different auto-fix paths:
+
+**Subclass A — name-only-match (MEDIUM `req-test-name-only-match-fixable`).** A test file contains the REQ ID literally, has at least one `describe`/`test`/`it` block with real assertions referencing AC content, but no block name carries the REQ ID. Typical sources: a sub-feature split rebranded ACs under a new REQ ID while existing tests kept their parent-REQ describe names; an admin-team REQ split for actor coherence; a renamed REQ that source comments tracked but test names did not. The remediation is mechanical: append the new REQ ID to the most-relevant existing describe block name. **Auto-fix in `auto`/`unleashed`:** rename the describe block by appending ` / REQ-X-NNN (one-line concern)` to its existing title. Pick the describe whose nested `it()` blocks have the strongest AC-content overlap; on ties, pick the first such describe in document order. Commit per-category as `[autonomous]` or `[unleashed]`. No test logic changes; assertions stay verbatim.
+
+**Subclass B — no-coverage (MEDIUM `req-test-name-only-match`).** No test file mentions the REQ ID at all, OR the only mentions are in code comments / fixture paths with no block carrying the ID, OR every block named after the REQ asserts unrelated behavior. This is real coverage absence — writing a test is authoring work for `tdd-guide` or the developer. No auto-fix; emit the finding to `.review-needed.md` for owner action.
+
+Classification mechanics (deterministic):
+
+1. For each Implemented REQ (excluding `Verification: Manual check`): grep `test_globs` for the literal REQ ID.
+2. If zero matches → Subclass B.
+3. If matches exist, walk the matched files: does any block name (`describe`/`test`/`it`) contain the REQ ID? If yes → CQ-1 passes (no finding). If no → check whether at least one block in the file has assertions on AC-content tokens (open the AST or apply the same token-overlap heuristic Pass 9 uses). Block with AC-content assertions present and only name missing the REQ ID → Subclass A. No block with AC-content assertions → Subclass B.
+
+Subclass A is the load-bearing fix. The Subclass A / B split exists because the prior `No auto-fix — writing a real test is authoring work` blanket rule treated name-only-match (mechanically fixable) the same as no-coverage (genuine authoring), leaving a backlog of escalated CQ-1 findings that piled up in `.review-needed.md` even though most were one-line describe renames. This was the failure mode that caused the cycle-5 stop on `ai-news-digest`: cycle-4 had escalated 5 such findings; the cycle-5 unleashed sweep walked them as terminal state and stopped, when in fact every one was a Subclass A rename.
 
 ### CQ-2 — Vendor / external-interface drift
 
@@ -619,6 +634,30 @@ Three outcomes:
 - All removed clauses match elsewhere → commit the edit.
 - Context-loss with a natural relocation target (a doc file, an adjacent paragraph) → promote the clause to that target with a leading `Trimmed from REQ-X-NNN on YYYY-MM-DD:` marker, then commit the edit.
 - Context-loss with no relocation target → REVERT the edit, emit MEDIUM `shrink-would-lose-load-bearing-content` listing the REQ, the edit, and the at-risk clauses. The length-cap violation persists, but the content is preserved.
+
+## Backlog re-triage (`.review-needed.md` is not terminal state)
+
+`sdd/.review-needed.md` accumulates findings escalated by prior runs that could not auto-fix at the time. Without an explicit re-triage pass, these findings become permanent terminal state: a future unleashed sweep walks `.review-needed.md`, sees items already marked "escalated to owner", and stops — even when the current rule set would now auto-fix every one of them. This was the failure mode that caused the cycle-5 stop on `ai-news-digest`: cycle-4 had escalated 5 `req-test-name-only-match` findings; cycle-5's updated CQ-1 (with the Subclass A auto-fix path) would have fixed every one mechanically, but the agent treated the prior escalation as a settled decision and did not re-evaluate.
+
+Every PR-boundary spec-reviewer trigger MUST run the Backlog re-triage pass. The pass walks each open finding in `sdd/.review-needed.md` and re-classifies it under the current rule set. Three outcomes per item:
+
+1. **Re-classified as auto-fixable** — the finding's category now has a deterministic auto-fix path (e.g., a `req-test-name-only-match` finding now classifies as CQ-1 Subclass A under the current rule; a "too many ACs, no axis" finding now resolves via sub-feature splitting's median-split fallback). The agent applies the fix this run, removes the entry from `.review-needed.md`, and records a `Backlog re-triage:` entry in `sdd/changes.md` naming the finding ID and the fix applied. Counts toward `F auto-fixed` in the manifest row.
+2. **Re-classified as still-escalated, content unchanged** — the finding's category is still ownership work under the current rules (Subclass B no-coverage, JUDGMENT case with no mechanical resolution). Entry stays in `.review-needed.md` verbatim. Counts toward `S still-escalated`.
+3. **Re-classified as superseded** — the underlying spec or test state has changed since the finding was filed (the REQ was deleted, the test was renamed, the file was moved). The entry is removed from `.review-needed.md` with a one-line `Resolved (superseded by <state-change>):` marker in the commit body. Counts toward `R re-triaged`.
+
+The re-triage pass runs BEFORE any other CQ check this cycle so that newly-fixable backlog items are resolved before the structural sweep produces its own findings. This prevents the same finding from being re-emitted in the current run when the backlog already has it.
+
+**Format requirement for `.review-needed.md` entries.** To make re-triage deterministic, every escalated finding MUST carry a machine-parseable header line above its prose:
+
+```
+**Finding ID:** {category}-{N}  ({YYYY-MM-DD})
+**Category:** req-test-name-only-match | sub-feature-split-cannot-mechanize | actor-coherence-judgment | doc-vs-spec-conflict | ...
+**Affected:** REQ-X-NNN | documentation/path/to/file.md | tests/path/to/file.test.ts
+```
+
+The header is the contract the re-triage pass reads. Older entries lacking this header are re-classified as "still-escalated, content unchanged" and emit a LOW `backlog-entry-missing-header` finding so the next pass can backfill the header. Re-triage never silently deletes an entry it can't parse — preserving the audit trail is the load-bearing invariant.
+
+**No re-triage during SDD transition.** When `transition: true` in `sdd/config.yml`, the Backlog re-triage pass is `inert (transition active)` because the spec is intentionally partial and `.review-needed.md` is being populated faster than it can drain. Re-triage resumes when transition clears.
 
 ## Severity classification on findings
 
@@ -648,7 +687,7 @@ Every REQ marked `Status: Implemented` must have at least one test file referenc
 
 When `enforce_tdd: true`, spec-reviewer runs three classification passes on every push:
 
-1. **Auto-demote**: `Implemented` REQ with no test reference → demoted to `Partial` with `Notes:` explaining the gap. Behavioral observation → changelog entry.
+1. **Auto-demote**: `Implemented` REQ with no test reference → demoted to `Partial` with `Notes:` explaining the gap. Behavioral observation → changelog entry. **Skip clause:** REQs whose `Verification:` field is `Manual check` are exempt — they declare upfront that verification is manual (a runbook checklist, a deploy workflow, a visual design-aesthetic check). For these REQs, the agent verifies that the `Notes:` field contains a doc-pointer to the manual verification artifact (a workflow file, an ADR, a `documentation/deployment.md` section). If the pointer is missing, emit LOW `manual-check-missing-pointer` rather than auto-demote.
 2. **Source-vs-test coverage**: `Planned`/`Partial` REQ with source code (REQ ID found in source) but no test → HIGH finding, auto-promote `Planned` → `Partial` with `Notes: "Code exists but no test verifies it."` Behavioral observation → changelog entry. `Implemented` REQ in the same state → handled by the auto-demote rule above.
 3. **Test quality heuristics**: for every REQ with tests, count AC bullets vs test count (MEDIUM finding if mismatched), scan for tautology patterns and empty bodies (HIGH finding), and detect skipped tests (MEDIUM finding). Quality findings do not produce changelog entries.
 
