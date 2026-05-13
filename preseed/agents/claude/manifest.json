@@ -241,6 +241,11 @@
       "advanced"
     ]
   },
+  "agents/deep-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "commands/brainstorm.md": {
     "modes": [
       "advanced"

@@ -22,7 +22,7 @@ deployed on Recreate or new bucket creation.
 | `consult-llm` skill (CC only) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
 | Language rules (18 files: common, TS, Python, Go, Swift) | No | Yes | Yes |
-| Agent definitions (8: architect, code-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
+| Agent definitions (9: architect, code-reviewer, deep-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
 | Commands (5: /brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
 | Cherry-picked skills (8: api-design, backend-patterns, etc.) | No | Yes | Yes |
 | `spec-discipline` rule + spec-enforce skill family (3 skills: spine, AC, truth) | No | Yes | Yes |
@@ -76,11 +76,13 @@ on explicit action.
 ECC-derived rules, agents, commands, and skills are preseeded directly
 to the agent config filesystem. No external plugins are installed.
 
-**Agents (8)**: `architect`, `build-error-resolver`, `code-reviewer`,
-`doc-updater`, `refactor-cleaner`, `security-reviewer`,
+**Agents (9)**: `architect`, `build-error-resolver`, `code-reviewer`,
+`deep-reviewer`, `doc-updater`, `refactor-cleaner`, `security-reviewer`,
 `spec-reviewer`, `tdd-guide`. Preseeded to `~/.claude/agents/*.md`
 (and adapted equivalents for other agents) via the manifest pipeline
-with `"modes": ["advanced"]`. Each agent definition has YAML
+with `"modes": ["advanced"]`. `deep-reviewer` is invoked exclusively
+by `/review --deep`; it reads SDD REQ + impl + tests and judges
+behavioral spec-vs-code match per acceptance criterion. Each agent definition has YAML
 frontmatter with `name`, `description`, `tools` (emitted as a record
 `{read: true, write: true}` for OpenCode, instead of array format),
 and `model` (CC only).
@@ -89,8 +91,10 @@ and `model` (CC only).
 Preseeded to `~/.claude/commands/*.md` (CC only -- other agents don't
 support slash commands). Planning transitions are handled via Plan
 Mode (a built-in Claude Code primitive), not a slash command. `/review`
-takes mandatory scope flags (`--all` or `--diff`) plus an optional
-`--verify-high` flag; invoking it with no arguments prints a CLI help
+takes mandatory scope flags (`--all` or `--diff`) plus optional
+`--deep` (Phase 3 behavioral REQ verification via parallel
+deep-reviewer agents) and `--verify-high` (Phase 7 external-LLM
+second-opinion); invoking it with no arguments prints a CLI help
 screen and exits without running.
 
 **Skills (24 SKILL.md files, 39 manifest entries including
@@ -145,7 +149,7 @@ All preseed content is deployed via the manifest pipeline:
 3. `scripts/generate-agent-seed.mjs` reads manifest + files
    (manifest-driven, ignores non-manifest files like
    `plugins/cache/`), generates `src/lib/agent-seed.generated.ts`
-   with `AGENTS_SEEDED_CONFIGS` array (236 documents across all
+   with `AGENTS_SEEDED_CONFIGS` array (240 documents across all
    agents)
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
@@ -157,15 +161,15 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`)
 
-**Manifest structure (90 total entries)**:
+**Manifest structure (91 total entries)**:
 - `rules/` (25): core (3 default+advanced: cloudflare-environment,
   no-local-builds, git-workflow; + 4 advanced-only: memory,
   spec-discipline, documentation-discipline, tdd-discipline),
   common (2: coding-style, security), typescript (4), python (4),
   golang (4), swift (4)
-- `agents/` (8): architect, build-error-resolver, code-reviewer,
-  doc-updater, refactor-cleaner, security-reviewer, spec-reviewer,
-  tdd-guide (advanced only)
+- `agents/` (9): architect, build-error-resolver, code-reviewer,
+  deep-reviewer, doc-updater, refactor-cleaner, security-reviewer,
+  spec-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, review, sdd
   (advanced only)
 - `skills/` (39): cloudflare-stack, github-cloudflare-ship (+2
@@ -220,12 +224,12 @@ files exist on disk.
 
 | Agent | Total Documents |
 |-------|-----------------|
-| CC | 90 |
+| CC | 91 |
 | Codex | 40 |
-| Gemini | 48 |
-| Copilot | 10 |
-| OpenCode | 48 |
-| **Total** | **236** |
+| Gemini | 49 |
+| Copilot | 11 |
+| OpenCode | 49 |
+| **Total** | **240** |
 
 **Excluded from non-CC agents**: hooks (CC hook system), commands (CC
 slash commands), plugins (CC plugin system, including
@@ -240,7 +244,7 @@ references with agent-specific config paths, (5) uses correct file
 extensions (e.g., `.agent.md` for Copilot agents).
 
 **Per-mode counts**: Default mode seeds 36 files, advanced mode
-seeds 232 files. Total array size is 236 (includes variant-per-mode
+seeds 236 files. Total array size is 240 (includes variant-per-mode
 duplicates for instructions files).
 
 **Variant-per-mode keys**: Instructions files appear twice in the
