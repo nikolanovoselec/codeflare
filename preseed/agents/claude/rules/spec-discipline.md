@@ -4,7 +4,7 @@ Applies to any project with an `sdd/` folder. Inert otherwise. Enforced by `spec
 
 Siblings: `documentation-discipline.md` (doc-updater), `tdd-discipline.md` (code-reviewer). Workflow in the `spec-driven-development` skill.
 
-Every row in the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip; "ran (0 findings)" is honest, "skipped (looked clean)" is not.
+Every row in the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each rule completes, finalised at run end. Pending rows at finalize → HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts (`ran (N REQs, M findings)`) → HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
 
 ## What the spec is
 
@@ -12,10 +12,7 @@ Every row in the manifest below MUST execute on every run. No cherry-picking; co
 
 ## Required execution manifest
 
-Every clean / PR-boundary run MUST emit a manifest with one row per rule. Written FIRST as a template (rows `pending`), updated as each rule completes, finalised at run end. Audit location depends on trigger:
-
-- **`/sdd clean`** → write the full manifest into `sdd/.last-clean-run.md`.
-- **PR-boundary spec-reviewer** → write spec-side rows into the agent's commit body, OR (if no commits) into `sdd/.review-needed.md` as a `## Execution manifest` sub-section.
+Audit location by trigger: `/sdd clean` → `sdd/.last-clean-run.md`. PR-boundary spec-reviewer → agent's commit body OR (if no commits) `sdd/.review-needed.md` as a `## Execution manifest` sub-section.
 
 | Rule | Required action this run | Status |
 |---|---|---|

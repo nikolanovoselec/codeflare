@@ -2,7 +2,7 @@
 
 Applies whenever a project has both `sdd/` AND `documentation/`. Inert otherwise. Enforced by `doc-updater`. Sibling: `spec-discipline.md` (spec-reviewer).
 
-Every row in the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip; "ran (0 findings)" is honest, "skipped (looked clean)" is not.
+Every row in the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each pass completes, finalised at run end. Pending rows at finalize → HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts (`ran (K files, M findings)`) → HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
 
 ## What documentation is
 
