@@ -44,19 +44,7 @@
       "advanced"
     ]
   },
-  "rules/ci-monitoring.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
   "rules/cloudflare-environment.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "rules/deploy-credentials.md": {
     "modes": [
       "default",
       "advanced"
@@ -95,6 +83,7 @@
   },
   "rules/common/git-workflow.md": {
     "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -344,6 +333,34 @@
   },
   "skills/doc-enforce-truth/SKILL.md": {
     "modes": [
+      "advanced"
+    ]
+  },
+  "skills/tdd-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ci-monitoring/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/git-review-pipeline/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/pr-workflow/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/deploy-credentials/SKILL.md": {
+    "modes": [
+      "default",
       "advanced"
     ]
   },
