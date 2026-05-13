@@ -15,7 +15,7 @@ const ECC_SUBDIRS = ['common', 'typescript', 'python', 'golang', 'swift'] as con
 
 // Expected file count per subdirectory
 const ECC_FILES_PER_SUBDIR: Record<string, number> = {
-  common: 3, // coding-style, git-workflow, security
+  common: 2, // coding-style, security (git-workflow moved to top-level rules/ with default+advanced modes)
   typescript: 4, // coding-style, patterns, security, testing
   python: 4,
   golang: 4,

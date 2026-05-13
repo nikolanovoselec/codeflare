@@ -81,7 +81,7 @@
       "advanced"
     ]
   },
-  "rules/common/git-workflow.md": {
+  "rules/git-workflow.md": {
     "modes": [
       "default",
       "advanced"
