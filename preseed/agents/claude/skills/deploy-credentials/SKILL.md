@@ -1,10 +1,16 @@
+---
+name: deploy-credentials
+description: GitHub and Cloudflare credential reference. Env-var table (GH_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID), what each token enables (gh/git/wrangler operations), check-then-fallback behavior, secret-handling rules. Invoked when a turn needs gh/wrangler access and isn't sure if creds are present or wants the full operations reference.
+version: 1.0.0
+---
+
 # Deploy Credentials
 
-GitHub and Cloudflare credentials are **optional**. They may be pre-configured via Settings > Push & Deploy, but many users will not have them set.
+GitHub and Cloudflare credentials are **optional**. They may be pre-configured via Settings > Push & Deploy, but many users will not have them set. This skill carries the env-var table, the operations they enable, and the check-then-fallback protocol.
 
 ## Environment Variables
 
-These variables are only present if the user configured them in Settings. Always check before assuming they exist.
+Only present if the user configured them in Settings. Always check before assuming they exist.
 
 | Variable | What it enables |
 |---|---|
@@ -12,7 +18,7 @@ These variables are only present if the user configured them in Settings. Always
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token. Auto-detected by `wrangler` CLI. |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. Auto-detected by `wrangler` CLI. |
 
-## What You Can Do with GH_TOKEN
+## What you can do with GH_TOKEN
 
 When `GH_TOKEN` is set, all of the following work without any manual auth:
 
@@ -41,7 +47,7 @@ When `GH_TOKEN` is set, all of the following work without any manual auth:
 - `gh api user --jq '.name'` (get display name)
 - `gh auth status` (verify token is active)
 
-## What You Can Do with CLOUDFLARE_API_TOKEN
+## What you can do with CLOUDFLARE_API_TOKEN
 
 When both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set, all wrangler commands work without manual auth:
 
@@ -71,22 +77,22 @@ When both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set, all wrangl
 - `npx -y wrangler tail` (live-tail Worker logs)
 - `npx -y wrangler whoami` (verify token and account)
 
-## Behavior — Check, Then Fallback
+## Check-then-fallback
 
 These tokens are optional. When you need GitHub or Cloudflare access:
 
-**Step 1: Check if env vars are set**
+**Step 1:** check if env vars are set
 ```bash
 echo "${GH_TOKEN:+set}"                # prints "set" if available
 echo "${CLOUDFLARE_API_TOKEN:+set}"    # prints "set" if available
 ```
 
-**Step 2a: If set** — use them directly. Do not ask the user to authenticate again.
+**Step 2a:** if set, use them directly. Do not ask the user to authenticate again.
 
-**Step 2b: If NOT set** — offer the user three options:
+**Step 2b:** if NOT set, offer the user three options:
 1. **Settings (persistent):** "You can connect your GitHub/Cloudflare account in Settings > Push & Deploy. This will apply to all future sessions. You'll need to start a new session for the tokens to take effect."
 2. **CLI auth (this session only):** For GitHub: `BROWSER="" gh auth login --hostname github.com --git-protocol https --web`. For Cloudflare: ask the user to paste their token.
-3. **Export in terminal (this session only):** The user can set the variables manually:
+3. **Export in terminal (this session only):** the user can set the variables manually:
    ```bash
    export GH_TOKEN="github_pat_..."
    export CLOUDFLARE_API_TOKEN="..."
@@ -97,21 +103,21 @@ Never assume tokens are present. Always check first.
 
 ## Security
 
-- The safest way to handle secrets is for the user to run commands manually in a separate terminal tab. This keeps secrets out of the AI conversation history. When a command involves a secret value, give the user the exact command to paste in a terminal tab rather than running it yourself in the chat.
+- Safest way to handle secrets is for the user to run commands manually in a separate terminal tab. Keeps secrets out of the AI conversation history. When a command involves a secret value, give the user the exact command to paste in a terminal tab rather than running it yourself in the chat.
 - Always use `printf '%s'` (not `echo`) when piping secrets to commands.
 - Never log or redisplay token values after receiving them.
 
-## Important Notes
+## Important notes
 
 - Always use `BROWSER=""` prefix when running `gh auth login` or any CLI that might try to open a browser.
 - When creating Cloudflare resources, capture the output IDs and update `wrangler.toml` with real values.
-- Durable Objects do not need pre-provisioning - wrangler handles them automatically during deploy.
+- Durable Objects do not need pre-provisioning; wrangler handles them automatically during deploy.
 - Tokens configured in Settings take effect on next session start, not immediately.
 - When storing secrets as GitHub Actions secrets, use file redirect instead of pipe:
   ```bash
-  # WRONG — can store empty values in some environments:
+  # WRONG - can store empty values in some environments:
   printf '%s' "$SECRET" | gh secret set SECRET_NAME
-  # CORRECT — reliable across all environments:
+  # CORRECT - reliable across all environments:
   TMP=$(mktemp) && echo -n "$SECRET" > "$TMP" && gh secret set SECRET_NAME < "$TMP" && rm "$TMP"
   ```
 - When running wrangler in CI, use `npx --yes wrangler deploy` (not `cloudflare/wrangler-action`) to always get the latest version and avoid interactive prompts.

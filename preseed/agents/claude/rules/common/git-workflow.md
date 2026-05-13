@@ -1,210 +1,49 @@
-# Git Workflow
+# Git Workflow (Core)
 
-## Commit Message Format
+Identity + obligations for the commit -> push -> CI -> PR chain. Detailed mechanics live in branched skills (`ci-monitoring`, `git-review-pipeline`, `pr-workflow`, `deploy-credentials`).
+
+## Commit message format
+
 ```
 <type>: <description>
 
 <optional body>
 ```
 
-Types: feat, fix, refactor, docs, test, chore, perf, ci
+Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`.
 
-Note: Attribution disabled globally via ~/.claude/settings.json.
+Note: AI attribution disabled globally via `~/.claude/settings.json`. No `Co-Authored-By`, no emoji, no "Generated with Claude" lines.
 
-## Review workflow is gated on SDD bootstrap AND PR boundary
+## SDD opt-in matrix
 
 **SDD opt-in is binary.** Two modes:
 
-- **Vibe-coding mode** (no `sdd/` folder in the project) — `git push`
-  and `gh pr create` proceed with **no review agents**. Nothing fires.
-  No code-reviewer, no spec-reviewer, no doc-updater, no auto-generated
-  documentation. Pure friction-free workflow. This is intentional:
-  projects that haven't run `/sdd init` are telling you they don't
-  want the workflow.
-- **SDD mode** (`sdd/` + `sdd/README.md` exist) — review agents fire
-  on PR-boundary events only, not on every push.
+- **Vibe-coding mode** (no `sdd/` folder in the project): `git push` and `gh pr create` proceed with **no review agents**. Nothing fires. No code-reviewer, no spec-reviewer, no doc-updater, no auto-generated documentation. Pure friction-free workflow. Intentional: projects that haven't run `/sdd init` are telling you they don't want the workflow.
+- **SDD mode** (`sdd/` + `sdd/README.md` exist): review agents fire on PR-boundary events only, not on every push. PRs targeting `main`/`master` are the trigger; PRs into integration branches (`develop`, `staging`) are deferred until the integration branch's own PR-to-main opens.
 
-### PR-boundary trigger semantics (SDD mode)
+Full PR-boundary trigger table + execution order + branch-protection setup live in the `git-review-pipeline` skill (invoked at PR-boundary events when SDD is bootstrapped).
 
-Review fires only on PRs that target `main` or `master`. PRs into an
-integration branch (`develop`, `staging`, etc.) are deferred until
-the integration branch's own PR-to-main opens or syncs — the
-cumulative review at that point covers everything that landed.
+## Post-push obligation: monitor CI
 
-| Action | PR base | What fires |
+After every `git push` that targets a branch with CI workflows, monitor CI until every run on the pushed commit completes successfully. Invoke the `ci-monitoring` skill as a first action; it carries the single-bounded-iteration polling pattern, per-iteration decision matrix, stale-run cancellation, and tool-surface selection (ctx_execute for context-mode, Bash for vibe-coding).
+
+Never report CI as passing without confirming every row is `completed` + `success` in the same iteration. Never deploy to integration until every run is green. Never use `gh run watch` (hangs).
+
+## PR creation
+
+When the user asks the agent to open a PR, invoke the `pr-workflow` skill. It carries the body template, REQ backlink rule, test-plan checklist, and the user-only `gh pr merge` boundary.
+
+## Credentials
+
+GitHub and Cloudflare credentials (`GH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) are optional environment variables. When you need gh/wrangler access, check `echo "${GH_TOKEN:+set}"` first; if unset, offer the user the Settings/CLI-auth/export options. The `deploy-credentials` skill carries the full env-var table, what each token enables, the check-then-fallback protocol, and secret-handling rules.
+
+## Skill family
+
+| Skill | Mode | When invoked |
 |---|---|---|
-| `gh pr create --base main` | main | code-reviewer + spec-reviewer + doc-updater (full pipeline) |
-| `gh pr create --base develop` | develop | nothing (deferred) |
-| `git push` to a branch with open PR → main | main | full pipeline (PR-sync) |
-| `git push` to a branch with open PR → master | master | full pipeline (PR-sync) |
-| `git push` to a branch with open PR → develop | develop | nothing (deferred — review fires when develop → main PR opens or syncs) |
-| `git push` to a branch with no open PR | — | nothing (deferred until PR opens) |
-| `git push` to `develop` directly | — | nothing (caught by the develop → main PR later) |
-| `git push` to `main`/`master` with no PR | — | nothing (the user is expected to have branch protection on; if off, manual verification is on the user) |
+| `ci-monitoring` | default + advanced | After every `git push` to a branch with CI workflows |
+| `git-review-pipeline` | advanced | At PR-boundary events when `sdd/` is bootstrapped; when configuring branch protection |
+| `pr-workflow` | default + advanced | When the user asks the agent to open a PR |
+| `deploy-credentials` | default + advanced | When a turn needs gh/wrangler access and the env-var state is unclear, or for the full operations reference |
 
-The cost model shifts from per-push (every commit pair burned a full
-review) to **per-main-bound PR** (one review at the moment the
-change is destined for `main`, one per push while that PR is open).
-Same coverage, ~10× fewer review tokens than per-push, ~2× fewer
-than per-any-PR.
-
-### Recommended workflow
-
-```
-feature ──► PR ──► develop ──► PR ──► main
-   ↑                              ↑
-   you push                       review fires
-   (no review yet)                at PR open + each sync push
-```
-
-Direct push to `develop` is fine — the develop → main PR catches the
-cumulative diff. Direct push to `main` should be prevented at the
-GitHub layer (see "Branch protection on main" below) rather than
-worked around in-session.
-
-The `git-push-review-reminder.sh` PostToolUse hook enforces this:
-checks for `sdd/` + `sdd/README.md`, classifies the trigger
-(`gh pr create` → poll gh for the just-created PR's base; `git push`
-→ `gh pr view` → check state OPEN AND base IN (main, master)), and
-emits the three-agent directive only when the trigger fires. On
-non-SDD projects the hook exits silently and no agents are spawned.
-
-The `enforce-review-spawn.sh` Stop hook is the safety net: it calls
-`gh pr view` at turn end and blocks the turn from ending only if a
-PR-to-main has an un-acked HEAD with the required agents not spawned.
-Same base gate (main/master only). Branch-tracking note:
-
-> The hook's cheap-path `@{u}` short-circuit relies on the current
-> branch having upstream tracking (`git rev-parse @{u}` must
-> resolve). Vanilla `git clone https://github.com/owner/repo.git`
-> sets this up automatically. If you manually create a branch with
-> `git checkout -B <branch>` (no `--track`), repair tracking once
-> with `git branch --set-upstream-to=origin/<branch> <branch>`. The
-> hook still works without it (falls back to `gh pr view`), just
-> pays an extra 200-500ms per Stop event.
-
-To manually invoke code-reviewer or doc-updater on a non-SDD project
-(e.g., to audit code quality or maintain a `documentation/` folder by
-hand), use the Task tool directly with the agent name. The automatic
-PR-boundary workflow is the only thing that's gated.
-
-### Branch protection on main (proactive surfacing during CI setup)
-
-When you (the agent) are helping the user set up CI for a new
-repository — adding `.github/workflows/`, configuring required
-checks, drafting a release process, or auditing an existing repo's
-CI — **proactively surface the branch-protection conversation**.
-Don't wait for the user to ask. The protection is the **actual
-enforcement** that makes the PR-boundary trigger model complete;
-without it, direct pushes to `main` silently bypass both the review
-pipeline and the GitHub Actions checks that gate merges.
-
-Surface it as a one-paragraph explanation followed by a concrete
-proposal. Example phrasing the agent should use:
-
-> "Before this CI is meaningful, `main` needs branch protection
-> turned on. Right now anyone with push access can land code on
-> `main` without a PR — which means CI never runs on the change and
-> the SDD review pipeline never sees it. Want me to enable branch
-> protection on `main` (require PR before merge, require these CI
-> checks to pass, require branch up-to-date before merge)?"
-
-If the user says yes, configure it via `gh api`:
-
-```bash
-gh api -X PUT "repos/{owner}/{repo}/branches/main/protection" \
-  --input branch-protection.json
-```
-
-Recommended `branch-protection.json` settings (adjust the
-`required_status_checks.contexts` array to match the actual workflow
-job names from `.github/workflows/`):
-
-- **Require a pull request before merging** — `required_pull_request_reviews`: enabled, `required_approving_review_count: 0` (the SDD review pipeline does the substantive review; this just enforces the PR gate)
-- **Require status checks to pass before merging** — list each required CI workflow's job name in `contexts`
-- **Require branches to be up to date before merging** — `strict: true` (forces rebase-on-main before merge so CI reflects the merged state, not the pre-merge state)
-- **Enforce for administrators** — `enforce_admins: true` (otherwise you'll quietly bypass it yourself when convenient)
-- **Restrict pushes that create files** — optional, project-specific
-
-The PR-boundary trigger model assumes branch protection is in
-place. If the user declines, document it as a project-level
-workflow decision (ADR or `documentation/decisions/`) so future
-contributors know the protection is intentionally off, not just
-forgotten.
-
-
-### Execution order when SDD is bootstrapped — partial parallelism
-
-1. **code-reviewer** runs in parallel with the others (it touches
-   source code only, not `sdd/` or `documentation/`)
-2. **spec-reviewer** runs FIRST among the docs/spec agents
-3. **doc-updater** runs SECOND, AFTER spec-reviewer has finished
-   (sequential to spec-reviewer)
-
-**Why sequential between spec-reviewer and doc-updater:** both agents
-may touch related files (spec-reviewer may move REQs, doc-updater may
-generate cross-references to those REQ IDs). Running them in parallel
-races on shared filesystem state and produces dangling cross-links.
-The discipline rule (`rules/spec-discipline.md` "Spec/docs/code lane
-separation" section) makes this explicit.
-
-**code-reviewer** can run in parallel with both because its lane
-(source code) doesn't overlap with `sdd/` or `documentation/`.
-
-### The three agents (SDD mode only)
-
-1. **code-reviewer** — reviews code quality, security, correctness.
-2. **spec-reviewer** — keeps `sdd/` as the single source of truth.
-   When code changes introduce new features, modify behavior, or change
-   APIs without a corresponding spec update, this agent updates `sdd/`
-   to match: adds new REQ-* entries for unspec'd features, updates
-   acceptance criteria for changed behavior, marks deprecated
-   requirements, adds changelog entries to `sdd/changes.md`, runs
-   TDD coverage checks (per `enforce_tdd` in `sdd/config.yml`).
-3. **doc-updater** — reads the post-edit spec from spec-reviewer and
-   updates `documentation/` to match the code. Flags when API routes,
-   env vars, auth flows, configuration, or architecture change without
-   a corresponding doc update. Generates cross-references from docs to
-   REQ IDs. Never runs on non-SDD projects — manual invocation only.
-
-
-## Post-Push: CI Monitoring
-
-After every `git push`, monitor CI until every run on the pushed commit
-completes successfully.
-
-**Bounded per-iteration polling, not a long-running script.** DO NOT spawn
-`while true; do ...; done` (blocking script that the agent can't
-intervene in if it hangs). DO call a single 15-second-spaced check
-every iteration, read the table, decide. Cap at ~30 iterations
-(~7-8 min wall time) before escalating to the user.
-
-Tool selection (binary on session type):
-
-- **Context-mode sessions** — `enforce-ctx-mode.sh` denies `gh` /
-  `while` / `echo` / `tail` via the native Bash tool. Each iteration
-  goes through `mcp__context-mode__ctx_execute(language:"shell",
-  code:"sleep 15 && gh run list --branch <branch> ...")`. The sandbox
-  interior is unrestricted shell; output stays in sandbox FTS5 so
-  the agent burns near-zero context tokens per iteration.
-- **Vibe-coding (no context-mode) sessions** — same single-iteration
-  body via the Bash tool (no `run_in_background:true` — each call is
-  short and bounded by the 15-second sleep + one `gh run list`).
-
-See `rules/ci-monitoring.md` for the full per-iteration decision
-matrix, failure-triage flow, and stale-run cancellation step.
-
-Never report CI as passing unless you have confirmed every row is
-`completed` + `success` in the same iteration. Never deploy to
-integration until every run is green. Never use `gh run watch` —
-it hangs.
-
-## Pull Request Workflow
-
-When creating PRs:
-1. Analyze full commit history (not just latest commit)
-2. Use `git diff [base-branch]...HEAD` to see all changes
-3. If `sdd/` exists, reference implemented REQ-* IDs in the PR summary
-4. Draft comprehensive PR summary
-4. Include test plan with TODOs
-5. Push with `-u` flag if new branch
+Skipping `ci-monitoring` invocation after a push that triggered CI is itself a HIGH lapse caught by the next agent that depends on CI state (deploy gate, PR-merge gate, etc.).
