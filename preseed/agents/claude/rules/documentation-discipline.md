@@ -413,9 +413,9 @@ Three questions, asked in order on every prose hunk:
 
 3. **Did I explain WHY?** Most sections describe what the code does. Ask: would a developer who has never seen this system understand *why* it works this way after reading my prose? If the why is non-obvious (hidden constraint, past incident, deliberate trade-off, vendor quirk, regulation) and is not stated, the section is incomplete. LOW `prose-missing-why`. Auto-fix: escalate to `documentation/.doc-coverage.md` under "Authoring debt".
 
-**Restructuring is not exempt.** Mechanical re-rendering (Pass 6, Pass 7 shape uniformity, Pass 13 relocation) opens new opportunities for weasel sentences and broken claims to enter the diff. Pass 14 runs on every diff regardless of how it was produced.
+**Scope.** Pass 14 fires on every prose diff (mechanical re-render counts too). On `/sdd clean --all` or any audit run with no defining diff, scope widens to every paragraph in every canonical lane file. A "ran (N files)" manifest count is dishonest when only diff hunks were inspected.
 
-**The triggers are seeds for judgment, not closed lists.** Deny prose because — after reading as a reviewer — it is vague, unverifiable, or missing context the reader needs. A weasel-shaped sentence concretely anchored elsewhere in the same section is fine; a sentence with no seed words but no concrete payload is not. Read with a brain, not grep.
+**Triggers are seeds for judgment.** Deny prose because — after reading as a reviewer — it is vague, unverifiable, or missing context. A weasel-shaped sentence concretely anchored elsewhere is fine; a sentence with no seed words but no concrete payload is not. Read with a brain, not grep.
 
 ## Severity classification
 
