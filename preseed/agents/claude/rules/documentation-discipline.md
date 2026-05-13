@@ -24,12 +24,13 @@ Every clean / PR-boundary run MUST emit a manifest with one row per pass. Audit 
 | Pass 4 — Lane-violation detection | Walk every doc file against signature catalogue. | `ran (K files, M findings)` |
 | Pass 5 — Format-template field presence | Walk every section in canonical lane files; verify required fields. Includes TOC content rule and index-table link rule. | `ran (S sections, M findings)` |
 | Pass 6 — File-level shape consistency | Verify each lane file against the shape expected from the per-lane format templates table (filename-resolved); flag deviant sections. | `ran (K files, M findings)` |
-| Pass 7 — Canonical per-endpoint rendering | For `documentation/api-reference.md`, verify each endpoint section matches the binding template. | `ran (E endpoints, M findings)` or `inert (api-reference.md absent)` |
+| Pass 7 — Canonical per-endpoint rendering | For every `documentation/api-reference*.md` file (family), verify each endpoint section matches the binding template AND obeys the file-level shape uniformity + prose paragraph cap rules. | `ran (E endpoints, M findings)` or `inert (no api-reference*.md present)` |
 | Pass 8 — Verification truth-check | For every `**Verification:**` field, open cited test file and verify REQ ID + content-word match. | `ran (V fields, F files, M findings)` |
 | Pass 9 — Implements-vs-AC cross-walk | For every `**Implements:**` field, read linked REQ; classify section-vs-AC. | `ran (I fields, M findings)` |
 | Pass 10 — Stale code-block detection | For every fenced block / route / signature / JSON / env var ref, resolve against `src_globs`. | `ran (B blocks, M findings)` |
 | Pass 11 — Content-preservation on trim | On every Pass 1 trim, run tokenisation check before committing. | `ran (T ops, M findings)` or `inert (no trim ops)` |
 | Pass 12 — Stranger cold-read | For every canonical lane file in task registry, dispatch fresh `general-purpose` subagent with one simulated task. | `ran (T tasks, M findings)` or `ran (cached, hit on SHA <sha>)` |
+| Pass 13 — Within-section semantic consistency | Walk every heading section in every `documentation/**.md` file; fire the three semantic triggers — duplicate fields, hybrid shape within section, repeated cross-section prose. | `ran (K files, S sections, M findings)` |
 
 Pass 12 caches on commit SHA + file mtime. When warm, the agent records `ran (cached, hit on SHA <sha>)` — that IS execution. The cache amortises cost across multiple Stop hooks within one PR sync; it does not skip the pass.
 
@@ -250,9 +251,13 @@ Auto-fix in `auto`/`unleashed`: mechanical re-render; commit `[doc-updater] re-r
 
 ## Pass 7 — Canonical per-endpoint rendering
 
-**Binding scope:** Pass 7 fires on `documentation/api-reference.md` only. Other api-reference family files (`api-reference-admin.md` etc.) are covered by Pass 5's per-lane format templates, not by Pass 7's stricter binding template.
+**Binding scope:** Pass 7 fires on every `documentation/api-reference*.md` file — the entire family (`api-reference.md`, `api-reference-admin.md`, and any future split sibling). Pass 5's per-lane format templates and Pass 13's three within-section triggers also apply, but Pass 7 adds the stricter per-endpoint binding template below — file-level shape uniformity, the prose paragraph cap, the fenced `METHOD path` block in place of bolded Method/Path lines, and the canonical Authentication / Origin check vocabularies.
 
-Every endpoint section in `api-reference.md` MUST use this exact structure:
+**File-level shape uniformity.** Within a single `api-reference*.md` file, every endpoint section MUST use the SAME shape (per-item OR grouped-table; per-item is the binding default below). A file mixing both is `rendering-shape-mismatch` per-section against the file's dominant resolved shape, MEDIUM, per the existing Pass 6 contract. Auto-fix re-renders deviant sections.
+
+**Prose paragraph cap per endpoint section.** Outside the optional `**Notes**` block (which itself caps at "1-3 prose paragraphs" per the template below), an endpoint section MUST NOT carry standalone prose paragraphs. Any paragraph in an endpoint section that is neither (a) a field line, (b) a fenced code block, (c) a table, nor (d) inside the `**Notes**` block is MEDIUM `endpoint-section-prose-leakage`. Detection: walk paragraphs (blank-line separated); flag any whose first non-whitespace token is not `**` (bolded field), `|` (table), or ` ``` ` (fence). Auto-fix in `auto`/`unleashed`: move the prose into a `**Notes**` block at the section's bottom; if the prose describes behaviour spanning ≥3 endpoints, Pass 13 Trigger 3 (repeated cross-section prose) handles relocation to `## Conventions` instead. Three-paragraph operational descriptions inside an endpoint section indicate the contract has leaked into implementation prose belonging to `architecture.md` or a Source-code docstring — escalate to `documentation/.review-needed.md` if the prose carries architectural rationale rather than caller-facing notes.
+
+Every endpoint section in any `api-reference*.md` file MUST use this exact structure:
 
 ```
 ### {METHOD path} ({optional descriptive title})
@@ -368,6 +373,31 @@ For each top-level canonical file, dispatch a fresh subagent (`general-purpose` 
 Subagent reports `succeeded` / `partial` / `failed`. Partial and failed → MEDIUM `stranger-cold-read-gap` naming the specific information the doc failed to surface.
 
 Project-overridable via `documentation/.cold-read-tasks.yml`. Pass runs at most once per PR-boundary trigger (caches on commit SHA + file mtime). No auto-fix — signal only; written to `documentation/.doc-coverage.md` under `## Cold-read gaps`.
+
+## Pass 13 — Within-section semantic consistency
+
+**Scope:** every `documentation/**.md` file (lane file, ADR, runbook, index, anything). Independent of per-lane format templates — these triggers catch failures in document structure that any well-formed markdown document should avoid, regardless of what it documents.
+
+A "section" here means any heading block (`##`, `###`, `####`, any depth) plus everything between that heading and the next heading of the same or shallower depth. Three triggers fire deterministically; each is MEDIUM with mechanical auto-fix.
+
+**Trigger 1 — Duplicate field within section.** Any bolded label `**{Label}:**` appearing 2+ times as a line prefix within the same heading section is `field-duplicated-within-section`. Detection: scan the section body for lines matching `^\*\*([A-Z][A-Za-z0-9 _-]+):\*\*`; count occurrences per label; ≥2 fires. Rationale: a contract field declared twice means readers cannot tell which value is load-bearing.
+
+Auto-fix in `auto`/`unleashed`:
+
+1. Same value (whitespace-normalised) in every occurrence → keep the first occurrence, delete the rest. No content loss.
+2. Different values → escalate to `documentation/.review-needed.md` with both quoted values. Content reconciliation is JUDGMENT, not mechanical.
+
+**Trigger 2 — Hybrid shape within section.** A heading section contains BOTH (a) ≥2 lines of bolded label/value pairs in the section's prefix block (before the first paragraph, table, or fenced code block), AND (b) one or more markdown tables whose column headers overlap ≥2 of those bolded labels. Severity: `hybrid-shape-within-section`. Rationale: the same contract is rendered twice in two shapes; the duplication is the bug, not which shape is "right".
+
+Detection: parse the section's prefix-block bolded labels; for each table in the section body, take the header row column names; if the intersection size ≥2, fire.
+
+Auto-fix in `auto`/`unleashed`: keep whichever shape dominates the file (count of sections in each shape across the whole file; ties broken by the file's first content section). Delete the duplicate-content side of the hybrid. If the non-dominant side carries columns or fields the dominant side does not, preserve only the unique columns/fields, dropping the overlapping ones. If preservation cannot be disambiguated mechanically, escalate.
+
+**Trigger 3 — Repeated paragraph across sibling sections.** A paragraph (normalised: collapse internal whitespace, lowercase, strip surrounding markdown emphasis) appearing byte-for-byte identically in ≥3 sibling sections at the same heading depth within the same parent is `repeated-prose-pattern`. Rationale: identical prose copy-pasted across ≥3 siblings is a structural signal that the content belongs in a single shared section the siblings link to, not duplicated per-sibling. The hash collision is necessary — paragraphs that diverge in any clause will not match and the rule does not fire, by design.
+
+Detection: walk every paragraph in the file (blank-line separated, excluding fenced code blocks, tables, and field lines). Normalise and hash each. Group hashes by sibling depth + parent. ≥3 collisions across distinct sibling sections fires.
+
+Auto-fix in `auto`/`unleashed`: extract the repeated paragraph into a shared anchor section in the same file. The shared section's location is determined by the file's structure: if a `## Conventions`, `## Shared`, `## Common`, or equivalent already exists, append to it under a `### {short-label}` derived from the paragraph's leading 4-6 content words; otherwise create `## Conventions` immediately after the file's preamble and place the extracted paragraph there. Replace each in-section occurrence with a one-sentence link of the form `See [{file's-conventions-section-title} § {short-label}](#anchor-slug).` (length ≤25 words). If three sibling sections fire on the same paragraph but additional siblings carry diverging variants, only the hash-matching set is relocated; the diverging variants remain in place because they are not in fact duplicates.
 
 ## Severity classification
 

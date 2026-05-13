@@ -171,21 +171,29 @@ Oversized REQs are shrunk in place first (extract implementation prose to `docum
 
 ### Granularity — one behaviour per AC (binding)
 
-**An AC MUST encode exactly one observable behaviour. If an AC can be split into ≥2 distinct test names, it MUST be split.** Supersedes prior word/semicolon thresholds, which under-fired on packed 50–90 word ACs.
+**An AC MUST encode exactly one observable behaviour. If an AC can be split into ≥2 distinct test names, it MUST be split.** Hard triggers below; any one fires the rule. Agent MUST attempt a split and only abandon when the AC encodes one behaviour with sentences 2..N as pure rationale.
 
-Detection (any one signal fires the rule):
+1. **Sentence count ≥ 3** in one AC. Sentence = run ending `.`/`!`/`?` + whitespace + capital. Escape: sentences 2..N are rationale (`so`/`so that`/`because`) AND share the subject AND introduce no new contractual verb (`must`, `is`, `triggers`, `applies`, `picks`, `merges`, `dispatches`, …).
+2. **Word count > 130** in a single-sentence AC. Split at the load-bearing conjunction.
+3. **Word count > 80 AND sentence count ≥ 2**.
+4. **Subject shift across sentences**: sentence 1 subject ≠ sentence 2 subject (e.g., "On settings save, any tag…" → "The discovery cron…"). Two subjects = two enforcement sites = two ACs.
+5. **Multi-site enforcement phrase**: literal tokens `applies the same`, `also applies`, `is enforced both`, `the same X defensively`. Each names ≥2 sites.
+6. **Tie-break or appendage after `;`**: `; among …`, `; within …`, `; tie-break …`, `; with …` attaching a new rule to a primary rule.
+7. **Multi-path contract**: `regardless of (path|order|whether)` + substantive contract clause → one positive-path AC and one negative-path AC.
+8. **Transform + downstream effect** in one bullet: transform (canonicalisation, normalisation, parsing, validation) AND effect (idempotency, dedup, cache hit, retry).
+9. **≥2 distinct verb phrases joined by `and` / `then` / `before`** with own subjects or distinct objects (outside comma-enumerations).
+10. **Reviewer can write ≥2 test-name candidates** exercising distinct code paths. Borderline tiebreaker.
 
-1. The AC contains ≥2 distinct verb phrases joined by `and`, `;`, `then`, or `before` where each verb has its own subject or distinct object.
-2. The AC describes a transform (canonicalisation, normalisation, parsing) AND a downstream effect (idempotency, deduplication, cache hit) in one bullet.
-3. A reviewer can write ≥2 test-name candidates from the AC text where each candidate exercises a distinct code path.
+Binding examples:
+- VALID (escape): "Articles older than 48 hours are dropped before LLM summarisation so stale items do not consume LLM budget." Sentence 2 is rationale, same subject. No split.
+- INVALID (trigger 1): "Articles older than 48 hours are dropped before LLM summarisation. Candidates with no parsable date fall back to ingestion time and are kept." Sentence 2 introduces a new positive-path contract. Split.
+- INVALID (trigger 4): "On settings save, any submitted tag triggers an INSERT. The discovery cron applies the same short-circuit defensively." Subject shifts; two sites. Split.
 
-Binding example (REQ-PIPE-003 failure): "URLs are canonicalised by stripping utm_*, trimming trailing slashes, and removing default ports. A canonical URL already in the pool is skipped on subsequent ticks." Two behaviours — canonicalisation algorithm and idempotent re-ingestion. Auto-fix splits at the behaviour boundary; sub-rules of one canonicalisation step MAY share an AC (the rule fires on observable behaviour boundaries, not on every clause).
-
-Severity: MEDIUM `ac-multi-behaviour`. Auto-fix in `auto`/`unleashed`: split at the behaviour boundary; preserve every clause as a separate AC. Never silently drop a clause.
+Severity: MEDIUM `ac-multi-behaviour`. Auto-fix in `auto`/`unleashed`: split at the boundary named by the firing trigger; preserve every clause; never silently drop. If post-split count exceeds 7, chain-enforcement binds Splitting by sub-feature in the same pass.
 
 ### Run-on AC bullets (length safety net)
 
-Residual safety net for single-behaviour ACs >150 words OR 3+ semicolons outside comma-separated enumerations. Ignore conjunctions inside comma lists. MEDIUM. Auto-fix: split at conjunctions, preserving every clause. Granularity fires first; this covers the over-verbose case.
+Residual catch-net for single-behaviour ACs that slipped past triggers 1-10 above: >150 words OR ≥3 semicolons outside comma-separated enumerations. MEDIUM `ac-run-on`. Auto-fix: split at conjunctions, preserving every clause. Granularity fires first.
 
 ### Actor coherence (one actor per REQ)
 
@@ -209,11 +217,7 @@ Severity: MEDIUM. Auto-fix: promote each sub-bullet to its own AC at the parent 
 
 When Granularity, Concern-boundary, or Sub-bullets fires, the agent MUST complete the chain in one auto-fix pass: granulate → check resulting AC count → if >7, run `Splitting by sub-feature` → emit sibling REQs each ≤7 ACs. Committing a granulated-but-unsplit REQ with >7 ACs is itself a HIGH finding `chain-not-completed`.
 
-Worked outcome (REQ-PIPE-003): 8 packed multi-behaviour ACs → Granularity splits each → ~22 single-behaviour ACs → cap binds → Splitting by sub-feature clusters by content tokens → 3–4 sibling REQs each with 3–5 ACs (e.g., URL canonicalisation + idempotency, same-story merge semantics, aggregator-wrapper handling, cross-tick dedup).
-
-Worked outcome (REQ-OPS-008): 7 multi-concern ACs → Concern-boundary detects 3 operationally distinct clusters → Splitting by sub-feature → 3 sibling REQs (phase dispatch, UI streaming, idempotency), each with 2–3 ACs.
-
-Worked outcome (REQ-PIPE-008 Deprecated): deletion rule removes the REQ entirely from the spec; any clauses not already covered by REQ-PIPE-003 are folded into REQ-PIPE-003's ACs in the same commit; `sdd/changes.md` records the deletion.
+Worked outcomes: (a) REQ-PIPE-003 — 8 packed ACs → Granularity → ~22 single-behaviour ACs → cap binds → Splitting by sub-feature → 3–4 sibling REQs each with 3–5 ACs. (b) REQ-OPS-008 — 7 multi-concern ACs → Concern-boundary detects 3 operationally distinct clusters → 3 sibling REQs with 2–3 ACs each. (c) Deprecated REQ deletion — clauses not already covered by successor are folded into successor in the same commit; `sdd/changes.md` records the deletion.
 
 ### Cross-cutting concerns get their own REQ family
 
@@ -241,14 +245,11 @@ New domain file scaffolded with standard header. First extracted REQ gets `REQ-{
 
 A single-actor REQ whose ACs span ≥2 distinct sub-features MUST split, **regardless of AC count**. Adds a concern-boundary trigger to the existing cap-based and actor/cross-cutting axes — fires when the REQ is structurally two REQs even at ≤7 ACs.
 
-Detection (both must hold):
+Detection (both must hold): (1) lexical clustering of AC first-clause subjects yields ≥2 clusters, each with ≥2 ACs; (2) clusters describe operationally distinct sub-jobs (different verb families: phase orchestration vs UI streaming, etc.).
 
-1. Lexical clustering of AC first-clause subjects yields ≥2 clusters, each with ≥2 ACs.
-2. The clusters describe operationally distinct sub-jobs (different verb families: e.g., one cluster verbs are about phase orchestration — `dispatches`, `transitions`, `schedules` — while another cluster verbs are about UI streaming — `renders`, `displays`, `updates`).
+Severity: MEDIUM `concern-boundary-split-required`. Auto-fix in `auto`/`unleashed`: apply **Splitting by sub-feature** mechanics even without numeric cap trip.
 
-Severity: MEDIUM `concern-boundary-split-required`. Auto-fix in `auto`/`unleashed`: apply **Splitting by sub-feature** mechanics (see below) even though no numeric cap is tripped. The split is justified by the concern boundary, not the count.
-
-Binding example (REQ-OPS-008 failure): 7-AC REQ where ACs 1-3 are phase dispatching, 4-5 are UI streaming, 6-7 are idempotency — three operationally distinct clusters → split into three REQs even under cap. The rule binds only when clusters are operationally distinct; a REQ where every AC is one job-to-be-done from different angles (9-AC animation REQ where every AC is a phase) is NOT a split target.
+Binding example (REQ-OPS-008): 7-AC REQ where ACs 1-3 are phase dispatching, 4-5 UI streaming, 6-7 idempotency → split into three REQs even under cap. A 9-AC REQ where every AC is one job from different angles (e.g., animation phases) is NOT a split target — clusters must be operationally distinct.
 
 ### Accretion guard (diff-level check)
 
@@ -281,7 +282,7 @@ Mechanics: original REQ ID stays with the largest coherent piece; new REQs get n
 
 When AC count cap binds (>10, or 8-10 with no axis) AND no actor or cross-cutting axis exists, **Splitting by sub-feature** is the deterministic fallback. Also fires from the **Concern-boundary split** rule above when clusters are operationally distinct even at ≤7 ACs.
 
-Cluster identification: tokenise each AC's first 12 words (stop-words stripped; content-words: nouns, verbs, named entities). Cluster greedily — two ACs share cluster when they share ≥2 content tokens (Jaccard ≥0.25). Dominant cluster (largest by AC count) keeps the original REQ ID; remaining clusters become new REQs; singleton ACs join the dominant cluster. If all ACs land in one cluster (true single-concern at high count): **median split** — ACs 1..N/2 stay; ACs N/2+1..N become a sibling REQ with `-extended` suffix, Intent copied verbatim.
+Cluster identification: tokenise each AC's first 12 words (content-words only); cluster greedily — two ACs share cluster when they share ≥2 tokens (Jaccard ≥0.25). Dominant cluster keeps the original REQ ID; remaining clusters become new REQs; singletons join the dominant. If all ACs land in one cluster: **median split** — ACs 1..N/2 stay; N/2+1..N become a sibling REQ with `-extended` suffix, Intent copied verbatim.
 
 Mechanics: original REQ ID stays with dominant cluster; new REQs get next free IDs in same domain. Each new REQ inherits parent's `Applies To:`, `Constraints:`, `Priority:`, `Verification:` verbatim; Intent rewritten per sub-feature; parent-child via `Dependencies:` (NOT Notes). Cross-refs update in same commit; commit body MUST include AC-mapping table. Commit: `[spec-reviewer] split: REQ-X-NNN by sub-feature → ...`. Tests NOT renamed.
 
