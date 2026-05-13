@@ -104,6 +104,13 @@ At the top of the file, include:
 
 Focus on: [AGENT-SPECIFIC FOCUS AREA]
 
+Skill invocation override for /review mode (when applicable to your agent type):
+- **doc-updater**: invoke `doc-enforce` skill with scope=all against the full `documentation/` corpus as your first action. The skill conditionally invokes doc-enforce-lanes / doc-enforce-shape / doc-enforce-truth as needed.
+- **tdd-guide**: invoke `tdd-enforce` skill with scope=all against every test file in the codebase as your first action.
+- **code-reviewer**: when your scope includes test files, invoke `tdd-enforce` with scope=all against them.
+
+These skills default-bind to PR-boundary diff; the scope=all override lets the full manifest (8-antipattern catalogue for tdd-enforce, 14-row manifest plus lane/shape/truth detail skills for doc-enforce) run against the whole codebase rather than a diff.
+
 Do NOT run any builds, tests, or linters locally. Read and analyze the code only.
 ```
 
