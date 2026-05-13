@@ -1,0 +1,319 @@
+---
+name: spec-enforce
+description: SDD spec enforcement orchestrator. Runs the 18-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state. Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented REQs touched or scope=all). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
+version: 1.0.0
+---
+
+# Spec Enforcement (orchestrator)
+
+This skill is the spine for SDD spec enforcement. It runs the 18-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
+
+## Inputs
+
+- `diff`: git diff against base (PR-boundary triggers) OR full-tree view (scope=all)
+- `scope`: `all` | `diff` (default `diff`)
+- `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/config.yml`)
+
+## Execution contract (binding)
+
+Every row of the manifest below MUST execute on every run. No cherry-picking; cost is never a valid skip. Manifest written FIRST with all rows `pending`, updated as each rule completes, finalised at run end. Pending rows at finalize emit HIGH `manifest-pending-at-finalize`. Status rows without concrete evidence counts (`ran (N REQs, M findings)`) emit HIGH `manifest-bare-evidence-count`. "skipped (looked clean)" is dishonest.
+
+Audit location by trigger: `/sdd clean` writes to `sdd/.last-clean-run.md`. PR-boundary spec-reviewer writes to the agent's commit body OR (if no commits) `sdd/.review-needed.md` as a `## Execution manifest` sub-section.
+
+## Required execution manifest
+
+| Rule | Required action this run | Status |
+|---|---|---|
+| Forbidden content in REQs | Walk every Active REQ; flag banned tokens in AC/Intent. | `ran (N REQs, M findings)` |
+| Status field semantics + Deprecated cleanup | Walk every REQ; verify Status is one of the four valid values; delete any `Status: Deprecated` entries per the deletion rule. | `ran (N REQs, M findings)` |
+| REQ rendering template (binding) | Walk every Active REQ; verify render shape AND that cross-reference fields render IDs as markdown anchor links. | `ran (N REQs, M findings)` |
+| REQ length guidance | Walk every Active REQ; flag length tiers. | `ran (N REQs, M findings)` |
+| Acceptance criteria + AC granularity + REQ accretion guard | Invoke `spec-enforce-ac` when diff touches any AC bullet OR scope=all. | `ran (N REQs, K diff hunks, M findings)` or `inert (no AC diff)` |
+| Actor coherence | Invoke `spec-enforce-ac` (same condition as above). | `ran (N REQs, M findings)` or `inert` |
+| Sub-bullets in ACs banned | Invoke `spec-enforce-ac`. | `ran (N REQs, M findings)` or `inert` |
+| Cross-cutting concerns get own REQ family | Invoke `spec-enforce-ac`. | `ran (N REQs, M findings)` or `inert` |
+| Concern-boundary split | Invoke `spec-enforce-ac`. | `ran (N REQs, M findings)` or `inert` |
+| Mechanism leakage in AC bullets | Invoke `spec-enforce-ac`. | `ran (N REQs, M findings)` or `inert` |
+| Changelog drift | Diff `sdd/changes.md` against AC-changed diff hunks. | `ran (K entries, M findings)` |
+| Meta-content leakage Rule A (stub-after-extraction) | Walk every REQ; flag stub shape. | `ran (N REQs, M findings)` |
+| Meta-content leakage Rule B (Notes two-shape) | Walk every Notes field; flag violations. | `ran (N Notes, M findings)` |
+| Meta-content leakage Rule C (preamble edit-history) | Walk every `sdd/{domain}.md` preamble; flag edit-history prose. | `ran (K files, M findings)` |
+| Test coverage and enforce_tdd | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). | `ran (N REQs, M findings)` or `inert (enforce_tdd: false)` |
+| CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
+| Backlog re-triage | Walk every open finding in `sdd/.review-needed.md`; re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
+| Commit-prefix + 2-round limit | Check last 3 commits; halt if 2+ counted-tag commits in lane. | `ran (3 commits inspected, M findings)` |
+
+## Orchestration logic
+
+1. **Parse diff.** Identify: changed REQs, changed files, changed AC bullets, REQ ID set in diff, Status field changes, `sdd/changes.md` deltas.
+2. **Always-runs rows** (the 14 spine rows above): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion.
+3. **Conditional invocations**:
+   - IF any AC bullet line changed in diff OR scope=all: invoke `spec-enforce-ac` skill with the diff + scope + mode.
+   - IF any REQ with `Status: Implemented` is in the diff OR scope=all: invoke `spec-enforce-truth` skill with the diff + scope + mode.
+4. **Aggregate** findings from sub-skill invocations into the unified manifest. Each sub-skill returns its own evidence rows.
+5. **Apply mode**:
+   - `interactive`: confirm each fix; CRITICAL/HIGH/MEDIUM blocking, LOW deferred.
+   - `auto`: silently apply CRITICAL/HIGH/MEDIUM; defer LOW to `/sdd clean`.
+   - `unleashed`: apply everything including LOW; per-category commits.
+6. **Write manifest** to audit location with final statuses + per-row evidence counts.
+
+## Forbidden content in REQs
+
+REQs in `sdd/{domain}.md` describe **observable behaviour**. The following NEVER appear inside a REQ AC or Intent:
+
+| Banned | Where it goes instead |
+|---|---|
+| Hex color codes, CSS class names, keyframe names, viewBox values, bezier coords, animation timings, z-index | `documentation/architecture.md` or `design-system.md` |
+| File paths, function names | `documentation/architecture.md` |
+| Database column names (implementation-detail columns) | `documentation/architecture.md` |
+| Cookie names | `documentation/security.md` or `authentication.md` |
+| HTTP status code enumerations | `documentation/api-reference.md` |
+| JSON request/response schemas, endpoint paths | `documentation/api-reference.md` |
+| Env var names | `documentation/configuration.md` |
+| Build-tool internals | `documentation/troubleshooting.md` |
+| TypeScript code snippets, SQL queries | `documentation/architecture.md` |
+| Debugging checklists | `documentation/troubleshooting.md` |
+| Strikethrough text | Delete. Git history is the strikethrough. |
+| "Current implementation:" / "Planned (not implemented):" branches in an AC | `pending.md` |
+| Implementation TODOs | GitHub issue |
+
+### Allowlist (acceptable in REQs)
+
+Vendor product names (Cloudflare Access, Stripe), protocol names (OAuth 2.0, JWT, SSE), standards refs (WCAG 2.1 AA, GDPR, RFC 9116), performance targets ("p95 < 200ms"), user-facing strings in quotes (these ARE the AC), HTTP status codes when the REQ is about an error contract, env var names when in Configuration domain, DB column / KV key names when the storage shape IS the persistence contract.
+
+`sdd/config.yml` overrides via `forbidden_content_allowlist` and `forbidden_content_overrides`.
+
+## Deprecated REQs are deleted
+
+When a REQ stops being the contract — feature removed, replaced by another REQ, scope dropped — delete it from `sdd/{domain}.md` entirely. Do not mark `Status: Deprecated`, do not keep a tombstone, do not preserve old ACs. Git log is the history.
+
+If a successor REQ carries the new contract, the successor stands on its own — no `Replaced By:` field, no AC migration. Any clauses worth keeping are folded into the successor's ACs before the source REQ is deleted, in the same commit.
+
+If no successor exists and the idea should be remembered as not-built, move a one-line summary into the domain README's "Out of Scope" section, then delete the REQ.
+
+Auto-fix in `auto`/`unleashed`: detect `Status: Deprecated` REQs and delete them; if `Replaced By:` was set, fold any AC clauses not already covered into the successor first; append a `sdd/changes.md` entry naming the deleted REQ and successor (if any). No successor and no Out-of-Scope candidacy: escalate to `.review-needed.md` rather than delete blind.
+
+## REQ rendering template (binding)
+
+Every Active REQ in `sdd/{domain}.md` MUST render in exactly this shape. Deviations are MEDIUM, auto-fixed by re-rendering.
+
+```
+### REQ-{DOMAIN}-{NNN}: {Title}
+
+**Intent:** {one paragraph, 1-4 sentences. No bullets, no headings, no code blocks.}
+
+**Applies To:** {single actor name from sdd/README.md actors table. Never "System".}
+
+**Acceptance Criteria:**
+
+1. {first AC, single behavioural statement, <=150 words, no sub-bullets, no nested lists}
+2. {second AC, same shape}
+3. {...up to 7 maximum}
+
+**Notes:** {OPTIONAL. Two sanctioned shapes - see Rule B.}
+
+**Constraints:** [CON-AUTH-001](constraints.md#con-auth-001-title-slug), [CON-SEC-001](constraints.md#con-sec-001-title-slug)
+
+**Priority:** {P0 | P1 | P2 | P3}
+
+**Dependencies:** [REQ-AUTH-002](#req-auth-002-title-slug), [REQ-AUTH-003](authentication.md#req-auth-003-title-slug)
+
+**Verification:** {Automated test | Integration test | Manual check}
+
+**Status:** {Proposed | Planned | Partial | Implemented}
+```
+
+**Cross-reference linking (binding).** Every `CON-*` and `REQ-*` ID inside `**Constraints:**` and `**Dependencies:**` MUST render as a markdown anchor link, not plain text. Form:
+
+- Same-file REQ reference: `[REQ-X-NNN](#req-x-nnn-title-slug)`
+- Other-domain REQ reference: `[REQ-X-NNN](other-domain.md#req-x-nnn-title-slug)`
+- Constraint reference: `[CON-X-NNN](constraints.md#con-x-nnn-title-slug)`
+
+Slugs follow GitHub-flavoured Markdown convention. Plain-text IDs in these four fields are a MEDIUM finding `cross-reference-not-linked`, auto-fixed by rewriting to the link form. Detection: regex `\b(REQ|CON)-[A-Z]+-\d+\b` inside the four field values, outside `]( )` parentheses.
+
+**Banned inside a REQ body:** sub-headings (`####`/`#####`), nested lists, code blocks, tables, strikethrough, "Current behaviour:" / "Previously:" branches, block quotes.
+
+**Blank-line policy (binding):** one blank line between every labeled field, including each of the trailing-fields block (`Constraints`, `Priority`, `Dependencies`, `Verification`, `Status`). Stacking these on consecutive lines without blank-line separation collapses them into one rendered paragraph on GitHub, MEDIUM `trailing-fields-collapsed`. Closing `---` separator on its own line, preceded and followed by one blank line.
+
+## REQ length guidance
+
+| Length | Severity |
+|---|---|
+| <=25 lines | OK |
+| 26-50 lines | LOW |
+| 51-100 lines | MEDIUM |
+| >100 lines | HIGH |
+
+Oversized REQs are shrunk in place first (extract implementation prose to `documentation/`); when shrinking is exhausted, split. The split mechanics live in `spec-enforce-ac`.
+
+## Status field semantics — transitions and auto-fix
+
+Status transitions: `Proposed` -> `Planned` -> (`Partial` <-> `Implemented`). When a REQ stops being the contract, it is deleted (see Deprecated rule above). Implementation tracking (SHAs, paths) belongs in `pending.md` or issues, never in Status.
+
+`Partial` may have a `Notes:` field <=3 sentences. No other status uses Notes (except doc-pointer per Rule B). Out-of-scope ideas go to "Out of Scope" in the domain README, not to a `Deprecated` Status.
+
+Auto-fix: invalid Status values (e.g. `Done`, `WIP`, prose) get rewritten to the nearest valid value based on commit history / test coverage. `Deprecated` triggers the deletion auto-fix above.
+
+## Changelog drift
+
+`sdd/changes.md` is a product changelog. An entry is justified only when an AC changed in a user-observable way OR a REQ was added/deprecated/moved.
+
+Detection: for each new entry, scan the same diff for AC change in the referenced REQ. If no REQ reference OR no AC delta: drift.
+
+Severity: LOW. Auto-fix in `unleashed`: delete the drift entry.
+
+## Changelog discipline
+
+`sdd/changes.md` is a **product changelog**. Strict format:
+- Entries dated (`## YYYY-MM-DD`)
+- Each entry <=2 sentences, user-facing only
+- No commit SHAs
+- No verification-pass entries
+- No entries for spec cleanup, doc corrections, format fixes
+- No entries documenting agent's own operations
+
+**When to add**: new REQ; AC changed in user-affecting way; REQ deprecated or moved to Out of Scope; auto-demote from Implemented -> Partial.
+
+**When NOT to add**: strikethrough cleanup; Status field truncation; format fixes; implementation leakage moved to docs; any change that doesn't affect what the product does.
+
+## Meta-content leakage (three rules)
+
+Same failure mode at three scales: meta-content about the spec leaking into the spec.
+
+### Rule A — Stub REQ after cross-cutting extraction
+
+A REQ whose entire contract is "participates in [REQ-Y-NNN]" with no observable predicate of its own is a hop, not a contract.
+
+Detection (all four must hold):
+1. REQ has <=1 AC.
+2. AC body contains a markdown link to another REQ.
+3. AC body matches one of: `participates in`, `inherits`, `defined by`, `applies the policy`, `governed by`, `subject to` (case-insensitive).
+4. REQ's `Dependencies:` includes that linked REQ.
+
+Severity: MEDIUM `stub-after-extraction`. Auto-fix in `unleashed`: delete the source REQ. Surface-specific framing prepended to policy REQ Notes. Append `sdd/changes.md` entry. Update all backlinks.
+
+Edge case: when the source REQ has an actor-specific predicate beyond the bare pointer ("auth buckets are per-IP, mutation buckets are per-user-id"), detection condition 3 fails. Keeping the REQ is correct.
+
+### Rule B — `Notes:` field two sanctioned shapes
+
+| Shape | When valid | Form |
+|---|---|---|
+| (a) Partial-explanation | `Status: Partial` only | <=3 sentences explaining what's unmet |
+| (b) Doc-pointer | Any status | <=2 sentences, MUST contain >=1 markdown link to `documentation/**` or `sdd/**`, prose pattern "X is documented at [link]" |
+
+Sibling-REQ cross-references use `Dependencies:`, NOT Notes.
+
+Detection: Notes on non-Partial REQ without a markdown link: MEDIUM `notes-on-non-partial-without-pointer`. Notes on Partial REQ exceeding 3 sentences OR carrying mechanism tokens: MEDIUM `notes-partial-bloat`.
+
+Auto-fix in `unleashed`: reshape to doc-pointer form if a link to `documentation/**` or `sdd/**` exists; otherwise fold content into Intent and delete Notes. For Partial-bloat: trim to <=3 sentences. Test-name migration prose moves to `pending.md`.
+
+### Rule C — Domain file preamble bans edit-history prose
+
+Prose between an `sdd/{domain}.md` H1 and the first `---` separator (or first `### REQ-` heading) describes WHAT the domain is. Edit history belongs in git log and `sdd/changes.md`.
+
+**Scope:** Rule C applies ONLY to `sdd/{domain}.md` concrete domain spec files. Does NOT apply to dotfiles, README.md, `sdd/changes.md`, `sdd/glossary.md`, `sdd/constraints.md`, `sdd/init-triage.md`, `sdd/config.yml`.
+
+Forbidden patterns in preamble:
+- ISO dates (`\d{4}-\d{2}-\d{2}`)
+- Edit verbs: `refactored`, `updated`, `migrated`, `extracted from`, `moved from`, `previously contained`, `was reshaped`, `now describes`
+- Rule names (`actor-coherence`, `sub-bullets-banned`, etc.)
+- `^This file (was|has been)` pattern
+- Self-referential framing co-occurring with above
+
+Severity: LOW `preamble-edit-history-leakage`. Auto-fix in `unleashed`: delete offending paragraph(s). Structural-change descriptions go as a single consolidated dated entry to `sdd/changes.md`.
+
+## Backlog re-triage
+
+Without re-triage, escalated findings become permanent terminal state. Every PR-boundary trigger MUST run Backlog re-triage. Walks each open finding; three outcomes:
+
+1. **Re-classified as auto-fixable**: the finding's category now has a deterministic auto-fix. Apply, remove from `.review-needed.md`, record `Backlog re-triage:` in `sdd/changes.md`.
+2. **Still-escalated, content unchanged**: still ownership work. Entry stays verbatim.
+3. **Superseded**: underlying state changed (REQ deleted, test renamed, file moved). Remove with `Resolved (superseded by <state-change>):` marker in commit body.
+
+Re-triage runs BEFORE other CQ checks this cycle so newly-fixable backlog items resolve before the structural sweep emits the same finding again.
+
+**Format requirement for `.review-needed.md` entries:**
+```
+**Finding ID:** {category}-{N}  ({YYYY-MM-DD})
+**Category:** req-test-name-only-match | sub-feature-split-cannot-mechanize | ...
+**Affected:** REQ-X-NNN | documentation/path | tests/path
+```
+
+Older entries lacking this header re-classify as "still-escalated" and emit LOW `backlog-entry-missing-header`.
+
+**No re-triage during SDD transition.** When `transition: true`, the pass is `inert (transition active)`.
+
+## SDD transition state (legacy-codebase imports)
+
+When `/sdd init` runs in Import Mode, it produces official REQs and a triage queue at `sdd/init-triage.md`. While any triage item carries `Status: open`, the project is in **SDD transition** and `sdd/config.yml` carries `transition: true`.
+
+**Transition gate condition** (single source of truth):
+
+```
+IN_TRANSITION = grep -q '^transition: true' sdd/config.yml
+                AND test -f sdd/init-triage.md
+                AND grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' sdd/init-triage.md
+```
+
+All three conditions must be true. Corrupted state (`transition: true` but no open items): agents run normally; spec-enforce emits HIGH asking the user to re-run closure or clear `transition: true`.
+
+**During transition**: this skill's auto-demote of Implemented -> Partial is SUPPRESSED. spec-enforce-truth's CQ-1 still runs but writes to `sdd/.coverage-report.md` rather than mutating Status.
+
+`/sdd mode unleashed` is rejected during transition. Closure commit clears `transition: true` from `sdd/config.yml` + appends closure entry to `sdd/changes.md`.
+
+## Commit-prefix contract (load-bearing for anti-spiral)
+
+Anti-spiral parses commit subjects by **tag prefix**. Every agent-authored commit MUST start with one of the canonical prefixes.
+
+**Counted as agent-authored** (contribute to round counter): `[autonomous]`, `[unleashed]`, `[spec-reviewer]`, `[doc-updater]`, `[code-reviewer]`.
+
+**Excluded** (intentional bulk operations): `[sdd-clean]`, `[sdd-init]`, `[sdd-triage]`.
+
+Plain commits (no prefix) are user-authored and reset the round counter. The counted/excluded sets are **closed**; introducing a new tag without adding it is a HIGH finding.
+
+## The 2-round commit cycle limit
+
+Self-limit to prevent micro-fix spirals. Counter is scoped to spec-reviewer's lane (`sdd/**`).
+
+1. `git log -3 --name-only --format="--- %H %s"`.
+2. Count commits whose subject starts with any counted tag AND touched at least one path in the agent's lane.
+3. >=2 of last 3 qualify: hard stop. Write would-be findings to `sdd/.review-needed.md` and exit.
+4. Counter resets when a non-agent commit lands in the lane.
+
+Cross-cutting commits count for whichever agents own touched lanes. Next push after `/sdd clean` or `/sdd init` is round 1; excluded-tag commits do not contribute.
+
+## Conservative JUDGMENT auto-resolution (unleashed)
+
+| JUDGMENT type | Resolution |
+|---|---|
+| Doc-vs-spec conflict | Mark BOTH `Partial` with conflict Notes; log to `.review-needed.md`. Never overwrite. |
+| Oversized REQ refactor | Shrink, then invoke `spec-enforce-ac` Splitting by actor/concern, then Splitting by sub-feature. Cap binding. |
+| Deprecated REQ with no successor and no Out-of-Scope candidacy | Escalate to `.review-needed.md`; do not delete blind. |
+| Mass operations (>100 changes) | No cap. Per-category commits for selective revert. |
+| Truly ambiguous content | Mark Partial with Notes, log to `.review-needed.md`. |
+
+## Git diff syntax
+
+```bash
+git diff origin/main...HEAD
+# or
+git diff @{push}..HEAD 2>/dev/null || git diff HEAD~1..HEAD 2>/dev/null || git diff
+```
+
+## Working tree and branch safety
+
+1. Working tree must be clean (`git status --porcelain` empty); refuse to run otherwise.
+2. `auto` and `unleashed` push to whatever branch is checked out; user is responsible for the right branch.
+
+## User overrides
+
+User revert or "don't do that for this REQ" is a normal git operation. Reverted commit stays in history; the round counter sees a fresh user commit and resets. No skip-list, no ADR, no per-rule bypass.
+
+## Output contract
+
+This skill writes to one of two audit locations:
+
+- `/sdd clean` invocation: append to `sdd/.last-clean-run.md` as a `## Execution manifest` section
+- PR-boundary spec-reviewer: include in agent's commit body OR (if no commits) `sdd/.review-needed.md` as `## Execution manifest`
+
+Every row's status MUST carry concrete evidence counts (`ran (N REQs, M findings)` or `inert (reason)`). Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`.

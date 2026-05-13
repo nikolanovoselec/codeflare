@@ -312,6 +312,41 @@
       "advanced"
     ]
   },
+  "skills/spec-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-ac/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-truth/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-lanes/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-shape/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-truth/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/known_marketplaces.json": {
     "modes": [
       "default",
