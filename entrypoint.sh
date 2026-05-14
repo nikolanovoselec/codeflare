@@ -1148,7 +1148,23 @@ GRAPHIFY_VERSION="unknown"
 if [ -f "$GRAPHIFY_MANIFEST" ]; then
     GRAPHIFY_VERSION=$(jq -r '.version // "unknown"' "$GRAPHIFY_MANIFEST" 2>/dev/null || echo "unknown")
 fi
-GRAPHIFY_MCP_CONFIG=$(jq -n '{mcpServers:{"graphify":{command:"python3",args:["-m","graphify.serve"]}}}')
+# Use the uv-isolated venv's python, not system python3. `uv tool install`
+# (Dockerfile) installs graphifyy into /root/.local/share/uv/tools/graphifyy/
+# and only exposes the `graphify` CLI shim on PATH - the package is invisible
+# to system python3, so `python3 -m graphify.serve` would die with
+# ModuleNotFoundError. Pointing the MCP server at the venv's own interpreter
+# is the supported way to reach internal modules of a uv-installed tool.
+#
+# Run via the graphify-mcp-lazy.py wrapper rather than `-m graphify.serve`
+# directly. Upstream graphify.serve sys.exit(1)s if graphify-out/graph.json
+# is missing at startup; in Codeflare sessions there's no clean way to
+# restart Claude Code (killing the session kills the container), so the
+# server has to come up against a missing graph and hot-reload when one
+# appears. The wrapper subclasses nx.DiGraph and watches the file mtime;
+# tool list stays static (always 7 tools), only G's contents swap.
+GRAPHIFY_PY="/root/.local/share/uv/tools/graphifyy/bin/python"
+GRAPHIFY_WRAPPER="$USER_HOME/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py"
+GRAPHIFY_MCP_CONFIG=$(jq -n --arg py "$GRAPHIFY_PY" --arg wrap "$GRAPHIFY_WRAPPER" '{mcpServers:{"graphify":{command:$py,args:[$wrap]}}}')
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_JSON=$(mktemp)
     if jq --argjson mcp "$GRAPHIFY_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then

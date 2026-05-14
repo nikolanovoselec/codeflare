@@ -477,6 +477,12 @@
       "advanced"
     ]
   },
+  "plugins/graphify/scripts/graphify-mcp-lazy.py": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "plugins/graphify/scripts/graphify-session-start.sh": {
     "modes": [
       "advanced"
