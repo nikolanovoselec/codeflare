@@ -277,3 +277,10 @@ CVE-2026-33814
 CVE-2026-39820
 CVE-2026-39836
 CVE-2026-42499
+
+# curl / libcurl3-gnutls / libcurl4 7.88.1-10+deb12u14: wrong file transfer
+# due to incorrect SMB connection reuse. Container uses curl exclusively for
+# outbound HTTPS (git-over-HTTPS, package fetches); the SMB protocol is not
+# invoked and no SMB URLs are ever constructed. No fix available in Debian
+# bookworm.
+CVE-2026-5773
