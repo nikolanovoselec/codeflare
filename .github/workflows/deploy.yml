@@ -480,6 +480,16 @@ jobs:
             }));
 
             const ok = results.filter(Boolean);
+            // Fail closed if we could not resolve a digest for the just-deployed
+            // tag. Without its digest in keepDigests, the alias-protection
+            // below cannot defend it from a sibling tag that happens to share
+            // the same manifest. Treat this exactly like pagination failure:
+            // skip the prune entirely rather than risk destroying the rollback
+            // floor we promised to protect.
+            if (!ok.some(x => x.tag === deployedTag && x.digest)) {
+              console.log("::warning::could not resolve digest for deployed tag " + deployedTag + "; skipping prune");
+              return;
+            }
             const dated = ok.filter(x => x.created).sort((a,b) => b.created.localeCompare(a.created));
             const top = dated.slice(0, KEEP_N).map(x => x.tag);
             const keepTags = new Set([...top, deployedTag]);
