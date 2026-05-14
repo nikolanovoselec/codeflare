@@ -19,7 +19,13 @@ set +e
 # Drain stdin so the hook does not SIGPIPE the parent.
 INPUT=$(cat 2>/dev/null) || true
 
-CWD=$(pwd 2>/dev/null) || exit 0
+# Prefer the cwd field from the hook envelope (documented contract);
+# fall back to pwd if it is missing or empty. Matches the sibling
+# graph-first-nudge.sh pattern and survives future Claude Code
+# launch-context changes that might dissociate $PWD from the agent's cwd.
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+[ -z "$CWD" ] && CWD=$(pwd 2>/dev/null)
+[ -z "$CWD" ] && exit 0
 GRAPH="$CWD/graphify-out/graph.json"
 REPORT="$CWD/graphify-out/GRAPH_REPORT.md"
 
@@ -39,18 +45,31 @@ if [ -f "$GRAPH" ] && [ -f "$REPORT" ]; then
 fi
 
 # No graph - only nudge if cwd looks like a code repo.
-# 2s timeout: this hook runs on every SessionStart, must not stall the
-# session on huge monorepos with deep directory trees. find exits early
-# on first match (head -n 1) so the cap is just a safety net for trees
-# with millions of files.
-CODE_FILE=$(timeout 2 find "$CWD" -maxdepth 2 -type f \
-  \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \
-     -o -name '*.py' -o -name '*.go' -o -name '*.rs' -o -name '*.java' \
-     -o -name '*.rb' -o -name '*.swift' -o -name '*.kt' -o -name '*.c' \
-     -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' \) \
+#
+# Detection: first try cheap project-marker files at depth 1 (package.json,
+# Cargo.toml, go.mod, pyproject.toml, etc.) - these unambiguously mark a
+# repo root regardless of source layout. If none found, fall back to a
+# bounded source-file search to depth 4 (covers src/lib/.../foo.ts,
+# packages/*/src/, app/components/, etc.). Marker probe is O(1) per cwd;
+# the source-file scan is bounded by `timeout 2` and `head -n 1`.
+PROJECT_MARKER=$(find "$CWD" -maxdepth 1 -type f \
+  \( -name 'package.json' -o -name 'Cargo.toml' -o -name 'go.mod' \
+     -o -name 'pyproject.toml' -o -name 'pom.xml' -o -name 'build.gradle' \
+     -o -name 'Gemfile' -o -name 'composer.json' -o -name 'CMakeLists.txt' \
+     -o -name 'mix.exs' -o -name 'deno.json' \) \
   2>/dev/null | head -n 1)
 
-if [ -n "$CODE_FILE" ]; then
+CODE_FILE=""
+if [ -z "$PROJECT_MARKER" ]; then
+  CODE_FILE=$(timeout 2 find "$CWD" -maxdepth 4 -type f \
+    \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \
+       -o -name '*.py' -o -name '*.go' -o -name '*.rs' -o -name '*.java' \
+       -o -name '*.rb' -o -name '*.swift' -o -name '*.kt' -o -name '*.c' \
+       -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' \) \
+    2>/dev/null | head -n 1)
+fi
+
+if [ -n "$PROJECT_MARKER" ] || [ -n "$CODE_FILE" ]; then
   emit_reminder "No graphify knowledge graph for this project yet. If the user asks structural or architecture questions about this codebase, suggest building one with \`/graphify\` (one-time, writes graphify-out/ in the current directory). For repos with more than 2000 files, recommend \`graphify cluster-only . --no-viz\` (AST-only, no LLM extraction) as the safer first build."
 fi
 

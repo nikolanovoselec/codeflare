@@ -155,7 +155,7 @@ Claude Code runs directly via the official `@anthropic-ai/claude-code` npm packa
 
 **MCP tools exposed:** `mcp__graphify__query_graph`, `mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, `mcp__graphify__shortest_path`.
 
-**Persistence:** `graphify-out/graph.json` and `graphify-out/GRAPH_REPORT.md` round-trip through R2 bisync (filter entries in `entrypoint.sh`). One session builds the graph; every other session for the same project reads it. `graph.html`, `wiki/`, `.cache/`, and `.chunks/` are excluded (regenerable or local-only).
+**Persistence:** `graphify-out/` lives in the repo, not in R2. Repo owners commit `graph.json`, `GRAPH_REPORT.md`, and the small metadata files (`.graphify_root`, `.graphify_labels.json`) to git; contributors get the graph on clone. Repos without push permission keep the graph local-only and ephemeral. R2 bisync explicitly excludes `**/graphify-out/**`. `graphify-out/.cache/` and `graphify-out/.chunks/` are always local-only and added to `.gitignore` per SKILL guidance. The semantic merge driver for `graph.json` is registered globally in the image (`git config --global merge.graphify.driver`), so concurrent edits across branches merge cleanly when the repo's `.gitattributes` opts in with `graphify-out/graph.json merge=graphify`.
 
 ---
 

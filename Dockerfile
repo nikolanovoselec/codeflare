@@ -305,6 +305,13 @@ rm -f /tmp/graphify-plugin.json
 # instead of line-based merge (which would produce corrupt JSON). The driver
 # is part of the graphifyy install above; this just wires it into git config
 # globally so every repo in every session benefits with no per-clone setup.
+#
+# Tier independence is intentional: this lands in /etc/gitconfig (root user
+# global) regardless of session mode (default or advanced). Matches the
+# pattern that the graphify CLI + MCP server are also ambient capability
+# across modes per AD52 - only the discipline (hooks + rule + skill) is
+# advanced-gated. A default-mode session that never sees the graphify plugin
+# manifest still has a functional merge driver pointing at a real binary.
 git config --global merge.graphify.driver "graphify merge-driver %O %A %B"
 git config --global merge.graphify.name "graphify semantic graph.json merge"
 EOF

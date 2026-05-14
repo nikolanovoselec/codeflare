@@ -14,9 +14,14 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOOK = resolve(__dirname, '../../preseed/agents/claude/plugins/graphify/scripts/graphify-clone-prompt.sh');
 
-function runHook(input, fakeHome) {
+function runHook(input, fakeHome, sessionId) {
+  // The hook now scopes its idempotency marker dir by session_id from
+  // the hook envelope (truly per-session). Tests inject a unique
+  // session_id so different test cases never share marker state.
+  const sid = sessionId || `test-session-${Math.random().toString(36).slice(2, 10)}`;
+  const envelope = { session_id: sid, ...input };
   const result = spawnSync('bash', [HOOK], {
-    input: JSON.stringify(input),
+    input: JSON.stringify(envelope),
     encoding: 'utf-8',
     env: { ...process.env, HOME: fakeHome },
   });
@@ -24,6 +29,7 @@ function runHook(input, fakeHome) {
     stdout: result.stdout.trim(),
     stderr: result.stderr,
     status: result.status,
+    sessionId: sid,
     json: result.stdout.trim() ? safeParse(result.stdout) : null,
   };
 }
@@ -124,16 +130,32 @@ describe('graphify-clone-prompt.sh', () => {
     assert.ok(json, 'git clone after && is a valid command position');
   });
 
-  it('idempotency: same target dir prompts once per session', () => {
+  it('idempotency: same target dir prompts once per session (marker dir is session-scoped)', () => {
     const input = {
       tool_name: 'Bash',
       tool_input: { command: 'git clone https://github.com/foo/bar /tmp/idempotent' },
       tool_response: { stdout: "Cloning into '/tmp/idempotent'..." },
     };
-    const first = runHook(input, fakeHome);
+    const sharedSid = 'session-idempotent-test';
+    const first = runHook(input, fakeHome, sharedSid);
     assert.ok(first.json, 'first invocation emits directive');
-    const second = runHook(input, fakeHome);
-    assert.equal(second.stdout, '', 'second invocation for the same dir must be a no-op');
+    const second = runHook(input, fakeHome, sharedSid);
+    assert.equal(second.stdout, '', 'second invocation in SAME session for the same dir must be a no-op');
+  });
+
+  it('idempotency: marker is session-scoped (different session_id re-prompts even for same dir)', () => {
+    const input = {
+      tool_name: 'Bash',
+      tool_input: { command: 'git clone https://github.com/foo/bar /tmp/cross-session' },
+      tool_response: { stdout: "Cloning into '/tmp/cross-session'..." },
+    };
+    const sessionA = runHook(input, fakeHome, 'session-A');
+    const sessionB = runHook(input, fakeHome, 'session-B');
+    assert.ok(sessionA.json, 'session A: directive emitted');
+    assert.ok(
+      sessionB.json,
+      'session B: directive must be re-emitted - markers scoped by session_id, so a fresh session re-triages the same clone'
+    );
   });
 
   it('idempotency: different target dirs each get prompted', () => {

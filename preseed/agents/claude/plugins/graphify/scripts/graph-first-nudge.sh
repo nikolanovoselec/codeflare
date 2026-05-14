@@ -19,8 +19,9 @@
 #
 # Fail-safe: any unexpected error -> exit 0 with no output. A noisy or
 # crashing PreToolUse hook would break every grep call in the session.
+# Every command below has an explicit `|| exit 0` / `|| true` guard
+# (jq failures, missing stdin, etc.); no ERR trap needed under set +e.
 set +e
-trap 'exit 0' ERR
 
 INPUT=$(cat 2>/dev/null) || exit 0
 

@@ -16,9 +16,12 @@
 # Anchored-token regex (not substring) rejects echoed false positives
 # like `echo "git clone foo"`.
 #
-# Idempotency: marker file at ~/.cache/codeflare-hooks/graphify-prompted/
-# keyed on the cloned directory. Repeated clones in the same dir within a
-# session do not re-prompt.
+# Idempotency: marker file under /tmp/codeflare-graphify-prompted-<session_id>/
+# keyed on the cloned directory. Truly per-session - the marker dir is
+# scoped by the session_id from the hook envelope, so a fresh session
+# (or container restart) wipes the prompt state and the agent triages
+# clones again. session_id falls back to PPID if absent (degraded but
+# still bounded to a single shell tree).
 #
 # Fail-safe: any unexpected error -> exit 0 with no output.
 set +e
@@ -47,9 +50,12 @@ COMMAND=$(echo "$INPUT" | jq -r '
 [ -z "$COMMAND" ] && exit 0
 
 # Anchored token match: git clone / gh repo clone as actual command
-# tokens, not inside echo strings. Allowed positions: start of string,
-# or after shell separators (; && || | &).
-if ! echo "$COMMAND" | grep -qE '(^|[;&|]\s*)(git\s+clone|gh\s+repo\s+clone)\s' 2>/dev/null; then
+# tokens, not inside echo strings. Allowed positions: start of string
+# (with optional leading whitespace), or after shell separators
+# (; && || | &). Trailing whitespace OR end-of-input accepted - covers
+# commands with args and commands joined at end of a ctx_batch_execute
+# command list.
+if ! echo "$COMMAND" | grep -qE '(^\s*|[;&|]\s*)(git\s+clone|gh\s+repo\s+clone)(\s|$)' 2>/dev/null; then
   exit 0
 fi
 
@@ -67,7 +73,11 @@ TARGET_DIR=$(echo "$RESPONSE" | grep -oE "Cloning into '[^']+'" 2>/dev/null | he
 # Idempotency marker keyed on the target directory. Only write the marker
 # when we successfully extracted a real path - otherwise repeated clones
 # that fail extraction would share the placeholder marker and go silent.
-MARKER_DIR="${HOME:-/root}/.cache/codeflare-hooks/graphify-prompted"
+# Marker dir is session-scoped via session_id from the hook envelope so
+# state does not persist across sessions or container restarts.
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+[ -z "$SESSION_ID" ] && SESSION_ID="ppid-$PPID"
+MARKER_DIR="/tmp/codeflare-graphify-prompted-$SESSION_ID"
 if [ -n "$TARGET_DIR" ]; then
   mkdir -p "$MARKER_DIR" 2>/dev/null || true
   MARKER="$MARKER_DIR/$(echo "$TARGET_DIR" | tr '/ ' '__')"

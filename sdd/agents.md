@@ -592,33 +592,96 @@ Multi-agent support, preseed system, and session modes.
 **Verification:** Manual check
 **Status:** Implemented
 
-## REQ-AGENT-023: Knowledge-Graph Context via Graphify
+## REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
 
-**Intent:** Agents must have structural awareness of the current codebase via a persistent knowledge graph, so context-window cost on architecture, dependency, and call-flow questions is bounded across sessions and across users on the same project.
+**Intent:** Every container ships the graphify code-knowledge-graph capability as ambient infrastructure, so any session (default or advanced session mode) can query an existing graph or build a new one without per-tier provisioning.
 
 **Acceptance Criteria:**
 1. The `graphifyy` Python package is installed in every container image at build time with `[mcp,sql,pdf]` extras. Version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`. Dependabot bumps to that file rebuild the image with the new version in lockstep.
-2. The `graphify` MCP server is registered in `~/.claude.json` `mcpServers` for every session, in both Standard and Pro session modes. The server exposes `query_graph`, `get_node`, `get_neighbors`, and `shortest_path` tools.
-3. In Pro session mode only, a SessionStart hook (matcher: startup) inspects the current working directory and injects an `additionalContext` system reminder when `graphify-out/graph.json` exists, pointing the agent at `GRAPH_REPORT.md` and the MCP tools.
-4. In Pro session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects `git clone` and `gh repo clone` invocations (anchored token regex, not substring) and injects a directive. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive instructs the agent to prompt the user via `AskUserQuestion` and run a full `/graphify` build on confirmation; if present, the directive tells the agent to skip the prompt and run `graphify update .` (AST-only incremental refresh). The hook is idempotent per cloned directory via a marker file under `~/.cache/codeflare-hooks/graphify-prompted/`.
-5. In Pro session mode only, `~/.claude/rules/graph-first.md` is preseeded. It instructs the agent to prefer graph MCP queries over Grep/Find for architecture questions, lists when to use vs not use the graph, and documents `graphify cluster-only . --no-viz` as the safe path for repos with more than 2000 files.
-6. In Pro session mode only, `~/.claude/skills/graphify/SKILL.md` is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by `scripts/generate-agent-seed.mjs`.
-7. Graphify artifacts (`graphify-out/`) are committed to git by the repo owner when push permission exists; the rclone bisync filter excludes `**/graphify-out/**` so R2 never carries them. SKILL guidance instructs the agent on first build to add `graphify-out/.cache/` and `graphify-out/.chunks/` to the repo's `.gitignore` (local-only caches) and `graphify-out/graph.json merge=graphify` to the repo's `.gitattributes` (wires the semantic merge driver registered globally in the container image). For repos without push permission, the graph lives in the working tree only and is ephemeral.
-8. The container image registers the graphify semantic merge driver globally via `git config --global merge.graphify.driver "graphify merge-driver %O %A %B"` and `merge.graphify.name`. Concurrent edits to `graph.json` in repos that wire `merge=graphify` in `.gitattributes` are auto-resolved on `git merge` / `git pull` without manual JSON intervention.
-9. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus Pro session mode), `graphify` is in the `enforce-ctx-mode.sh` Bash whitelist so `graphify update .` is not denied.
-10. In Pro session mode only, a PreToolUse hook (`graph-first-nudge.sh`) fires on `Grep`, `Glob`, `mcp__context-mode__ctx_search`, and `mcp__context-mode__ctx_batch_execute` tool calls. When a `graphify-out/graph.json` exists in the agent's cwd, the hook emits an `additionalContext` system reminder suggesting the agent prefer `mcp__graphify__*` for structural questions. The hook is non-blocking (exit 0 with `hookSpecificOutput.additionalContext` only) - the use/don't-use call requires semantic judgment a hook cannot reliably make. Both matcher sets are required because `enforce-ctx-mode.sh` denies `Grep`/`Glob`/`Read` in custom-tier sessions, redirecting the agent to the ctx grep-equivalents.
-11. AC 1, 2, and 8 hold across all paid tiers (standard, advanced, max, unlimited). The graphify capability must function in sessions without context-mode being preseeded; the agent-orchestrated `/graphify` skill relies on upstream graphify's subagent chunking model to keep the main agent's context bounded when context-mode is not present.
+2. The `graphify` MCP server is registered in `~/.claude.json` `mcpServers` for every session, in both default and advanced session modes. The server exposes `query_graph`, `get_node`, `get_neighbors`, and `shortest_path` tools.
+3. AC 1 and 2 hold across all paid tiers (standard, advanced, max, unlimited). The capability functions in sessions without context-mode being preseeded; the agent-orchestrated `/graphify` skill relies on upstream graphify's subagent chunking model to keep the main agent's context bounded when context-mode is not present.
 
 **Constraints:**
 - Graphify is the upstream `graphifyy` package on PyPI (Apache-2.0). No Codeflare fork.
-- MCP server registration is unconditional on session mode (graphify capability is ambient). Only the discipline (rule + skill + hooks) is Pro-gated.
-- The SessionStart hook never auto-builds a graph. It only injects context when one exists or a build suggestion when source files are present without one.
-- The PostToolUse-on-clone hook never invokes graphify directly. It only injects a directive instructing the agent to prompt the user via AskUserQuestion.
-- Graphify must not depend on context-mode at runtime. `/graphify` extraction uses upstream graphify's subagent-chunking model; context-mode, when present, provides bonus per-subagent token routing via its existing `Read|Grep|Glob|Agent` PreToolUse matchers, but is not a precondition.
+- MCP server registration is unconditional on session mode (graphify capability is ambient; only the discipline in REQ-AGENT-024 is mode-gated).
 - `[office]`, `[google]`, `[video]`, `[neo4j]`, and external-provider backend extras (`[ollama]`, `[bedrock]`, `[gemini]`, `[openai]`) are not installed. Users who need them can `uv tool install --upgrade graphifyy[all]` manually.
 
 **Applies To:** Agent
 **Priority:** P1
 **Dependencies:** REQ-AGENT-001, REQ-AGENT-004, REQ-AGENT-005, REQ-AGENT-008
-**Verification:** Automated test (`host/__tests__/entrypoint-graphify-mcp.test.js`, `host/__tests__/entrypoint-graphify-hooks.test.js`, `host/__tests__/graphify-clone-prompt.test.js`, `host/__tests__/graphify-session-start.test.js`, `host/__tests__/graph-first-nudge.test.js`)
+**Verification:** Automated test (`host/__tests__/entrypoint-graphify-mcp.test.js`, `host/__tests__/dockerfile-graphify.test.js`)
+**Status:** Implemented
+
+## REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
+
+**Intent:** In advanced session mode, the agent is taught to prefer the knowledge graph over Grep-style text search for structural questions, so token cost on architecture, dependency, and call-flow questions is bounded.
+
+**Acceptance Criteria:**
+1. In advanced session mode only, a SessionStart hook (matcher: startup) inspects the current working directory and injects an `additionalContext` system reminder when `graphify-out/graph.json` exists, pointing the agent at `GRAPH_REPORT.md` and the MCP tools. When the graph is absent but the cwd looks like a code repo, the hook instead injects a build-suggestion reminder.
+2. In advanced session mode only, `~/.claude/rules/graph-first.md` is preseeded. It is authoritative and short (target ~100 tokens), states MUST / MUST NOT bullets for graph vs Grep, and references `~/.claude/skills/graphify/SKILL.md` for mechanics rather than restating them.
+3. In advanced session mode only, `~/.claude/skills/graphify/SKILL.md` is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by `scripts/generate-agent-seed.mjs`. The SKILL documents `graphify cluster-only . --no-viz` as the safe path for repos with more than 2000 files and instructs the agent to add `graphify-out/.cache/` and `graphify-out/.chunks/` to `.gitignore` and `graphify-out/graph.json merge=graphify` to `.gitattributes` on first build.
+4. In advanced session mode only, a PreToolUse hook (`graph-first-nudge.sh`) fires on `Grep`, `Glob`, `mcp__context-mode__ctx_search`, and `mcp__context-mode__ctx_batch_execute` tool calls. When a `graphify-out/graph.json` exists in the agent's cwd, the hook emits an `additionalContext` system reminder suggesting the agent prefer `mcp__graphify__*` for structural questions. The hook is non-blocking (exit 0 with `hookSpecificOutput.additionalContext` only). Both matcher sets are required because `enforce-ctx-mode.sh` denies `Grep`/`Glob`/`Read` in custom-tier sessions, redirecting the agent to the ctx grep-equivalents.
+
+**Constraints:**
+- The SessionStart hook never auto-builds a graph. It only injects context when one exists or a build suggestion when source files are present without one.
+- The PreToolUse soft-nudge hook never blocks. The use/don't-use call requires semantic judgment a hook cannot reliably make.
+
+**Applies To:** Agent
+**Priority:** P1
+**Dependencies:** REQ-AGENT-023
+**Verification:** Automated test (`host/__tests__/entrypoint-graphify-hooks.test.js`, `host/__tests__/graphify-session-start.test.js`, `host/__tests__/graph-first-nudge.test.js`, `host/__tests__/preseed-graphify-discipline.test.js`, `host/__tests__/skill-graphify-content.test.js`)
+**Status:** Implemented
+
+## REQ-AGENT-025: Post-Clone Graph Triage
+
+**Intent:** After the agent clones a repo, it must triage whether to build (or refresh) a knowledge graph for it before doing other work, so users on unfamiliar repos do not start cold.
+
+**Acceptance Criteria:**
+1. In advanced session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects `git clone` and `gh repo clone` invocations (anchored token regex, not substring; rejects echoed false positives) and injects a directive.
+2. The directive branches on whether `<cloned-dir>/graphify-out/graph.json` already exists: if absent, the directive instructs the agent to prompt the user via `AskUserQuestion` and run a full `/graphify` build on confirmation; if present, the directive tells the agent to skip the prompt and run `graphify update .` (AST-only incremental refresh).
+3. The hook is idempotent per cloned directory per session via a marker file under `/tmp/codeflare-graphify-prompted-<session_id>/`. The marker dir is session-scoped via `session_id` from the hook envelope (fallback `ppid-$PPID`) so a fresh session re-triages the same clone and stale markers do not persist across container restarts.
+
+**Constraints:**
+- The hook never invokes graphify directly. It only injects a directive instructing the agent to prompt the user via AskUserQuestion (or to run `graphify update` for the graph-present branch).
+
+**Applies To:** Agent
+**Priority:** P1
+**Dependencies:** REQ-AGENT-023, REQ-AGENT-024
+**Verification:** Automated test (`host/__tests__/graphify-clone-prompt.test.js`)
+**Status:** Implemented
+
+## REQ-AGENT-026: Knowledge-Graph Persistence via Git
+
+**Intent:** Graphify artifacts persist with the repository, not with the user, so contributors on a clone inherit the graph for free and Codeflare's R2 bisync does not carry per-repo graph data.
+
+**Acceptance Criteria:**
+1. The rclone bisync filter in `entrypoint.sh` excludes `**/graphify-out/**` from R2 sync. No graphify artifact ever round-trips through R2.
+2. The container image registers the graphify semantic merge driver globally via `git config --global merge.graphify.driver "graphify merge-driver %O %A %B"` and `merge.graphify.name`. The configuration is tier-independent and lands regardless of session mode.
+3. Repo owners with push permission commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, and the small metadata files (`.graphify_root`, `.graphify_labels.json`) to git. Contributors get the graph on clone. Concurrent edits to `graph.json` in repos that wire `graphify-out/graph.json merge=graphify` in `.gitattributes` are auto-resolved on `git merge` / `git pull` without manual JSON intervention.
+4. For repos without push permission, the graph lives in the working tree only and is ephemeral.
+
+**Constraints:**
+- SKILL guidance (REQ-AGENT-024 AC3) carries the per-repo `.gitignore` / `.gitattributes` instructions; this REQ specifies the platform-level pieces (bisync exclude, global merge-driver registration).
+
+**Applies To:** Agent
+**Priority:** P1
+**Dependencies:** REQ-AGENT-023
+**Verification:** Automated test (`host/__tests__/entrypoint-graphify-bisync.test.js`, `host/__tests__/dockerfile-graphify.test.js`)
+**Status:** Implemented
+
+## REQ-AGENT-027: Context-Mode Interoperability
+
+**Intent:** When the context-mode plugin is preseeded, the graphify CLI must coexist with the enforce-ctx-mode Bash whitelist and the graph-first soft-nudge must reach the agent through context-mode's redirected tool-call path.
+
+**Acceptance Criteria:**
+1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify` is in the `enforce-ctx-mode.sh` Bash whitelist so `graphify update .` and `graphify query ...` are not denied.
+2. The REQ-AGENT-024 AC4 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths.
+
+**Constraints:**
+- Graphify must not depend on context-mode at runtime. `/graphify` extraction uses upstream graphify's subagent-chunking model; context-mode, when present, provides bonus per-subagent token routing via its existing `Read|Grep|Glob|Agent` PreToolUse matchers, but is not a precondition.
+
+**Applies To:** Agent
+**Priority:** P2
+**Dependencies:** REQ-AGENT-023, REQ-AGENT-024
+**Verification:** Automated test (`host/__tests__/enforce-ctx-mode-graphify.test.js`, `host/__tests__/graph-first-nudge.test.js`)
 **Status:** Implemented
