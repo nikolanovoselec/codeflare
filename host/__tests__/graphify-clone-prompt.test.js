@@ -5,7 +5,7 @@
 // tool_response stdout, and is idempotent per cloned dir.
 import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -170,5 +170,58 @@ describe('graphify-clone-prompt.sh', () => {
     }, fakeHome);
     assert.equal(status, 0);
     assert.equal(stdout, '');
+  });
+
+  it('graph-present branch: cloned dir already has graphify-out/graph.json -> directive says "do NOT prompt" and recommends graphify update', () => {
+    // Stage a target dir with a pre-existing graph
+    const targetDir = mkdtempSync(join(baseTmp, 'with-graph-'));
+    mkdirSync(join(targetDir, 'graphify-out'), { recursive: true });
+    writeFileSync(join(targetDir, 'graphify-out', 'graph.json'), '{"nodes":[],"edges":[]}');
+
+    const { json, status } = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: `git clone https://github.com/foo/bar ${targetDir}` },
+      tool_response: { stdout: `Cloning into '${targetDir}'...` },
+    }, fakeHome);
+    assert.equal(status, 0);
+    assert.ok(json, 'graph-present clone must still emit a directive');
+    const ctx = json.hookSpecificOutput.additionalContext;
+    assert.ok(
+      /do NOT prompt/i.test(ctx),
+      'graph-present directive must instruct the agent NOT to prompt'
+    );
+    assert.ok(
+      ctx.includes('graphify update'),
+      'graph-present directive must recommend `graphify update` for cheap AST refresh'
+    );
+    assert.ok(
+      !ctx.includes('AskUserQuestion'),
+      'graph-present directive must NOT mention AskUserQuestion'
+    );
+  });
+
+  it('graph-absent branch: no graphify-out/graph.json -> directive instructs AskUserQuestion + /graphify full build', () => {
+    const targetDir = mkdtempSync(join(baseTmp, 'no-graph-'));
+    // No graphify-out/ created.
+
+    const { json } = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: `git clone https://github.com/foo/bar ${targetDir}` },
+      tool_response: { stdout: `Cloning into '${targetDir}'...` },
+    }, fakeHome);
+    assert.ok(json, 'graph-absent clone must emit the triage directive');
+    const ctx = json.hookSpecificOutput.additionalContext;
+    assert.ok(
+      ctx.includes('AskUserQuestion'),
+      'graph-absent directive must instruct the agent to use AskUserQuestion'
+    );
+    assert.ok(
+      ctx.includes('/graphify'),
+      'graph-absent directive must reference the /graphify full-build command'
+    );
+    assert.ok(
+      !ctx.includes('graphify update'),
+      'graph-absent directive must NOT recommend `graphify update` (no graph to refresh)'
+    );
   });
 });

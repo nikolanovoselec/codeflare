@@ -75,16 +75,34 @@ if [ -n "$TARGET_DIR" ]; then
     exit 0
   fi
   : > "$MARKER" 2>/dev/null || true
-else
-  TARGET_DIR="the repo you just cloned"
 fi
 
-# Inject directive.
-jq -n --arg dir "$TARGET_DIR" '{
-  hookSpecificOutput: {
-    hookEventName: "PostToolUse",
-    additionalContext: ("The user just cloned `" + $dir + "`. Before doing anything else with this repo, ask the user via AskUserQuestion whether to build a graphify knowledge graph for it. Recommend YES for repos with more than 50 files: the graph gives you structural awareness and saves Grep tokens on every later architecture question. If the user agrees, cd into `" + $dir + "` and run `/graphify` (or `graphify .` from the CLI). For repos larger than 2000 files, suggest `graphify cluster-only . --no-viz` (AST-only, no LLM extraction). If the user declines, proceed without it.")
-  }
-}' 2>/dev/null || true
+# Graph-presence branching. The cloned directory might already carry a
+# graphify-out/graph.json from a prior session (R2 bisync round-trip, or
+# upstream repo committed graphify-out/). In that case, skip the
+# AskUserQuestion triage and tell the agent to refresh with the cheap
+# AST-only `graphify update .` instead of a full /graphify rebuild.
+EXISTING_GRAPH=""
+if [ -n "$TARGET_DIR" ] && [ -f "$TARGET_DIR/graphify-out/graph.json" ]; then
+  EXISTING_GRAPH="yes"
+fi
+
+[ -z "$TARGET_DIR" ] && TARGET_DIR="the repo you just cloned"
+
+if [ "$EXISTING_GRAPH" = "yes" ]; then
+  jq -n --arg dir "$TARGET_DIR" '{
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext: ("The user just cloned `" + $dir + "`, and a graphify knowledge graph already exists at " + $dir + "/graphify-out/graph.json. Do NOT prompt the user about building one - the SessionStart hook will surface it on the next session, and you can use the mcp__graphify__* tools against the existing graph right now. If the clone is recent enough that source files may have changed since the graph was built, run `graphify update .` from `" + $dir + "` to refresh the AST portion (free, no LLM cost). Do not run a full `/graphify` rebuild unless the user explicitly asks for one.")
+    }
+  }' 2>/dev/null || true
+else
+  jq -n --arg dir "$TARGET_DIR" '{
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext: ("The user just cloned `" + $dir + "`. No graphify knowledge graph is present in the cloned tree. Before doing anything else with this repo, ask the user via AskUserQuestion whether to build one. Recommend YES for repos with more than 50 files: the graph gives you structural awareness and saves Grep tokens on every later architecture question. If the user agrees, cd into `" + $dir + "` and run `/graphify` (or `graphify .` from the CLI). For repos larger than 2000 files, suggest `graphify cluster-only . --no-viz` (AST-only, no LLM extraction). If the user declines, proceed without it.")
+    }
+  }' 2>/dev/null || true
+fi
 
 exit 0
