@@ -464,5 +464,17 @@
     "modes": [
       "advanced"
     ]
+  },
+  "plugins/graphify/.claude-plugin/plugin.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "plugins/graphify/README.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
   }
 }

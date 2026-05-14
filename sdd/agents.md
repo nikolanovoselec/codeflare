@@ -591,3 +591,32 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** REQ-AGENT-021
 **Verification:** Manual check
 **Status:** Implemented
+
+## REQ-AGENT-023: Knowledge-Graph Context via Graphify
+
+**Intent:** Agents must have structural awareness of the current codebase via a persistent knowledge graph, so context-window cost on architecture, dependency, and call-flow questions is bounded across sessions and across users on the same project.
+
+**Acceptance Criteria:**
+1. The `graphifyy` Python package is installed in every container image at build time with `[mcp,sql,pdf]` extras. Version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`. Dependabot bumps to that file rebuild the image with the new version in lockstep.
+2. The `graphify` MCP server is registered in `~/.claude.json` `mcpServers` for every session, in both Standard and Pro session modes. The server exposes `query_graph`, `get_node`, `get_neighbors`, and `shortest_path` tools.
+3. In Pro session mode only, a SessionStart hook (matcher: startup) inspects the current working directory and injects an `additionalContext` system reminder when `graphify-out/graph.json` exists, pointing the agent at `GRAPH_REPORT.md` and the MCP tools.
+4. In Pro session mode only, a PostToolUse hook on `Bash` and `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute` matchers detects `git clone` and `gh repo clone` invocations (anchored token regex, not substring) and injects a directive instructing the agent to prompt the user via `AskUserQuestion` whether to build a knowledge graph for the just-cloned repo. The hook is idempotent per cloned directory via a marker file under `~/.cache/codeflare-hooks/graphify-prompted/`.
+5. In Pro session mode only, `~/.claude/rules/graph-first.md` is preseeded. It instructs the agent to prefer graph MCP queries over Grep/Find for architecture questions, lists when to use vs not use the graph, and documents `graphify cluster-only . --no-viz` as the safe path for repos with more than 2000 files.
+6. In Pro session mode only, `~/.claude/skills/graphify/SKILL.md` is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, and OpenCode by `scripts/generate-agent-seed.mjs`.
+7. The rclone bisync filter includes `graphify-out/graph.json` and `graphify-out/GRAPH_REPORT.md` (synced cross-session); `graphify-out/graph.html`, `graphify-out/wiki/`, and `graphify-out/.cache/` are excluded (regenerable or local-only).
+8. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus Pro session mode), `graphify` is in the `enforce-ctx-mode.sh` Bash whitelist so `graphify update .` is not denied.
+9. AC 1, 2, and 7 hold across all paid tiers (standard, advanced, max, unlimited). The graphify capability must function in sessions without context-mode being preseeded; the agent-orchestrated `/graphify` skill relies on upstream graphify's subagent chunking model to keep the main agent's context bounded when context-mode is not present.
+
+**Constraints:**
+- Graphify is the upstream `graphifyy` package on PyPI (Apache-2.0). No Codeflare fork.
+- MCP server registration is unconditional on session mode (graphify capability is ambient). Only the discipline (rule + skill + hooks) is Pro-gated.
+- The SessionStart hook never auto-builds a graph. It only injects context when one exists or a build suggestion when source files are present without one.
+- The PostToolUse-on-clone hook never invokes graphify directly. It only injects a directive instructing the agent to prompt the user via AskUserQuestion.
+- Graphify must not depend on context-mode at runtime. `/graphify` extraction uses upstream graphify's subagent-chunking model; context-mode, when present, provides bonus per-subagent token routing via its existing `Read|Grep|Glob|Agent` PreToolUse matchers, but is not a precondition.
+- `[office]`, `[google]`, `[video]`, `[neo4j]`, and external-provider backend extras (`[ollama]`, `[bedrock]`, `[gemini]`, `[openai]`) are not installed. Users who need them can `uv tool install --upgrade graphifyy[all]` manually.
+
+**Applies To:** Agent
+**Priority:** P1
+**Dependencies:** REQ-AGENT-001, REQ-AGENT-004, REQ-AGENT-005, REQ-AGENT-008
+**Verification:** Automated test
+**Status:** Planned
