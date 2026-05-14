@@ -47,7 +47,7 @@ jobs:
     # would still be satisfied - the gate must be on the job that
     # actually performs the deploy.
     environment: ${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
