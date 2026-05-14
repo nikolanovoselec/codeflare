@@ -32,6 +32,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write  # type=gha buildx cache writes to the Actions cache service
 
 jobs:
   deploy:
@@ -216,15 +217,24 @@ jobs:
         if: ${{ vars.CLAUDE_CODE_CACHE_BUSTER == 'active' }}
         run: echo "${{ github.sha }}" > .cache-bust
 
-      - name: Use default Docker builder
-        run: docker buildx use default
+      # The 'default' docker builder doesn't support type=gha cache. The
+      # docker-container driver (provisioned by setup-buildx-action) does
+      # and is what unlocks --cache-from / --cache-to against the
+      # built-in GitHub Actions cache service. No extra registry creds.
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build container image
         id: docker-build
         run: |
           IMAGE_TAG="${{ github.sha }}"
           IMAGE_NAME="${WORKER_NAME}-container"
-          docker build --platform linux/amd64 \
+          # --load keeps the image available to the local docker daemon
+          # so the Trivy scan and the docker push that follow can
+          # reference it by tag, unchanged.
+          docker buildx build --platform linux/amd64 \
+            --cache-from type=gha,scope=dockerhub \
+            --cache-to type=gha,mode=max,scope=dockerhub \
+            --load \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             -t "${IMAGE_NAME}:${IMAGE_TAG}" .
           echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
