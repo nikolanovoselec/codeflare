@@ -618,5 +618,5 @@ Multi-agent support, preseed system, and session modes.
 **Applies To:** Agent
 **Priority:** P1
 **Dependencies:** REQ-AGENT-001, REQ-AGENT-004, REQ-AGENT-005, REQ-AGENT-008
-**Verification:** Automated test
-**Status:** Planned
+**Verification:** Automated test (`host/__tests__/entrypoint-graphify-mcp.test.js`, `host/__tests__/entrypoint-graphify-hooks.test.js`, `host/__tests__/graphify-clone-prompt.test.js`, `host/__tests__/graphify-session-start.test.js`)
+**Status:** Implemented

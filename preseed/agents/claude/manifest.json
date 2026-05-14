@@ -476,5 +476,25 @@
       "default",
       "advanced"
     ]
+  },
+  "plugins/graphify/scripts/graphify-session-start.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/graphify/scripts/graphify-clone-prompt.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/graph-first.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/graphify/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
   }
 }

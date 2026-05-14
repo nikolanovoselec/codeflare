@@ -279,8 +279,24 @@ RCLONE_FILTERS_COMMON=(
     # MCP server state — logs and thread history, ephemeral
     --filter "- .local/state/**"
 
-    # Wrangler — deploy logs, regenerated
+    # Wrangler - deploy logs, regenerated
     --filter "- .config/.wrangler/**"
+
+    # graphify (REQ-AGENT-023 AC6) - knowledge-graph outputs under each
+    # project's graphify-out/. Source-of-truth is graph.json; everything
+    # else is regenerable from it. Order matters: includes must precede
+    # the catch-all wildcard exclude.
+    --filter "+ **/graphify-out/graph.json"
+    --filter "+ **/graphify-out/GRAPH_REPORT.md"
+    --filter "+ **/graphify-out/.graphify_root"
+    --filter "+ **/graphify-out/.graphify_labels.json"
+    --filter "- **/graphify-out/graph.html"          # regenerable, can be multi-MB
+    --filter "- **/graphify-out/graph.svg"           # regenerable on --svg
+    --filter "- **/graphify-out/graph.graphml"       # regenerable on --graphml
+    --filter "- **/graphify-out/cypher.txt"          # regenerable on --neo4j
+    --filter "- **/graphify-out/wiki/**"             # per-community wiki, regenerable
+    --filter "- **/graphify-out/.cache/**"           # semantic cache, local-only
+    --filter "- **/graphify-out/.chunks/**"          # subagent chunk files, transient
 )
 
 # In default mode, exclude entire .memory/ directory (no persistent memory)
@@ -1223,6 +1239,35 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
           )
         ')
         echo "[entrypoint] Advanced mode: context-mode hooks added to settings.json (version $CONTEXT_MODE_VERSION)"
+    fi
+    # graphify hooks (advanced session mode + plugin manifest present).
+    # Implements REQ-AGENT-023 AC3 + AC4:
+    #   - SessionStart (matcher "startup") injects context if a graph
+    #     exists in cwd, or a build-suggestion reminder for code repos
+    #     without a graph. Never auto-builds.
+    #   - PostToolUse on Bash + the two MCP shell tools detects
+    #     `git clone` / `gh repo clone` and injects an AskUserQuestion
+    #     triage directive. Idempotent per cloned dir.
+    # The MCP server itself is registered above unconditionally; these
+    # hooks are the load-bearing discipline pieces, gated on advanced.
+    if [ -f "$GRAPHIFY_MANIFEST" ]; then
+        GRAPHIFY_HOOKS=$(jq -n --arg dir "$PLUGIN_DIR" '{
+          SessionStart: [
+            {matcher:"startup",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-session-start.sh")}]}
+          ],
+          PostToolUse: [
+            {matcher:"Bash",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
+            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]}
+          ]
+        }')
+        SETTINGS_CONFIG=$(echo "$SETTINGS_CONFIG" | jq --argjson gf "$GRAPHIFY_HOOKS" '
+          .hooks as $h | .hooks = (
+            ($h | keys) + ($gf | keys) | unique |
+            map(. as $k | {key: $k, value: (($h[$k] // []) + ($gf[$k] // []))}) |
+            from_entries
+          )
+        ')
+        echo "[entrypoint] Advanced mode: graphify hooks added (SessionStart + PostToolUse on clone)"
     fi
     # Hardening: validate SETTINGS_CONFIG is well-formed JSON before it
     # reaches the settings.json merge below. The literal heredoc-style

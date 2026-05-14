@@ -145,6 +145,20 @@ Claude Code runs directly via the official `@anthropic-ai/claude-code` npm packa
 
 ---
 
+## Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
+
+`graphifyy` (Apache-2.0) is installed globally at Docker build time via `uv tool install graphifyy[mcp,sql,pdf]==<VER>`. The version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; a Dependabot bump there triggers a Dockerfile rebuild in lockstep so the runtime binary and the plugin manifest stay synchronised. The `graphify` CLI lives at `/root/.local/bin/graphify` (PATH-ready); the MCP server entrypoint is `python3 -m graphify.serve` from the isolated uv-managed venv at `/root/.local/share/uv/tools/graphifyy/`. Build cost: ~220 MB (Python + 30 tree-sitter wheels).
+
+**Tier-split gating (AD52):** the MCP server is registered in `~/.claude.json` for both default and advanced session modes. The discipline pieces - SessionStart context-injection hook, PostToolUse-on-clone triage hook, `graph-first.md` rule, and `graphify/SKILL.md` - ship in advanced session mode only. Standard-mode users have the capability without the proactive discipline.
+
+**Coexistence:** graphify functions in all paid tiers and does not depend on context-mode. When context-mode is active (custom tier), `graphify` is whitelisted in `enforce-ctx-mode.sh` so Bash invocations of `graphify update .` are not denied; subagent Read/Grep calls during `/graphify` extraction route through `ctx_execute` for bonus token savings. Without context-mode, graphify's own subagent-chunking model bounds the main agent's context.
+
+**MCP tools exposed:** `mcp__graphify__query_graph`, `mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, `mcp__graphify__shortest_path`.
+
+**Persistence:** `graphify-out/graph.json` and `graphify-out/GRAPH_REPORT.md` round-trip through R2 bisync (filter entries in `entrypoint.sh`). One session builds the graph; every other session for the same project reads it. `graph.html`, `wiki/`, `.cache/`, and `.chunks/` are excluded (regenerable or local-only).
+
+---
+
 ## LLM Consultation
 
 When `OPENAI_API_KEY` or `GEMINI_API_KEY` env vars are present, `entrypoint.sh` configures the `consult-llm-mcp` MCP server in `~/.claude.json`. This enables Claude Code to query external LLMs via the `consult_llm` MCP tool. Keys are stored in KV as `llm-keys:{bucketName}`, managed via `PUT /api/llm-keys`, and injected as container env vars during `setBucketName()`. Keys are NOT persisted in DO storage — read fresh from KV on each container start.

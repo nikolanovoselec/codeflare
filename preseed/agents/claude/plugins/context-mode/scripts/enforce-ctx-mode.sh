@@ -4,7 +4,7 @@
 # R2 preseed filter: this script ships only when the entire
 # plugins/context-mode/ subtree is included for the user's tier+mode.
 #
-#   Bash whitelist:     git, mkdir, rm, mv, cd, ls, npm install, pip install
+#   Bash whitelist:     git, mkdir, rm, mv, cd, ls, npm install, pip install, graphify
 #   Tool block:         WebFetch, Grep
 #
 # Normalization pipeline before per-segment scan:
@@ -375,6 +375,14 @@ check_segment() {
   [[ -z "$first" ]] && return 0
   case "$first" in
     git|mkdir|rm|mv|cd|ls)
+      return 0
+      ;;
+    graphify)
+      # REQ-AGENT-023 AC7: graphify CLI emits bounded human-readable
+      # output (status reports, query summaries) - no risk of raw graph
+      # JSON entering context. The /graphify skill subagents route Read/
+      # Grep through ctx_execute already; the CLI invocation itself
+      # (graphify update ., graphify query "...", etc.) is safe.
       return 0
       ;;
     curl|wget)
