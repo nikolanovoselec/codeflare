@@ -36,6 +36,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     bash \
     # ECC continuous learning v2.1 observe hooks
     python3 \
+    # graphify (uv tool install) needs venv module for isolated tool envs
+    python3-venv \
     # Version control
     git \
     # Editors
@@ -246,6 +248,60 @@ rm -f /tmp/context-mode-plugin.json
 npm cache clean --force
 rm -rf /root/.npm
 EOF
+
+# ---------------------------------------------------------------------------
+# Install graphify (Python knowledge-graph tool) globally via uv.
+# Implements REQ-AGENT-023.
+#
+# Version is read from preseed/agents/claude/plugins/graphify/.claude-plugin/
+# plugin.json so a Dependabot bump to that file rebuilds the image with the
+# new graphify version in lockstep (same pattern as context-mode above).
+#
+# Extras: [mcp,sql,pdf]
+#   - mcp: the MCP stdio server (python -m graphify.serve)
+#   - sql: tree-sitter-sql for SQL schema extraction
+#   - pdf: pypdf + markdownify for PDF docs
+# Omitted: [office] [google] [video] [neo4j] [ollama] [bedrock] [gemini] [openai]
+#   - external backends use the agent's session LLM via the /graphify skill;
+#     no API keys are configured by codeflare for graphify.
+#   - users who need other extras can `uv tool install --upgrade graphifyy[all]`.
+#
+# Layer cost: ~220MB (Python + 30 tree-sitter wheels). One-time at build, not
+# per-session. The `graphify` shim lands at /root/.local/bin/graphify and the
+# isolated venv lives at /root/.local/share/uv/tools/graphifyy/.
+#
+# License posture (Apache-2.0): we install from the public PyPI registry at
+# build time. No redistribution. Friendlier license than context-mode's ELv2.
+# ---------------------------------------------------------------------------
+COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
+RUN <<'EOF'
+set -e
+# Install uv (Astral's Python package manager - recommended by graphify upstream).
+# UV_INSTALL_DIR pins the install location so it's predictable for PATH/ENV.
+export UV_INSTALL_DIR=/root/.local/bin
+curl -fsSL https://astral.sh/uv/install.sh | sh
+export PATH="/root/.local/bin:$PATH"
+
+VER=$(jq -r '.version // empty' /tmp/graphify-plugin.json)
+if [ -z "$VER" ]; then
+  echo "[Dockerfile] FATAL: graphify plugin.json has no .version field; build cannot proceed" >&2
+  exit 1
+fi
+echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf] extras"
+uv tool install "graphifyy[mcp,sql,pdf]==$VER"
+
+# Smoke-test: ensure the CLI works and the MCP server module imports cleanly.
+# A regression in either (e.g. missing tree-sitter wheel, broken entry-point)
+# surfaces at build time rather than at first user invocation.
+graphify --version
+uv tool run --from graphifyy python3 -c "import graphify.serve" \
+  || (echo "[Dockerfile] FATAL: graphify.serve import failed" >&2 && exit 1)
+
+rm -f /tmp/graphify-plugin.json
+EOF
+
+# Make uv-installed shims available to all users (entrypoint runs as root)
+ENV PATH="/root/.local/bin:${PATH}"
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.

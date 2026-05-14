@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD51 throughout the codebase and documentation. 37 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD52 throughout the codebase and documentation. 38 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -62,6 +62,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | context-mode delivered as preseed plugin, not runtime install | Architecture |
 | [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | _superseded by AD51 -- doc-allow-large hatch ripped out_ | (superseded) |
 | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Rip out six overengineered SDD framework features | Architecture |
+| [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Graphify MCP available everywhere, discipline advanced-only | Architecture |
 
 ---
 
@@ -808,6 +809,34 @@ doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and P
 **Consequences:** Smaller surface for both the agent author and the human operator. AD45 and AD50 are marked Superseded but preserved for anchor stability. Architect findings that still need addressing on the remaining surface (six HIGH fixes from the third-wave review) are tracked separately. The framework now has: `/sdd init`, `/sdd clean`, `/sdd mode`, the three-agent PR-boundary pipeline, transition state, and the three discipline rules (spec / doc / tdd). That is the entire surface.
 
 **Issue:** Architect review triage 2026-05-12; user authorization in conversation.
+
+---
+
+### AD52: Graphify MCP available everywhere, discipline advanced-only
+
+**Status:** Accepted (2026-05-14)
+
+**Category:** Architecture
+
+**Context:** Graphify (upstream `graphifyy` Python package, Apache-2.0) turns a folder into a queryable knowledge graph and exposes it via an MCP server (`query_graph`, `get_node`, `get_neighbors`, `shortest_path`). Integrating it into Codeflare required a tier-gating decision: every preseed plugin so far chose between "advanced-only" (codeflare-memory, codeflare-hooks) and "custom-tier-only" (context-mode via AD49). Graphify did not fit either bucket cleanly. The MCP server itself is harmless ambient capability that any session benefits from when the user reaches for it; the discipline that says "use the graph before grepping" is what produces token savings and is what changes agent behaviour.
+
+**Decision:** Split delivery on a discipline-vs-capability axis, not on tier:
+
+- **Plugin folder + `plugin.json` + MCP server registration**: ships in both `default` and `advanced` session modes. The `graphify` MCP server is registered in `~/.claude.json` whenever the preseed manifest is present, which is every paid tier.
+- **SessionStart context-injection hook, PostToolUse-on-clone triage hook, `graph-first.md` rule, and `graphify/SKILL.md`**: ship in `advanced` session mode only. These are the load-bearing pieces that teach the agent to use the graph proactively.
+
+Tier-gating is not part of the decision: graphify ships uniformly across standard, advanced, max, and custom paid tiers. The discipline gating is keyed only on session mode.
+
+**Consequences:**
+- Standard-mode users CAN reach for graphify by name (CLI on PATH, MCP tools exposed) but do not get nudged toward it. No SessionStart reminder, no triage on clone, no rule in `~/.claude/rules/`.
+- Advanced-mode users get the full discipline: the agent reads `GRAPH_REPORT.md` at session start when a graph exists, prompts on clone, and prefers focused MCP queries over Grep for architecture questions.
+- Image cost (~220 MB for Python + tree-sitter wheels) is paid by every container regardless of mode, justified by one-time build cost vs. universal capability.
+- Coexists cleanly with context-mode (AD49) without depending on it. Graphify's own subagent-chunking model is the load-bearing context-bounding mechanism for `/graphify` extraction; context-mode routing through `ctx_execute` is bonus per-subagent savings when present. AC8 of REQ-AGENT-023 mandates that graphify must function in both regimes; the `enforce-ctx-mode.sh` Bash whitelist gets `graphify` added (in custom tier where the file ships) but no behaviour depends on that whitelist for other tiers.
+- The MCP server registration is keyed on `GRAPHIFY_MANIFEST` presence rather than `SESSION_MODE`, so the "capability everywhere" half is enforced by the manifest gate rather than a mode check.
+
+**Alternative considered:** Match context-mode (AD49) and gate the whole thing on custom tier. Rejected: graphify's MCP query tools are cheap, structurally bounded, and useful even when no discipline rule pushes the agent toward them. Hiding the capability behind a tier wall would have been more conservative but would have wasted the build-time install for the 99% of paid users who are not on custom tier.
+
+**Issue:** REQ-AGENT-023; user authorization in conversation 2026-05-14.
 
 ---
 

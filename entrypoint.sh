@@ -1118,6 +1118,44 @@ else
 fi
 echo "[entrypoint] context-mode MCP server registered in .claude.json (version $CONTEXT_MODE_VERSION)"
 
+# ---------------------------------------------------------------------------
+# Configure graphify MCP server. (Implements REQ-AGENT-023)
+#
+# graphify is installed at build time at /root/.local/bin/graphify (uv tool
+# install graphifyy[mcp,sql,pdf]). The MCP server is invoked as
+# `python3 -m graphify.serve`; the server discovers graphify-out/graph.json
+# from cwd per-invocation, so no graph path is registered here.
+#
+# Unlike context-mode, graphify is NOT tier-gated:
+#   - Plugin folder ships to ALL session modes (Standard + Pro)
+#   - MCP server is registered unconditionally on session mode (capability
+#     is ambient; only the SKILL + RULE + hooks that teach the agent to use
+#     it are advanced-mode-only via manifest.json gating)
+#
+# Plays cleanly with and without context-mode: graphify's own subagent
+# chunking handles main-context bounding when context-mode is absent (non-
+# Custom tiers); when context-mode is present, subagent Read/Grep during
+# /graphify extraction route through ctx_execute for bonus token savings.
+# ---------------------------------------------------------------------------
+GRAPHIFY_MANIFEST="$USER_HOME/.claude/plugins/graphify/.claude-plugin/plugin.json"
+GRAPHIFY_VERSION="unknown"
+if [ -f "$GRAPHIFY_MANIFEST" ]; then
+    GRAPHIFY_VERSION=$(jq -r '.version // "unknown"' "$GRAPHIFY_MANIFEST" 2>/dev/null || echo "unknown")
+fi
+GRAPHIFY_MCP_CONFIG=$(jq -n '{mcpServers:{"graphify":{command:"python3",args:["-m","graphify.serve"]}}}')
+if [ -f "$USER_CLAUDE_JSON" ]; then
+    TMP_JSON=$(mktemp)
+    if jq --argjson mcp "$GRAPHIFY_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
+        mv "$TMP_JSON" "$USER_CLAUDE_JSON"
+    else
+        echo "[entrypoint] WARNING: Could not merge graphify MCP config (malformed .claude.json?)"
+        rm -f "$TMP_JSON"
+    fi
+else
+    echo "$GRAPHIFY_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
+fi
+echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAPHIFY_VERSION)"
+
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
@@ -1261,12 +1299,16 @@ if [ -d "$USER_CLAUDE_DIR/hooks" ]; then
 fi
 
 # Enable plugins (silently skipped if plugin files absent in default mode).
-# context-mode is conditionally enabled via the preseed-plugin gate below.
+# context-mode and graphify are conditionally enabled via the preseed-plugin gates.
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true,"context-mode":true}}'
     echo "[entrypoint] context-mode plugin enabled (preseed manifest present)"
 else
     PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true}}'
+fi
+if [ -f "$GRAPHIFY_MANIFEST" ]; then
+    PLUGINS_CONFIG=$(echo "$PLUGINS_CONFIG" | jq '.enabledPlugins["graphify"] = true')
+    echo "[entrypoint] graphify plugin enabled (preseed manifest present)"
 fi
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_PLUGINS=$(mktemp)
