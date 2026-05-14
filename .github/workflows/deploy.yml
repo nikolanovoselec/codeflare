@@ -239,8 +239,8 @@ jobs:
           # so the Trivy scan step and the wrangler push step that follow
           # can reference it by tag, unchanged.
           docker buildx build --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
+            --cache-from type=gha,scope=cloudflare \
+            --cache-to type=gha,mode=max,scope=cloudflare \
             --load \
             -t "${IMAGE_NAME}:${IMAGE_TAG}" .
           echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"

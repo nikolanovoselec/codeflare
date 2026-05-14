@@ -232,8 +232,8 @@ jobs:
           # so the Trivy scan and the docker push that follow can
           # reference it by tag, unchanged.
           docker buildx build --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
+            --cache-from type=gha,scope=dockerhub \
+            --cache-to type=gha,mode=max,scope=dockerhub \
             --load \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             -t "${IMAGE_NAME}:${IMAGE_TAG}" .
