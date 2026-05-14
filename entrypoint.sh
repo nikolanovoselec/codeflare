@@ -1262,12 +1262,13 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # The MCP server itself is registered above unconditionally; these
     # hooks are the load-bearing discipline pieces, gated on advanced.
     if [ -f "$GRAPHIFY_MANIFEST" ]; then
-        # active-repo hook: tracks current repo for the MCP wrapper. Ships
-        # to both modes (default branch above; this advanced branch also
-        # gets it for parity). Matchers cover Bash, Edit/Write/Read/Notebook
-        # (universal across tiers), and the two ctx_execute variants
-        # (custom-tier users where `cd` happens inside ctx_execute shells
-        # that Claude Code's session cwd never sees).
+        # active-repo hook: tracks current repo for the MCP wrapper.
+        # Ships to ADVANCED ONLY (per AD52 / REQ-AGENT-023: MCP server +
+        # wrapper register in both modes, but all hooks - including this
+        # one - stay in advanced). Matchers cover Bash, Edit/Write/Read/
+        # NotebookEdit (universal across tiers), and the three ctx_execute
+        # variants (custom-tier users where `cd` happens inside ctx_execute
+        # shells that Claude Code's session cwd never sees).
         GRAPHIFY_HOOKS=$(jq -n --arg dir "$PLUGIN_DIR" '{
           SessionStart: [
             {matcher:"startup",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-session-start.sh")}]}

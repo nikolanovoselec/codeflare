@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD52 throughout the codebase and documentation. 38 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as AD1-AD53 throughout the codebase and documentation. 39 ADRs carry active content (AD38 superseded by AD48; AD45 and AD50 superseded by AD51); 11 anchors are redirects (6 merged 2026-05-03, 5 reclassified 2026-05-09 per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -63,6 +63,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | _superseded by AD51 -- doc-allow-large hatch ripped out_ | (superseded) |
 | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Rip out six overengineered SDD framework features | Architecture |
 | [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Graphify MCP available everywhere, discipline advanced-only | Architecture |
+| [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Graphify hot-reload wrapper with multi-repo sentinel tracking | Architecture |
 
 ---
 
@@ -838,6 +839,35 @@ Tier-gating is not part of the decision: graphify ships uniformly across standar
 **Alternative considered:** Match context-mode (AD49) and gate the whole thing on custom tier. Rejected: graphify's MCP query tools are cheap, structurally bounded, and useful even when no discipline rule pushes the agent toward them. Hiding the capability behind a tier wall would have been more conservative but would have wasted the build-time install for the 99% of paid users who are not on custom tier.
 
 **Issue:** REQ-AGENT-023; PR #354.
+
+---
+
+### AD53: Graphify hot-reload wrapper with multi-repo sentinel tracking
+
+**Status:** Accepted (2026-05-14)
+
+**Category:** Architecture
+
+**Context:** Two problems surfaced after AD52 shipped. First, upstream `graphify.serve` `sys.exit(1)`s when `graphify-out/graph.json` is missing at startup. Codeflare sessions start with an empty workspace and a user typically clones one or more repos mid-session, so the MCP server died on every fresh session and there was no way to restart Claude Code without losing the container (killing the session kills the Durable Object). Second, sessions typically hold 2-3 cloned repos; the MCP server is one persistent process and has no native notion of "the current repo." When the agent moved between repos via Bash `cd`, ctx_execute, git/gh clone, or simply by editing files in a different directory, the wrapper bound G to whichever path resolved first at startup and never switched, silently returning wrong-repo answers.
+
+**Decision:** Two coupled mechanisms:
+
+1. **`graphify-mcp-lazy.py` wrapper** ships to both `default` and `advanced` session modes (ambient capability, paired with the MCP registration per AD52). The wrapper monkey-patches `graphify.serve._load_graph` to return a `LazyGraph` (subclass of `nx.DiGraph` so `isinstance` checks in graphify and networkx pass cleanly). LazyGraph starts empty, then a daemon watcher thread polls the active graph file every `GRAPHIFY_POLL_SECONDS` (default 2s); on mtime change, it builds a fresh `nx.DiGraph` and swaps the underlying `_node`/`_adj`/`_pred`/`_succ`/`graph` dict members atomically under a lock so concurrent readers (graphify's tool handlers running on the main thread) never see a half-mutated graph. The tool list stays static (the upstream 7 tools); only G's contents swap.
+
+2. **`graphify-active-repo.sh` PostToolUse hook** ships to `advanced` session mode only. It writes the agent's current repo root to a sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd`. Matcher set is `Bash | Edit | Write | Read | NotebookEdit | mcp__context-mode__ctx_execute | mcp__context-mode__ctx_execute_file | mcp__context-mode__ctx_batch_execute` because the cwd signal differs by tool surface and tier: Bash uses Claude Code's session cwd which updates on `cd`; Edit/Write/Read provide an absolute `file_path` that the hook walks up to find a `.git/` or `graphify-out/` ancestor; ctx_execute variants need the shell snippet parsed for `cd X` because Claude Code's session cwd never sees changes inside ctx_execute subshells. The wrapper polls the sentinel and rebinds G when it changes. When the sentinel is absent (default mode, or before the first hook fires), the wrapper falls back to the freshest mtime across `CODEFLARE_WORKSPACE/*/graphify-out/graph.json`.
+
+**Consequences:**
+- Sessions starting empty no longer require a Claude Code restart to bring graphify online. The MCP shows `connected · 7 tools` from the first prompt; tool calls return empty (`Nodes: 0`) until a graph appears.
+- Multi-repo precision is advanced-only. Default-mode users typing `/graphify` explicitly for a single repo get correct answers via the freshest-mtime fallback; default-mode users juggling multiple graphs would get wrong-repo answers, but that path is rare-by-design (no SKILL or clone-prompt is preseeded to push them toward multi-graph builds).
+- Per-branch graphs are not supported. The wrapper reads `<repo>/.git/HEAD` only for an informative stderr log line on rebind. Users run `graphify update` after a checkout; the wrapper's mtime watcher picks up the rebuild within 2 seconds. Forking graphify upstream to model branches was rejected as out of scope and orthogonal to the codeflare integration.
+- Reader-safety is load-bearing: an earlier draft used `G.clear()` + `G.add_nodes_from()` and crashed graphify tool handlers mid-iteration under the exact workload the wrapper was built for (`graphify update` immediately followed by `query_graph`). The atomic dict-swap pattern resolves this without forking graphify or wrapping the tool handlers.
+- Sentinel race under concurrent batch-execute hooks is acceptable: last writer wins, wrapper converges within 2 seconds. Hook only rewrites on change so mtime churn is bounded.
+
+**Alternative considered:** Spawn one MCP server per repo on first `cd` into it. Rejected because Claude Code does not natively support per-cwd MCP servers, the spawn/teardown logic would have to live in `entrypoint.sh` with `proc` watching, and the wrapper-based approach lets a single process handle every repo in the session at the cost of one short stderr log line per rebind.
+
+**Alternative considered:** Pass repo path as an explicit MCP tool argument on every call. Rejected because graphify's upstream tool handlers query G in closure and would need rewriting; relying on the agent to remember a `repo_path` arg every invocation would silently degrade in practice.
+
+**Issue:** REQ-AGENT-023.
 
 ---
 
