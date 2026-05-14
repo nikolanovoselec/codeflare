@@ -18,7 +18,10 @@ on:
         default: integration
 
 concurrency:
-  group: deploy-ghcr-${{ github.ref == 'refs/heads/main' && inputs.environment || 'integration' }}
+  # Share the prefix with deploy.yml so the two workflows can never deploy
+  # to the same worker simultaneously - whichever fires later cancels the
+  # one already in flight.
+  group: deploy-${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
   cancel-in-progress: true
 
 permissions:
@@ -38,7 +41,7 @@ jobs:
     # PR Checks would skip the guard but the deploy job's needs:
     # would still be satisfied - the gate must be on the job that
     # actually performs the deploy.
-    environment: ${{ github.ref == 'refs/heads/main' && inputs.environment || 'integration' }}
+    environment: ${{ github.ref == 'refs/heads/main' && (inputs.environment || 'production') || 'integration' }}
     timeout-minutes: 20
     env:
       WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
@@ -204,7 +207,7 @@ jobs:
           echo "Resolved container config:"
           sed -n '30,52p' wrangler.toml
 
-      - name: Generate cache buster (optional — force fresh npm install)
+      - name: Generate cache buster (optional - force fresh npm install)
         if: ${{ vars.CLAUDE_CODE_CACHE_BUSTER == 'active' }}
         run: echo "${{ github.sha }}" > .cache-bust
 
@@ -249,9 +252,16 @@ jobs:
           IMAGE_TAG="${{ steps.docker-build.outputs.image_tag }}"
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           IMAGE_NAME_LC=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
+
+          # Fail closed on empty inputs so we never sed a garbage URI into
+          # wrangler.toml and watch a downstream deploy fail with no clue.
+          [ -n "$OWNER" ] || { echo "::error::Empty OWNER (github.repository_owner unset?)"; exit 1; }
+          [ -n "$IMAGE_NAME_LC" ] || { echo "::error::Empty IMAGE_NAME (WORKER_NAME unset?)"; exit 1; }
+          [ -n "$IMAGE_TAG" ] || { echo "::error::Empty IMAGE_TAG"; exit 1; }
+
           REGISTRY_URI="ghcr.io/${OWNER}/${IMAGE_NAME_LC}:${IMAGE_TAG}"
 
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
           docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${REGISTRY_URI}"
           docker push "${REGISTRY_URI}"
@@ -292,7 +302,7 @@ jobs:
           # Use CF_ACCESS_CLIENT_SECRET (CF Access mode) or OAUTH_E2E_TEST_SECRET (GitHub OIDC mode)
           AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
           if [ -z "${AUTH_SECRET}" ]; then
-            echo "No CF_ACCESS_CLIENT_SECRET or OAUTH_E2E_TEST_SECRET — skipping service auth setup"
+            echo "No CF_ACCESS_CLIENT_SECRET or OAUTH_E2E_TEST_SECRET - skipping service auth setup"
             exit 0
           fi
 
@@ -315,7 +325,7 @@ jobs:
         if: ${{ vars.ONBOARDING_LANDING_PAGE == 'active' || vars.SAAS_MODE == 'active' }}
         run: |
           if [ -z "${RESEND_API_KEY}" ]; then
-            echo "::warning::RESEND_API_KEY not set — email notifications will be skipped"
+            echo "::warning::RESEND_API_KEY not set - email notifications will be skipped"
             exit 0
           fi
           printf '%s' "${RESEND_API_KEY}" | npx wrangler secret put RESEND_API_KEY --name "${WORKER_NAME}" 2>/dev/null
@@ -361,7 +371,7 @@ jobs:
       - name: Set encryption key as worker secret (optional)
         run: |
           if [ -z "${ENC_KEY}" ]; then
-            echo "No ENCRYPTION_KEY — credentials stored as plaintext, R2 uses default encryption"
+            echo "No ENCRYPTION_KEY - credentials stored as plaintext, R2 uses default encryption"
             exit 0
           fi
           printf '%s' "${ENC_KEY}" | npx wrangler secret put ENCRYPTION_KEY --name "${WORKER_NAME}" 2>/dev/null
