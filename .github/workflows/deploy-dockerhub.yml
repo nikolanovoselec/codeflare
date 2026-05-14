@@ -1,11 +1,17 @@
-name: Deploy - GHCR
+name: Deploy - Docker Hub
 # Near-identical copy of deploy.yml that pushes the container image to
-# GitHub Container Registry (ghcr.io) instead of registry.cloudflare.com.
-# Intended as a bypass when the Cloudflare managed registry is dropping
-# connections mid-upload ("use of closed network connection"). Cloudflare
-# Containers official docs only list registry.cloudflare.com, Docker Hub,
-# and Amazon ECR as supported registries - wrangler may reject the
-# ghcr.io URL at deploy time. Treat this workflow as experimental.
+# Docker Hub (docker.io) instead of registry.cloudflare.com. Intended as
+# a bypass when the Cloudflare managed registry drops connections
+# mid-upload ("use of closed network connection"). Docker Hub is on
+# Cloudflare Containers' supported registry list, so wrangler accepts
+# the resulting docker.io image URL.
+#
+# Required repo secrets:
+#   - DOCKERHUB_USERNAME (account that owns the image repo)
+#   - DOCKERHUB_TOKEN    (access token, read+write+delete scope)
+# After the first push, flip the auto-created Docker Hub repo to Public
+# at https://hub.docker.com/repository/docker/<username>/<name>/general
+# so the Cloudflare container runtime can pull without auth.
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +32,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   deploy:
@@ -220,7 +225,6 @@ jobs:
           IMAGE_TAG="${{ github.sha }}"
           IMAGE_NAME="${WORKER_NAME}-container"
           docker build --platform linux/amd64 \
-            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             -t "${IMAGE_NAME}:${IMAGE_TAG}" .
           echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
@@ -240,28 +244,32 @@ jobs:
           scanners: vuln
           trivyignores: .trivyignore
 
-      # Push to GitHub Container Registry (ghcr.io). GHCR image names must be
-      # lowercase; the owner segment from github.repository_owner is already
-      # lowercase but the image name (WORKER_NAME-container) is forced through
-      # tr to be safe in case a fork uses a name with uppercase characters.
-      # Auth uses the workflow's GITHUB_TOKEN with packages:write scope.
-      - name: Push image to GitHub Container Registry
+      # Push to Docker Hub. Image names must be lowercase. DOCKERHUB_USERNAME
+      # is passed through tr defensively in case the secret is set with
+      # uppercase characters; IMAGE_NAME (WORKER_NAME-container) is also
+      # forced lowercase. Auth uses a Docker Hub access token with
+      # read+write+delete scope, stored as DOCKERHUB_TOKEN.
+      - name: Push image to Docker Hub
         id: push-image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           IMAGE_NAME="${{ steps.docker-build.outputs.image_name }}"
           IMAGE_TAG="${{ steps.docker-build.outputs.image_tag }}"
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_NAME_LC=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
+          OWNER=$(printf '%s' "${DOCKERHUB_USERNAME}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME_LC=$(printf '%s' "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
 
           # Fail closed on empty inputs so we never sed a garbage URI into
           # wrangler.toml and watch a downstream deploy fail with no clue.
-          [ -n "$OWNER" ] || { echo "::error::Empty OWNER (github.repository_owner unset?)"; exit 1; }
+          [ -n "$OWNER" ] || { echo "::error::Empty DOCKERHUB_USERNAME secret"; exit 1; }
           [ -n "$IMAGE_NAME_LC" ] || { echo "::error::Empty IMAGE_NAME (WORKER_NAME unset?)"; exit 1; }
           [ -n "$IMAGE_TAG" ] || { echo "::error::Empty IMAGE_TAG"; exit 1; }
+          [ -n "$DOCKERHUB_TOKEN" ] || { echo "::error::Empty DOCKERHUB_TOKEN secret"; exit 1; }
 
-          REGISTRY_URI="ghcr.io/${OWNER}/${IMAGE_NAME_LC}:${IMAGE_TAG}"
+          REGISTRY_URI="docker.io/${OWNER}/${IMAGE_NAME_LC}:${IMAGE_TAG}"
 
-          printf '%s' "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          printf '%s' "${DOCKERHUB_TOKEN}" | docker login docker.io -u "${OWNER}" --password-stdin
 
           docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${REGISTRY_URI}"
           docker push "${REGISTRY_URI}"
