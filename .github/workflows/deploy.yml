@@ -431,13 +431,19 @@ jobs:
             ].join(",");
             const base = "https://registry.cloudflare.com/v2/" + ACCT + "/" + repo;
 
-            // Enumerate every tag (paginated)
+            // Enumerate every tag (paginated). Docker Registry v2 paginates
+            // lexicographically, not by recency. If any page errors, we MUST
+            // fail closed - a partial enumeration biases the "newest by
+            // creation time" selection toward whichever lexical slice we did
+            // see, and the digest-protection invariant below cannot protect
+            // tags we never knew existed.
             const tags = [];
             let last = "";
+            let complete = true;
             for (let p = 0; p < 200; p++) {
               const url = base + "/tags/list?n=500" + (last ? "&last=" + encodeURIComponent(last) : "");
               const r = await fetch(url, { headers: { Authorization: auth } });
-              if (!r.ok) { console.log("::warning::tags/list HTTP " + r.status); break; }
+              if (!r.ok) { console.log("::warning::tags/list HTTP " + r.status); complete = false; break; }
               const j = await r.json();
               const page = j.tags || [];
               if (!page.length) break;
@@ -445,6 +451,7 @@ jobs:
               if (page.length < 500) break;
               last = page[page.length - 1];
             }
+            if (!complete) { console.log("::warning::incomplete tag listing; skipping prune to avoid deleting a kept manifest"); return; }
             console.log("Found " + tags.length + " tags");
             if (tags.length <= KEEP_N + 1) { console.log("Below threshold; nothing to prune."); return; }
 
@@ -475,10 +482,23 @@ jobs:
             const ok = results.filter(Boolean);
             const dated = ok.filter(x => x.created).sort((a,b) => b.created.localeCompare(a.created));
             const top = dated.slice(0, KEEP_N).map(x => x.tag);
-            const keep = new Set([...top, deployedTag]);
+            const keepTags = new Set([...top, deployedTag]);
+            // DELETE on a registry v2 manifest removes the manifest globally -
+            // every tag that aliases that digest 404s afterward. If two tags
+            // share a digest (identical Dockerfile + identical context across
+            // deploys produces identical layers; the manual sweep found ~40%
+            // of tags shared a manifest), deleting the "other" tag's digest
+            // would destroy a kept tag's image too. Protect every digest that
+            // ANY kept tag references, then dedupe the delete list separately.
+            const keepDigests = new Set(ok.filter(x => keepTags.has(x.tag) && x.digest).map(x => x.digest));
             const seen = new Set();
-            const toDel = ok.filter(x => !keep.has(x.tag) && x.digest && !seen.has(x.digest) && seen.add(x.digest));
-            console.log("Keeping " + keep.size + " tags, deleting " + toDel.length + " manifests");
+            const toDel = ok.filter(x =>
+              !keepTags.has(x.tag) &&
+              x.digest &&
+              !keepDigests.has(x.digest) &&
+              !seen.has(x.digest) &&
+              seen.add(x.digest));
+            console.log("Keeping " + keepTags.size + " tags (" + keepDigests.size + " unique digests), deleting " + toDel.length + " manifests");
             let okN = 0, failN = 0;
             let di = 0;
             await Promise.all(Array.from({ length: 16 }, async () => {
