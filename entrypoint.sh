@@ -1262,13 +1262,21 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # The MCP server itself is registered above unconditionally; these
     # hooks are the load-bearing discipline pieces, gated on advanced.
     if [ -f "$GRAPHIFY_MANIFEST" ]; then
+        # active-repo hook: tracks current repo for the MCP wrapper. Ships
+        # to both modes (default branch above; this advanced branch also
+        # gets it for parity). Matchers cover Bash, Edit/Write/Read/Notebook
+        # (universal across tiers), and the two ctx_execute variants
+        # (custom-tier users where `cd` happens inside ctx_execute shells
+        # that Claude Code's session cwd never sees).
         GRAPHIFY_HOOKS=$(jq -n --arg dir "$PLUGIN_DIR" '{
           SessionStart: [
             {matcher:"startup",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-session-start.sh")}]}
           ],
           PostToolUse: [
             {matcher:"Bash",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
-            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]}
+            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
+            {matcher:"Bash|Edit|Write|Read|NotebookEdit",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-active-repo.sh")}]},
+            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-active-repo.sh")}]}
           ],
           PreToolUse: [
             {matcher:"Grep|Glob",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]},
@@ -1297,8 +1305,30 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     fi
     echo "[entrypoint] Advanced mode: configuring settings.json with hooks"
 else
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
-    echo "[entrypoint] Default mode: configuring settings.json without hooks"
+    # Default mode is almost hookless. The one exception: the graphify
+    # active-repo tracker (REQ-AGENT-023). It writes a sentinel file the
+    # graphify MCP wrapper polls to bind G to the right repo across
+    # multi-repo sessions. The wrapper ships in both modes; without this
+    # hook, default-mode users in multi-repo sessions would silently get
+    # wrong-repo answers via the wrapper's freshest-fallback. The hook is
+    # infrastructure for the MCP server, not discipline - no agent-facing
+    # UX, just a sentinel write.
+    if [ -f "$GRAPHIFY_MANIFEST" ]; then
+        GRAPHIFY_ACTIVE_HOOK="$PLUGIN_DIR/graphify/scripts/graphify-active-repo.sh"
+        SETTINGS_CONFIG=$(jq -n --arg hook "$GRAPHIFY_ACTIVE_HOOK" '{
+          skipDangerousModePermissionPrompt: true,
+          hooks: {
+            PostToolUse: [
+              {matcher:"Bash|Edit|Write|Read|NotebookEdit",hooks:[{type:"command",command:("bash " + $hook)}]},
+              {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $hook)}]}
+            ]
+          }
+        }')
+        echo "[entrypoint] Default mode: configuring settings.json with graphify active-repo hook"
+    else
+        SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
+        echo "[entrypoint] Default mode: configuring settings.json without hooks"
+    fi
 fi
 
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"

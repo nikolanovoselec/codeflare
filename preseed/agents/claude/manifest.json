@@ -483,6 +483,12 @@
       "advanced"
     ]
   },
+  "plugins/graphify/scripts/graphify-active-repo.sh": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "plugins/graphify/scripts/graphify-session-start.sh": {
     "modes": [
       "advanced"
