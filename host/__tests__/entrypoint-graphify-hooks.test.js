@@ -159,50 +159,31 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
     );
   });
 
-  it('manifest present + default mode: no hooks at all (entire SETTINGS_CONFIG block is skipped)', () => {
-    // The advanced-only block does not execute in default mode, so the
-    // graphify discipline pieces stay off. The MCP server itself is
-    // registered earlier in entrypoint.sh (covered by the Phase 1 test).
-    const cwd = mkdtempSync(join(baseTmp, 'default-mode-'));
-    const userHome = join(cwd, 'user-home');
-    mkdirSync(join(userHome, '.claude', 'plugins', 'graphify', '.claude-plugin'), { recursive: true });
-    writeFileSync(
-      join(userHome, '.claude', 'plugins', 'graphify', '.claude-plugin', 'plugin.json'),
-      JSON.stringify({ name: 'graphify', version: '0.7.19' })
+  it('manifest present + default mode: production advanced block short-circuits and no graphify hooks land', () => {
+    // Real gut-check: execute the actual production block from entrypoint.sh
+    // with SESSION_MODE=default and confirm the advanced gate does not fire.
+    // If somebody flipped the gate condition the wrong way, this test would
+    // fail. (The earlier version of this test hand-wrote the expected
+    // SETTINGS_CONFIG and never invoked the production code - tautology.)
+    const cwd = mkdtempSync(join(baseTmp, 'default-mode-real-'));
+    const { settings } = buildHarness(cwd, {
+      sessionMode: 'default', graphifyManifest: true, ctxManifest: true,
+    });
+    const hooksJson = JSON.stringify(settings.hooks || {});
+    assert.ok(
+      !hooksJson.includes('graphify-session-start.sh'),
+      'default mode must not wire the graphify SessionStart hook even when the plugin manifest is present'
     );
-
-    const block = extractAdvancedSettingsBlock();
-    const fullScript = `
-set -e
-SESSION_MODE="default"
-USER_HOME="${userHome}"
-PLUGIN_DIR="${userHome}/.claude/plugins"
-GRAPHIFY_MANIFEST="${userHome}/.claude/plugins/graphify/.claude-plugin/plugin.json"
-CONTEXT_MODE_MANIFEST="${userHome}/.claude/plugins/context-mode/.claude-plugin/plugin.json"
-${block}
-# also emit the default-mode SETTINGS_CONFIG that runs in the else branch
-echo "SETTINGS_CONFIG_BEGIN"
-printf '%s' "$SETTINGS_CONFIG"
-echo
-echo "SETTINGS_CONFIG_END"
-`;
-    // Wrap with the else branch so SETTINGS_CONFIG is initialised even
-    // though we want to exercise the "default mode skips advanced block"
-    // behaviour. Instead: run with SESSION_MODE=default and prefix with
-    // the actual SETTINGS_CONFIG default assignment.
-    const script = `
-set -e
-SESSION_MODE="default"
-SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true}'
-echo "SETTINGS_CONFIG_BEGIN"
-printf '%s' "$SETTINGS_CONFIG"
-echo
-echo "SETTINGS_CONFIG_END"
-`;
-    const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
-    const match = result.stdout.match(/SETTINGS_CONFIG_BEGIN\n([\s\S]*?)\nSETTINGS_CONFIG_END/);
-    const settings = JSON.parse(match[1]);
-    assert.equal(settings.hooks, undefined, 'default mode must not wire any hooks');
-    assert.equal(settings.skipDangerousModePermissionPrompt, true);
+    assert.ok(
+      !hooksJson.includes('graphify-clone-prompt.sh'),
+      'default mode must not wire the graphify PostToolUse hook even when the plugin manifest is present'
+    );
+    // The default-mode branch sets just the skipDangerousModePermissionPrompt
+    // flag; the assembled SETTINGS_CONFIG must reflect that.
+    assert.equal(
+      settings.skipDangerousModePermissionPrompt,
+      true,
+      'default-mode SETTINGS_CONFIG must still carry skipDangerousModePermissionPrompt'
+    );
   });
 });

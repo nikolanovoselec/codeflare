@@ -63,16 +63,21 @@ RESPONSE=$(echo "$INPUT" | jq -r '
 ' 2>/dev/null) || true
 
 TARGET_DIR=$(echo "$RESPONSE" | grep -oE "Cloning into '[^']+'" 2>/dev/null | head -n 1 | sed "s/Cloning into '//; s/'$//")
-[ -z "$TARGET_DIR" ] && TARGET_DIR="the repo you just cloned"
 
-# Idempotency marker keyed on the target directory.
+# Idempotency marker keyed on the target directory. Only write the marker
+# when we successfully extracted a real path - otherwise repeated clones
+# that fail extraction would share the placeholder marker and go silent.
 MARKER_DIR="${HOME:-/root}/.cache/codeflare-hooks/graphify-prompted"
-mkdir -p "$MARKER_DIR" 2>/dev/null || true
-MARKER="$MARKER_DIR/$(echo "$TARGET_DIR" | tr '/ ' '__')"
-if [ -f "$MARKER" ]; then
-  exit 0
+if [ -n "$TARGET_DIR" ]; then
+  mkdir -p "$MARKER_DIR" 2>/dev/null || true
+  MARKER="$MARKER_DIR/$(echo "$TARGET_DIR" | tr '/ ' '__')"
+  if [ -f "$MARKER" ]; then
+    exit 0
+  fi
+  : > "$MARKER" 2>/dev/null || true
+else
+  TARGET_DIR="the repo you just cloned"
 fi
-: > "$MARKER" 2>/dev/null || true
 
 # Inject directive.
 jq -n --arg dir "$TARGET_DIR" '{

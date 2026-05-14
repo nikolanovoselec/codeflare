@@ -39,7 +39,11 @@ if [ -f "$GRAPH" ] && [ -f "$REPORT" ]; then
 fi
 
 # No graph - only nudge if cwd looks like a code repo.
-CODE_FILE=$(find "$CWD" -maxdepth 3 -type f \
+# 2s timeout: this hook runs on every SessionStart, must not stall the
+# session on huge monorepos with deep directory trees. find exits early
+# on first match (head -n 1) so the cap is just a safety net for trees
+# with millions of files.
+CODE_FILE=$(timeout 2 find "$CWD" -maxdepth 2 -type f \
   \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \
      -o -name '*.py' -o -name '*.go' -o -name '*.rs' -o -name '*.java' \
      -o -name '*.rb' -o -name '*.swift' -o -name '*.kt' -o -name '*.c' \

@@ -99,14 +99,20 @@ describe('ECC rules in agent-seed', () => {
   // spec-discipline.md is part of the Pro-mode SDD workflow (REQ-AGENT-021).
   // documentation-discipline.md is the doc-updater enforcement layer (sibling
   //   to spec-discipline.md, same Pro-mode SDD workflow).
-  // tdd-discipline.md is the third sibling in the discipline triad — Pro-mode
+  // tdd-discipline.md is the third sibling in the discipline triad - Pro-mode
   //   only because default-mode users are vibe-coding and didn't opt into
   //   rigorous TDD enforcement.
+  // graph-first.md is the graphify discipline rule (REQ-AGENT-023, AD52).
+  //   The graphify MCP server is registered for all session modes (ambient
+  //   capability) but the rule that teaches the agent to prefer graph MCP
+  //   queries over Grep ships to advanced only - the discipline-vs-capability
+  //   split.
   const ADVANCED_ONLY_CODEFLARE_RULES = [
     '.claude/rules/memory.md',
     '.claude/rules/spec-discipline.md',
     '.claude/rules/documentation-discipline.md',
     '.claude/rules/tdd-discipline.md',
+    '.claude/rules/graph-first.md',
   ];
 
   it('non-memory codeflare rules have default+advanced modes', () => {
@@ -150,6 +156,14 @@ describe('ECC rules in agent-seed', () => {
     );
     expect(tddDisciplineRule).toBeDefined();
     expect(tddDisciplineRule!.modes).toEqual(['advanced']);
+  });
+
+  it('graph-first rule is advanced-only (graphify discipline, REQ-AGENT-023 / AD52)', () => {
+    const graphFirstRule = codeflareRules().find(
+      (doc) => doc.key === '.claude/rules/graph-first.md'
+    );
+    expect(graphFirstRule).toBeDefined();
+    expect(graphFirstRule!.modes).toEqual(['advanced']);
   });
 
   it('total ECC rules count is 18', () => {
