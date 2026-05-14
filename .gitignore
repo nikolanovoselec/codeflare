@@ -9,3 +9,9 @@ web-ui/dist/
 .dev.vars
 wrangler.toml.bak
 e2e-artifacts/
+
+# graphify - everything in graphify-out/ is committed except regenerable caches
+graphify-out/cache/
+graphify-out/.cache/
+graphify-out/.chunks/
+graphify-out/manifest.json
