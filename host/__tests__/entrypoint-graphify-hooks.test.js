@@ -1,4 +1,4 @@
-// Verifies REQ-AGENT-023 AC3 + AC4: graphify SessionStart + PostToolUse
+// Verifies REQ-AGENT-023 AC3 + AC4 + AC10: graphify SessionStart + PostToolUse + PreToolUse
 // hooks are merged into settings.json in advanced session mode when the
 // plugin manifest is present, and absent otherwise (mode-gated discipline).
 import { describe, it, before } from 'node:test';
@@ -156,6 +156,52 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
     assert.ok(
       !allHooks.includes('graphify-clone-prompt.sh'),
       'PostToolUse graphify hook must not be wired without the plugin manifest'
+    );
+    assert.ok(
+      !allHooks.includes('graph-first-nudge.sh'),
+      'PreToolUse graphify nudge hook must not be wired without the plugin manifest'
+    );
+  });
+
+  it('manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-023 AC10)', () => {
+    const cwd = mkdtempSync(join(baseTmp, 'present-nudge-'));
+    const { settings } = buildHarness(cwd, {
+      sessionMode: 'advanced', graphifyManifest: true, ctxManifest: false,
+    });
+    const preToolUse = settings.hooks.PreToolUse;
+    assert.ok(Array.isArray(preToolUse), 'PreToolUse hooks array must exist');
+
+    // Non-custom-tier matcher path: Grep|Glob fire directly.
+    const grepGlob = preToolUse.find(h =>
+      h.matcher === 'Grep|Glob' &&
+      h.hooks.some(x => x.command.includes('graph-first-nudge.sh'))
+    );
+    assert.ok(
+      grepGlob,
+      'PreToolUse hook for Grep|Glob pointing at graph-first-nudge.sh must be present (non-custom-tier matcher path)'
+    );
+
+    // Custom-tier matcher path: ctx_search + ctx_batch_execute are what
+    // the agent uses when enforce-ctx-mode denies Grep/Glob.
+    const ctxGrep = preToolUse.find(h =>
+      h.matcher === 'mcp__context-mode__ctx_search|mcp__context-mode__ctx_batch_execute' &&
+      h.hooks.some(x => x.command.includes('graph-first-nudge.sh'))
+    );
+    assert.ok(
+      ctxGrep,
+      'PreToolUse hook for ctx_search|ctx_batch_execute pointing at graph-first-nudge.sh must be present (custom-tier matcher path)'
+    );
+  });
+
+  it('manifest present + default mode: PreToolUse graph-first nudge NOT wired (discipline is advanced-gated)', () => {
+    const cwd = mkdtempSync(join(baseTmp, 'default-nudge-'));
+    const { settings } = buildHarness(cwd, {
+      sessionMode: 'default', graphifyManifest: true, ctxManifest: false,
+    });
+    const hooksJson = JSON.stringify(settings.hooks || {});
+    assert.ok(
+      !hooksJson.includes('graph-first-nudge.sh'),
+      'default mode must not wire the graph-first nudge hook even when the plugin manifest is present'
     );
   });
 

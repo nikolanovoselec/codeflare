@@ -14,7 +14,22 @@ This skill drives `/graphify` knowledge-graph extraction inside the Codeflare co
 
 2. **Use the agent's own session model for LLM extraction.** Do NOT pass `--backend openai` or other external-API flags. Codeflare does not configure third-party LLM API keys; the subagent-chunking model below uses your in-session Claude tokens and is the canonical path.
 
-3. **R2 bisync persists the graph.** Codeflare round-trips `graphify-out/graph.json` and `graphify-out/GRAPH_REPORT.md` through the per-user R2 bucket. One session builds the graph; every future session for the same project starts with the graph already present. Do not commit `graphify-out/` to the user's git repo unless they ask you to.
+3. **Persistence lives in git, not R2.** The graph travels with the repo. After your first `/graphify` build in a repo the user has push permission to:
+   - Add to the repo's `.gitignore` (create if absent):
+     ```
+     graphify-out/.cache/
+     graphify-out/.chunks/
+     ```
+     These are local-only caches (FTS5 query index, subagent intermediates) that regenerate themselves. Everything else in `graphify-out/` is committed.
+   - Add to the repo's `.gitattributes` (create if absent):
+     ```
+     graphify-out/graph.json merge=graphify
+     ```
+     This wires the graphify semantic merge driver for `graph.json`. The driver itself is registered globally in the container image, so this `.gitattributes` line is the only per-repo setup needed. Without it, concurrent edits produce corrupt JSON on merge.
+   - Stage and commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, `.graphify_root`, `.graphify_labels.json`, and optionally `graph.html` + `wiki/`. Subsequent contributors clone the repo and inherit the graph for free.
+   - For repos the user does NOT have push permission to (cloned open-source projects, read-only forks): graphify-out/ stays in the working tree only, ephemeral, no R2 fallback. Do not try to persist via bisync.
+
+   When two sessions both run `graphify update .` and produce conflicting `graph.json`, the merge driver auto-resolves on `git merge` / `git pull`. No manual JSON wrangling.
 
 4. **Bias toward `--update` and `cluster-only` for repeat runs.** Full LLM extraction is expensive. After the first build:
  - For source changes: `graphify update .` (AST-only, free, no token cost).

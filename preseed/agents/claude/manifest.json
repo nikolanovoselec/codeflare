@@ -487,6 +487,11 @@
       "advanced"
     ]
   },
+  "plugins/graphify/scripts/graph-first-nudge.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/graph-first.md": {
     "modes": [
       "advanced"

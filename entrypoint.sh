@@ -282,21 +282,11 @@ RCLONE_FILTERS_COMMON=(
     # Wrangler - deploy logs, regenerated
     --filter "- .config/.wrangler/**"
 
-    # graphify (REQ-AGENT-023 AC6) - knowledge-graph outputs under each
-    # project's graphify-out/. Source-of-truth is graph.json; everything
-    # else is regenerable from it. Order matters: includes must precede
-    # the catch-all wildcard exclude.
-    --filter "+ **/graphify-out/graph.json"
-    --filter "+ **/graphify-out/GRAPH_REPORT.md"
-    --filter "+ **/graphify-out/.graphify_root"
-    --filter "+ **/graphify-out/.graphify_labels.json"
-    --filter "- **/graphify-out/graph.html"          # regenerable, can be multi-MB
-    --filter "- **/graphify-out/graph.svg"           # regenerable on --svg
-    --filter "- **/graphify-out/graph.graphml"       # regenerable on --graphml
-    --filter "- **/graphify-out/cypher.txt"          # regenerable on --neo4j
-    --filter "- **/graphify-out/wiki/**"             # per-community wiki, regenerable
-    --filter "- **/graphify-out/.cache/**"           # semantic cache, local-only
-    --filter "- **/graphify-out/.chunks/**"          # subagent chunk files, transient
+    # graphify (REQ-AGENT-023) - knowledge-graph outputs live in the repo,
+    # not in R2. Repo owners commit graphify-out/ to git; the working tree
+    # gets them on clone. Repos without push permission keep graphify-out/
+    # local and ephemeral. R2 bisync does not touch graphify-out/ either way.
+    --filter "- **/graphify-out/**"
 )
 
 # In default mode, exclude entire .memory/ directory (no persistent memory)
@@ -1248,6 +1238,11 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     #   - PostToolUse on Bash + the two MCP shell tools detects
     #     `git clone` / `gh repo clone` and injects an AskUserQuestion
     #     triage directive. Idempotent per cloned dir.
+    #   - PreToolUse on Grep|Glob (non-custom tier) and on the two ctx
+    #     grep-equivalents ctx_search|ctx_batch_execute (custom tier)
+    #     injects a soft nudge to use mcp__graphify__* when a graph
+    #     exists in cwd. Never blocks - the use/don't-use call requires
+    #     semantic judgment a hook can't reliably make.
     # The MCP server itself is registered above unconditionally; these
     # hooks are the load-bearing discipline pieces, gated on advanced.
     if [ -f "$GRAPHIFY_MANIFEST" ]; then
@@ -1258,6 +1253,10 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
           PostToolUse: [
             {matcher:"Bash",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
             {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]}
+          ],
+          PreToolUse: [
+            {matcher:"Grep|Glob",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]},
+            {matcher:"mcp__context-mode__ctx_search|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]}
           ]
         }')
         SETTINGS_CONFIG=$(echo "$SETTINGS_CONFIG" | jq --argjson gf "$GRAPHIFY_HOOKS" '
@@ -1267,7 +1266,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
             from_entries
           )
         ')
-        echo "[entrypoint] Advanced mode: graphify hooks added (SessionStart + PostToolUse on clone)"
+        echo "[entrypoint] Advanced mode: graphify hooks added (SessionStart + PostToolUse on clone + PreToolUse graph-first nudge)"
     fi
     # Hardening: validate SETTINGS_CONFIG is well-formed JSON before it
     # reaches the settings.json merge below. The literal heredoc-style

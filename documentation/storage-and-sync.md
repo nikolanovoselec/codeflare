@@ -57,8 +57,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.cpan/**` | **NO** | Perl CPAN package manager cache, regenerated |
 | `~/.gemini/tmp/**` | **NO** | Gemini CLI temp files (ripgrep binary, chat logs) |
 | `~/.local/share/opencode/log/**`, `opencode.db-shm`, `opencode.db-wal` | **NO** | OpenCode session logs and SQLite temp files |
-| `**/graphify-out/graph.json`, `GRAPH_REPORT.md`, `.graphify_root`, `.graphify_labels.json` (REQ-AGENT-023) | Yes | Knowledge-graph source of truth + agent-facing report. Round-trips cross-session so one session builds the graph and every other session reads it. |
-| `**/graphify-out/graph.html`, `graph.svg`, `graph.graphml`, `cypher.txt`, `wiki/**`, `.cache/**`, `.chunks/**` | **NO** | Regenerable from `graph.json` or local-only (semantic cache, subagent chunk files) |
+| `**/graphify-out/**` (REQ-AGENT-023) | **NO** | Knowledge-graph artifacts live in the repo, not in R2. Repo owners commit `graphify-out/` to git; the working tree gets them on clone. Repos without push permission keep the graph local-only and ephemeral. R2 bisync is not in the graphify persistence path. |
 
 ## rclone Sync Modes
 

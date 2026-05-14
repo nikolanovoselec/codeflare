@@ -298,6 +298,15 @@ uv tool run --from graphifyy python3 -c "import graphify.serve" \
   || (echo "[Dockerfile] FATAL: graphify.serve import failed" >&2 && exit 1)
 
 rm -f /tmp/graphify-plugin.json
+
+# Register the graphify semantic merge driver globally (REQ-AGENT-023).
+# When a repo's .gitattributes contains `graphify-out/graph.json merge=graphify`,
+# git hands conflicting graph.json files to this driver for semantic merge
+# instead of line-based merge (which would produce corrupt JSON). The driver
+# is part of the graphifyy install above; this just wires it into git config
+# globally so every repo in every session benefits with no per-clone setup.
+git config --global merge.graphify.driver "graphify merge-driver %O %A %B"
+git config --global merge.graphify.name "graphify semantic graph.json merge"
 EOF
 
 # Make uv-installed shims available to all users (entrypoint runs as root)
