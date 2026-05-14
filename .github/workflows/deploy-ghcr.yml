@@ -1,0 +1,372 @@
+name: Deploy - GHCR
+# Near-identical copy of deploy.yml that pushes the container image to
+# GitHub Container Registry (ghcr.io) instead of registry.cloudflare.com.
+# Intended as a bypass when the Cloudflare managed registry is dropping
+# connections mid-upload ("use of closed network connection"). Cloudflare
+# Containers official docs only list registry.cloudflare.com, Docker Hub,
+# and Amazon ECR as supported registries - wrangler may reject the
+# ghcr.io URL at deploy time. Treat this workflow as experimental.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy target'
+        type: choice
+        options:
+          - production
+          - integration
+        default: integration
+
+concurrency:
+  group: deploy-ghcr-${{ github.ref == 'refs/heads/main' && inputs.environment || 'integration' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    # On workflow_run: only deploy when PR Checks ended green.
+    # On workflow_dispatch (manual): always run; the inner production-
+    # only-from-main step still rejects bad input.
+    #
+    # The if: lives on the deploy job itself (not on a separate guard
+    # job with `needs: guard`) because GitHub Actions treats a job
+    # skipped via if: as success() for `needs:` resolution. A failed
+    # PR Checks would skip the guard but the deploy job's needs:
+    # would still be satisfied - the gate must be on the job that
+    # actually performs the deploy.
+    environment: ${{ github.ref == 'refs/heads/main' && inputs.environment || 'integration' }}
+    timeout-minutes: 20
+    env:
+      WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME || 'codeflare' }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Block production deploys from non-main branches
+        if: github.ref != 'refs/heads/main' && inputs.environment == 'production'
+        run: |
+          echo "::error::Production deploys are only allowed from main. Got branch: ${{ github.ref }}"
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Cache root node_modules
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        id: cache-root
+        with:
+          path: node_modules
+          key: root-${{ hashFiles('package-lock.json') }}
+          restore-keys: root-
+
+      - name: Cache web-ui node_modules
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        id: cache-webui
+        with:
+          path: web-ui/node_modules
+          key: webui-${{ hashFiles('web-ui/package-lock.json') }}
+          restore-keys: webui-
+
+      - name: Install root dependencies
+        if: steps.cache-root.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Install web-ui dependencies
+        if: steps.cache-webui.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: web-ui
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: web-ui
+
+      - name: Run backend tests
+        run: npm test
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: web-ui
+
+      - name: Type check backend
+        run: npm run typecheck
+
+      - name: Type check frontend
+        run: npm run typecheck
+        working-directory: web-ui
+
+      - name: Resolve KV namespace
+        run: |
+          KV_TITLE="${WORKER_NAME}-kv"
+
+          # Check if namespace already exists
+          KV_ID=$(npx wrangler kv namespace list 2>/dev/null \
+            | sed -n '/^\[/,/^\]/p' \
+            | jq -r --arg title "$KV_TITLE" '.[] | select(.title == $title) | .id' \
+            | head -1)
+
+          if [ -z "$KV_ID" ]; then
+            echo "Creating KV namespace: $KV_TITLE"
+            KV_ID=$(npx wrangler kv namespace create "$KV_TITLE" 2>&1 \
+              | grep -oP '"[a-f0-9]{32}"' | tr -d '"' | head -1)
+          fi
+
+          if [ -z "$KV_ID" ]; then
+            echo "::error::Failed to resolve KV namespace ID"
+            exit 1
+          fi
+
+          echo "KV namespace ID: $KV_ID"
+          sed -i "s/id = \"placeholder\"/id = \"$KV_ID\"/" wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Apply worker name to wrangler config
+        run: |
+          sed -i "0,/^name = \".*\"/{s/^name = \".*\"/name = \"${WORKER_NAME}\"/}" wrangler.toml
+          echo "Using worker name: ${WORKER_NAME}"
+          sed -n '1,8p' wrangler.toml
+          echo "--- Verifying DO binding intact ---"
+          grep 'name = "CONTAINER"' wrangler.toml || { echo "FATAL: DO binding name corrupted!"; exit 1; }
+
+      - name: Apply container resource tier
+        env:
+          TIER: ${{ vars.RESSOURCE_TIER || 'default' }}
+          MAX_INSTANCES_OVERRIDE: ${{ vars.MAX_INSTANCES }}
+        run: |
+          MAX_INSTANCES=10
+
+          case "$TIER" in
+            low)
+              # 0.25 vCPU / 1 GiB RAM / 4 GB disk (Cloudflare basic preset)
+              INSTANCE_BLOCK='instance_type = "basic"'
+              ;;
+            high)
+              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 2\nmemory_mib = 6144\ndisk_mb = 8000'
+              ;;
+            saas|default)
+              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'
+              ;;
+            *)
+              echo "::error::Invalid RESSOURCE_TIER=\"$TIER\". Allowed values: low, high, saas. Leave unset for default."
+              exit 1
+              ;;
+          esac
+
+          # Override max_instances if MAX_INSTANCES variable is set
+          if [ -n "$MAX_INSTANCES_OVERRIDE" ]; then
+            if ! echo "$MAX_INSTANCES_OVERRIDE" | grep -qE '^[1-9][0-9]*$'; then
+              echo "::error::MAX_INSTANCES must be a positive integer, got: $MAX_INSTANCES_OVERRIDE"
+              exit 1
+            fi
+            MAX_INSTANCES="$MAX_INSTANCES_OVERRIDE"
+          fi
+
+          awk -v block="$INSTANCE_BLOCK" -v max_instances="$MAX_INSTANCES" '
+            BEGIN {
+              skip_old = 0;
+            }
+            {
+              if ($0 ~ /^max_instances = /) {
+                print "max_instances = " max_instances;
+                print "";
+                n = split(block, lines, "\n");
+                for (i = 1; i <= n; i++) {
+                  print lines[i];
+                }
+                skip_old = 1;
+                next;
+              }
+
+              if (skip_old == 1) {
+                if ($0 ~ /^\[containers\.instance_type\]/) next;
+                if ($0 ~ /^vcpu = /) next;
+                if ($0 ~ /^memory_mib = /) next;
+                if ($0 ~ /^disk_mb = /) next;
+                if ($0 ~ /^instance_type = /) next;
+                if ($0 ~ /^$/) next;
+                skip_old = 0;
+              }
+
+              print $0;
+            }
+          ' wrangler.toml > wrangler.toml.tmp
+
+          mv wrangler.toml.tmp wrangler.toml
+
+          echo "Using RESSOURCE_TIER=${TIER}"
+          echo "Resolved max_instances=${MAX_INSTANCES}"
+          echo "Resolved container config:"
+          sed -n '30,52p' wrangler.toml
+
+      - name: Generate cache buster (optional — force fresh npm install)
+        if: ${{ vars.CLAUDE_CODE_CACHE_BUSTER == 'active' }}
+        run: echo "${{ github.sha }}" > .cache-bust
+
+      - name: Use default Docker builder
+        run: docker buildx use default
+
+      - name: Build container image
+        id: docker-build
+        run: |
+          IMAGE_TAG="${{ github.sha }}"
+          IMAGE_NAME="${WORKER_NAME}-container"
+          docker build --platform linux/amd64 \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            -t "${IMAGE_NAME}:${IMAGE_TAG}" .
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image_name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "local_ref=${IMAGE_NAME}:${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Free disk space for Trivy scan
+        run: docker builder prune -af && rm -rf /tmp/trivy-* || true
+
+      - name: Scan container image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.docker-build.outputs.local_ref }}
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          format: table
+          scanners: vuln
+          trivyignores: .trivyignore
+
+      # Push to GitHub Container Registry (ghcr.io). GHCR image names must be
+      # lowercase; the owner segment from github.repository_owner is already
+      # lowercase but the image name (WORKER_NAME-container) is forced through
+      # tr to be safe in case a fork uses a name with uppercase characters.
+      # Auth uses the workflow's GITHUB_TOKEN with packages:write scope.
+      - name: Push image to GitHub Container Registry
+        id: push-image
+        run: |
+          IMAGE_NAME="${{ steps.docker-build.outputs.image_name }}"
+          IMAGE_TAG="${{ steps.docker-build.outputs.image_tag }}"
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME_LC=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
+          REGISTRY_URI="ghcr.io/${OWNER}/${IMAGE_NAME_LC}:${IMAGE_TAG}"
+
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${REGISTRY_URI}"
+          docker push "${REGISTRY_URI}"
+
+          echo "Registry URI: ${REGISTRY_URI}"
+          echo "registry_uri=${REGISTRY_URI}" >> "$GITHUB_OUTPUT"
+
+      - name: Point wrangler.toml to pre-pushed image
+        run: |
+          REGISTRY_URI="${{ steps.push-image.outputs.registry_uri }}"
+          sed -i "s|image = \"./Dockerfile\"|image = \"${REGISTRY_URI}\"|" wrangler.toml
+          echo "--- Verifying image config ---"
+          grep 'image =' wrangler.toml
+
+      - name: Deploy to Cloudflare
+        run: >-
+          npx wrangler deploy --name "${WORKER_NAME}"
+          --var ONBOARDING_LANDING_PAGE:${{ vars.ONBOARDING_LANDING_PAGE || 'inactive' }}
+          --var CLOUDFLARE_WORKER_NAME:${WORKER_NAME}
+          ${{ vars.MAX_SESSIONS_USER && format('--var MAX_SESSIONS_USER:{0}', vars.MAX_SESSIONS_USER) || '' }}
+          ${{ vars.MAX_SESSIONS_ADMIN && format('--var MAX_SESSIONS_ADMIN:{0}', vars.MAX_SESSIONS_ADMIN) || '' }}
+          ${{ vars.STRESS_TEST_MODE && format('--var STRESS_TEST_MODE:{0}', vars.STRESS_TEST_MODE) || '' }}
+          ${{ vars.SAAS_MODE && format('--var SAAS_MODE:{0}', vars.SAAS_MODE) || '' }}
+          ${{ vars.SAAS_EXTRA_IDPS && format('--var SAAS_EXTRA_IDPS:{0}', vars.SAAS_EXTRA_IDPS) || '' }}
+          ${{ vars.SAAS_MODE == 'active' && secrets.OAUTH_CLIENT_ID && format('--var OAUTH_CLIENT_ID:{0}', secrets.OAUTH_CLIENT_ID) || '' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set API token as worker secret
+        run: printf '%s' "${{ secrets.CLOUDFLARE_API_TOKEN }}" | npx wrangler secret put CLOUDFLARE_API_TOKEN --name "${WORKER_NAME}" 2>/dev/null
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set service auth secret for E2E testing (optional)
+        run: |
+          # Use CF_ACCESS_CLIENT_SECRET (CF Access mode) or OAUTH_E2E_TEST_SECRET (GitHub OIDC mode)
+          AUTH_SECRET="${CF_ACCESS_CLIENT_SECRET:-${OAUTH_E2E_TEST_SECRET}}"
+          if [ -z "${AUTH_SECRET}" ]; then
+            echo "No CF_ACCESS_CLIENT_SECRET or OAUTH_E2E_TEST_SECRET — skipping service auth setup"
+            exit 0
+          fi
+
+          printf '%s' "${AUTH_SECRET}" | npx wrangler secret put SERVICE_AUTH_SECRET --name "${WORKER_NAME}" 2>/dev/null
+
+          # Seed E2E service user in KV allowlist (fixed email matching worker's X-Service-Auth identity)
+          SERVICE_EMAIL="e2e-service@codeflare.local"
+          echo "Seeding E2E service user: ${SERVICE_EMAIL}"
+          KV_VALUE="{\"addedBy\":\"deploy\",\"addedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"role\":\"admin\"}"
+          npx wrangler kv key put "user:${SERVICE_EMAIL}" "${KV_VALUE}" --binding KV --remote 2>/dev/null || \
+          echo "::warning::Could not seed E2E user in KV (non-fatal)"
+        env:
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          OAUTH_E2E_TEST_SECRET: ${{ secrets.OAUTH_E2E_TEST_SECRET }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set Resend secrets (onboarding or SaaS mode)
+        if: ${{ vars.ONBOARDING_LANDING_PAGE == 'active' || vars.SAAS_MODE == 'active' }}
+        run: |
+          if [ -z "${RESEND_API_KEY}" ]; then
+            echo "::warning::RESEND_API_KEY not set — email notifications will be skipped"
+            exit 0
+          fi
+          printf '%s' "${RESEND_API_KEY}" | npx wrangler secret put RESEND_API_KEY --name "${WORKER_NAME}" 2>/dev/null
+          if [ -n "${RESEND_EMAIL}" ]; then
+            printf '%s' "${RESEND_EMAIL}" | npx wrangler secret put RESEND_EMAIL --name "${WORKER_NAME}" 2>/dev/null
+          fi
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_EMAIL: ${{ secrets.RESEND_EMAIL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set Stripe secrets (SaaS mode, optional)
+        if: ${{ vars.SAAS_MODE == 'active' }}
+        run: |
+          if [ -n "${STRIPE_SECRET_KEY}" ]; then
+            printf '%s' "${STRIPE_SECRET_KEY}" | npx wrangler secret put STRIPE_SECRET_KEY --name "${WORKER_NAME}" 2>/dev/null
+          fi
+          if [ -n "${STRIPE_WEBHOOK_SECRET}" ]; then
+            printf '%s' "${STRIPE_WEBHOOK_SECRET}" | npx wrangler secret put STRIPE_WEBHOOK_SECRET --name "${WORKER_NAME}" 2>/dev/null
+          fi
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set GitHub OIDC secrets (SaaS mode, optional)
+        if: ${{ vars.SAAS_MODE == 'active' }}
+        run: |
+          if [ -n "${OAUTH_CLIENT_SECRET}" ]; then
+            printf '%s' "${OAUTH_CLIENT_SECRET}" | npx wrangler secret put OAUTH_CLIENT_SECRET --name "${WORKER_NAME}" 2>/dev/null
+          fi
+          if [ -n "${OAUTH_JWT_SECRET}" ]; then
+            printf '%s' "${OAUTH_JWT_SECRET}" | npx wrangler secret put OAUTH_JWT_SECRET --name "${WORKER_NAME}" 2>/dev/null
+          fi
+        env:
+          OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
+          OAUTH_JWT_SECRET: ${{ secrets.OAUTH_JWT_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Set encryption key as worker secret (optional)
+        run: |
+          if [ -z "${ENC_KEY}" ]; then
+            echo "No ENCRYPTION_KEY — credentials stored as plaintext, R2 uses default encryption"
+            exit 0
+          fi
+          printf '%s' "${ENC_KEY}" | npx wrangler secret put ENCRYPTION_KEY --name "${WORKER_NAME}" 2>/dev/null
+          echo "Encryption key set (AES-256-GCM for KV, SSE-C for R2)"
+        env:
+          ENC_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
