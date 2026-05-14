@@ -485,7 +485,6 @@
   },
   "plugins/graphify/scripts/graphify-active-repo.sh": {
     "modes": [
-      "default",
       "advanced"
     ]
   },
