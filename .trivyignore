@@ -284,3 +284,25 @@ CVE-2026-42499
 # invoked and no SMB URLs are ever constructed. No fix available in Debian
 # bookworm.
 CVE-2026-5773
+
+# curl / libcurl3-gnutls / libcurl4 7.88.1-10+deb12u14: information disclosure
+# via cookie leak when reusing connections with different credentials. Same
+# exposure profile as CVE-2026-5773 above: container uses curl exclusively for
+# outbound HTTPS to fixed, trusted endpoints (GitHub raw, PyPI, deb mirrors).
+# No multi-tenant cookie state, no untrusted-host reuse. No fix in bookworm.
+CVE-2026-6276
+
+# libexpat1 2.5.0-1+deb12u2: computational complexity on crafted XML attribute
+# names (DoS). Transitive dep of git, python3, etc. Container parses no
+# untrusted XML at runtime - same exposure profile as the existing
+# CVE-2026-25210 entry above. No fixed version in Debian bookworm.
+CVE-2026-45186
+
+# go-git/go-billy/v5 v5.6.2 embedded in lazygit v0.60.0 binary: path traversal
+# in symlink-followed file operations. Fixed in v5.9.0; lazygit upstream has
+# not yet rebuilt with the patched go-billy. lazygit runs only against the
+# user's own git working trees (trusted local repos cloned via HTTPS); it
+# never operates on attacker-controlled bundles or remote-driven symlinks.
+# Exposure profile is identical to the other "Go stdlib / module in
+# rclone/lazygit binaries" entries above.
+CVE-2026-44973
