@@ -193,6 +193,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 7. Security-critical endpoints (`request-access`, Turnstile verification) use fail-closed rate limiting (KV failure returns 503 instead of allowing the request).
 8. General resource-protection endpoints use fail-open rate limiting (per AD6).
 9. When `STRESS_TEST_MODE=active`, all rate limits are bypassed with a one-time warning per isolate.
+10. WebSocket upgrade requests for sessions with KV status `stopped` are rejected via close code 4503 BEFORE the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s budget.
 
 **Constraints:**
 - KV key prefixes must not collide with application cache keys (use `rl-` prefix where collision exists).
