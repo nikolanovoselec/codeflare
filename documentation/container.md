@@ -58,14 +58,19 @@ Port: 8080 (single port architecture).
 
 Uses polling with safety timeouts: poll until success OR background process exits OR safety timeout expires. Exit immediately on success. Safety timeout `SYNC_TIMEOUT=120` (2 min) prevents infinite blocking.
 
-### Parallel Startup
+### Startup Sequence
+
+Port 8080 must bind before Cloudflare's container port-wait timeout (~10-15s) elapses. The entrypoint therefore starts the terminal server immediately — before R2 sync — then gates PTY pre-warm behind a flag file written only after sync and configuration complete.
 
 ```mermaid
 flowchart TD
-    A[Container Start] --> B["initial_sync_from_r2()"]
-    B -->|"Blocking — waits for sync to complete"| C["configure_tab_autostart()"]
-    C --> D["Start terminal server (:8080)"]
+    A[Container Start] --> B["Start terminal server (:8080)\n— port binds, PTY pre-warm blocked"]
+    B --> C["initial_sync_from_r2()"]
+    C -->|"Blocking — waits for sync to complete"| D["configure_tab_autostart()"]
+    D --> E["touch /tmp/codeflare-init-complete\n— releases PTY pre-warm"]
 ```
+
+**Init-complete flag:** `CODEFLARE_INIT_FLAG_FILE=/tmp/codeflare-init-complete`. The terminal server polls for this file (every 250ms, up to 90s) before spawning the tab-1 PTY session. This ensures pre-warm reads the fully-restored `.claude.json`, `.bashrc`, and MCP server registrations rather than pre-sync state. If the flag does not appear within 90s, pre-warm proceeds anyway. The flag is deleted and recreated on every container start.
 
 Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#fast-start) below). Users can enable auto-updates via Settings.
 

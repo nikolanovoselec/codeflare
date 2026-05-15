@@ -24,7 +24,11 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 ### Container Stuck at "Waiting for Services"
 
-Terminal server not starting (sync blocking). Check: `GET /api/container/startup-status?sessionId=xxx` (inspect `details.syncError` field). Common causes: missing R2 credentials, bucket doesn't exist, network timeout.
+The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.
+
+**Port-wait timeout (container killed before reaching the loading screen):** Cloudflare kills a container that does not bind port 8080 within ~10-15s. Since PR #364 the terminal server binds port 8080 at the very start of `entrypoint.sh` — before R2 sync — so this should no longer occur. If it does, check that `node dist/server.js` in `/app/host` exits cleanly: `cat /tmp/terminal.pid` then `kill -0 $(cat /tmp/terminal.pid)`.
+
+**Loading screen hangs after port binds:** PTY pre-warm is gated on `/tmp/codeflare-init-complete`. If sync never finishes, the flag is never written and pre-warm waits up to 90s before proceeding anyway. Common causes: missing R2 credentials, bucket does not exist, network timeout. Check `/tmp/sync.log` for errors.
 
 ### R2 Sync Issues
 
@@ -71,7 +75,8 @@ sudo apt-get install -yqq --no-install-recommends \
 |---------|-------|-----|
 | Container won't start | Missing R2 credentials | `wrangler secret list` then `wrangler secret put` |
 | `403 Forbidden` on R2 | Expired credentials | Regenerate in CF dashboard |
-| Container stuck "starting" | Port 8080 not responding | Check sync log |
+| Container killed before loading screen | Port 8080 did not bind in time | Check `/tmp/terminal.pid`; verify `node dist/server.js` started |
+| Loading screen hangs indefinitely | `/tmp/codeflare-init-complete` never written (sync stalled) | Check `/tmp/sync.log`; verify R2 credentials |
 | WebSocket fails | Container not running | Verify startup-status |
 | Zombie restarts | Stale DO state | Self-terminates via missing-identifiers guard |
 | Deleted session reappears | `onStop()` resurrects KV entry | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
