@@ -392,4 +392,77 @@ describe('handleWebSocketUpgrade', () => {
       expect(wsConnectPutCalls).toHaveLength(0);
     });
   });
+
+  describe('container-warming-up gate (PR #365)', () => {
+    it('returns 1013 close without burning rate-limit when /health reports terminalServiceReady=false', async () => {
+      // PR #364 regression: port 8080 binds at ~1.5s but .bashrc autostart
+      // isn't written until ~10s. Worker peeks /health and short-circuits
+      // with 1013 so reconnect storms during warm-up don't burn budget.
+      mockContainerFetch.mockImplementation(async (req: Request) => {
+        const url = new URL(req.url);
+        if (url.pathname === '/health') {
+          return new Response(JSON.stringify({ terminalServiceReady: false, prewarmReady: false }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('ws upgrade', { status: 200 });
+      });
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+
+      expect(response.status).toBe(101); // 1013-close path returns successful upgrade
+      const wsConnectGetCalls = mockKV.get.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      const wsConnectPutCalls = mockKV.put.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      expect(wsConnectGetCalls).toHaveLength(0);
+      expect(wsConnectPutCalls).toHaveLength(0);
+    });
+
+    it('proceeds to rate-limit + forward when /health reports terminalServiceReady=true', async () => {
+      mockContainerFetch.mockImplementation(async (req: Request) => {
+        const url = new URL(req.url);
+        if (url.pathname === '/health') {
+          return new Response(JSON.stringify({ terminalServiceReady: true, prewarmReady: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('ws upgrade', { status: 200 });
+      });
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+
+      expect(response.status).toBe(200); // normal forward path
+      const wsConnectPutCalls = mockKV.put.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      // rate-limit IS incremented on the success path
+      expect(wsConnectPutCalls.length).toBeGreaterThan(0);
+    });
+
+    it('falls through to normal flow when /health probe fails (fail-open)', async () => {
+      mockContainerFetch.mockImplementation(async (req: Request) => {
+        const url = new URL(req.url);
+        if (url.pathname === '/health') {
+          throw new Error('container unreachable');
+        }
+        return new Response('ws upgrade', { status: 200 });
+      });
+
+      const request = createRequest();
+      const routeResult = validateWebSocketRoute(request);
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+
+      // Fail-open: probe failure should not block the upgrade
+      expect(response.status).toBe(200);
+    });
+  });
 });
