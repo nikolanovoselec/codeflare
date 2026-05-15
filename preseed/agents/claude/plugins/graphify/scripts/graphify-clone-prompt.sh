@@ -70,7 +70,7 @@ RESPONSE=$(echo "$INPUT" | jq -r '
   .tool_response.stdout
   // .tool_response.output
   // .tool_response.stderr
-  // ((.tool_response.content // []) | map(.text? // empty) | join("\n"))
+  // ((try (.tool_response.content // [] | map(.text? // empty)) catch []) | join("\n"))
   // empty
 ' 2>/dev/null) || true
 
@@ -93,10 +93,44 @@ fi
 # Belt-and-braces: if stdout parsing failed entirely (unusual MCP
 # response shape, filtered output, or stderr-only clone log), derive the
 # clone target from the command itself. Parse the repo name out of the
-# URL or slug. Combined with HOOK_CWD this catches existing graphify-out/
-# detection for clone shapes that bypass the stdout extraction.
+# URL or slug, skipping over CLI flags. Combined with HOOK_CWD this
+# catches existing graphify-out/ detection for clone shapes that bypass
+# the stdout extraction.
+#
+# Flag handling: `git clone --depth 1 https://x/y` (canonical shallow
+# clone) and `git clone --branch foo --depth 1 ...` must NOT pick the
+# flag value as the target. We strip everything after `clone` and then
+# take the first non-flag positional token. Long-opt forms with `=`
+# (e.g. `--depth=1`) work without special-casing; bare flag-then-value
+# pairs (`--depth 1`) require skipping the next token, which awk does
+# by treating any leading-dash token as "skip and continue".
 if [ -z "$TARGET_DIR" ] && [ -n "$HOOK_CWD" ]; then
-  DERIVED=$(echo "$COMMAND" | grep -oE '(git[[:space:]]+clone|gh[[:space:]]+repo[[:space:]]+clone)[[:space:]]+[^[:space:]]+([[:space:]]+[^[:space:]]+)?' | head -n 1 | awk '{print $NF}')
+  # Everything after `git clone` / `gh repo clone`. Use sed because grep
+  # -oE captures only the matched substring, not the trailing args.
+  ARGS=$(printf '%s' "$COMMAND" | sed -nE 's/.*(git[[:space:]]+clone|gh[[:space:]]+repo[[:space:]]+clone)[[:space:]]+(.*)/\2/p' | head -n 1)
+  if [ -n "$ARGS" ]; then
+    # Pick the first token that does NOT start with `-` and is not the
+    # value of a flag that takes an argument. We approximate by skipping
+    # any token preceded by a `-`-prefixed token (covers `--depth 1`,
+    # `-o key`, etc). Conservative: false positives only cost a missed
+    # detection, never a wrong one.
+    DERIVED=$(printf '%s\n' "$ARGS" | awk '{
+      skip_next = 0
+      for (i = 1; i <= NF; i++) {
+        if (skip_next) { skip_next = 0; continue }
+        if ($i ~ /^-/) {
+          # If the flag has no `=`, the next token is its value
+          if ($i !~ /=/) skip_next = 1
+          continue
+        }
+        print $i
+        exit
+      }
+    }')
+    # Strip command separators that may ride along on the chosen token
+    # when the command is chained without surrounding whitespace.
+    DERIVED=${DERIVED%%[;&|]*}
+  fi
   if [ -n "$DERIVED" ]; then
     case "$DERIVED" in
       *://*|*@*:*|*.git) DERIVED=$(basename "$DERIVED" .git) ;;
