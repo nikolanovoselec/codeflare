@@ -77,7 +77,7 @@ sudo apt-get install -yqq --no-install-recommends \
 | `403 Forbidden` on R2 | Expired credentials | Regenerate in CF dashboard |
 | Container killed before loading screen | Port 8080 did not bind in time | Check `/tmp/terminal.pid`; verify `node dist/server.js` started |
 | Loading screen hangs indefinitely | `/tmp/codeflare-init-complete` never written (sync stalled) | Check `/tmp/sync.log`; verify R2 credentials |
-| WebSocket fails | Container not running | Verify startup-status |
+| WebSocket fails | Container not running | Verify startup-status. Reconnects while container is stopped use close code 4503 and do NOT count against the WS rate-limit budget (see [WebSocket Rate Limit](security.md#websocket-rate-limit-req-sec-007)). |
 | Zombie restarts | Stale DO state | Self-terminates via missing-identifiers guard |
 | Deleted session reappears | `onStop()` resurrects KV entry | Verify `destroy()` clears `SESSION_ID_KEY` before `super.destroy()` |
 | Container dies during active use | Auth issue on internal paths | Verify `/activity` in `authExemptPaths` in `host/src/server.ts` |

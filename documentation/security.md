@@ -295,9 +295,11 @@ File download responses use `Content-Disposition: attachment` with sanitized fil
 
 Base64-encoded inputs are validated with try/catch around `atob()`. Invalid base64 returns 400 immediately rather than propagating decode errors.
 
-### WebSocket Rate Limit
+### WebSocket Rate Limit (REQ-SEC-007)
 
 30 connections per 60-second window per user (`WS_RATE_LIMIT_WINDOW_MS = 60000`, `WS_RATE_LIMIT_MAX_CONNECTIONS = 30`). Defined in `src/lib/constants.ts`.
+
+**Check order in `handleWebSocketUpgrade`:** session-stopped rejection runs first, rate-limit check runs second. WebSocket upgrade requests for sessions whose KV status is `stopped` are rejected immediately with close code 4503 (`container-stopped`) before the rate-limit counter is consulted. This means a browser reconnect storm against a hibernated or crashed container does not consume the user's 30-connection budget. When the container comes back up, the user can reconnect without hitting a self-imposed 429. Implements [REQ-SEC-007 AC10](../sdd/security.md#req-sec-007-rate-limiting-on-all-mutation-endpoints).
 
 ### Session Limits
 
