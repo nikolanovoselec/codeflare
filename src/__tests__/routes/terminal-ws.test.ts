@@ -352,5 +352,44 @@ describe('handleWebSocketUpgrade', () => {
       // Should return 101 (WebSocket upgrade accepted then closed with 4503)
       expect(result.status).toBe(101);
     });
+
+    it('does NOT burn WebSocket rate-limit budget when session is stopped (reconnect-storm protection)', async () => {
+      // Reconnect storms during container outages were self-locking users for ~2min:
+      // browser auto-reconnect would hit /api/terminal/:id/ws 30+ times in 60s while
+      // the container was down, the rate-limit incremented on each, and even after
+      // the container came back the user was throttled. Stopped-session rejection
+      // must short-circuit before the rate-limit check.
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId,
+        name: 'Test',
+        userId: 'test-bucket',
+        createdAt: '2026-01-01T00:00:00Z',
+        lastAccessedAt: '2026-01-01T00:00:00Z',
+        status: 'stopped',
+      });
+
+      const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
+        headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },
+      });
+      const env = {
+        KV: mockKV as unknown as KVNamespace,
+        CONTAINER: {},
+      } as unknown as Env;
+      const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+      const routeResult = validateWebSocketRoute(request);
+
+      const result = await handleWebSocketUpgrade(request, env, ctx, routeResult as any);
+
+      expect(result.status).toBe(101); // 4503-close path still returns successful upgrade
+      const wsConnectGetCalls = mockKV.get.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      const wsConnectPutCalls = mockKV.put.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      expect(wsConnectGetCalls).toHaveLength(0);
+      expect(wsConnectPutCalls).toHaveLength(0);
+    });
   });
 });

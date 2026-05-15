@@ -178,32 +178,6 @@ export async function handleWebSocketUpgrade(
       return new Response(JSON.stringify({ error: 'Access denied', code }), { status: 403, headers: jsonHeaders });
     }
 
-    if (env.STRESS_TEST_MODE === 'active') {
-      if (!wsStressTestWarningLogged) {
-        logger.warn('STRESS_TEST_MODE is active — WebSocket rate limits bypassed');
-        wsStressTestWarningLogged = true;
-      }
-    } else {
-      // WebSocket connection rate limiting: 30 connections/min per user (FIX-21)
-      // Fail-open on KV errors via shared rate-limit-core (AD35)
-      const wsRateResult = await checkRateLimit({
-        kv: env.KV,
-        key: `ws-connect:${user.email}`,
-        limit: WS_RATE_LIMIT_MAX_CONNECTIONS,
-        windowMs: WS_RATE_LIMIT_WINDOW_MS,
-        ttlSeconds: WS_RATE_LIMIT_TTL_SECONDS,
-      });
-
-      if (!wsRateResult.allowed) {
-        logger.warn('WebSocket rate limit exceeded', { email: user.email, count: wsRateResult.count });
-        return new Response(null, {
-          status: 429,
-          headers: { ...jsonHeaders, 'Retry-After': String(wsRateResult.retryAfterSec) },
-          webSocket: undefined,
-        });
-      }
-    }
-
     const containerId = getContainerId(bucketName, baseSessionId);
 
     logger.info('User authenticated for WebSocket', { email: user.email, containerId, terminalId });
@@ -222,11 +196,42 @@ export async function handleWebSocketUpgrade(
     // Reject WebSocket connections to stopped/hibernated sessions.
     // Uses custom close code 4503 so the client can distinguish
     // "container stopped" from network errors (1006).
+    // Done BEFORE rate-limit check so a browser reconnect-storm against
+    // a stopped container does not burn the user's WS rate-limit budget
+    // and self-lock them out for ~2 minutes.
     if (session.status === 'stopped') {
       const pair = new WebSocketPair();
       pair[1].accept();
       pair[1].close(4503, 'container-stopped');
       return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
+    if (env.STRESS_TEST_MODE === 'active') {
+      if (!wsStressTestWarningLogged) {
+        logger.warn('STRESS_TEST_MODE is active — WebSocket rate limits bypassed');
+        wsStressTestWarningLogged = true;
+      }
+    } else {
+      // WebSocket connection rate limiting: 30 connections/min per user (FIX-21)
+      // Runs AFTER session-stopped rejection (see comment above) so failed
+      // reconnects to a hibernated container do not count against the limit.
+      // Fail-open on KV errors via shared rate-limit-core (AD35).
+      const wsRateResult = await checkRateLimit({
+        kv: env.KV,
+        key: `ws-connect:${user.email}`,
+        limit: WS_RATE_LIMIT_MAX_CONNECTIONS,
+        windowMs: WS_RATE_LIMIT_WINDOW_MS,
+        ttlSeconds: WS_RATE_LIMIT_TTL_SECONDS,
+      });
+
+      if (!wsRateResult.allowed) {
+        logger.warn('WebSocket rate limit exceeded', { email: user.email, count: wsRateResult.count });
+        return new Response(null, {
+          status: 429,
+          headers: { ...jsonHeaders, 'Retry-After': String(wsRateResult.retryAfterSec) },
+          webSocket: undefined,
+        });
+      }
     }
 
     // Update last accessed timestamp (don't await)
