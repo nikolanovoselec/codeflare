@@ -434,14 +434,45 @@ const parsedTabConfig: TabConfigEntry[] = (() => {
 const prewarmConfig = getPrewarmConfig(parsedTabConfig);
 const PREWARM_TIMEOUT_MS = 20000;     // Hard cap: consider ready after 20s regardless
 const PREWARM_ORPHAN_MS = 120000;     // Kill pre-warmed session if not adopted within 2min
+const PREWARM_INIT_WAIT_MS = 90000;   // Max wait for entrypoint init-complete flag before starting prewarm anyway
+const PREWARM_INIT_POLL_MS = 250;
+
+// Wait for the entrypoint to write its init-complete flag file before pre-warming.
+// Allows the entrypoint to start the HTTP server early (so port 8080 binds inside
+// Cloudflare's container port-wait window) without spawning the tab-1 PTY against
+// half-restored state (.claude.json, .bashrc, MCP server registrations).
+// No-ops in tests and dev mode where CODEFLARE_INIT_FLAG_FILE is unset.
+function waitForInitFlag(): Promise<void> {
+  const flagPath = process.env.CODEFLARE_INIT_FLAG_FILE;
+  if (!flagPath) return Promise.resolve();
+  const start = Date.now();
+  return new Promise((resolve) => {
+    const tick = (): void => {
+      if (fs.existsSync(flagPath)) {
+        log('info', 'Init-complete flag observed, starting pre-warm', { flagPath, waitedMs: Date.now() - start });
+        resolve();
+        return;
+      }
+      if (Date.now() - start >= PREWARM_INIT_WAIT_MS) {
+        log('warn', 'Init-complete flag not seen within timeout, starting pre-warm anyway', { flagPath, timeoutMs: PREWARM_INIT_WAIT_MS });
+        resolve();
+        return;
+      }
+      setTimeout(tick, PREWARM_INIT_POLL_MS);
+    };
+    tick();
+  });
+}
 
 // Start server
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', async () => {
   log('info', 'Terminal server listening', { port: PORT });
   log('info', 'Workspace config', { workspace: WORKSPACE_DEFAULT, workingDir: getWorkingDirectory(), keepAliveSec: PTY_KEEPALIVE_MS / 1000 });
 
   // Start periodic cleanup of dead sessions
   sessionManager.startCleanup();
+
+  await waitForInitFlag();
 
   // Pre-warm tab 1 PTY so the first client connect is instant
   const prewarmSession = new Session(PREWARM_SESSION_ID, 'Terminal', false, sessionOptions);

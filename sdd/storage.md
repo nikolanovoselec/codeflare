@@ -102,16 +102,18 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Intent:** When a container boots, it must restore the user's persisted files from R2 before the agent or terminal becomes usable.
 
 **Acceptance Criteria:**
-1. A one-way `rclone sync` from R2 to local runs as the first startup step (blocking).
+1. A one-way `rclone sync` from R2 to local runs as the first initialization step after the terminal server starts listening on port 8080 (blocking).
 2. The sync completes or times out within 120 seconds (`SYNC_TIMEOUT`).
 3. All file modifications (`.claude.json`, `.gemini/settings.json`, `.codex/version.json`, tab autostart) complete after the initial sync but before bisync baseline, to avoid hash mismatches.
 4. A bisync baseline (`--resync`) is established after file modifications complete.
 5. If the initial baseline fails due to a vanishing file (file listed but deleted before copy), the system parses the error output, adds the file to a session-scoped recovery filter (`/tmp/rclone-recovery-filters.txt`), and retries (max 3 attempts). Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
 6. Known ephemeral files (`.claude/mcp-*.json`) are statically excluded from all sync operations.
 7. The bisync daemon starts unconditionally after baseline — even if all baseline attempts fail. A dead daemon means zero sync for the entire session; the daemon has its own recovery (vanishing-file recovery + consecutive failure → resync fallback).
+8. The terminal server's tab-1 PTY pre-warm is gated on an init-complete flag file (`/tmp/codeflare-init-complete`) written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting port 8080 bind before Cloudflare's container port-wait timeout.
 
 **Constraints:**
-- Container must not serve terminal connections until the initial sync either succeeds or times out.
+- The terminal server must bind port 8080 within Cloudflare's container port-wait window; slow initialization (R2 sync, MCP config merges) must not block the port bind.
+- Container must not signal readiness (PTY pre-warm complete) until the initial sync either succeeds or times out.
 - The bisync-initialized flag (`/tmp/.bisync-initialized`) must be set even on the timeout path to prevent the shutdown trap from skipping the final sync.
 
 **Applies To:** User

@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-15
+- REQ-STOR-004 reordered: terminal server binds port 8080 before R2 sync runs (AC1 reworded; AC8 added for the `/tmp/codeflare-init-complete` flag that gates PTY pre-warm). Cloudflare's container port-wait timeout (~10-15s) was killing the container on cold resume when initial R2 sync was slow. The readiness contract is preserved: loading screen still waits for sync + pre-warm; only the port bind moves earlier.
+
 ## 2026-05-14
 - REQ-AGENT-023 expanded with AC4 (hot-reload tolerance: MCP wrapper presents an empty `LazyGraph` to `graphify.serve` so the server stays up across an empty workspace and rebinds within `GRAPHIFY_POLL_SECONDS` of a `graph.json` appearing) and AC5 (advanced-only active-repo PostToolUse hook on `Bash | Edit | Write | Read | NotebookEdit | mcp__context-mode__ctx_execute | mcp__context-mode__ctx_execute_file | mcp__context-mode__ctx_batch_execute` writing a sentinel that the wrapper reads to bind G to the agent's current repo; fallback is freshest-mtime across `CODEFLARE_WORKSPACE/*/graphify-out/graph.json`). Constraint added: per-branch graphs not supported, `.git/HEAD` read only for log identification. Recorded as AD53.
 - Added REQ-AGENT-023 through REQ-AGENT-027 (graphify knowledge-graph integration). Containers ship `graphifyy[mcp,sql,pdf]` globally via `uv tool install`; the graphify MCP server is registered in `~/.claude.json` for both default and advanced session modes (capability is ambient). In advanced session mode only, three hooks (SessionStart context-injection, PostToolUse-on-clone triage, PreToolUse graph-first soft-nudge) plus `rules/graph-first.md` and `skills/graphify/SKILL.md` teach the agent to prefer focused MCP queries over Grep for architecture, dependency, and call-flow questions.
