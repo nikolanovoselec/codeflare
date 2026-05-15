@@ -1,1 +1,6 @@
-graphify-out/graph.json merge=graphify
+# The merge driver is registered globally in the codeflare container image
+# (AD52). The `binary` attribute is a defensive fallback for clones outside
+# that image: git falls back to a binary "take one side" merge instead of
+# attempting a textual 3-way merge on the 155k-line generated JSON.
+# Either way the file is regenerable via `graphify update .` after a conflict.
+graphify-out/graph.json merge=graphify binary

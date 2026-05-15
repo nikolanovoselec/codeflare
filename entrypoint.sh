@@ -279,15 +279,15 @@ RCLONE_FILTERS_COMMON=(
     # MCP server state — logs and thread history, ephemeral
     --filter "- .local/state/**"
 
-    # Wrangler - deploy logs and per-user state, regenerated. Cover both
-    # $HOME/.wrangler/ (root location, prior sessions leaked it) and
-    # $HOME/.config/.wrangler/ (XDG location).
+    # Wrangler - deploy logs and per-user state, regenerated. Covers the
+    # root-level $HOME/.wrangler/ which is distinct from the XDG-located
+    # $HOME/.config/.wrangler/ (the latter is subsumed by the .config/**
+    # rule below).
     --filter "- .wrangler/**"
-    --filter "- .config/.wrangler/**"
 
     # ~/.config/** - tool configs that all regenerate on first use:
-    # configstore (npm), fish (shell), opencode, uv (Python tooling).
-    # rclone (R2 secrets) and .wrangler are already excluded above.
+    # configstore (npm), fish (shell), opencode, uv (Python tooling),
+    # wrangler (XDG location), rclone (R2 secrets).
     # No codeflare-managed state lives under .config/ - all of that sits
     # at $HOME root (.claude.json, .claude/, .codex/, .gemini/, .copilot/).
     --filter "- .config/**"
