@@ -981,19 +981,33 @@ export CODEFLARE_INIT_FLAG_FILE=/tmp/codeflare-init-complete
 rm -f "$CODEFLARE_INIT_FLAG_FILE"
 
 echo "[entrypoint] Starting terminal server on port 8080..."
-cd /app/host && HOME="$USER_HOME" TERMINAL_PORT=8080 \
+# Subshell-scope the cd so the rest of the entrypoint's cwd is unchanged.
+(cd /app/host && HOME="$USER_HOME" TERMINAL_PORT=8080 \
     CODEFLARE_INIT_FLAG_FILE="$CODEFLARE_INIT_FLAG_FILE" \
-    node dist/server.js &
+    node dist/server.js) &
 TERMINAL_PID=$!
 echo "$TERMINAL_PID" > /tmp/terminal.pid
 echo "[entrypoint] Terminal server started with PID $TERMINAL_PID (prewarm gated on $CODEFLARE_INIT_FLAG_FILE)"
 
-sleep 0.5
-
-if kill -0 "$TERMINAL_PID" 2>/dev/null; then
-    echo "[entrypoint] Terminal server is running"
+# Probe port 8080 (not just kill -0): a live node process that hasn't reached
+# server.listen() yet would pass the old check but fail Cloudflare's port-wait.
+# /health is auth-exempt (host/src/server.ts authExemptPaths), so this works
+# before CONTAINER_AUTH_TOKEN is wired up. Poll up to 5s; fail-open if not
+# bound (host server may still come up while the rest of init runs).
+PORT_BOUND=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -fsS -o /dev/null --max-time 1 http://127.0.0.1:8080/health 2>/dev/null; then
+        PORT_BOUND=1
+        break
+    fi
+    sleep 0.5
+done
+if [ "$PORT_BOUND" = "1" ]; then
+    echo "[entrypoint] Terminal server is listening on port 8080"
+elif kill -0 "$TERMINAL_PID" 2>/dev/null; then
+    echo "[entrypoint] WARNING: Terminal server alive (PID $TERMINAL_PID) but port 8080 not bound after 5s"
 else
-    echo "[entrypoint] WARNING: Terminal server failed to start!"
+    echo "[entrypoint] WARNING: Terminal server process died before binding port 8080!"
 fi
 
 # ============================================================================
