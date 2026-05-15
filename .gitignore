@@ -15,3 +15,6 @@ graphify-out/cache/
 graphify-out/.cache/
 graphify-out/.chunks/
 graphify-out/manifest.json
+
+# Raw ingest material for graphify (sourced from private repos)
+raw/

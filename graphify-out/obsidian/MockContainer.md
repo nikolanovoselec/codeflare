@@ -1,0 +1,21 @@
+---
+source_file: "src/__tests__/container-metrics.test.ts"
+type: "code"
+community: "KV Mock Test Infrastructure"
+location: "L34"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/KV_Mock_Test_Infrastructure
+---
+
+# MockContainer
+
+## Connections
+- [[.constructor()_9]] - `method` [EXTRACTED]
+- [[.destroy()]] - `method` [EXTRACTED]
+- [[.schedule()]] - `method` [EXTRACTED]
+- [[.stop()]] - `method` [EXTRACTED]
+- [[container-metrics.test.ts]] - `contains` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/KV_Mock_Test_Infrastructure

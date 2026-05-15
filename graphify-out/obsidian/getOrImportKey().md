@@ -1,0 +1,25 @@
+---
+source_file: "src/lib/kv-crypto.ts"
+type: "code"
+community: "KV Crypto (AES-GCM)"
+location: "L169"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/KV_Crypto_AES-GCM
+---
+
+# getOrImportKey()
+
+## Connections
+- [[cleanupUserData()]] - `calls` [EXTRACTED]
+- [[deploy-keys.ts]] - `imports` [EXTRACTED]
+- [[importEncryptionKey()]] - `calls` [EXTRACTED]
+- [[kv-crypto.test.ts]] - `imports` [EXTRACTED]
+- [[kv-crypto.ts]] - `contains` [EXTRACTED]
+- [[lifecycle.ts_1]] - `imports` [EXTRACTED]
+- [[llm-keys.ts]] - `imports` [EXTRACTED]
+- [[user-cleanup.ts]] - `imports` [EXTRACTED]
+- [[user-profile.ts]] - `imports` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/KV_Crypto_AES-GCM

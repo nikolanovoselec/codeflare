@@ -1,0 +1,86 @@
+---
+source_file: "src/routes/setup/index.ts"
+type: "code"
+community: "Setup + Origins Configuration"
+location: "L1"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Setup__Origins_Configuration
+---
+
+# index.ts
+
+## Connections
+- [[AuthVariables]] - `imports` [EXTRACTED]
+- [[ConfigureBodySchema]] - `contains` [EXTRACTED]
+- [[Env]] - `imports` [EXTRACTED]
+- [[SETUP_KEYS]] - `imports` [EXTRACTED]
+- [[SetupStep]] - `imports` [EXTRACTED]
+- [[ValidationError]] - `imports` [EXTRACTED]
+- [[access.ts]] - `imports_from` [EXTRACTED]
+- [[access.ts_1]] - `imports_from` [EXTRACTED]
+- [[account.ts]] - `imports_from` [EXTRACTED]
+- [[adminPrefsWrites]] - `contains` [EXTRACTED]
+- [[adminSet]] - `contains` [EXTRACTED]
+- [[allowedSet]] - `contains` [EXTRACTED]
+- [[app_46]] - `contains` [EXTRACTED]
+- [[auth.ts_1]] - `imports_from` [EXTRACTED]
+- [[cache-reset.ts]] - `imports_from` [EXTRACTED]
+- [[cleanupUserData()]] - `imports` [EXTRACTED]
+- [[combinedOrigins]] - `contains` [EXTRACTED]
+- [[createConditionalSetupAuth()]] - `contains` [EXTRACTED]
+- [[currentUser_1]] - `contains` [EXTRACTED]
+- [[custom-domain.ts]] - `imports_from` [EXTRACTED]
+- [[email_1]] - `contains` [EXTRACTED]
+- [[emailFromKvKey()]] - `imports` [EXTRACTED]
+- [[encoder]] - `contains` [EXTRACTED]
+- [[error-types.ts]] - `imports_from` [EXTRACTED]
+- [[firstZodError()]] - `imports` [EXTRACTED]
+- [[getBucketName()]] - `imports` [EXTRACTED]
+- [[getPreferencesKey()]] - `imports` [EXTRACTED]
+- [[getWorkerNameFromHostname()]] - `imports` [EXTRACTED]
+- [[handleConfigureCustomDomain()]] - `imports` [EXTRACTED]
+- [[handleConfigureTurnstile()]] - `imports` [EXTRACTED]
+- [[handleCreateAccessApp()]] - `imports` [EXTRACTED]
+- [[handleGetAccount()]] - `imports` [EXTRACTED]
+- [[handlers.ts]] - `imports_from` [EXTRACTED]
+- [[index.ts]] - `imports_from` [EXTRACTED]
+- [[isOnboardingLandingPageActive()]] - `imports` [EXTRACTED]
+- [[isSaas]] - `contains` [EXTRACTED]
+- [[isSaasMode]] - `contains` [EXTRACTED]
+- [[isSaasModeActive()]] - `imports` [EXTRACTED]
+- [[kv-keys.ts]] - `imports_from` [EXTRACTED]
+- [[listAllKvKeys()]] - `imports` [EXTRACTED]
+- [[lockTime]] - `contains` [EXTRACTED]
+- [[logger_22]] - `imports` [EXTRACTED]
+- [[normalizedAdminList]] - `contains` [EXTRACTED]
+- [[normalizedAdmins]] - `contains` [EXTRACTED]
+- [[normalizedAllowed]] - `contains` [EXTRACTED]
+- [[normalizedCurrentEmail]] - `contains` [EXTRACTED]
+- [[onboarding.ts]] - `imports_from` [EXTRACTED]
+- [[onboardingLandingActive]] - `contains` [EXTRACTED]
+- [[parseJsonBody()]] - `imports` [EXTRACTED]
+- [[parsed_15]] - `contains` [EXTRACTED]
+- [[request-helpers.ts]] - `imports_from` [EXTRACTED]
+- [[requireAdmin()]] - `imports` [EXTRACTED]
+- [[resetSetupCache()_1]] - `imports` [EXTRACTED]
+- [[runStep()]] - `contains` [EXTRACTED]
+- [[saasMode]] - `contains` [EXTRACTED]
+- [[send()_1]] - `contains` [EXTRACTED]
+- [[setup.test.ts_1]] - `imports_from` [EXTRACTED]
+- [[setupRateLimiter]] - `imports` [EXTRACTED]
+- [[shared.ts]] - `imports_from` [EXTRACTED]
+- [[staleEmails]] - `contains` [EXTRACTED]
+- [[steps_5]] - `contains` [EXTRACTED]
+- [[toError()]] - `imports` [EXTRACTED]
+- [[turnstile.ts_1]] - `imports_from` [EXTRACTED]
+- [[types.ts_2]] - `imports_from` [EXTRACTED]
+- [[url_7]] - `contains` [EXTRACTED]
+- [[user-cleanup.ts]] - `imports_from` [EXTRACTED]
+- [[userWrites]] - `contains` [EXTRACTED]
+- [[workerName_1]] - `contains` [EXTRACTED]
+- [[writer]] - `contains` [EXTRACTED]
+- [[{ readable, writable }]] - `contains` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Setup__Origins_Configuration

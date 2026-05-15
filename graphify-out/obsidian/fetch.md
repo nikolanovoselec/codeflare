@@ -1,0 +1,21 @@
+---
+source_file: "src/__tests__/routes/container-lifecycle.test.ts"
+type: "code"
+community: "Community 60"
+location: "L122"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_60
+---
+
+# fetch
+
+## Connections
+- [[fetchAdmin()]] - `calls` [EXTRACTED]
+- [[fetchBadEnv()]] - `calls` [EXTRACTED]
+- [[fetchStress()]] - `calls` [EXTRACTED]
+- [[fetchWithOverride()]] - `calls` [EXTRACTED]
+- [[lifecycle.test.ts]] - `contains` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_60
