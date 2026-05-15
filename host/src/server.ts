@@ -441,11 +441,13 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 // Pre-warm state (module-level so /health endpoint can read prewarmReady)
 let prewarmReady = false;
 let prewarmStartTime = 0;
-// True after waitForInitFlag observes the flag file; false if it timed out
-// or no flag was configured. Exposed via /health for production debugging:
-// a session stuck at `prewarmReady=false` with `initFlagObserved=false` means
-// the entrypoint never wrote the init-complete flag (sync hung, jq merge
-// failed, etc.).
+// True after waitForInitFlag observes the flag file. Stays false if the
+// 130s timeout fallback fires instead (entrypoint hung). Exposed via
+// /health for production debugging: an `initFlagObserved=false`
+// combined with `terminalServiceReady=true` means the host server is
+// serving traffic from the timeout-fallback path (image-default state,
+// not user-restored). `initFlagObserved=false` + `terminalServiceReady=false`
+// is the cold-start warm-up window — normal and transient.
 let initFlagObserved = false;
 // True after the init flag is observed AND the pre-warm session is in the
 // session map. Until then, /terminal WS upgrades are rejected with 1013 so
@@ -511,11 +513,13 @@ server.listen(PORT, '0.0.0.0', async () => {
   // Pre-warm tab 1 PTY so the first client connect is instant
   const prewarmSession = new Session(PREWARM_SESSION_ID, 'Terminal', false, sessionOptions);
   sessionManager.sessions.set(PREWARM_SESSION_ID, prewarmSession);
-  // Open the /terminal WS gate now: pre-warm is in the map and ready to be
-  // adopted by the first client connect; entrypoint init is complete so any
-  // fresh (non-tab-1) session created from here on reads the final .bashrc.
-  terminalServiceReady = true;
   prewarmSession.start();
+  // Open the /terminal WS gate AFTER prewarm.start() returns so any client
+  // that gets through finds a Session with ptyProcess already spawned (no
+  // TOCTOU window where adoption races against the PTY fork). Fresh
+  // (non-tab-1) sessions created from here on also read the final .bashrc
+  // because waitForInitFlag has already resolved.
+  terminalServiceReady = true;
   prewarmStartTime = Date.now();
   log('info', 'Pre-warming tab 1 PTY', { command: prewarmConfig.command, ptyAlive: prewarmSession.ptyProcess !== null, ptyPid: prewarmSession.ptyProcess?.pid ?? null });
 

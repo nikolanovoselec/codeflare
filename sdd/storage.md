@@ -110,6 +110,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 6. Known ephemeral files (`.claude/mcp-*.json`) are statically excluded from all sync operations.
 7. The bisync daemon starts unconditionally after baseline — even if all baseline attempts fail. A dead daemon means zero sync for the entire session; the daemon has its own recovery (vanishing-file recovery + consecutive failure → resync fallback).
 8. The terminal server's tab-1 PTY pre-warm is gated on an init-complete flag file (`/tmp/codeflare-init-complete`) written by the entrypoint after initial sync, file modifications, and tab autostart configuration complete; this preserves the readiness contract while letting port 8080 bind before Cloudflare's container port-wait timeout.
+9. The host terminal server rejects `/terminal` WebSocket upgrades with close code 1013 (reason `container-warming-up`) until both the init-complete flag is observed AND the pre-warm session is registered in the session map; this is the host-side guard against reconnects landing before `.bashrc` autostart is in place.
 
 **Constraints:**
 - The terminal server must bind port 8080 within Cloudflare's container port-wait window; slow initialization (R2 sync, MCP config merges) must not block the port bind.

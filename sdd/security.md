@@ -194,6 +194,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 8. General resource-protection endpoints use fail-open rate limiting (per AD6).
 9. When `STRESS_TEST_MODE=active`, all rate limits are bypassed with a one-time warning per isolate.
 10. WebSocket upgrade requests for sessions with KV status `stopped` are rejected via close code 4503 BEFORE the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s budget.
+11. WebSocket upgrade requests are rejected via close code 1013 (reason `container-warming-up`) BEFORE the WS rate-limit check when the worker observes `terminalServiceReady=false` in the container `/health` probe response, so a reconnect storm during container warm-up does not consume the user's 30/60s budget. The `/health` probe is best-effort: any probe error or missing field falls through to the normal rate-limit + forward path.
 
 **Constraints:**
 - KV key prefixes must not collide with application cache keys (use `rl-` prefix where collision exists).

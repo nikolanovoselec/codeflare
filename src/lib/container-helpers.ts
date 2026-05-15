@@ -53,6 +53,8 @@ export interface HealthData {
   syncError?: string | null;
   userPath?: string;
   prewarmReady?: boolean;
+  initFlagObserved?: boolean;
+  terminalServiceReady?: boolean;
   cpu?: string;
   mem?: string;
   hdd?: string;

@@ -143,7 +143,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - Auto-start uses `--dangerously-skip-permissions` flag with `IS_SANDBOX=1` for permission bypass when running as root.
 
 **Priority:** P0
-**Dependencies:** REQ-TERM-002, REQ-SESSION-003
+**Dependencies:** REQ-TERM-002, REQ-SESSION-003, REQ-STOR-004
 **Verification:** Integration test
 **Status:** Implemented
 

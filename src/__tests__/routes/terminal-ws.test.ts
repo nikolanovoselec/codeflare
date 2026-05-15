@@ -448,7 +448,7 @@ describe('handleWebSocketUpgrade', () => {
       expect(wsConnectPutCalls.length).toBeGreaterThan(0);
     });
 
-    it('falls through to normal flow when /health probe fails (fail-open)', async () => {
+    it('falls through to normal flow when /health probe fails (fail-open) AND rate-limit IS burned', async () => {
       mockContainerFetch.mockImplementation(async (req: Request) => {
         const url = new URL(req.url);
         if (url.pathname === '/health') {
@@ -463,6 +463,13 @@ describe('handleWebSocketUpgrade', () => {
 
       // Fail-open: probe failure should not block the upgrade
       expect(response.status).toBe(200);
+      // CRITICAL: rate-limit IS burned on fallthrough — otherwise a future
+      // refactor could short-circuit before rate-limit on probe failure and
+      // re-enable the self-lockout this PR was built to prevent.
+      const wsConnectPutCalls = mockKV.put.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      );
+      expect(wsConnectPutCalls.length).toBeGreaterThan(0);
     });
   });
 });

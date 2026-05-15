@@ -213,26 +213,21 @@ export async function handleWebSocketUpgrade(
     // land before the flag flips would spawn fresh PTYs against pre-sync
     // state (bare bash, no agent autostart) — see PR #365.
     //
-    // Peek /health (auth-exempt) here so warming-up reconnects do not
-    // burn rate-limit budget AND we can return a 1013-close that the
-    // frontend's existing retry backoff handles. Fail-open: any error or
-    // missing field lets the upgrade proceed.
+    // Peek /health here so warming-up reconnects do not burn rate-limit
+    // budget AND we can return a 1013-close that the frontend's existing
+    // retry backoff handles. Use safeCheckContainerHealth so we don't
+    // auto-start a hibernated container if KV's session.status read was
+    // stale (it gates on container.getState() before fetching) and we get
+    // the circuit-breaker wrapping for free. Fail-open: any probe error
+    // falls through to the normal rate-limit + forward path.
     const container = getContainer(env.CONTAINER, containerId);
-    try {
-      const healthRes = await container.fetch(new Request('http://container/health', { method: 'GET' }));
-      if (healthRes.ok) {
-        const healthBody = await healthRes.json() as { terminalServiceReady?: boolean };
-        if (healthBody?.terminalServiceReady === false) {
-          logger.info('Rejecting WS upgrade: container warming up', { email: user.email, containerId });
-          const pair = new WebSocketPair();
-          pair[1].accept();
-          pair[1].close(1013, 'container-warming-up');
-          return new Response(null, { status: 101, webSocket: pair[0] });
-        }
-      }
-    } catch (err) {
-      // Warming-up check is best-effort. Fall through to normal flow.
-      logger.warn('Warming-up health probe failed, falling through', { error: toErrorMessage(err) });
+    const warmProbe = await safeCheckContainerHealth(container, containerId);
+    if (warmProbe.healthy && warmProbe.data?.terminalServiceReady === false) {
+      logger.info('Rejecting WS upgrade: container warming up', { email: user.email, containerId });
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].close(1013, 'container-warming-up');
+      return new Response(null, { status: 101, webSocket: pair[0] });
     }
 
     if (env.STRESS_TEST_MODE === 'active') {
