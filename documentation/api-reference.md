@@ -456,7 +456,33 @@ GET `/public/onboarding-config`, POST `/public/waitlist` (rate limited)
 
 ### Health
 
-GET `/health`, GET `/api/health`
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/health` | None (auth-exempt — no `CONTAINER_AUTH_TOKEN` required) | TBD | Direct host health check; available before CONTAINER_AUTH_TOKEN is wired up |
+| GET | `/api/health` | Session cookie | TBD | Worker-proxied alias for `/health` |
+
+Both endpoints return the same JSON body:
+
+```json
+{
+  "status": "healthy",
+  "sessions": 0,
+  "uptime": 42,
+  "syncStatus": "idle",
+  "syncError": null,
+  "userPath": "/root",
+  "prewarmReady": false,
+  "initFlagObserved": false,
+  "cpu": 12.5,
+  "mem": 45.2,
+  "hdd": 30.1,
+  "timestamp": "2026-05-15T10:00:00.000Z"
+}
+```
+
+**`initFlagObserved`** — `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
+
+**`prewarmReady`** — `true` once the tab-1 PTY session has produced its first output (pre-warm complete).
 
 ---
 
