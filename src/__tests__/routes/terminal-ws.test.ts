@@ -39,10 +39,15 @@ vi.mock('../../lib/circuit-breakers', () => ({
 // Workers runtime doesn't allow constructing responses with status 101;
 // use 200 as a stand-in for a successful container forward.
 const mockContainerFetch = vi.fn().mockResolvedValue(new Response('ws upgrade', { status: 200 }));
+// safeCheckContainerHealth() reads container.getState() before fetching /health
+// to avoid auto-starting a hibernated container; mock it as "running" so the
+// warming-up probe in handleWebSocketUpgrade reaches the fetch path.
+const mockContainerGetState = vi.fn().mockResolvedValue({ status: 'running' });
 
 vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => ({
     fetch: mockContainerFetch,
+    getState: mockContainerGetState,
   })),
 }));
 
