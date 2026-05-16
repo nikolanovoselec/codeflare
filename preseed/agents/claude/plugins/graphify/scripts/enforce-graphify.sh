@@ -41,8 +41,19 @@
 #   2. "skip graph" in latest user message (case-insensitive)
 #
 # Gating:
-#   - graphify-out/graph.json absent in cwd  -> exit 0
-#   - any unexpected error                   -> exit 0 (fail-safe)
+#   - graphify-out/graph.json absent in active repo -> exit 0
+#   - any unexpected error                          -> exit 0 (fail-safe)
+#
+# Active repo resolution (codeflare layout, where session cwd is always
+# the parent ~/workspace and never a sub-repo):
+#   1. ~/.cache/codeflare-hooks/graphify-active-cwd   (sentinel written by
+#      graphify-active-repo.sh on every Bash/Edit/Write/ctx_execute tool
+#      call - reflects the repo the user is currently working in)
+#   2. .cwd from tool-call envelope                   (vanilla graphify
+#      usage outside codeflare)
+# The hook is intentionally silent on greps outside any graphified repo:
+# vault-only-in-global is NOT enforcement-eligible. Only per-repo graphs
+# trigger the gate, and only when one is the user's currently active repo.
 set +e
 
 INPUT=$(cat 2>/dev/null) || exit 0
@@ -50,7 +61,14 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 [ -z "$CWD" ] && CWD="$PWD"
-[ -f "$CWD/graphify-out/graph.json" ] || exit 0
+
+ACTIVE_REPO=""
+ACTIVE_SENTINEL="${HOME:-/home/user}/.cache/codeflare-hooks/graphify-active-cwd"
+if [ -f "$ACTIVE_SENTINEL" ]; then
+  ACTIVE_REPO=$(cat "$ACTIVE_SENTINEL" 2>/dev/null | tr -d '\n' || true)
+fi
+[ -n "$ACTIVE_REPO" ] && [ -d "$ACTIVE_REPO" ] || ACTIVE_REPO="$CWD"
+[ -f "$ACTIVE_REPO/graphify-out/graph.json" ] || exit 0
 
 # Bypass 1: one-shot sentinel (USER-only; auto-deleted on use)
 if [ -f "/tmp/graphify-bypass" ]; then

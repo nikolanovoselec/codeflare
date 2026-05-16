@@ -164,36 +164,70 @@ mkdir -p "$SENTINEL_DIR" 2>/dev/null || true
 SENTINEL="$SENTINEL_DIR/graphify-active-cwd"
 
 OLD=$(cat "$SENTINEL" 2>/dev/null || true)
-if [ "$OLD" = "$REPO" ]; then
+GRAPH_JSON="$REPO/graphify-out/graph.json"
+GLOBAL_MANIFEST="${GRAPHIFY_GLOBAL_MANIFEST:-$HOME/.graphify/global-manifest.json}"
+
+# Cheap fast-path: same repo as last fire AND graph.json hasn't been
+# rebuilt since we last touched the sentinel -> nothing to do. Without
+# this, every Bash/Edit/Write/ctx_execute call would spawn graphify
+# (hundreds of MB of Python imports). The sentinel's mtime is the
+# implicit "last reconciled at" timestamp; we touch it whenever we
+# finish a global-graph update below.
+SENTINEL_MTIME=$(stat -c '%Y' "$SENTINEL" 2>/dev/null || echo 0)
+GRAPH_MTIME=$(stat -c '%Y' "$GRAPH_JSON" 2>/dev/null || echo 0)
+if [ "$OLD" = "$REPO" ] && [ "$GRAPH_MTIME" -le "$SENTINEL_MTIME" ]; then
     exit 0
 fi
 
 printf '%s\n' "$REPO" > "$SENTINEL"
 
-# Auto-add this repo's graphify-out/graph.json to the global graph the
-# first time we see it. This is how a fresh `git clone` ends up in
-# `mcp__graphify__*` queries without the user remembering to run
-# `graphify global add` manually.
+# Single-active-repo model: when the user switches FROM repo A's tree
+# INTO repo B's tree, A's nodes should not linger in the global graph -
+# subsequent mcp__graphify__* queries would otherwise return symbols
+# from a project the user is no longer in. Prune A by tag (basename)
+# before adding B.
 #
-# Idempotent: graphify maintains its own manifest at
-# ~/.graphify/global-manifest.json keyed on graph.json content hash, so
-# re-running global add with the same graph.json is a no-op. We still
-# pre-check the manifest to avoid spawning graphify (which is several
-# hundred MB of Python imports) on every repo switch.
+# Same-tag case (two clones with the same basename, or branch switch
+# within the same repo - which fires through the GRAPH_MTIME path
+# above): skip the remove; the add below replaces the existing entry
+# via graphify's source_hash dedup.
 #
 # flock serialises against the capture + vault-extract sonnets which
 # also write the global graph.
-GRAPH_JSON="$REPO/graphify-out/graph.json"
-GLOBAL_MANIFEST="${GRAPHIFY_GLOBAL_MANIFEST:-$HOME/.graphify/global-manifest.json}"
+if [ -n "$OLD" ] && [ "$OLD" != "$REPO" ] && command -v graphify >/dev/null 2>&1; then
+    OLD_BASENAME=$(basename "$OLD")
+    NEW_BASENAME=$(basename "$REPO")
+    if [ "$OLD_BASENAME" != "$NEW_BASENAME" ] && [ -f "$GLOBAL_MANIFEST" ]; then
+        STILL_PRESENT=$(jq -r --arg tag "$OLD_BASENAME" '.repos[$tag] // empty | length' "$GLOBAL_MANIFEST" 2>/dev/null || true)
+        if [ -n "$STILL_PRESENT" ] && [ "$STILL_PRESENT" != "0" ]; then
+            (flock /tmp/graphify-global.lock graphify global remove "$OLD_BASENAME" >/dev/null 2>&1) || true
+        fi
+    fi
+fi
+
+# Add NEW to global graph (if it has one). Skips when the manifest
+# already records this tag with a matching content hash, avoiding the
+# graphify spawn on no-op fires. The graphify CLI itself also dedups
+# via source_hash, so this pre-check is a perf optimisation, not a
+# correctness gate.
 if [ -f "$GRAPH_JSON" ] && command -v graphify >/dev/null 2>&1; then
     REPO_BASENAME=$(basename "$REPO")
-    ALREADY=""
+    NEED_ADD=1
     if [ -f "$GLOBAL_MANIFEST" ]; then
-        ALREADY=$(jq -r --arg p "$GRAPH_JSON" '.entries[]? | select(.path == $p) | .path' "$GLOBAL_MANIFEST" 2>/dev/null || true)
+        STORED_HASH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_hash // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
+        if [ -n "$STORED_HASH" ]; then
+            # graphify stores the first 16 hex chars of the file SHA-256
+            CURRENT_HASH=$(sha256sum "$GRAPH_JSON" 2>/dev/null | awk '{print substr($1,1,16)}')
+            [ "$CURRENT_HASH" = "$STORED_HASH" ] && NEED_ADD=0
+        fi
     fi
-    if [ -z "$ALREADY" ]; then
+    if [ "$NEED_ADD" = "1" ]; then
         (flock /tmp/graphify-global.lock graphify global add "$GRAPH_JSON" --as "$REPO_BASENAME" >/dev/null 2>&1) || true
     fi
 fi
+
+# Bump sentinel mtime so the GRAPH_MTIME fast-path can skip subsequent
+# fires until the next graph rebuild.
+touch "$SENTINEL" 2>/dev/null || true
 
 exit 0

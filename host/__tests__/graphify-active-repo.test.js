@@ -318,3 +318,117 @@ describe('graphify-active-repo.sh', () => {
     assert.equal(sentinel(sentinelDir), repoB);
   });
 });
+
+// Tests for the single-active-repo global-graph maintenance logic
+// added after production verification showed branch-switch and repo-
+// switch staleness in the global graph. Strips graphify from PATH so
+// the prune/add branches no-op cleanly without mutating the real
+// ~/.graphify - we assert on sentinel state changes instead, which
+// reliably reflects whether each code path was taken.
+function runHookNoGraphify(input, sentinelDir) {
+  const noGraphifyPath = '/usr/bin:/bin'; // no /usr/local/bin -> command -v graphify fails
+  const result = spawnSync('bash', [HOOK], {
+    input: JSON.stringify(input),
+    encoding: 'utf-8',
+    env: {
+      ...process.env,
+      GRAPHIFY_SENTINEL_DIR: sentinelDir,
+      PATH: noGraphifyPath,
+    },
+  });
+  return { stdout: result.stdout.trim(), stderr: result.stderr, status: result.status };
+}
+
+describe('graphify-active-repo.sh single-active-repo maintenance', () => {
+  let baseTmp, sentinelDir, workspace;
+  before(() => { baseTmp = mkdtempSync(join(tmpdir(), 'gf-maint-')); });
+  beforeEach(() => {
+    sentinelDir = mkdtempSync(join(baseTmp, 'sentinel-'));
+    workspace = mkdtempSync(join(baseTmp, 'ws-'));
+  });
+
+  function makeRepoWithGraph(parent, name) {
+    const repo = makeRepo(parent, name);
+    mkdirSync(join(repo, 'graphify-out'), { recursive: true });
+    writeFileSync(join(repo, 'graphify-out', 'graph.json'), '{"nodes":[]}');
+    return repo;
+  }
+
+  it('fast-path: same repo + graph mtime <= sentinel mtime -> exit 0, sentinel mtime unchanged', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    // Prime sentinel with repoA
+    runHookNoGraphify(
+      { tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    const sentinelPath = join(sentinelDir, 'graphify-active-cwd');
+    // Set graph mtime to past so fast-path kicks in (graph older than sentinel)
+    const past = (Date.now() / 1000) - 3600;
+    utimesSync(join(repoA, 'graphify-out', 'graph.json'), past, past);
+    // Ensure sentinel mtime is newer than graph
+    const future = (Date.now() / 1000) + 1;
+    utimesSync(sentinelPath, future, future);
+    const before = statSync(sentinelPath).mtimeMs;
+    // Re-run; should hit fast path and exit without touching sentinel
+    const r = runHookNoGraphify(
+      { tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    assert.equal(r.status, 0);
+    const after = statSync(sentinelPath).mtimeMs;
+    assert.equal(before, after, 'fast-path must not touch sentinel');
+  });
+
+  it('graph rebuild path: same repo + graph mtime > sentinel mtime -> sentinel mtime bumped', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    runHookNoGraphify(
+      { tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    const sentinelPath = join(sentinelDir, 'graphify-active-cwd');
+    // Force sentinel mtime older than graph (simulates /graphify rebuild after sentinel write)
+    const past = (Date.now() / 1000) - 7200;
+    utimesSync(sentinelPath, past, past);
+    const future = (Date.now() / 1000) + 1;
+    utimesSync(join(repoA, 'graphify-out', 'graph.json'), future, future);
+    const before = statSync(sentinelPath).mtimeMs;
+    const r = runHookNoGraphify(
+      { tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    assert.equal(r.status, 0);
+    const after = statSync(sentinelPath).mtimeMs;
+    assert.ok(after > before,
+      `graph-newer-than-sentinel must trigger the slow path and bump sentinel mtime (before=${before}, after=${after})`);
+  });
+
+  it('repo switch: sentinel value updated even when graphify CLI is unavailable', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    const repoB = makeRepoWithGraph(workspace, 'repo-b');
+    runHookNoGraphify(
+      { tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    assert.equal(sentinel(sentinelDir), repoA, 'sentinel should reflect first repo');
+    // Switch to repoB; without graphify on PATH the global prune/add are
+    // skipped, but the sentinel must still update so subsequent hook
+    // fires see the new active repo.
+    const r = runHookNoGraphify(
+      { tool_name: 'Bash', cwd: repoB, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    assert.equal(r.status, 0);
+    assert.equal(sentinel(sentinelDir), repoB, 'sentinel must update to new repo on switch');
+  });
+
+  it('first run: no prior sentinel -> writes it and exits cleanly', () => {
+    const repoA = makeRepoWithGraph(workspace, 'repo-a');
+    assert.equal(sentinel(sentinelDir), null, 'no sentinel before first run');
+    const r = runHookNoGraphify(
+      { tool_name: 'Bash', cwd: repoA, tool_input: { command: 'ls' } },
+      sentinelDir
+    );
+    assert.equal(r.status, 0);
+    assert.equal(sentinel(sentinelDir), repoA);
+  });
+});

@@ -71,9 +71,17 @@ function makeTranscript(cwd, { count = 0, withGraphifyCall = false, withUserProm
   return path;
 }
 
-function runHook(cwd, { toolName, toolInput, transcriptPath }) {
+function runHook(cwd, { toolName, toolInput, transcriptPath, envHome }) {
+  // envHome is set by the active-cwd sentinel tests so the hook reads
+  // a fixture-controlled ~/.cache/codeflare-hooks/graphify-active-cwd
+  // instead of the real user's. Tests that don't pass envHome get the
+  // ambient HOME and the sentinel-read just no-ops (file absent).
+  const env = envHome
+    ? { ...process.env, HOME: envHome }
+    : process.env;
   return spawnSync('bash', [HOOK], {
     cwd,
+    env,
     input: JSON.stringify({
       hook_event_name: 'PreToolUse',
       tool_name: toolName,
@@ -239,6 +247,75 @@ describe('enforce-graphify.sh - block decision', () => {
     });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+});
+
+describe('enforce-graphify.sh - active-cwd sentinel (codeflare layout)', () => {
+  // In codeflare every agent session has cwd=~/workspace (parent of all
+  // repos), so the literal-cwd graph check at L53 of the hook would
+  // never pass and enforcement would be permanently dead. The hook
+  // instead reads ~/.cache/codeflare-hooks/graphify-active-cwd (written
+  // by graphify-active-repo.sh) to resolve the user's currently active
+  // repo and check THAT repo's graph.json. These tests stage the
+  // sentinel in a fixture HOME so the existing transcript machinery
+  // exercises the real production path.
+  function makeFakeHomeWithSentinel(activeRepoPath) {
+    const home = mkdtempSync(join(tmpdir(), 'enforce-gf-home-'));
+    const cacheDir = join(home, '.cache', 'codeflare-hooks');
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, 'graphify-active-cwd'), activeRepoPath + '\n');
+    return home;
+  }
+
+  it('reads sentinel when cwd has no graph but active repo does (denies on 4th search)', () => {
+    const activeRepo = makeFixture(); // has graphify-out/graph.json
+    const cwd = mkdtempSync(join(tmpdir(), 'enforce-gf-parent-')); // no graph here
+    const home = makeFakeHomeWithSentinel(activeRepo);
+    const t = makeTranscript(activeRepo, { count: 3 });
+    const r = runHook(cwd, {
+      toolName: 'Grep',
+      toolInput: { pattern: 'foo' },
+      transcriptPath: t,
+      envHome: home,
+    });
+    // 3 prior greps + this one = 4, no graphify call -> deny
+    assert.equal(r.status, 0); // hook itself succeeds
+    assert.match(r.stdout, /permissionDecision":\s*"deny"/,
+      'should deny via hookSpecificOutput when sentinel points at a graphified repo');
+  });
+
+  it('does NOT enforce when sentinel points at a repo without a graph', () => {
+    // Vault-only-in-global case: user is in a new repo with no graph,
+    // sentinel reflects that repo, no enforcement should fire even
+    // though vault is sitting in the global graph.
+    const noGraphRepo = mkdtempSync(join(tmpdir(), 'enforce-gf-nograph-'));
+    mkdirSync(join(noGraphRepo, '.git'), { recursive: true });
+    const cwd = mkdtempSync(join(tmpdir(), 'enforce-gf-parent-'));
+    const home = makeFakeHomeWithSentinel(noGraphRepo);
+    const t = makeTranscript(noGraphRepo, { count: 5 });
+    const r = runHook(cwd, {
+      toolName: 'Grep',
+      toolInput: { pattern: 'foo' },
+      transcriptPath: t,
+      envHome: home,
+    });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '',
+      'no graph in active repo -> hook must exit silently (vault-only global is NOT enforcement-eligible)');
+  });
+
+  it('falls back to cwd when sentinel is absent (vanilla graphify users outside codeflare)', () => {
+    const cwd = makeFixture(); // graph.json present here
+    const home = mkdtempSync(join(tmpdir(), 'enforce-gf-empty-home-'));
+    const t = makeTranscript(cwd, { count: 3 });
+    const r = runHook(cwd, {
+      toolName: 'Grep',
+      toolInput: { pattern: 'foo' },
+      transcriptPath: t,
+      envHome: home,
+    });
+    assert.match(r.stdout, /permissionDecision":\s*"deny"/,
+      'absent sentinel -> cwd graph check still works for non-codeflare users');
   });
 });
 
