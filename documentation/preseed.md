@@ -125,8 +125,8 @@ skills. The discipline triad — `spec-discipline`,
 core-minimum rules (Pro-mode SDD workflow opt-in: identity, status
 vocabulary, severity, and skill pointers; detection algorithms and
 content-quality checks live in their respective `*-enforce` skill
-families). `memory` rule is advanced-only (depends on MCP memory
-server). ECC-derived language rules in
+families). `memory` rule is advanced-only (references CC-specific
+mcp__graphify__* tools and the vault hook system). ECC-derived language rules in
 `{common,typescript,python,golang,swift}/` subdirs (2 + 4*4 = 18
 files, advanced only). Common rules cover security and coding
 style. Language-specific rules provide conventions for TypeScript,
@@ -182,14 +182,16 @@ All preseed content is deployed via the manifest pipeline:
   spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
   git-review-pipeline
-- `plugins/` (13): known_marketplaces.json (default+advanced),
+- `plugins/` (15): known_marketplaces.json (default+advanced),
   codeflare-memory plugin (3 files, advanced only: plugin.json,
-  memory-capture.sh, memory-agent-prompt.md), codeflare-hooks plugin (5 files,
+  memory-capture.sh, memory-agent-prompt.md), codeflare-vault plugin
+  (3 files, advanced only: plugin.json, vault-monitor-hook.sh,
+  vault-extract-prompt.md), codeflare-hooks plugin (5 files,
   advanced only: plugin.json, block-attributed-commits.sh,
   git-push-review-reminder.sh, enforce-review-spawn.sh,
-  lib/gh-pr-state.sh — shared helper sourced by both PR-aware
+  lib/gh-pr-state.sh - shared helper sourced by both PR-aware
   hooks), context-mode plugin (3 files, advanced only: plugin.json,
-  README.md, scripts/enforce-ctx-mode.sh — admin-only Custom-tier
+  README.md, scripts/enforce-ctx-mode.sh - admin-only Custom-tier
   routing enforcement, see Third-party plugin section below)
 
 ## Multi-Agent Preseed
@@ -232,8 +234,10 @@ files exist on disk.
 
 **Excluded from non-CC agents**: hooks (CC hook system), commands (CC
 slash commands), plugins (CC plugin system, including
-codeflare-memory), `rules/memory.md` (depends on MCP memory server),
-`consult-llm` skill (depends on CC-specific MCP tool).
+codeflare-memory and codeflare-vault), `rules/memory.md` (references
+CC-specific `mcp__graphify__*` tools and the vault hook system),
+`rules/vault.md` (same reason), `consult-llm` skill (depends on
+CC-specific MCP tool).
 
 **Adaptation pipeline**: For each non-CC agent, the generator: (1)
 concatenates applicable rules into a single instructions file, (2)
@@ -366,8 +370,8 @@ See [Preseed Troubleshooting](preseed-troubleshooting.md) for hook debugging, at
 ## Related Documentation
 
 - [Preseed Troubleshooting](preseed-troubleshooting.md) — Hook debugging and checkpoint reset
-- [Memory](memory.md) — MCP memory server, capture/compact, R2 sync
-  of memory files
+- [Memory](memory.md) - Vault-based cross-session memory and the
+  capture hook chain
 - [Container](container.md#claude-code-integration) — Claude Code
   configuration
 - [Storage & Sync](storage-and-sync.md) — R2 sync internals
