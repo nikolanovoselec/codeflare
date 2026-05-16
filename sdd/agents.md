@@ -210,7 +210,7 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 1. On first bucket creation, `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })` writes mode-appropriate files to R2.
 2. During container startup, initial `rclone sync` from R2 restores preseed files to the container's config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`, `~/.config/opencode/`).
-3. `entrypoint.sh` merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed hooks with the current platform version. The managed-hook detector matches `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/` (anchored on the literal `plugins/` segment so unrelated workspace tools with the same basenames are not falsely managed), references to `enforce-ctx-mode.sh` (legacy `~/.claude/hooks/` and current `~/.claude/plugins/context-mode/scripts/` paths), and `context-mode hook claude-code` CLI invocations (bare, `bunx`, and `npx -y` forms). Any new managed-hook surface added to entrypoint must also be added here, otherwise prior copies accumulate on every container boot instead of being replaced.
+3. `entrypoint.sh` merges settings into `~/.claude/settings.json` using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed hooks with the current platform version. The managed-hook detector matches `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/` (anchored on the literal `plugins/` segment so unrelated workspace tools with the same basenames are not falsely managed), references to `enforce-ctx-mode.sh` (legacy `~/.claude/hooks/` and current `~/.claude/plugins/context-mode/scripts/` paths), and `context-mode hook claude-code` CLI invocations (bare, `bunx`, and `npx -y` forms).
 4. In advanced mode, settings merge includes hook registrations (PreToolUse, PostToolUse, UserPromptSubmit).
 5. `entrypoint.sh` merges `enabledPlugins` into `~/.claude/.claude.json` to enable codeflare-memory and codeflare-hooks plugins (permanent, not mode-gated; missing plugin files are silently skipped).
 6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning).
@@ -218,6 +218,7 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 - All file modifications must complete after initial sync but before bisync baseline to avoid hash mismatches.
 - Plugin enablement is permanent because Claude Code silently skips missing plugins.
+- Any new managed-hook surface added to `entrypoint.sh:MANAGED_HOOKS_REGEX` must also be reflected in AC3 above; otherwise prior copies accumulate on every container boot instead of being replaced. The regex enumeration in AC3 is the spec-side single source of truth for what counts as managed.
 
 **Applies To:** User
 **Priority:** P0
