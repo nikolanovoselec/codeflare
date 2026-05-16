@@ -2,6 +2,9 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-05-16
+- Memory domain rewritten: the MCP `server-memory` knowledge-graph substrate (per-session JSONL files, merge-on-boot, two-phase capture+compaction, 5000-observation threshold) is removed. The obsidian vault at `/home/user/.obsidian_vault/` is now the sole cross-session memory store; captures land as markdown under `raw/sessions/` and the unified graphify graph (`~/.graphify/global-graph.json`) is queried via `mcp__graphify__*`. REQ-MEM-001, REQ-MEM-002, REQ-MEM-004, REQ-MEM-006, REQ-MEM-008 rewritten; REQ-MEM-003 (two-phase compaction), REQ-MEM-005 (per-session JSONL), REQ-MEM-007 (5000-observation compaction trigger) deleted. New REQ-MEM-001 dependency on REQ-VAULT-002.
+
 ## 2026-05-15
 - REQ-STOR-004 reordered: terminal server binds port 8080 before R2 sync runs (AC1 reworded; AC8 added for the `/tmp/codeflare-init-complete` flag that gates PTY pre-warm). Cloudflare's container port-wait timeout (~10-15s) was killing the container on cold resume when initial R2 sync was slow. The readiness contract is preserved: loading screen still waits for sync + pre-warm; only the port bind moves earlier.
 - REQ-SEC-007 AC10 added: session-stopped WebSocket rejection (4503) runs before the WS rate-limit check, so a browser reconnect-storm against a hibernated container does not consume the user's 30/60s budget and self-lock them out.

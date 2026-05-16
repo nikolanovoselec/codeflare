@@ -68,14 +68,14 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. Concept references use `[[wikilinks]]`; file paths, code symbols, and PR/issue references stay as prose.
 3. Step 5 runs `flock /tmp/graphify-global.lock graphify extract --file ... && flock /tmp/graphify-global.lock graphify global add ... --as vault` so the new capture is merged into the unified graph atomically.
 4. If extraction fails, the markdown file stays on disk and the next vault-monitor tick will re-discover it via the high-water marker comparison.
-5. MCP memory writes (`create_entities`, `add_observations`) are NOT performed by the capture sonnet any more; the legacy MCP memory read side (`search_nodes`, `read_graph`) keeps working unchanged for older entities.
+5. The MCP `server-memory` subsystem (`mcp__memory__*`) has been removed entirely; the capture sonnet does not invoke it, and no historical JSONL graph is read.
 
 **Constraints:**
 - The dedup gate (`.vars` marker delete as the agent's first step) is unchanged from the pre-vault flow.
-- Compaction is signalled when `raw/sessions/` exceeds 200 files (vs. the old 5000-observation threshold against the MCP graph).
+- Compaction is not automated; the user prunes `raw/sessions/` manually via SilverBullet when the directory becomes unwieldy.
 
 **Priority:** P0
-**Dependencies:** REQ-VAULT-001, REQ-MEM-001
+**Dependencies:** REQ-VAULT-001
 **Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: vault-monitor and capture script structure); E2E (drive 15+ prompts and grep `raw/sessions/`)
 **Status:** Implemented
 

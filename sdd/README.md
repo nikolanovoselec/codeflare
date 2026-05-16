@@ -39,7 +39,7 @@ Codeflare is an ephemeral cloud IDE that runs AI coding agents in isolated conta
 | [Setup](setup.md) | Onboarding wizard, deployment modes, DNS | P1 | Active |
 | [Security](security.md) | Auth enforcement, encryption, rate limiting, headers | P0 | Active |
 | [Operations](operations.md) | CI/CD, testing, deployment, cost | P1 | Active |
-| [Memory](memory.md) | Knowledge graph persistence, automatic capture | P2 | Active |
+| [Memory](memory.md) | Vault-based cross-session memory, automatic capture, hook delivery | P2 | Active |
 | [Vault](vault.md) | Persistent obsidian-style notes, unified graphify graph, SilverBullet editor | P2 | Active |
 
 ## Out of Scope

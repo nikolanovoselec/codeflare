@@ -235,48 +235,22 @@ describe('rclone memory counter exclusion (behavior)', () => {
 });
 
 // ============================================================================
-// Test: SESSION_MODE-based .memory/** exclusion
-// ============================================================================
-describe('SESSION_MODE-based memory exclusion', () => {
-  it('default mode excludes entire .memory/ directory', () => {
-    assert.ok(
-      entrypoint.includes('SESSION_MODE:-default') && entrypoint.includes('.memory/**'),
-      'should conditionally exclude .memory/** based on SESSION_MODE'
-    );
-  });
-
-  it('.memory/** exclusion is NOT in RCLONE_FILTERS_COMMON array literal', () => {
-    // .memory/** should be added conditionally AFTER the array, not inside it
-    const filtersStart = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
-    const filtersEnd = entrypoint.indexOf(')', filtersStart);
-    assert.ok(filtersStart > -1, 'RCLONE_FILTERS_COMMON should exist');
-    const filtersBlock = entrypoint.slice(filtersStart, filtersEnd);
-    assert.ok(
-      !filtersBlock.includes('"- .memory/**"'),
-      '.memory/** should NOT be in the static RCLONE_FILTERS_COMMON array'
-    );
-  });
-
-  it('uses += to append .memory/** filter conditionally', () => {
-    assert.ok(
-      entrypoint.includes("RCLONE_FILTERS_COMMON+=('--filter' '- .memory/**')"),
-      'should use += to append .memory/** filter when SESSION_MODE is not advanced'
-    );
-  });
-});
-
-// ============================================================================
 // Test: counter directory creation
+//
+// The SESSION_MODE-based `.memory/**` exclusion was removed alongside the MCP
+// server-memory subsystem — `merge_memory_files` and `cleanup_old_memory_files`
+// no longer exist and no JSONL graph files are written under ~/.memory/. The
+// only thing that lives there now is the hook's per-session counter, which is
+// already excluded via `--filter "- .memory/counter/**"` regardless of mode.
 // ============================================================================
 describe('memory counter directory creation', () => {
-  it('creates ~/.memory/counter directory', () => {
-    assert.ok(
-      entrypoint.includes('.memory/counter'),
-      'entrypoint should reference .memory/counter directory'
-    );
-    assert.ok(
-      entrypoint.includes('mkdir -p') && entrypoint.includes('.memory/counter'),
-      'entrypoint should create .memory/counter directory'
+  it('creates ~/.memory/counter directory on the same line', () => {
+    // Real-behavior assertion: the literal `mkdir -p` line for the counter
+    // dir must exist (not just both substrings somewhere in the file).
+    assert.match(
+      entrypoint,
+      /mkdir\s+-p\s+["']?\$\{?USER_HOME\}?\/\.memory\/counter["']?/,
+      'entrypoint must create the .memory/counter directory via an explicit mkdir -p'
     );
   });
 });
