@@ -262,7 +262,12 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/.tmp/**"              # plugin clones + sync temp files (17MB+, regenerated)
     --filter "- .codex/version.json"         # version check cache
 
-    # Memory capture — exclude all counter files (ephemeral per-session)
+    # Memory capture - exclude all counter files (ephemeral per-session).
+    # ~/.memory/ as a whole survived the MCP-memory removal because the
+    # capture-hook gate (memory-capture.sh) still writes counter + .vars
+    # files there. No session-*.jsonl files are written any more; legacy
+    # ones from pre-vault sessions sit on R2 unread until the user
+    # deletes them.
     --filter "- .memory/counter/**"
 
     # Perl CPAN cache — created by Perl module installs during build, regenerated
@@ -308,11 +313,6 @@ RCLONE_FILTERS_COMMON=(
     # local and ephemeral. R2 bisync does not touch graphify-out/ either way.
     --filter "- **/graphify-out/**"
 )
-
-# In default mode, exclude entire .memory/ directory (no persistent memory)
-if [ "${SESSION_MODE:-default}" != "advanced" ]; then
-    RCLONE_FILTERS_COMMON+=('--filter' '- .memory/**')
-fi
 
 if [ "$SYNC_MODE" = "metadata" ]; then
     RCLONE_FILTERS=(
@@ -1121,71 +1121,6 @@ BASHRC_FOOTER
 }
 
 # ============================================================================
-# Memory file merge/cleanup for persistent memory across sessions
-# ============================================================================
-merge_memory_files() {
-    local MEMORY_DIR="$USER_HOME/.memory"
-    local SESSION_FILE="$MEMORY_DIR/session-${SESSION_ID}.jsonl"
-    mkdir -p "$MEMORY_DIR"
-
-    local FILES=()
-    while IFS= read -r -d '' f; do FILES+=("$f"); done \
-        < <(find "$MEMORY_DIR" -name "session-*.jsonl" -type f -print0 2>/dev/null)
-
-    if [ ${#FILES[@]} -eq 0 ]; then
-        echo "[entrypoint] No memory files to merge"; return 0
-    fi
-    if [ ${#FILES[@]} -eq 1 ] && [ "${FILES[0]}" = "$SESSION_FILE" ]; then
-        echo "[entrypoint] Single memory file already matches current session"; return 0
-    fi
-
-    echo "[entrypoint] Merging ${#FILES[@]} memory files into $SESSION_FILE"
-    cat "${FILES[@]}" | node -e "
-        const lines = require('fs').readFileSync('/dev/stdin','utf8').split('\n').filter(l=>l.trim());
-        const entities = new Map(); const relations = new Set();
-        for (const line of lines) {
-            try {
-                const item = JSON.parse(line);
-                if (item.type === 'entity') {
-                    const existing = entities.get(item.name);
-                    if (existing) {
-                        const obs = new Set([...existing.observations, ...item.observations]);
-                        existing.observations = [...obs];
-                    } else { entities.set(item.name, {...item}); }
-                } else if (item.type === 'relation') { relations.add(JSON.stringify(item)); }
-            } catch {}
-        }
-        const out = [...entities.values(), ...[...relations].map(r=>JSON.parse(r))];
-        console.log(out.map(o=>JSON.stringify(o)).join('\n'));
-    " > "$SESSION_FILE.tmp"
-    mv "$SESSION_FILE.tmp" "$SESSION_FILE"
-    # Old session files are NOT deleted here — cleanup_old_memory_files() runs
-    # after bisync baseline so deletions propagate correctly to R2.
-    # Direct R2 deletion is unsafe: concurrent sessions would lose their active file
-    # when bisync propagates the deletion to the other container.
-    echo "[entrypoint] Memory merge complete (old files kept for bisync baseline)"
-}
-
-cleanup_old_memory_files() {
-    local MEMORY_DIR="$USER_HOME/.memory"
-    local KEEP=5
-    local count=0
-
-    # Keep the 3 newest session files (by mtime), delete the rest.
-    # Matches typical concurrent session count; old counters are orphans anyway.
-    # Bisync propagates local deletions to R2 on the next cycle.
-    while IFS= read -r f; do
-        rm -f "$f"
-        count=$((count + 1))
-    done < <(find "$MEMORY_DIR" -name "session-*.jsonl" -type f -printf '%T@ %p\n' 2>/dev/null \
-        | sort -rn | tail -n +$((KEEP + 1)) | cut -d' ' -f2-)
-
-    if [ $count -gt 0 ]; then
-        echo "[entrypoint] Cleaned up $count old memory files (kept $KEEP newest)"
-    fi
-}
-
-# ============================================================================
 # Vault skeleton init (REQ-MEMORY-100, REQ-MEMORY-105)
 # ============================================================================
 # Idempotent on every boot. Creates the .obsidian_vault/ skeleton if absent,
@@ -1356,12 +1291,6 @@ else
     update_sync_status "skipped" "$SYNC_ERROR"
 fi
 
-# Merge memory files from previous sessions (after R2 sync pulls them down)
-# Old files kept — cleanup happens after bisync baseline (Phase 2)
-if [ -n "${SESSION_ID:-}" ] && [ "${SESSION_MODE:-default}" = "advanced" ]; then
-    merge_memory_files
-fi
-
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)
 # This prevents the interactive "WARNING: Claude Code running in Bypass Permissions mode" prompt
@@ -1377,28 +1306,10 @@ else
 fi
 echo "[entrypoint] Claude Code bypass permissions consent pre-accepted"
 
-# Configure memory MCP server for Claude Code
-# MCP servers are configured in ~/.claude.json (not ~/.claude/settings.json)
-# See: https://code.claude.com/docs/en/mcp — "User and local scope: ~/.claude.json"
+# Counter directory used by the memory-capture UserPromptSubmit hook
+# (the hook fires every N prompts to trigger vault capture; the MCP memory server
+# itself was removed — vault is now the persistent memory store).
 if [ -n "${SESSION_ID:-}" ]; then
-    MEMORY_MCP_CONFIG="{\"mcpServers\":{\"memory\":{\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-memory\"],\"env\":{\"MEMORY_FILE_PATH\":\"${USER_HOME}/.memory/session-${SESSION_ID}.jsonl\"}}}}"
-    if [ -f "$USER_CLAUDE_JSON" ]; then
-        # Recursive merge — preserves ALL existing config (bypass consent, other MCP servers, etc.)
-        # jq `*` merges objects recursively: only mcpServers.memory is added/updated
-        TMP_JSON=$(mktemp)
-        if jq --argjson mcp "$MEMORY_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$USER_CLAUDE_JSON"
-        else
-            # jq failed (malformed JSON?) — do NOT overwrite, skip instead
-            echo "[entrypoint] WARNING: Could not merge memory MCP config (malformed .claude.json?)"
-            rm -f "$TMP_JSON"
-        fi
-    else
-        echo "$MEMORY_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
-    fi
-    echo "[entrypoint] Memory MCP server configured for Claude Code"
-
-    # Create counter directory for memory capture hook
     mkdir -p "$USER_HOME/.memory/counter"
 fi
 
@@ -1794,9 +1705,6 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
     (
         echo "[entrypoint] Establishing bisync baseline in background..."
         if establish_bisync_baseline; then
-            # Cleanup old memory files AFTER baseline — bisync will propagate deletions to R2.
-            # Run in subshell to prevent set -e from killing the daemon on cleanup failure.
-            (cleanup_old_memory_files) || true
             echo "[entrypoint] Bisync baseline established, starting daemon..."
         else
             echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a /tmp/sync.log

@@ -123,18 +123,6 @@ If extraction fails (transient error, malformed YAML frontmatter, etc.),
 log it and continue — the file is on disk and will be picked up by the
 next vault-monitor tick. Do not delete the markdown file.
 
-### 6. Check if compaction is needed
-
-The vault grows append-only. When `raw/sessions/` exceeds 200 files, the
-older entries should be summarised down to release context budget for
-queries. Detect and signal:
-
-```
-SESSIONS=$(ls /home/user/.obsidian_vault/raw/sessions/*.md 2>/dev/null | wc -l)
-if [ "$SESSIONS" -gt 200 ]; then
-    echo "compact" > {COUNTER_FILE}.compact
-fi
-```
-
-Do NOT attempt compaction yourself — a separate opus agent handles it
-on the next user prompt (see `memory-compact-prompt.md`).
+Compaction note: the vault grows append-only. There is no automated
+compactor in this PR — when `raw/sessions/` becomes unwieldy, the user
+can prune or summarise files manually via SilverBullet.

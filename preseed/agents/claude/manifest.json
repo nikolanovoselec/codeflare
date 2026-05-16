@@ -39,11 +39,6 @@
       "advanced"
     ]
   },
-  "plugins/codeflare-memory/scripts/memory-compact-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/codeflare-vault/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"

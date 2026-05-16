@@ -183,9 +183,8 @@ All preseed content is deployed via the manifest pipeline:
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
   git-review-pipeline
 - `plugins/` (13): known_marketplaces.json (default+advanced),
-  codeflare-memory plugin (4 files, advanced only: plugin.json,
-  memory-capture.sh, memory-agent-prompt.md,
-  memory-compact-prompt.md), codeflare-hooks plugin (5 files,
+  codeflare-memory plugin (3 files, advanced only: plugin.json,
+  memory-capture.sh, memory-agent-prompt.md), codeflare-hooks plugin (5 files,
   advanced only: plugin.json, block-attributed-commits.sh,
   git-push-review-reminder.sh, enforce-review-spawn.sh,
   lib/gh-pr-state.sh — shared helper sourced by both PR-aware

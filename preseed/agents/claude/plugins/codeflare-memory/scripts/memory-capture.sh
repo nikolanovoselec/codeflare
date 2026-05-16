@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# UserPromptSubmit hook — triggers main agent to summarize conversation into MCP memory.
-# Injects additionalContext when 15+ new user messages since last summary.
+# UserPromptSubmit hook — triggers main agent to capture conversation into the vault.
+# Injects additionalContext when 15+ new user messages since last capture.
 # The main agent spawns a background Task agent to do the actual work.
 set -e
 
@@ -62,8 +62,8 @@ else
     last_count=$CURRENT_COUNT
     last_line=$(wc -l < "$TRANSCRIPT")
     printf '%s\n%s\n' "$last_count" "$last_line" > "$COUNTER_FILE"
-    # First message — inject MCP memory scan directive
-    MEMORY_SCAN="BEFORE responding, search MCP memory for context. Use the user's message as your search query (search_nodes). This loads project knowledge, user preferences, and prior decisions from the knowledge graph."
+    # First message — nudge graphify-based context lookup against the unified vault graph.
+    MEMORY_SCAN="BEFORE responding, query the unified graph for context. Use mcp__graphify__query_graph (or mcp__graphify__get_node for a known concept) with terms from the user's message to surface prior decisions, vault notes, and per-repo references."
 fi
 
 DELTA=$((CURRENT_COUNT - last_count))

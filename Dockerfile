@@ -166,10 +166,6 @@ RUN npm install -g @openai/codex@latest @google/gemini-cli@latest opencode-ai@la
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
 
-# Install MCP memory server for persistent agent memory across sessions
-RUN npm install -g @modelcontextprotocol/server-memory && \
-    npm cache clean --force && rm -rf /root/.npm
-
 # Install Bun for faster context-mode ctx_execute / ctx_batch_execute subprocess
 # starts. Bun is faster than Node for short-lived JS subprocess starts; the
 # improvement adds up across an interactive session that fires hooks on every

@@ -130,16 +130,14 @@ describe('entrypoint context-mode preseed gate', () => {
     );
   });
 
-  it('manifest present: preserves existing mcpServers entries (memory, consult-llm)', () => {
+  it('manifest present: preserves existing mcpServers entries (consult-llm)', () => {
     const cwd = mkdtempSync(join(baseTmp, 'merge-existing-'));
     const initial = JSON.stringify({
       mcpServers: {
-        memory: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
         'consult-llm': { command: 'npx', args: ['-y', 'consult-llm-mcp'] },
       },
     });
     const { claudeJson } = buildHarness(cwd, initial, true);
-    assert.ok(claudeJson.mcpServers.memory, 'memory MCP must be preserved');
     assert.ok(claudeJson.mcpServers['consult-llm'], 'consult-llm MCP must be preserved');
     assert.ok(claudeJson.mcpServers['context-mode'], 'context-mode MCP must be added');
   });

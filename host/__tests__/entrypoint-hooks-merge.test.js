@@ -281,29 +281,7 @@ describe('memory counter directory creation', () => {
   });
 });
 
-// ============================================================================
-// Test: merge_memory_files and cleanup_old_memory_files SESSION_MODE gating
-// ============================================================================
-describe('memory functions SESSION_MODE gating', () => {
-  it('merge_memory_files is gated on SESSION_MODE=advanced', () => {
-    const main = extractMainExecution();
-    assert.ok(main, 'MAIN EXECUTION section should exist');
-    // Find the merge_memory_files call and check it's inside a SESSION_MODE check
-    const mergeIdx = main.indexOf('merge_memory_files');
-    assert.ok(mergeIdx > -1, 'merge_memory_files should exist in main execution');
-    // Check the preceding lines include SESSION_MODE check
-    const preceding = main.slice(Math.max(0, mergeIdx - 200), mergeIdx);
-    assert.ok(
-      preceding.includes('SESSION_MODE:-default'),
-      'merge_memory_files call should be gated on SESSION_MODE'
-    );
-  });
-
-  // The "cleanup_old_memory_files is gated on SESSION_MODE=advanced" test was
-  // removed: the asserted invariant no longer holds in production (cleanup
-  // now runs unconditionally inside the bisync-baseline subshell because in
-  // default mode .memory/** is excluded from sync, making the gate moot). The
-  // test was also text-matching theater per tdd-discipline.md — it scanned
-  // 200 chars before the function name for a substring rather than exercising
-  // any real behavior.
-});
+// merge_memory_files and cleanup_old_memory_files were removed alongside the
+// MCP server-memory subsystem; the vault is now the sole cross-session memory
+// store. ~/.memory/counter survives as the hook gate (see counter directory
+// test above).
