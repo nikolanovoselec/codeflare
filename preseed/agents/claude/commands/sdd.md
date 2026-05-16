@@ -120,8 +120,9 @@ BYPASSING REVIEW  (USER-only — agents must never use these)
   legitimate work (trivial doc edit, emergency hotfix, post-mortem
   push), three escape hatches preserve user agency:
 
-    touch sdd/.skip-next-review     One-shot sentinel; auto-deleted
-                                    on use.
+    touch /tmp/review-bypass        One-shot sentinel; auto-deleted
+                                    on use. Per-session (not committed,
+                                    does not survive container restart).
     "skip review"                   Magic phrase in any USER message
     "skip verification"             after the candidate push line.
     3-strike circuit breaker        Built-in: after 3 blocks for the

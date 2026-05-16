@@ -25,7 +25,7 @@ The `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sd
 
 The hook tracks the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Acknowledgment advances only when the full pipeline (code-reviewer + spec-reviewer + doc-updater) is observed for the current PR HEAD.
 
-Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user deletes `sdd/.skip-next-review` (sentinel was consumed), the user says "skip review" in a message, or the user waits for the 3-strike circuit breaker to clear after 3 blocks on the same un-acknowledged PR HEAD.
+Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass` (one-shot sentinel; per-session, not committed, auto-deleted on use), the user says "skip review" in a message, or the user waits for the 3-strike circuit breaker to clear after 3 blocks on the same un-acknowledged PR HEAD.
 
 If enforcement fires spuriously after a legitimate pipeline completed, reset both checkpoints:
 

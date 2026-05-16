@@ -40,7 +40,7 @@
 # Bypass methods (USER-ONLY — the assistant must NEVER create the
 # sentinel or write the magic phrase in its own output. An assistant
 # that creates its own bypass defeats the entire enforcement layer.):
-#   1. Sentinel file: sdd/.skip-next-review (one-shot, auto-deleted)
+#   1. Sentinel file: /tmp/review-bypass (one-shot, auto-deleted)
 #   2. Magic phrase: USER MESSAGE since the candidate push line contains
 #      "skip review" or "skip verification" (case-insensitive, word-bounded)
 #   3. 3-strike circuit breaker: after 3 blocks for the same un-acked
@@ -113,8 +113,8 @@ fi
 # HOOK_EVENT check so a SubagentStop event doesn't consume the sentinel
 # before the actual Stop event has a chance to honor it.
 # ---------------------------------------------------------------------------
-if [ -f "sdd/.skip-next-review" ]; then
-  rm -f "sdd/.skip-next-review"
+if [ -f "/tmp/review-bypass" ]; then
+  rm -f "/tmp/review-bypass" 2>/dev/null || true
   exit 0
 fi
 
@@ -197,7 +197,7 @@ SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
 # push" sent BEFORE the assistant ran git push won't bypass — only
 # messages between the push line and the Stop event are scanned.
 # Users who need pre-emptive bypass should use the sentinel file
-# (`touch sdd/.skip-next-review`), which fires first via Bypass 1.
+# (`touch /tmp/review-bypass`), which fires first via Bypass 1.
 # ---------------------------------------------------------------------------
 if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
   exit 0
@@ -388,7 +388,7 @@ spawned_after_push "code-reviewer" || MISSING="$MISSING code-reviewer"
 spawned_after_push "spec-reviewer" || MISSING="$MISSING spec-reviewer"
 
 if [ -n "$MISSING" ]; then
-  REASON="PR #$CURRENT (head ${CURRENT_PR_HEAD:0:7}) needs SDD review. Spawn missing:$MISSING in parallel via Agent tool. USER bypass only: type 'skip review' or 'touch sdd/.skip-next-review'."
+  REASON="PR #$CURRENT (head ${CURRENT_PR_HEAD:0:7}) needs SDD review. Spawn missing:$MISSING in parallel via Agent tool. USER bypass: 'skip review' or 'touch /tmp/review-bypass'."
   emit_block "$REASON"
 fi
 
@@ -411,7 +411,7 @@ if [ -n "$SPEC_SPAWN_LINE" ]; then
     if [ -n "$SPEC_DONE_LINE" ]; then
       SINCE_SPEC_DONE=$(echo "$SINCE_SPEC" | tail -n +"$SPEC_DONE_LINE")
       if ! echo "$SINCE_SPEC_DONE" | grep -q '"subagent_type"[[:space:]]*:[[:space:]]*"doc-updater"'; then
-        REASON="spec-reviewer done; doc-updater missing. Spawn doc-updater via Agent tool (sequential — shared filesystem). USER bypass only: type 'skip review' or 'touch sdd/.skip-next-review'."
+        REASON="spec-reviewer done; doc-updater missing. Spawn doc-updater via Agent tool (sequential — shared filesystem). USER bypass: 'skip review' or 'touch /tmp/review-bypass'."
         emit_block "$REASON"
       fi
       PIPELINE_COMPLETE=1

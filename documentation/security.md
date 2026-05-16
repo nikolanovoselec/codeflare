@@ -113,7 +113,7 @@ When the context-mode plugin folder is active (Custom tier, Pro mode), a PreTool
 touch /tmp/ctx-bypass
 ```
 
-Same sentinel model as `sdd/.skip-next-review` (see `spec-discipline.md`).
+Same sentinel model as `/tmp/review-bypass` (see `spec-discipline.md`).
 
 ## Body Limit
 

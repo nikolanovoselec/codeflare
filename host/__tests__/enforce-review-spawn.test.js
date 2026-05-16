@@ -6,12 +6,12 @@
 //
 // Each test uses a fresh temp directory as cwd so hook side-effects
 // (.git/sdd-last-ack-pr-head, .git/sdd-review-block-count, deleted
-// sdd/.skip-next-review sentinel) don't bleed between tests.
+// /tmp/review-bypass sentinel) don't bleed between tests.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync, readFileSync, utimesSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -181,13 +181,18 @@ describe('enforce-review-spawn.sh — bypass 1: sentinel file', () => {
   it('exits 0 and deletes the sentinel file (one-shot)', () => {
     const cwd = makeFixture();
     withSdd(cwd);
-    writeFileSync(join(cwd, 'sdd/.skip-next-review'), '');
-    const t = writeTranscript(cwd, [PUSH_LINE()]);
-    const r = runHook(cwd, { transcriptPath: t });
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
-    assert.equal(existsSync(join(cwd, 'sdd/.skip-next-review')), false,
-      'sentinel must be deleted on use (one-shot semantics)');
+    writeFileSync('/tmp/review-bypass', '');
+    try {
+      const t = writeTranscript(cwd, [PUSH_LINE()]);
+      const r = runHook(cwd, { transcriptPath: t });
+      assert.equal(r.status, 0);
+      assert.equal(r.stdout, '');
+      assert.equal(existsSync('/tmp/review-bypass'), false,
+        'sentinel must be deleted on use (one-shot semantics)');
+    } finally {
+      // Guarantee no leak across tests if the hook didn't delete it.
+      try { unlinkSync('/tmp/review-bypass'); } catch {}
+    }
   });
 });
 
