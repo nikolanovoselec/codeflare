@@ -93,8 +93,9 @@ export interface VaultRouteResult {
  * the `originValidated=false` branch and hit the original CSRF guard.
  *
  * Exported solely so the unit test in src/__tests__/routes/vault.test.ts
- * can pin the four behavioural cases (validated+write, validated+read,
- * not-validated+write, header-already-present).
+ * can pin the behavioural cases (validated+write synthesises; validated
+ * +read passes through; not-validated passes through; header-already-
+ * present passes through; cloned body preserved; case-insensitive method).
  */
 export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boolean): Request {
   if (!originValidated) return request;

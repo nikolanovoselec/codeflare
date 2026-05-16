@@ -337,7 +337,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
       // Future SilverBullet build emitted a service-worker URL the proxy
       // does not recognise. Log so a version-bump regression surfaces in
       // structured logs instead of as a user-reported white-screen.
-      log('warn', 'unexpected service_worker.js path shape', { upstreamPath });
+      log('warn', 'Vault service worker path unexpected shape', { upstreamPath });
     }
     const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
     const headers: http.OutgoingHttpHeaders = {};
