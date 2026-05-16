@@ -64,8 +64,15 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 
 ACTIVE_REPO=""
 ACTIVE_SENTINEL="${HOME:-/home/user}/.cache/codeflare-hooks/graphify-active-cwd"
+# Racy-by-design read: graphify-active-repo.sh writes the sentinel via
+# `printf > $SENTINEL` (single open+write+close); a torn read here just
+# yields an empty string or a malformed path, both of which fall through
+# to the CWD fallback below. We deliberately do not flock the read - a
+# stale-by-one-tick sentinel resolves on the next tool call.
 if [ -f "$ACTIVE_SENTINEL" ]; then
-  ACTIVE_REPO=$(cat "$ACTIVE_SENTINEL" 2>/dev/null | tr -d '\n' || true)
+  # `read -r` consumes exactly the first line without a trailing newline,
+  # preserving any path characters (including spaces) verbatim.
+  read -r ACTIVE_REPO < "$ACTIVE_SENTINEL" || ACTIVE_REPO=""
 fi
 [ -n "$ACTIVE_REPO" ] && [ -d "$ACTIVE_REPO" ] || ACTIVE_REPO="$CWD"
 [ -f "$ACTIVE_REPO/graphify-out/graph.json" ] || exit 0

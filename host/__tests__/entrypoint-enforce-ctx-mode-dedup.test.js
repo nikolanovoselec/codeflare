@@ -355,4 +355,34 @@ describe('entrypoint settings.json hook merge - vault + graphify dedup', () => {
     assert.ok(!allCommands.includes('graphify-session-start.sh'), 'graphify-session-start.sh must be pruned on downgrade');
     assert.ok(!allCommands.includes('memory-capture.sh'), 'memory-capture.sh must be pruned on downgrade');
   });
+
+  it('regex anchor: paths without the literal `plugins/` segment are NOT considered managed', () => {
+    // Defence-in-depth: a hook script at an unrelated location like
+    // /opt/myrepo/graphify/scripts/foo.sh - same basename, different
+    // anchor - must NOT be scooped up by the prune. Only paths under
+    // the literal `plugins/` segment are managed by entrypoint.sh.
+    const fixture = JSON.stringify({
+      skipDangerousModePermissionPrompt: true,
+      hooks: {
+        PostToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [
+              { type: 'command', command: 'bash /opt/myrepo/graphify/scripts/foo.sh' },
+              { type: 'command', command: 'bash /home/user/custom/codeflare-vault/scripts/not-ours.sh' },
+            ],
+          },
+        ],
+      },
+    });
+    const merged = runJqMerge(fixture, defaultModeSettingsConfig());
+    const post = merged?.hooks?.PostToolUse ?? [];
+    const bashMatcher = post.find((e) => e.matcher === 'Bash');
+    assert.ok(bashMatcher, 'Bash matcher must survive downgrade because its hooks are user-owned');
+    const allCmds = bashMatcher.hooks.map((h) => h.command).join(' ');
+    assert.match(allCmds, /\/opt\/myrepo\/graphify\/scripts\/foo\.sh/,
+      'user hook at /opt/.../graphify/scripts/ must survive (no plugins/ anchor matched)');
+    assert.match(allCmds, /\/home\/user\/custom\/codeflare-vault\/scripts\/not-ours\.sh/,
+      'user hook outside ~/.claude/plugins/ must survive');
+  });
 });

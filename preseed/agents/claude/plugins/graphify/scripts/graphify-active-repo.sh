@@ -198,9 +198,16 @@ if [ -n "$OLD" ] && [ "$OLD" != "$REPO" ] && command -v graphify >/dev/null 2>&1
     OLD_BASENAME=$(basename "$OLD")
     NEW_BASENAME=$(basename "$REPO")
     if [ "$OLD_BASENAME" != "$NEW_BASENAME" ] && [ -f "$GLOBAL_MANIFEST" ]; then
-        STILL_PRESENT=$(jq -r --arg tag "$OLD_BASENAME" '.repos[$tag] // empty | length' "$GLOBAL_MANIFEST" 2>/dev/null || true)
-        if [ -n "$STILL_PRESENT" ] && [ "$STILL_PRESENT" != "0" ]; then
-            (flock /tmp/graphify-global.lock graphify global remove "$OLD_BASENAME" >/dev/null 2>&1) || true
+        # `.repos | has($tag)` returns a clean true/false; using `length`
+        # on `.repos[$tag] // empty` would also return 0 for a present-
+        # but-empty entry, falsely skipping the remove.
+        STILL_PRESENT=$(jq -r --arg tag "$OLD_BASENAME" '.repos | has($tag)' "$GLOBAL_MANIFEST" 2>/dev/null || true)
+        if [ "$STILL_PRESENT" = "true" ]; then
+            # -w 5: bounded wait so a stuck capture / vault-extract sonnet
+            # holding the global-graph lock cannot hang the user's tool
+            # call indefinitely. Lock-acquire failure is swallowed by the
+            # outer `|| true`; the next active-repo fire will retry.
+            (flock -w 5 /tmp/graphify-global.lock graphify global remove "$OLD_BASENAME" >/dev/null 2>&1) || true
         fi
     fi
 fi
@@ -215,14 +222,19 @@ if [ -f "$GRAPH_JSON" ] && command -v graphify >/dev/null 2>&1; then
     NEED_ADD=1
     if [ -f "$GLOBAL_MANIFEST" ]; then
         STORED_HASH=$(jq -r --arg tag "$REPO_BASENAME" '.repos[$tag].source_hash // empty' "$GLOBAL_MANIFEST" 2>/dev/null || true)
-        if [ -n "$STORED_HASH" ]; then
-            # graphify stores the first 16 hex chars of the file SHA-256
+        # graphify stores the first 16 hex chars of the file SHA-256.
+        # Length sanity check: if the manifest format ever changes (full
+        # 64-char hash, base64, salted), refuse the optimisation and
+        # force re-add - graphify's own source_hash dedup will then run
+        # at the CLI level and either no-op or correctly replace.
+        if [ -n "$STORED_HASH" ] && [ "${#STORED_HASH}" -eq 16 ]; then
             CURRENT_HASH=$(sha256sum "$GRAPH_JSON" 2>/dev/null | awk '{print substr($1,1,16)}')
             [ "$CURRENT_HASH" = "$STORED_HASH" ] && NEED_ADD=0
         fi
     fi
     if [ "$NEED_ADD" = "1" ]; then
-        (flock /tmp/graphify-global.lock graphify global add "$GRAPH_JSON" --as "$REPO_BASENAME" >/dev/null 2>&1) || true
+        # -w 5 bound: same rationale as the remove above.
+        (flock -w 5 /tmp/graphify-global.lock graphify global add "$GRAPH_JSON" --as "$REPO_BASENAME" >/dev/null 2>&1) || true
     fi
 fi
 

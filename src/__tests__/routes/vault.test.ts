@@ -154,6 +154,38 @@ describe('validateVaultRoute', () => {
       // around the original triggers the same TypeError prod observed.
       expect(() => new Request('https://example.com/x', req)).toThrow(/disturbed/);
     });
+
+    it('contract: forward chain preserves PUT body end-to-end (synth -> auth-headers-only -> container.fetch)', async () => {
+      // Higher-level pin than the disturbed-stream test above: this one
+      // walks the EXACT data flow that handleVaultRequest uses on a save
+      // PUT and asserts the body arrives at the container intact. If a
+      // future refactor reintroduces the original-request-instead-of-
+      // requestForAuth pattern (the production bug), the body either
+      // disturbs the stream (test throws) or arrives empty (test fails
+      // with text() mismatch).
+      const payload = '# Note title\n\nbody bytes that must reach the container';
+      const original = makeRequest(
+        'PUT',
+        { 'Content-Type': 'text/markdown', Cookie: 'codeflare_session=fake', Origin: 'https://codeflare.ch' },
+        payload,
+      );
+      // Step 1: CSRF synthesis (originValidated=true mirrors the prod path).
+      const requestForAuth = maybeSynthesizeCsrfHeader(original, true);
+      // Step 2: simulate every header read authenticateRequest performs.
+      // If a future change adds a body read here, this test will fail
+      // when step 3 below attempts to re-stream the body.
+      void requestForAuth.method.toUpperCase();
+      void requestForAuth.headers.get('X-Requested-With');
+      void requestForAuth.headers.get('Cookie');
+      void requestForAuth.headers.get('cf-access-jwt-assertion');
+      // Step 3: forward to the container by constructing a new Request
+      // around requestForAuth (the production code path at
+      // src/routes/vault.ts -> `container.fetch(new Request(vaultUrl, requestForAuth))`).
+      const forwarded = new Request('https://internal.container.local/vault/notes/x.md', requestForAuth);
+      const arrived = await forwarded.text();
+      expect(arrived).toBe(payload);
+      expect(requestForAuth.headers.get('X-Requested-With')).toBe('XMLHttpRequest');
+    });
   });
 
   describe('isServiceWorkerRegistration', () => {
@@ -167,10 +199,11 @@ describe('validateVaultRoute', () => {
       });
     }
 
-    it('returns true for GET /service_worker.js with service-worker:script header', () => {
+    it('returns true for GET /service_worker.js with service-worker:script header and no Cookie', () => {
       // The `service-worker: script` header is browser-set on SW registration
-      // fetches and not forgeable from page JS, so it is a safe selector for
-      // the no-cookie auth bypass.
+      // fetches and is a Fetch-spec forbidden header name (page JS cannot
+      // set it via `fetch()`), so it is a safe selector for the no-cookie
+      // auth bypass. Cookie absence is required as defence-in-depth.
       expect(isServiceWorkerRegistration(
         swRequest('GET', { 'service-worker': 'script' }),
         '/service_worker.js',
@@ -180,6 +213,17 @@ describe('validateVaultRoute', () => {
     it('returns false without the service-worker header (regular asset fetch)', () => {
       expect(isServiceWorkerRegistration(
         swRequest('GET'),
+        '/service_worker.js',
+      )).toBe(false);
+    });
+
+    it('returns false when Cookie is present (defence-in-depth: let normal auth handle authenticated SW reg)', () => {
+      // If the browser ever stops stripping cookies on SW registration,
+      // or some other path delivers an authenticated SW fetch, we want
+      // the normal auth chain to run (returning the real upstream SW or
+      // 401) rather than serving the static no-op shortcut.
+      expect(isServiceWorkerRegistration(
+        swRequest('GET', { 'service-worker': 'script', Cookie: 'codeflare_session=eyJ...' }),
         '/service_worker.js',
       )).toBe(false);
     });

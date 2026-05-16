@@ -111,7 +111,7 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
  * Minimal no-op Service Worker served by the Worker for `service_worker.js`
  * registration requests. SilverBullet's real SW (offline-cache bundle) cannot
  * be served via the vault proxy because Chrome omits cookies on the SW script
- * fetch — the browser's `navigator.serviceWorker.register()` call sends only
+ * fetch - the browser's `navigator.serviceWorker.register()` call sends only
  * `Accept`, `DNT`, and `Service-Worker: script` (no `Cookie`), so any cookie-
  * gated route returns 401 and registration fails permanently. The vault UI
  * does not depend on SilverBullet's offline cache; all editor operations run
@@ -123,21 +123,34 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
  * container without cookies).
  */
 export const VAULT_NOOP_SERVICE_WORKER_JS =
-  '// Codeflare vault no-op service worker — see src/routes/vault.ts.\n' +
+  '// Codeflare vault no-op service worker - see src/routes/vault.ts.\n' +
   'self.addEventListener("install", () => self.skipWaiting());\n' +
   'self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));\n';
 
 /**
  * Identify a browser-initiated Service Worker registration GET. The
- * `service-worker: script` request header is set by the user agent and not
- * forgeable from page JavaScript, so it is a safe selector for the auth-
- * bypass that follows. The path-suffix check pins the SilverBullet-served
- * SW URL; any other path falls through to the normal auth chain.
+ * `service-worker: script` request header is set by the user agent and is
+ * a Fetch-spec forbidden header name today, so page JavaScript cannot
+ * forge it via `fetch()`. The path-suffix check pins the SilverBullet-
+ * served SW URL; any other path falls through to the normal auth chain.
+ *
+ * Defence-in-depth: also require the request to have no `Cookie` header.
+ * The bypass exists only because Chrome's SW spec compliance strips
+ * cookies on the registration fetch; if a cookie is somehow present
+ * (different browser, different bypass-route, future spec change), let
+ * the normal auth chain handle it - that path returns the real upstream
+ * SW for authenticated users or 401 for unauthenticated ones, which is
+ * the original (correct) behaviour rather than this static-noop shortcut.
+ * If the forbidden-header status of `Service-Worker` ever changes and a
+ * cookieless GET becomes page-JS-spoofable, the attacker still only
+ * gets back the static no-op JS string with no user data leakage.
  */
 export function isServiceWorkerRegistration(request: Request, remainingPath: string | undefined): boolean {
   if (request.method !== 'GET') return false;
   if (remainingPath !== '/service_worker.js') return false;
-  return request.headers.get('service-worker') === 'script';
+  if (request.headers.get('service-worker') !== 'script') return false;
+  if (request.headers.get('Cookie')) return false;
+  return true;
 }
 
 export function validateVaultRoute(request: Request): VaultRouteResult {
@@ -372,7 +385,10 @@ export async function handleVaultRequest(
     // the `let requestForAuth = request` comment above. Using `request`
     // here triggers "ReadableStream is disturbed" on PUT/POST/PATCH because
     // the CSRF synthesiser has already consumed the body to build its
-    // header-rewritten clone.
+    // header-rewritten clone. WebSocket upgrades flow through this same
+    // line: `maybeSynthesizeCsrfHeader` is a no-op for GET (and WS upgrades
+    // are always GET), so `requestForAuth === request` for the WS case and
+    // the Upgrade / Sec-WebSocket-* headers are preserved verbatim.
     const response = await container.fetch(new Request(vaultUrl.toString(), requestForAuth));
 
     // SilverBullet 2.8.0 emits `<base href="/" />` in its index HTML so
