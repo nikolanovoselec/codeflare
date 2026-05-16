@@ -268,11 +268,27 @@ Implements [REQ-AGENT-008](../sdd/agents.md#req-agent-008) AC3–AC5.
 using a two-phase strategy. Non-hooks settings (statusLine,
 effortLevel, permissions, etc.) are merged with `jq '. * $cfg'`.
 Hooks are rebuilt separately: for each hook type and matcher,
-user-added hooks (commands not matching
-`codeflare-(hooks|memory)/scripts/`) are preserved, while managed
-hooks are replaced with the entrypoint's definitions. This prevents
-stale managed hooks from persisting while keeping user
-customizations. Handles three cases:
+user-added hooks (commands not matching the managed-hooks regex)
+are preserved, while managed hooks are replaced with the
+entrypoint's definitions. The managed-hook detector matches:
+
+- `plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/`
+  (anchored on the literal `plugins/` segment so unrelated
+  workspace tools with the same basenames are not falsely scooped
+  into the prune)
+- `enforce-ctx-mode.sh` (both legacy `~/.claude/hooks/` and
+  current `~/.claude/plugins/context-mode/scripts/` paths)
+- `context-mode hook claude-code` CLI invocations (bare,
+  `bunx context-mode@*`, and `npx -y context-mode@*` forms for
+  legacy-compat with stale settings.json from before the
+  build-time install landed)
+
+Adding a new hook script to entrypoint requires extending this
+regex - otherwise prior copies accumulate on every container boot
+instead of being replaced (the bug class that PR #369 fixed for
+`codeflare-vault/scripts/` and `graphify/scripts/`).
+
+Handles three cases:
 
 - **File doesn't exist**: Creates with settings config
 - **File exists**: Merges non-hooks settings, rebuilds hooks
@@ -345,7 +361,7 @@ In advanced session mode, `enforce-graphify.sh` is a second PreToolUse hook on t
 Mechanics:
 
 - **Matchers**: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. Covers both standard tiers (where `Grep`/`Bash` fire natively) and custom tier (where `enforce-ctx-mode.sh` denies `Grep` and forces routing through the `ctx_execute*` family).
-- **Gating**: only fires when `graphify-out/graph.json` exists in the agent's cwd, so vibe-coding repos are unaffected.
+- **Gating**: two-step active-repo resolution. The hook first reads `~/.cache/codeflare-hooks/graphify-active-cwd` (the sentinel `graphify-active-repo.sh` maintains on every Bash/Edit/Write/ctx_execute tool call) and checks `<active-repo>/graphify-out/graph.json`. If the sentinel is absent or stale, it falls back to the tool-call envelope `.cwd`. In codeflare the session cwd is always `~/workspace` (parent of all repos, never a sub-repo), so the sentinel is the load-bearing signal; the envelope-cwd fallback exists for vanilla graphify usage outside codeflare. Vault-only-in-global is intentionally NOT enforcement-eligible: a session whose active repo has no graph triggers no hard-block, so the user can grep freely in repos they have not yet graphified.
 - **Threshold**: blocks the next structural search after 3 grep-class tool calls in the same turn (counted by walking the transcript backward to the last real user prompt) when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation) has been made.
 - **Classification**: SEARCH = first-word `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, or `awk` with `/regex/` body. The shell parser reuses `extract_subs` + `normalize_command` + chain-op splitter from `enforce-ctx-mode.sh`, so command/process substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
 - **User-only bypass**: `touch /tmp/graphify-bypass` (one-shot, auto-deleted on use) or include `skip graph` (case-insensitive) in a user message. The agent must never create the sentinel.

@@ -96,10 +96,21 @@ Write sites that touch the global graph:
 
 - The capture sonnet, after writing a vault file (REQ-VAULT-002).
 - The vault-extract sonnet, after user-edit extraction (REQ-VAULT-003).
-- `graphify-active-repo.sh`, the first time a cloned repo with `graphify-out/` is seen.
+- `graphify-active-repo.sh`, on every active-repo transition where a per-repo graph exists or its `source_hash` differs from the manifest (single-active-repo invariant; see below).
 - The `/graphify` skill, on commit, after building a repo's graph.
 
-All four serialise via `flock /tmp/graphify-global.lock`. The locking is necessary because `graphify global add` rewrites the manifest + merged graph file in place.
+All four serialise via `flock -w 5 /tmp/graphify-global.lock`. The locking is necessary because `graphify global add` rewrites the manifest + merged graph file in place; the `-w 5` bound prevents a stuck holder from hanging Bash/Edit/Write/ctx_execute tool calls indefinitely.
+
+### Single-active-repo invariant
+
+`graphify-active-repo.sh` enforces a single-active-repo invariant for the per-repo side of the global graph: at any time the manifest holds the vault entry plus exactly one per-repo entry (the user's currently active repo). The hook is structured around a sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd`:
+
+1. **Fast-path skip**: if the resolved active-repo path equals the prior sentinel value AND `graphify-out/graph.json`'s mtime is not newer than the sentinel's mtime, the hook returns immediately. This avoids spawning the graphify CLI (hundreds of MB of Python imports) on every Bash/Edit/Write/ctx_execute tool call.
+2. **Repo switch** (OLD path differs from NEW path with a different basename, and OLD is still in the manifest): `flock -w 5 ... graphify global remove <OLD-basename>` prunes the prior repo's nodes. Same-basename transitions (two clones with identical directory names, or branch switches within the same repo) skip the explicit remove because the add below replaces the existing entry via graphify's source_hash dedup.
+3. **Add/refresh**: pre-checks the manifest's recorded `source_hash` against `sha256sum` of the current `graph.json` (truncated to graphify's 16-hex format, with a length sanity-guard so a future format change does not silently degrade to "always re-add"). If the hash differs or the tag is new, `flock -w 5 ... graphify global add --as <basename>` adds or replaces the entry.
+4. **Sentinel mtime bump**: `touch`-bumps the sentinel after every non-fast-path fire so subsequent fires can short-circuit until the next graph rebuild.
+
+Branch granularity is intentionally not represented in the manifest -- a repo's tag is its directory basename. Branch switches within the same repo refresh the entry via the hash-diff path once the user has rebuilt the graph on the new branch (`graphify update` or `/graphify`). Until the rebuild runs, the global graph still shows the prior branch's nodes under the same tag, an acceptable staleness window since auto-rebuild on every checkout would be too expensive.
 
 ## SilverBullet Editor (REQ-VAULT-005)
 
@@ -116,6 +127,20 @@ SilverBullet 2.8.0 emits `<base href="/" />` in its index HTML, so under the `/a
 SilverBullet honours `SB_URL_PREFIX` to render the base tag with a prefix, but the prefix is per-session (the Worker knows `:sid`, the container does not), so baking it in at supervisor start is not viable. `handleVaultRequest` in `src/routes/vault.ts` is the per-session adapter: when the requested path is `/` or `/index.html` and the response Content-Type is `text/html`, it rewrites `<base href="/" />` to `<base href="/api/vault/<sid>/" />`. Non-HTML responses (JS bundles, PNG icons, manifest JSON) and HTML responses on non-shell paths pass through unchanged so the rewrite cost is bounded.
 
 When the body is rewritten, both `Content-Length` (body length changed) and `Content-Encoding` (Workers `Response.text()` auto-decompresses gzip/br upstream, so the body is now plain text) are dropped from the response headers. A `vault base-href rewrite no-op` warning is logged when the rewrite runs but matches nothing, so a future SilverBullet template change (single-quoted href, added attribute, etc.) surfaces as a logged signal instead of a silent white-screen regression.
+
+### Service Worker registration noop bypass
+
+SilverBullet's client registers a Service Worker for offline caching. Chrome 76+ omits credentials on `navigator.serviceWorker.register()` script fetches even for same-origin same-site URLs, so the cookie-auth chain at `/api/vault/<sid>/service_worker.js` always returned 401 and registration failed permanently with `Failed to register a ServiceWorker for scope (...) ... A bad HTTP response code (401) was received when fetching the script`.
+
+`handleVaultRequest` short-circuits these requests and serves `VAULT_NOOP_SERVICE_WORKER_JS` (a minimal `install` + `skipWaiting` + `activate` + `clients.claim` handler set) directly from the Worker. The selector requires all four conditions: method `GET`, exact path `/service_worker.js`, request header `Service-Worker: script` (a Fetch-spec forbidden header name -- page JavaScript cannot set it via `fetch()`), and no `Cookie` header. The cookie-absent gate is defence-in-depth: if a future browser path delivers an authenticated SW fetch, the normal auth chain handles it (returning the real upstream SW or 401) instead of the static-noop shortcut.
+
+The static SW JS is identical across sessions and contains zero user data, so bypassing auth on this exact request is safe. SilverBullet loses its offline-cache feature, which is non-essential for online use. All other vault operations continue to run from page context where cookies are sent normally; only the SW registration handshake takes this path.
+
+If a real SW ever becomes load-bearing in a future SilverBullet version, the mitigation is to inline its source into `VAULT_NOOP_SERVICE_WORKER_JS` -- the cookie-absence constraint blocks any path that would otherwise reach the container.
+
+### PUT body forwarding contract
+
+For body-bearing methods (PUT/POST/PATCH), `container.fetch` must be called with the Request returned by `maybeSynthesizeCsrfHeader`, not the original incoming `request`. The helper consumes the input body when it constructs the header-rewritten clone (Workers Fetch semantics for `new Request(input, { headers })`); forwarding the original raises `TypeError: This ReadableStream is disturbed (has already been read from)`. `handleVaultRequest` hoists `requestForAuth` to outer scope for exactly this reason, and `authenticateRequest` must read only headers (cookies, JWT assertion) -- a future body read inside the auth chain would re-introduce the same bug.
 
 ## Shutdown Bisync Reliability (REQ-VAULT-006)
 
@@ -161,6 +186,8 @@ SilverBullet supports pasting images directly into notes (they land in `raw/past
 | Clicking "Quick Note" shows `You are not authenticated, going to reload...` alert, then reloads to a blank/white page | SilverBullet's client.js writes via PUT/DELETE/PATCH without `X-Requested-With`, which `authenticateRequest`'s CSRF guard required (fixed by the Origin-validated synthesis in `src/routes/vault.ts`) | Redeploy the container image to pick up the fix. As a temporary workaround, open the vault in a fresh browser tab (clears any stale ServiceWorker scope that may compound the loop). |
 | SilverBullet opens with wrong index page or default editor mode | Existing vault round-tripped through R2 bisync before the idempotent config sync landed in `init_obsidian_vault` | Redeploy. The boot-time `cmp`-gated sync propagates the preseed `config.yaml` on the next start. |
 | `mcp__graphify__query_graph` returns no vault nodes even after several capture cycles | Older image: capture sonnet called `graphify extract --file` (requires an LLM provider key, codeflare ships none), so every run produced 0 nodes | Redeploy. After the fix, sonnets self-extract via their own conversation and emit chunk JSON that `graphify global add` ingests. |
+| Browser console shows `Failed to register a ServiceWorker ... 401 ... fetching the script`; SilverBullet loads but appears unregistered as a PWA / offline mode never activates | Older image: SW registration GET at `/api/vault/<sid>/service_worker.js` ran the cookie-auth chain, but Chrome 76+ omits credentials on SW script fetches (no `Cookie` header sent), so auth returned 401 and registration failed permanently | Redeploy. The Worker now short-circuits SW registration via `VAULT_NOOP_SERVICE_WORKER_JS` (selector: `service-worker: script` header + no `Cookie`) and returns a static no-op SW the browser accepts. Distinct from the CSRF / Quick-Note row above; both can be present on a pre-fix image. |
+| Editing a SilverBullet note shows `Could not save page, retrying again in 10 seconds` repeatedly; saves never succeed | Older image: PUT requests went through `maybeSynthesizeCsrfHeader` which clones the request to add `X-Requested-With`, consuming the original body; the proxy then forwarded the original (now disturbed) request to `container.fetch`, raising `TypeError: This ReadableStream is disturbed` and returning 500 | Redeploy. The proxy now forwards the auth-validated clone (which owns the body) instead of the original; pre-fix images log `Vault request error` with the disturbed-stream stack trace in Worker logs (`wrangler tail` or Cloudflare Observability). |
 
 ## Related Documentation
 
