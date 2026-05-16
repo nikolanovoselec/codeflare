@@ -258,6 +258,38 @@ export async function handleVaultRequest(
     });
 
     const response = await container.fetch(new Request(vaultUrl.toString(), request));
+
+    // SilverBullet 2.8.0 emits `<base href="/" />` in its index HTML so
+    // every relative asset reference (e.g. `.client/client.js`) resolves
+    // against the worker root, where the Worker has no route handler and
+    // returns 404 — producing the "white screen" symptom under the
+    // /api/vault/:sid/ subpath proxy. SilverBullet supports `SB_URL_PREFIX`
+    // to render `<base href="<prefix>/" />`, but the prefix is per-session
+    // (the worker knows :sid, the container does not), so the container
+    // can't bake it in at supervisor start. Rewriting the response here
+    // is the per-session adapter: replace the bare `<base href="/" />`
+    // with the session-prefixed equivalent so the browser resolves
+    // assets back through `/api/vault/<sid>/.client/...`.
+    //
+    // Scoped to text/html responses to avoid corrupting JS bundles or
+    // binary assets (logos, PNG icons). Streaming-rewrite would be ideal
+    // but text/html bodies are <100KB in practice; eager .text() is fine.
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.includes('text/html')) {
+      const prefix = `/api/vault/${sessionId}`;
+      const body = await response.text();
+      const rewritten = body.replace(
+        /<base\s+href="\/"\s*\/?>/gi,
+        `<base href="${prefix}/" />`,
+      );
+      const headers = new Headers(response.headers);
+      headers.delete('content-length'); // body length changed
+      return new Response(rewritten, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
     return response;
   } catch (err) {
     logger.error('Vault request error', toError(err));
