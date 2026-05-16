@@ -1,6 +1,5 @@
 import { Component, Show, For, createMemo, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
 import {
-  mdiXml,
   mdiCogOutline,
   mdiShieldAccount,
   mdiAccountOutline,
@@ -223,7 +222,7 @@ const Header: Component<HeaderProps> = (props) => {
         onClick={() => props.onLogoClick?.()}
         role={props.onLogoClick ? 'button' : undefined}
       >
-        <Icon path={mdiXml} size={22} class="header-logo-icon" />
+        <Icon path={mdiViewDashboardOutline} size={22} class="header-logo-icon" />
       </div>
 
       {/* Session Switcher */}
@@ -551,17 +550,6 @@ const Header: Component<HeaderProps> = (props) => {
           onClick={() => props.onSettingsClick?.()}
         >
           <Icon path={mdiCogOutline} size={20} class="settings-rotate" />
-        </button>
-
-        {/* Dashboard button */}
-        <button
-          class="header-dashboard-button"
-          data-testid="header-dashboard-button"
-          title="Return to dashboard"
-          type="button"
-          onClick={() => props.onLogoClick?.()}
-        >
-          <Icon path={mdiViewDashboardOutline} size={20} />
         </button>
       </div>
     </header>

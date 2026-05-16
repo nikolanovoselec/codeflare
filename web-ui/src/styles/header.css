@@ -49,6 +49,14 @@
           background: var(--color-bg-muted);
         }
 
+        .header-logo--clickable .header-logo-icon {
+          animation: dashboard-icon-glow 3s ease-in-out infinite;
+        }
+
+        .header-logo--clickable:hover .header-logo-icon {
+          animation: dashboard-icon-pulse 600ms ease-in-out;
+        }
+
         /* Spacer to push actions to the right */
         .header-spacer {
           flex: 1;
@@ -537,33 +545,6 @@
           box-shadow: var(--glow-accent);
         }
 
-        .header-dashboard-button {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 36px;
-          height: 36px;
-          border-radius: var(--radius-md);
-          color: var(--color-accent);
-          cursor: pointer;
-          transition: background var(--transition-fast), color var(--transition-fast), transform 200ms ease;
-          animation: dashboard-icon-glow 3s ease-in-out infinite;
-        }
-
-        .header-dashboard-button:hover {
-          background: var(--color-bg-muted);
-          color: var(--color-accent);
-        }
-
-        .header-dashboard-button:hover svg {
-          animation: dashboard-icon-pulse 600ms ease-in-out;
-        }
-
-        .header-dashboard-button:focus-visible {
-          outline: none;
-          box-shadow: var(--glow-accent);
-        }
-
         @keyframes dashboard-icon-glow {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.6; }
@@ -628,8 +609,7 @@
         @media (max-width: 640px) {
           .header-storage-button,
           .header-settings-button,
-          .header-bookmarks-button,
-          .header-dashboard-button {
+          .header-bookmarks-button {
             width: 44px;
             height: 44px;
           }

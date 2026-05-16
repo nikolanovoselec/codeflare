@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
-import { mdiXml } from '@mdi/js';
+import { mdiViewDashboardOutline } from '@mdi/js';
 import Header from '../../components/Header';
 
 // Mock isMobile - default to desktop (false)
@@ -113,7 +113,7 @@ describe('Header Component', () => {
       expect(bookmarksButton).toBeInTheDocument();
     });
 
-    it('should render logo with XML icon', () => {
+    it('should render logo with dashboard icon', () => {
       render(() => <Header sessions={[]} activeSessionId={null} onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}} onCreateSession={() => {}} />);
       const logo = screen.getByTestId('header-logo');
       const icon = logo.querySelector('svg');
@@ -121,13 +121,13 @@ describe('Header Component', () => {
       expect(icon).toBeInTheDocument();
     });
 
-    it('should use mdiXml icon path for the logo', () => {
+    it('should use mdiViewDashboardOutline icon path for the logo', () => {
       render(() => <Header sessions={[]} activeSessionId={null} onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}} onCreateSession={() => {}} />);
       const logo = screen.getByTestId('header-logo');
       const svgPath = logo.querySelector('svg path');
 
       expect(svgPath).toBeInTheDocument();
-      expect(svgPath?.getAttribute('d')).toBe(mdiXml);
+      expect(svgPath?.getAttribute('d')).toBe(mdiViewDashboardOutline);
     });
   });
 
@@ -440,7 +440,7 @@ describe('Header Component', () => {
   });
 
   describe('Logo', () => {
-    it('should show XML icon on desktop', () => {
+    it('should show dashboard icon on desktop', () => {
       isMobileMock.value = false;
       render(() => <Header sessions={[]} activeSessionId={null} onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}} onCreateSession={() => {}} onLogoClick={() => {}} />);
 
@@ -459,13 +459,13 @@ describe('Header Component', () => {
       expect(handleLogoClick).toHaveBeenCalledTimes(1);
     });
 
-    it('should always use mdiXml icon (never mdiMenu), even on mobile', () => {
+    it('should always use mdiViewDashboardOutline icon (never mdiMenu), even on mobile', () => {
       isMobileMock.value = true;
       render(() => <Header sessions={[]} activeSessionId={null} onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}} onCreateSession={() => {}} />);
 
       const logo = screen.getByTestId('header-logo');
       const svgPath = logo.querySelector('svg path');
-      expect(svgPath?.getAttribute('d')).toBe(mdiXml);
+      expect(svgPath?.getAttribute('d')).toBe(mdiViewDashboardOutline);
     });
   });
 
@@ -485,7 +485,7 @@ describe('Header Component', () => {
       render(() => <Header sessions={[]} activeSessionId={null} onSelectSession={() => {}} onStopSession={() => {}} onDeleteSession={() => {}} onCreateSession={() => {}} />);
       const logo = screen.getByTestId('header-logo');
       const svgPath = logo.querySelector('svg path');
-      expect(svgPath?.getAttribute('d')).toBe(mdiXml);
+      expect(svgPath?.getAttribute('d')).toBe(mdiViewDashboardOutline);
     });
   });
 
