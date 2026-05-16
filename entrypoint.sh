@@ -1197,6 +1197,28 @@ VAULT_README_EOF
         echo "[entrypoint] Vault skeleton initialized"
     fi
 
+    # Idempotent preseed-config sync. This runs on every boot, not just
+    # on first-time vault creation, because existing vaults that
+    # round-tripped through R2 bisync from older codeflare versions
+    # never received the SilverBullet config (the skeleton-create block
+    # above is gated on `! -d $VAULT` and skips entirely on already-
+    # existing vaults). Without the config, SilverBullet runs on its
+    # bare defaults — the user-visible symptom was a missing index page
+    # configuration and editor defaults reverting to upstream behaviour.
+    # `cp -n` would skip if target exists; instead overwrite so a
+    # codeflare-side config update propagates to every active vault on
+    # next boot.
+    mkdir -p "$VAULT/.silverbullet/_plug"
+    if [ -f "$PRESEED_DIR/config.yaml" ] \
+       && ! cmp -s "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml" 2>/dev/null; then
+        cp "$PRESEED_DIR/config.yaml" "$VAULT/.silverbullet/config.yaml"
+        echo "[entrypoint] Vault config.yaml synced from preseed"
+    fi
+    if [ -f "$PRESEED_DIR/atlas.plug.js" ] \
+       && ! cmp -s "$PRESEED_DIR/atlas.plug.js" "$VAULT/.silverbullet/_plug/atlas.plug.js" 2>/dev/null; then
+        cp "$PRESEED_DIR/atlas.plug.js" "$VAULT/.silverbullet/_plug/atlas.plug.js"
+    fi
+
     # Seed the global graph with the vault. Hash-keyed idempotent — safe to
     # re-run on every boot. Best-effort: if graphify global isn't available
     # (e.g. graphify plugin disabled), continue.

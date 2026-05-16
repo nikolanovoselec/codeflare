@@ -313,7 +313,24 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   // `/api/vault/:sid` prefix before forwarding. SilverBullet sees a
   // clean `/<remaining>` path.
   if (pathname && (pathname === '/vault' || pathname.startsWith('/vault/'))) {
-    const upstreamPath = pathname.slice('/vault'.length) || '/';
+    let upstreamPath = pathname.slice('/vault'.length) || '/';
+    // SilverBullet 2.8.0 serves the service worker only at the root path
+    // (/service_worker.js, with Content-Type text/javascript). Requests
+    // routed under /.client/service_worker.js fall through to the
+    // catch-all SPA handler and come back as text/html, which the
+    // browser then rejects with "ServiceWorker: bad MIME type" and the
+    // user sees the registration error from screenshot 1. The base-href
+    // rewrite in src/routes/vault.ts already makes SB client.js compute
+    // the URL via document.baseURI so first-time clients hit
+    // /api/vault/:sid/service_worker.js (which maps to root after both
+    // prefix-strips and works), but browsers with a stale ServiceWorker
+    // scope from a pre-rewrite session, or any future SB build that
+    // changes the URL composition, can still arrive at /.client/...
+    // Map both shapes to the canonical root path so the JS bundle is
+    // always served with the correct MIME.
+    if (upstreamPath === '/.client/service_worker.js') {
+      upstreamPath = '/service_worker.js';
+    }
     const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
     const headers: http.OutgoingHttpHeaders = {};
     for (const [k, v] of Object.entries(req.headers)) {
