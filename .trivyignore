@@ -306,3 +306,35 @@ CVE-2026-45186
 # Exposure profile is identical to the other "Go stdlib / module in
 # rclone/lazygit binaries" entries above.
 CVE-2026-44973
+
+# Go stdlib in rclone / lazygit binaries (Go 1.25.1 build): new batch of
+# DoS-class advisories. Fixes are in Go 1.24.x / 1.25.x point releases but
+# rclone/lazygit upstream releases have not rebuilt. Exposure profile is
+# identical to the earlier Go stdlib entries above: both binaries are CLI
+# tools in the sandboxed container, do outbound network only, and never
+# parse untrusted tar/zip archives, query parameters, or untrusted cert
+# chains as a server.
+#
+# CVE-2025-58183: archive/tar unbounded allocation when parsing GNU sparse map.
+# CVE-2025-61726: net/url memory exhaustion in query-parameter parsing.
+# CVE-2025-61728: archive/zip excessive CPU when building zip with many entries.
+# CVE-2025-61729: crypto/x509 DoS via excessive work on crafted chains.
+CVE-2025-58183
+CVE-2025-61726
+CVE-2025-61728
+CVE-2025-61729
+
+# gomarkdown/markdown v0.0.0-20250810172220 embedded in a third-party
+# CLI binary (transitive dep). Container does not feed user-controlled
+# markdown to this library; the affected code path is only reachable
+# when rendering attacker-supplied markdown, which the CLI never does.
+# Upstream fix exists (v0.0.0-20260411013819) but the consuming CLI
+# has not yet rebuilt.
+CVE-2026-40890
+
+# cpython 3.11 (libpython3.11-minimal 3.11.2-6+deb12u7): xml.parsers.expat
+# and xml.etree.ElementTree DoS via crafted XML. python3 is added for ECC
+# observe hooks (stdlib only); the container parses no untrusted XML at
+# runtime. Same exposure profile as the existing CVE-2025-69534 entry.
+# No fixed version available in Debian bookworm.
+CVE-2026-7210
