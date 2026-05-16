@@ -9,14 +9,14 @@ Persistent obsidian-style note vault, automatic conversation capture, unified gr
 ## Contents
 
 - [Overview](#overview-req-vault-001)
-- [Directory Layout](#directory-layout-req-vault-001)
+- [Directory Layout](#directory-layout)
 - [Capture Path](#capture-path-req-vault-002)
 - [User-edit Path](#user-edit-path-req-vault-003)
 - [Unified Global Graph](#unified-global-graph-req-vault-004)
 - [SilverBullet Editor](#silverbullet-editor-req-vault-005)
 - [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
 - [Preseed Integration](#preseed-integration-req-vault-007)
-- [First-session Expectations](#first-session-expectations-req-vault-001)
+- [First-session Expectations](#first-session-expectations)
 - [Image-pasting Cost Caveat](#image-pasting-cost-caveat)
 - [Troubleshooting](#troubleshooting)
 - [Related Documentation](#related-documentation)
@@ -34,7 +34,7 @@ Two parties write to the vault:
 
 A single 60s daemon polls for user edits and signals a background sonnet to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
 
-## Directory Layout (REQ-VAULT-001)
+## Directory Layout
 
 ```
 .obsidian_vault/
@@ -130,7 +130,7 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 
 `scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
 
-## First-session Expectations (REQ-VAULT-001)
+## First-session Expectations
 
 A brand-new session boots with an empty vault. The skeleton (subdirectories, README, empty `graph.json`, SilverBullet config) is created by `init_obsidian_vault()` in entrypoint.sh on every boot, but the function is idempotent -- a returning session inherits the R2-restored content untouched.
 
