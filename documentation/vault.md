@@ -109,6 +109,14 @@ The editor is reached from the codeflare UI through the Worker proxy at `/api/va
 
 The Vault button in `Header.tsx` (`mdiChartGantt` icon, between Bookmarks and Storage) opens the editor in a new tab via `window.open`. It only renders when an active session exists and the layout passes `onVaultOpen` -- terminal view only.
 
+### Per-session `<base href>` rewrite
+
+SilverBullet 2.8.0 emits `<base href="/" />` in its index HTML, so under the `/api/vault/:sid/` subpath proxy every relative asset reference (e.g. `.client/client.js`) would otherwise resolve against the Worker root and 404 -- producing a white screen.
+
+SilverBullet honours `SB_URL_PREFIX` to render the base tag with a prefix, but the prefix is per-session (the Worker knows `:sid`, the container does not), so baking it in at supervisor start is not viable. `handleVaultRequest` in `src/routes/vault.ts` is the per-session adapter: when the requested path is `/` or `/index.html` and the response Content-Type is `text/html`, it rewrites `<base href="/" />` to `<base href="/api/vault/<sid>/" />`. Non-HTML responses (JS bundles, PNG icons, manifest JSON) and HTML responses on non-shell paths pass through unchanged so the rewrite cost is bounded.
+
+When the body is rewritten, both `Content-Length` (body length changed) and `Content-Encoding` (Workers `Response.text()` auto-decompresses gzip/br upstream, so the body is now plain text) are dropped from the response headers. A `vault base-href rewrite no-op` warning is logged when the rewrite runs but matches nothing, so a future SilverBullet template change (single-quoted href, added attribute, etc.) surfaces as a logged signal instead of a silent white-screen regression.
+
 ## Shutdown Bisync Reliability (REQ-VAULT-006)
 
 The vault's persistence guarantee depends on the final bisync running to completion on session shutdown. Pre-vault, this was a known weak point: the shutdown handler had no timeout on the bisync call, and the DO destroy() SIGKILLed at 25s. A vault edit made in the last seconds before shutdown would be silently truncated if the bisync ran long, leaving R2 in a partial state. The next session loaded that partial state and looked stale, forcing a manual session delete.

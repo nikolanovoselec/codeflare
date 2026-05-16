@@ -17,6 +17,8 @@ See [Preseed System](preseed.md) for session modes, components, deployment pipel
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint `SESSION_MODE` gating may have failed. Remove them:
   `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 
+- **`/dev/fd/63: No such file or directory` from a hook**: a bash hook using process substitution (`done < <(...)`) is being invoked in a runner where `/proc/self/fd` is not available, so the kernel cannot resolve the `/dev/fd/<N>` symlink the shell created. Codeflare's own hooks all use here-strings (`done <<< "$STR"`) for this reason: here-strings stage through a real temp file and work in every runner. If you author a custom hook that hits this error, switch the read loop's redirection to a here-string.
+
 ---
 
 ## Resetting the Review-Spawn Checkpoint

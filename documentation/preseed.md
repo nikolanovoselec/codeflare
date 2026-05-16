@@ -193,10 +193,10 @@ All preseed content is deployed via the manifest pipeline:
   hooks), context-mode plugin (3 files, advanced only: plugin.json,
   README.md, scripts/enforce-ctx-mode.sh - admin-only Custom-tier
   routing enforcement, see Third-party plugin section below),
-  graphify plugin (7 files, default+advanced for plugin.json + README
+  graphify plugin (8 files, default+advanced for plugin.json + README
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
-  graph-first-nudge.sh)
+  graph-first-nudge.sh, enforce-graphify.sh)
 
 ## Multi-Agent Preseed
 
@@ -337,6 +337,21 @@ and redirected to the equivalent `ctx_*` tools. Per-call bypass via
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
+
+### Graphify hard-block PreToolUse hook
+
+In advanced session mode, `enforce-graphify.sh` is a second PreToolUse hook on the graphify plugin that complements the existing `graph-first-nudge.sh` soft nudge. The soft nudge fires on every grep-class call with an `additionalContext` reminder; the hard-block fires only after the pattern persists.
+
+Mechanics:
+
+- **Matchers**: `Grep`, `Bash`, `mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_execute_file`. Covers both standard tiers (where `Grep`/`Bash` fire natively) and custom tier (where `enforce-ctx-mode.sh` denies `Grep` and forces routing through the `ctx_execute*` family).
+- **Gating**: only fires when `graphify-out/graph.json` exists in the agent's cwd, so vibe-coding repos are unaffected.
+- **Threshold**: blocks the next structural search after 3 grep-class tool calls in the same turn (counted by walking the transcript backward to the last real user prompt) when no `mcp__graphify__*` call (or `graphify query|path|explain` CLI invocation) has been made.
+- **Classification**: SEARCH = first-word `grep|rg|ag|ack`, `git grep`, `find` with `-name|-path|-iname|-ipath|-regex`, or `awk` with `/regex/` body. The shell parser reuses `extract_subs` + `normalize_command` + chain-op splitter from `enforce-ctx-mode.sh`, so command/process substitution, heredocs, quoted regions, and pipeline segments cannot slip past.
+- **User-only bypass**: `touch /tmp/graphify-bypass` (one-shot, auto-deleted on use) or include `skip graph` (case-insensitive) in a user message. The agent must never create the sentinel.
+- **Fail-safe**: any unexpected error returns exit 0 with no output. Never locks the user out.
+
+The hook surfaces blocks as `hookSpecificOutput.permissionDecision: deny` with a `BLOCKED: <N> structural searches since last user prompt, 0 graphify queries...` reason so the agent's next-turn context carries the directive to consult the graph.
 
 ## /sdd init Modes
 

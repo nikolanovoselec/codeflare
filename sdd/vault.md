@@ -141,10 +141,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 4. WebSocket upgrades for live-edit sync are rate-limited under the same per-user `ws-connect:<email>` key as terminal WebSockets so a separate budget cannot be discovered.
 5. `host/src/server.ts` exposes a `/vault/*` HTTP branch (strip prefix + `http.request` to `127.0.0.1:3030`) and a WS upgrade passthrough via a `noServer: true` WebSocketServer that handles only `/vault/*` paths.
 6. The Vault button in `Header.tsx` renders only when an active session exists and the parent passes `onVaultOpen` (gated to terminal view, between Bookmarks and Storage).
+7. `handleVaultRequest` rewrites `<base href="/" />` to `<base href="/api/vault/<sid>/" />` on `text/html` responses for the shell paths (`/` and `/index.html`) only, so SilverBullet's relative asset references (e.g. `.client/client.js`) resolve back through the subpath proxy. Non-HTML responses (JS bundles, PNG icons, manifest JSON, binary assets) and non-shell HTML paths pass through unchanged. When the body is rewritten, both `content-length` and `content-encoding` headers are dropped (`response.text()` auto-decompresses gzip/br upstream, so the original encoding header would otherwise trigger a browser decoding failure). A warning is logged when the rewrite runs but matches nothing, so a future SilverBullet template change surfaces as a logged signal instead of a silent white-screen regression.
 
 **Constraints:**
 - SilverBullet is bound to localhost only -- the Worker proxy is the only externally reachable surface.
 - The `/api/vault/:sid/status` Hono endpoint runs through the normal middleware chain; only the catch-all proxy is intercepted before Hono.
+- SilverBullet 2.8.0 honours `SB_URL_PREFIX` to render the base tag with a prefix, but the prefix is per-session (the worker knows `:sid`, the container does not); baking it in at supervisor start is not viable. The per-response Worker rewrite is the per-session adapter.
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001

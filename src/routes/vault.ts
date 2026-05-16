@@ -262,7 +262,7 @@ export async function handleVaultRequest(
     // SilverBullet 2.8.0 emits `<base href="/" />` in its index HTML so
     // every relative asset reference (e.g. `.client/client.js`) resolves
     // against the worker root, where the Worker has no route handler and
-    // returns 404 — producing the "white screen" symptom under the
+    // returns 404 - producing the "white screen" symptom under the
     // /api/vault/:sid/ subpath proxy. SilverBullet supports `SB_URL_PREFIX`
     // to render `<base href="<prefix>/" />`, but the prefix is per-session
     // (the worker knows :sid, the container does not), so the container
@@ -271,19 +271,42 @@ export async function handleVaultRequest(
     // with the session-prefixed equivalent so the browser resolves
     // assets back through `/api/vault/<sid>/.client/...`.
     //
-    // Scoped to text/html responses to avoid corrupting JS bundles or
-    // binary assets (logos, PNG icons). Streaming-rewrite would be ideal
-    // but text/html bodies are <100KB in practice; eager .text() is fine.
+    // Scope guards (both required to enter the rewrite path):
+    //   1. Path is the shell root (`/` or `/index.html`) - SilverBullet
+    //      serves the SPA shell from those paths only; HTML error pages
+    //      or note renders at other paths pass through unchanged so we
+    //      don't pay an eager `.text()` decode cost on every response.
+    //   2. Content-Type is text/html - JS bundles, PNG icons, manifest
+    //      JSON pass through.
+    //
+    // Header hygiene on rewrite: drop both Content-Length (body length
+    // changed) and Content-Encoding (response.text() auto-decompresses
+    // gzip/br upstream, so the rewritten body is plain text - leaving
+    // the original encoding header would trigger ERR_CONTENT_DECODING
+    // _FAILED in the browser).
+    //
+    // Observability: log a warning when the rewrite runs but matches
+    // nothing, so a future SilverBullet template change (single-quoted
+    // href, added attribute, etc.) surfaces as a logged signal instead
+    // of a silent white-screen regression in production.
     const contentType = response.headers.get('content-type') ?? '';
-    if (contentType.includes('text/html')) {
+    const isShellPath = remainingPath === '/' || remainingPath.endsWith('/index.html');
+    if (isShellPath && contentType.includes('text/html')) {
       const prefix = `/api/vault/${sessionId}`;
       const body = await response.text();
       const rewritten = body.replace(
         /<base\s+href="\/"\s*\/?>/gi,
         `<base href="${prefix}/" />`,
       );
+      if (rewritten === body) {
+        logger.warn('vault base-href rewrite no-op', {
+          pathname: vaultUrl.pathname,
+          contentType,
+        });
+      }
       const headers = new Headers(response.headers);
-      headers.delete('content-length'); // body length changed
+      headers.delete('content-length');
+      headers.delete('content-encoding');
       return new Response(rewritten, {
         status: response.status,
         statusText: response.statusText,

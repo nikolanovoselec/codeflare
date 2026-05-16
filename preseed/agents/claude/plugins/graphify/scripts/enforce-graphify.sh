@@ -36,7 +36,7 @@
 #     -> emit hookSpecificOutput.permissionDecision = "deny" with reason
 #   else -> exit 0
 #
-# Bypass (USER-ONLY — agent must never invoke):
+# Bypass (USER-ONLY - agent must never invoke):
 #   1. /tmp/graphify-bypass         (one-shot sentinel, auto-deleted)
 #   2. "skip graph" in latest user message (case-insensitive)
 #
@@ -269,10 +269,12 @@ case "$TOOL_NAME" in
     ;;
   mcp__context-mode__ctx_batch_execute)
     # Iterate per-entry commands. tool_input.commands is an array of {label, command}.
+    # Here-string instead of process substitution for the same portability
+    # reason as the other read loops in this file.
     while IFS= read -r CMD; do
       [ -z "$CMD" ] && continue
       decompose_and_classify "$CMD" && THIS_IS_SEARCH=1
-    done < <(echo "$INPUT" | jq -r '.tool_input.commands[]?.command // empty' 2>/dev/null)
+    done <<< "$(echo "$INPUT" | jq -r '.tool_input.commands[]?.command // empty' 2>/dev/null)"
     ;;
   *)
     exit 0
@@ -334,7 +336,7 @@ done <<< "$(printf '%s' "$SINCE" | awk '
   }
 ')"
 
-# mcp__graphify__* tool_use entries — always count toward GRAPHIFY.
+# mcp__graphify__* tool_use entries - always count toward GRAPHIFY.
 # Same `grep -c` exit-code quirk as above; `|| true` keeps the captured
 # value purely numeric.
 MCP_GRAPHIFY=$(printf '%s' "$SINCE" | grep -c '"name":"mcp__graphify__' 2>/dev/null || true)
