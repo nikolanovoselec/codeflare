@@ -84,27 +84,15 @@ TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ "$HOOK_EVENT" = "Stop" ] || exit 0
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] || exit 0
 
-# Vibe-coding gate and SDD transition gate moved below the REPO_DIR
-# derivation so they evaluate `sdd/` from the push target, not the
-# agent's invocation CWD. In codeflare the agent CWD is
-# /home/user/workspace/ (NOT a git repo); cloned repos live one dir
-# below. Evaluating these gates from CWD made every Stop event in such
-# layouts silently exit 0, bypassing enforcement.
-
-# ---------------------------------------------------------------------------
-# Bypass 1: sentinel file (one-shot, auto-delete). Must come AFTER the
-# HOOK_EVENT check so a SubagentStop event doesn't consume the sentinel
-# before the actual Stop event has a chance to honor it.
-# ---------------------------------------------------------------------------
-# Sentinel path is overridable via REVIEW_BYPASS_FILE for hermetic
-# tests; production reads /tmp/review-bypass. Codeflare runs a
-# single-user container, so /tmp scoping is sufficient — multi-user
-# hosts should set REVIEW_BYPASS_FILE per user.
-BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
-if [ -f "$BYPASS_FILE" ]; then
-  rm -f "$BYPASS_FILE" 2>/dev/null || true
-  exit 0
-fi
+# Ordering note (PUSH_LINE -> REPO_DIR -> gates -> bypasses -> enforcement):
+# PUSH_LINE detection and REPO_DIR derivation must run BEFORE the
+# vibe-coding gate and SDD transition gate, because in codeflare the
+# agent CWD is /home/user/workspace/ (NOT a git repo) and cloned repos
+# live one dir below. The gates need to evaluate `sdd/` from the push
+# target, not the invocation CWD. Bypass-1 (sentinel) and bypass-2
+# (magic phrase) must run AFTER the gates, otherwise a routine Stop
+# on a vibe-coding project (no sdd/) silently consumes the user's
+# one-shot /tmp/review-bypass sentinel.
 
 # ---------------------------------------------------------------------------
 # Layer 1 (CANDIDATE) — find tool_use lines whose effective shell command
@@ -137,11 +125,18 @@ fi
 # ---------------------------------------------------------------------------
 PUSH_LINE=$(awk '
   # A. Bash tool_use
+  # Two-pattern detection: anchored start (`"command":"git push`) catches
+  # bare pushes; loose chained (`<sep> git push`) catches piped/chained
+  # pushes. The chained form is NOT anchored to start-of-command-string
+  # because JSON-escaped quotes inside the value (e.g. `cd "/path with
+  # spaces" && git push`) break the `[^"]*` inner-string constraint. The
+  # outer `"name":"Bash"` guard keeps false positives bounded; Layer 2
+  # (PR HEAD SHA) filters any that slip through.
   /"name"[[:space:]]*:[[:space:]]*"Bash"/ {
     if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -154,7 +149,7 @@ PUSH_LINE=$(awk '
     if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"command"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -168,7 +163,7 @@ PUSH_LINE=$(awk '
     if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
-    if ($0 ~ /"code"[[:space:]]*:[[:space:]]*"[^"]*[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
+    if ($0 ~ /[;&|]+[[:space:]]*git[[:space:]]+push[[:space:]"\\\047);&|]/) {
       print NR; next
     }
   }
@@ -176,20 +171,6 @@ PUSH_LINE=$(awk '
 [ -n "$PUSH_LINE" ] || exit 0  # No candidate, no enforcement
 
 SINCE_PUSH=$(tail -n +"$PUSH_LINE" "$TRANSCRIPT" 2>/dev/null)
-
-# ---------------------------------------------------------------------------
-# Bypass 2: magic phrase in user messages since candidate push line.
-#
-# Ordering note: SINCE_PUSH only includes transcript content from the
-# push line forward. A user message saying "skip review for the next
-# push" sent BEFORE the assistant ran git push won't bypass — only
-# messages between the push line and the Stop event are scanned.
-# Users who need pre-emptive bypass should use the sentinel file
-# (`touch /tmp/review-bypass`), which fires first via Bypass 1.
-# ---------------------------------------------------------------------------
-if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
-  exit 0
-fi
 
 # ---------------------------------------------------------------------------
 # Derive repo dir from the PUSH_LINE tool_use envelope before resolving git.
@@ -202,16 +183,46 @@ fi
 #
 # Strategy: read the PUSH_LINE record's envelope `.cwd` and the leading
 # `cd <path>` prefix from its command/code field. Try each in order until
-# `git rev-parse --git-common-dir` resolves. Then `cd` so all subsequent
-# git/gh calls work unchanged.
+# `git rev-parse --show-toplevel` resolves. Then `cd` to the toplevel so
+# all subsequent gates evaluate from the repo root (a `cd src/foo && git
+# push` command must not put us into a subdir where `sdd/` is missing).
+#
+# CD_PATH parser supports three command shapes:
+#   - cd /abs/path && ...       (unquoted, no spaces)
+#   - cd "/abs/path with spaces" && ...   (double-quoted)
+#   - cd '/abs/path with spaces' && ...   (single-quoted)
+# Accepted limitation: paths containing the literal characters used as
+# quote terminators inside an opposite-quoted form (e.g. `cd "/a'b/c"`)
+# parse the embedded `'` as content, which is correct. Paths containing
+# escaped quotes within their own quote class (`cd "/a\"b/c"`) are NOT
+# supported - graphify-verified that no codeflare path has this shape.
 # ---------------------------------------------------------------------------
 PUSH_RECORD=$(sed -n "${PUSH_LINE}p" "$TRANSCRIPT" 2>/dev/null)
 ENVELOPE_CWD=$(echo "$PUSH_RECORD" | jq -r '.cwd // empty' 2>/dev/null)
-CD_PATH=$(echo "$PUSH_RECORD" \
-  | grep -oE '"(command|code)"[[:space:]]*:[[:space:]]*"cd[[:space:]]+[^[:space:]&;|"]+' \
-  | head -1 \
-  | grep -oE 'cd[[:space:]]+[^[:space:]&;|"]+' \
-  | awk '{print $2}')
+# jq -r decodes the JSON-encoded command/code string back to its raw
+# shell form (handles `&&`, `\"`, etc.). The `..` recursive
+# descent finds the first command/code field anywhere in the record.
+COMMAND_TEXT=$(echo "$PUSH_RECORD" | jq -r '
+  [.. | objects | (.command? // .code?) | select(type=="string")] | .[0] // empty
+' 2>/dev/null)
+CD_PATH=$(printf '%s' "$COMMAND_TEXT" | awk '
+  /^[[:space:]]*cd[[:space:]]+/ {
+    sub(/^[[:space:]]*cd[[:space:]]+/, "");
+    if (substr($0,1,1) == "\"") {
+      sub(/^"/, "");
+      n = index($0, "\"");
+      if (n > 0) { print substr($0, 1, n-1); exit }
+    } else if (substr($0,1,1) == "\047") {
+      sub(/^\047/, "");
+      n = index($0, "\047");
+      if (n > 0) { print substr($0, 1, n-1); exit }
+    } else {
+      n = match($0, /[[:space:];&|]/);
+      if (n > 0) print substr($0, 1, n-1); else print $0;
+      exit
+    }
+  }
+')
 if [ -n "$CD_PATH" ] && [ "${CD_PATH:0:1}" != "/" ] && [ -n "$ENVELOPE_CWD" ]; then
   CD_PATH="$ENVELOPE_CWD/$CD_PATH"
 fi
@@ -219,8 +230,12 @@ fi
 REPO_DIR=""
 for d in "$CD_PATH" "$ENVELOPE_CWD" "."; do
   [ -n "$d" ] && [ -d "$d" ] || continue
-  if git -C "$d" rev-parse --git-common-dir >/dev/null 2>&1; then
-    REPO_DIR="$d"
+  # show-toplevel (NOT git-common-dir): climbs to the working-tree root
+  # so a `cd src/foo` candidate resolves to the repo root and the
+  # subsequent `sdd/` gate evaluates against the right tree.
+  TOPLEVEL=$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)
+  if [ -n "$TOPLEVEL" ]; then
+    REPO_DIR="$TOPLEVEL"
     break
   fi
 done
@@ -228,7 +243,7 @@ done
 cd "$REPO_DIR" 2>/dev/null || exit 0
 
 # ---------------------------------------------------------------------------
-# Vibe-coding gate (evaluated from REPO_DIR, not invocation CWD)
+# Vibe-coding gate (evaluated from repo toplevel, not invocation CWD)
 # ---------------------------------------------------------------------------
 if [ ! -d "sdd" ] || [ ! -f "sdd/README.md" ]; then
   exit 0
@@ -248,6 +263,40 @@ fi
 if grep -q '^transition:[[:space:]]*true' sdd/config.yml 2>/dev/null \
    && [ -f "sdd/init-triage.md" ] \
    && grep -qiE '^\*\*Status:\*\*[[:space:]]+open\b' "sdd/init-triage.md" 2>/dev/null; then
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Bypass 1: sentinel file (one-shot, auto-delete).
+#
+# Ordering: runs AFTER the vibe-coding gate and transition gate so a
+# routine Stop event on a vibe-coding project (no sdd/) or during SDD
+# transition does NOT consume the user's one-shot /tmp/review-bypass
+# sentinel - that bypass is reserved for skipping enforcement on the
+# next gate-active Stop event.
+#
+# Sentinel path is overridable via REVIEW_BYPASS_FILE for hermetic
+# tests; production reads /tmp/review-bypass. Codeflare runs a
+# single-user container, so /tmp scoping is sufficient - multi-user
+# hosts should set REVIEW_BYPASS_FILE per user.
+# ---------------------------------------------------------------------------
+BYPASS_FILE="${REVIEW_BYPASS_FILE:-/tmp/review-bypass}"
+if [ -f "$BYPASS_FILE" ]; then
+  rm -f "$BYPASS_FILE" 2>/dev/null || true
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Bypass 2: magic phrase in user messages since candidate push line.
+#
+# Ordering note: SINCE_PUSH only includes transcript content from the
+# push line forward. A user message saying "skip review for the next
+# push" sent BEFORE the assistant ran git push won't bypass - only
+# messages between the push line and the Stop event are scanned.
+# Users who need pre-emptive bypass should use the sentinel file
+# (`touch /tmp/review-bypass`), which fires first via Bypass 1.
+# ---------------------------------------------------------------------------
+if echo "$SINCE_PUSH" | grep '"type":"user"' | grep -v '"tool_result"' | grep -qiE '\bskip (the )?(review|verification)\b'; then
   exit 0
 fi
 

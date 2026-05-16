@@ -944,3 +944,96 @@ describe('enforce-review-spawn.sh - repo-dir derivation from PUSH_LINE', () => {
       'no derivable repo hint must fail-safe to silent exit, not block on guess');
   });
 });
+
+// Tests for round-3 code-review findings on the Stop-hook restructure.
+
+const PUSH_LINE_WITH_QUOTED_CD = (repoDir, ts = '2026-05-16T12:00:00.000Z') =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'Bash',
+          input: { command: `cd "${repoDir}" && git push origin develop` },
+        },
+      ],
+    },
+    timestamp: ts,
+  });
+
+const PUSH_LINE_WITH_SUBDIR_CD = (repoSubdir, ts = '2026-05-16T12:00:00.000Z') =>
+  JSON.stringify({
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'Bash',
+          input: { command: `cd ${repoSubdir} && git push origin develop` },
+        },
+      ],
+    },
+    timestamp: ts,
+  });
+
+describe('enforce-review-spawn.sh - round-3 ordering and parser fixes', () => {
+  it('H1: vibe-coding project does NOT consume the /tmp/review-bypass sentinel', () => {
+    // The pre-fix shape ran bypass-1 (sentinel consumption) BEFORE the
+    // vibe-coding gate. On a project without sdd/, a routine Stop event
+    // would silently consume the user's one-shot bypass sentinel even
+    // though no enforcement was going to fire. Post-fix, the gate runs
+    // first and the sentinel is preserved.
+    const repoDir = makeFixture();
+    // Deliberately do NOT call withSdd(repoDir) - this is a vibe project.
+    const bypassFile = join(repoDir, 'review-bypass');
+    writeFileSync(bypassFile, '');
+    const binDir = fakeGh(repoDir, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(repoDir, [PUSH_LINE_WITH_ENVELOPE_CWD(repoDir)]);
+    const parentCwd = resolve(repoDir, '..');
+    const r = runHook(parentCwd, { transcriptPath: t, binDir, bypassFile });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.equal(existsSync(bypassFile), true,
+      'vibe-coding Stop event must NOT consume the bypass sentinel');
+  });
+
+  it('M2: cd into subdir of repo resolves to toplevel for vibe-gate evaluation', () => {
+    // `cd src/foo && git push` candidate dir is /repo/src/foo. Without
+    // show-toplevel resolution, the vibe-gate would check /repo/src/foo/sdd
+    // and fail (sdd/ lives at /repo/sdd). Post-fix the gate evaluates
+    // from the repo toplevel and enforcement proceeds correctly.
+    const repoDir = makeFixture();
+    withSdd(repoDir);
+    mkdirSync(join(repoDir, 'src/foo'), { recursive: true });
+    const binDir = fakeGh(repoDir, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(repoDir, [PUSH_LINE_WITH_SUBDIR_CD(join(repoDir, 'src/foo'))]);
+    const parentCwd = resolve(repoDir, '..');
+    const r = runHook(parentCwd, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'subdir candidate must resolve to repo toplevel so sdd/ gate passes');
+  });
+
+  it('M1: cd into a path with spaces (double-quoted) parses correctly', () => {
+    // The pre-fix CD_PATH regex `[^[:space:]&;|"]+` stopped at the first
+    // space, silently truncating quoted paths and falling through to
+    // envelope cwd (or eventually fail-safe exit 0). Post-fix the
+    // awk parser handles double-quoted paths.
+    // Use a path that genuinely contains a space character.
+    const parent = mkdtempSync(join(tmpdir(), 'enforce-spawn-spaces-'));
+    const repoDir = join(parent, 'dir with spaces');
+    mkdirSync(repoDir);
+    spawnSync('git', ['init', '-q'], { cwd: repoDir });
+    spawnSync('git', ['config', 'user.email', 'test@test'], { cwd: repoDir });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: repoDir });
+    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: repoDir });
+    withSdd(repoDir);
+    const binDir = fakeGh(repoDir, ghReturning('OPEN', 'unackedSHA', 'main'));
+    const t = writeTranscript(repoDir, [PUSH_LINE_WITH_QUOTED_CD(repoDir)]);
+    const r = runHook(parent, { transcriptPath: t, binDir });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /"decision"\s*:\s*"block"/,
+      'double-quoted cd path with spaces must parse correctly and enforce');
+  });
+});
