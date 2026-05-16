@@ -6,6 +6,23 @@ Persistent obsidian-style note vault, automatic conversation capture, unified gr
 
 ---
 
+## Contents
+
+- [Overview](#overview-req-vault-001)
+- [Directory Layout](#directory-layout-req-vault-001)
+- [Capture Path](#capture-path-req-vault-002)
+- [User-edit Path](#user-edit-path-req-vault-003)
+- [Unified Global Graph](#unified-global-graph-req-vault-004)
+- [SilverBullet Editor](#silverbullet-editor-req-vault-005)
+- [Shutdown Bisync Reliability](#shutdown-bisync-reliability-req-vault-006)
+- [Preseed Integration](#preseed-integration-req-vault-007)
+- [First-session Expectations](#first-session-expectations-req-vault-001)
+- [Image-pasting Cost Caveat](#image-pasting-cost-caveat)
+- [Troubleshooting](#troubleshooting)
+- [Related Documentation](#related-documentation)
+
+---
+
 ## Overview (REQ-VAULT-001)
 
 The vault lives at `/home/user/.obsidian_vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so anything written here is on the next session you start.
@@ -102,6 +119,16 @@ Two paired fixes bundled with the vault PR:
 - `Container.destroy()` in `src/container/index.ts` uses `timeoutMs = 75_000` (60s for bisync + 15s buffer). `onStop()` logs `shutdownElapsedMs` so the budget can be tuned over time.
 
 If the bisync exceeds 60s, the log records `TIMED OUT after 60s` -- a recognisable string for operators triaging stale-session reports.
+
+## Preseed Integration (REQ-VAULT-007)
+
+The vault plugin and supporting rule ship as preseed entries that land in every advanced-mode session at container boot:
+
+- `preseed/agents/claude/plugins/codeflare-vault/` -- plugin descriptor, `vault-monitor-hook.sh` UserPromptSubmit hook, `vault-extract-prompt.md` for the spawned sonnet. Registered in `preseed/agents/claude/manifest.json`.
+- `preseed/agents/claude/rules/vault.md` -- concept rule, advanced-mode only (see `ADVANCED_ONLY_CODEFLARE_RULES` in the ECC rules test).
+- `preseed/silverbullet/` -- baseline `config.yaml` (and optional `atlas.plug.js`) copied into `/opt/silverbullet-preseed/` by the Dockerfile, then materialised into `.obsidian_vault/.silverbullet/` by `init_obsidian_vault()` on first boot.
+
+`scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
 
 ## First-session Expectations (REQ-VAULT-001)
 

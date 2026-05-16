@@ -1,10 +1,20 @@
-// Verifies REQ-MEMORY-100..103 / REQ-MEMORY-105: the persistent vault is
-// wired through entrypoint.sh, Dockerfile, and the preseed layer.
+// Structural audit (NOT a behavioural test) for REQ-VAULT-001..007:
+// the persistent vault wiring across entrypoint.sh, Dockerfile, and
+// the preseed layer.
 //
-// These tests are structural: they read the shipped files and look for
-// the specific markers each piece of the rollout depends on. They are
-// real coverage in the sense that breaking any of these lines would
-// break the deployed vault feature, but they do not boot a container.
+// This is a code-presence audit. It greps the shipped files for the
+// specific markers each piece of the rollout depends on. Breaking
+// any of these lines indicates a likely vault regression, but the
+// audit does NOT boot a container or exercise the runtime - the
+// per-feature behavioural coverage lives in the language-specific
+// test suites (src/__tests__/container/index.test.ts for shutdown
+// budget, src/__tests__/routes/vault.test.ts for the proxy validator)
+// and the E2E paths called out in sdd/vault.md verification fields.
+//
+// Located under host/__audits__/ rather than __tests__/ so it does NOT
+// run as part of `npm test` (`node --test __tests__/*.test.js`) and
+// does not count toward test coverage. Run on demand with:
+//     node --test host/__audits__/*.audit.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';

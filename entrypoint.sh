@@ -773,12 +773,16 @@ start_silverbullet_supervisor() {
 
     echo "[entrypoint] Starting SilverBullet supervisor on $SB_HOST:$SB_PORT (vault=$VAULT_ROOT)..."
 
-    # set -m makes the subshell a process-group leader so the shutdown
-    # handler can kill the supervisor AND its silverbullet child in one
-    # `kill -- -PID` call (otherwise the loop dies but silverbullet keeps
-    # running and the next session can't bind 3030).
-    (
-        set -m
+    # setsid unconditionally creates a new session + process group so the
+    # shutdown handler can kill the supervisor AND its silverbullet child
+    # in one `kill -- -PID` call. Was `set -m` previously, but bash
+    # silently ignores job control in non-interactive subshells, leaving
+    # silverbullet orphaned and binding port 3030 against the next session.
+    setsid bash -c '
+        VAULT_ROOT="$1"
+        SB_BIN="$2"
+        SB_HOST="$3"
+        SB_PORT="$4"
         while true; do
             # Vault may not exist on first boot if baseline+init are still
             # racing. Wait it out instead of crash-looping; the daemon
@@ -789,10 +793,11 @@ start_silverbullet_supervisor() {
             fi
             "$SB_BIN" --hostname "$SB_HOST" --port "$SB_PORT" "$VAULT_ROOT" \
                 >> /tmp/silverbullet.log 2>&1
-            echo "[silverbullet] $(date '+%Y-%m-%d %H:%M:%S') exited (code $?), restarting in 5s..." | tee -a /tmp/silverbullet.log
+            echo "[silverbullet] $(date '"'"'+%Y-%m-%d %H:%M:%S'"'"') exited (code $?), restarting in 5s..." | tee -a /tmp/silverbullet.log
             sleep 5
         done
-    ) &
+    ' silverbullet-supervisor "$VAULT_ROOT" "$SB_BIN" "$SB_HOST" "$SB_PORT" \
+        >> /tmp/silverbullet.log 2>&1 &
 
     SILVERBULLET_SUPERVISOR_PID=$!
     echo "$SILVERBULLET_SUPERVISOR_PID" > /tmp/silverbullet.pid
@@ -806,21 +811,26 @@ shutdown_handler() {
     SHUTDOWN_STARTED_AT=$(date +%s)
     echo "[entrypoint] Received shutdown signal, performing final bisync..."
 
-    # Kill background daemons via PID file. For each: signal the whole
-    # process group so children (rclone for the sync daemon, silverbullet
-    # for the editor supervisor) die alongside the supervising subshell.
-    # Falls back to walking descendants if the kernel rejects -PID.
+    # Kill background daemons via PID file. Walk the descendant tree so
+    # rclone/silverbullet grandchildren die alongside the supervising
+    # subshell - signalling the subshell alone would leave them orphaned
+    # and (for silverbullet) holding port 3030, breaking the next session.
+    walk_kill() {
+        local sig="$1" root="$2"
+        [ -z "$root" ] && return 0
+        local descendants
+        descendants=$(pgrep -P "$root" 2>/dev/null)
+        kill "-${sig}" "$root" 2>/dev/null || true
+        for child in $descendants; do
+            walk_kill "$sig" "$child"
+        done
+    }
     kill_pidfile_subtree() {
         local pidfile="$1"
         local pid
         pid="$(cat "$pidfile" 2>/dev/null)"
         [ -z "$pid" ] && return 0
-        if ! kill -TERM -- "-${pid}" 2>/dev/null; then
-            kill -TERM "$pid" 2>/dev/null || true
-            for child in $(pgrep -P "$pid" 2>/dev/null); do
-                kill -TERM "$child" 2>/dev/null || true
-            done
-        fi
+        walk_kill TERM "$pid"
     }
     kill_pidfile_subtree /tmp/sync-daemon.pid
     kill_pidfile_subtree /tmp/vault-monitor.pid
@@ -844,30 +854,37 @@ shutdown_handler() {
         # propagating every env var it reads.
         #
         # We need the watchdog to kill the rclone child too (not just the
-        # subshell). `kill -TERM "$BISYNC_PID"` alone propagates only to
-        # the wrapping subshell — rclone keeps running and the half-uploaded
-        # files land in R2 anyway. To kill the whole subtree, run the
-        # subshell as its own process-group leader via `set -m` and then
-        # signal the negative pgid (`kill -- -$BISYNC_PID`).
-        ( set -m; bisync_with_r2 ) &
+        # subshell). `kill -TERM "$BISYNC_PID"` alone only signals the
+        # wrapping subshell - rclone keeps running and the half-uploaded
+        # files land in R2 anyway.
+        #
+        # bisync_with_r2 is a shell function that depends on multiple
+        # global arrays (RCLONE_FILTERS) and helper functions, so we
+        # cannot exec it under setsid via `bash -c` without recreating
+        # the whole environment. Instead, we recursively walk the
+        # descendant tree with pgrep at signal time. Two levels covers
+        # rclone's typical depth (subshell -> bash -> rclone -> child).
+        ( bisync_with_r2 ) &
         BISYNC_PID=$!
-        ( sleep 60
-          # Negative PID = signal the entire process group. Falls back to
-          # walking pgrep descendants if the kernel rejects (-N) (e.g.
-          # because set -m didn't take inside the subshell).
-          if ! kill -TERM -- "-${BISYNC_PID}" 2>/dev/null; then
-              kill -TERM "$BISYNC_PID" 2>/dev/null
-              for child in $(pgrep -P "$BISYNC_PID" 2>/dev/null); do
-                  kill -TERM "$child" 2>/dev/null
-              done
-          fi
-          sleep 2
-          if ! kill -KILL -- "-${BISYNC_PID}" 2>/dev/null; then
-              kill -KILL "$BISYNC_PID" 2>/dev/null
-              for child in $(pgrep -P "$BISYNC_PID" 2>/dev/null); do
-                  kill -KILL "$child" 2>/dev/null
-              done
-          fi
+        # SIGTERM-then-SIGKILL grace pattern. 50s budget for normal bisync,
+        # 10s additional after SIGTERM for rclone to flush + abort pending
+        # multipart uploads cleanly (2s was previously too tight - rclone
+        # needs more headroom to avoid leaving partial uploads in R2).
+        # Total 60s, matching the budget the DO destroy() leaves us.
+        kill_subtree() {
+            local sig="$1" root="$2"
+            [ -z "$root" ] && return 0
+            local descendants
+            descendants=$(pgrep -P "$root" 2>/dev/null)
+            kill "-${sig}" "$root" 2>/dev/null
+            for child in $descendants; do
+                kill_subtree "$sig" "$child"
+            done
+        }
+        ( sleep 50
+          kill_subtree TERM "$BISYNC_PID"
+          sleep 10
+          kill_subtree KILL "$BISYNC_PID"
         ) &
         WATCHDOG_PID=$!
         wait "$BISYNC_PID" 2>/dev/null

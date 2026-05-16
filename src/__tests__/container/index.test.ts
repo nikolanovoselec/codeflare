@@ -514,34 +514,54 @@ describe('container DO class', () => {
       }
     });
 
-    it('onStop logs shutdownElapsedMs after destroy so operators can tune the budget', async () => {
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        return null;
-      });
-      mockContainerRuntime.running = true;
+    it('onStop logs shutdownElapsedMs reflecting real elapsed time between destroy and onStop', async () => {
+      vi.useFakeTimers();
+      try {
+        mockStorage.get.mockImplementation(async (key: string) => {
+          if (key === 'bucketName') return 'test-bucket';
+          return null;
+        });
+        mockContainerRuntime.running = true;
 
-      const instance = new ContainerClass(mockCtx as any, mockEnv);
-      vi.spyOn(instance, 'stop' as any).mockImplementation(async () => {
-        mockContainerRuntime.running = false;
-      });
+        const instance = new ContainerClass(mockCtx as any, mockEnv);
+        // Stop spy that takes "real" time to flip running flag. Drives
+        // _shutdownStartedAt to actually accumulate elapsed time the
+        // assertion below can pin a lower bound on.
+        vi.spyOn(instance, 'stop' as any).mockImplementation(async () => {
+          // simulate a slow shutdown (e.g. bisync still running)
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          mockContainerRuntime.running = false;
+        });
 
-      // Grab a handle on the logger that the constructor stored
-      const loggerInfo = (instance as any).logger.info as ReturnType<typeof vi.fn>;
-      loggerInfo.mockClear();
+        const loggerInfo = (instance as any).logger.info as ReturnType<typeof vi.fn>;
+        loggerInfo.mockClear();
 
-      await instance.destroy();
-      // After destroy completes, the SDK normally fires onStop; we drive it
-      // explicitly here because the mock Container base class doesn't.
-      await instance.onStop();
+        const destroyPromise = instance.destroy();
+        // Drive enough fake time for the 1500ms stop + polling pollMs to
+        // finish; 2000 is comfortably above both.
+        await vi.advanceTimersByTimeAsync(2000);
+        await destroyPromise;
 
-      const stoppedCall = loggerInfo.mock.calls.find(
-        (call) => call[0] === 'Container stopped',
-      );
-      expect(stoppedCall).toBeDefined();
-      const meta = stoppedCall![1] as { shutdownElapsedMs: number | null };
-      expect(meta.shutdownElapsedMs).toBeTypeOf('number');
-      expect(meta.shutdownElapsedMs).toBeGreaterThanOrEqual(0);
+        // Drive additional time before onStop fires, so any regression
+        // that computes elapsed-ms incorrectly (e.g. uses onStop's own
+        // start rather than destroy's _shutdownStartedAt) shows up as a
+        // smaller-than-expected number.
+        await vi.advanceTimersByTimeAsync(3000);
+        await instance.onStop();
+
+        const stoppedCall = loggerInfo.mock.calls.find(
+          (call) => call[0] === 'Container stopped',
+        );
+        expect(stoppedCall).toBeDefined();
+        const meta = stoppedCall![1] as { shutdownElapsedMs: number | null };
+        expect(meta.shutdownElapsedMs).toBeTypeOf('number');
+        // Lower bound: destroy ran ~2s, then 3s before onStop = 5s total.
+        // Pin to 4500 to absorb timer fuzz but still fail if the
+        // implementation reports onStop's own elapsed (3000) or zero.
+        expect(meta.shutdownElapsedMs).toBeGreaterThanOrEqual(4500);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('graceful shutdown: still calls super.destroy() if stop() rejects', async () => {

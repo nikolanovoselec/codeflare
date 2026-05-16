@@ -52,7 +52,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-STOR-002 (file persistence across sessions), REQ-STOR-003 (60s bisync), REQ-STOR-004 (initial sync restores files on container start)
-**Verification:** Automated test (`host/__tests__/entrypoint-vault.test.js` AC: filter order, init function presence)
+**Verification:** Structural audit (`host/__audits__/entrypoint-vault.audit.js` AC: filter order, init function presence); E2E (fresh session, `ls /home/user/.obsidian_vault/`)
 **Status:** Implemented
 
 ---
@@ -100,7 +100,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-VAULT-001
-**Verification:** Automated test (entrypoint-vault.test.js AC: three-marker pattern presence); E2E (edit `notes/foo.md`, wait 60s, send prompt, confirm extraction)
+**Verification:** Structural audit (`entrypoint-vault.audit.js` AC: three-marker pattern presence); E2E (edit `notes/foo.md`, wait 60s, send prompt, confirm extraction)
 **Status:** Implemented
 
 ---
@@ -172,7 +172,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-SESSION-009 (container destroy wipes session state), REQ-SESSION-011 (graceful shutdown with final sync), REQ-STOR-005 (graceful shutdown performs final sync)
-**Verification:** Automated test (`entrypoint-vault.test.js`, `shutdown-timeout.test.ts`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
+**Verification:** Automated test (`src/__tests__/container/index.test.ts` - 75s SIGKILL fallback + shutdownElapsedMs telemetry); structural audit (`entrypoint-vault.audit.js`); E2E (edit vault, click Stop, close tab, reopen, confirm edit persisted)
 **Status:** Implemented
 
 ---
@@ -195,7 +195,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 **Dependencies:** REQ-AGENT-006 (preseed configs from single source), REQ-AGENT-008 (preseed deployed to container on start), REQ-AGENT-014 (manifest-driven preseed pipeline)
-**Verification:** Automated test (`entrypoint-vault.test.js` AC: preseed manifest entries + file presence); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists)
+**Verification:** Structural audit (`entrypoint-vault.audit.js` AC: preseed manifest entries + file presence); E2E (fresh session, confirm `~/.claude/plugins/codeflare-vault/` exists)
 **Status:** Implemented
 
 ---

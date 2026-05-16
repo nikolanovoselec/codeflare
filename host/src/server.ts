@@ -312,7 +312,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   // Strip the `/vault` prefix; the worker already strips its own
   // `/api/vault/:sid` prefix before forwarding. SilverBullet sees a
   // clean `/<remaining>` path.
-  if (pathname && pathname.startsWith('/vault')) {
+  if (pathname && (pathname === '/vault' || pathname.startsWith('/vault/'))) {
     const upstreamPath = pathname.slice('/vault'.length) || '/';
     const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
     const headers: http.OutgoingHttpHeaders = {};
@@ -515,7 +515,7 @@ server.on('upgrade', (req, socket, head) => {
     return;
   }
 
-  if (pathname && pathname.startsWith('/vault')) {
+  if (pathname && (pathname === '/vault' || pathname.startsWith('/vault/'))) {
     handleVaultUpgrade(req, socket, head);
     return;
   }
