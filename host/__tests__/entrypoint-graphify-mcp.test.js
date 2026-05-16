@@ -153,4 +153,27 @@ describe('entrypoint graphify preseed gate', () => {
       'no inline version string in the MCP entry'
     );
   });
+
+  it('REQ-AGENT-023 runtime self-heal: graphify CLI symlink present in entrypoint.sh', () => {
+    // Defensive idempotent symlink. The Dockerfile creates it at build
+    // time (dockerfile-graphify.test.js asserts that side), but any
+    // container whose /usr/local/bin was overwritten by a bisync round-
+    // trip needs the self-heal to recover. Production-verified: without
+    // this, hook-spawned subshells silently noop graphify global add
+    // because /root/.local/bin is not on system PATH.
+    assert.ok(
+      entrypoint.includes('GRAPHIFY_BIN_SRC="/root/.local/share/uv/tools/graphifyy/bin/graphify"'),
+      'entrypoint.sh must define GRAPHIFY_BIN_SRC pointing at the uv-installed shim'
+    );
+    assert.ok(
+      entrypoint.includes('GRAPHIFY_BIN_DST="/usr/local/bin/graphify"'),
+      'entrypoint.sh must define GRAPHIFY_BIN_DST pointing at the system PATH location'
+    );
+    // The conditional must be idempotent: only symlink if src exists AND
+    // dst is absent, so a baked-in Dockerfile symlink is not clobbered.
+    assert.ok(
+      /if \[ -x "\$GRAPHIFY_BIN_SRC" \] && \[ ! -e "\$GRAPHIFY_BIN_DST" \]; then\s*\n\s*ln -sf "\$GRAPHIFY_BIN_SRC" "\$GRAPHIFY_BIN_DST"/.test(entrypoint),
+      'entrypoint.sh self-heal must be guarded by -x src && !-e dst and use ln -sf'
+    );
+  });
 });

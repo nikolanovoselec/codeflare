@@ -309,6 +309,16 @@ fi
 echo "[Dockerfile] installing graphifyy==$VER with [mcp,sql,pdf] extras"
 uv tool install "graphifyy[mcp,sql,pdf]==$VER"
 
+# Expose the graphify CLI on the system PATH so non-interactive bash
+# subshells (hook scripts, memory-capture sonnet, vault-extract sonnet,
+# graphify-active-repo.sh) can resolve `command -v graphify`. uv installs
+# the shim at /root/.local/bin/graphify but that directory is not on the
+# default container PATH (/usr/local/bin:/usr/bin:/bin:...), so scripts
+# that gate on `command -v graphify` silently noop without this symlink.
+# Verified failure: graphify-active-repo.sh never seeds ~/.graphify/global-graph.json
+# in production prior to this fix.
+ln -sf /root/.local/share/uv/tools/graphifyy/bin/graphify /usr/local/bin/graphify
+
 # Smoke-test: ensure the CLI works and the MCP server module imports cleanly.
 # A regression in either (e.g. missing tree-sitter wheel, broken entry-point)
 # surfaces at build time rather than at first user invocation.

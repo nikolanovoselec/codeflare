@@ -1448,6 +1448,18 @@ fi
 # tool list stays static (always 7 tools), only G's contents swap.
 GRAPHIFY_PY="/root/.local/share/uv/tools/graphifyy/bin/python"
 GRAPHIFY_WRAPPER="$USER_HOME/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py"
+# Defensive self-heal: ensure the graphify CLI shim is on the system PATH.
+# The Dockerfile creates this symlink, but older images (or any container
+# whose /usr/local/bin was overwritten by a bisync round-trip) will be
+# missing it. Without the symlink, every bash subshell launched by a hook
+# (graphify-active-repo.sh, memory-capture sonnet, vault-extract sonnet)
+# sees `command -v graphify` return false and silently noops the global-add
+# step, leaving ~/.graphify/global-graph.json unseeded.
+GRAPHIFY_BIN_SRC="/root/.local/share/uv/tools/graphifyy/bin/graphify"
+GRAPHIFY_BIN_DST="/usr/local/bin/graphify"
+if [ -x "$GRAPHIFY_BIN_SRC" ] && [ ! -e "$GRAPHIFY_BIN_DST" ]; then
+    ln -sf "$GRAPHIFY_BIN_SRC" "$GRAPHIFY_BIN_DST"
+fi
 GRAPHIFY_MCP_CONFIG=$(jq -n --arg py "$GRAPHIFY_PY" --arg wrap "$GRAPHIFY_WRAPPER" '{mcpServers:{"graphify":{command:$py,args:[$wrap]}}}')
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_JSON=$(mktemp)
