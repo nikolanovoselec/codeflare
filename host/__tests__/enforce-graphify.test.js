@@ -85,7 +85,7 @@ function runHook(cwd, { toolName, toolInput, transcriptPath }) {
   });
 }
 
-describe('enforce-graphify.sh -gating', () => {
+describe('enforce-graphify.sh - gating', () => {
   it('exits 0 silently when graphify-out/graph.json is absent (vibe repo)', () => {
     const cwd = makeFixture({ withGraph: false });
     const t = makeTranscript(cwd, { count: 5 });
@@ -118,7 +118,7 @@ describe('enforce-graphify.sh -gating', () => {
   });
 });
 
-describe('enforce-graphify.sh -classification', () => {
+describe('enforce-graphify.sh - classification', () => {
   it('exits 0 on non-search Bash (e.g., git status)', () => {
     const cwd = makeFixture();
     const t = makeTranscript(cwd, { count: 5 });
@@ -144,7 +144,7 @@ describe('enforce-graphify.sh -classification', () => {
   });
 });
 
-describe('enforce-graphify.sh -block decision', () => {
+describe('enforce-graphify.sh - block decision', () => {
   it('blocks native Grep when 3 prior greps and 0 graphify calls', () => {
     const cwd = makeFixture();
     const t = makeTranscript(cwd, { count: 3 });
@@ -242,7 +242,7 @@ describe('enforce-graphify.sh -block decision', () => {
   });
 });
 
-describe('enforce-graphify.sh -magic-phrase bypass', () => {
+describe('enforce-graphify.sh - magic-phrase bypass', () => {
   it('exits 0 when latest user message contains "skip graph"', () => {
     const cwd = makeFixture();
     const t = makeTranscript(cwd, { count: 0, withUserPrompt: false });
