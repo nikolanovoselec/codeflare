@@ -161,18 +161,18 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/`, `~/.copilot/`,
    `~/.config/opencode/`)
 
-**Manifest structure (91 total entries)**:
-- `rules/` (25): core (3 default+advanced: cloudflare-environment,
-  no-local-builds, git-workflow; + 4 advanced-only: memory,
+**Manifest structure (103 total entries)**:
+- `rules/` (27): core (3 default+advanced: cloudflare-environment,
+  no-local-builds, git-workflow; + 5 advanced-only: memory, vault,
   spec-discipline, documentation-discipline, tdd-discipline),
-  common (2: coding-style, security), typescript (4), python (4),
-  golang (4), swift (4)
+  common (2: coding-style, security), graph-first (1, advanced),
+  typescript (4), python (4), golang (4), swift (4)
 - `agents/` (9): architect, build-error-resolver, code-reviewer,
   deep-reviewer, doc-updater, refactor-cleaner, security-reviewer,
   spec-reviewer, tdd-guide (advanced only)
 - `commands/` (5): brainstorm, debug, deploy, review, sdd
   (advanced only)
-- `skills/` (39): cloudflare-stack, github-cloudflare-ship (+2
+- `skills/` (40): cloudflare-stack, github-cloudflare-ship (+2
   refs), ci-monitoring, pr-workflow, deploy-credentials (the five
   default+advanced skills), consult-llm, api-design,
   backend-patterns, content-hash-cache-pattern, database-migrations,
@@ -181,8 +181,8 @@ All preseed content is deployed via the manifest pipeline:
   for /sdd init scaffolding), spec-enforce, spec-enforce-ac,
   spec-enforce-truth, doc-enforce, doc-enforce-lanes,
   doc-enforce-shape, doc-enforce-truth, tdd-enforce,
-  git-review-pipeline
-- `plugins/` (15): known_marketplaces.json (default+advanced),
+  git-review-pipeline, graphify
+- `plugins/` (22): known_marketplaces.json (default+advanced),
   codeflare-memory plugin (3 files, advanced only: plugin.json,
   memory-capture.sh, memory-agent-prompt.md), codeflare-vault plugin
   (3 files, advanced only: plugin.json, vault-monitor-hook.sh,
@@ -192,7 +192,11 @@ All preseed content is deployed via the manifest pipeline:
   lib/gh-pr-state.sh - shared helper sourced by both PR-aware
   hooks), context-mode plugin (3 files, advanced only: plugin.json,
   README.md, scripts/enforce-ctx-mode.sh - admin-only Custom-tier
-  routing enforcement, see Third-party plugin section below)
+  routing enforcement, see Third-party plugin section below),
+  graphify plugin (7 files, default+advanced for plugin.json + README
+  + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
+  graphify-session-start.sh, graphify-clone-prompt.sh,
+  graph-first-nudge.sh)
 
 ## Multi-Agent Preseed
 

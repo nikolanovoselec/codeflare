@@ -49,7 +49,7 @@ Decisions / Observations / References sections), then runs graphify
 extraction + `graphify global add --as vault` under the global lock so
 the new content is queryable on the same turn it is written.
 
-There is no automated compactor in this PR; `raw/sessions/` is append-only
+There is no automated compactor; `raw/sessions/` is append-only
 and the user prunes it via SilverBullet when needed.
 
 ## Hook Mechanics
