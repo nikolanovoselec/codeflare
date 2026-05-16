@@ -19,6 +19,7 @@ set -e
 USER_HOME="${HOME:-/home/user}"
 HOOK_CACHE="$USER_HOME/.cache/codeflare-hooks"
 VARS_FILE="$HOOK_CACHE/vault-extract.vars"
+LAST_MARKER="$HOOK_CACHE/vault-extract.last"
 PROMPT_FILE="$USER_HOME/.claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md"
 
 # Drain stdin (Claude Code sends JSON payload on UserPromptSubmit).
@@ -26,6 +27,22 @@ cat >/dev/null 2>&1 || true
 
 # Fast path: no marker, nothing to do.
 [ -f "$VARS_FILE" ] || exit 0
+
+# Stale-marker guard. The daemon ticks every 60s; a typical sonnet run
+# takes ~90s. During that window the daemon's `[ -f VARS_FILE ]` check
+# sees the file deleted (sonnet step 1) and `find -newer LAST_MARKER`
+# still returns the original files (sonnet hasn't touched LAST_MARKER
+# yet), so the daemon writes a fresh VARS_FILE. When the sonnet
+# eventually finishes and touches LAST_MARKER, that VARS_FILE is left
+# behind — older than LAST_MARKER — and would trigger a spurious
+# additional sonnet on the next user prompt with nothing new to extract.
+# Invariant: VARS_FILE is only valid if it is newer than LAST_MARKER.
+# When it isn't, the work is already done; delete the stale marker and
+# exit silently.
+if [ -f "$LAST_MARKER" ] && [ ! "$VARS_FILE" -nt "$LAST_MARKER" ]; then
+    rm -f "$VARS_FILE" 2>/dev/null || true
+    exit 0
+fi
 
 CONTEXT="Vault changes detected. Spawn a background sonnet agent to read ${PROMPT_FILE} and ${VARS_FILE}, then execute the 5-step contract. The sonnet deletes ${VARS_FILE} as its first step. If you have already spawned this agent in the current turn, do nothing."
 

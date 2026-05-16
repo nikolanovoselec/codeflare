@@ -47,11 +47,20 @@ and you need the surrounding prose.
 ## Wikilink convention
 
 - Wrap **concepts** in `[[wikilinks]]` (e.g. `[[VaultMonitorDaemon]]`,
-  `[[GraphifyGlobalAdd]]`, `[[RetryWithBackoff]]`). Graphify's external-
-  label dedup unifies these across the vault and per-repo code graphs
-  so a single concept node aggregates everywhere it is mentioned.
+  `[[GraphifyGlobalAdd]]`, `[[RetryWithBackoff]]`). The vault-extract
+  sonnet emits each wikilink as a concept node with `source_file: null`,
+  which is what graphify's `global_add` external-label dedup matches on
+  to aggregate the same concept across vault notes and across per-repo
+  graphs.
+- Dedup is **exact-string label match** (case-sensitive, no
+  normalisation). `[[VaultMonitorDaemon]]` collapses with any other
+  concept node labelled `VaultMonitorDaemon`; it does NOT auto-link to
+  a snake_case code symbol like `vault_monitor_daemon`. That separation
+  is intentional - fuzzy matching would generate cross-repo noise (every
+  `[[Get]]` colliding with every `get()` function). Choose PascalCase
+  concept names that you actively want unified across the graph.
 - Keep **file paths**, **code symbols**, and **issue/PR references** as
-  prose — they namespace per-project and auto-linking them would create
+  prose - they namespace per-project and auto-linking them would create
   noisy cross-repo collisions.
 
 ## Things to NEVER do

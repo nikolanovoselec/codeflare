@@ -105,23 +105,107 @@ Linking convention:
   prose — they namespace per-project and would never auto-link
   meaningfully across repos.
 
-### 5. Merge the capture into the unified global graph
+### 5. Read `$TARGET` and emit a chunk JSON
 
-Run single-file graphify extraction over the new capture so its nodes
-appear in `~/.graphify/global-graph.json`. Use `flock` to serialise
-against the vault-monitor sonnet and `graphify-active-repo.sh`, which
-also write the global graph.
+You wrote `$TARGET` in step 4 using your own conversation as the LLM.
+Now do the same for extraction — read the file back, emit a chunk JSON
+matching graphify's schema, build a vault `graph.json`, and merge it
+into the unified global graph. Codeflare ships no LLM provider key for
+graphify, so the headless `graphify extract` path does not apply; you
+ARE the LLM, the same way the `/graphify` skill orchestrates parallel
+subagents to do extraction without provider keys.
+
+Read the markdown you just wrote. Produce nodes for:
+
+- **The file itself** (`file_type: "document"`, `source_file: "$TARGET"`).
+- **Each section heading** (Context / Decisions / Observations /
+  References), `file_type: "document"`, `source_file: "$TARGET"`.
+- **Each `[[wikilink]]` you used** → **concept node** with
+  `file_type: "concept"`, `source_file: null` (this is what triggers
+  graphify's external-label dedup in `global_add`; the same concept
+  mentioned in vault and in a per-repo code graph aggregates into one
+  node by label). Use the wikilink target as both `id`
+  (normalised: lowercase, `[a-z0-9_]` only, prefix `concept_`) and
+  `label` (verbatim).
+
+Edges:
+
+- file `contains` heading (EXTRACTED, 1.0).
+- heading `references` concept (EXTRACTED, 1.0) for each `[[wikilink]]`
+  under it.
+- concept `conceptually_related_to` concept (INFERRED, 0.75) when two
+  wikilinks co-occur in a single bullet.
+
+Node ID format: `{parent_dir}_{filename_stem}` lowercased, non-
+alphanumeric → `_`, then `_{entity}` for subsections within. For
+wikilink concepts: `concept_{normalised_target}` (no file prefix —
+concepts must dedupe by label across files and repos).
+
+Write the chunk JSON via the Write tool at the absolute path:
 
 ```
-flock /tmp/graphify-global.lock graphify extract --file "$TARGET" \
-    --out /home/user/.obsidian_vault/graphify-out/ && \
-flock /tmp/graphify-global.lock graphify global add \
+/home/user/.obsidian_vault/graphify-out/.graphify_chunk_01.json
+```
+
+Schema (must match exactly):
+
+```json
+{
+  "nodes": [
+    {"id": "...", "label": "...", "file_type": "document|concept|rationale",
+     "source_file": "<path or null>", "source_location": null,
+     "source_url": null, "captured_at": null, "author": null, "contributor": null}
+  ],
+  "edges": [
+    {"source": "...", "target": "...",
+     "relation": "contains|references|conceptually_related_to|cites|rationale_for",
+     "confidence": "EXTRACTED|INFERRED|AMBIGUOUS",
+     "confidence_score": 1.0,
+     "source_file": "<path>", "source_location": null, "weight": 1.0}
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
+```
+
+### 6. Build the vault graph.json from the chunk
+
+```bash
+flock /tmp/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python -c "
+import json
+from pathlib import Path
+from graphify.build import build_from_json
+from graphify.cluster import cluster
+from graphify.export import to_json
+
+chunk_path = Path('/home/user/.obsidian_vault/graphify-out/.graphify_chunk_01.json')
+out_path = Path('/home/user/.obsidian_vault/graphify-out/graph.json')
+
+extraction = json.loads(chunk_path.read_text(encoding='utf-8'))
+G = build_from_json(extraction)
+communities = cluster(G) if G.number_of_nodes() else {}
+to_json(G, communities, str(out_path))
+print(f'vault graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges')
+"
+```
+
+### 7. Merge into the unified global graph
+
+```bash
+flock /tmp/graphify-global.lock /usr/local/bin/graphify global add \
     /home/user/.obsidian_vault/graphify-out/graph.json --as vault
 ```
 
-If extraction fails (transient error, malformed YAML frontmatter, etc.),
-log it and continue — the file is on disk and will be picked up by the
-next vault-monitor tick. Do not delete the markdown file.
+`graphify global add` is hash-keyed and idempotent. The internal
+`external_labels` pass dedupes concept nodes (those with
+`source_file: null`) against existing concept nodes by label, so
+`[[GraphifyGlobalAdd]]` mentioned here unifies with the same-labeled
+node from any per-repo graph.
+
+If any of steps 5-7 fail (transient I/O, malformed JSON), log it and
+continue — the file is on disk and will be picked up by the next
+vault-monitor tick. Do not delete the markdown file.
 
 Compaction note: the vault grows append-only. There is no automated
 compactor in this PR — when `raw/sessions/` becomes unwieldy, the user
